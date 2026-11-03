@@ -37,7 +37,16 @@ impl Selection {
 }
 
 static HOSTED_PACKAGES: [&str; 1] = ["hk-hosted"];
-static KERNEL_PACKAGES: [&str; 2] = ["hk-hal", "hk-test"];
+static KERNEL_PACKAGES: [&str; 8] = [
+    "hk-hal",
+    "hk-handle",
+    "hk-ipc",
+    "hk-mem",
+    "hk-trace",
+    "hk-kernel",
+    "hk-root-server",
+    "hk-test",
+];
 
 /// 单个构建目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

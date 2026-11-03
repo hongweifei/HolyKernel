@@ -1,0 +1,13 @@
+[package]
+name = "hk-trace"
+description = "HolyKernel trace 环形缓冲与事件记录"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+spin = "0.9"
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ use crate::entropy::Entropy;
 use crate::irq::InterruptController;
 use crate::mmu::Mmu;
 use crate::pci::PciConfig;
+use crate::physical::PhysicalAccess;
 use crate::time::Timer;
 
 /// 平台初始化错误。
@@ -85,6 +86,9 @@ pub trait Platform: Send + Sync {
 
     /// 返回 DMA 通道。
     fn dma(&self) -> &dyn DmaOps;
+
+    /// 返回 direct map 物理内存访问通道。
+    fn physical(&self) -> &dyn PhysicalAccess;
 
     /// 返回熵源。
     fn entropy(&self) -> &dyn Entropy;

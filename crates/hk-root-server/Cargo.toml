@@ -1,0 +1,14 @@
+[package]
+name = "hk-root-server"
+description = "HolyKernel Root Server stub：服务清单、启动与句柄分配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-handle = { path = "../hk-handle" }
+hk-kernel = { path = "../hk-kernel" }
+
+[lints]
+workspace = true

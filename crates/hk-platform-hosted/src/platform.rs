@@ -1,17 +1,18 @@
 //! Hosted 平台实现。
 
 use hk_hal::{
-    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PciConfig, Platform,
-    PlatformError, Timer,
+    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PciConfig, PhysAddr,
+    PhysRange, PhysicalAccess, Platform, PlatformError, Timer,
 };
 
-use crate::boot::boot_info;
+use crate::boot::{HOSTED_RAM_BASE, HOSTED_RAM_SIZE, boot_info};
 use crate::config::HostedConfig;
 use crate::console::HostedConsole;
 use crate::dma::HostedDma;
 use crate::entropy::HostedEntropy;
 use crate::irq::HostedInterruptController;
 use crate::mmu::HostedMmu;
+use crate::physical::HostedMemory;
 use crate::timer::HostedTimer;
 
 /// Hosted 平台。
@@ -26,6 +27,7 @@ pub struct HostedPlatform {
     timer: HostedTimer,
     irq: HostedInterruptController,
     mmu: HostedMmu,
+    memory: HostedMemory,
     dma: HostedDma,
     entropy: HostedEntropy,
 }
@@ -44,6 +46,10 @@ impl HostedPlatform {
             timer: HostedTimer::new(config.deterministic),
             irq: HostedInterruptController::new(),
             mmu: HostedMmu::new(),
+            memory: HostedMemory::new(PhysRange::new(
+                PhysAddr::new(HOSTED_RAM_BASE),
+                HOSTED_RAM_SIZE,
+            )),
             dma: HostedDma::new(),
             entropy: HostedEntropy::new(config.seed),
         }
@@ -72,6 +78,11 @@ impl HostedPlatform {
     /// 返回虚拟中断控制器。
     pub fn virtual_irq(&self) -> &HostedInterruptController {
         &self.irq
+    }
+
+    /// 返回模拟物理内存。
+    pub fn memory(&self) -> &HostedMemory {
+        &self.memory
     }
 }
 
@@ -131,6 +142,10 @@ impl Platform for HostedPlatform {
 
     fn dma(&self) -> &dyn DmaOps {
         &self.dma
+    }
+
+    fn physical(&self) -> &dyn PhysicalAccess {
+        &self.memory
     }
 
     fn entropy(&self) -> &dyn Entropy {

@@ -1,0 +1,14 @@
+[package]
+name = "hk-ipc"
+description = "HolyKernel 同步端点、消息与异步通知"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-handle = { path = "../hk-handle" }
+spin = "0.9"
+
+[lints]
+workspace = true

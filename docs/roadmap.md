@@ -289,9 +289,9 @@ flowchart LR
 
 ## 14. 当前状态
 
-- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、全部设计文档与 ADR。
-- 当前代码：`crates/hk-hal`、`crates/hk-test`、`crates/hk-platform-hosted`、`platforms/hosted`、`xtask`。
-- 下一步：M1 Hosted 微内核（TCB、VSpace、HandleTable、Endpoint、Notification、Frame）。
+- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、全部设计文档与 ADR。
+- 当前代码：`crates/hk-handle`、`crates/hk-mem`、`crates/hk-ipc`、`crates/hk-trace`、`crates/hk-kernel`、`crates/hk-sim`、`crates/hk-root-server`、`crates/hk-hal`、`crates/hk-test`、`crates/hk-platform-hosted`、`platforms/hosted`、`xtask`。
+- 下一步：M2 x86_64 启动（Limine、BootInfo 适配、Root Server ELF 加载、QEMU 冒烟）。
 
 ---
 

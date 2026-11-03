@@ -13,7 +13,12 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 hk-hal = { path = "../../crates/hk-hal" }
+hk-handle = { path = "../../crates/hk-handle" }
+hk-ipc = { path = "../../crates/hk-ipc" }
+hk-kernel = { path = "../../crates/hk-kernel" }
 hk-platform-hosted = { path = "../../crates/hk-platform-hosted" }
+hk-root-server = { path = "../../crates/hk-root-server" }
+hk-sim = { path = "../../crates/hk-sim" }
 hk-test = { path = "../../crates/hk-test" }
 
 [lints]

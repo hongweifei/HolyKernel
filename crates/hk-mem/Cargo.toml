@@ -1,0 +1,18 @@
+[package]
+name = "hk-mem"
+description = "HolyKernel 内存对象：Untyped、Frame、VSpace 与写时复制"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-hal = { path = "../hk-hal" }
+hk-handle = { path = "../hk-handle" }
+spin = "0.9"
+
+[dev-dependencies]
+hk-platform-hosted = { path = "../hk-platform-hosted" }
+
+[lints]
+workspace = true

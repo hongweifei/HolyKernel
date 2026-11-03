@@ -9,6 +9,7 @@ pub mod dma;
 pub mod entropy;
 pub mod irq;
 pub mod mmu;
+pub mod physical;
 pub mod platform;
 pub mod timer;
 

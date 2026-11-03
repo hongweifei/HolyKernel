@@ -1,0 +1,13 @@
+[package]
+name = "hk-handle"
+description = "HolyKernel 句柄、对象标识与句柄表"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bitflags = { version = "2.6", default-features = false }
+
+[lints]
+workspace = true

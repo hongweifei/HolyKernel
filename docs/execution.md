@@ -108,7 +108,7 @@ pub struct Rights(u32); // READ | WRITE | EXECUTE | TRANSFER | ADMIN
 | `WRITE` | 修改对象、发送消息、映射可写 Frame |
 | `EXECUTE` | 执行代码、映射可执行 Frame |
 | `TRANSFER` | 通过 IPC 转移 Handle |
-| `ADMIN` | 配置对象、duplicate、revoke_all、close |
+| `ADMIN` | 配置对象、duplicate、revoke_all |
 
 - 失败返回 `BadHandle`、`Revoked`、`NoHandles`、`PermissionDenied` 或 `WrongType`。
 - 对象引用归零时析构。
@@ -120,21 +120,14 @@ pub struct Rights(u32); // READ | WRITE | EXECUTE | TRANSFER | ADMIN
 ### 4.1 Endpoint
 
 ```rust
-pub enum IpcOp {
-    Send { msg: Message, handles: [Handle; 4] },
-    Recv,
-    Call { msg: Message, handles: [Handle; 4] },
-    Reply { msg: Message, handles: [Handle; 4] },
-}
-
 pub struct Message {
     pub label: u64,
     pub words: [u64; 8],
-    pub handles: [Handle; 4],
+    pub handles: [Option<Handle>; 4],
 }
 ```
 
-- **Endpoint** 是同步 IPC 通道；支持 send/recv/call/reply。
+- **Endpoint** 是同步 IPC 通道；内核暴露 `send`、`recv`、`call`、`reply`。
 - 消息携带 label、最多 8 个字与 4 个 Handle；发送方需要 `TRANSFER` 权限。
 - 大块数据通过共享 Frame 传递；消息只携带 Frame Handle。
 - 阻塞、超时与取消由内核管理；等待队列按优先级排序。

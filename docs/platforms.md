@@ -70,6 +70,7 @@ pub trait Platform: Send + Sync {
     fn console(&self) -> &dyn Console;
     fn pci(&self) -> Option<&dyn PciConfig>;
     fn dma(&self) -> &dyn DmaOps;
+    fn physical(&self) -> &dyn PhysicalAccess;
     fn entropy(&self) -> &dyn Entropy;
 }
 ```

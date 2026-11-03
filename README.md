@@ -6,7 +6,7 @@ HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程
 
 系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server统一管理挂载表与文件句柄；HolyFS 文件系统可作主根或 `H:` 盘符；HolyDoc 与真彩 UI 作为可选原生服务。
 
-当前状态：**v0.1.0**。M0 脚手架已落地：Cargo workspace、`xtask` 构建任务、CI、HAL、Hosted 平台与启动路径。内核对象从 M1 开始。
+当前状态：**v0.1.0**。M0 脚手架与 M1 Hosted 微内核已落地：Cargo workspace、`xtask`、CI、HAL、句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真。x86_64 启动从 M2 开始。
 
 ---
 
@@ -126,7 +126,7 @@ cargo xtask docs
 cargo xtask budget
 ```
 
-Hosted 目标直接运行：打印启动信息、校验 BootInfo、按退出协议结束进程。x86_64 与 AArch64 目标当前产出内核基础 crate，启动镜像在 M2 提供。
+Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再按退出协议结束进程。x86_64 与 AArch64 目标当前产出内核与服务器 crate，启动镜像在 M2 提供。
 
 ---
 

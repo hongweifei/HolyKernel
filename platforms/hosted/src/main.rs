@@ -1,11 +1,14 @@
 //! HolyKernel Hosted 模拟器启动入口。
 //!
-//! 启动平台、打印启动信息、校验 BootInfo，然后按退出协议结束进程：
+//! 启动平台、打印启动信息、校验 BootInfo，然后运行微内核演示：Root Server 启动
+//! 两个服务，客户端完成两轮 call/reply，最后按退出协议结束进程。
 //!
 //! ```text
 //! cargo xtask run --target hosted
 //! cargo xtask run --target hosted -- --deterministic --seed 42 --cpus 4
 //! ```
+
+mod demo;
 
 use std::fmt::Write;
 
@@ -42,7 +45,18 @@ fn main() {
     match platform.init(&boot) {
         Ok(()) => {
             platform.console().write_str("启动信息校验通过\n");
-            hk_test::exit(ExitCode::Success);
+            match demo::run(config.seed) {
+                Ok(report) => {
+                    platform.console().write_str(&demo::describe(&report));
+                    hk_test::exit(ExitCode::Success);
+                }
+                Err(error) => {
+                    let mut report = String::new();
+                    writeln!(report, "内核演示失败：{error}").expect("格式化失败报告");
+                    platform.console().write_str(&report);
+                    hk_test::exit(ExitCode::Failure(2));
+                }
+            }
         }
         Err(error) => {
             let mut report = String::new();
