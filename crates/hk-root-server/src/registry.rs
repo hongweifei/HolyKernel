@@ -31,6 +31,8 @@ pub struct ServiceRecord {
     pub name: String,
     /// 当前状态。
     pub state: ServiceState,
+    /// 重启次数。
+    pub restarts: u32,
     /// 退出码。
     pub exit_code: Option<u64>,
 }
@@ -52,6 +54,7 @@ impl ServiceTable {
         self.services.push(ServiceRecord {
             name: name.to_string(),
             state: ServiceState::Running,
+            restarts: 0,
             exit_code: None,
         });
     }
@@ -63,6 +66,9 @@ impl ServiceTable {
             .iter_mut()
             .find(|service| service.name == name)
         {
+            if service.state == ServiceState::Exited {
+                service.restarts = service.restarts.saturating_add(1);
+            }
             service.state = ServiceState::Running;
             service.exit_code = None;
         } else {
@@ -135,6 +141,7 @@ mod tests {
         table.mark_running("clock");
         assert_eq!(table.len(), 1);
         assert_eq!(table.services()[0].state, ServiceState::Running);
+        assert_eq!(table.services()[0].restarts, 1);
         assert_eq!(table.services()[0].exit_code, None);
 
         table.mark_running("log");

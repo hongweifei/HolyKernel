@@ -247,16 +247,17 @@ fn format_services(services: &ServiceTable) -> String {
     }
 
     let mut output = format!("服务表（{} 项）\n", services.len());
-    output.push_str("名称              状态      退出码\n");
+    output.push_str("名称              状态      重启  退出码\n");
     for service in services.services() {
         let exit = match service.exit_code {
             Some(code) => format!("{code}"),
             None => String::from("-"),
         };
         output.push_str(&format!(
-            "{:<16}  {:<8}  {}\n",
+            "{:<16}  {:<8}  {:<4}  {}\n",
             service.name,
             service.state.name(),
+            service.restarts,
             exit
         ));
     }
@@ -420,6 +421,22 @@ mod tests {
         assert!(response.output.contains("服务表（1 项）"));
         assert!(response.output.contains("hk-server-demo"));
         assert!(response.output.contains("exited"));
+        assert!(response.output.contains("重启"));
+    }
+
+    #[test]
+    fn lists_restart_counts() {
+        let mut table = ServiceTable::new();
+        table.register("clock");
+        table.mark_exited("clock", 1);
+        table.mark_running("clock");
+        let response = run("services", &table, &[]);
+        assert!(
+            response
+                .output
+                .lines()
+                .any(|line| line.contains("clock") && line.split_whitespace().nth(2) == Some("1"))
+        );
     }
 
     #[test]

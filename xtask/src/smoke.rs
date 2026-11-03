@@ -19,6 +19,9 @@ const QEMU_SUCCESS: i32 = 1;
 /// 异常测试的退出码：`(70 << 1) | 1`。
 const QEMU_EXCEPTION: i32 = 141;
 
+/// 启动耗时预算，单位毫秒。
+const BOOT_BUDGET_MS: u64 = 2000;
+
 /// 冒烟模式。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum SmokeMode {
@@ -95,6 +98,7 @@ impl SmokeMode {
                 "Arena",
                 "4/64K",
                 "Handle 计数",
+                "重启",
                 "hk-server-demo",
                 "hk-server-echo",
                 "hk-server-device",
@@ -234,7 +238,24 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             )));
         }
     }
+
+    if mode == SmokeMode::Boot {
+        let elapsed = boot_ms(&text)
+            .ok_or_else(|| Failure::new(format!("串口输出缺少启动耗时数值\n串口输出：\n{text}")))?;
+        if elapsed > BOOT_BUDGET_MS {
+            return Err(Failure::new(format!(
+                "启动耗时 {elapsed} ms 超出预算 {BOOT_BUDGET_MS} ms"
+            )));
+        }
+    }
     Ok(())
+}
+
+/// 解析「启动耗时：N ms」中的毫秒数。
+fn boot_ms(text: &str) -> Option<u64> {
+    text.split_once("启动耗时：")
+        .and_then(|(_, rest)| rest.split_once(" ms"))
+        .and_then(|(value, _)| value.trim().parse().ok())
 }
 
 #[cfg(unix)]
@@ -299,4 +320,16 @@ fn qcodes(text: &str) -> Vec<String> {
             _ => String::from("spc"),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_boot_milliseconds() {
+        assert_eq!(boot_ms("x 启动耗时：535 ms\ny"), Some(535));
+        assert_eq!(boot_ms("启动耗时：0 ms"), Some(0));
+        assert_eq!(boot_ms("no elapsed"), None);
+    }
 }
