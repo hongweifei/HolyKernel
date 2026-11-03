@@ -33,6 +33,9 @@ pub enum SmokeMode {
     /// 本地 APIC 定时器中断
     #[value(name = "timer")]
     Timer,
+    /// 帧缓冲文本输出
+    #[value(name = "fb")]
+    Framebuffer,
 }
 
 impl SmokeMode {
@@ -42,6 +45,7 @@ impl SmokeMode {
             Self::Ud2 => Some("fault-test"),
             Self::Page => Some("page-fault-test"),
             Self::Timer => Some("timer-test"),
+            Self::Framebuffer => Some("fb-test"),
         }
     }
 
@@ -51,12 +55,13 @@ impl SmokeMode {
             Self::Ud2 => "内核异常：非法指令",
             Self::Page => "内核异常：页错误",
             Self::Timer => "定时器中断 5 次",
+            Self::Framebuffer => "帧缓冲控制台: 80x36 字符",
         }
     }
 
     fn exit_code(self) -> i32 {
         match self {
-            Self::Boot | Self::Timer => QEMU_SUCCESS,
+            Self::Boot | Self::Timer | Self::Framebuffer => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -67,6 +72,7 @@ impl SmokeMode {
             Self::Ud2 => "build/serial-fault.log",
             Self::Page => "build/serial-page-fault.log",
             Self::Timer => "build/serial-timer.log",
+            Self::Framebuffer => "build/serial-fb.log",
         }
     }
 }

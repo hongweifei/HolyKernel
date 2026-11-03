@@ -13,6 +13,8 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+use alloc::format;
+#[cfg(target_os = "none")]
 use alloc::string::String;
 #[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
@@ -106,48 +108,97 @@ extern "C" fn kmain() -> ! {
     console.write_str("HolyKernel x86_64\n");
     hk_platform_x86_64::cpu::init();
 
-    match hk_boot::boot_info() {
-        Ok(info) => {
-            console.write_str(&describe(&info));
-            match info.validate() {
-                Ok(()) => {
-                    console.write_str("启动信息校验通过\n");
-                    match hk_boot::cmdline() {
-                        Some(line) if line.contains("page-fault-test") => {
-                            console.write_str("触发异常测试：空指针写入\n");
-                            // SAFETY: 故意写入空指针触发 #PF，用于验证异常现场输出。
-                            unsafe {
-                                core::ptr::write_volatile(core::ptr::null_mut::<u64>(), 1);
-                            }
-                        }
-                        Some(line) if line.contains("fault-test") => {
-                            console.write_str("触发异常测试：ud2\n");
-                            // SAFETY: 故意执行非法指令触发 #UD，用于验证异常现场输出。
-                            unsafe {
-                                core::arch::asm!("ud2", options(noreturn));
-                            }
-                        }
-                        Some(line) if line.contains("timer-test") => {
-                            run_timer_test(&console);
-                        }
-                        _ => {}
-                    }
-                    hk_test::exit(ExitCode::Success);
-                }
-                Err(error) => {
-                    let mut report = String::new();
-                    let _ = writeln!(report, "启动信息校验失败：{error}");
-                    console.write_str(&report);
-                    hk_test::exit(ExitCode::Failure(2));
-                }
-            }
-        }
+    let info = match hk_boot::boot_info() {
+        Ok(info) => info,
         Err(error) => {
-            let mut report = String::new();
-            let _ = writeln!(report, "启动失败：{error}");
-            console.write_str(&report);
+            announce(&console, None, &format!("启动失败：{error}\n"));
             hk_test::exit(ExitCode::Failure(1));
         }
+    };
+
+    let screen = framebuffer_console(&info);
+    if let Some(screen) = &screen {
+        screen.clear();
+        announce(
+            &console,
+            None,
+            &format!(
+                "帧缓冲控制台: {}x{} 字符\n",
+                screen.columns(),
+                screen.rows()
+            ),
+        );
+    }
+
+    announce(&console, screen.as_ref(), "HolyKernel x86_64\n");
+    announce(&console, screen.as_ref(), &describe(&info));
+
+    if let Err(error) = info.validate() {
+        announce(
+            &console,
+            screen.as_ref(),
+            &format!("启动信息校验失败：{error}\n"),
+        );
+        hk_test::exit(ExitCode::Failure(2));
+    }
+
+    announce(&console, screen.as_ref(), "启动信息校验通过\n");
+
+    match hk_boot::cmdline() {
+        Some(line) if line.contains("page-fault-test") => {
+            announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
+            // SAFETY: 故意写入空指针触发 #PF，用于验证异常现场输出。
+            unsafe {
+                core::ptr::write_volatile(core::ptr::null_mut::<u64>(), 1);
+            }
+        }
+        Some(line) if line.contains("fault-test") => {
+            announce(&console, screen.as_ref(), "触发异常测试：ud2\n");
+            // SAFETY: 故意执行非法指令触发 #UD，用于验证异常现场输出。
+            unsafe {
+                core::arch::asm!("ud2", options(noreturn));
+            }
+        }
+        Some(line) if line.contains("timer-test") => {
+            run_timer_test(&console);
+        }
+        Some(line) if line.contains("fb-test") => {
+            announce(
+                &console,
+                screen.as_ref(),
+                "帧缓冲测试：画面保持 2 秒后退出\n",
+            );
+            hk_platform_x86_64::cpu::init_timer();
+            hk_platform_x86_64::cpu::arm_timer(200);
+            while !hk_platform_x86_64::cpu::timer_finished() {
+                // SAFETY: `hlt` 等到下一次定时器中断。
+                unsafe {
+                    core::arch::asm!("hlt", options(nomem, nostack));
+                }
+            }
+            hk_platform_x86_64::cpu::disarm_timer();
+        }
+        _ => {}
+    }
+
+    hk_test::exit(ExitCode::Success);
+}
+
+#[cfg(target_os = "none")]
+fn framebuffer_console(info: &BootInfo) -> Option<hk_platform_x86_64::FramebufferConsole> {
+    let framebuffer = info.framebuffer?;
+    let direct_map = info.direct_map?;
+    Some(hk_platform_x86_64::FramebufferConsole::new(
+        &framebuffer,
+        direct_map.virt_base.get(),
+    ))
+}
+
+#[cfg(target_os = "none")]
+fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferConsole>, text: &str) {
+    console.write_str(text);
+    if let Some(screen) = screen {
+        screen.write_str(text);
     }
 }
 

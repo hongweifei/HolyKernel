@@ -289,9 +289,9 @@ flowchart LR
 
 ## 14. 当前状态
 
-- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、QEMU 冒烟）。
+- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、8254 PIT 定时器、帧缓冲文本控制台、QEMU 冒烟）。
 - 当前代码：`crates/hk-handle`、`crates/hk-mem`、`crates/hk-ipc`、`crates/hk-trace`、`crates/hk-kernel`、`crates/hk-sim`、`crates/hk-root-server`、`crates/hk-boot`、`crates/hk-hal`、`crates/hk-test`、`crates/hk-platform-hosted`、`crates/hk-platform-x86_64`、`platforms/hosted`、`platforms/x86_64-qemu`、`xtask`。
-- M2 收尾：APIC/IOAPIC（随内核分页映射 MMIO）、帧缓冲文本输出、Root Server ELF 加载、HolyShell 基础命令。
+- M2 收尾：APIC/IOAPIC（随内核分页映射 MMIO）、Root Server ELF 加载、HolyShell 基础命令。
 
 ---
 
