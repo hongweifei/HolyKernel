@@ -1,0 +1,238 @@
+# HolyDoc 与 UI
+
+状态：**设计中** · 上级：[总体架构](architecture.md)
+
+UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入，**HolyDoc Server** 渲染活文档。界面采用现代真彩色：32 位 RGBA、sRGB、主题、alpha 合成与可缩放字体；文本优先与串口回退继续保留。
+
+---
+
+## 1. 目标与范围
+
+### 目标
+
+1. **真彩色**：32 位 RGBA、sRGB、16.7M 色、alpha 混合。
+2. **主题化**：light/dark、强调色、语义色、高对比度与色盲友好主题。
+3. **可缩放字体**：TrueType/OpenType + 字体缓存；8×16 位图字体作为控制台回退。
+4. **多窗口客户端**：客户端可创建多个窗口；Display Server 管理焦点、z 序、装饰与输入。
+5. **HolyDoc**：可链接、可执行、可嵌入的活文档；支持富文本、图片、表单与代码执行结果。
+6. **POSIX 终端**：控制台/终端接口与 `termios` 后端；支持 256 色/真彩色 SGR。
+7. **最小权限**：Display Server 只获得 Framebuffer 与 Input DeviceGrant。
+8. **可重启**：Display Server 崩溃后由 Root Server 重启；客户端重连。
+9. **可降级**：帧缓冲缺失时使用串口/VGA 文本模式。
+
+### 构件
+
+- **Display Server**：帧缓冲、窗口、合成器、主题、输入焦点。
+- **HolyDoc Server**：文档解析、布局、渲染、链接。
+- **Console Service**：POSIX 终端/控制台接口。
+- **Font Stack**：TrueType/OpenType 解析、栅格化、缓存；位图回退。
+- **Input Driver**：virtio-input / PS/2。
+- **Framebuffer Driver**：BootInfo 帧缓冲或设备驱动。
+
+---
+
+## 2. 架构
+
+```mermaid
+flowchart LR
+    App["POSIX 应用"] --> Console["Console Service"]
+    Native["原生应用"] --> Display["Display Server"]
+    Console --> Display
+    HolyDoc["HolyDoc Server"] --> Display
+    Fonts["Font Stack"] --> HolyDoc
+    Fonts --> Console
+    Input["Input Driver"] --> Display
+    Display --> FB["Framebuffer"]
+    Display --> Comp["Compositor"]
+```
+
+- Display Server 运行在用户态，持有 Framebuffer 与 Input 的 DeviceGrant。
+- POSIX 应用通过 Console Service 使用终端；Console 输出字符、属性与真彩色。
+- HolyDoc Server 把文档节点树渲染为 RGBA 图层。
+- Font Stack 提供可缩放字体与位图回退；字体缓存按 (family, size, weight) 索引。
+- 输入事件由 Input Driver 通过 Notification/Endpoint 交给 Display Server。
+
+---
+
+## 3. 显示模型
+
+- 默认分辨率 1920×1080；最低 1024×768；支持启动时选择。
+- 帧缓冲优先 32 位 RGBA；24 位 RGB 回退；sRGB 色彩空间。
+- 后续支持 10-bit/HDR；1.0 聚焦 sRGB。
+- 窗口缓冲区为 32 位 RGBA；合成器执行 alpha 混合与裁剪。
+- 支持窗口阴影、圆角、半透明材质；由主题控制。
+- 合成器使用脏矩形 + 可选 vsync；全屏应用可直接写入帧缓冲。
+
+```mermaid
+flowchart TB
+    WinA["窗口 A：Console · RGBA"] --> Comp["Compositor · alpha / damage"]
+    WinB["窗口 B：HolyDoc · RGBA"] --> Comp
+    WinC["窗口 C：原生应用 · RGBA"] --> Comp
+    Comp --> FB["Framebuffer · sRGB"]
+```
+
+### 3.1 颜色模型
+
+```rust
+pub struct Color {
+    r: u8, g: u8, b: u8, a: u8,
+}
+
+pub struct Theme {
+    background: Color,
+    surface: Color,
+    text: Color,
+    muted: Color,
+    accent: Color,
+    success: Color,
+    warning: Color,
+    error: Color,
+    border: Color,
+    shadow: Color,
+}
+```
+
+- 主题由语义 token 组成；组件使用 token，不硬编码颜色。
+- 内置 Light、Dark、HighContrast、ColorBlindSafe。
+- 应用可提供主题；Display Server 负责合成与对比度检查。
+- 支持渐变、半透明与图像 alpha；HolyDoc 颜色指令使用 token 或 RGBA。
+
+---
+
+## 4. 字体与排版
+
+- 默认 UI 字体：可缩放无衬线；代码字体：等宽。
+- 支持 TrueType/OpenType；字体缓存与子集化；缺字形时回退。
+- 控制台回退：8×16 位图字体，保证无 GPU/无字体文件时可用。
+- 字号按逻辑像素定义；支持 100%、125%、150%、200% 缩放。
+- 行高、字距、基线由 Font Stack 计算；HolyDoc 布局使用逻辑像素。
+- 复杂文本整形、双向文本、连字属于后续版本。
+
+---
+
+## 5. 窗口与输入
+
+```rust
+pub struct Window {
+    id: WindowId,
+    client: Endpoint,
+    rect: Rect,
+    buffer: RgbaBuffer,
+    title: String,
+    theme: ThemeId,
+    flags: WindowFlags,
+}
+```
+
+- 客户端可创建多个窗口；窗口由客户端创建/销毁。
+- Display Server 管理焦点、z 序、移动/缩放、标题栏、阴影与装饰。
+- 窗口缓冲区为 RGBA；合成器按 alpha 混合。
+- Workbench 使用多窗口：编辑器、HolyDoc、调试面板、构建输出各自独立。
+- 输入事件：键盘、鼠标、滚轮、焦点、窗口关闭。
+- 快捷键由 Display Server 处理：切换窗口、全屏、关闭。
+- POSIX Console Service 将终端输入转换为 `termios` 事件。
+
+---
+
+## 6. HolyDoc
+
+HolyDoc 是活文档格式：文本 + 内联指令，解析为节点树。
+
+```text
+@title("HolyKernel POSIX 指南")
+@heading(1, "进程")
+POSIX 应用通过 @code("fork()") 创建子进程。
+
+@link("docs:posix", "POSIX 与 libc")
+@exec { 2 + 3 * 4 }
+@form {
+  field(name: "path", label: "文档路径", type: text)
+  button("打开", action: OpenDoc)
+}
+```
+
+- 节点：Text、Heading、Code、Exec、Link、Color、List、Image、Form、Table。
+- 颜色使用主题 token 或 RGBA；支持渐变与 alpha。
+- 链接目标：文档、符号、POSIX 路径、服务 Endpoint。
+- `@exec` 通过 HolyDoc Server 的沙箱执行器运行；默认显示“执行”按钮。
+- 图片支持 PNG/JPEG/自有无损格式；SVG 后续版本。
+- 文档可嵌入其他文档；代码块语法高亮使用主题色。
+
+```mermaid
+flowchart LR
+    Source["HolyDoc 源"] --> Parser["解析器"]
+    Parser --> Nodes["节点树"]
+    Nodes --> Layout["布局 · 字体/主题"]
+    Layout --> Render["RGBA 渲染"]
+    Render --> Win["Display 窗口"]
+```
+
+---
+
+## 7. 终端
+
+- **HolyShell 是默认终端**：原生命令、结构化输出、真彩色与主题。
+- Console Service 提供原生终端与 POSIX 兼容终端两种模式。
+- POSIX 模式：`/dev/console`、`/dev/tty`、`termios`、行规程、256/真彩色 SGR。
+- POSIX shell 与 coreutils 通过 `posix` 入口运行；POSIX Server 可选。
+- 多窗口对应多个终端会话；原生会话与 POSIX 会话分别管理。
+
+---
+
+## 8. 启动与降级
+
+- Root Server 启动 Display Server；Display Server 获取 Framebuffer/Input DeviceGrant。
+- POSIX Server 启动 Console Service；Console 连接到 Display Server 的窗口。
+- 原生应用可启动 HolyDoc 欢迎页与 Workbench。
+- 帧缓冲缺失时，Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
+- 字体文件缺失时，回退到 8×16 位图字体。
+- Display Server 崩溃后，Root Server 重启；Console 客户端重连并恢复文本缓冲。
+
+---
+
+## 9. 可访问性与国际化
+
+- 高对比度主题、色盲友好主题、可缩放字体、键盘导航。
+- UTF-8 文本；缺字形回退；复杂文本整形、双向文本、连字属于后续版本。
+- 屏幕阅读器接口属于后续版本；先提供结构化可访问性树。
+- 主题对比度检查；关键文本满足可读性阈值。
+
+---
+
+## 10. 不变量
+
+1. Display Server 与 HolyDoc Server 运行在用户态。
+2. 帧缓冲使用 sRGB；窗口缓冲区为 32 位 RGBA。
+3. 主题由语义 token 组成；组件不硬编码颜色。
+4. 客户端可创建多个窗口；窗口由 Display Server 管理。
+5. 输入事件通过 Endpoint/Notification 交付。
+6. POSIX 应用通过 Console Service 使用终端。
+7. HolyDoc 链接指向文档、符号、POSIX 路径或服务 Endpoint。
+8. 帧缓冲缺失时，Console 使用串口/VGA 文本后端。
+9. 字体缺失时，回退到 8×16 位图字体。
+10. 原生服务只获得必要的 DeviceGrant 与 Endpoint。
+
+---
+
+## 11. 测试策略
+
+| 层级 | 测试 |
+| --- | --- |
+| Hosted 单元 | HolyDoc 解析、布局、主题 token、颜色转换、字体缓存 |
+| Hosted 模拟 | RGBA 合成、alpha 混合、脏矩形、输入事件、重启重连 |
+| QEMU | 帧缓冲 32/24 位、窗口、字体、键盘/鼠标、POSIX 终端 |
+| 快照测试 | HolyDoc 渲染到 RGBA 的黄金图像 |
+| fuzz | HolyDoc 解析器、表单、图片解码、字体解析 |
+| 基准 | 1920×1080 RGBA 合成、文本滚动、字体栅格化、HolyDoc 布局 |
+
+---
+
+## 12. 相关文档
+
+- [总体架构](architecture.md)
+- [服务器](servers.md)
+- [Holy 原生体验](experience.md)
+- [POSIX 与 libc](posix.md)
+- [VFS](vfs.md)
+- [平台与启动](platforms.md)
+- [工程策略](engineering.md)
