@@ -93,6 +93,23 @@ pub fn write(bytes: &[u8]) {
     }
 }
 
+/// 以十进制输出一个无符号整数。
+pub fn write_u64(mut value: u64) {
+    if value == 0 {
+        write(b"0");
+        return;
+    }
+
+    let mut buffer = [0_u8; 20];
+    let mut index = buffer.len();
+    while value > 0 {
+        index -= 1;
+        buffer[index] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    write(&buffer[index..]);
+}
+
 /// 向端点发送消息。
 pub fn send(endpoint: u64, label: u64, word: u64) -> u64 {
     // SAFETY: 端点编号由内核分配；消息字按值传递。

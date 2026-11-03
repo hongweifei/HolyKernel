@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{recv, send, write};
+use hk_server_api::{recv, send, write, write_u64};
 
 /// 服务入口：内核以用户态进入，参数是内核分配给本服务的端点编号。
 #[cfg(target_os = "none")]
@@ -18,27 +18,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     loop {
         let (label, word, sender) = recv(endpoint);
         write("hk-server-echo 收到请求 ".as_bytes());
-        write_number(word);
+        write_u64(word);
         write(b"\n");
         send(sender, label + 1, word * 2);
     }
-}
-
-#[cfg(target_os = "none")]
-fn write_number(mut value: u64) {
-    if value == 0 {
-        write(b"0");
-        return;
-    }
-
-    let mut buffer = [0_u8; 20];
-    let mut index = buffer.len();
-    while value > 0 {
-        index -= 1;
-        buffer[index] = b'0' + (value % 10) as u8;
-        value /= 10;
-    }
-    write(&buffer[index..]);
 }
 
 #[cfg(target_os = "none")]

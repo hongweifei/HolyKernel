@@ -1,7 +1,9 @@
-//! 用户态任务调度与系统调用分派。
+//! 用户态任务调度与任务视图。
 //!
-//! 线程状态、就绪队列、端点消息与阻塞唤醒由 `hk-kernel` 提供；本模块维护每个
-//! 服务的用户现场与端点编号到句柄的映射，并在系统调用边界保存和恢复现场。
+//! 线程状态、就绪队列、端点消息与阻塞唤醒由 `hk-kernel` 提供；本模块维护任务
+//! 表、用户现场与端点编号到句柄的映射。系统调用分派位于 [`syscall`]。
+
+mod syscall;
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -9,14 +11,13 @@ use alloc::vec::Vec;
 
 use hk_hal::UserContext;
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
-use hk_ipc::Message;
 use hk_kernel::{Kernel, Priority, TcbId, ThreadState};
-use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
+use hk_platform_x86_64::cpu::{self, InterruptFrame};
 use hk_root_server::{RootServer, ServiceSpec, ServiceTable, TaskInfo};
 use spin::Mutex;
 
 /// 每个任务的 Arena 大小。
-pub const ARENA_SIZE: u64 = 64 * 1024;
+const ARENA_SIZE: u64 = 64 * 1024;
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -84,6 +85,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
                 .map_err(|error| format!("授予端点句柄失败：{error}"))?;
             handles.push(Some(handle));
         }
+        let (arena_base, arena_size) = arena(index);
         tasks.push(Task {
             tcb: service.tcb,
             name: names[index].to_string(),
@@ -91,8 +93,8 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
             handles,
             context: cpu::user_frame(0, 0, (index + 1) as u64),
             pending: Pending::None,
-            arena_next: arena(index).0,
-            arena_end: arena(index).0 + arena(index).1,
+            arena_next: arena_base,
+            arena_end: arena_base + arena_size,
             exited: false,
             exit_code: 0,
         });
@@ -109,7 +111,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
         endpoints,
         current: None,
     });
-    cpu::set_syscall_hook(dispatch);
+    cpu::set_syscall_hook(syscall::dispatch);
     cpu::set_preempt_hook(preempt);
     Ok(())
 }
@@ -185,6 +187,7 @@ pub fn start(name: &str, mut context: InterruptFrame, parent: Option<u64>) -> Re
         task.handles.push(handle);
     }
 
+    let (arena_base, arena_size) = arena(index);
     runtime.tasks.push(Task {
         tcb,
         name: name.to_string(),
@@ -192,8 +195,8 @@ pub fn start(name: &str, mut context: InterruptFrame, parent: Option<u64>) -> Re
         handles,
         context,
         pending: Pending::None,
-        arena_next: arena(index).0,
-        arena_end: arena(index).0 + arena(index).1,
+        arena_next: arena_base,
+        arena_end: arena_base + arena_size,
         exited: false,
         exit_code: 0,
     });
@@ -323,42 +326,6 @@ fn endpoint_of(runtime: &Runtime, tcb: TcbId) -> u64 {
         .unwrap_or(0)
 }
 
-fn allocate(runtime: &mut Runtime, index: usize, size: usize, align: usize) -> Option<u64> {
-    if size == 0 || !align.is_power_of_two() {
-        return None;
-    }
-
-    let align = align.max(8) as u64;
-    let task = &mut runtime.tasks[index];
-    let start = (task.arena_next + align - 1) & !(align - 1);
-    let end = start.checked_add(size as u64)?;
-    if end > task.arena_end {
-        return None;
-    }
-
-    // SAFETY: Arena 页已映射为用户可写；内核与用户共享同一页表，可按用户地址清零。
-    unsafe {
-        core::ptr::write_bytes(start as *mut u8, 0, size);
-    }
-    task.arena_next = end;
-    Some(start)
-}
-
-fn close_handle(runtime: &mut Runtime, index: usize, tcb: TcbId, endpoint: usize) -> u64 {
-    let slot = endpoint.wrapping_sub(1);
-    let Some(handle) = runtime.tasks[index].handles.get(slot).copied().flatten() else {
-        return u64::MAX;
-    };
-
-    match runtime.kernel.close_handle(tcb, handle) {
-        Ok(()) => {
-            runtime.tasks[index].handles[slot] = None;
-            0
-        }
-        Err(_) => u64::MAX,
-    }
-}
-
 fn preempt(frame: &InterruptFrame) -> bool {
     let mut guard = RUNTIME.lock();
     let Some(runtime) = guard.as_mut() else {
@@ -371,148 +338,4 @@ fn preempt(frame: &InterruptFrame) -> bool {
     runtime.tasks[index].context = *frame;
     runtime.tasks[index].pending = Pending::None;
     true
-}
-
-fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
-    let mut guard = RUNTIME.lock();
-    let Some(runtime) = guard.as_mut() else {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    };
-    let Some(index) = runtime.current else {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    };
-
-    let tcb = runtime.tasks[index].tcb;
-    match frame.rax {
-        hk_server_api::SYS_SEND => send(runtime, index, tcb, frame),
-        hk_server_api::SYS_RECV => recv(runtime, index, tcb, frame),
-        hk_server_api::SYS_YIELD => {
-            runtime.tasks[index].context = *frame;
-            runtime.tasks[index].pending = Pending::None;
-            SyscallAction::Block
-        }
-        hk_server_api::SYS_EXIT => {
-            let code = frame.rdi;
-            let _ = runtime.kernel.exit(tcb);
-            runtime.tasks[index].exited = true;
-            runtime.tasks[index].exit_code = code;
-            SyscallAction::Exit
-        }
-        hk_server_api::SYS_PCI_READ => {
-            let address = frame.rdi;
-            let bus = (address >> 8) as u8;
-            let device = ((address >> 3) & 0x1F) as u8;
-            let function = (address & 0x07) as u8;
-            frame.rax = u64::from(hk_platform_x86_64::pci::config_read(
-                bus,
-                device,
-                function,
-                frame.rsi as u8,
-            ));
-            SyscallAction::Continue
-        }
-        hk_server_api::SYS_TICKS => {
-            frame.rax = hk_platform_x86_64::cpu::timer_ticks();
-            SyscallAction::Continue
-        }
-        hk_server_api::SYS_ALLOC => {
-            frame.rax =
-                allocate(runtime, index, frame.rdi as usize, frame.rsi as usize).unwrap_or(0);
-            SyscallAction::Continue
-        }
-        hk_server_api::SYS_HANDLE_COUNT => {
-            frame.rax = runtime.kernel.handles_live(tcb).unwrap_or(0) as u64;
-            SyscallAction::Continue
-        }
-        hk_server_api::SYS_HANDLE_CLOSE => {
-            frame.rax = close_handle(runtime, index, tcb, frame.rdi as usize);
-            SyscallAction::Continue
-        }
-        _ => {
-            frame.rax = u64::MAX;
-            SyscallAction::Continue
-        }
-    }
-}
-
-fn send(
-    runtime: &mut Runtime,
-    index: usize,
-    tcb: TcbId,
-    frame: &mut InterruptFrame,
-) -> SyscallAction {
-    let endpoint = frame.rdi as usize;
-    let Some(handle) = runtime.tasks[index]
-        .handles
-        .get(endpoint.wrapping_sub(1))
-        .copied()
-        .flatten()
-    else {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    };
-
-    let mut words = [0; 8];
-    words[0] = frame.rdx;
-    let message = Message::new(frame.rsi).with_words(words);
-
-    match runtime.kernel.send(tcb, handle, message) {
-        Ok(()) => {
-            if runtime.kernel.state_of(tcb) == Some(ThreadState::Blocked) {
-                let mut context = *frame;
-                context.rax = 0;
-                runtime.tasks[index].context = context;
-                runtime.tasks[index].pending = Pending::Send;
-                SyscallAction::Block
-            } else {
-                frame.rax = 0;
-                SyscallAction::Continue
-            }
-        }
-        Err(_) => {
-            frame.rax = u64::MAX;
-            SyscallAction::Continue
-        }
-    }
-}
-
-fn recv(
-    runtime: &mut Runtime,
-    index: usize,
-    tcb: TcbId,
-    frame: &mut InterruptFrame,
-) -> SyscallAction {
-    let endpoint = frame.rdi as usize;
-    let Some(handle) = runtime.tasks[index]
-        .handles
-        .get(endpoint.wrapping_sub(1))
-        .copied()
-        .flatten()
-    else {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    };
-
-    match runtime.kernel.recv(tcb, handle) {
-        Ok(Some(received)) => {
-            let sender = endpoint_of(runtime, received.sender);
-            frame.rax = received.message.label;
-            frame.rdx = received.message.words[0];
-            frame.rcx = sender;
-            SyscallAction::Continue
-        }
-        Ok(None) => {
-            let mut context = *frame;
-            context.rax = 0;
-            runtime.tasks[index].context = context;
-            runtime.tasks[index].pending = Pending::Recv { handle };
-            SyscallAction::Block
-        }
-        Err(_) => {
-            frame.rax = u64::MAX;
-            SyscallAction::Continue
-        }
-    }
 }

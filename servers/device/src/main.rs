@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, pci_read, write};
+use hk_server_api::{exit, pci_read, write, write_u64};
 
 /// 配置空间偏移：厂商与设备标识。
 #[cfg(target_os = "none")]
@@ -55,7 +55,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     }
 
     write("hk-server-device: 发现 ".as_bytes());
-    write_number(count);
+    write_u64(count);
     write(" 个设备\n".as_bytes());
     exit(0)
 }
@@ -93,23 +93,6 @@ fn write_hex(value: u32, digits: usize) {
         };
     }
     write(&buffer[..digits]);
-}
-
-#[cfg(target_os = "none")]
-fn write_number(mut value: u64) {
-    if value == 0 {
-        write(b"0");
-        return;
-    }
-
-    let mut buffer = [0_u8; 20];
-    let mut index = buffer.len();
-    while value > 0 {
-        index -= 1;
-        buffer[index] = b'0' + (value % 10) as u8;
-        value /= 10;
-    }
-    write(&buffer[index..]);
 }
 
 #[cfg(target_os = "none")]

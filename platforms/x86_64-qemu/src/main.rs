@@ -13,6 +13,10 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+mod allocator;
+#[cfg(target_os = "none")]
+mod bootstrap;
+#[cfg(target_os = "none")]
 mod loader;
 #[cfg(target_os = "none")]
 mod runtime;
@@ -24,81 +28,18 @@ use alloc::format;
 #[cfg(target_os = "none")]
 use alloc::string::String;
 #[cfg(target_os = "none")]
-use core::alloc::{GlobalAlloc, Layout};
-#[cfg(target_os = "none")]
-use core::cell::UnsafeCell;
-#[cfg(target_os = "none")]
 use core::fmt::Write;
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_hal::{BootInfo, Console, PAGE_SIZE, PhysAddr, VirtAddr};
+use hk_hal::{BootInfo, Console};
 #[cfg(target_os = "none")]
-use hk_platform_x86_64::ioapic::IoApic;
-#[cfg(target_os = "none")]
-use hk_platform_x86_64::{COM1, FrameAllocator, PageFlags, PageTable, Serial};
+use hk_platform_x86_64::{COM1, FrameAllocator, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_root_server::ServiceTable;
 #[cfg(target_os = "none")]
 use hk_test::ExitCode;
-
-/// 内核堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 1024 * 1024;
-
-#[cfg(target_os = "none")]
-#[repr(align(4096))]
-struct Heap(UnsafeCell<[u8; HEAP_SIZE]>);
-
-// SAFETY: 堆内存只由 `BumpAllocator` 通过原子游标分配，返回的区间互不重叠。
-#[cfg(target_os = "none")]
-unsafe impl Sync for Heap {}
-
-#[cfg(target_os = "none")]
-static HEAP: Heap = Heap(UnsafeCell::new([0; HEAP_SIZE]));
-
-#[cfg(target_os = "none")]
-struct BumpAllocator {
-    next: AtomicUsize,
-}
-
-// SAFETY: `alloc` 从静态堆中切出不重叠区间；`dealloc` 不回收，符合启动期
-// 分配器的语义。
-#[cfg(target_os = "none")]
-unsafe impl GlobalAlloc for BumpAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let base = HEAP.0.get() as usize;
-        let mut current = self.next.load(Ordering::Relaxed);
-        loop {
-            let start = (base + current + layout.align() - 1) & !(layout.align() - 1);
-            let end = start + layout.size();
-            if end > base + HEAP_SIZE {
-                return core::ptr::null_mut();
-            }
-            let offset = end - base;
-            match self.next.compare_exchange_weak(
-                current,
-                offset,
-                Ordering::AcqRel,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return start as *mut u8,
-                Err(actual) => current = actual,
-            }
-        }
-    }
-
-    unsafe fn dealloc(&self, _pointer: *mut u8, _layout: Layout) {}
-}
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: BumpAllocator = BumpAllocator {
-    next: AtomicUsize::new(0),
-};
 
 #[cfg(target_os = "none")]
 core::arch::global_asm!(
@@ -134,7 +75,7 @@ extern "C" fn kmain() -> ! {
         }
     };
 
-    let screen = framebuffer_console(&info);
+    let screen = bootstrap::framebuffer_console(&info);
     if let Some(screen) = &screen {
         screen.clear();
         announce(
@@ -183,7 +124,7 @@ extern "C" fn kmain() -> ! {
     };
     let paging = PageTable::new(direct_map_base);
 
-    if let Err(error) = init_interrupts(&paging, &mut allocator, direct_map_base) {
+    if let Err(error) = bootstrap::init_interrupts(&paging, &mut allocator, direct_map_base) {
         fail(
             &console,
             screen.as_ref(),
@@ -197,7 +138,7 @@ extern "C" fn kmain() -> ! {
         hk_platform_x86_64::cpu::calibrate_tick(hz);
     }
 
-    match init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
+    match bootstrap::init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
         Ok(Some(ioapic)) => announce(
             &console,
             screen.as_ref(),
@@ -335,120 +276,6 @@ extern "C" fn kmain() -> ! {
 }
 
 #[cfg(target_os = "none")]
-struct IoApicSetup {
-    gsi: u32,
-    vector: u8,
-    destination: u8,
-}
-
-/// ACPI 表的临时映射窗口，避开 HHDM 未覆盖的物理页。
-#[cfg(target_os = "none")]
-const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
-
-/// 表窗口可容纳的最大页数。
-#[cfg(target_os = "none")]
-const ACPI_MAX_PAGES: usize = 16;
-
-#[cfg(target_os = "none")]
-struct AcpiWindow<'a> {
-    paging: &'a PageTable,
-    allocator: &'a mut FrameAllocator,
-    base: u64,
-}
-
-#[cfg(target_os = "none")]
-impl AcpiWindow<'_> {
-    fn read(&mut self, phys: u64, length: usize) -> Option<alloc::vec::Vec<u8>> {
-        if length == 0 {
-            return None;
-        }
-        let page = PAGE_SIZE as u64;
-        let offset = (phys & (page - 1)) as usize;
-        let span = offset.checked_add(length)?;
-        let pages = span.div_ceil(PAGE_SIZE);
-        if pages > ACPI_MAX_PAGES {
-            return None;
-        }
-
-        let page_phys = phys & !(page - 1);
-        for index in 0..pages {
-            self.paging
-                .map(
-                    VirtAddr::new(self.base + index as u64 * page),
-                    PhysAddr::new(page_phys + index as u64 * page),
-                    PageFlags::KERNEL_RW,
-                    self.allocator,
-                )
-                .ok()?;
-        }
-
-        let mut bytes = alloc::vec![0_u8; length];
-        let source = (self.base + offset as u64) as *const u8;
-        // SAFETY: 刚建立的映射覆盖 `offset + length` 字节，目标缓冲长度相同。
-        unsafe {
-            core::ptr::copy_nonoverlapping(source, bytes.as_mut_ptr(), length);
-        }
-        Some(bytes)
-    }
-}
-
-#[cfg(target_os = "none")]
-fn init_ioapic(
-    info: &BootInfo,
-    paging: &PageTable,
-    allocator: &mut FrameAllocator,
-    direct_map_base: u64,
-) -> Result<Option<IoApicSetup>, String> {
-    let Some(rsdp) = info.rsdp else {
-        return Ok(None);
-    };
-
-    let mut window = AcpiWindow {
-        paging,
-        allocator,
-        base: ACPI_SCRATCH_BASE,
-    };
-    let madt =
-        hk_platform_x86_64::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
-    drop(window);
-
-    let Some(madt) = madt else {
-        return Ok(None);
-    };
-
-    let phys = madt.ioapic_base;
-    let virt = VirtAddr::new(direct_map_base + phys);
-    paging
-        .map(virt, PhysAddr::new(phys), PageFlags::MMIO, allocator)
-        .map_err(|error| format!("映射 IOAPIC 失败：{error:?}"))?;
-
-    hk_platform_x86_64::keyboard::init();
-
-    let ioapic = IoApic::new(virt.get());
-    ioapic.init();
-    let gsi = madt.gsi(1);
-    let vector = hk_platform_x86_64::cpu::KEYBOARD_VECTOR as u8;
-    let destination = hk_platform_x86_64::cpu::lapic_id();
-    ioapic.route(gsi, madt.gsi_base, vector, destination);
-
-    Ok(Some(IoApicSetup {
-        gsi,
-        vector,
-        destination,
-    }))
-}
-
-#[cfg(target_os = "none")]
-fn framebuffer_console(info: &BootInfo) -> Option<hk_platform_x86_64::FramebufferConsole> {
-    let framebuffer = info.framebuffer?;
-    let direct_map = info.direct_map?;
-    Some(hk_platform_x86_64::FramebufferConsole::new(
-        &framebuffer,
-        direct_map.virt_base.get(),
-    ))
-}
-
-#[cfg(target_os = "none")]
 fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferConsole>, text: &str) {
     console.write_str(text);
     if let Some(screen) = screen {
@@ -468,22 +295,6 @@ fn report_time(
         let elapsed = hk_platform_x86_64::timing::elapsed_ms(start, frequency);
         announce(console, screen, &format!("{label}：{elapsed} ms\n"));
     }
-}
-
-#[cfg(target_os = "none")]
-fn init_interrupts(
-    paging: &PageTable,
-    allocator: &mut FrameAllocator,
-    direct_map_base: u64,
-) -> Result<(), String> {
-    let lapic_phys = PhysAddr::new(0xFEE0_0000);
-    let lapic_virt = VirtAddr::new(direct_map_base + lapic_phys.get());
-    paging
-        .map(lapic_virt, lapic_phys, PageFlags::MMIO, allocator)
-        .map_err(|error| format!("映射 LAPIC 失败：{error:?}"))?;
-
-    hk_platform_x86_64::cpu::init_apic(lapic_virt.get());
-    Ok(())
 }
 
 #[cfg(target_os = "none")]
