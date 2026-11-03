@@ -8,9 +8,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use hk_hal::UserContext;
-use hk_handle::{Handle, Rights};
+use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_kernel::{Kernel, TcbId, ThreadState};
+use hk_kernel::{Kernel, Priority, TcbId, ThreadState};
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
 use hk_root_server::{RootServer, ServiceSpec, ServiceTable, TaskInfo};
 use spin::Mutex;
@@ -32,7 +32,7 @@ enum Pending {
 struct Task {
     tcb: TcbId,
     name: String,
-    handles: Vec<Handle>,
+    handles: Vec<Option<Handle>>,
     context: InterruptFrame,
     pending: Pending,
     exited: bool,
@@ -42,6 +42,7 @@ struct Task {
 struct Runtime {
     kernel: Kernel,
     tasks: Vec<Task>,
+    endpoints: Vec<Option<ObjectId>>,
     current: Option<usize>,
 }
 
@@ -54,13 +55,15 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
     let server = RootServer::boot(&kernel, &specs).map_err(|error| format!("{error}"))?;
 
     let mut tasks = Vec::with_capacity(names.len());
+    let mut endpoints = Vec::with_capacity(names.len());
     for (index, service) in server.services().iter().enumerate() {
+        endpoints.push(Some(service.endpoint));
         let mut handles = Vec::with_capacity(names.len());
         for endpoint in server.services() {
             let handle = kernel
                 .grant(service.tcb, endpoint.endpoint, Rights::READ | Rights::WRITE)
                 .map_err(|error| format!("授予端点句柄失败：{error}"))?;
-            handles.push(handle);
+            handles.push(Some(handle));
         }
         tasks.push(Task {
             tcb: service.tcb,
@@ -80,6 +83,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
     *RUNTIME.lock() = Some(Runtime {
         kernel,
         tasks,
+        endpoints,
         current: None,
     });
     cpu::set_syscall_hook(dispatch);
@@ -94,6 +98,63 @@ pub fn attach(index: usize, context: InterruptFrame) {
             task.context = context;
         }
     }
+}
+
+/// 返回已登记任务数量。
+pub fn task_count() -> usize {
+    RUNTIME
+        .lock()
+        .as_ref()
+        .map_or(0, |runtime| runtime.tasks.len())
+}
+
+/// 装载一个新任务，返回分配的端点编号。
+pub fn start(name: &str, mut context: InterruptFrame) -> Result<u64, String> {
+    let mut guard = RUNTIME.lock();
+    let runtime = guard
+        .as_mut()
+        .ok_or_else(|| String::from("运行时未初始化"))?;
+
+    let index = runtime.tasks.len();
+    let endpoint = index as u64 + 1;
+    context.rdi = endpoint;
+
+    let kernel = &runtime.kernel;
+    let tcb = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+    let own = kernel
+        .create_endpoint(tcb, Rights::READ | Rights::WRITE)
+        .map_err(|error| format!("创建端点失败：{error}"))?;
+    let own_id = kernel
+        .handle_id(tcb, own)
+        .map_err(|error| format!("解析端点失败：{error}"))?;
+    runtime.endpoints.push(Some(own_id));
+
+    let mut handles = Vec::with_capacity(runtime.endpoints.len());
+    for object in &runtime.endpoints {
+        let handle = match object {
+            Some(id) => kernel.grant(tcb, *id, Rights::READ | Rights::WRITE).ok(),
+            None => None,
+        };
+        handles.push(handle);
+    }
+
+    for task in &mut runtime.tasks {
+        let handle = kernel
+            .grant(task.tcb, own_id, Rights::READ | Rights::WRITE)
+            .ok();
+        task.handles.push(handle);
+    }
+
+    runtime.tasks.push(Task {
+        tcb,
+        name: name.to_string(),
+        handles,
+        context,
+        pending: Pending::None,
+        exited: false,
+        exit_code: 0,
+    });
+    Ok(endpoint)
 }
 
 /// 生成当前任务视图快照。
@@ -271,6 +332,7 @@ fn send(
         .handles
         .get(endpoint.wrapping_sub(1))
         .copied()
+        .flatten()
     else {
         frame.rax = u64::MAX;
         return SyscallAction::Continue;
@@ -311,6 +373,7 @@ fn recv(
         .handles
         .get(endpoint.wrapping_sub(1))
         .copied()
+        .flatten()
     else {
         frame.rax = u64::MAX;
         return SyscallAction::Continue;

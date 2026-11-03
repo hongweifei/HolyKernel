@@ -114,6 +114,7 @@ holy> debug app
 | --- | --- |
 | `tasks` | 列出 Native Task/TCB、状态、Arena、子 Task |
 | `focus` | 选择当前 Native Task（会话焦点） |
+| `start` | 按需装载并启动服务模块 |
 | `services` | 列出服务器、Endpoint、健康与重启次数 |
 | `handles` | 列出当前 Task 的 Handle |
 | `endpoints` | 列出 Endpoint/Notification |

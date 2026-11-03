@@ -158,3 +158,20 @@ impl PageSink for UserPages<'_> {
 fn service_name(name: &'static str) -> &'static str {
     name.rsplit('/').next().unwrap_or(name)
 }
+
+/// 按名称装载服务模块，用于按需启动。
+pub fn load_service(
+    info: &BootInfo,
+    name: &str,
+    slot: usize,
+    direct_map_base: u64,
+    allocator: &mut FrameAllocator,
+    paging: &PageTable,
+) -> Result<cpu::InterruptFrame, String> {
+    let module = info
+        .server_modules
+        .iter()
+        .find(|module| service_name(module.name) == name)
+        .ok_or_else(|| format!("未知服务：{name}"))?;
+    load(module, slot, 0, direct_map_base, allocator, paging)
+}

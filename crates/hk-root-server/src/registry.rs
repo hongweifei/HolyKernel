@@ -56,6 +56,20 @@ impl ServiceTable {
         });
     }
 
+    /// 标记服务运行；服务不在表中时登记。
+    pub fn mark_running(&mut self, name: &str) {
+        if let Some(service) = self
+            .services
+            .iter_mut()
+            .find(|service| service.name == name)
+        {
+            service.state = ServiceState::Running;
+            service.exit_code = None;
+        } else {
+            self.register(name);
+        }
+    }
+
     /// 标记服务退出。
     pub fn mark_exited(&mut self, name: &str, code: u64) {
         if let Some(service) = self
@@ -111,5 +125,19 @@ mod tests {
         table.register("clock");
         table.mark_exited("missing", 1);
         assert_eq!(table.services()[0].state, ServiceState::Running);
+    }
+
+    #[test]
+    fn restarts_service_record() {
+        let mut table = ServiceTable::new();
+        table.register("clock");
+        table.mark_exited("clock", 3);
+        table.mark_running("clock");
+        assert_eq!(table.len(), 1);
+        assert_eq!(table.services()[0].state, ServiceState::Running);
+        assert_eq!(table.services()[0].exit_code, None);
+
+        table.mark_running("log");
+        assert_eq!(table.len(), 2);
     }
 }

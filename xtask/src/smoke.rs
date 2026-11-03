@@ -53,7 +53,9 @@ impl SmokeMode {
             Self::Page => Some("page-fault-test"),
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
-            Self::Shell => Some("shell-test help;focus hk-server-echo;tasks;services;mounts"),
+            Self::Shell => Some(
+                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;services;mounts",
+            ),
             Self::Input => Some("shell-interactive"),
         }
     }
@@ -79,7 +81,8 @@ impl SmokeMode {
             Self::Shell => &[
                 "HolyShell",
                 "当前任务：hk-server-echo",
-                "任务表",
+                "已启动：hk-server-device",
+                "任务表（4 项）",
                 "hk-server-demo",
                 "hk-server-echo",
                 "hk-server-device",

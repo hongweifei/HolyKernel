@@ -272,10 +272,19 @@ extern "C" fn kmain() -> ! {
             announce(&console, screen.as_ref(), "服务进入空闲\n");
             report_time(&console, screen.as_ref(), "启动耗时", boot_start, frequency);
 
+            let mut shell_loader = shell::Loader {
+                info: &info,
+                direct_map_base,
+                allocator: &mut allocator,
+                paging: &paging,
+            };
+
             let interactive =
                 hk_boot::cmdline().is_some_and(|line| line.contains("shell-interactive"));
             if interactive {
-                if let Err(error) = shell::interactive(&console, screen.as_ref(), &services) {
+                if let Err(error) =
+                    shell::interactive(&console, screen.as_ref(), &mut services, &mut shell_loader)
+                {
                     fail(
                         &console,
                         screen.as_ref(),
@@ -294,7 +303,13 @@ extern "C" fn kmain() -> ! {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    if let Err(error) = shell::run(&console, screen.as_ref(), &services, &script) {
+                    if let Err(error) = shell::run(
+                        &console,
+                        screen.as_ref(),
+                        &mut services,
+                        &mut shell_loader,
+                        &script,
+                    ) {
                         fail(
                             &console,
                             screen.as_ref(),
