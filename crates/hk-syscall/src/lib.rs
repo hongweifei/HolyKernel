@@ -43,5 +43,11 @@ pub const SYS_NOTIFY: u64 = 11;
 /// 等待通知位。
 pub const SYS_WAIT_NOTIFY: u64 = 12;
 
+/// 调用端点并等待回复。
+pub const SYS_CALL: u64 = 13;
+
+/// 回复最近一次调用。
+pub const SYS_REPLY: u64 = 14;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

@@ -11,11 +11,11 @@ use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_RECV,
-    SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ,
+    SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
-use hk_kernel::{Kernel, KernelError, Priority, TcbId, ThreadState};
+use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
 
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
@@ -35,6 +35,11 @@ pub enum Pending {
         handle: Handle,
         /// 等待的通知位。
         mask: u64,
+    },
+    /// 调用已发出，等待服务回复。
+    Call {
+        /// 调用目标端点编号，用于回报发送者。
+        endpoint: u64,
     },
 }
 
@@ -161,6 +166,8 @@ pub struct UserTask<C> {
     pub context: C,
     /// 挂起的系统调用。
     pub pending: Pending,
+    /// 最近一次收到的调用令牌。
+    pub reply: Option<ReplyToken>,
     /// 任务 Arena。
     pub arena: Arena,
     /// 是否已退出。
@@ -190,6 +197,7 @@ impl<C> UserTask<C> {
             notifications,
             context,
             pending: Pending::None,
+            reply: None,
             arena: Arena::new(arena_base, arena_size),
             exited: false,
             exit_code: 0,
@@ -426,6 +434,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_WAIT_NOTIFY => self.wait_notify(index, tcb, frame),
+            SYS_CALL => self.call(index, tcb, frame),
+            SYS_REPLY => {
+                let result = self.reply(index, tcb, frame);
+                frame.set_result(result);
+                Switch::Continue
+            }
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;
@@ -505,6 +519,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.recv(tcb, handle) {
                     Ok(Some(received)) => {
+                        self.tasks[index].reply = received.reply;
                         let sender = self.endpoint_of(received.sender);
                         let handle = self.install_handle(index, &received.message);
                         let context = &mut self.tasks[index].context;
@@ -523,6 +538,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     Ok(Some(bits)) => self.tasks[index].context.set_result(bits),
                     Ok(None) => blocked_again = true,
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
+                }
+            }
+            Pending::Call { endpoint } => {
+                let tcb = self.tasks[index].tcb;
+                match self.kernel.take_reply(tcb) {
+                    Some(message) => {
+                        let context = &mut self.tasks[index].context;
+                        context.set_result(message.label);
+                        context.set_word(message.words[0]);
+                        context.set_sender(endpoint);
+                    }
+                    None => blocked_again = true,
                 }
             }
             Pending::None | Pending::Send => {}
@@ -618,6 +645,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         match self.kernel.recv(tcb, handle) {
             Ok(Some(received)) => {
+                self.tasks[index].reply = received.reply;
                 let sender = self.endpoint_of(received.sender);
                 let handle = self.install_handle(index, &received.message);
                 frame.set_result(received.message.label);
@@ -692,6 +720,51 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    fn call(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.tasks[index]
+            .handles
+            .get(endpoint.wrapping_sub(1))
+            .copied()
+            .flatten()
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+
+        let mut words = [0; 8];
+        words[0] = frame.arg2();
+        let message = Message::new(frame.arg1()).with_words(words);
+        match self.kernel.call(tcb, handle, message) {
+            Ok(()) => {
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::Call {
+                    endpoint: endpoint as u64,
+                };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    fn reply(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> u64 {
+        let Some(token) = self.tasks[index].reply.take() else {
+            return u64::MAX;
+        };
+        let mut words = [0; 8];
+        words[0] = frame.arg1();
+        let message = Message::new(frame.arg0()).with_words(words);
+        match self.kernel.reply(tcb, token, message) {
+            Ok(()) => 0,
+            Err(_) => u64::MAX,
+        }
+    }
+
     /// 把随消息收到的句柄加入任务句柄映射，返回新端点编号；没有句柄时为 0。
     fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
         let Some(handle) = message.handles[0] else {
@@ -732,6 +805,7 @@ fn pending_name(pending: Pending) -> &'static str {
         Pending::Send => "send",
         Pending::Recv { .. } => "recv",
         Pending::Notify { .. } => "notify",
+        Pending::Call { .. } => "call",
     }
 }
 
@@ -946,6 +1020,56 @@ mod tests {
         assert_eq!(index, waiter);
         assert_eq!(context.rax, 1);
         assert_eq!(runtime.tasks()[waiter].pending, "-");
+    }
+
+    #[test]
+    fn calls_and_replies() {
+        let mut runtime = runtime();
+
+        let Step::Resume {
+            index: caller,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(caller, 0);
+        context.rax = SYS_CALL;
+        context.rdi = 2;
+        context.rsi = 9;
+        context.rdx = 5;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.tasks()[caller].pending, "call");
+
+        let Step::Resume {
+            index: server,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(server, 1);
+        context.rax = SYS_RECV;
+        context.rdi = 2;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(context.rax, 9);
+        assert_eq!(context.rdx, 5);
+        assert_eq!(context.rcx, 1);
+
+        context.rax = SYS_REPLY;
+        context.rdi = 10;
+        context.rsi = 6;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(context.rax, 0);
+
+        let Step::Resume { index, context } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(index, caller);
+        assert_eq!(context.rax, 10);
+        assert_eq!(context.rdx, 6);
+        assert_eq!(context.rcx, 2);
+        assert_eq!(runtime.tasks()[caller].pending, "-");
     }
 
     #[test]

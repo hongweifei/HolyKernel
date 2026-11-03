@@ -9,7 +9,9 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{ENDPOINT_ECHO, alloc, exit, recv, send, send_handle, wait_notify, write};
+use hk_server_api::{
+    ENDPOINT_ECHO, alloc, call, exit, recv, send, send_handle, wait_notify, write,
+};
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -36,9 +38,8 @@ const NOTIFY_REQUEST: u64 = 0x300;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-demo running\n");
-    send(ENDPOINT_ECHO, REQUEST, 21);
+    let (label, word, _sender) = call(ENDPOINT_ECHO, REQUEST, 21);
 
-    let (label, word, _sender) = recv(endpoint);
     if label == REPLY && word == 42 {
         write("hk-server-demo 收到回复 42\n".as_bytes());
         if verify_arena() {

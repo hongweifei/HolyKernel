@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{handle_count, notify, recv_handle, send, write, write_u64};
+use hk_server_api::{handle_count, notify, recv_handle, reply, send, write, write_u64};
 
 /// 通知请求标签。
 #[cfg(target_os = "none")]
@@ -36,7 +36,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write("hk-server-echo 已发出通知\n".as_bytes());
             continue;
         }
-        send(sender, label + 1, word * 2);
+        if reply(label + 1, word * 2) != 0 {
+            send(sender, label + 1, word * 2);
+        }
     }
 }
 
