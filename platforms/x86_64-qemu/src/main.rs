@@ -15,8 +15,6 @@ extern crate alloc;
 #[cfg(target_os = "none")]
 mod allocator;
 #[cfg(target_os = "none")]
-mod bootstrap;
-#[cfg(target_os = "none")]
 mod loader;
 #[cfg(target_os = "none")]
 mod runtime;
@@ -33,7 +31,9 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
-use hk_hal::{BootInfo, Console};
+use hk_hal::Console;
+#[cfg(target_os = "none")]
+use hk_platform_x86_64::bootstrap;
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::{COM1, FrameAllocator, PageTable, Serial};
 #[cfg(target_os = "none")]
@@ -90,7 +90,7 @@ extern "C" fn kmain() -> ! {
     }
 
     announce(&console, screen.as_ref(), "HolyKernel x86_64\n");
-    announce(&console, screen.as_ref(), &describe(&info));
+    announce(&console, screen.as_ref(), &format!("{info}"));
 
     if let Err(error) = info.validate() {
         announce(
@@ -328,67 +328,6 @@ fn run_timer_test(console: &Serial) -> ! {
     console.write_str(&report);
 
     hk_test::exit(ExitCode::Success)
-}
-
-#[cfg(target_os = "none")]
-fn describe(info: &BootInfo) -> String {
-    let mut report = String::new();
-    let _ = writeln!(report, "  架构: {}", info.arch);
-    let _ = writeln!(report, "  内存 map:");
-    for region in info.memory_map {
-        let _ = writeln!(
-            report,
-            "    {:#012x} + {:#010x}  {}",
-            region.base.get(),
-            region.len,
-            region.kind.name()
-        );
-    }
-    let _ = writeln!(
-        report,
-        "  内核镜像: {:#012x} + {:#010x}",
-        info.kernel_image.base.get(),
-        info.kernel_image.len
-    );
-    match info.framebuffer {
-        Some(framebuffer) => {
-            let _ = writeln!(
-                report,
-                "  帧缓冲: {:#012x} {}x{} stride={}",
-                framebuffer.phys.get(),
-                framebuffer.width,
-                framebuffer.height,
-                framebuffer.stride
-            );
-        }
-        None => {
-            let _ = writeln!(report, "  帧缓冲: 无");
-        }
-    }
-    match info.direct_map {
-        Some(direct_map) => {
-            let _ = writeln!(
-                report,
-                "  direct map: {:#012x} -> {:#018x} + {:#010x}",
-                direct_map.phys_base.get(),
-                direct_map.virt_base.get(),
-                direct_map.len
-            );
-        }
-        None => {
-            let _ = writeln!(report, "  direct map: 无");
-        }
-    }
-    match info.rsdp {
-        Some(rsdp) => {
-            let _ = writeln!(report, "  RSDP: {:#012x}", rsdp.get());
-        }
-        None => {
-            let _ = writeln!(report, "  RSDP: 无");
-        }
-    }
-    let _ = writeln!(report, "  服务器模块: {}", info.server_modules.len());
-    report
 }
 
 #[cfg(target_os = "none")]

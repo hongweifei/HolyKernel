@@ -5,8 +5,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, PAGE_SIZE, PhysAddr, VirtAddr};
-use hk_platform_x86_64::ioapic::IoApic;
-use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageFlags, PageTable};
+
+use crate::ioapic::IoApic;
+use crate::{FrameAllocator, FramebufferConsole, PageFlags, PageTable};
 
 /// I/O APIC 与键盘路由结果。
 pub struct IoApicSetup {
@@ -81,9 +82,7 @@ pub fn init_ioapic(
         allocator,
         base: ACPI_SCRATCH_BASE,
     };
-    let madt =
-        hk_platform_x86_64::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
-    drop(window);
+    let madt = crate::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
     let Some(madt) = madt else {
         return Ok(None);
@@ -95,13 +94,13 @@ pub fn init_ioapic(
         .map(virt, PhysAddr::new(phys), PageFlags::MMIO, allocator)
         .map_err(|error| format!("映射 IOAPIC 失败：{error:?}"))?;
 
-    hk_platform_x86_64::keyboard::init();
+    crate::keyboard::init();
 
     let ioapic = IoApic::new(virt.get());
     ioapic.init();
     let gsi = madt.gsi(1);
-    let vector = hk_platform_x86_64::cpu::KEYBOARD_VECTOR as u8;
-    let destination = hk_platform_x86_64::cpu::lapic_id();
+    let vector = crate::cpu::KEYBOARD_VECTOR as u8;
+    let destination = crate::cpu::lapic_id();
     ioapic.route(gsi, madt.gsi_base, vector, destination);
 
     Ok(Some(IoApicSetup {
@@ -133,6 +132,6 @@ pub fn init_interrupts(
         .map(lapic_virt, lapic_phys, PageFlags::MMIO, allocator)
         .map_err(|error| format!("映射 LAPIC 失败：{error:?}"))?;
 
-    hk_platform_x86_64::cpu::init_apic(lapic_virt.get());
+    crate::cpu::init_apic(lapic_virt.get());
     Ok(())
 }

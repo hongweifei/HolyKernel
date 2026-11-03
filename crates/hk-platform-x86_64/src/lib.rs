@@ -5,6 +5,7 @@
 extern crate alloc;
 
 pub mod acpi;
+pub mod bootstrap;
 pub mod cpu;
 pub mod framebuffer;
 pub mod ioapic;
