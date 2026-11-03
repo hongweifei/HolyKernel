@@ -21,7 +21,7 @@ HolyKernel/
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射（经 `UserMemory`）
-│   ├── hk-platform-*          x86_64/AArch64/RISC-V/Hosted
+│   ├── hk-platform-*          平台实现：现场、分页、ACPI/IOAPIC、键盘、引导初始化
 │   ├── hk-root-server/        Root Server、服务清单、服务表、镜像装载与用户运行时装配
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
