@@ -106,9 +106,9 @@ struct SmokeArguments {
     /// 使用 release 配置
     #[arg(long)]
     release: bool,
-    /// 触发异常，校验异常现场输出
-    #[arg(long, value_enum)]
-    fault: Option<smoke::FaultKind>,
+    /// 冒烟模式
+    #[arg(long, value_enum, default_value = "boot")]
+    mode: smoke::SmokeMode,
 }
 
 fn main() -> ExitCode {
@@ -128,7 +128,7 @@ fn execute(task: Task) -> Result<()> {
         Task::Image(arguments) => image::run(arguments.target, arguments.release, None).map(|_| ()),
         Task::Run(arguments) => run::run(arguments.target, arguments.release, &arguments.arguments),
         Task::Test(arguments) => test::run(arguments.target),
-        Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.fault),
+        Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
         Task::Lint => lint::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),

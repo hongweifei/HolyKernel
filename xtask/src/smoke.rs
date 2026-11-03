@@ -18,54 +18,68 @@ const QEMU_SUCCESS: i32 = 1;
 /// 异常测试的退出码：`(70 << 1) | 1`。
 const QEMU_EXCEPTION: i32 = 141;
 
-/// 异常测试类别。
+/// 冒烟模式。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum FaultKind {
-    /// 非法指令
+pub enum SmokeMode {
+    /// 正常启动并校验 BootInfo
+    #[value(name = "boot")]
+    Boot,
+    /// 非法指令异常
     #[value(name = "ud2")]
     Ud2,
     /// 空指针写入触发页错误
     #[value(name = "page")]
     Page,
+    /// 本地 APIC 定时器中断
+    #[value(name = "timer")]
+    Timer,
 }
 
-impl FaultKind {
-    fn cmdline(self) -> &'static str {
+impl SmokeMode {
+    fn cmdline(self) -> Option<&'static str> {
         match self {
-            Self::Ud2 => "fault-test",
-            Self::Page => "page-fault-test",
+            Self::Boot => None,
+            Self::Ud2 => Some("fault-test"),
+            Self::Page => Some("page-fault-test"),
+            Self::Timer => Some("timer-test"),
         }
     }
 
     fn expected(self) -> &'static str {
         match self {
+            Self::Boot => "启动信息校验通过",
             Self::Ud2 => "内核异常：非法指令",
             Self::Page => "内核异常：页错误",
+            Self::Timer => "定时器中断 5 次",
+        }
+    }
+
+    fn exit_code(self) -> i32 {
+        match self {
+            Self::Boot | Self::Timer => QEMU_SUCCESS,
+            Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
 
     fn log_name(self) -> &'static str {
         match self {
+            Self::Boot => "build/serial.log",
             Self::Ud2 => "build/serial-fault.log",
             Self::Page => "build/serial-page-fault.log",
+            Self::Timer => "build/serial-timer.log",
         }
     }
 }
 
 /// 启动内核并校验串口输出。
-///
-/// `fault` 指定时通过内核命令行触发对应异常，检查异常现场输出。
-pub fn run(selection: Selection, release: bool, fault: Option<FaultKind>) -> Result<()> {
+pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let targets = selection.targets();
     if targets.len() != 1 || targets[0] != Target::X86_64Qemu {
         return Err(Failure::new("smoke 只支持 x86_64-qemu"));
     }
 
-    let iso = crate::image::run(selection, release, fault.map(FaultKind::cmdline))?;
-    let log = workspace::root().join(match fault {
-        Some(kind) => kind.log_name(),
-        None => "build/serial.log",
-    });
+    let iso = crate::image::run(selection, release, mode.cmdline())?;
+    let log = workspace::root().join(mode.log_name());
     let _ = fs::remove_file(&log);
 
     let mut child = Command::new("qemu-system-x86_64")
@@ -93,11 +107,7 @@ pub fn run(selection: Selection, release: bool, fault: Option<FaultKind>) -> Res
     };
 
     let text = fs::read_to_string(&log).unwrap_or_default();
-    let expected_code = if fault.is_some() {
-        QEMU_EXCEPTION
-    } else {
-        QEMU_SUCCESS
-    };
+    let expected_code = mode.exit_code();
     match status {
         Some(status) if status.code() == Some(expected_code) => {}
         Some(status) => {
@@ -111,10 +121,7 @@ pub fn run(selection: Selection, release: bool, fault: Option<FaultKind>) -> Res
         }
     }
 
-    let expected = match fault {
-        Some(kind) => kind.expected(),
-        None => "启动信息校验通过",
-    };
+    let expected = mode.expected();
     if !text.contains(expected) {
         return Err(Failure::new(format!(
             "串口输出缺少「{expected}」\n串口输出：\n{text}"

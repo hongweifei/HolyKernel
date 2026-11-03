@@ -127,6 +127,9 @@ extern "C" fn kmain() -> ! {
                                 core::arch::asm!("ud2", options(noreturn));
                             }
                         }
+                        Some(line) if line.contains("timer-test") => {
+                            run_timer_test(&console);
+                        }
                         _ => {}
                     }
                     hk_test::exit(ExitCode::Success);
@@ -146,6 +149,29 @@ extern "C" fn kmain() -> ! {
             hk_test::exit(ExitCode::Failure(1));
         }
     }
+}
+
+#[cfg(target_os = "none")]
+fn run_timer_test(console: &Serial) -> ! {
+    console.write_str("启动 8254 定时器，等待 5 次中断\n");
+
+    hk_platform_x86_64::cpu::init_timer();
+    hk_platform_x86_64::cpu::arm_timer(5);
+
+    while !hk_platform_x86_64::cpu::timer_finished() {
+        // SAFETY: `hlt` 等到下一次中断；中断由 8254 定时器经 8259 投递。
+        unsafe {
+            core::arch::asm!("hlt", options(nomem, nostack));
+        }
+    }
+
+    hk_platform_x86_64::cpu::disarm_timer();
+    let ticks = hk_platform_x86_64::cpu::timer_ticks();
+    let mut report = String::new();
+    let _ = writeln!(report, "定时器中断 {ticks} 次");
+    console.write_str(&report);
+
+    hk_test::exit(ExitCode::Success)
 }
 
 #[cfg(target_os = "none")]

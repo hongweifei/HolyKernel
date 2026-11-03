@@ -5,6 +5,7 @@
 extern crate alloc;
 
 pub mod cpu;
+pub mod port;
 pub mod serial;
 
 pub use serial::{COM1, Serial};
