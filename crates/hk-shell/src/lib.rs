@@ -9,6 +9,7 @@ extern crate alloc;
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use hk_root_server::{ServiceTable, TaskInfo};
 
@@ -73,6 +74,30 @@ impl Session {
     pub fn current(&self) -> Option<&str> {
         self.current.as_deref()
     }
+}
+
+/// Shell 的输入与输出。
+pub trait ShellIo {
+    /// 写出文本。
+    fn write(&self, text: &str);
+
+    /// 清屏。
+    fn clear(&self);
+
+    /// 读取一行输入，不包含换行符。
+    fn read_line(&self) -> String;
+}
+
+/// Shell 命令宿主：任务视图与服务启停。
+pub trait ShellHost {
+    /// 返回任务视图快照。
+    fn tasks(&self) -> Vec<TaskInfo>;
+
+    /// 返回服务表。
+    fn services(&self) -> &ServiceTable;
+
+    /// 启动服务；`parent` 是当前会话选中的任务名。
+    fn start(&mut self, name: &str, parent: Option<&str>) -> String;
 }
 
 /// 命令执行结果。
@@ -164,6 +189,69 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
         Command::Echo(text) => Response::output(format!("{text}\n")),
         Command::Exit => Response::exit(),
         Command::Unknown(name) => Response::output(format!("未知命令：{name}\n")),
+    }
+}
+
+/// 执行一行命令并处理副作用；返回是否退出。
+pub fn execute_line<H: ShellHost>(
+    io: &impl ShellIo,
+    host: &mut H,
+    session: &mut Session,
+    line: &str,
+) -> bool {
+    let response = {
+        let tasks = host.tasks();
+        let state = ShellState::new(host.services(), &tasks);
+        execute(parse(line), &state, session)
+    };
+
+    if response.clear {
+        io.clear();
+    }
+    io.write(&response.output);
+
+    if let Some(name) = &response.start {
+        let output = host.start(name, session.current());
+        io.write(&output);
+    }
+    response.exit
+}
+
+/// 交互式执行，直到 `exit` 或输入结束。
+pub fn run_repl<H: ShellHost>(io: &impl ShellIo, host: &mut H, session: &mut Session) {
+    loop {
+        let prompt = match session.current() {
+            Some(current) => format!("hk[{current}]> "),
+            None => String::from("hk> "),
+        };
+        io.write(&prompt);
+
+        let line = io.read_line();
+        let command = line.trim();
+        if command.is_empty() {
+            continue;
+        }
+        if execute_line(io, host, session, command) {
+            break;
+        }
+    }
+}
+
+/// 脚本化执行，遇到 `exit` 停止。
+pub fn run_script<H: ShellHost>(
+    io: &impl ShellIo,
+    host: &mut H,
+    session: &mut Session,
+    script: &[&str],
+) {
+    for line in script {
+        if line.is_empty() {
+            continue;
+        }
+        io.write(&format!("hk> {line}\n"));
+        if execute_line(io, host, session, line) {
+            break;
+        }
     }
 }
 
@@ -464,5 +552,87 @@ mod tests {
         let response = run("bogus x", &table, &[]);
         assert_eq!(response.output, "未知命令：bogus\n");
         assert!(!response.exit);
+    }
+
+    struct MockIo {
+        output: core::cell::RefCell<String>,
+        cleared: core::cell::Cell<bool>,
+    }
+
+    impl ShellIo for MockIo {
+        fn write(&self, text: &str) {
+            self.output.borrow_mut().push_str(text);
+        }
+
+        fn clear(&self) {
+            self.cleared.set(true);
+        }
+
+        fn read_line(&self) -> String {
+            String::new()
+        }
+    }
+
+    struct MockHost {
+        services: ServiceTable,
+        started: Vec<String>,
+    }
+
+    impl ShellHost for MockHost {
+        fn tasks(&self) -> Vec<TaskInfo> {
+            alloc::vec::Vec::new()
+        }
+
+        fn services(&self) -> &ServiceTable {
+            &self.services
+        }
+
+        fn start(&mut self, name: &str, _parent: Option<&str>) -> String {
+            self.started.push(String::from(name));
+            format!("已启动：{name}\n")
+        }
+    }
+
+    #[test]
+    fn script_runs_until_exit() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(
+            &io,
+            &mut host,
+            &mut session,
+            &["echo hi", "exit", "echo no"],
+        );
+
+        let output = io.output.borrow();
+        assert!(output.contains("hk> echo hi\n"));
+        assert!(output.contains("hi\n"));
+        assert!(!output.contains("echo no"));
+    }
+
+    #[test]
+    fn script_starts_service_through_host() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["start clock"]);
+
+        assert_eq!(host.started, alloc::vec!["clock"]);
+        assert!(io.output.borrow().contains("已启动：clock\n"));
     }
 }

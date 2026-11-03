@@ -1,15 +1,16 @@
-//! HolyShell：脚本化与交互式命令执行。
+//! HolyShell 平台适配：串口/帧缓冲 I/O 与服务启动副作用。
 //!
-//! 命令解析与输出文本由 `hk-shell` 提供；本模块负责读取输入、写出到串口与
-//! 帧缓冲控制台，并执行清屏、退出与按需启动服务等平台副作用。
+//! 命令解析、输出文本与执行循环由 `hk-shell` 提供；本模块只实现 `ShellIo`
+//! 与 `ShellHost`，把输入输出接到硬件，把 `start` 接到镜像装载与运行时。
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, Console};
 use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageTable, Serial, keyboard};
-use hk_root_server::ServiceTable;
-use hk_shell::{Session, ShellState, execute, parse};
+use hk_root_server::{ServiceTable, TaskInfo};
+use hk_shell::{Session, ShellHost, ShellIo};
 
 use crate::{loader, runtime};
 
@@ -25,6 +26,52 @@ pub struct Loader<'a> {
     pub paging: &'a PageTable,
 }
 
+/// 串口与帧缓冲控制台。
+struct ConsoleIo<'a> {
+    console: &'a Serial,
+    screen: Option<&'a FramebufferConsole>,
+}
+
+impl ShellIo for ConsoleIo<'_> {
+    fn write(&self, text: &str) {
+        self.console.write_str(text);
+        if let Some(screen) = self.screen {
+            screen.write_str(text);
+        }
+    }
+
+    fn clear(&self) {
+        if let Some(screen) = self.screen {
+            screen.clear();
+        }
+    }
+
+    fn read_line(&self) -> String {
+        read_line(self.console, self.screen)
+    }
+}
+
+/// 命令宿主：任务视图、服务表与按需装载。
+struct Host<'a, 'b> {
+    services: &'a mut ServiceTable,
+    loader: &'a mut Loader<'b>,
+}
+
+impl ShellHost for Host<'_, '_> {
+    fn tasks(&self) -> Vec<TaskInfo> {
+        runtime::tasks()
+    }
+
+    fn services(&self) -> &ServiceTable {
+        self.services
+    }
+
+    fn start(&mut self, name: &str, parent: Option<&str>) -> String {
+        let parent = parent.and_then(runtime::tcb_of).or(Some(runtime::root()));
+        start_service(self.loader, self.services, name, parent)
+    }
+}
+
 /// 执行一组命令。
 pub fn run(
     console: &Serial,
@@ -33,27 +80,17 @@ pub fn run(
     loader: &mut Loader<'_>,
     script: &[&str],
 ) -> Result<(), String> {
-    write(console, screen, "HolyShell\n");
+    let io = ConsoleIo { console, screen };
+    io.write("HolyShell\n");
 
     if script.is_empty() {
-        write(
-            console,
-            screen,
-            "当前仅支持脚本化执行：shell-test <命令>...\n",
-        );
+        io.write("当前仅支持脚本化执行：shell-test <命令>...\n");
         return Ok(());
     }
 
+    let mut host = Host { services, loader };
     let mut session = Session::new();
-    for line in script {
-        if line.is_empty() {
-            continue;
-        }
-        write(console, screen, &format!("hk> {line}\n"));
-        if execute_line(console, screen, services, loader, &mut session, line) {
-            break;
-        }
-    }
+    hk_shell::run_script(&io, &mut host, &mut session, script);
     Ok(())
 }
 
@@ -64,24 +101,12 @@ pub fn interactive(
     services: &mut ServiceTable,
     loader: &mut Loader<'_>,
 ) -> Result<(), String> {
-    write(console, screen, "HolyShell 交互模式（help 查看命令）\n");
+    let io = ConsoleIo { console, screen };
+    io.write("HolyShell 交互模式（help 查看命令）\n");
 
+    let mut host = Host { services, loader };
     let mut session = Session::new();
-    loop {
-        let prompt = match session.current() {
-            Some(current) => format!("hk[{current}]> "),
-            None => String::from("hk> "),
-        };
-        write(console, screen, &prompt);
-        let line = read_line(console, screen);
-        let command = line.trim();
-        if command.is_empty() {
-            continue;
-        }
-        if execute_line(console, screen, services, loader, &mut session, command) {
-            break;
-        }
-    }
+    hk_shell::run_repl(&io, &mut host, &mut session);
     Ok(())
 }
 
@@ -129,38 +154,6 @@ fn wait_byte(console: &Serial) -> u8 {
             core::arch::asm!("sti; hlt; cli", options(nomem, nostack));
         }
     }
-}
-
-fn execute_line(
-    console: &Serial,
-    screen: Option<&FramebufferConsole>,
-    services: &mut ServiceTable,
-    loader: &mut Loader<'_>,
-    session: &mut Session,
-    line: &str,
-) -> bool {
-    let response = {
-        let tasks = runtime::tasks();
-        let state = ShellState::new(services, &tasks);
-        execute(parse(line), &state, session)
-    };
-
-    if response.clear {
-        if let Some(screen) = screen {
-            screen.clear();
-        }
-    }
-    write(console, screen, &response.output);
-
-    if let Some(name) = &response.start {
-        let parent = session
-            .current()
-            .and_then(runtime::tcb_of)
-            .or(Some(runtime::root()));
-        let output = start_service(loader, services, name, parent);
-        write(console, screen, &output);
-    }
-    response.exit
 }
 
 fn start_service(
