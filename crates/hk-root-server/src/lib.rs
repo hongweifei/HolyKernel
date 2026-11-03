@@ -7,11 +7,11 @@
 
 extern crate alloc;
 
+pub mod boot;
 mod registry;
-mod tasks;
 
+pub use hk_kernel::user::TaskInfo;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
-pub use tasks::TaskInfo;
 
 use alloc::vec::Vec;
 

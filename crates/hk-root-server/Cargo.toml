@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 
 [lints]

@@ -1,0 +1,10 @@
+[package]
+name = "hk-syscall"
+description = "HolyKernel 系统调用编号与共享 ABI 常量"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

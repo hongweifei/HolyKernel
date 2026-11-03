@@ -15,6 +15,7 @@ pub mod kernel;
 pub mod object;
 pub mod sched;
 pub mod tcb;
+pub mod user;
 
 pub use error::KernelError;
 pub use kernel::{Kernel, Received, TRACE_CAPACITY};

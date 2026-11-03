@@ -856,6 +856,38 @@ impl hk_hal::UserContext for InterruptFrame {
     fn resume(&self) {
         resume_user(self);
     }
+
+    fn set_start_argument(&mut self, argument: u64) {
+        self.rdi = argument;
+    }
+
+    fn number(&self) -> u64 {
+        self.rax
+    }
+
+    fn arg0(&self) -> u64 {
+        self.rdi
+    }
+
+    fn arg1(&self) -> u64 {
+        self.rsi
+    }
+
+    fn arg2(&self) -> u64 {
+        self.rdx
+    }
+
+    fn set_result(&mut self, value: u64) {
+        self.rax = value;
+    }
+
+    fn set_word(&mut self, value: u64) {
+        self.rdx = value;
+    }
+
+    fn set_sender(&mut self, value: u64) {
+        self.rcx = value;
+    }
 }
 
 /// 从系统调用回到内核调度器，不返回。

@@ -15,14 +15,14 @@ HolyKernel/
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification
+│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；用户任务运行时与系统调用分派
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射
 │   ├── hk-platform-*          x86_64/AArch64/RISC-V/Hosted
-│   ├── hk-root-server/        Root Server、服务清单与服务表
+│   ├── hk-root-server/        Root Server、服务清单、服务表与用户运行时装配
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
 │   ├── hk-vfs/                VFS Server
@@ -34,6 +34,7 @@ HolyKernel/
 │   ├── hk-abi/                POSIX syscall shim 协议与头文件
 │   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
+│   ├── hk-syscall/            系统调用编号与共享 ABI 常量
 │   ├── hk-server-api/         内核与服务器之间的入口 ABI
 │   ├── hk-shell/              HolyShell 命令解析与输出
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）

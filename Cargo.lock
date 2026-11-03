@@ -171,6 +171,7 @@ dependencies = [
  "hk-ipc",
  "hk-mem",
  "hk-platform-hosted",
+ "hk-syscall",
  "hk-trace",
  "spin",
 ]
@@ -207,6 +208,7 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
+ "hk-hal",
  "hk-handle",
  "hk-kernel",
 ]
@@ -214,6 +216,9 @@ dependencies = [
 [[package]]
 name = "hk-server-api"
 version = "0.1.0"
+dependencies = [
+ "hk-syscall",
+]
 
 [[package]]
 name = "hk-server-demo"
@@ -258,6 +263,10 @@ dependencies = [
  "hk-ipc",
  "hk-kernel",
 ]
+
+[[package]]
+name = "hk-syscall"
+version = "0.1.0"
 
 [[package]]
 name = "hk-test"
