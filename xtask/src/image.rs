@@ -12,7 +12,7 @@ use crate::workspace;
 /// Limine 安装目录的默认位置。
 const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
-const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n";
+const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n    module_path: boot():/boot/hk-server-echo\n";
 
 fn limine_config(cmdline: Option<&str>) -> String {
     let mut config = String::from(LIMINE_CONFIG);
@@ -43,6 +43,8 @@ fn build_kernel(release: bool) -> Result<()> {
         "hk-x86_64",
         "-p",
         "hk-server-demo",
+        "-p",
+        "hk-server-echo",
     ]);
     if release {
         command.arg("--release");
@@ -81,6 +83,10 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     copy(
         &binary_path("hk-server-demo", release),
         &boot.join("hk-server-demo"),
+    )?;
+    copy(
+        &binary_path("hk-server-echo", release),
+        &boot.join("hk-server-echo"),
     )?;
     copy(
         &limine.join("limine-bios-cd.bin"),

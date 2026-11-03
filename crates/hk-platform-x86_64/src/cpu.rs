@@ -7,7 +7,7 @@ use alloc::string::String;
 use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::fmt::Write;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::Console;
 
@@ -173,6 +173,7 @@ impl IdtEntry {
 
 /// 中断与异常现场。
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct InterruptFrame {
     /// RAX。
     pub rax: u64,
@@ -220,6 +221,39 @@ pub struct InterruptFrame {
     pub ss: u64,
 }
 
+const _: () = {
+    assert!(core::mem::offset_of!(InterruptFrame, rax) == 0);
+    assert!(core::mem::offset_of!(InterruptFrame, rbx) == 8);
+    assert!(core::mem::offset_of!(InterruptFrame, rcx) == 16);
+    assert!(core::mem::offset_of!(InterruptFrame, rdx) == 24);
+    assert!(core::mem::offset_of!(InterruptFrame, rsi) == 32);
+    assert!(core::mem::offset_of!(InterruptFrame, rdi) == 40);
+    assert!(core::mem::offset_of!(InterruptFrame, rbp) == 48);
+    assert!(core::mem::offset_of!(InterruptFrame, r8) == 56);
+    assert!(core::mem::offset_of!(InterruptFrame, r15) == 112);
+    assert!(core::mem::offset_of!(InterruptFrame, vector) == 120);
+    assert!(core::mem::offset_of!(InterruptFrame, error) == 128);
+    assert!(core::mem::offset_of!(InterruptFrame, rip) == 136);
+    assert!(core::mem::offset_of!(InterruptFrame, cs) == 144);
+    assert!(core::mem::offset_of!(InterruptFrame, rflags) == 152);
+    assert!(core::mem::offset_of!(InterruptFrame, rsp) == 160);
+    assert!(core::mem::offset_of!(InterruptFrame, ss) == 168);
+};
+
+/// 系统调用处理结果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyscallAction {
+    /// 已就地处理，返回用户态。
+    Continue,
+    /// 任务阻塞，调度器切换到下一个任务。
+    Block,
+    /// 任务退出，调度器切换到下一个任务。
+    Exit,
+}
+
+/// 扩展系统调用处理函数。
+pub type SyscallHook = fn(&mut InterruptFrame) -> SyscallAction;
+
 struct CpuState {
     gdt: UnsafeCell<[u64; 7]>,
     idt: UnsafeCell<[IdtEntry; 256]>,
@@ -241,7 +275,7 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
-static LAST_EXIT_CODE: AtomicU64 = AtomicU64::new(0);
+static SYSCALL_HOOK: AtomicUsize = AtomicUsize::new(0);
 
 /// 初始化 GDT、TSS 与 IDT。
 ///
@@ -554,25 +588,53 @@ core::arch::global_asm!(
     "hk_kernel_rip:",
     "    .quad 0",
     ".section .text",
-    ".global hk_enter_user",
-    "hk_enter_user:",
+    ".global hk_resume_user",
+    "hk_resume_user:",
+    "    push rbx",
+    "    push rbp",
+    "    push r12",
+    "    push r13",
+    "    push r14",
+    "    push r15",
     "    mov [rip + hk_kernel_rsp], rsp",
     "    lea rax, [rip + hk_user_return]",
     "    mov [rip + hk_kernel_rip], rax",
+    "    mov rbx, rdi",
     "    mov ax, 0x2b",
     "    mov ds, ax",
     "    mov es, ax",
-    "    push 0x2b",
-    "    push rsi",
-    "    push 0x202",
-    "    push 0x33",
-    "    push rdi",
+    "    push qword ptr [rbx + 168]",
+    "    push qword ptr [rbx + 160]",
+    "    push qword ptr [rbx + 152]",
+    "    push qword ptr [rbx + 144]",
+    "    push qword ptr [rbx + 136]",
+    "    mov rax, [rbx + 0]",
+    "    mov rcx, [rbx + 16]",
+    "    mov rdx, [rbx + 24]",
+    "    mov rsi, [rbx + 32]",
+    "    mov rdi, [rbx + 40]",
+    "    mov rbp, [rbx + 48]",
+    "    mov r8, [rbx + 56]",
+    "    mov r9, [rbx + 64]",
+    "    mov r10, [rbx + 72]",
+    "    mov r11, [rbx + 80]",
+    "    mov r12, [rbx + 88]",
+    "    mov r13, [rbx + 96]",
+    "    mov r14, [rbx + 104]",
+    "    mov r15, [rbx + 112]",
+    "    mov rbx, [rbx + 8]",
     "    iretq",
     "hk_user_return:",
     "    mov ax, 0x10",
     "    mov ds, ax",
     "    mov es, ax",
     "    mov rsp, [rip + hk_kernel_rsp]",
+    "    pop r15",
+    "    pop r14",
+    "    pop r13",
+    "    pop r12",
+    "    pop rbp",
+    "    pop rbx",
     "    ret",
     ".global hk_leave_user",
     "hk_leave_user:",
@@ -603,27 +665,37 @@ const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
 const MAX_WRITE: usize = 4096;
 
 fn handle_syscall(frame: &mut InterruptFrame) {
+    if frame.rax == hk_server_api::SYS_WRITE {
+        let pointer = frame.rdi;
+        let length = frame.rsi as usize;
+        frame.rax = if user_range_valid(pointer, length) {
+            write_user(pointer, length)
+        } else {
+            u64::MAX
+        };
+        return;
+    }
+
+    let hook = SYSCALL_HOOK.load(Ordering::SeqCst);
+    if hook != 0 {
+        // SAFETY: 钩子由内核在进入用户态之前注册，指向静态函数并覆盖整个内核运行期。
+        let hook: SyscallHook = unsafe { core::mem::transmute(hook) };
+        match hook(frame) {
+            SyscallAction::Continue => {}
+            SyscallAction::Block | SyscallAction::Exit => leave_user(),
+        }
+        return;
+    }
+
     match frame.rax {
-        hk_server_api::SYS_WRITE => {
-            let pointer = frame.rdi;
-            let length = frame.rsi as usize;
-            frame.rax = if user_range_valid(pointer, length) {
-                write_user(pointer, length)
-            } else {
-                u64::MAX
-            };
-        }
-        hk_server_api::SYS_EXIT => {
-            LAST_EXIT_CODE.store(frame.rdi, Ordering::SeqCst);
-            leave_user()
-        }
+        hk_server_api::SYS_EXIT => leave_user(),
         _ => frame.rax = u64::MAX,
     }
 }
 
-/// 返回最近一次服务退出的状态码。
-pub fn last_exit_code() -> u64 {
-    LAST_EXIT_CODE.load(Ordering::SeqCst)
+/// 注册扩展系统调用处理函数。
+pub fn set_syscall_hook(hook: SyscallHook) {
+    SYSCALL_HOOK.store(hook as usize, Ordering::SeqCst);
 }
 
 fn user_range_valid(pointer: u64, length: usize) -> bool {
@@ -646,24 +718,51 @@ fn write_user(pointer: u64, length: usize) -> u64 {
     }
 }
 
-/// 进入用户态：保存内核上下文后按 `iretq` 切换到 ring 3。
-///
-/// 返回时机是服务调用退出系统调用之后。
-pub fn enter_user(entry: u64, stack_top: u64) {
-    // SAFETY: `entry` 指向已映射的用户态代码，`stack_top` 指向已映射的用户栈顶。
-    unsafe {
-        hk_enter_user(entry, stack_top);
+/// 构造用户态初始现场：入口、栈顶与首个参数。
+pub fn user_frame(entry: u64, stack_top: u64, argument: u64) -> InterruptFrame {
+    InterruptFrame {
+        rax: 0,
+        rbx: 0,
+        rcx: 0,
+        rdx: 0,
+        rsi: 0,
+        rdi: argument,
+        rbp: 0,
+        r8: 0,
+        r9: 0,
+        r10: 0,
+        r11: 0,
+        r12: 0,
+        r13: 0,
+        r14: 0,
+        r15: 0,
+        vector: 0,
+        error: 0,
+        rip: entry,
+        cs: u64::from(USER_CODE_SELECTOR),
+        rflags: 0x202,
+        rsp: stack_top,
+        ss: u64::from(USER_DATA_SELECTOR),
     }
 }
 
-/// 从系统调用回到进入用户态之前的执行流，不返回。
+/// 按保存的现场恢复用户态执行，直到任务再次阻塞或退出。
+///
+/// 返回时机是系统调用处理函数要求切换任务之后；`frame` 只在使用期间读取。
+pub fn resume_user(frame: &InterruptFrame) {
+    // SAFETY: `frame` 按 `InterruptFrame` 布局保存完整用户态寄存器与栈，
+    // 对应地址已映射为用户可执行或可写页。
+    unsafe { hk_resume_user(frame) };
+}
+
+/// 从系统调用回到内核调度器，不返回。
 pub fn leave_user() -> ! {
-    // SAFETY: 只在系统调用处理内部调用；内核上下文由 `enter_user` 保存。
+    // SAFETY: 只在系统调用处理内部调用；内核上下文由 `resume_user` 保存。
     unsafe { hk_leave_user() }
 }
 
 unsafe extern "C" {
-    fn hk_enter_user(entry: u64, stack_top: u64);
+    fn hk_resume_user(frame: *const InterruptFrame);
     fn hk_leave_user() -> !;
 }
 

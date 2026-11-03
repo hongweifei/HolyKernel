@@ -59,13 +59,15 @@ impl SmokeMode {
                 "启动信息校验通过",
                 "加载服务并进入用户态",
                 "hk-server-demo running",
+                "hk-server-echo 收到请求 21",
+                "hk-server-demo 收到回复 42",
                 "服务已退出",
             ],
             Self::Ud2 => &["内核异常：非法指令"],
             Self::Page => &["内核异常：页错误"],
             Self::Timer => &["定时器中断 5 次"],
             Self::Framebuffer => &["帧缓冲控制台: 80x36 字符"],
-            Self::Shell => &["HolyShell", "hk-server-demo", "尚无挂载"],
+            Self::Shell => &["HolyShell", "hk-server-demo", "hk-server-echo", "尚无挂载"],
         }
     }
 

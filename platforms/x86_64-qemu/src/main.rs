@@ -15,6 +15,8 @@ extern crate alloc;
 #[cfg(target_os = "none")]
 mod loader;
 #[cfg(target_os = "none")]
+mod runtime;
+#[cfg(target_os = "none")]
 mod service;
 #[cfg(target_os = "none")]
 mod shell;
