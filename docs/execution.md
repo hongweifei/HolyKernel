@@ -27,7 +27,7 @@ pub struct Tcb {
 - **TCB** 是唯一的内核执行体。
 - 每个 TCB 绑定一个 VSpace，并引用所属 Task 的 HandleTable。
 - 线程入口、栈、TLS 由用户态服务器与 libc 配置。
-- 内核不区分“进程/线程”；POSIX 进程是共享 VSpace 的 TCB 集合。
+- 内核以 TCB 为调度单位；POSIX 进程是共享 VSpace 的 TCB 集合。
 
 ### 状态机
 
@@ -98,9 +98,9 @@ pub struct Rights(u32); // READ | WRITE | EXECUTE | TRANSFER | ADMIN
 - Handle 可随 IPC 消息传递；发送方需要 `TRANSFER` 权限。
 - 每个对象有 `epoch`；owner 的 `revoke_all` 递增 epoch，使该对象所有旧 Handle 失效。
 - 每 Task/服务器有 Handle 配额；`duplicate`/`transfer` 前检查。
-- 没有派生树或递归撤销；服务器重启时关闭旧 Handle。
-- 内核不维护全局对象命名；Endpoint 提供服务入口。
-- badge 仅用于 Endpoint 标识客户端，不作为 Handle 权限。
+- 权限模型采用线性 HandleTable；服务器重启时关闭旧 Handle。
+- 对象命名由服务器 Endpoint 提供；内核 Handle 保持匿名。
+- badge 用于 Endpoint 标识客户端；权限由 Handle 决定。
 
 | right | 用途 |
 | --- | --- |
@@ -111,7 +111,7 @@ pub struct Rights(u32); // READ | WRITE | EXECUTE | TRANSFER | ADMIN
 | `ADMIN` | 配置对象、duplicate、revoke_all、close |
 
 - 失败返回 `BadHandle`、`Revoked`、`NoHandles`、`PermissionDenied` 或 `WrongType`。
-- 关闭最后一个 Handle 且对象无其他引用时，对象析构。
+- 对象引用归零时析构。
 
 ---
 
@@ -145,10 +145,10 @@ sequenceDiagram
     participant Client as Client
     participant EP as Endpoint
     participant Server as Server
-    Client->>EP: call(label, words, caps)
+    Client->>EP: call(label, words, handles)
     EP->>Server: recv()
     Server->>Server: 处理请求
-    Server->>EP: reply(words, caps)
+    Server->>EP: reply(words, handles)
     EP-->>Client: 返回
 ```
 
@@ -207,7 +207,7 @@ impl Notification {
 
 规则：
 
-- `SpinLock` 持有期间使用固定分配、无睡眠调用。
+- `SpinLock` 持有期间使用固定分配与自旋等待。
 - 中断上半部使用 `IrqSpinLock`。
 - 锁顺序全局文档化；Hosted 调试构建启用 lockdep 式环检测。
 
@@ -234,7 +234,7 @@ impl Notification {
 
 ### 7.2 内核故障
 
-- 内核不变量破坏、页表损坏、调度器死锁、中断风暴 → panic。
+- 内核保证被破坏、页表损坏、调度器死锁、中断风暴 → panic。
 - panic：停世界、dump CPU 寄存器、栈回溯、当前 TCB、最近 trace。
 - panic 路径使用静态缓冲与自旋锁，独立于堆与调度器。
 
@@ -261,7 +261,7 @@ pub struct CivilTime { ... }
 
 ---
 
-## 9. 不变量
+## 9. 保证
 
 1. 任意时刻，一个 TCB 最多在一个 CPU 上运行。
 2. 每个 TCB 绑定一个 VSpace，并引用 Task 的 HandleTable。
@@ -269,7 +269,7 @@ pub struct CivilTime { ... }
 4. IPC 消息中的 Handle 在接收方 HandleTable 中获得新槽位。
 5. Endpoint 的发送/接收按优先级与 FIFO 规则调度。
 6. 页错误通过 Fault Endpoint 交付；POSIX Server 处理语义。
-7. 内核不维护 POSIX PID 表、fd 表或信号状态。
+7. POSIX PID 表、fd 表与信号状态由 POSIX Server 维护；内核提供 TCB 与 Handle。
 8. 服务器崩溃后，Root Server 关闭旧句柄并重启服务。
 9. 中断上半部使用固定分配与自旋锁。
 10. panic 路径独立于调度器与堆。

@@ -24,7 +24,7 @@ flowchart LR
 - **HandleTable** 属于 Native Task；同 Task 的 TCB 共享。
 - **Handle** = `index + generation`；槽位记录对象、rights、grant epoch。
 - **Object** 有 `epoch`；`revoke_all` 递增 epoch，使所有旧 Handle 失效。
-- 没有 CNode、派生树、递归撤销；撤销是对象级、O(1) 的 epoch 失效。
+- 权限模型采用线性 HandleTable；撤销在对象级通过 epoch 完成，O(1)。
 
 ---
 
@@ -57,7 +57,7 @@ revoke:  object.epoch += 1
 ```
 
 - epoch 撤销是**对象级**的：一次 revoke 使该对象所有旧 Handle 失效。
-- 不遍历 HandleTable；查找时比较 epoch，O(1)。
+- 查找直接定位槽位并比较 epoch，O(1)。
 - 对象创建者获得 owner `ADMIN` Handle；owner 可重新授予新 Handle。
 - 适合撤销服务 Endpoint、共享 Frame、Volume、Window 等对象。
 - 代价：撤销粒度是对象级；需要按对象重建 Handle。
@@ -68,7 +68,7 @@ revoke:  object.epoch += 1
 
 - 每 Task 默认 4096 个 Handle；Root Server 可配置。
 - 每服务器独立配额；Root Server 记录使用量与峰值。
-- `duplicate`/`transfer` 前检查配额；失败返回 `NoHandles`，不产生半成品。
+- `duplicate`/`transfer` 前检查配额；失败返回 `NoHandles`，配额保持原状。
 - Task 退出关闭全部 Handle；`exec` 关闭 `CLOEXEC` 对应 Handle。
 - 服务器重启关闭旧 Handle；客户端收到 `BadHandle` 并重连。
 - 审计事件：`handle.alloc`、`handle.dup`、`handle.transfer`、`handle.revoke`、`handle.close`、`handle.quota_hit`。
@@ -80,9 +80,9 @@ revoke:  object.epoch += 1
 - Handle 只能通过 Endpoint 消息显式转移。
 - 发送方必须有 `TRANSFER`；发送后失去该 Handle。
 - 接收方必须有配额空位；否则消息失败，发送方保留 Handle。
-- VSpace/HandleTable 的 `ADMIN`/transfer 只授予管理服务；DeviceGrant 只授予驱动。普通应用拥有自己的 HandleTable，但不接收他人的 VSpace/HandleTable/DeviceGrant。
-- POSIX fd 不是 Handle：POSIX Server 的 fd 表引用 VFS FileHandle；fd 不授予内核权限。
-- Endpoint badge 仅用于客户端标识，不作为权限。
+- VSpace/HandleTable 的 `ADMIN`/transfer 只授予管理服务；DeviceGrant 只授予驱动。普通应用管理自己的 HandleTable；VSpace/HandleTable/DeviceGrant 由管理服务与驱动持有。
+- POSIX fd 与 Handle 分层：POSIX Server 的 fd 表引用 VFS FileHandle；内核权限由 Handle 管理。
+- Endpoint badge 用于客户端标识；权限由 Handle 决定。
 
 ---
 
@@ -90,7 +90,7 @@ revoke:  object.epoch += 1
 
 - POSIX Server 维护 uid/gid/groups/umask。
 - VFS/ext2 检查 mode bits：owner/group/other 的读/写/执行。
-- `root` 是 POSIX 兼容环境内的 uid 0；不获得额外内核 Handle。
+- `root` 是 POSIX 兼容环境内的 uid 0；权限来自 POSIX 凭证与 Handle。
 - 1.0 默认单用户；多用户、ACL、setuid 属于后续版本。
 - POSIX Server 是可信组件；其漏洞会影响兼容环境权限，但内核 Handle 仍限制其直接资源访问。
 
@@ -100,9 +100,9 @@ revoke:  object.epoch += 1
 
 - DeviceGrant 是 MMIO/DMA/IRQ 的 Handle 集合。
 - 只有驱动 Task 获得 DeviceGrant；普通应用通过设备服务 Endpoint 访问。
-- DeviceGrant 不通过普通 IPC 转移给应用；由 Device Manager 按服务清单授予。
+- DeviceGrant 由 Device Manager 按服务清单授予；普通 IPC 只传递 Handle。
 - 驱动退出/崩溃时关闭 DeviceGrant；设备重新初始化。
-- DMA 隔离依赖 IOMMU；无 IOMMU 时驱动仍受信任，DeviceGrant 不提供硬件级 DMA 边界。
+- IOMMU 可用时 DeviceGrant 绑定硬件边界；IOMMU 关闭时驱动采用受信任模式。
 
 ---
 
@@ -115,16 +115,16 @@ revoke:  object.epoch += 1
 
 ---
 
-## 9. 不变量
+## 9. 保证
 
 1. Handle 查找校验 generation；close 后旧 Handle 失效。
 2. Handle 查找校验对象 epoch；revoke_all 后所有旧 Handle 失效。
 3. `duplicate` 只能保持或收窄 rights。
 4. `transfer` 需要 TRANSFER，接收方需要配额。
-5. 每 Task 的 Handle 数不超过配额。
+5. 每 Task 的 Handle 数保持在配额内。
 6. Task 退出/exec/服务器重启执行回收。
 7. 对象类型与 rights 检查在每次调用时执行。
-8. POSIX fd 与内核 Handle 分离；POSIX root 不获得内核特权。
+8. POSIX fd 与内核 Handle 分离；POSIX root 的权限来自 POSIX 凭证与 Handle。
 9. DeviceGrant 只授予驱动/管理服务。
 10. 所有 Handle 操作有审计事件。
 
@@ -145,11 +145,11 @@ revoke:  object.epoch += 1
 
 ## 11. 残余风险
 
-- 无 IOMMU 时，DeviceGrant 不提供硬件级 DMA 隔离。
+- IOMMU 关闭时，DeviceGrant 采用受信任驱动模式。
 - 对象级 epoch 撤销粒度较粗；需要按对象重建 Handle。
 - POSIX Server 是大可信组件；其漏洞影响兼容环境。
-- 单用户默认模型不提供多用户强隔离。
-- 无签名启动/硬件侧信道加固（不属于当前范围）。
+- 单用户默认模型提供 Task/Handle 隔离；多用户强隔离由扩展凭证模型提供。
+- 当前范围聚焦权限模型、Handle 与审计；签名启动、硬件侧信道加固属于后续评估。
 
 ---
 

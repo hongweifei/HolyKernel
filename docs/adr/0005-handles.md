@@ -13,14 +13,14 @@
 1. 资源通过 **Handle** 访问：`index + generation`；rights 为 `READ`、`WRITE`、`EXECUTE`、`TRANSFER`、`ADMIN`。
 2. Handle 存放在 Native Task 的 **HandleTable**；TCB 引用同一张表；支持查找、duplicate、close、transfer。
 3. `duplicate` 需要 `ADMIN`，结果 rights 只能收窄；`close` 使旧 generation 失效。
-4. 每个对象有 **epoch**；owner 的 `revoke_all` 递增 epoch，使该对象所有旧 Handle 失效，O(1) 且无需遍历句柄表。
+4. 每个对象有 **epoch**；owner 的 `revoke_all` 递增 epoch，使该对象所有旧 Handle 失效，查找 O(1)。
 5. 每 Task/服务器有 **Handle 配额**；`duplicate`/`transfer` 前检查，耗尽返回 `NoHandles`。
 6. `transfer` 需要 `TRANSFER`；接收方必须通过配额检查；发送方失去 Handle。
-7. 没有 CNode、派生树、递归撤销或 badge 权限；回收通过 `close`、`revoke_all`、任务退出与服务器重启。
+7. 权限模型采用线性 HandleTable；回收通过 `close`、`revoke_all`、任务退出与服务器重启。
 8. IPC 使用 **Endpoint**：send/recv/call/reply；消息携带 label、words 与 Handle。
 9. 异步事件使用 **Notification**；中断下半部与 DMA 完成通过 Notification 交付。
 10. 大消息使用共享 **Frame**；消息只传 Frame Handle。
-11. 内核不维护全局对象命名；服务器通过 Endpoint 暴露接口。
+11. 对象命名由服务器 Endpoint 提供；内核 Handle 保持匿名。
 12. 服务器重启时关闭旧 Handle，客户端重连新 Endpoint。
 
 ## 后果

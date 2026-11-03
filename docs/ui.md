@@ -92,7 +92,7 @@ pub struct Theme {
 }
 ```
 
-- 主题由语义 token 组成；组件使用 token，不硬编码颜色。
+- 主题由语义 token 组成；组件通过 token 取色。
 - 内置 Light、Dark、HighContrast、ColorBlindSafe。
 - 应用可提供主题；Display Server 负责合成与对比度检查。
 - 支持渐变、半透明与图像 alpha；HolyDoc 颜色指令使用 token 或 RGBA。
@@ -103,7 +103,7 @@ pub struct Theme {
 
 - 默认 UI 字体：可缩放无衬线；代码字体：等宽。
 - 支持 TrueType/OpenType；字体缓存与子集化；缺字形时回退。
-- 控制台回退：8×16 位图字体，保证无 GPU/无字体文件时可用。
+- 控制台回退：8×16 位图字体，覆盖纯帧缓冲与内置字体环境。
 - 字号按逻辑像素定义；支持 100%、125%、150%、200% 缩放。
 - 行高、字距、基线由 Font Stack 计算；HolyDoc 布局使用逻辑像素。
 - 复杂文本整形、双向文本、连字属于后续版本。
@@ -199,11 +199,11 @@ flowchart LR
 
 ---
 
-## 10. 不变量
+## 10. 保证
 
 1. Display Server 与 HolyDoc Server 运行在用户态。
 2. 帧缓冲使用 sRGB；窗口缓冲区为 32 位 RGBA。
-3. 主题由语义 token 组成；组件不硬编码颜色。
+3. 主题由语义 token 组成；组件通过 token 取色。
 4. 客户端可创建多个窗口；窗口由 Display Server 管理。
 5. 输入事件通过 Endpoint/Notification 交付。
 6. POSIX 应用通过 Console Service 使用终端。

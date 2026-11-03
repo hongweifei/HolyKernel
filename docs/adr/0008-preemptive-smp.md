@@ -18,7 +18,7 @@
 6. **亲和性**：`CpuMask` 限制可运行 CPU。
 7. **负载均衡**：idle CPU 拉取 Runnable TCB。
 8. **IPC 调度**：Endpoint 等待队列按优先级与 FIFO 排序；Notification 唤醒。
-9. **故障隔离**：线程故障通过 Fault Endpoint 交给 POSIX Server；内核不变量破坏时停机。
+9. **故障隔离**：线程故障通过 Fault Endpoint 交给 POSIX Server；内核检测到保证失效时停机。
 
 ## 后果
 

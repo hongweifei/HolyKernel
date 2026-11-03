@@ -23,7 +23,7 @@
 
 **收益**
 
-- 内核保持 POSIX 无关；POSIX 兼容层可独立演进。
+- POSIX 语义位于用户态兼容层；内核提供机制，兼容层可独立演进。
 - 应用生态通过 musl + `hk-abi` 接入；C/C++/Rust 共用 POSIX ABI。
 - POSIX Server 可重启；应用按策略恢复或终止。
 
@@ -44,7 +44,7 @@
 ## 架构一致性检查
 
 - POSIX Server 是用户态服务，通过 Endpoint 与 VFS/Network/内核协作。
-- 内核不维护 PID、fd、信号或 cwd。
+- POSIX PID、fd、信号与 cwd 由 POSIX Server 维护；内核提供机制。
 - musl 是兼容环境的主 C libc；`hk-abi` 是唯一 syscall shim 边界。
 
 ## 相关

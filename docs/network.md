@@ -21,18 +21,18 @@ HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 
 
 ### 后续版本评估
 
-- TLS/证书（用户态库，非内核）
+- TLS/证书（用户态库）
 - Wi-Fi、USB 网卡
 - NAT、VPN、防火墙规则语言
 - 多网络命名空间、流量整形
 - QUIC/HTTP 库（用户态）
 
-### 非目标
+### 范围边界
 
-- 内核内 TCP/IP 栈。
-- 内核内 socket、netfilter、路由。
-- 设备固件加载与 Wi-Fi 协议栈。
-- 远程管理后门。
+- TCP/IP 栈位于用户态 Network Server。
+- socket、netfilter、路由位于用户态 Network Server。
+- 设备固件加载与 Wi-Fi 协议栈由后续设备服务提供。
+- 远程管理通过显式服务与权限实现。
 
 ---
 
@@ -55,7 +55,7 @@ flowchart TB
 - POSIX Server 把 socket fd 映射到 Network Server 的 Socket Handle。
 - 原生应用可直接通过 Network Server Endpoint 使用 Socket Handle。
 - 驱动只负责收发 Frame；协议在 Network Server。
-- 内核不参与协议解析、端口分配或连接状态。
+- 协议解析、端口分配与连接状态由用户态 Network Server 负责。
 
 ---
 
@@ -80,7 +80,7 @@ Network Server
 - 一个 Network Server 实例管理一个网络命名空间；1.0 使用默认命名空间。
 - Socket 表：`SocketId → State`（bound、listening、connected、closed）。
 - Listener 表：端口/地址 → backlog；`accept` 返回新 Socket。
-- TCP 状态机、重传、窗口、拥塞控制；UDP 无连接。
+- TCP 状态机、重传、窗口、拥塞控制；UDP 采用数据报模型，连接状态由应用维护。
 - DHCP 与 DNS 在 Network Server 内；结果写入配置与缓存。
 - 策略：每客户端 socket 权限、监听端口授权、raw socket 管理员限定。
 - 配额：socket 数、backlog、DNS 缓存、连接数；防 DoS。
@@ -106,7 +106,7 @@ pub struct Socket {
 - `WRITE`：send/sendto/connect。
 - `ADMIN`：bind/listen/setsockopt/close。
 - `socket` 返回 Socket Handle；`accept` 返回新 Handle。
-- POSIX fd 表引用 Socket Handle；fd 不直接授予内核权限。
+- POSIX fd 表引用 Socket Handle；内核权限由 Handle 管理。
 - Socket 关闭或 Network Server 重启时，fd 收到 `BadHandle`/`ECONNRESET`，应用重连。
 
 ---
@@ -147,7 +147,7 @@ holy> net dns example.com
 ```
 
 - 原生命令通过 Network Server Endpoint 查询/配置。
-- 原生应用使用 Socket Handle；无需 POSIX Server。
+- 原生应用使用 Socket Handle；POSIX 应用通过 POSIX Server 使用同一后端。
 - 配置文档：`T:/Network/Config.hd` 或服务清单；DHCP 默认。
 - POSIX 兼容环境可使用 `/etc/resolv.conf`、`/etc/hosts`（VFS）。
 
@@ -175,8 +175,8 @@ sequenceDiagram
 
 - 驱动使用 DeviceGrant 的 MMIO/DMA/IRQ；RX/TX 使用 Frame 队列。
 - 中断通过 IRQHandler → Notification 交付驱动 Task。
-- 协议栈与驱动通过共享 Frame 传递数据包；避免多余拷贝。
-- 无 IOMMU 时，驱动 DMA 受信任；有 IOMMU 时绑定 DeviceGrant 域。
+- 协议栈与驱动通过共享 Frame 传递数据包，保持零拷贝路径。
+- IOMMU 可用时绑定 DeviceGrant 域；IOMMU 关闭时驱动采用受信任模式。
 
 ---
 
@@ -187,19 +187,19 @@ sequenceDiagram
   - 接口、地址、网关、DNS、MTU、策略。
 - POSIX 兼容：`/etc/resolv.conf`、`/etc/hosts`、`/etc/network` 由 VFS 提供；Network Server 可读取。
 - 配置变更通过 `net` 命令或 Network Server Endpoint；审计记录。
-- 无网络管理器守护进程；Network Server 自身管理接口状态。
+- Network Server 自身管理接口状态。
 
 ---
 
 ## 9. 安全与策略
 
 - Network Server 在用户态，独立 VSpace/HandleTable，仅持有 Net Endpoint 与必要配置句柄；DeviceGrant 由 Network Driver 持有。
-- 每客户端需显式 Socket Handle；无 ambient network authority。
+- 每客户端需显式 Socket Handle；权限来自 Handle。
 - `SOCK_RAW`、`bind` 特权端口、`listen` 需要 `ADMIN`。
 - 每客户端配额：socket 数、连接数、backlog、带宽/速率（可选）。
-- 入站连接只投递到已授权 Listener；无监听则拒绝。
+- 入站连接只投递到已授权 Listener；其他连接由 Network Server 拒绝。
 - 出站策略可配置 allow/deny（地址/端口/域名）；默认 allow，管理服务可收紧。
-- TLS 在用户态库完成；证书/密钥通过 VFS 与 Handle 管理，内核不参与加密。
+- TLS 在用户态库完成；证书/密钥通过 VFS 与 Handle 管理，内核保持协议无关。
 - 网络解析器（Ethernet/ARP/IP/TCP/UDP/DHCP/DNS）全部 fuzz。
 - DNS 缓存与 DHCP 租约有过期与上限，防资源耗尽。
 
@@ -234,18 +234,18 @@ sequenceDiagram
 
 ---
 
-## 12. 不变量
+## 12. 保证
 
-1. 内核不包含 TCP/IP、socket、路由或 netfilter。
+1. TCP/IP、socket、路由、netfilter 位于用户态 Network Server。
 2. Network Server 运行在用户态，持有 Net Endpoint；Network Driver 持有 NIC DeviceGrant。
-3. Socket 访问通过 Handle；无 ambient network authority。
+3. Socket 访问通过 Handle；权限来自 Handle。
 4. raw socket 与监听端口需要 ADMIN。
-5. POSIX fd 映射到 Socket Handle；fd 不授予内核权限。
+5. POSIX fd 映射到 Socket Handle；内核权限由 Handle 管理。
 6. 每客户端有 socket/连接/backlog 配额。
 7. 所有网络解析器有 fuzz 目标。
 8. 配置变更与高权限 socket 操作有审计。
 9. Network Server 崩溃后 Root Server 重启，客户端收到错误并重连。
-10. 无 IOMMU 时，驱动 DMA 仍受信任；有 IOMMU 时绑定 DeviceGrant 域。
+10. IOMMU 可用时绑定 DeviceGrant 域；IOMMU 关闭时驱动采用受信任模式。
 
 ---
 

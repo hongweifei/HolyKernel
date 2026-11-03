@@ -13,7 +13,7 @@
 1. **musl 作为兼容环境的主 C libc**：提供 POSIX 函数、stdio、malloc、pthreads、locale、动态链接。
 2. **`hk-abi`**：稳定的 POSIX syscall shim 协议与 C 头文件；把 musl 的 syscall 入口转换为 POSIX Server IPC。
 3. **`hk-crt`**：启动代码、TLS 初始化、signal trampoline、ELF 加载与动态链接 shim。
-4. **`hk-libc`**：薄兼容层；只包含 HK 扩展、ABI 胶水与少量兼容符号，避免重复实现完整 libc。
+4. **`hk-libc`**：薄兼容层；提供 HK 扩展、ABI 胶水与少量兼容符号，复用 musl 的完整实现。
 5. musl 的 `ld-musl-*.so.1` 移植版作为动态链接器；支持静态与动态链接。
 6. 应用使用标准 POSIX 头文件；针对 musl + `hk-abi` 重新编译。
 7. 1.0 聚焦源码兼容；Linux 二进制 ABI 属于后续版本。
@@ -41,7 +41,7 @@
 | 自研完整 libc | 与微内核模型贴合；覆盖面与测试成本高。 |
 | glibc 移植 | 生态最大；Linux syscall 假设多，移植成本高。 |
 | musl 移植 + 薄 hk-libc | 复用成熟实现；需要 shim 与 CRT 适配。 |
-| 不提供 C libc | 系统更小；C 应用需自带 libc，生态碎片化。 |
+| 自带 libc 方案 | 系统更小；C 应用自带 libc，生态碎片化。 |
 
 ## 架构一致性检查
 

@@ -72,7 +72,7 @@ pub struct Untyped {
 }
 
 impl Untyped {
-    pub fn retype(&mut self, kind: ObjectKind, size_bits: u8) -> Result<Cap>;
+    pub fn retype(&mut self, kind: ObjectKind, size_bits: u8) -> Result<Handle>;
 }
 ```
 
@@ -80,7 +80,7 @@ impl Untyped {
 - `retype` 将 Untyped 分割为 TCB、VSpace、HandleTable、Frame、PageTable、Endpoint、Notification。
 - 对象大小按 2 的幂管理；剩余 Untyped 可继续分割。
 - Root Server 按服务清单向服务器分配 Untyped 与初始 Handle。
-- 内核不维护全局物理帧分配器；物理内存由 Untyped Handle 表达。
+- 物理帧由 Untyped Handle 表达；分配策略位于用户态。
 
 ---
 
@@ -112,7 +112,7 @@ bitflags! {
 
 - 映射必须持有对应 Frame Handle。
 - W^X：`WRITE` 与 `EXECUTE` 互斥。
-- `GUARD` 页保持不可访问。
+- `GUARD` 页保持保护状态。
 - 设备映射携带 `DEVICE` 与 uncached 属性。
 - 页表变更通过 TLB shootdown 同步。
 
@@ -186,7 +186,7 @@ pub struct DeviceGrant {
 - 驱动映射 MMIO 为 `DEVICE`；通过 `volatile` 访问。
 - 驱动分配 Frame 作为 DMA 缓冲；缓存维护由平台实现。
 - IOMMU 可用时，DeviceGrant 绑定地址空间；DMA 只访问授权 Frame。
-- IOMMU 不可用时，驱动按受信任组件审计。
+- IOMMU 关闭时，驱动按受信任组件审计。
 
 ---
 
@@ -194,13 +194,13 @@ pub struct DeviceGrant {
 
 - 内核使用静态分配、per-CPU 结构与最小堆。
 - 内核堆实现 `GlobalAlloc`；启动后固定大小。
-- 内核对象（TCB/VSpace/HandleTable/Endpoint）来自 Untyped，不经过内核堆。
+- 内核对象（TCB/VSpace/HandleTable/Endpoint）来自 Untyped；内核堆保持独立。
 - 栈：每 TCB 独立内核栈与 guard page；异常使用独立栈。
 - panic 路径使用静态缓冲，独立于堆。
 
 ---
 
-## 10. 不变量
+## 10. 保证
 
 1. 每个进程拥有独立 VSpace；内核与用户地址空间分离。
 2. 所有映射持有对应 Frame Handle。
