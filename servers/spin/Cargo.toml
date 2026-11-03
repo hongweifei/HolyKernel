@@ -1,0 +1,17 @@
+[package]
+name = "hk-server-spin"
+description = "HolyKernel 抢占演示服务：忙等调度 tick"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-spin"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[lints]
+workspace = true

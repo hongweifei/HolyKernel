@@ -87,6 +87,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
         current: None,
     });
     cpu::set_syscall_hook(dispatch);
+    cpu::set_preempt_hook(preempt);
     Ok(())
 }
 
@@ -198,6 +199,7 @@ fn pending_name(pending: Pending) -> &'static str {
 
 /// 依次调度任务直到没有可运行线程，并把退出结果写入服务表。
 pub fn run(table: &mut ServiceTable) {
+    cpu::start_tick();
     loop {
         let Some(index) = next_task() else {
             break;
@@ -215,6 +217,7 @@ pub fn run(table: &mut ServiceTable) {
             table.mark_exited(&name, code);
         }
     }
+    cpu::stop_tick();
 }
 
 fn next_task() -> Option<usize> {
@@ -274,6 +277,20 @@ fn endpoint_of(runtime: &Runtime, tcb: TcbId) -> u64 {
         .unwrap_or(0)
 }
 
+fn preempt(frame: &InterruptFrame) -> bool {
+    let mut guard = RUNTIME.lock();
+    let Some(runtime) = guard.as_mut() else {
+        return false;
+    };
+    let Some(index) = runtime.current else {
+        return false;
+    };
+
+    runtime.tasks[index].context = *frame;
+    runtime.tasks[index].pending = Pending::None;
+    true
+}
+
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
     let mut guard = RUNTIME.lock();
     let Some(runtime) = guard.as_mut() else {
@@ -312,6 +329,10 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
                 function,
                 frame.rsi as u8,
             ));
+            SyscallAction::Continue
+        }
+        hk_server_api::SYS_TICKS => {
+            frame.rax = hk_platform_x86_64::cpu::timer_ticks();
             SyscallAction::Continue
         }
         _ => {

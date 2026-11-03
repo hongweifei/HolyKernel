@@ -193,6 +193,10 @@ extern "C" fn kmain() -> ! {
     }
     announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
 
+    if let Some(hz) = frequency {
+        hk_platform_x86_64::cpu::calibrate_tick(hz);
+    }
+
     match init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
         Ok(Some(ioapic)) => announce(
             &console,
@@ -270,6 +274,11 @@ extern "C" fn kmain() -> ! {
                 );
             }
             announce(&console, screen.as_ref(), "服务进入空闲\n");
+            announce(
+                &console,
+                screen.as_ref(),
+                &format!("调度 tick：{} 次\n", hk_platform_x86_64::cpu::timer_ticks()),
+            );
             report_time(&console, screen.as_ref(), "启动耗时", boot_start, frequency);
 
             let mut shell_loader = shell::Loader {

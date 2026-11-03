@@ -43,6 +43,9 @@ pub enum SmokeMode {
     /// 键盘输入驱动的交互式 HolyShell
     #[value(name = "input")]
     Input,
+    /// 定时器抢占调度
+    #[value(name = "preempt")]
+    Preempt,
 }
 
 impl SmokeMode {
@@ -57,6 +60,7 @@ impl SmokeMode {
                 "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;services;mounts",
             ),
             Self::Input => Some("shell-interactive"),
+            Self::Preempt => None,
         }
     }
 
@@ -71,6 +75,8 @@ impl SmokeMode {
                 "hk-server-echo 收到请求 21",
                 "hk-server-demo 收到回复 42",
                 "hk-server-device: 发现",
+                "hk-server-spin: done",
+                "调度 tick：",
                 "启动耗时",
                 "服务进入空闲",
             ],
@@ -82,10 +88,11 @@ impl SmokeMode {
                 "HolyShell",
                 "当前任务：hk-server-echo",
                 "已启动：hk-server-device",
-                "任务表（4 项）",
+                "任务表（5 项）",
                 "hk-server-demo",
                 "hk-server-echo",
                 "hk-server-device",
+                "hk-server-spin",
                 "尚无挂载",
             ],
             Self::Input => &[
@@ -94,14 +101,18 @@ impl SmokeMode {
                 "hk> echo hello-ioapic",
                 "hello-ioapic",
             ],
+            Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
         }
     }
 
     fn exit_code(self) -> i32 {
         match self {
-            Self::Boot | Self::Timer | Self::Framebuffer | Self::Shell | Self::Input => {
-                QEMU_SUCCESS
-            }
+            Self::Boot
+            | Self::Timer
+            | Self::Framebuffer
+            | Self::Shell
+            | Self::Input
+            | Self::Preempt => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -115,6 +126,15 @@ impl SmokeMode {
             Self::Framebuffer => "build/serial-fb.log",
             Self::Shell => "build/serial-shell.log",
             Self::Input => "build/serial-input.log",
+            Self::Preempt => "build/serial-preempt.log",
+        }
+    }
+
+    /// 需要断言先后的输出片段。
+    fn ordered(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Preempt => Some(("hk-server-demo 收到回复 42", "hk-server-spin: done")),
+            _ => None,
         }
     }
 }
@@ -193,6 +213,18 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         if !text.contains(expected) {
             return Err(Failure::new(format!(
                 "串口输出缺少「{expected}」\n串口输出：\n{text}"
+            )));
+        }
+    }
+
+    if let Some((first, second)) = mode.ordered() {
+        let in_order = matches!(
+            (text.find(first), text.find(second)),
+            (Some(first_at), Some(second_at)) if first_at < second_at
+        );
+        if !in_order {
+            return Err(Failure::new(format!(
+                "串口输出顺序不符：「{first}」应在「{second}」之前\n串口输出：\n{text}"
             )));
         }
     }

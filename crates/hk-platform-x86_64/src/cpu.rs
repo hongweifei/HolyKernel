@@ -7,7 +7,7 @@ use alloc::string::String;
 use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::fmt::Write;
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::Console;
 
@@ -73,6 +73,7 @@ const LAPIC_SIVR: u64 = 0xF0;
 const LAPIC_ID: u64 = 0x20;
 const LAPIC_LVT_TIMER: u64 = 0x320;
 const LAPIC_TIMER_INITIAL: u64 = 0x380;
+const LAPIC_TIMER_CURRENT: u64 = 0x390;
 const LAPIC_TIMER_DIVIDE: u64 = 0x3E0;
 
 const LVT_MASKED: u32 = 1 << 16;
@@ -82,6 +83,9 @@ const SPURIOUS_ENABLE: u32 = 1 << 8;
 
 /// 定时器初始计数。
 const TIMER_INITIAL_COUNT: u32 = 1_000_000;
+
+/// 调度 tick 的初始计数。
+const TICK_INITIAL_COUNT: u32 = 100_000;
 
 /// 系统调用栈大小。
 const SYSCALL_STACK_SIZE: usize = 32 * 1024;
@@ -258,6 +262,9 @@ pub enum SyscallAction {
 /// 扩展系统调用处理函数。
 pub type SyscallHook = fn(&mut InterruptFrame) -> SyscallAction;
 
+/// 用户态抢占钩子：保存现场并返回是否切换任务。
+pub type PreemptHook = fn(&InterruptFrame) -> bool;
+
 struct CpuState {
     gdt: UnsafeCell<[u64; 7]>,
     idt: UnsafeCell<[IdtEntry; 256]>,
@@ -280,6 +287,8 @@ static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static SYSCALL_HOOK: AtomicUsize = AtomicUsize::new(0);
+static PREEMPT_HOOK: AtomicUsize = AtomicUsize::new(0);
+static TICK_COUNT: AtomicU32 = AtomicU32::new(TICK_INITIAL_COUNT);
 
 /// 初始化 GDT、TSS 与 IDT。
 ///
@@ -462,6 +471,51 @@ pub fn disarm_timer() {
     // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
     unsafe { asm!("cli", options(nomem, nostack)) };
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+}
+
+/// 启动周期性调度 tick。
+pub fn start_tick() {
+    TIMER_TICKS.store(0, Ordering::SeqCst);
+    TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
+    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
+
+    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    unsafe { asm!("sti", options(nomem, nostack)) };
+}
+
+/// 停止调度 tick 并关中断。
+pub fn stop_tick() {
+    // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
+    unsafe { asm!("cli", options(nomem, nostack)) };
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+}
+
+/// 用 TSC 频率校准 LAPIC 定时器，把调度 tick 设为约 10 ms。
+pub fn calibrate_tick(tsc_frequency: u64) {
+    let window = tsc_frequency / 100;
+    if window == 0 {
+        return;
+    }
+
+    lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, u32::MAX);
+
+    let start_tsc = crate::timing::rdtsc();
+    let start_count = lapic_read(LAPIC_TIMER_CURRENT);
+    while crate::timing::rdtsc().saturating_sub(start_tsc) < window {
+        core::hint::spin_loop();
+    }
+    let end_count = lapic_read(LAPIC_TIMER_CURRENT);
+    let counts = u64::from(start_count.wrapping_sub(end_count));
+
+    lapic_write(LAPIC_TIMER_INITIAL, 0);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+
+    if counts > 0 {
+        TICK_COUNT.store(counts.min(u64::from(u32::MAX)) as u32, Ordering::SeqCst);
+    }
 }
 
 /// 返回已记录的定时器中断次数。
@@ -667,7 +721,11 @@ core::arch::global_asm!(
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
         TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
+        let switch = frame.cs == u64::from(USER_CODE_SELECTOR) && preempt(frame);
         lapic_write(LAPIC_EOI, 0);
+        if switch {
+            leave_user();
+        }
         return;
     }
     if frame.vector == KEYBOARD_VECTOR {
@@ -720,6 +778,21 @@ fn handle_syscall(frame: &mut InterruptFrame) {
 /// 注册扩展系统调用处理函数。
 pub fn set_syscall_hook(hook: SyscallHook) {
     SYSCALL_HOOK.store(hook as usize, Ordering::SeqCst);
+}
+
+/// 注册用户态抢占钩子。
+pub fn set_preempt_hook(hook: PreemptHook) {
+    PREEMPT_HOOK.store(hook as usize, Ordering::SeqCst);
+}
+
+fn preempt(frame: &InterruptFrame) -> bool {
+    let hook = PREEMPT_HOOK.load(Ordering::SeqCst);
+    if hook == 0 {
+        return false;
+    }
+    // SAFETY: 钩子在进入用户态前注册，指向静态函数并覆盖整个内核运行期。
+    let hook: PreemptHook = unsafe { core::mem::transmute(hook) };
+    hook(frame)
 }
 
 fn user_range_valid(pointer: u64, length: usize) -> bool {

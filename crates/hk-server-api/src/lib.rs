@@ -26,6 +26,9 @@ pub const SYS_RECV: u64 = 4;
 /// 读取 PCI 配置空间：`rdi` 为 bus/device/function 编码，`rsi` 为偏移。
 pub const SYS_PCI_READ: u64 = 5;
 
+/// 读取调度 tick 计数。
+pub const SYS_TICKS: u64 = 6;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
 
@@ -104,6 +107,12 @@ pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);
     // SAFETY: 内核校验参数并只访问 PCI 配置端口。
     unsafe { syscall(SYS_PCI_READ, address, u64::from(offset)) as u32 }
+}
+
+/// 读取调度 tick 计数。
+pub fn ticks() -> u64 {
+    // SAFETY: 只读计数器，不携带参数。
+    unsafe { syscall(SYS_TICKS, 0, 0) }
 }
 
 /// 结束服务，不返回。
