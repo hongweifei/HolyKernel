@@ -17,7 +17,7 @@
 5. **POSIX 兼容**：`hk-libc` socket shim → POSIX Server → Network Server；fd 映射到 Socket Handle。
 6. **策略**：raw socket、特权端口、`listen` 需要 ADMIN；每客户端 socket/连接/backlog 配额。
 7. **安全**：Network Server 用户态隔离；访问通过显式 Socket Handle；解析器 fuzz；TLS 在用户态库。
-8. **配置**：默认 DHCP；原生 `T:/Network/Config.hd`；POSIX `/etc/resolv.conf`、`/etc/hosts` 通过 VFS。
+8. **配置**：默认 DHCP；原生 `H:/Network/Config.hd`；POSIX `/etc/resolv.conf`、`/etc/hosts` 通过 VFS。
 
 ## 后果
 

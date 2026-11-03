@@ -148,7 +148,7 @@ holy> net dns example.com
 
 - 原生命令通过 Network Server Endpoint 查询/配置。
 - 原生应用使用 Socket Handle；POSIX 应用通过 POSIX Server 使用同一后端。
-- 配置文档：`T:/Network/Config.hd` 或服务清单；DHCP 默认。
+- 配置文档：`H:/Network/Config.hd` 或服务清单；DHCP 默认。
 - POSIX 兼容环境可使用 `/etc/resolv.conf`、`/etc/hosts`（VFS）。
 
 ---
@@ -183,7 +183,7 @@ sequenceDiagram
 ## 8. 配置
 
 - 默认 DHCP；失败时使用静态配置或链路本地地址。
-- 原生配置：`T:/Network/Config.hd`：
+- 原生配置：`H:/Network/Config.hd`：
   - 接口、地址、网关、DNS、MTU、策略。
 - POSIX 兼容：`/etc/resolv.conf`、`/etc/hosts`、`/etc/network` 由 VFS 提供；Network Server 可读取。
 - 配置变更通过 `net` 命令或 Network Server Endpoint；审计记录。

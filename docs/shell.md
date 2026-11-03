@@ -65,11 +65,11 @@ VFS         Running  0         ep:0x21
 POSIX       Running  0         ep:0x2a
 
 holy> docs list
-T:/System/Guide.hd
-T:/System/Commands.hd
+H:/System/Guide.hd
+H:/System/Commands.hd
 
-holy> build T:/Apps/Hello
-build ok · 1.2 s · /System/Apps/Hello
+holy> build H:/Apps/Hello
+build ok · 1.2 s · H:/System/Apps/Hello
 ```
 
 - 提示符：`holy>`；可配置主题与提示符。
@@ -99,8 +99,8 @@ HolyShell 会话是一个 **Native Task**：
 - Task 消息：`Ping`、`Stats`、`Suspend`、`Resume`、`Checkpoint`，通过 Endpoint 授权。
 
 ```text
-holy> use T:/Scripts/Deploy.hsh
-holy> let app = build T:/Apps/Hello
+holy> use H:/Scripts/Deploy.hsh
+holy> let app = build H:/Apps/Hello
 holy> tasks app
 holy> debug app
 ```
@@ -148,7 +148,7 @@ holy> handles | filter rights~write
 - `.hsh` 脚本：
 
 ```text
-let app = "T:/Apps/Hello"
+let app = "H:/Apps/Hello"
 build $app
 if status.ok {
     run $app
