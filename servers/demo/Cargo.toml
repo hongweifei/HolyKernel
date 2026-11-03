@@ -1,0 +1,17 @@
+[package]
+name = "hk-server-demo"
+description = "HolyKernel 演示服务：验证 ELF 加载与调用"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-demo"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[lints]
+workspace = true

@@ -13,6 +13,9 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+mod loader;
+
+#[cfg(target_os = "none")]
 use alloc::format;
 #[cfg(target_os = "none")]
 use alloc::string::String;
@@ -144,15 +147,46 @@ extern "C" fn kmain() -> ! {
 
     announce(&console, screen.as_ref(), "启动信息校验通过\n");
 
-    if let Err(error) = init_interrupts(&info) {
-        announce(
+    let direct_map = match info.direct_map {
+        Some(direct_map) => direct_map,
+        None => fail(
+            &console,
+            screen.as_ref(),
+            "启动信息缺少 direct map\n",
+            ExitCode::Failure(3),
+        ),
+    };
+    let direct_map_base = direct_map.virt_base.get();
+    let mut allocator = match FrameAllocator::new(info.memory_map, info.kernel_image) {
+        Some(allocator) => allocator,
+        None => fail(
+            &console,
+            screen.as_ref(),
+            "没有可用的物理内存区域\n",
+            ExitCode::Failure(3),
+        ),
+    };
+    let paging = PageTable::new(direct_map_base);
+
+    if let Err(error) = init_interrupts(&paging, &mut allocator, direct_map_base) {
+        fail(
             &console,
             screen.as_ref(),
             &format!("中断初始化失败：{error}\n"),
+            ExitCode::Failure(3),
         );
-        hk_test::exit(ExitCode::Failure(3));
     }
     announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
+
+    if let Err(error) = loader::run(&info, direct_map_base, &mut allocator, &paging) {
+        fail(
+            &console,
+            screen.as_ref(),
+            &format!("服务加载失败：{error}\n"),
+            ExitCode::Failure(4),
+        );
+    }
+    announce(&console, screen.as_ref(), "服务模块加载完成\n");
 
     match hk_boot::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
@@ -212,23 +246,44 @@ fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferCon
 }
 
 #[cfg(target_os = "none")]
-fn init_interrupts(info: &BootInfo) -> Result<(), String> {
-    let direct_map = info
-        .direct_map
-        .ok_or_else(|| String::from("启动信息缺少 direct map"))?;
-    let direct_map_base = direct_map.virt_base.get();
-    let mut allocator = FrameAllocator::new(info.memory_map, info.kernel_image)
-        .ok_or_else(|| String::from("没有可用的物理内存区域"))?;
-
-    let paging = PageTable::new(direct_map_base);
+fn init_interrupts(
+    paging: &PageTable,
+    allocator: &mut FrameAllocator,
+    direct_map_base: u64,
+) -> Result<(), String> {
     let lapic_phys = PhysAddr::new(0xFEE0_0000);
     let lapic_virt = VirtAddr::new(direct_map_base + lapic_phys.get());
     paging
-        .map(lapic_virt, lapic_phys, PageFlags::MMIO, &mut allocator)
+        .map(lapic_virt, lapic_phys, PageFlags::MMIO, allocator)
         .map_err(|error| format!("映射 LAPIC 失败：{error:?}"))?;
 
     hk_platform_x86_64::cpu::init_apic(lapic_virt.get());
     Ok(())
+}
+
+#[cfg(target_os = "none")]
+fn fail(
+    console: &Serial,
+    screen: Option<&hk_platform_x86_64::FramebufferConsole>,
+    message: &str,
+    code: ExitCode,
+) -> ! {
+    announce(console, screen, message);
+    hk_test::exit(code)
+}
+
+/// 内核提供给服务模块的文本输出函数。
+#[cfg(target_os = "none")]
+pub(crate) extern "C" fn serial_write(pointer: *const u8, length: usize) {
+    // SAFETY: 调用方是刚加载的服务，指针与长度由服务给出；空指针按空文本处理。
+    let bytes = if pointer.is_null() || length == 0 {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(pointer, length) }
+    };
+    if let Ok(text) = core::str::from_utf8(bytes) {
+        Serial::new(COM1).write_str(text);
+    }
 }
 
 #[cfg(target_os = "none")]

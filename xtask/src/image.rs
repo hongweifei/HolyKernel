@@ -12,7 +12,7 @@ use crate::workspace;
 /// Limine 安装目录的默认位置。
 const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
-const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n";
+const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n";
 
 fn limine_config(cmdline: Option<&str>) -> String {
     let mut config = String::from(LIMINE_CONFIG);
@@ -41,6 +41,8 @@ fn build_kernel(release: bool) -> Result<()> {
         "x86_64-unknown-none",
         "-p",
         "hk-x86_64",
+        "-p",
+        "hk-server-demo",
     ]);
     if release {
         command.arg("--release");
@@ -48,11 +50,11 @@ fn build_kernel(release: bool) -> Result<()> {
     cargo::run(command)
 }
 
-fn kernel_path(release: bool) -> PathBuf {
+fn binary_path(name: &str, release: bool) -> PathBuf {
     workspace::root()
         .join("target/x86_64-unknown-none")
         .join(if release { "release" } else { "debug" })
-        .join("hk-x86_64")
+        .join(name)
 }
 
 fn limine_dir() -> PathBuf {
@@ -75,7 +77,11 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     create_dir(&efi)?;
 
     let limine = limine_dir();
-    copy(&kernel_path(release), &boot.join("hk-x86_64"))?;
+    copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
+    copy(
+        &binary_path("hk-server-demo", release),
+        &boot.join("hk-server-demo"),
+    )?;
     copy(
         &limine.join("limine-bios-cd.bin"),
         &boot.join("limine-bios-cd.bin"),

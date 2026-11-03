@@ -14,8 +14,10 @@ path = "src/main.rs"
 hk-boot = { version = "0.1.0", path = "../../crates/hk-boot" }
 hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/hk-platform-x86_64" }
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-test = { version = "0.1.0", path = "../../crates/hk-test" }
 spin = "0.9"
+xmas-elf = "0.10"
 
 [lints]
 workspace = true

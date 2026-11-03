@@ -1,0 +1,10 @@
+[package]
+name = "hk-server-api"
+description = "HolyKernel 服务器与内核之间的入口 ABI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

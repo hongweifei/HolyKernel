@@ -204,6 +204,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-api"
+version = "0.1.0"
+
+[[package]]
+name = "hk-server-demo"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-sim"
 version = "0.1.0"
 dependencies = [
@@ -230,8 +241,10 @@ dependencies = [
  "hk-boot",
  "hk-hal",
  "hk-platform-x86_64",
+ "hk-server-api",
  "hk-test",
  "spin",
+ "xmas-elf",
 ]
 
 [[package]]
@@ -357,8 +370,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmas-elf"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18245fcbb8b3de8dd198ce7944fdd4096986fd6cd306b0fcfa27df817bd545d6"
+dependencies = [
+ "zero",
+]
+
+[[package]]
 name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
 ]
+
+[[package]]
+name = "zero"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe21bcc34ca7fe6dd56cc2cb1261ea59d6b93620215aefb5ea6032265527784"

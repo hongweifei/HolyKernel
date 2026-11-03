@@ -47,7 +47,7 @@ static KERNEL_PACKAGES: [&str; 8] = [
     "hk-root-server",
     "hk-test",
 ];
-static X86_64_PACKAGES: [&str; 9] = [
+static X86_64_PACKAGES: [&str; 11] = [
     "hk-hal",
     "hk-handle",
     "hk-ipc",
@@ -55,6 +55,8 @@ static X86_64_PACKAGES: [&str; 9] = [
     "hk-trace",
     "hk-kernel",
     "hk-root-server",
+    "hk-server-api",
+    "hk-server-demo",
     "hk-test",
     "hk-x86_64",
 ];

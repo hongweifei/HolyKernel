@@ -33,6 +33,7 @@ HolyKernel/
 │   ├── hk-abi/                POSIX syscall shim 协议与头文件
 │   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
+│   ├── hk-server-api/         内核与服务器之间的入口 ABI
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
 │   ├── hk-network/            Network Server
 │   ├── hk-display/            Display Server

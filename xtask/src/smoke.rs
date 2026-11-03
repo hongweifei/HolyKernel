@@ -49,13 +49,17 @@ impl SmokeMode {
         }
     }
 
-    fn expected(self) -> &'static str {
+    fn expected(self) -> &'static [&'static str] {
         match self {
-            Self::Boot => "启动信息校验通过",
-            Self::Ud2 => "内核异常：非法指令",
-            Self::Page => "内核异常：页错误",
-            Self::Timer => "定时器中断 5 次",
-            Self::Framebuffer => "帧缓冲控制台: 80x36 字符",
+            Self::Boot => &[
+                "启动信息校验通过",
+                "服务模块加载完成",
+                "hk-server-demo running",
+            ],
+            Self::Ud2 => &["内核异常：非法指令"],
+            Self::Page => &["内核异常：页错误"],
+            Self::Timer => &["定时器中断 5 次"],
+            Self::Framebuffer => &["帧缓冲控制台: 80x36 字符"],
         }
     }
 
@@ -127,11 +131,12 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     }
 
-    let expected = mode.expected();
-    if !text.contains(expected) {
-        return Err(Failure::new(format!(
-            "串口输出缺少「{expected}」\n串口输出：\n{text}"
-        )));
+    for expected in mode.expected() {
+        if !text.contains(expected) {
+            return Err(Failure::new(format!(
+                "串口输出缺少「{expected}」\n串口输出：\n{text}"
+            )));
+        }
     }
     Ok(())
 }
