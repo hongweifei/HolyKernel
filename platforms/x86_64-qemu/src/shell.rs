@@ -153,13 +153,22 @@ fn execute_line(
     write(console, screen, &response.output);
 
     if let Some(name) = &response.start {
-        let output = start_service(loader, services, name);
+        let parent = session
+            .current()
+            .and_then(runtime::tcb_of)
+            .or(Some(runtime::root()));
+        let output = start_service(loader, services, name, parent);
         write(console, screen, &output);
     }
     response.exit
 }
 
-fn start_service(loader: &mut Loader<'_>, services: &mut ServiceTable, name: &str) -> String {
+fn start_service(
+    loader: &mut Loader<'_>,
+    services: &mut ServiceTable,
+    name: &str,
+    parent: Option<u64>,
+) -> String {
     let running = runtime::tasks()
         .iter()
         .any(|task| task.name == name && task.state != "exited");
@@ -180,7 +189,7 @@ fn start_service(loader: &mut Loader<'_>, services: &mut ServiceTable, name: &st
         Err(error) => return format!("装载失败：{error}\n"),
     };
 
-    if let Err(error) = runtime::start(name, context) {
+    if let Err(error) = runtime::start(name, context, parent) {
         return format!("启动失败：{error}\n");
     }
 

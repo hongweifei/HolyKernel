@@ -90,6 +90,7 @@ impl SmokeMode {
                 "当前任务：hk-server-echo",
                 "已启动：hk-server-device",
                 "任务表（5 项）",
+                "父",
                 "Arena",
                 "4/64K",
                 "hk-server-demo",

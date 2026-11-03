@@ -186,10 +186,14 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     }
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
-    output.push_str("TCB  名称              端点  状态      挂起   退出码  Arena     当前\n");
+    output.push_str("TCB  名称              父   端点  状态      挂起   退出码  Arena     当前\n");
     for task in tasks {
         let exit = match task.exit_code {
             Some(code) => format!("{code}"),
+            None => String::from("-"),
+        };
+        let parent = match task.parent {
+            Some(id) => format!("{id}"),
             None => String::from("-"),
         };
         let arena = format!("{}/{}K", task.arena_used / 1024, task.arena_size / 1024);
@@ -199,8 +203,16 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
             ""
         };
         output.push_str(&format!(
-            "{:<4} {:<16} {:<4} {:<8} {:<5} {:<6} {:<9} {}\n",
-            task.tcb, task.name, task.endpoint, task.state, task.pending, exit, arena, marker
+            "{:<4} {:<16} {:<4} {:<4} {:<8} {:<5} {:<6} {:<9} {}\n",
+            task.tcb,
+            task.name,
+            parent,
+            task.endpoint,
+            task.state,
+            task.pending,
+            exit,
+            arena,
+            marker
         ));
     }
     output
@@ -244,6 +256,7 @@ mod tests {
             TaskInfo {
                 tcb: 2,
                 name: alloc::string::String::from("hk-server-demo"),
+                parent: Some(1),
                 endpoint: 1,
                 state: "exited",
                 pending: "-",
@@ -254,6 +267,7 @@ mod tests {
             TaskInfo {
                 tcb: 3,
                 name: alloc::string::String::from("hk-server-echo"),
+                parent: None,
                 endpoint: 2,
                 state: "blocked",
                 pending: "recv",
@@ -310,6 +324,7 @@ mod tests {
         assert!(response.output.contains("hk-server-echo"));
         assert!(response.output.contains("exited"));
         assert!(response.output.contains("recv"));
+        assert!(response.output.contains("父"));
     }
 
     #[test]

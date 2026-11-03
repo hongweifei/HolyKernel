@@ -11,6 +11,8 @@ pub struct TaskInfo {
     pub tcb: u64,
     /// 任务名称。
     pub name: String,
+    /// 父任务 TCB 编号。
+    pub parent: Option<u64>,
     /// 端点编号。
     pub endpoint: u64,
     /// 线程状态。

@@ -46,6 +46,7 @@ enum Pending {
 struct Task {
     tcb: TcbId,
     name: String,
+    parent: Option<u64>,
     handles: Vec<Option<Handle>>,
     context: InterruptFrame,
     pending: Pending,
@@ -57,6 +58,7 @@ struct Task {
 
 struct Runtime {
     kernel: Kernel,
+    root: u64,
     tasks: Vec<Task>,
     endpoints: Vec<Option<ObjectId>>,
     current: Option<usize>,
@@ -69,6 +71,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
     let kernel = Kernel::new();
     let specs: Vec<ServiceSpec> = names.iter().map(|name| ServiceSpec::new(name)).collect();
     let server = RootServer::boot(&kernel, &specs).map_err(|error| format!("{error}"))?;
+    let root = server.root().get();
 
     let mut tasks = Vec::with_capacity(names.len());
     let mut endpoints = Vec::with_capacity(names.len());
@@ -84,6 +87,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
         tasks.push(Task {
             tcb: service.tcb,
             name: names[index].to_string(),
+            parent: Some(root),
             handles,
             context: cpu::user_frame(0, 0, (index + 1) as u64),
             pending: Pending::None,
@@ -100,6 +104,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
 
     *RUNTIME.lock() = Some(Runtime {
         kernel,
+        root,
         tasks,
         endpoints,
         current: None,
@@ -127,8 +132,24 @@ pub fn task_count() -> usize {
         .map_or(0, |runtime| runtime.tasks.len())
 }
 
+/// 按名称返回任务的 TCB 编号。
+pub fn tcb_of(name: &str) -> Option<u64> {
+    let guard = RUNTIME.lock();
+    let runtime = guard.as_ref()?;
+    runtime
+        .tasks
+        .iter()
+        .find(|task| task.name == name)
+        .map(|task| task.tcb.get())
+}
+
+/// 返回 Root 线程编号，作为引导期服务的父任务。
+pub fn root() -> u64 {
+    RUNTIME.lock().as_ref().map_or(0, |runtime| runtime.root)
+}
+
 /// 装载一个新任务，返回分配的端点编号。
-pub fn start(name: &str, mut context: InterruptFrame) -> Result<u64, String> {
+pub fn start(name: &str, mut context: InterruptFrame, parent: Option<u64>) -> Result<u64, String> {
     let mut guard = RUNTIME.lock();
     let runtime = guard
         .as_mut()
@@ -167,6 +188,7 @@ pub fn start(name: &str, mut context: InterruptFrame) -> Result<u64, String> {
     runtime.tasks.push(Task {
         tcb,
         name: name.to_string(),
+        parent,
         handles,
         context,
         pending: Pending::None,
@@ -192,6 +214,7 @@ pub fn tasks() -> Vec<TaskInfo> {
         .map(|(index, task)| TaskInfo {
             tcb: task.tcb.get(),
             name: task.name.clone(),
+            parent: task.parent,
             endpoint: index as u64 + 1,
             state: state_name(runtime.kernel.state_of(task.tcb)),
             pending: pending_name(task.pending),
