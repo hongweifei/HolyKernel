@@ -23,6 +23,15 @@ pub const KERNEL_DATA: u16 = 0x10;
 /// TSS 选择子。
 pub const TSS_SELECTOR: u16 = 0x18;
 
+/// 用户数据段选择子。
+pub const USER_DATA_SELECTOR: u16 = 0x2B;
+
+/// 用户代码段选择子。
+pub const USER_CODE_SELECTOR: u16 = 0x33;
+
+/// 系统调用中断向量。
+pub const SYSCALL_VECTOR: u64 = 0x80;
+
 /// 定时器中断向量。
 pub const TIMER_VECTOR: u64 = 32;
 
@@ -40,6 +49,15 @@ const CODE_DESCRIPTOR: u64 = 0x00AF_9A00_0000_FFFF;
 
 /// 64 位数据段描述符：D/B=1、P=1、DPL=0、type=0x92。
 const DATA_DESCRIPTOR: u64 = 0x00CF_9200_0000_FFFF;
+
+/// 用户数据段描述符：DPL=3、type=0x92。
+const USER_DATA_DESCRIPTOR: u64 = 0x00CF_F200_0000_FFFF;
+
+/// 用户代码段描述符：DPL=3、L=1、type=0xA。
+const USER_CODE_DESCRIPTOR: u64 = 0x00AF_FA00_0000_FFFF;
+
+/// 用户态中断门：P=1、DPL=3、type=0xE。
+const USER_INTERRUPT_GATE: u8 = 0xEE;
 
 /// 中断门属性：P=1、DPL=0、type=0xE。
 const INTERRUPT_GATE: u8 = 0x8E;
@@ -60,6 +78,21 @@ const SPURIOUS_ENABLE: u32 = 1 << 8;
 
 /// 定时器初始计数。
 const TIMER_INITIAL_COUNT: u32 = 1_000_000;
+
+/// 系统调用栈大小。
+const SYSCALL_STACK_SIZE: usize = 32 * 1024;
+
+#[repr(C, align(16))]
+struct SyscallStack(UnsafeCell<[u8; SYSCALL_STACK_SIZE]>);
+
+// SAFETY: 系统调用栈只作为 ring 0 栈使用，访问由 CPU 特权级切换与内核代码串行化。
+unsafe impl Sync for SyscallStack {}
+
+static SYSCALL_STACK: SyscallStack = SyscallStack(UnsafeCell::new([0; SYSCALL_STACK_SIZE]));
+
+fn syscall_stack_top() -> u64 {
+    SYSCALL_STACK.0.get() as u64 + SYSCALL_STACK_SIZE as u64
+}
 
 #[repr(C, packed)]
 struct DescriptorPointer {
@@ -121,12 +154,16 @@ impl IdtEntry {
     };
 
     fn new(handler: usize, ist: u8) -> Self {
+        Self::with_attributes(handler, ist, INTERRUPT_GATE)
+    }
+
+    fn with_attributes(handler: usize, ist: u8, attributes: u8) -> Self {
         let handler = handler as u64;
         Self {
             offset_low: handler as u16,
             selector: KERNEL_CODE,
             ist,
-            attributes: INTERRUPT_GATE,
+            attributes,
             offset_mid: (handler >> 16) as u16,
             offset_high: (handler >> 32) as u32,
             reserved: 0,
@@ -252,6 +289,7 @@ unsafe extern "C" {
     fn isr_30();
     fn isr_31();
     fn isr_32();
+    fn isr_128();
 }
 
 macro_rules! handler_addresses {
@@ -275,6 +313,7 @@ fn init_gdt() {
     // SAFETY: 初始化期间独占写入 GDT 与 TSS；此时没有多核或中断并发访问。
     unsafe {
         let tss = &mut *CPU.tss.get();
+        tss.rsp0 = syscall_stack_top();
         tss.ist[DOUBLE_FAULT_IST as usize - 1] =
             CPU.double_fault_stack.get().cast::<u8>() as u64 + DOUBLE_FAULT_STACK_SIZE as u64;
 
@@ -288,6 +327,8 @@ fn init_gdt() {
             | (((tss_limit >> 16) & 0xF) << 48)
             | (((tss_base >> 24) & 0xFF) << 56);
         gdt[4] = tss_base >> 32;
+        gdt[5] = USER_DATA_DESCRIPTOR;
+        gdt[6] = USER_CODE_DESCRIPTOR;
 
         let pointer = DescriptorPointer {
             limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
@@ -334,6 +375,8 @@ fn init_idt() {
             idt[vector] = IdtEntry::new(*handler, ist);
         }
         idt[TIMER_VECTOR as usize] = IdtEntry::new(isr_32 as *const () as usize, 0);
+        idt[SYSCALL_VECTOR as usize] =
+            IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
 
         let pointer = DescriptorPointer {
             limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
@@ -463,6 +506,7 @@ core::arch::global_asm!(
     "ISR_ERR 30",
     "ISR_NOERR 31",
     "ISR_NOERR 32",
+    "ISR_NOERR 128",
     ".global isr_common",
     "isr_common:",
     "    push r15",
@@ -502,17 +546,116 @@ core::arch::global_asm!(
     "    pop r15",
     "    add rsp, 16",
     "    iretq",
+    ".section .bss",
+    ".align 8",
+    "hk_kernel_rsp:",
+    "    .quad 0",
+    "hk_kernel_rip:",
+    "    .quad 0",
+    ".section .text",
+    ".global hk_enter_user",
+    "hk_enter_user:",
+    "    mov [rip + hk_kernel_rsp], rsp",
+    "    lea rax, [rip + hk_user_return]",
+    "    mov [rip + hk_kernel_rip], rax",
+    "    mov ax, 0x2b",
+    "    mov ds, ax",
+    "    mov es, ax",
+    "    push 0x2b",
+    "    push rsi",
+    "    push 0x202",
+    "    push 0x33",
+    "    push rdi",
+    "    iretq",
+    "hk_user_return:",
+    "    mov ax, 0x10",
+    "    mov ds, ax",
+    "    mov es, ax",
+    "    mov rsp, [rip + hk_kernel_rsp]",
+    "    ret",
+    ".global hk_leave_user",
+    "hk_leave_user:",
+    "    mov rsp, [rip + hk_kernel_rsp]",
+    "    mov rax, [rip + hk_kernel_rip]",
+    "    jmp rax",
 );
 
-/// 中断分派：定时器只计数并回 EOI，其余向量按异常处理。
+/// 中断分派：定时器计数、系统调用分派，其余向量按异常处理。
 #[unsafe(no_mangle)]
-extern "C" fn interrupt_dispatch(frame: &InterruptFrame) {
+extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
         TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
         lapic_write(LAPIC_EOI, 0);
         return;
     }
+    if frame.vector == SYSCALL_VECTOR {
+        handle_syscall(frame);
+        return;
+    }
     report_exception(frame);
+}
+
+/// 用户态可访问的地址上限。
+const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
+
+/// 系统调用允许的最大写入长度。
+const MAX_WRITE: usize = 4096;
+
+fn handle_syscall(frame: &mut InterruptFrame) {
+    match frame.rax {
+        hk_server_api::SYS_WRITE => {
+            let pointer = frame.rdi;
+            let length = frame.rsi as usize;
+            frame.rax = if user_range_valid(pointer, length) {
+                write_user(pointer, length)
+            } else {
+                u64::MAX
+            };
+        }
+        hk_server_api::SYS_EXIT => leave_user(),
+        _ => frame.rax = u64::MAX,
+    }
+}
+
+fn user_range_valid(pointer: u64, length: usize) -> bool {
+    length <= MAX_WRITE
+        && pointer >= 0x1000
+        && pointer
+            .checked_add(length as u64)
+            .is_some_and(|end| end <= USER_LIMIT)
+}
+
+fn write_user(pointer: u64, length: usize) -> u64 {
+    // SAFETY: 调用前已校验地址落在用户可访问范围内，且进程页表中有映射。
+    let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length) };
+    match core::str::from_utf8(bytes) {
+        Ok(text) => {
+            Serial::new(COM1).write_str(text);
+            length as u64
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+/// 进入用户态：保存内核上下文后按 `iretq` 切换到 ring 3。
+///
+/// 返回时机是服务调用退出系统调用之后。
+pub fn enter_user(entry: u64, stack_top: u64) {
+    // SAFETY: `entry` 指向已映射的用户态代码，`stack_top` 指向已映射的用户栈顶。
+    unsafe {
+        hk_enter_user(entry, stack_top);
+    }
+}
+
+/// 从系统调用回到进入用户态之前的执行流，不返回。
+pub fn leave_user() -> ! {
+    // SAFETY: 只在系统调用处理内部调用；内核上下文由 `enter_user` 保存。
+    unsafe { hk_leave_user() }
+}
+
+unsafe extern "C" {
+    fn hk_enter_user(entry: u64, stack_top: u64);
+    fn hk_leave_user() -> !;
 }
 
 fn report_exception(frame: &InterruptFrame) -> ! {
@@ -533,9 +676,9 @@ fn report_exception(frame: &InterruptFrame) -> ! {
     );
     let _ = writeln!(report, "  rsp={:#018x} ss={:#x}", frame.rsp, frame.ss);
 
-    if frame.vector == 14 {
+    if frame.vector == 14 || frame.vector == 8 {
         let cr2: u64;
-        // SAFETY: CR2 只在页错误处理中使用，读取不影响机器状态。
+        // SAFETY: CR2 只在异常处理中使用，读取不影响机器状态。
         unsafe {
             asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
         }

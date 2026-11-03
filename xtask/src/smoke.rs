@@ -53,8 +53,9 @@ impl SmokeMode {
         match self {
             Self::Boot => &[
                 "启动信息校验通过",
-                "服务模块加载完成",
+                "加载服务并进入用户态",
                 "hk-server-demo running",
+                "服务已退出",
             ],
             Self::Ud2 => &["内核异常：非法指令"],
             Self::Page => &["内核异常：页错误"],

@@ -1,4 +1,4 @@
-//! 演示服务：通过内核函数表输出一行文本后返回。
+//! 演示服务：通过系统调用输出一行文本后退出。
 //!
 //! 本 crate 只在 `x86_64-unknown-none` 上构建；宿主构建保留占位入口，便于
 //! `cargo clippy --workspace --all-targets` 与工作区测试。
@@ -9,20 +9,14 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{ServerApi, ServerEntry};
+use hk_server_api::{exit, write};
 
-/// 服务入口：内核加载 ELF 后按入口地址调用，返回即交回内核。
+/// 服务入口：内核以用户态进入，参数为空。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(api: &ServerApi) {
-    let entry: ServerEntry = server_entry;
-    entry(api);
-}
-
-#[cfg(target_os = "none")]
-extern "C" fn server_entry(api: &ServerApi) {
-    let message = b"hk-server-demo running\n";
-    (api.write)(message.as_ptr(), message.len());
+pub extern "C" fn _start() -> ! {
+    write(b"hk-server-demo running\n");
+    exit(0)
 }
 
 #[cfg(target_os = "none")]

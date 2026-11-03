@@ -1,21 +1,25 @@
 //! 服务 ELF 加载。
 //!
 //! 从 Limine 模块中取服务镜像，按程序头把各段复制到新分配的物理帧，用内核页表
-//! 映射到镜像链接地址，然后调用入口并传入内核函数表。
+//! 以用户权限映射到镜像链接地址，分配用户栈后进入 ring 3 执行。
 
 use alloc::format;
 use alloc::string::String;
 use core::cmp::min;
 
 use hk_hal::{BootInfo, PAGE_SIZE, VirtAddr};
+use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
-use hk_server_api::{ServerApi, ServerEntry};
 use xmas_elf::ElfFile;
 use xmas_elf::program::Type;
 
-use crate::serial_write;
+/// 用户栈基址。
+const USER_STACK_BASE: u64 = 0x0080_0000;
 
-/// 加载第一个服务模块并调用入口。
+/// 用户栈大小。
+const USER_STACK_SIZE: u64 = 8 * PAGE_SIZE as u64;
+
+/// 加载第一个服务模块并以用户态运行。
 pub fn run(
     info: &BootInfo,
     direct_map_base: u64,
@@ -73,18 +77,33 @@ pub fn run(
                 .map(
                     VirtAddr::new(virtual_address + page_offset),
                     frame,
-                    PageFlags::KERNEL_RW,
+                    PageFlags::USER_RW,
                     allocator,
                 )
                 .map_err(|error| format!("映射服务段失败：{error:?}"))?;
         }
     }
 
-    let api = ServerApi {
-        write: serial_write,
-    };
-    // SAFETY: 入口地址来自刚才加载并映射的 ELF 镜像，签名与 `ServerEntry` 一致。
-    let entry: ServerEntry = unsafe { core::mem::transmute(entry_point as usize) };
-    entry(&api);
+    let stack_pages = USER_STACK_SIZE / page_size;
+    for index in 0..stack_pages {
+        let frame = allocator
+            .allocate()
+            .ok_or_else(|| String::from("物理帧耗尽"))?;
+        let destination = (direct_map_base + frame.get()) as *mut u8;
+        // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
+        unsafe {
+            core::ptr::write_bytes(destination, 0, PAGE_SIZE);
+        }
+        paging
+            .map(
+                VirtAddr::new(USER_STACK_BASE + index * page_size),
+                frame,
+                PageFlags::USER_RW,
+                allocator,
+            )
+            .map_err(|error| format!("映射用户栈失败：{error:?}"))?;
+    }
+
+    cpu::enter_user(entry_point, USER_STACK_BASE + USER_STACK_SIZE);
     Ok(())
 }

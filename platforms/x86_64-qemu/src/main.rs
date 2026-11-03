@@ -178,16 +178,6 @@ extern "C" fn kmain() -> ! {
     }
     announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
 
-    if let Err(error) = loader::run(&info, direct_map_base, &mut allocator, &paging) {
-        fail(
-            &console,
-            screen.as_ref(),
-            &format!("服务加载失败：{error}\n"),
-            ExitCode::Failure(4),
-        );
-    }
-    announce(&console, screen.as_ref(), "服务模块加载完成\n");
-
     match hk_boot::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
             announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
@@ -221,7 +211,18 @@ extern "C" fn kmain() -> ! {
             }
             hk_platform_x86_64::cpu::disarm_timer();
         }
-        _ => {}
+        _ => {
+            announce(&console, screen.as_ref(), "加载服务并进入用户态\n");
+            if let Err(error) = loader::run(&info, direct_map_base, &mut allocator, &paging) {
+                fail(
+                    &console,
+                    screen.as_ref(),
+                    &format!("服务加载失败：{error}\n"),
+                    ExitCode::Failure(4),
+                );
+            }
+            announce(&console, screen.as_ref(), "服务已退出\n");
+        }
     }
 
     hk_test::exit(ExitCode::Success);
@@ -270,20 +271,6 @@ fn fail(
 ) -> ! {
     announce(console, screen, message);
     hk_test::exit(code)
-}
-
-/// 内核提供给服务模块的文本输出函数。
-#[cfg(target_os = "none")]
-pub(crate) extern "C" fn serial_write(pointer: *const u8, length: usize) {
-    // SAFETY: 调用方是刚加载的服务，指针与长度由服务给出；空指针按空文本处理。
-    let bytes = if pointer.is_null() || length == 0 {
-        &[][..]
-    } else {
-        unsafe { core::slice::from_raw_parts(pointer, length) }
-    };
-    if let Ok(text) = core::str::from_utf8(bytes) {
-        Serial::new(COM1).write_str(text);
-    }
 }
 
 #[cfg(target_os = "none")]

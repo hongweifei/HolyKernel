@@ -9,6 +9,7 @@ use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, VirtAddr};
 
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
+const USER: u64 = 1 << 2;
 const PWT: u64 = 1 << 3;
 const PCD: u64 = 1 << 4;
 const HUGE: u64 = 1 << 7;
@@ -22,6 +23,8 @@ pub struct PageFlags(u64);
 impl PageFlags {
     /// 内核可读写页。
     pub const KERNEL_RW: Self = Self(WRITABLE);
+    /// 用户可读写页。
+    pub const USER_RW: Self = Self(WRITABLE | USER);
     /// 设备 MMIO 页：可写、写直达、禁止缓存。
     pub const MMIO: Self = Self(WRITABLE | PWT | PCD);
 
@@ -137,8 +140,9 @@ impl PageTable {
                 let frame = allocator.allocate().ok_or(PagingError::OutOfFrames)?;
                 self.zero_frame(frame);
                 // SAFETY: 同上；新页表已清零，写入指向它的当前级表项。
+                // 中间级必须带 USER，否则 ring 3 访问会被拒绝。
                 unsafe {
-                    entry.write_volatile(frame.get() | PRESENT | WRITABLE);
+                    entry.write_volatile(frame.get() | PRESENT | WRITABLE | USER);
                 }
                 table = frame;
             } else if value & HUGE != 0 {

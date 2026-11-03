@@ -1,4 +1,4 @@
-//! 链接配置：服务镜像固定在 0xffffffff90000000。
+//! 链接配置：服务镜像固定在低地址 0x00400000，便于用户态访问。
 
 fn main() {
     println!("cargo:rerun-if-changed=linker.ld");
