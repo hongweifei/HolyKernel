@@ -779,6 +779,12 @@ pub fn resume_user(frame: &InterruptFrame) {
     unsafe { hk_resume_user(frame) };
 }
 
+impl hk_hal::UserContext for InterruptFrame {
+    fn resume(&self) {
+        resume_user(self);
+    }
+}
+
 /// 从系统调用回到内核调度器，不返回。
 pub fn leave_user() -> ! {
     // SAFETY: 只在系统调用处理内部调用；内核上下文由 `resume_user` 保存。

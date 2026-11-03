@@ -20,8 +20,9 @@ HolyKernel/
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
+│   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射
 │   ├── hk-platform-*          x86_64/AArch64/RISC-V/Hosted
-│   ├── hk-root-server/        Root Server
+│   ├── hk-root-server/        Root Server、服务清单与服务表
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
 │   ├── hk-vfs/                VFS Server
@@ -34,6 +35,7 @@ HolyKernel/
 │   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
 │   ├── hk-server-api/         内核与服务器之间的入口 ABI
+│   ├── hk-shell/              HolyShell 命令解析与输出
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
 │   ├── hk-network/            Network Server
 │   ├── hk-display/            Display Server
@@ -56,6 +58,7 @@ HolyKernel/
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
 - 内核 crate 只依赖 `hk-hal` 与内核对象 crate；服务器通过 IPC 与 Handle 交互。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
+- 平台二进制保留入口、引导适配与用户现场切换；调度与 IPC 由 `hk-kernel` 提供。
 - libc 提供 C ABI；内核与服务器使用 Rust。
 
 ---

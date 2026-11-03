@@ -1,21 +1,20 @@
-//! 服务 ELF 加载。
+//! 服务 ELF 加载与任务登记。
 //!
-//! 从 Limine 模块中逐个取服务镜像，按程序头把各段复制到新分配的物理帧，用内核
-//! 页表以用户权限映射到镜像链接地址，为每个服务分配独立用户栈与端点，登记为
-//! 可运行任务后交给协作式调度器。
+//! 从 Limine 模块中逐个取服务镜像，用 `hk-elf` 遍历可加载段，平台实现段页映射；
+//! 每个服务获得独立用户栈与端点，登记为任务后交给 `hk-kernel` 调度。
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::cmp::min;
 
+use hk_elf::{MapError, PageSink};
 use hk_hal::{BootInfo, BootModule, PAGE_SIZE, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
-use xmas_elf::ElfFile;
-use xmas_elf::program::Type;
+use hk_root_server::ServiceTable;
 
 use crate::runtime;
-use crate::service::ServiceTable;
 
 /// 用户栈基址。
 const USER_STACK_BASE: u64 = 0x0080_0000;
@@ -38,15 +37,18 @@ pub fn run(
         return Err(String::from("没有服务模块"));
     }
 
-    runtime::init(info.server_modules.len() + 1);
-    runtime::install();
+    let names: Vec<&'static str> = info
+        .server_modules
+        .iter()
+        .map(|module| service_name(module.name))
+        .collect();
+    runtime::init(&names)?;
 
     for (index, module) in info.server_modules.iter().enumerate() {
-        let name = service_name(module.name);
         let endpoint = index as u64 + 1;
         let context = load(module, index, endpoint, direct_map_base, allocator, paging)?;
-        services.register(name);
-        runtime::spawn(name, endpoint, context);
+        services.register(names[index]);
+        runtime::attach(index, context);
     }
 
     runtime::run(services);
@@ -67,54 +69,17 @@ fn load(
         core::slice::from_raw_parts(module_virtual as *const u8, module.region.len as usize)
     };
 
-    let elf = ElfFile::new(bytes).map_err(|error| format!("解析 ELF 失败：{error}"))?;
-    let entry_point = elf.header.pt2.entry_point();
-    let page_size = PAGE_SIZE as u64;
-
-    for program in elf.program_iter() {
-        if program.get_type() != Ok(Type::Load) {
-            continue;
-        }
-
-        let virtual_address = program.virtual_addr();
-        let memory_size = program.mem_size();
-        let file_size = program.file_size();
-        let offset = program.offset();
-        let pages = memory_size.div_ceil(page_size);
-
-        for page in 0..pages {
-            let frame = allocator
-                .allocate()
-                .ok_or_else(|| String::from("物理帧耗尽"))?;
-            let destination = (direct_map_base + frame.get()) as *mut u8;
-
-            // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
-            unsafe {
-                core::ptr::write_bytes(destination, 0, PAGE_SIZE);
-            }
-
-            let page_offset = page * page_size;
-            if page_offset < file_size {
-                let copy_len = min(page_size, file_size - page_offset);
-                let source = bytes.as_ptr().wrapping_add((offset + page_offset) as usize);
-                // SAFETY: 源落在模块镜像内，目标为新分配的整页，区间不重叠。
-                unsafe {
-                    core::ptr::copy_nonoverlapping(source, destination, copy_len as usize);
-                }
-            }
-
-            paging
-                .map(
-                    VirtAddr::new(virtual_address + page_offset),
-                    frame,
-                    PageFlags::USER_RW,
-                    allocator,
-                )
-                .map_err(|error| format!("映射服务段失败：{error:?}"))?;
-        }
-    }
+    let entry_point = {
+        let mut pages = UserPages {
+            direct_map_base,
+            paging,
+            allocator,
+        };
+        hk_elf::load(bytes, &mut pages).map_err(|error| format!("装载服务 ELF 失败：{error:?}"))?
+    };
 
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
+    let page_size = PAGE_SIZE as u64;
     let stack_pages = USER_STACK_SIZE / page_size;
     for page in 0..stack_pages {
         let frame = allocator
@@ -142,6 +107,54 @@ fn load(
     ))
 }
 
-fn service_name(name: &str) -> &str {
+struct UserPages<'a> {
+    direct_map_base: u64,
+    paging: &'a PageTable,
+    allocator: &'a mut FrameAllocator,
+}
+
+impl PageSink for UserPages<'_> {
+    fn map_segment(
+        &mut self,
+        virtual_address: u64,
+        file: &[u8],
+        memory_size: u64,
+    ) -> Result<(), MapError> {
+        let page_size = PAGE_SIZE as u64;
+        let pages = memory_size.div_ceil(page_size);
+
+        for page in 0..pages {
+            let frame = self.allocator.allocate().ok_or(MapError)?;
+            let destination = (self.direct_map_base + frame.get()) as *mut u8;
+
+            // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
+            unsafe {
+                core::ptr::write_bytes(destination, 0, PAGE_SIZE);
+            }
+
+            let page_offset = page * page_size;
+            if page_offset < file.len() as u64 {
+                let copy_len = min(page_size, file.len() as u64 - page_offset) as usize;
+                let source = file.as_ptr().wrapping_add(page_offset as usize);
+                // SAFETY: 源落在段文件内容内，目标为新分配的整页，区间不重叠。
+                unsafe {
+                    core::ptr::copy_nonoverlapping(source, destination, copy_len);
+                }
+            }
+
+            self.paging
+                .map(
+                    VirtAddr::new(virtual_address + page_offset),
+                    frame,
+                    PageFlags::USER_RW,
+                    self.allocator,
+                )
+                .map_err(|_| MapError)?;
+        }
+        Ok(())
+    }
+}
+
+fn service_name(name: &'static str) -> &'static str {
     name.rsplit('/').next().unwrap_or(name)
 }

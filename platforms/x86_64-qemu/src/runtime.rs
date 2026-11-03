@@ -1,121 +1,118 @@
-//! 用户态任务的协作式调度与内核消息端点。
+//! 用户态任务调度与系统调用分派。
 //!
-//! 每个任务保存一份用户态中断现场；系统调用要求切换时，调度器保存现场并
-//! 选择下一个可运行任务，用 `iretq` 恢复执行。端点在内核中排队消息，任务
-//! 收不到消息时阻塞，等到发送者投递后重新变为可运行。
+//! 线程状态、就绪队列、端点消息与阻塞唤醒由 `hk-kernel` 提供；本模块维护每个
+//! 服务的用户现场与端点编号到句柄的映射，并在系统调用边界保存和恢复现场。
 
-use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use hk_hal::UserContext;
+use hk_handle::{Handle, Rights};
+use hk_ipc::Message;
+use hk_kernel::{Kernel, TcbId, ThreadState};
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
+use hk_root_server::{RootServer, ServiceSpec, ServiceTable};
 use spin::Mutex;
 
-use crate::service::ServiceTable;
-
-/// 任务状态。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TaskState {
-    /// 可运行。
-    Runnable,
-    /// 正在运行。
-    Running,
-    /// 等待消息。
-    Blocked,
-    /// 已退出。
-    Exited,
-}
-
-/// 用户态任务。
-pub struct Task {
-    /// 服务名称。
-    pub name: String,
-    /// 任务自己的端点编号。
-    pub endpoint: u64,
-    /// 用户态现场。
-    pub context: InterruptFrame,
-    /// 当前状态。
-    pub state: TaskState,
-    /// 退出码。
-    pub exit_code: u64,
-}
-
+/// 被挂起的系统调用。
 #[derive(Clone, Copy)]
-struct Message {
-    label: u64,
-    word: u64,
-    sender: u64,
+enum Pending {
+    /// 没有挂起操作。
+    None,
+    /// 发送已排队，等待接收者取走。
+    Send,
+    /// 接收已登记，等待消息到达。
+    Recv {
+        /// 接收使用的端点句柄。
+        handle: Handle,
+    },
 }
 
-#[derive(Default)]
-struct Endpoint {
-    queue: VecDeque<Message>,
-    receiver: Option<usize>,
+struct Task {
+    tcb: TcbId,
+    name: String,
+    handles: Vec<Handle>,
+    context: InterruptFrame,
+    pending: Pending,
+    exited: bool,
+    exit_code: u64,
 }
 
 struct Runtime {
+    kernel: Kernel,
     tasks: Vec<Task>,
-    endpoints: Vec<Endpoint>,
     current: Option<usize>,
-    cursor: usize,
 }
 
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 
-/// 初始化任务表，`endpoints` 是端点槽位数（编号从 1 开始）。
-pub fn init(endpoints: usize) {
-    let endpoints = (0..endpoints).map(|_| Endpoint::default()).collect();
+/// 按服务清单创建线程、端点与句柄，注册系统调用处理函数。
+pub fn init(names: &[&'static str]) -> Result<(), String> {
+    let kernel = Kernel::new();
+    let specs: Vec<ServiceSpec> = names.iter().map(|name| ServiceSpec::new(name)).collect();
+    let server = RootServer::boot(&kernel, &specs).map_err(|error| format!("{error}"))?;
+
+    let mut tasks = Vec::with_capacity(names.len());
+    for (index, service) in server.services().iter().enumerate() {
+        let mut handles = Vec::with_capacity(names.len());
+        for endpoint in server.services() {
+            let handle = kernel
+                .grant(service.tcb, endpoint.endpoint, Rights::READ | Rights::WRITE)
+                .map_err(|error| format!("授予端点句柄失败：{error}"))?;
+            handles.push(handle);
+        }
+        tasks.push(Task {
+            tcb: service.tcb,
+            name: names[index].to_string(),
+            handles,
+            context: cpu::user_frame(0, 0, (index + 1) as u64),
+            pending: Pending::None,
+            exited: false,
+            exit_code: 0,
+        });
+    }
+
+    kernel
+        .exit(server.root())
+        .map_err(|error| format!("回收 Root 线程失败：{error}"))?;
+
     *RUNTIME.lock() = Some(Runtime {
-        tasks: Vec::new(),
-        endpoints,
+        kernel,
+        tasks,
         current: None,
-        cursor: 0,
     });
-}
-
-/// 登记一个可运行任务。
-pub fn spawn(name: &str, endpoint: u64, context: InterruptFrame) {
-    let mut runtime = RUNTIME.lock();
-    let runtime = runtime.as_mut().expect("运行时已初始化");
-    runtime.tasks.push(Task {
-        name: name.to_string(),
-        endpoint,
-        context,
-        state: TaskState::Runnable,
-        exit_code: 0,
-    });
-}
-
-/// 注册系统调用处理函数。
-pub fn install() {
     cpu::set_syscall_hook(dispatch);
+    Ok(())
 }
 
-/// 依次运行任务直到全部退出，并把退出结果写入服务表。
-pub fn run(services: &mut ServiceTable) {
-    while let Some(index) = next_task() {
-        let (name, context) = {
-            let mut guard = RUNTIME.lock();
-            let runtime = guard.as_mut().expect("运行时已初始化");
-            runtime.tasks[index].state = TaskState::Running;
-            runtime.current = Some(index);
-            (
-                runtime.tasks[index].name.clone(),
-                runtime.tasks[index].context,
-            )
+/// 设置服务的用户态初始现场。
+pub fn attach(index: usize, context: InterruptFrame) {
+    let mut guard = RUNTIME.lock();
+    if let Some(runtime) = guard.as_mut() {
+        if let Some(task) = runtime.tasks.get_mut(index) {
+            task.context = context;
+        }
+    }
+}
+
+/// 依次调度任务直到没有可运行线程，并把退出结果写入服务表。
+pub fn run(table: &mut ServiceTable) {
+    loop {
+        let Some(index) = next_task() else {
+            break;
         };
 
-        cpu::resume_user(&context);
+        let (name, context, blocked_again) = prepare(index);
+        if blocked_again {
+            continue;
+        }
 
-        let (exited, code) = {
-            let mut guard = RUNTIME.lock();
-            let runtime = guard.as_mut().expect("运行时已初始化");
-            let state = runtime.tasks[index].state;
-            runtime.current = None;
-            (state == TaskState::Exited, runtime.tasks[index].exit_code)
-        };
+        context.resume();
+
+        let (exited, code) = finish(index);
         if exited {
-            services.mark_exited(&name, code);
+            table.mark_exited(&name, code);
         }
     }
 }
@@ -123,15 +120,58 @@ pub fn run(services: &mut ServiceTable) {
 fn next_task() -> Option<usize> {
     let mut guard = RUNTIME.lock();
     let runtime = guard.as_mut()?;
-    let length = runtime.tasks.len();
-    for offset in 0..length {
-        let index = (runtime.cursor + offset) % length;
-        if runtime.tasks[index].state == TaskState::Runnable {
-            runtime.cursor = (index + 1) % length;
-            return Some(index);
+    let tcb = runtime.kernel.schedule()?;
+    runtime.tasks.iter().position(|task| task.tcb == tcb)
+}
+
+fn prepare(index: usize) -> (String, InterruptFrame, bool) {
+    let mut guard = RUNTIME.lock();
+    let runtime = guard.as_mut().expect("运行时已初始化");
+    runtime.current = Some(index);
+
+    let pending = runtime.tasks[index].pending;
+    runtime.tasks[index].pending = Pending::None;
+    let mut blocked_again = false;
+
+    if let Pending::Recv { handle } = pending {
+        let tcb = runtime.tasks[index].tcb;
+        match runtime.kernel.recv(tcb, handle) {
+            Ok(Some(received)) => {
+                let sender = endpoint_of(runtime, received.sender);
+                let frame = &mut runtime.tasks[index].context;
+                frame.rax = received.message.label;
+                frame.rdx = received.message.words[0];
+                frame.rcx = sender;
+            }
+            Ok(None) => blocked_again = true,
+            Err(_) => runtime.tasks[index].context.rax = u64::MAX,
         }
     }
-    None
+
+    if blocked_again {
+        runtime.current = None;
+    }
+
+    let name = runtime.tasks[index].name.clone();
+    let context = runtime.tasks[index].context;
+    (name, context, blocked_again)
+}
+
+fn finish(index: usize) -> (bool, u64) {
+    let mut guard = RUNTIME.lock();
+    let runtime = guard.as_mut().expect("运行时已初始化");
+    runtime.current = None;
+    let task = &runtime.tasks[index];
+    (task.exited, task.exit_code)
+}
+
+fn endpoint_of(runtime: &Runtime, tcb: TcbId) -> u64 {
+    runtime
+        .tasks
+        .iter()
+        .position(|task| task.tcb == tcb)
+        .map(|index| index as u64 + 1)
+        .unwrap_or(0)
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
@@ -140,22 +180,25 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
         frame.rax = u64::MAX;
         return SyscallAction::Continue;
     };
-    let Some(current) = runtime.current else {
+    let Some(index) = runtime.current else {
         frame.rax = u64::MAX;
         return SyscallAction::Continue;
     };
 
+    let tcb = runtime.tasks[index].tcb;
     match frame.rax {
-        hk_server_api::SYS_SEND => send(runtime, current, frame),
-        hk_server_api::SYS_RECV => recv(runtime, current, frame),
+        hk_server_api::SYS_SEND => send(runtime, index, tcb, frame),
+        hk_server_api::SYS_RECV => recv(runtime, index, tcb, frame),
         hk_server_api::SYS_YIELD => {
-            runtime.tasks[current].state = TaskState::Runnable;
+            runtime.tasks[index].context = *frame;
+            runtime.tasks[index].pending = Pending::None;
             SyscallAction::Block
         }
         hk_server_api::SYS_EXIT => {
-            let task = &mut runtime.tasks[current];
-            task.state = TaskState::Exited;
-            task.exit_code = frame.rdi;
+            let code = frame.rdi;
+            let _ = runtime.kernel.exit(tcb);
+            runtime.tasks[index].exited = true;
+            runtime.tasks[index].exit_code = code;
             SyscallAction::Exit
         }
         _ => {
@@ -165,56 +208,80 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
     }
 }
 
-fn send(runtime: &mut Runtime, current: usize, frame: &mut InterruptFrame) -> SyscallAction {
+fn send(
+    runtime: &mut Runtime,
+    index: usize,
+    tcb: TcbId,
+    frame: &mut InterruptFrame,
+) -> SyscallAction {
     let endpoint = frame.rdi as usize;
-    if endpoint >= runtime.endpoints.len() {
+    let Some(handle) = runtime.tasks[index]
+        .handles
+        .get(endpoint.wrapping_sub(1))
+        .copied()
+    else {
         frame.rax = u64::MAX;
         return SyscallAction::Continue;
-    }
+    };
 
-    let label = frame.rsi;
-    let word = frame.rdx;
-    let sender = runtime.tasks[current].endpoint;
-    match runtime.endpoints[endpoint].receiver.take() {
-        Some(receiver) => {
-            let task = &mut runtime.tasks[receiver];
-            task.context.rax = label;
-            task.context.rdx = word;
-            task.context.rcx = sender;
-            task.state = TaskState::Runnable;
+    let mut words = [0; 8];
+    words[0] = frame.rdx;
+    let message = Message::new(frame.rsi).with_words(words);
+
+    match runtime.kernel.send(tcb, handle, message) {
+        Ok(()) => {
+            if runtime.kernel.state_of(tcb) == Some(ThreadState::Blocked) {
+                let mut context = *frame;
+                context.rax = 0;
+                runtime.tasks[index].context = context;
+                runtime.tasks[index].pending = Pending::Send;
+                SyscallAction::Block
+            } else {
+                frame.rax = 0;
+                SyscallAction::Continue
+            }
         }
-        None => {
-            runtime.endpoints[endpoint].queue.push_back(Message {
-                label,
-                word,
-                sender,
-            });
-        }
-    }
-
-    frame.rax = 0;
-    SyscallAction::Continue
-}
-
-fn recv(runtime: &mut Runtime, current: usize, frame: &mut InterruptFrame) -> SyscallAction {
-    let endpoint = frame.rdi as usize;
-    if endpoint >= runtime.endpoints.len() {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    }
-
-    match runtime.endpoints[endpoint].queue.pop_front() {
-        Some(message) => {
-            frame.rax = message.label;
-            frame.rdx = message.word;
-            frame.rcx = message.sender;
+        Err(_) => {
+            frame.rax = u64::MAX;
             SyscallAction::Continue
         }
-        None => {
-            runtime.endpoints[endpoint].receiver = Some(current);
-            runtime.tasks[current].context = *frame;
-            runtime.tasks[current].state = TaskState::Blocked;
+    }
+}
+
+fn recv(
+    runtime: &mut Runtime,
+    index: usize,
+    tcb: TcbId,
+    frame: &mut InterruptFrame,
+) -> SyscallAction {
+    let endpoint = frame.rdi as usize;
+    let Some(handle) = runtime.tasks[index]
+        .handles
+        .get(endpoint.wrapping_sub(1))
+        .copied()
+    else {
+        frame.rax = u64::MAX;
+        return SyscallAction::Continue;
+    };
+
+    match runtime.kernel.recv(tcb, handle) {
+        Ok(Some(received)) => {
+            let sender = endpoint_of(runtime, received.sender);
+            frame.rax = received.message.label;
+            frame.rdx = received.message.words[0];
+            frame.rcx = sender;
+            SyscallAction::Continue
+        }
+        Ok(None) => {
+            let mut context = *frame;
+            context.rax = 0;
+            runtime.tasks[index].context = context;
+            runtime.tasks[index].pending = Pending::Recv { handle };
             SyscallAction::Block
+        }
+        Err(_) => {
+            frame.rax = u64::MAX;
+            SyscallAction::Continue
         }
     }
 }

@@ -1,15 +1,15 @@
-//! HolyShell 基础命令。
+//! HolyShell：脚本化与交互式命令执行。
 //!
-//! 当前提供脚本化执行：内核命令行以 `shell-test` 开头时，后续词按顺序作为命令
-//! 执行。命令输出同时写到串口与帧缓冲控制台。
+//! 命令解析与输出文本由 `hk-shell` 提供；本模块负责读取输入、写出到串口与
+//! 帧缓冲控制台，并执行清屏与退出等平台副作用。
 
 use alloc::format;
 use alloc::string::String;
 
 use hk_hal::Console;
 use hk_platform_x86_64::{FramebufferConsole, Serial, keyboard};
-
-use crate::service::ServiceTable;
+use hk_root_server::ServiceTable;
+use hk_shell::{execute, parse};
 
 /// 执行一组命令。
 pub fn run(
@@ -34,7 +34,7 @@ pub fn run(
             continue;
         }
         write(console, screen, &format!("hk> {line}\n"));
-        if execute(console, screen, services, line)? {
+        if execute_line(console, screen, services, line) {
             break;
         }
     }
@@ -56,7 +56,7 @@ pub fn interactive(
         if command.is_empty() {
             continue;
         }
-        if execute(console, screen, services, command)? {
+        if execute_line(console, screen, services, command) {
             break;
         }
     }
@@ -109,72 +109,20 @@ fn wait_byte(console: &Serial) -> u8 {
     }
 }
 
-fn execute(
+fn execute_line(
     console: &Serial,
     screen: Option<&FramebufferConsole>,
     services: &ServiceTable,
     line: &str,
-) -> Result<bool, String> {
-    let mut parts = line.split_whitespace();
-    let command = parts.next().unwrap_or_default();
-    let arguments: String = parts.collect::<alloc::vec::Vec<_>>().join(" ");
-
-    match command {
-        "help" => {
-            write(
-                console,
-                screen,
-                "命令：help、services、mounts、clear、echo <文本>、exit\n",
-            );
-        }
-        "services" => list_services(console, screen, services),
-        "mounts" => {
-            write(console, screen, "尚无挂载（VFS 在 M4 接入）\n");
-        }
-        "clear" => {
-            if let Some(screen) = screen {
-                screen.clear();
-            }
-        }
-        "echo" => {
-            write(console, screen, &format!("{arguments}\n"));
-        }
-        "exit" => return Ok(true),
-        other => {
-            write(console, screen, &format!("未知命令：{other}\n"));
+) -> bool {
+    let response = execute(parse(line), services);
+    if response.clear {
+        if let Some(screen) = screen {
+            screen.clear();
         }
     }
-    Ok(false)
-}
-
-fn list_services(console: &Serial, screen: Option<&FramebufferConsole>, services: &ServiceTable) {
-    if services.is_empty() {
-        write(console, screen, "服务表为空\n");
-        return;
-    }
-
-    write(
-        console,
-        screen,
-        &format!("服务表（{} 项）\n", services.len()),
-    );
-    write(console, screen, "名称              状态      退出码\n");
-    for service in services.services() {
-        let exit = match service.exit_code {
-            Some(code) => format!("{code}"),
-            None => String::from("-"),
-        };
-        write(
-            console,
-            screen,
-            &format!(
-                "{:<16}  {:<8}  {}\n",
-                service.name,
-                service.state.name(),
-                exit
-            ),
-        );
-    }
+    write(console, screen, &response.output);
+    response.exit
 }
 
 fn write(console: &Serial, screen: Option<&FramebufferConsole>, text: &str) {

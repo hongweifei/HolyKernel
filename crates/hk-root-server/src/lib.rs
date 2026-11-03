@@ -7,6 +7,10 @@
 
 extern crate alloc;
 
+mod registry;
+
+pub use registry::{ServiceRecord, ServiceState, ServiceTable};
+
 use alloc::vec::Vec;
 
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};

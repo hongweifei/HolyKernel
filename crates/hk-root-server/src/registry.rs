@@ -1,4 +1,6 @@
 //! 服务表：记录已加载服务的状态与退出码。
+//!
+//! 服务表是 Root Server 的策略数据，与具体平台和硬件无关。
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -24,7 +26,7 @@ impl ServiceState {
 
 /// 服务条目。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Service {
+pub struct ServiceRecord {
     /// 服务名称。
     pub name: String,
     /// 当前状态。
@@ -36,7 +38,7 @@ pub struct Service {
 /// 服务表。
 #[derive(Default)]
 pub struct ServiceTable {
-    services: Vec<Service>,
+    services: Vec<ServiceRecord>,
 }
 
 impl ServiceTable {
@@ -47,7 +49,7 @@ impl ServiceTable {
 
     /// 登记服务。
     pub fn register(&mut self, name: &str) {
-        self.services.push(Service {
+        self.services.push(ServiceRecord {
             name: name.to_string(),
             state: ServiceState::Running,
             exit_code: None,
@@ -67,7 +69,7 @@ impl ServiceTable {
     }
 
     /// 返回全部服务。
-    pub fn services(&self) -> &[Service] {
+    pub fn services(&self) -> &[ServiceRecord] {
         &self.services
     }
 
@@ -79,5 +81,35 @@ impl ServiceTable {
     /// 判断服务表是否为空。
     pub fn is_empty(&self) -> bool {
         self.services.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_service_lifecycle() {
+        let mut table = ServiceTable::new();
+        assert!(table.is_empty());
+
+        table.register("clock");
+        table.register("log");
+        assert_eq!(table.len(), 2);
+        assert_eq!(table.services()[0].state, ServiceState::Running);
+        assert_eq!(table.services()[0].exit_code, None);
+
+        table.mark_exited("clock", 7);
+        assert_eq!(table.services()[0].state, ServiceState::Exited);
+        assert_eq!(table.services()[0].exit_code, Some(7));
+        assert_eq!(table.services()[1].state, ServiceState::Running);
+    }
+
+    #[test]
+    fn ignores_unknown_service() {
+        let mut table = ServiceTable::new();
+        table.register("clock");
+        table.mark_exited("missing", 1);
+        assert_eq!(table.services()[0].state, ServiceState::Running);
     }
 }

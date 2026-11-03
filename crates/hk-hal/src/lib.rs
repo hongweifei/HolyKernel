@@ -14,6 +14,7 @@ pub mod boot;
 pub mod console;
 pub mod dma;
 pub mod entropy;
+pub mod execution;
 pub mod irq;
 pub mod mmu;
 pub mod pci;
@@ -31,6 +32,7 @@ pub use boot::{
 pub use console::Console;
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
+pub use execution::UserContext;
 pub use irq::{InterruptController, Ipi, Irq, IrqError, NotificationId};
 pub use mmu::{MapFlags, Mmu, MmuError, VSpaceId};
 pub use pci::{PciAddress, PciConfig};

@@ -1,0 +1,13 @@
+[package]
+name = "hk-elf"
+description = "用户镜像 ELF 装载：程序头遍历与段映射"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+xmas-elf = "0.10"
+
+[lints]
+workspace = true

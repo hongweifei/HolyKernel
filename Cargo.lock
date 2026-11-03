@@ -119,6 +119,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-elf"
+version = "0.1.0"
+dependencies = [
+ "xmas-elf",
+]
+
+[[package]]
 name = "hk-hal"
 version = "0.1.0"
 dependencies = [
@@ -223,6 +230,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-shell"
+version = "0.1.0"
+dependencies = [
+ "hk-root-server",
+]
+
+[[package]]
 name = "hk-sim"
 version = "0.1.0"
 dependencies = [
@@ -247,12 +261,17 @@ name = "hk-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-boot",
+ "hk-elf",
  "hk-hal",
+ "hk-handle",
+ "hk-ipc",
+ "hk-kernel",
  "hk-platform-x86_64",
+ "hk-root-server",
  "hk-server-api",
+ "hk-shell",
  "hk-test",
  "spin",
- "xmas-elf",
 ]
 
 [[package]]

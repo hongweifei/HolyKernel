@@ -17,8 +17,6 @@ mod loader;
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
-mod service;
-#[cfg(target_os = "none")]
 mod shell;
 
 #[cfg(target_os = "none")]
@@ -42,6 +40,8 @@ use hk_hal::{BootInfo, Console, PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_platform_x86_64::ioapic::IoApic;
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::{COM1, FrameAllocator, PageFlags, PageTable, Serial};
+#[cfg(target_os = "none")]
+use hk_root_server::ServiceTable;
 #[cfg(target_os = "none")]
 use hk_test::ExitCode;
 
@@ -239,7 +239,7 @@ extern "C" fn kmain() -> ! {
         }
         _ => {
             announce(&console, screen.as_ref(), "加载服务并进入用户态\n");
-            let mut services = service::ServiceTable::new();
+            let mut services = ServiceTable::new();
             if let Err(error) = loader::run(
                 &info,
                 direct_map_base,

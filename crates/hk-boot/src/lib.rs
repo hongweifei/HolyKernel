@@ -21,6 +21,7 @@ use limine::memory_map::EntryType;
 use limine::request::{
     ExecutableAddressRequest, ExecutableCmdlineRequest, FramebufferRequest, HhdmRequest,
     MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, RsdpRequest,
+    StackSizeRequest,
 };
 
 #[used]
@@ -30,6 +31,13 @@ static REQUESTS_START: RequestsStartMarker = RequestsStartMarker::new();
 #[used]
 #[unsafe(link_section = ".limine_requests")]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
+
+/// 内核栈大小：内核对象表与 trace 环形缓冲在启动期占用较多栈空间。
+const KERNEL_STACK_SIZE: u64 = 256 * 1024;
+
+#[used]
+#[unsafe(link_section = ".limine_requests")]
+static STACK_SIZE: StackSizeRequest = StackSizeRequest::new().with_size(KERNEL_STACK_SIZE);
 
 #[used]
 #[unsafe(link_section = ".limine_requests")]
