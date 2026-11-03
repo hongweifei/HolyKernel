@@ -13,6 +13,8 @@ use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
 use xmas_elf::ElfFile;
 use xmas_elf::program::Type;
 
+use crate::service::ServiceTable;
+
 /// 用户栈基址。
 const USER_STACK_BASE: u64 = 0x0080_0000;
 
@@ -25,6 +27,7 @@ pub fn run(
     direct_map_base: u64,
     allocator: &mut FrameAllocator,
     paging: &PageTable,
+    services: &mut ServiceTable,
 ) -> Result<(), String> {
     let module = info
         .server_modules
@@ -104,6 +107,14 @@ pub fn run(
             .map_err(|error| format!("映射用户栈失败：{error:?}"))?;
     }
 
+    let name = service_name(module.name);
+    services.register(name);
+
     cpu::enter_user(entry_point, USER_STACK_BASE + USER_STACK_SIZE);
+    services.mark_exited(name, cpu::last_exit_code());
     Ok(())
+}
+
+fn service_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }

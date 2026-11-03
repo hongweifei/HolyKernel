@@ -36,6 +36,9 @@ pub enum SmokeMode {
     /// 帧缓冲文本输出
     #[value(name = "fb")]
     Framebuffer,
+    /// HolyShell 脚本化命令
+    #[value(name = "shell")]
+    Shell,
 }
 
 impl SmokeMode {
@@ -46,6 +49,7 @@ impl SmokeMode {
             Self::Page => Some("page-fault-test"),
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
+            Self::Shell => Some("shell-test help services mounts"),
         }
     }
 
@@ -61,12 +65,13 @@ impl SmokeMode {
             Self::Page => &["内核异常：页错误"],
             Self::Timer => &["定时器中断 5 次"],
             Self::Framebuffer => &["帧缓冲控制台: 80x36 字符"],
+            Self::Shell => &["HolyShell", "hk-server-demo", "尚无挂载"],
         }
     }
 
     fn exit_code(self) -> i32 {
         match self {
-            Self::Boot | Self::Timer | Self::Framebuffer => QEMU_SUCCESS,
+            Self::Boot | Self::Timer | Self::Framebuffer | Self::Shell => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -78,6 +83,7 @@ impl SmokeMode {
             Self::Page => "build/serial-page-fault.log",
             Self::Timer => "build/serial-timer.log",
             Self::Framebuffer => "build/serial-fb.log",
+            Self::Shell => "build/serial-shell.log",
         }
     }
 }

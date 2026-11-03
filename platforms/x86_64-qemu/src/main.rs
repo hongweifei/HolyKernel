@@ -14,6 +14,10 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 mod loader;
+#[cfg(target_os = "none")]
+mod service;
+#[cfg(target_os = "none")]
+mod shell;
 
 #[cfg(target_os = "none")]
 use alloc::format;
@@ -213,7 +217,14 @@ extern "C" fn kmain() -> ! {
         }
         _ => {
             announce(&console, screen.as_ref(), "加载服务并进入用户态\n");
-            if let Err(error) = loader::run(&info, direct_map_base, &mut allocator, &paging) {
+            let mut services = service::ServiceTable::new();
+            if let Err(error) = loader::run(
+                &info,
+                direct_map_base,
+                &mut allocator,
+                &paging,
+                &mut services,
+            ) {
                 fail(
                     &console,
                     screen.as_ref(),
@@ -222,6 +233,24 @@ extern "C" fn kmain() -> ! {
                 );
             }
             announce(&console, screen.as_ref(), "服务已退出\n");
+
+            if let Some(line) = hk_boot::cmdline() {
+                if line.contains("shell-test") {
+                    let script: alloc::vec::Vec<&str> = line
+                        .split_whitespace()
+                        .skip_while(|word| *word != "shell-test")
+                        .skip(1)
+                        .collect();
+                    if let Err(error) = shell::run(&console, screen.as_ref(), &services, &script) {
+                        fail(
+                            &console,
+                            screen.as_ref(),
+                            &format!("shell 失败：{error}\n"),
+                            ExitCode::Failure(5),
+                        );
+                    }
+                }
+            }
         }
     }
 

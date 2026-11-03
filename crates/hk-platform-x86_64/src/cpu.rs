@@ -241,6 +241,7 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
+static LAST_EXIT_CODE: AtomicU64 = AtomicU64::new(0);
 
 /// 初始化 GDT、TSS 与 IDT。
 ///
@@ -612,9 +613,17 @@ fn handle_syscall(frame: &mut InterruptFrame) {
                 u64::MAX
             };
         }
-        hk_server_api::SYS_EXIT => leave_user(),
+        hk_server_api::SYS_EXIT => {
+            LAST_EXIT_CODE.store(frame.rdi, Ordering::SeqCst);
+            leave_user()
+        }
         _ => frame.rax = u64::MAX,
     }
+}
+
+/// 返回最近一次服务退出的状态码。
+pub fn last_exit_code() -> u64 {
+    LAST_EXIT_CODE.load(Ordering::SeqCst)
 }
 
 fn user_range_valid(pointer: u64, length: usize) -> bool {
