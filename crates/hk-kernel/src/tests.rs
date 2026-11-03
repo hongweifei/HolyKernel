@@ -312,6 +312,20 @@ fn exit_releases_handles_and_objects() {
 }
 
 #[test]
+fn closes_handles_from_thread_table() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let endpoint = kernel
+        .create_endpoint(worker, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    assert_eq!(kernel.handles_live(worker), Some(1));
+
+    kernel.close_handle(worker, endpoint).expect("关闭句柄");
+    assert_eq!(kernel.handles_live(worker), Some(0));
+    assert!(kernel.handle_id(worker, endpoint).is_err());
+}
+
+#[test]
 fn dump_reports_threads_and_trace() {
     let kernel = kernel();
     let worker = thread(&kernel);

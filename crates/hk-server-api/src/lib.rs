@@ -32,6 +32,12 @@ pub const SYS_TICKS: u64 = 6;
 /// 在任务 Arena 内分配内存。
 pub const SYS_ALLOC: u64 = 7;
 
+/// 关闭当前任务的端点句柄。
+pub const SYS_HANDLE_CLOSE: u64 = 8;
+
+/// 查询当前任务的在用句柄数。
+pub const SYS_HANDLE_COUNT: u64 = 9;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
 
@@ -122,6 +128,18 @@ pub fn ticks() -> u64 {
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
     // SAFETY: 内核在 Arena 内按对齐分配并清零，返回用户可写地址。
     unsafe { syscall(SYS_ALLOC, size as u64, align as u64) as *mut u8 }
+}
+
+/// 关闭端点句柄；成功返回 0，失败返回 `u64::MAX`。
+pub fn close_handle(endpoint: u64) -> u64 {
+    // SAFETY: 端点编号由内核分配；内核校验句柄后关闭。
+    unsafe { syscall(SYS_HANDLE_CLOSE, endpoint, 0) }
+}
+
+/// 返回当前任务的在用句柄数。
+pub fn handle_count() -> u64 {
+    // SAFETY: 只读计数，不携带参数。
+    unsafe { syscall(SYS_HANDLE_COUNT, 0, 0) }
 }
 
 /// 结束服务，不返回。

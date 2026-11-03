@@ -483,6 +483,16 @@ impl Kernel {
             .map(|tcb| tcb.handles().live())
     }
 
+    /// 关闭线程句柄表中的一个句柄。
+    pub fn close_handle(&self, thread: TcbId, handle: Handle) -> Result<(), KernelError> {
+        let mut threads = self.threads.lock();
+        let tcb = threads
+            .get_mut(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?;
+        tcb.handles_mut().close(handle)?;
+        Ok(())
+    }
+
     /// 返回句柄指向的对象标识。
     pub fn handle_id(&self, thread: TcbId, handle: Handle) -> Result<ObjectId, KernelError> {
         let threads = self.threads.lock();

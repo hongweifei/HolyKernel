@@ -77,6 +77,7 @@ impl SmokeMode {
                 "hk-server-demo arena ok",
                 "hk-server-device: 发现",
                 "hk-server-spin: done",
+                "hk-server-spin: closed",
                 "调度 tick：",
                 "启动耗时",
                 "服务进入空闲",
@@ -308,6 +309,6 @@ mod tests {
 
     #[test]
     fn keeps_qcodes_stable() {
-        assert_eq!(qcodes("a b-1"), alloc::vec!["a", "spc", "b", "minus", "1"]);
+        assert_eq!(qcodes("a b-1"), vec!["a", "spc", "b", "minus", "1"]);
     }
 }

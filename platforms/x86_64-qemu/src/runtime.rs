@@ -344,6 +344,21 @@ fn allocate(runtime: &mut Runtime, index: usize, size: usize, align: usize) -> O
     Some(start)
 }
 
+fn close_handle(runtime: &mut Runtime, index: usize, tcb: TcbId, endpoint: usize) -> u64 {
+    let slot = endpoint.wrapping_sub(1);
+    let Some(handle) = runtime.tasks[index].handles.get(slot).copied().flatten() else {
+        return u64::MAX;
+    };
+
+    match runtime.kernel.close_handle(tcb, handle) {
+        Ok(()) => {
+            runtime.tasks[index].handles[slot] = None;
+            0
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
 fn preempt(frame: &InterruptFrame) -> bool {
     let mut guard = RUNTIME.lock();
     let Some(runtime) = guard.as_mut() else {
@@ -405,6 +420,14 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
         hk_server_api::SYS_ALLOC => {
             frame.rax =
                 allocate(runtime, index, frame.rdi as usize, frame.rsi as usize).unwrap_or(0);
+            SyscallAction::Continue
+        }
+        hk_server_api::SYS_HANDLE_COUNT => {
+            frame.rax = runtime.kernel.handles_live(tcb).unwrap_or(0) as u64;
+            SyscallAction::Continue
+        }
+        hk_server_api::SYS_HANDLE_CLOSE => {
+            frame.rax = close_handle(runtime, index, tcb, frame.rdi as usize);
             SyscallAction::Continue
         }
         _ => {

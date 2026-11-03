@@ -11,7 +11,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, ticks, write};
+use hk_server_api::{close_handle, exit, handle_count, ticks, write};
 
 /// 忙等的调度 tick 数。
 #[cfg(target_os = "none")]
@@ -27,7 +27,36 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
         core::hint::spin_loop();
     }
     write(b"hk-server-spin: done\n");
+
+    let before = handle_count();
+    let closed = close_handle(1);
+    let after = handle_count();
+    write(b"hk-server-spin: handles ");
+    write_number(before);
+    write(b" -> ");
+    write_number(after);
+    write(b"\n");
+    if closed == 0 {
+        write(b"hk-server-spin: closed\n");
+    }
     exit(0)
+}
+
+#[cfg(target_os = "none")]
+fn write_number(mut value: u64) {
+    if value == 0 {
+        write(b"0");
+        return;
+    }
+
+    let mut buffer = [0_u8; 20];
+    let mut index = buffer.len();
+    while value > 0 {
+        index -= 1;
+        buffer[index] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    write(&buffer[index..]);
 }
 
 #[cfg(target_os = "none")]
