@@ -19,6 +19,8 @@ pub struct TaskInfo {
     pub state: &'static str,
     /// 挂起的系统调用。
     pub pending: &'static str,
+    /// 在用句柄数。
+    pub handles: usize,
     /// Arena 已用字节数。
     pub arena_used: u64,
     /// Arena 总字节数。

@@ -218,6 +218,7 @@ pub fn tasks() -> Vec<TaskInfo> {
             endpoint: index as u64 + 1,
             state: state_name(runtime.kernel.state_of(task.tcb)),
             pending: pending_name(task.pending),
+            handles: runtime.kernel.handles_live(task.tcb).unwrap_or(0),
             arena_used: ARENA_SIZE - (task.arena_end - task.arena_next),
             arena_size: ARENA_SIZE,
             exit_code: task.exited.then_some(task.exit_code),

@@ -21,6 +21,8 @@ pub enum Command<'a> {
     Help,
     /// 列出任务。
     Tasks,
+    /// 列出任务的 Handle 计数。
+    Handles,
     /// 列出服务。
     Services,
     /// 列出挂载点。
@@ -129,6 +131,7 @@ pub fn parse(line: &str) -> Command<'_> {
     match name {
         "help" => Command::Help,
         "tasks" => Command::Tasks,
+        "handles" => Command::Handles,
         "services" => Command::Services,
         "mounts" => Command::Mounts,
         "focus" => Command::Focus(arguments),
@@ -145,9 +148,10 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、services、mounts、focus [任务]、start <服务>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
+        Command::Handles => Response::output(format_handles(state.tasks)),
         Command::Services => Response::output(format_services(state.services)),
         Command::Mounts => Response::output(String::from("尚无挂载（VFS 在 M4 接入）\n")),
         Command::Focus(name) => focus_task(name, state, session),
@@ -186,7 +190,9 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     }
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
-    output.push_str("TCB  名称              父   端点  状态      挂起   退出码  Arena     当前\n");
+    output.push_str(
+        "TCB  名称              父   端点  状态      挂起   退出码  句柄  Arena     当前\n",
+    );
     for task in tasks {
         let exit = match task.exit_code {
             Some(code) => format!("{code}"),
@@ -203,7 +209,7 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
             ""
         };
         output.push_str(&format!(
-            "{:<4} {:<16} {:<4} {:<4} {:<8} {:<5} {:<6} {:<9} {}\n",
+            "{:<4} {:<16} {:<4} {:<4} {:<8} {:<5} {:<6} {:<4} {:<9} {}\n",
             task.tcb,
             task.name,
             parent,
@@ -211,8 +217,25 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
             task.state,
             task.pending,
             exit,
+            task.handles,
             arena,
             marker
+        ));
+    }
+    output
+}
+
+fn format_handles(tasks: &[TaskInfo]) -> String {
+    if tasks.is_empty() {
+        return String::from("任务表为空\n");
+    }
+
+    let mut output = format!("Handle 计数（{} 项）\n", tasks.len());
+    output.push_str("TCB  名称              句柄\n");
+    for task in tasks {
+        output.push_str(&format!(
+            "{:<4} {:<16} {}\n",
+            task.tcb, task.name, task.handles
         ));
     }
     output
@@ -260,6 +283,7 @@ mod tests {
                 endpoint: 1,
                 state: "exited",
                 pending: "-",
+                handles: 5,
                 arena_used: 4096,
                 arena_size: 65536,
                 exit_code: Some(0),
@@ -271,6 +295,7 @@ mod tests {
                 endpoint: 2,
                 state: "blocked",
                 pending: "recv",
+                handles: 3,
                 arena_used: 0,
                 arena_size: 65536,
                 exit_code: None,
@@ -288,6 +313,7 @@ mod tests {
         assert_eq!(parse(""), Command::Empty);
         assert_eq!(parse("help"), Command::Help);
         assert_eq!(parse("tasks"), Command::Tasks);
+        assert_eq!(parse("handles"), Command::Handles);
         assert_eq!(parse("services"), Command::Services);
         assert_eq!(parse("mounts"), Command::Mounts);
         assert_eq!(parse("focus"), Command::Focus(""));
@@ -368,6 +394,16 @@ mod tests {
         let response = run("start", &table, &[]);
         assert_eq!(response.start, None);
         assert_eq!(response.output, "用法：start <服务>\n");
+    }
+
+    #[test]
+    fn lists_handle_counts() {
+        let table = ServiceTable::new();
+        let tasks = tasks();
+        let response = run("handles", &table, &tasks);
+        assert!(response.output.contains("Handle 计数（2 项）"));
+        assert!(response.output.contains("hk-server-demo"));
+        assert!(response.output.contains('5'));
     }
 
     #[test]
