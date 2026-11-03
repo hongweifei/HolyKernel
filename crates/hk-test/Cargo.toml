@@ -1,0 +1,10 @@
+[package]
+name = "hk-test"
+description = "HolyKernel 测试支撑与退出协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

@@ -63,7 +63,7 @@ flowchart LR
 
 ### 退出标准
 
-1. 4 个目标构建成功。
+1. Hosted、x86_64、AArch64 三个目标构建成功。
 2. `cargo xtask lint` 与 CI 全绿。
 3. 架构文档评审通过；ADR-0001 至 0008 已接受。
 
@@ -289,9 +289,9 @@ flowchart LR
 
 ## 14. 当前状态
 
-- 已完成：章程、总体架构、内存、执行、服务器、VFS、POSIX、UI、平台、工程、路线图、术语、ADR。
-- 下一步：M0 脚手架（workspace、xtask、CI、Hosted stub）。
-- 代码阶段：从 M0 开始。
+- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、全部设计文档与 ADR。
+- 当前代码：`crates/hk-hal`、`crates/hk-test`、`crates/hk-platform-hosted`、`platforms/hosted`、`xtask`。
+- 下一步：M1 Hosted 微内核（TCB、VSpace、HandleTable、Endpoint、Notification、Frame）。
 
 ---
 

@@ -13,7 +13,7 @@ HolyKernel 需要直接操作硬件、可静态审计的微内核，同时需要
 1. 微内核使用 **Rust `no_std`**，只依赖 `core` 与 `alloc`。
 2. 用户态服务器使用 Rust；Hosted 服务器可以使用 `std`。
 3. 平台层使用最小内联汇编与架构相关代码。
-4. 固定 nightly，使用 `-Z build-std=core,alloc` 构建裸机目标。
+4. 固定 `stable` 工具链，裸机目标通过 `rustup` 安装预编译 `core`。
 5. POSIX 边界提供 **C ABI**；musl 作为兼容环境的主 C libc，`hk-abi`/`hk-crt` 提供 shim、启动与头文件，`hk-libc` 作为薄兼容层。
 6. `unsafe` 最小化、分 crate 审计、每个块有 `// SAFETY:` 注释。
 
@@ -28,7 +28,7 @@ HolyKernel 需要直接操作硬件、可静态审计的微内核，同时需要
 
 **成本与取舍**
 
-- 裸机需要 nightly 与 `build-std`。
+- 裸机目标需要 `rustup` 安装对应三元组。
 - `unsafe` 边界（MMIO、DMA、页表、上下文切换）仍需严格审计。
 - 用户态服务器使用 `std` 时，需要保持 Hosted 与裸机行为一致。
 

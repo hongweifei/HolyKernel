@@ -11,7 +11,7 @@
 ```text
 HolyKernel/
 ├── Cargo.toml                 workspace
-├── rust-toolchain.toml        固定 nightly（裸机 build-std）
+├── rust-toolchain.toml        固定 stable 工具链
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI
@@ -19,7 +19,7 @@ HolyKernel/
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
-│   ├── hk-boot/               BootInfo、Limine/U-Boot/OpenSBI 适配
+│   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-platform-*          x86_64/AArch64/RISC-V/Hosted
 │   ├── hk-root-server/        Root Server
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
@@ -61,10 +61,10 @@ HolyKernel/
 
 ## 2. 工具链
 
-- 固定 nightly，写入 `rust-toolchain.toml`；裸机使用 `-Z build-std=core,alloc`。
-- 组件：`rust-src`、`llvm-tools-preview`、`rustfmt`、`clippy`。
+- 固定 `stable` 工具链，写入 `rust-toolchain.toml`；裸机目标由 `rustup` 提供的预编译 `core` 支撑。
+- 组件：`llvm-tools`、`rustfmt`、`clippy`；裸机三元组在 `rust-toolchain.toml` 的 `targets` 中声明。
 - Edition：2024。
-- 目标：`x86_64-unknown-none`、`aarch64-unknown-none`、`riscv64gc-unknown-none-elf`、host triple。
+- 目标：`x86_64-unknown-none`、`aarch64-unknown-none`、host triple。
 - 构建配置：`opt-level="s"`、`lto="thin"`、`overflow-checks=true`、`panic="abort"`。
 
 ### xtask
@@ -95,7 +95,7 @@ cargo xtask budget
 | `fmt` | `cargo fmt --check` |
 | `clippy` | `cargo clippy -- -D warnings` |
 | `host-test` | Hosted 单元测试 + 属性测试 |
-| `build-matrix` | x86_64 / AArch64 / RISC-V / Hosted |
+| `build-matrix` | x86_64 / AArch64 / Hosted |
 | `qemu-smoke` | 启动到 HolyShell |
 | `qemu-arch` | AArch64/RISC-V smoke |
 | `sim` | 确定性 IPC/调度/重启/故障注入 |

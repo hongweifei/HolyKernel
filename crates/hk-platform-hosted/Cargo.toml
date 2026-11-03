@@ -1,0 +1,13 @@
+[package]
+name = "hk-platform-hosted"
+description = "HolyKernel Hosted 模拟器平台"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-hal = { path = "../../crates/hk-hal" }
+
+[lints]
+workspace = true

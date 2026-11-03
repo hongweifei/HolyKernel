@@ -1,0 +1,189 @@
+//! Hosted 平台实现。
+
+use hk_hal::{
+    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PciConfig, Platform,
+    PlatformError, Timer,
+};
+
+use crate::boot::boot_info;
+use crate::config::HostedConfig;
+use crate::console::HostedConsole;
+use crate::dma::HostedDma;
+use crate::entropy::HostedEntropy;
+use crate::irq::HostedInterruptController;
+use crate::mmu::HostedMmu;
+use crate::timer::HostedTimer;
+
+/// Hosted 平台。
+///
+/// 平台把虚拟 CPU、虚拟时钟、虚拟地址空间与模拟设备打包在一起，供微内核与
+/// 用户态服务器在普通进程中运行。
+#[derive(Debug)]
+pub struct HostedPlatform {
+    config: HostedConfig,
+    boot: BootInfo,
+    console: HostedConsole,
+    timer: HostedTimer,
+    irq: HostedInterruptController,
+    mmu: HostedMmu,
+    dma: HostedDma,
+    entropy: HostedEntropy,
+}
+
+impl HostedPlatform {
+    /// 按配置启动 Hosted 平台。
+    ///
+    /// # Panics
+    /// `config.cpu_count` 为 0 时 panic：CPU 数量是平台的硬性约束。
+    pub fn boot(config: HostedConfig) -> Self {
+        assert!(config.cpu_count > 0, "Hosted 平台至少需要一个逻辑 CPU");
+        Self {
+            config,
+            boot: boot_info(),
+            console: HostedConsole::new(),
+            timer: HostedTimer::new(config.deterministic),
+            irq: HostedInterruptController::new(),
+            mmu: HostedMmu::new(),
+            dma: HostedDma::new(),
+            entropy: HostedEntropy::new(config.seed),
+        }
+    }
+
+    /// 返回启动信息。
+    pub fn boot_info(&self) -> BootInfo {
+        self.boot
+    }
+
+    /// 返回平台配置。
+    pub fn config(&self) -> HostedConfig {
+        self.config
+    }
+
+    /// 返回虚拟时钟，用于确定性时间推进。
+    pub fn virtual_timer(&self) -> &HostedTimer {
+        &self.timer
+    }
+
+    /// 返回虚拟地址空间表。
+    pub fn virtual_mmu(&self) -> &HostedMmu {
+        &self.mmu
+    }
+
+    /// 返回虚拟中断控制器。
+    pub fn virtual_irq(&self) -> &HostedInterruptController {
+        &self.irq
+    }
+}
+
+impl Platform for HostedPlatform {
+    fn name(&self) -> &'static str {
+        "hosted"
+    }
+
+    fn arch(&self) -> Arch {
+        Arch::Hosted
+    }
+
+    fn cpu_count(&self) -> usize {
+        self.config.cpu_count
+    }
+
+    fn init(&self, boot: &BootInfo) -> Result<(), PlatformError> {
+        boot.validate().map_err(PlatformError::BootInfo)
+    }
+
+    fn init_cpu(&self, cpu: CpuId) -> Result<(), PlatformError> {
+        if cpu.get() as usize >= self.config.cpu_count {
+            return Err(PlatformError::CpuOutOfRange { cpu });
+        }
+        Ok(())
+    }
+
+    fn shutdown(&self) -> ! {
+        self.console.write_str("hosted: 关闭系统\n");
+        std::process::exit(0);
+    }
+
+    fn reboot(&self) -> ! {
+        self.console.write_str("hosted: 重启系统\n");
+        std::process::exit(0);
+    }
+
+    fn mmu(&self) -> &dyn Mmu {
+        &self.mmu
+    }
+
+    fn irq(&self) -> &dyn InterruptController {
+        &self.irq
+    }
+
+    fn timer(&self) -> &dyn Timer {
+        &self.timer
+    }
+
+    fn console(&self) -> &dyn Console {
+        &self.console
+    }
+
+    fn pci(&self) -> Option<&dyn PciConfig> {
+        None
+    }
+
+    fn dma(&self) -> &dyn DmaOps {
+        &self.dma
+    }
+
+    fn entropy(&self) -> &dyn Entropy {
+        &self.entropy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn platform() -> HostedPlatform {
+        HostedPlatform::boot(HostedConfig::new(2, 1, true))
+    }
+
+    #[test]
+    fn boots_with_valid_boot_info() {
+        let platform = platform();
+
+        assert_eq!(platform.name(), "hosted");
+        assert_eq!(platform.arch(), Arch::Hosted);
+        assert_eq!(platform.cpu_count(), 2);
+        assert_eq!(platform.init(&platform.boot_info()), Ok(()));
+    }
+
+    #[test]
+    fn rejects_cpu_out_of_range() {
+        let platform = platform();
+
+        assert_eq!(platform.init_cpu(CpuId::new(1)), Ok(()));
+        assert_eq!(
+            platform.init_cpu(CpuId::new(2)),
+            Err(PlatformError::CpuOutOfRange { cpu: CpuId::new(2) })
+        );
+    }
+
+    #[test]
+    fn exposes_no_pci_config() {
+        let platform = platform();
+        assert!(platform.pci().is_none());
+    }
+
+    #[test]
+    fn rejects_corrupted_boot_info() {
+        let platform = platform();
+        let mut boot = platform.boot_info();
+        boot.magic = 0;
+
+        assert_eq!(
+            platform.init(&boot),
+            Err(PlatformError::BootInfo(hk_hal::BootInfoError::BadMagic {
+                found: 0
+            }))
+        );
+    }
+}
