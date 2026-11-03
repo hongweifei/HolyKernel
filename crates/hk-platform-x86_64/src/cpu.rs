@@ -860,7 +860,9 @@ impl hk_hal::UserContext for InterruptFrame {
     fn set_start_argument(&mut self, argument: u64) {
         self.rdi = argument;
     }
+}
 
+impl hk_hal::SyscallFrame for InterruptFrame {
     fn number(&self) -> u64 {
         self.rax
     }

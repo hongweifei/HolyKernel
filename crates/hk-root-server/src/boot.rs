@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 
-use hk_hal::UserContext;
+use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::Rights;
 use hk_kernel::user::{UserPlatform, UserRuntime, UserTask};
 use hk_kernel::{Kernel, KernelError};
@@ -21,7 +21,7 @@ pub fn user_runtime<C, P, F>(
     mut make_context: F,
 ) -> Result<UserRuntime<C, P>, KernelError>
 where
-    C: UserContext,
+    C: UserContext + SyscallFrame,
     P: UserPlatform,
     F: FnMut(usize, u64) -> C,
 {

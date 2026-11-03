@@ -14,8 +14,8 @@ HolyKernel/
 ├── rust-toolchain.toml        固定 stable 工具链
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
-│   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场、页映射契约与线性堆
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；用户任务运行时与系统调用分派
+│   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场与页映射契约
+│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；用户任务运行时、系统调用分派与线性堆
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA

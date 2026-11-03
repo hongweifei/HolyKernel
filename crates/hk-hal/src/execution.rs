@@ -1,7 +1,4 @@
-//! 用户态执行现场。
-//!
-//! 平台实现该 trait：恢复 ring 3、设置系统调用结果，并把 `_start` 参数写入入口
-//! 约定位置。调度器与系统调用分派只依赖本 trait，不感知寄存器布局。
+//! 用户态执行现场与系统调用帧。
 
 /// 用户态执行现场。
 pub trait UserContext: Copy {
@@ -10,7 +7,10 @@ pub trait UserContext: Copy {
 
     /// 设置服务入口的首个参数。
     fn set_start_argument(&mut self, argument: u64);
+}
 
+/// 系统调用帧的寄存器视图。
+pub trait SyscallFrame: Copy {
     /// 返回系统调用号。
     fn number(&self) -> u64;
 

@@ -7,7 +7,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use hk_hal::UserContext;
+use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
@@ -196,7 +196,7 @@ pub struct UserRuntime<C, P> {
     platform: P,
 }
 
-impl<C: UserContext, P: UserPlatform> UserRuntime<C, P> {
+impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 以 Kernel、任务与平台适配构造运行时。
     pub fn new(
         kernel: Kernel,

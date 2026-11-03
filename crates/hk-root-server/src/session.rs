@@ -6,7 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_hal::UserContext;
+use hk_hal::{SyscallFrame, UserContext};
 use hk_kernel::user::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
 use spin::Mutex;
 
@@ -32,7 +32,7 @@ impl<C, P> Session<C, P> {
     }
 }
 
-impl<C: UserContext, P: UserPlatform> Session<C, P> {
+impl<C: UserContext + SyscallFrame, P: UserPlatform> Session<C, P> {
     /// 按服务清单启动运行时。
     pub fn boot<F>(
         &self,

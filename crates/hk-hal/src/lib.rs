@@ -33,7 +33,7 @@ pub use boot::{
 pub use console::Console;
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
-pub use execution::UserContext;
+pub use execution::{SyscallFrame, UserContext};
 pub use irq::{InterruptController, Ipi, Irq, IrqError, NotificationId};
 pub use mmu::{MapFlags, Mmu, MmuError, VSpaceId};
 pub use pci::{PciAddress, PciConfig};
