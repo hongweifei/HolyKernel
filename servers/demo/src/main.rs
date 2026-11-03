@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{ENDPOINT_ECHO, exit, recv, send, write};
+use hk_server_api::{ENDPOINT_ECHO, alloc, exit, recv, send, write};
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -29,11 +29,29 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let (label, word, _sender) = recv(endpoint);
     if label == REPLY && word == 42 {
         write("hk-server-demo 收到回复 42\n".as_bytes());
-        exit(0)
+        if verify_arena() {
+            write(b"hk-server-demo arena ok\n");
+            exit(0)
+        }
+        write("hk-server-demo arena 失败\n".as_bytes());
+        exit(1)
     }
 
     write("hk-server-demo 回复异常\n".as_bytes());
     exit(1)
+}
+
+#[cfg(target_os = "none")]
+fn verify_arena() -> bool {
+    let pointer = alloc(4096, 16);
+    if pointer.is_null() {
+        return false;
+    }
+
+    // SAFETY: 内核在任务 Arena 内分配了 4096 字节，地址有效且可写。
+    let buffer = unsafe { core::slice::from_raw_parts_mut(pointer, 4096) };
+    buffer.fill(0xA5);
+    buffer.iter().all(|&byte| byte == 0xA5)
 }
 
 #[cfg(target_os = "none")]

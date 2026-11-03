@@ -100,6 +100,27 @@ fn load(
             .map_err(|error| format!("映射用户栈失败：{error:?}"))?;
     }
 
+    let (arena_base, arena_size) = runtime::arena(index);
+    let arena_pages = arena_size / page_size;
+    for page in 0..arena_pages {
+        let frame = allocator
+            .allocate()
+            .ok_or_else(|| String::from("物理帧耗尽"))?;
+        let destination = (direct_map_base + frame.get()) as *mut u8;
+        // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
+        unsafe {
+            core::ptr::write_bytes(destination, 0, PAGE_SIZE);
+        }
+        paging
+            .map(
+                VirtAddr::new(arena_base + page * page_size),
+                frame,
+                PageFlags::USER_RW,
+                allocator,
+            )
+            .map_err(|error| format!("映射任务 Arena 失败：{error:?}"))?;
+    }
+
     Ok(cpu::user_frame(
         entry_point,
         stack_base + USER_STACK_SIZE,

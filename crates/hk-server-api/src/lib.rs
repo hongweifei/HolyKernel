@@ -29,6 +29,9 @@ pub const SYS_PCI_READ: u64 = 5;
 /// 读取调度 tick 计数。
 pub const SYS_TICKS: u64 = 6;
 
+/// 在任务 Arena 内分配内存。
+pub const SYS_ALLOC: u64 = 7;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
 
@@ -113,6 +116,12 @@ pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。
     unsafe { syscall(SYS_TICKS, 0, 0) }
+}
+
+/// 在任务 Arena 内分配并清零内存；失败时返回空指针。
+pub fn alloc(size: usize, align: usize) -> *mut u8 {
+    // SAFETY: 内核在 Arena 内按对齐分配并清零，返回用户可写地址。
+    unsafe { syscall(SYS_ALLOC, size as u64, align as u64) as *mut u8 }
 }
 
 /// 结束服务，不返回。

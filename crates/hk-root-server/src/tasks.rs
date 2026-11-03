@@ -17,6 +17,10 @@ pub struct TaskInfo {
     pub state: &'static str,
     /// 挂起的系统调用。
     pub pending: &'static str,
+    /// Arena 已用字节数。
+    pub arena_used: u64,
+    /// Arena 总字节数。
+    pub arena_size: u64,
     /// 退出码。
     pub exit_code: Option<u64>,
 }

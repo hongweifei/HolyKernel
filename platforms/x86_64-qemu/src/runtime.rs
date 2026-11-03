@@ -15,6 +15,20 @@ use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
 use hk_root_server::{RootServer, ServiceSpec, ServiceTable, TaskInfo};
 use spin::Mutex;
 
+/// 每个任务的 Arena 大小。
+pub const ARENA_SIZE: u64 = 64 * 1024;
+
+/// Arena 虚拟基址。
+const ARENA_BASE: u64 = 0x0100_0000;
+
+/// 相邻任务 Arena 的间隔。
+const ARENA_STRIDE: u64 = 0x2_0000;
+
+/// 返回任务槽位的 Arena 基址与大小。
+pub fn arena(slot: usize) -> (u64, u64) {
+    (ARENA_BASE + slot as u64 * ARENA_STRIDE, ARENA_SIZE)
+}
+
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
 enum Pending {
@@ -35,6 +49,8 @@ struct Task {
     handles: Vec<Option<Handle>>,
     context: InterruptFrame,
     pending: Pending,
+    arena_next: u64,
+    arena_end: u64,
     exited: bool,
     exit_code: u64,
 }
@@ -71,6 +87,8 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
             handles,
             context: cpu::user_frame(0, 0, (index + 1) as u64),
             pending: Pending::None,
+            arena_next: arena(index).0,
+            arena_end: arena(index).0 + arena(index).1,
             exited: false,
             exit_code: 0,
         });
@@ -152,6 +170,8 @@ pub fn start(name: &str, mut context: InterruptFrame) -> Result<u64, String> {
         handles,
         context,
         pending: Pending::None,
+        arena_next: arena(index).0,
+        arena_end: arena(index).0 + arena(index).1,
         exited: false,
         exit_code: 0,
     });
@@ -175,6 +195,8 @@ pub fn tasks() -> Vec<TaskInfo> {
             endpoint: index as u64 + 1,
             state: state_name(runtime.kernel.state_of(task.tcb)),
             pending: pending_name(task.pending),
+            arena_used: ARENA_SIZE - (task.arena_end - task.arena_next),
+            arena_size: ARENA_SIZE,
             exit_code: task.exited.then_some(task.exit_code),
         })
         .collect()
@@ -277,6 +299,27 @@ fn endpoint_of(runtime: &Runtime, tcb: TcbId) -> u64 {
         .unwrap_or(0)
 }
 
+fn allocate(runtime: &mut Runtime, index: usize, size: usize, align: usize) -> Option<u64> {
+    if size == 0 || !align.is_power_of_two() {
+        return None;
+    }
+
+    let align = align.max(8) as u64;
+    let task = &mut runtime.tasks[index];
+    let start = (task.arena_next + align - 1) & !(align - 1);
+    let end = start.checked_add(size as u64)?;
+    if end > task.arena_end {
+        return None;
+    }
+
+    // SAFETY: Arena 页已映射为用户可写；内核与用户共享同一页表，可按用户地址清零。
+    unsafe {
+        core::ptr::write_bytes(start as *mut u8, 0, size);
+    }
+    task.arena_next = end;
+    Some(start)
+}
+
 fn preempt(frame: &InterruptFrame) -> bool {
     let mut guard = RUNTIME.lock();
     let Some(runtime) = guard.as_mut() else {
@@ -333,6 +376,11 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
         }
         hk_server_api::SYS_TICKS => {
             frame.rax = hk_platform_x86_64::cpu::timer_ticks();
+            SyscallAction::Continue
+        }
+        hk_server_api::SYS_ALLOC => {
+            frame.rax =
+                allocate(runtime, index, frame.rdi as usize, frame.rsi as usize).unwrap_or(0);
             SyscallAction::Continue
         }
         _ => {

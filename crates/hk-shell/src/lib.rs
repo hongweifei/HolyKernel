@@ -186,20 +186,21 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     }
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
-    output.push_str("TCB  名称              端点  状态      挂起   退出码  当前\n");
+    output.push_str("TCB  名称              端点  状态      挂起   退出码  Arena     当前\n");
     for task in tasks {
         let exit = match task.exit_code {
             Some(code) => format!("{code}"),
             None => String::from("-"),
         };
+        let arena = format!("{}/{}K", task.arena_used / 1024, task.arena_size / 1024);
         let marker = if current == Some(task.name.as_str()) {
             "*"
         } else {
             ""
         };
         output.push_str(&format!(
-            "{:<4} {:<16} {:<4} {:<8} {:<5} {:<6} {}\n",
-            task.tcb, task.name, task.endpoint, task.state, task.pending, exit, marker
+            "{:<4} {:<16} {:<4} {:<8} {:<5} {:<6} {:<9} {}\n",
+            task.tcb, task.name, task.endpoint, task.state, task.pending, exit, arena, marker
         ));
     }
     output
@@ -246,6 +247,8 @@ mod tests {
                 endpoint: 1,
                 state: "exited",
                 pending: "-",
+                arena_used: 4096,
+                arena_size: 65536,
                 exit_code: Some(0),
             },
             TaskInfo {
@@ -254,6 +257,8 @@ mod tests {
                 endpoint: 2,
                 state: "blocked",
                 pending: "recv",
+                arena_used: 0,
+                arena_size: 65536,
                 exit_code: None,
             },
         ]
