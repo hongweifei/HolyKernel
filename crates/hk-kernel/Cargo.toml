@@ -7,15 +7,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-hal = { path = "../hk-hal" }
-hk-handle = { path = "../hk-handle" }
-hk-ipc = { path = "../hk-ipc" }
-hk-mem = { path = "../hk-mem" }
-hk-trace = { path = "../hk-trace" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-handle = { version = "0.1.0", path = "../hk-handle" }
+hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
+hk-mem = { version = "0.1.0", path = "../hk-mem" }
+hk-trace = { version = "0.1.0", path = "../hk-trace" }
 spin = "0.9"
 
 [dev-dependencies]
-hk-platform-hosted = { path = "../hk-platform-hosted" }
+hk-platform-hosted = { version = "0.1.0", path = "../hk-platform-hosted" }
 
 [lints]
 workspace = true

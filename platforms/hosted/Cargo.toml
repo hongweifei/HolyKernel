@@ -12,14 +12,14 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-hk-hal = { path = "../../crates/hk-hal" }
-hk-handle = { path = "../../crates/hk-handle" }
-hk-ipc = { path = "../../crates/hk-ipc" }
-hk-kernel = { path = "../../crates/hk-kernel" }
-hk-platform-hosted = { path = "../../crates/hk-platform-hosted" }
-hk-root-server = { path = "../../crates/hk-root-server" }
-hk-sim = { path = "../../crates/hk-sim" }
-hk-test = { path = "../../crates/hk-test" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
+hk-handle = { version = "0.1.0", path = "../../crates/hk-handle" }
+hk-ipc = { version = "0.1.0", path = "../../crates/hk-ipc" }
+hk-kernel = { version = "0.1.0", path = "../../crates/hk-kernel" }
+hk-platform-hosted = { version = "0.1.0", path = "../../crates/hk-platform-hosted" }
+hk-root-server = { version = "0.1.0", path = "../../crates/hk-root-server" }
+hk-sim = { version = "0.1.0", path = "../../crates/hk-sim" }
+hk-test = { version = "0.1.0", path = "../../crates/hk-test" }
 
 [lints]
 workspace = true

@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-kernel = { path = "../hk-kernel" }
+hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 
 [dev-dependencies]
-hk-handle = { path = "../hk-handle" }
-hk-ipc = { path = "../hk-ipc" }
+hk-handle = { version = "0.1.0", path = "../hk-handle" }
+hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 
 [lints]
 workspace = true

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-hal = { path = "../../crates/hk-hal" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 
 [lints]
 workspace = true

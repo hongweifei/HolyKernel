@@ -3,6 +3,7 @@ yanked = "deny"
 
 [licenses]
 version = 2
+unused-allowed-license = "allow"
 allow = [
     "Apache-2.0",
     "BSD-2-Clause",

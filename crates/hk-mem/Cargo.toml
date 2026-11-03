@@ -7,12 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-hal = { path = "../hk-hal" }
-hk-handle = { path = "../hk-handle" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-handle = { version = "0.1.0", path = "../hk-handle" }
 spin = "0.9"
 
 [dev-dependencies]
-hk-platform-hosted = { path = "../hk-platform-hosted" }
+hk-platform-hosted = { version = "0.1.0", path = "../hk-platform-hosted" }
 
 [lints]
 workspace = true
