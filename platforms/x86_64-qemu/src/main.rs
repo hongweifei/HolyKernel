@@ -114,10 +114,17 @@ core::arch::global_asm!(
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
+    let boot_start = hk_platform_x86_64::timing::rdtsc();
     let console = Serial::new(COM1);
     console.init();
     console.write_str("HolyKernel x86_64\n");
     hk_platform_x86_64::cpu::init();
+
+    let frequency = hk_platform_x86_64::timing::calibrate();
+    match frequency {
+        Some(hz) => console.write_str(&format!("TSC 频率：{} MHz\n", hz / 1_000_000)),
+        None => console.write_str("TSC 校准失败\n"),
+    }
 
     let info = match hk_boot::boot_info() {
         Ok(info) => info,
@@ -204,6 +211,14 @@ extern "C" fn kmain() -> ! {
         ),
     }
 
+    report_time(
+        &console,
+        screen.as_ref(),
+        "内核初始化耗时",
+        boot_start,
+        frequency,
+    );
+
     match hk_boot::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
             announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
@@ -255,6 +270,7 @@ extern "C" fn kmain() -> ! {
                 );
             }
             announce(&console, screen.as_ref(), "服务已退出\n");
+            report_time(&console, screen.as_ref(), "启动耗时", boot_start, frequency);
 
             let interactive =
                 hk_boot::cmdline().is_some_and(|line| line.contains("shell-interactive"));
@@ -409,6 +425,20 @@ fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferCon
     console.write_str(text);
     if let Some(screen) = screen {
         screen.write_str(text);
+    }
+}
+
+#[cfg(target_os = "none")]
+fn report_time(
+    console: &Serial,
+    screen: Option<&hk_platform_x86_64::FramebufferConsole>,
+    label: &str,
+    start: u64,
+    frequency: Option<u64>,
+) {
+    if let Some(frequency) = frequency {
+        let elapsed = hk_platform_x86_64::timing::elapsed_ms(start, frequency);
+        announce(console, screen, &format!("{label}：{elapsed} ms\n"));
     }
 }
 

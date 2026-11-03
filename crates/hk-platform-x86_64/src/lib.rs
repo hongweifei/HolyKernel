@@ -12,6 +12,7 @@ pub mod keyboard;
 pub mod paging;
 pub mod port;
 pub mod serial;
+pub mod timing;
 
 pub use framebuffer::FramebufferConsole;
 pub use paging::{FrameAllocator, PageFlags, PageTable, PagingError};

@@ -8,8 +8,10 @@
 extern crate alloc;
 
 mod registry;
+mod tasks;
 
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
+pub use tasks::TaskInfo;
 
 use alloc::vec::Vec;
 

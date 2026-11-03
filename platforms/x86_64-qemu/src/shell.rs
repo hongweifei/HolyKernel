@@ -9,7 +9,7 @@ use alloc::string::String;
 use hk_hal::Console;
 use hk_platform_x86_64::{FramebufferConsole, Serial, keyboard};
 use hk_root_server::ServiceTable;
-use hk_shell::{execute, parse};
+use hk_shell::{ShellState, execute, parse};
 
 /// 执行一组命令。
 pub fn run(
@@ -115,7 +115,9 @@ fn execute_line(
     services: &ServiceTable,
     line: &str,
 ) -> bool {
-    let response = execute(parse(line), services);
+    let tasks = crate::runtime::tasks();
+    let state = ShellState::new(services, &tasks);
+    let response = execute(parse(line), &state);
     if response.clear {
         if let Some(screen) = screen {
             screen.clear();

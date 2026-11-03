@@ -12,7 +12,7 @@ use hk_handle::{Handle, Rights};
 use hk_ipc::Message;
 use hk_kernel::{Kernel, TcbId, ThreadState};
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
-use hk_root_server::{RootServer, ServiceSpec, ServiceTable};
+use hk_root_server::{RootServer, ServiceSpec, ServiceTable, TaskInfo};
 use spin::Mutex;
 
 /// 被挂起的系统调用。
@@ -93,6 +93,45 @@ pub fn attach(index: usize, context: InterruptFrame) {
         if let Some(task) = runtime.tasks.get_mut(index) {
             task.context = context;
         }
+    }
+}
+
+/// 生成当前任务视图快照。
+pub fn tasks() -> Vec<TaskInfo> {
+    let guard = RUNTIME.lock();
+    let Some(runtime) = guard.as_ref() else {
+        return Vec::new();
+    };
+
+    runtime
+        .tasks
+        .iter()
+        .enumerate()
+        .map(|(index, task)| TaskInfo {
+            tcb: task.tcb.get(),
+            name: task.name.clone(),
+            endpoint: index as u64 + 1,
+            state: state_name(runtime.kernel.state_of(task.tcb)),
+            pending: pending_name(task.pending),
+            exit_code: task.exited.then_some(task.exit_code),
+        })
+        .collect()
+}
+
+fn state_name(state: Option<ThreadState>) -> &'static str {
+    match state {
+        Some(ThreadState::Runnable) => "runnable",
+        Some(ThreadState::Running) => "running",
+        Some(ThreadState::Blocked) => "blocked",
+        Some(ThreadState::Inactive) | None => "exited",
+    }
+}
+
+fn pending_name(pending: Pending) -> &'static str {
+    match pending {
+        Pending::None => "-",
+        Pending::Send => "send",
+        Pending::Recv { .. } => "recv",
     }
 }
 
