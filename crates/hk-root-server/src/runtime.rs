@@ -11,8 +11,8 @@ use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_PCI_READ, SYS_RECV, SYS_SEND,
-    SYS_SEND_HANDLE, SYS_TICKS, SYS_YIELD,
+    SYS_ALLOC, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_RECV,
+    SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, TcbId, ThreadState};
@@ -28,6 +28,13 @@ pub enum Pending {
     Recv {
         /// 接收使用的端点句柄。
         handle: Handle,
+    },
+    /// 通知等待已登记。
+    Notify {
+        /// 通知句柄。
+        handle: Handle,
+        /// 等待的通知位。
+        mask: u64,
     },
 }
 
@@ -148,6 +155,8 @@ pub struct UserTask<C> {
     pub parent: Option<u64>,
     /// 端点编号到句柄的映射。
     pub handles: Vec<Option<Handle>>,
+    /// 通知编号到句柄的映射。
+    pub notifications: Vec<Option<Handle>>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -168,6 +177,7 @@ impl<C> UserTask<C> {
         name: &str,
         parent: Option<u64>,
         handles: Vec<Option<Handle>>,
+        notifications: Vec<Option<Handle>>,
         context: C,
         arena_base: u64,
         arena_size: u64,
@@ -177,6 +187,7 @@ impl<C> UserTask<C> {
             name: name.to_string(),
             parent,
             handles,
+            notifications,
             context,
             pending: Pending::None,
             arena: Arena::new(arena_base, arena_size),
@@ -192,6 +203,7 @@ pub struct UserRuntime<C, P> {
     root: u64,
     tasks: Vec<UserTask<C>>,
     endpoints: Vec<Option<ObjectId>>,
+    notifications: Vec<Option<ObjectId>>,
     current: Option<usize>,
     platform: P,
 }
@@ -202,6 +214,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         kernel: Kernel,
         root: u64,
         endpoints: Vec<Option<ObjectId>>,
+        notifications: Vec<Option<ObjectId>>,
         tasks: Vec<UserTask<C>>,
         platform: P,
     ) -> Self {
@@ -210,6 +223,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             root,
             tasks,
             endpoints,
+            notifications,
             current: None,
             platform,
         }
@@ -277,6 +291,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let own_id = kernel.handle_id(tcb, own)?;
         self.endpoints.push(Some(own_id));
 
+        let own_notification =
+            kernel.create_notification(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
+        let own_notification_id = kernel.handle_id(tcb, own_notification)?;
+        self.notifications.push(Some(own_notification_id));
+
         let mut handles = Vec::with_capacity(self.endpoints.len());
         for (slot, object) in self.endpoints.iter().enumerate() {
             let handle = if slot == index {
@@ -292,6 +311,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             handles.push(handle);
         }
 
+        let mut notifications = Vec::with_capacity(self.notifications.len());
+        for (slot, object) in self.notifications.iter().enumerate() {
+            let handle = if slot == index {
+                Some(own_notification)
+            } else {
+                match object {
+                    Some(id) => kernel
+                        .grant(tcb, *id, Rights::READ | Rights::WRITE | Rights::TRANSFER)
+                        .ok(),
+                    None => None,
+                }
+            };
+            notifications.push(handle);
+        }
+
         for task in &mut self.tasks {
             if task.exited {
                 continue;
@@ -304,11 +338,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 )
                 .ok();
             task.handles.push(handle);
+            let handle = kernel
+                .grant(
+                    task.tcb,
+                    own_notification_id,
+                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
+                )
+                .ok();
+            task.notifications.push(handle);
         }
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
         self.tasks.push(UserTask::new(
-            tcb, name, parent, handles, context, arena_base, arena_size,
+            tcb,
+            name,
+            parent,
+            handles,
+            notifications,
+            context,
+            arena_base,
+            arena_size,
         ));
         Ok(endpoint)
     }
@@ -340,11 +389,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             if other == index || self.tasks[other].exited {
                 continue;
             }
-            let Some(handle) = self.tasks[other].handles.get(index).copied().flatten() else {
-                continue;
-            };
-            let _ = self.kernel.close_handle(self.tasks[other].tcb, handle);
-            self.tasks[other].handles[index] = None;
+            if let Some(handle) = self.tasks[other].handles.get(index).copied().flatten() {
+                let _ = self.kernel.close_handle(self.tasks[other].tcb, handle);
+                self.tasks[other].handles[index] = None;
+            }
+            if let Some(handle) = self.tasks[other]
+                .notifications
+                .get(index)
+                .copied()
+                .flatten()
+            {
+                let _ = self.kernel.close_handle(self.tasks[other].tcb, handle);
+                self.tasks[other].notifications[index] = None;
+            }
         }
 
         let task = &self.tasks[index];
@@ -363,6 +420,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_SEND => self.send(index, tcb, frame, false),
             SYS_SEND_HANDLE => self.send(index, tcb, frame, true),
             SYS_RECV => self.recv(index, tcb, frame),
+            SYS_NOTIFY => {
+                let result = self.notify(index, tcb, frame);
+                frame.set_result(result);
+                Switch::Continue
+            }
+            SYS_WAIT_NOTIFY => self.wait_notify(index, tcb, frame),
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;
@@ -437,24 +500,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].pending = Pending::None;
         let mut blocked_again = false;
 
-        if let Pending::Recv { handle } = pending {
-            let tcb = self.tasks[index].tcb;
-            match self.kernel.recv(tcb, handle) {
-                Ok(Some(received)) => {
-                    let sender = self.endpoint_of(received.sender);
-                    let handle = self.install_handle(index, &received.message);
-                    let context = &mut self.tasks[index].context;
-                    context.set_result(received.message.label);
-                    context.set_word(received.message.words[0]);
-                    context.set_sender(sender);
-                    context.set_handle(handle);
+        match pending {
+            Pending::Recv { handle } => {
+                let tcb = self.tasks[index].tcb;
+                match self.kernel.recv(tcb, handle) {
+                    Ok(Some(received)) => {
+                        let sender = self.endpoint_of(received.sender);
+                        let handle = self.install_handle(index, &received.message);
+                        let context = &mut self.tasks[index].context;
+                        context.set_result(received.message.label);
+                        context.set_word(received.message.words[0]);
+                        context.set_sender(sender);
+                        context.set_handle(handle);
+                    }
+                    Ok(None) => blocked_again = true,
+                    Err(_) => self.tasks[index].context.set_result(u64::MAX),
                 }
-                Ok(None) => blocked_again = true,
-                Err(_) => self.tasks[index].context.set_result(u64::MAX),
             }
+            Pending::Notify { handle, mask } => {
+                let tcb = self.tasks[index].tcb;
+                match self.kernel.wait(tcb, handle, mask) {
+                    Ok(Some(bits)) => self.tasks[index].context.set_result(bits),
+                    Ok(None) => blocked_again = true,
+                    Err(_) => self.tasks[index].context.set_result(u64::MAX),
+                }
+            }
+            Pending::None | Pending::Send => {}
         }
 
         if blocked_again {
+            self.tasks[index].pending = pending;
             self.current = None;
         }
 
@@ -571,6 +646,52 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(start)
     }
 
+    fn notification_handle(&self, index: usize, number: usize) -> Option<Handle> {
+        self.tasks[index]
+            .notifications
+            .get(number.wrapping_sub(1))
+            .copied()
+            .flatten()
+    }
+
+    fn notify(&self, index: usize, tcb: TcbId, frame: &mut C) -> u64 {
+        let number = frame.arg0() as usize;
+        let Some(handle) = self.notification_handle(index, number) else {
+            return u64::MAX;
+        };
+        match self.kernel.signal(tcb, handle, frame.arg1()) {
+            Ok(()) => 0,
+            Err(_) => u64::MAX,
+        }
+    }
+
+    fn wait_notify(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let mask = frame.arg1();
+        let Some(handle) = self.notification_handle(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+
+        match self.kernel.wait(tcb, handle, mask) {
+            Ok(Some(bits)) => {
+                frame.set_result(bits);
+                Switch::Continue
+            }
+            Ok(None) => {
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::Notify { handle, mask };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
     /// 把随消息收到的句柄加入任务句柄映射，返回新端点编号；没有句柄时为 0。
     fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
         let Some(handle) = message.handles[0] else {
@@ -610,6 +731,7 @@ fn pending_name(pending: Pending) -> &'static str {
         Pending::None => "-",
         Pending::Send => "send",
         Pending::Recv { .. } => "recv",
+        Pending::Notify { .. } => "notify",
     }
 }
 
@@ -783,7 +905,47 @@ mod tests {
         assert_eq!(context.rdx, 5);
         assert_eq!(context.rcx, 1);
         assert_eq!(context.r8, 3);
-        assert_eq!(runtime.tasks()[receiver].handles, 3);
+        assert_eq!(runtime.tasks()[receiver].handles, 5);
+    }
+
+    #[test]
+    fn waits_for_notification() {
+        let mut runtime = runtime();
+
+        let Step::Resume {
+            index: waiter,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(waiter, 0);
+        context.rax = SYS_WAIT_NOTIFY;
+        context.rdi = 1;
+        context.rsi = 1;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.tasks()[waiter].pending, "notify");
+
+        let Step::Resume {
+            index: signaler,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(signaler, 1);
+        context.rax = SYS_NOTIFY;
+        context.rdi = 1;
+        context.rsi = 1;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(context.rax, 0);
+
+        let Step::Resume { index, context } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(index, waiter);
+        assert_eq!(context.rax, 1);
+        assert_eq!(runtime.tasks()[waiter].pending, "-");
     }
 
     #[test]
@@ -794,7 +956,7 @@ mod tests {
         };
         let other = 1 - index;
         let before = runtime.tasks()[other].handles;
-        assert_eq!(before, 2);
+        assert_eq!(before, 4);
 
         context.rax = SYS_EXIT;
         context.rdi = 0;
@@ -803,7 +965,7 @@ mod tests {
 
         let tasks = runtime.tasks();
         assert_eq!(tasks[index].handles, 0);
-        assert_eq!(tasks[other].handles, before - 1);
+        assert_eq!(tasks[other].handles, before - 2);
 
         let endpoint = runtime
             .start("c", MockContext::default(), None)
@@ -813,7 +975,7 @@ mod tests {
         let tasks = runtime.tasks();
         assert_eq!(tasks[index].handles, 0);
         assert_eq!(tasks[other].handles, before);
-        // 退出的端点对象已释放，不再授予新任务。
-        assert_eq!(tasks[2].handles, 2);
+        // 退出的端点与通知对象已释放，不再授予新任务。
+        assert_eq!(tasks[2].handles, 4);
     }
 }

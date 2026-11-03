@@ -31,7 +31,17 @@ where
     let root = server.root().get();
 
     let mut endpoints = Vec::with_capacity(names.len());
+    let mut notifications = Vec::with_capacity(names.len());
+    let mut own_notifications = Vec::with_capacity(names.len());
     let mut tasks = Vec::with_capacity(names.len());
+
+    for service in server.services() {
+        let handle = kernel
+            .create_notification(service.tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
+        notifications.push(Some(kernel.handle_id(service.tcb, handle)?));
+        own_notifications.push(handle);
+    }
+
     for (index, service) in server.services().iter().enumerate() {
         endpoints.push(Some(service.endpoint));
         let mut handles = Vec::with_capacity(names.len());
@@ -47,6 +57,20 @@ where
             };
             handles.push(Some(handle));
         }
+
+        let mut notification_handles = Vec::with_capacity(names.len());
+        for (slot, notification) in notifications.iter().enumerate() {
+            let handle = match notification {
+                Some(id) if slot != index => kernel.grant(
+                    service.tcb,
+                    *id,
+                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
+                )?,
+                _ => own_notifications[index],
+            };
+            notification_handles.push(Some(handle));
+        }
+
         let (arena_base, arena_size) = platform.arena_layout(index);
         let context = make_context(index, index as u64 + 1);
         tasks.push(UserTask::new(
@@ -54,6 +78,7 @@ where
             names[index],
             Some(root),
             handles,
+            notification_handles,
             context,
             arena_base,
             arena_size,
@@ -61,5 +86,12 @@ where
     }
 
     kernel.exit(server.root())?;
-    Ok(UserRuntime::new(kernel, root, endpoints, tasks, platform))
+    Ok(UserRuntime::new(
+        kernel,
+        root,
+        endpoints,
+        notifications,
+        tasks,
+        platform,
+    ))
 }

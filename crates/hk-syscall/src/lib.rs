@@ -37,5 +37,11 @@ pub const SYS_HANDLE_COUNT: u64 = 9;
 /// 发送消息并转移一个句柄。
 pub const SYS_SEND_HANDLE: u64 = 10;
 
+/// 置位通知位。
+pub const SYS_NOTIFY: u64 = 11;
+
+/// 等待通知位。
+pub const SYS_WAIT_NOTIFY: u64 = 12;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

@@ -67,6 +67,18 @@ pub fn yield_now() -> u64 {
     unsafe { call(SYS_YIELD, 0, 0, 0, 0).value }
 }
 
+/// 置位指定任务的通知位；`target` 是端点或通知编号。
+pub fn notify(target: u64, bits: u64) -> u64 {
+    // SAFETY: 目标编号由内核分配；内核校验句柄后置位。
+    unsafe { call(SYS_NOTIFY, target, bits, 0, 0).value }
+}
+
+/// 等待指定任务的通知位，返回命中的位。
+pub fn wait_notify(target: u64, mask: u64) -> u64 {
+    // SAFETY: 目标编号由内核分配；没有通知位时内核阻塞本任务。
+    unsafe { call(SYS_WAIT_NOTIFY, target, mask, 0, 0).value }
+}
+
 /// 读取 PCI 配置空间中的一个 32 位字。
 pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);
