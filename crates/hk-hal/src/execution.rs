@@ -23,6 +23,9 @@ pub trait SyscallFrame: Copy {
     /// 返回第三个参数。
     fn arg2(&self) -> u64;
 
+    /// 返回第四个参数。
+    fn arg3(&self) -> u64;
+
     /// 设置系统调用返回值。
     fn set_result(&mut self, value: u64);
 
@@ -31,4 +34,7 @@ pub trait SyscallFrame: Copy {
 
     /// 设置发送者端点。
     fn set_sender(&mut self, value: u64);
+
+    /// 设置随消息接收的句柄编号；`0` 表示没有句柄。
+    fn set_handle(&mut self, value: u64);
 }

@@ -34,5 +34,8 @@ pub const SYS_HANDLE_CLOSE: u64 = 8;
 /// 查询在用句柄数。
 pub const SYS_HANDLE_COUNT: u64 = 9;
 
+/// 发送消息并转移一个句柄。
+pub const SYS_SEND_HANDLE: u64 = 10;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

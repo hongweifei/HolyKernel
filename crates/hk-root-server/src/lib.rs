@@ -66,9 +66,14 @@ impl RootServer {
 
         for spec in specs {
             let tcb = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
-            let endpoint = kernel.create_endpoint(root, Rights::READ | Rights::WRITE)?;
+            let endpoint =
+                kernel.create_endpoint(root, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
             let endpoint_id = kernel.handle_id(root, endpoint)?;
-            let handle = kernel.grant(tcb, endpoint_id, Rights::READ | Rights::WRITE)?;
+            let handle = kernel.grant(
+                tcb,
+                endpoint_id,
+                Rights::READ | Rights::WRITE | Rights::TRANSFER,
+            )?;
             services.push(Service {
                 name: spec.name,
                 tcb,
@@ -139,7 +144,11 @@ mod tests {
         let client = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
 
         let handle = kernel
-            .grant(client, service.endpoint, Rights::READ | Rights::WRITE)
+            .grant(
+                client,
+                service.endpoint,
+                Rights::READ | Rights::WRITE | Rights::TRANSFER,
+            )
             .expect("授予客户端句柄");
         assert_eq!(
             kernel.handle_id(client, handle).expect("解析句柄"),

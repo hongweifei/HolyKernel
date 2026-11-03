@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::{ENDPOINT_ECHO, alloc, exit, recv, send, write};
+use hk_server_api::{ENDPOINT_ECHO, alloc, exit, recv, send, send_handle, write};
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -18,6 +18,14 @@ const REQUEST: u64 = 0x100;
 /// 回复标签。
 #[cfg(target_os = "none")]
 const REPLY: u64 = 0x101;
+
+/// 句柄转移标签。
+#[cfg(target_os = "none")]
+const HANDOFF: u64 = 0x200;
+
+/// 句柄转移回复标签。
+#[cfg(target_os = "none")]
+const HANDOFF_REPLY: u64 = 0x201;
 
 /// 服务入口：内核以用户态进入，参数是内核分配给本服务的端点编号。
 #[cfg(target_os = "none")]
@@ -31,9 +39,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-demo 收到回复 42\n".as_bytes());
         if verify_arena() {
             write(b"hk-server-demo arena ok\n");
+        } else {
+            write("hk-server-demo arena 失败\n".as_bytes());
+            exit(1)
+        }
+
+        send_handle(ENDPOINT_ECHO, HANDOFF, 7, ENDPOINT_ECHO);
+        let (label, word, _sender) = recv(endpoint);
+        if label == HANDOFF_REPLY && word == 14 {
+            write("hk-server-demo 句柄转移 ok\n".as_bytes());
             exit(0)
         }
-        write("hk-server-demo arena 失败\n".as_bytes());
+        write("hk-server-demo 句柄转移失败\n".as_bytes());
         exit(1)
     }
 

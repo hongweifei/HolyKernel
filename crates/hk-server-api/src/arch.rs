@@ -9,6 +9,8 @@ pub struct SyscallResult {
     pub word: u64,
     /// 发送者端点或附加返回值。
     pub sender: u64,
+    /// 随消息接收的句柄编号；`0` 表示没有句柄。
+    pub extra: u64,
 }
 
 #[cfg(target_arch = "x86_64")]

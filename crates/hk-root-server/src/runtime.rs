@@ -12,7 +12,7 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_PCI_READ, SYS_RECV, SYS_SEND,
-    SYS_TICKS, SYS_YIELD,
+    SYS_SEND_HANDLE, SYS_TICKS, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, TcbId, ThreadState};
@@ -273,7 +273,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let tcb = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
-        let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE)?;
+        let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
         self.endpoints.push(Some(own_id));
 
@@ -283,7 +283,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Some(own)
             } else {
                 match object {
-                    Some(id) => kernel.grant(tcb, *id, Rights::READ | Rights::WRITE).ok(),
+                    Some(id) => kernel
+                        .grant(tcb, *id, Rights::READ | Rights::WRITE | Rights::TRANSFER)
+                        .ok(),
                     None => None,
                 }
             };
@@ -295,7 +297,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             }
             let handle = kernel
-                .grant(task.tcb, own_id, Rights::READ | Rights::WRITE)
+                .grant(
+                    task.tcb,
+                    own_id,
+                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
+                )
                 .ok();
             task.handles.push(handle);
         }
@@ -354,7 +360,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let tcb = self.tasks[index].tcb;
 
         match frame.number() {
-            SYS_SEND => self.send(index, tcb, frame),
+            SYS_SEND => self.send(index, tcb, frame, false),
+            SYS_SEND_HANDLE => self.send(index, tcb, frame, true),
             SYS_RECV => self.recv(index, tcb, frame),
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
@@ -435,10 +442,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             match self.kernel.recv(tcb, handle) {
                 Ok(Some(received)) => {
                     let sender = self.endpoint_of(received.sender);
+                    let handle = self.install_handle(index, &received.message);
                     let context = &mut self.tasks[index].context;
                     context.set_result(received.message.label);
                     context.set_word(received.message.words[0]);
                     context.set_sender(sender);
+                    context.set_handle(handle);
                 }
                 Ok(None) => blocked_again = true,
                 Err(_) => self.tasks[index].context.set_result(u64::MAX),
@@ -460,7 +469,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or(0)
     }
 
-    fn send(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+    fn send(&mut self, index: usize, tcb: TcbId, frame: &mut C, transfer: bool) -> Switch {
         let endpoint = frame.arg0() as usize;
         let Some(handle) = self.tasks[index]
             .handles
@@ -472,9 +481,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
 
+        let transferred = if transfer {
+            let slot = frame.arg3() as usize;
+            match self.tasks[index]
+                .handles
+                .get(slot.wrapping_sub(1))
+                .copied()
+                .flatten()
+            {
+                Some(transferred) => Some((slot.wrapping_sub(1), transferred)),
+                None => {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+            }
+        } else {
+            None
+        };
+
         let mut words = [0; 8];
         words[0] = frame.arg2();
-        let message = Message::new(frame.arg1()).with_words(words);
+        let mut message = Message::new(frame.arg1()).with_words(words);
+        if let Some((_, transferred)) = transferred {
+            message = message.with_handles([Some(transferred), None, None, None]);
+        }
 
         match self.kernel.send(tcb, handle, message) {
             Ok(()) => {
@@ -485,6 +515,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     self.tasks[index].pending = Pending::Send;
                     Switch::Block
                 } else {
+                    if let Some((slot, _)) = transferred {
+                        self.tasks[index].handles[slot] = None;
+                    }
                     frame.set_result(0);
                     Switch::Continue
                 }
@@ -511,9 +544,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         match self.kernel.recv(tcb, handle) {
             Ok(Some(received)) => {
                 let sender = self.endpoint_of(received.sender);
+                let handle = self.install_handle(index, &received.message);
                 frame.set_result(received.message.label);
                 frame.set_word(received.message.words[0]);
                 frame.set_sender(sender);
+                frame.set_handle(handle);
                 Switch::Continue
             }
             Ok(None) => {
@@ -534,6 +569,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let start = self.tasks[index].arena.allocate(size, align)?;
         self.platform.zero(start, size);
         Some(start)
+    }
+
+    /// 把随消息收到的句柄加入任务句柄映射，返回新端点编号；没有句柄时为 0。
+    fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
+        let Some(handle) = message.handles[0] else {
+            return 0;
+        };
+        self.tasks[index].handles.push(Some(handle));
+        self.tasks[index].handles.len() as u64
     }
 
     fn close_handle(&mut self, index: usize, tcb: TcbId, endpoint: usize) -> u64 {
@@ -582,6 +626,8 @@ mod tests {
         rsi: u64,
         rdx: u64,
         rcx: u64,
+        r8: u64,
+        r10: u64,
     }
 
     impl UserContext for MockContext {
@@ -609,6 +655,10 @@ mod tests {
             self.rdx
         }
 
+        fn arg3(&self) -> u64 {
+            self.r10
+        }
+
         fn set_result(&mut self, value: u64) {
             self.rax = value;
         }
@@ -619,6 +669,10 @@ mod tests {
 
         fn set_sender(&mut self, value: u64) {
             self.rcx = value;
+        }
+
+        fn set_handle(&mut self, value: u64) {
+            self.r8 = value;
         }
     }
 
@@ -678,6 +732,58 @@ mod tests {
         context.rdi = 3;
         assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
         assert_eq!(runtime.finish(index), Some((String::from("a"), 3)));
+    }
+
+    #[test]
+    fn transfers_handle_over_ipc() {
+        let mut runtime = runtime();
+
+        let Step::Resume { index: sender, .. } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+        let mut context = MockContext {
+            rax: SYS_YIELD,
+            ..MockContext::default()
+        };
+        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+
+        let Step::Resume {
+            index: receiver,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(receiver, 1);
+        context.rax = SYS_RECV;
+        context.rdi = 2;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+
+        let Step::Resume {
+            index: sender_again,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(sender_again, sender);
+        context.rax = SYS_SEND_HANDLE;
+        context.rdi = 2;
+        context.rsi = 9;
+        context.rdx = 5;
+        context.r10 = 2;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.tasks()[receiver].state, "runnable");
+
+        let Step::Resume { index, context } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+        assert_eq!(index, receiver);
+        assert_eq!(context.rax, 9);
+        assert_eq!(context.rdx, 5);
+        assert_eq!(context.rcx, 1);
+        assert_eq!(context.r8, 3);
+        assert_eq!(runtime.tasks()[receiver].handles, 3);
     }
 
     #[test]

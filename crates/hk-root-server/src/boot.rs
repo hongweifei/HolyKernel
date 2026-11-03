@@ -39,7 +39,11 @@ where
             let handle = if slot == index {
                 service.handle
             } else {
-                kernel.grant(service.tcb, endpoint.endpoint, Rights::READ | Rights::WRITE)?
+                kernel.grant(
+                    service.tcb,
+                    endpoint.endpoint,
+                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
+                )?
             };
             handles.push(Some(handle));
         }

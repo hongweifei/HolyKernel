@@ -879,6 +879,10 @@ impl hk_hal::SyscallFrame for InterruptFrame {
         self.rdx
     }
 
+    fn arg3(&self) -> u64 {
+        self.r10
+    }
+
     fn set_result(&mut self, value: u64) {
         self.rax = value;
     }
@@ -889,6 +893,10 @@ impl hk_hal::SyscallFrame for InterruptFrame {
 
     fn set_sender(&mut self, value: u64) {
         self.rcx = value;
+    }
+
+    fn set_handle(&mut self, value: u64) {
+        self.r8 = value;
     }
 }
 
