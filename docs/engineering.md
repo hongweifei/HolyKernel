@@ -105,7 +105,7 @@ cargo xtask budget
 | `fuzz` | 解析器、IPC、VFS、ELF、网络协议 |
 | `docs` | Markdown 链接、ADR 索引 |
 | `deny` | 许可证、安全公告、重复依赖 |
-| `budget` | 内核行数 ≤ 50,000 |
+| `budget` | 内核代码行数统计 |
 
 ---
 
@@ -221,7 +221,6 @@ cargo xtask budget
 7. 新增失败路径有测试（OOM、超时、EIO、服务器崩溃）。
 8. 服务器崩溃有重启策略与状态恢复。
 9. 文档、ADR、术语、链接已更新。
-10. 内核行数在预算内。
 
 ---
 

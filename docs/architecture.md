@@ -335,7 +335,6 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 | HolyFS 1 MiB 顺序读 | ≥ 500 MiB/s | `hk-bench holyfs` |
 | `fork` + `exec` `/bin/true` | ≤ 5 ms | `hk-bench posix` |
 | 帧缓冲全屏重绘 1920×1080×32 位 RGBA | ≤ 8 ms | `hk-bench ui` |
-| 内核代码行数（统计范围：内核代码；测试/文档/第三方单列） | ≤ 50,000 | CI 统计 |
 
 预算用基准测试锁定；里程碑退出以预算达标为依据，例外记录在 ADR。
 

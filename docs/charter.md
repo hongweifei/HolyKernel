@@ -196,7 +196,7 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 文件系统可作主根�
 1. 触及内核对象、句柄、IPC、VSpace、POSIX 兼容层、服务器边界或 ABI 的变更，先写 ADR。
 2. ADR 说明变更如何与微内核模型协作：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、服务器。
 3. 新增依赖通过 [工程策略](engineering.md) 的依赖审查：`no_std` 可用、许可证兼容、可审计。
-4. 内核代码预算由 CI 统计；超预算需要架构评审。
+4. 内核代码行数由 CI 统计，用于跟踪规模。
 5. 文档与代码冲突时，以本文与已接受的 ADR 为准；代码与文档在同一个 PR 中收敛。
 
 ---

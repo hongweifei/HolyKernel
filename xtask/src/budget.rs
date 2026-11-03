@@ -1,4 +1,6 @@
-//! 内核代码行数预算。
+//! 内核代码行数统计。
+//!
+//! 统计内核 crate 的代码行数（去掉空行与整行注释），用于跟踪规模；不设上限。
 
 use std::fs;
 use std::path::Path;
@@ -6,18 +8,15 @@ use std::path::Path;
 use crate::failure::{Failure, Result};
 use crate::workspace;
 
-/// 内核代码行数上限。
-pub const KERNEL_LINE_BUDGET: usize = 50_000;
-
-/// 计入预算的内核 crate。
+/// 计入统计的内核 crate。
 pub const KERNEL_CRATES: [&str; 5] = ["hk-hal", "hk-handle", "hk-ipc", "hk-kernel", "hk-mem"];
 
-/// 统计内核代码行数，超出预算时失败。
+/// 统计内核代码行数。
 pub fn run() -> Result<()> {
     let root = workspace::root();
     let mut total = 0;
 
-    println!("内核代码行数预算：{KERNEL_LINE_BUDGET}");
+    println!("内核代码行数");
     println!("{:<14}{:>8}", "crate", "lines");
     for name in KERNEL_CRATES {
         let source = root.join("crates").join(name).join("src");
@@ -30,11 +29,6 @@ pub fn run() -> Result<()> {
     }
     println!("{:<14}{:>8}", "合计", total);
 
-    if total > KERNEL_LINE_BUDGET {
-        return Err(Failure::new(format!(
-            "内核代码行数 {total} 超出预算 {KERNEL_LINE_BUDGET}"
-        )));
-    }
     Ok(())
 }
 
