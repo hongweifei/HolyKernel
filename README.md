@@ -4,7 +4,7 @@
 
 HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程、地址空间、句柄、IPC、内存与中断机制；驱动、文件系统、POSIX 兼容层、网络与原生服务运行在用户态。
 
-系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS 服务器统一管理挂载表与文件句柄；HolyDoc 与真彩 UI 作为原生服务。
+系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS 服务器统一管理挂载表与文件句柄；HolyFS 文件系统可作主根或 `H:` 盘符；HolyDoc 与真彩 UI 作为可选原生服务。
 
 当前状态：**v0.1.0-design**。仓库包含微内核架构、POSIX 兼容层与路线图；代码从 M0 脚手架开始。
 
@@ -21,7 +21,7 @@ flowchart TB
     subgraph Servers["用户态服务器"]
         Root["Root Server<br/>服务管理与重启"]
         Device["Device Manager<br/>PCI / DTB / 驱动"]
-        FS["VFS + 文件系统<br/>ext2 · tmpfs · devfs"]
+        FS["VFS + 文件系统<br/>ext2/ext4 · HolyFS · tmpfs"]
         POSIX["POSIX 服务器<br/>进程 · fd · 信号 · socket"]
         Net["Network Server<br/>TCP/IP · DHCP · DNS"]
         Display["显示与输入服务器<br/>真彩 UI · HolyDoc"]
@@ -66,7 +66,7 @@ flowchart TB
 | **网络**             | 用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket                          |
 | **Holy 命令**          | HolyShell 与 Holy 命令是主路径；POSIX 工具通过兼容环境使用                                  |
 | **Holy 原生体验**        | HolyDoc UI、Workbench、系统内 Toolchain、Checkpoint、符号化调试                        |
-| **原生服务可选**          | HolyDoc、真彩 UI 作为用户态服务与 POSIX 环境并存                                          |
+| **原生服务可选**          | HolyDoc、真彩 UI 作为用户态服务；HolyFS 文件系统可作主根或 `H:` 盘符                |
 | **多架构**             | x86_64 / AArch64 / RISC-V / Hosted 共享同一套内核与服务器                               |
 | **现代工程**            | Rust、CI、确定性模拟、故障注入、可观测性                                                      |
 
@@ -87,6 +87,7 @@ flowchart TB
 | [网络](docs/network.md) | Network Server、TCP/IP、DHCP、DNS、POSIX socket |
 | [HolyShell 与 Holy 命令](docs/shell.md) | 原生命令、结构化管道、POSIX 兼容入口 |
 | [VFS](docs/vfs.md) | 挂载表、路径解析、文件句柄、页缓存 |
+| [HolyFS 文件系统](docs/holyfs.md) | 可作主根、POSIX + 整文档、COW、checksum、快照 |
 | [HolyDoc 与 UI](docs/ui.md) | 可选原生显示服务与真彩界面 |
 | [Holy 原生体验](docs/experience.md) | Workbench、Toolchain、Checkpoint、符号化调试 |
 | [平台与启动](docs/platforms.md) | HAL、BootInfo、各架构启动、用户态驱动 |
@@ -133,11 +134,12 @@ cargo xtask test-posix --target x86_64-qemu
 
 - 句柄型微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ
 - 用户态 Root Server、Device Manager、virtio 驱动
-- ext2 兼容文件系统服务器
+- ext2/ext4 与 HolyFS 文件系统服务器；HolyFS 可作主根
 - HolyShell 与 Holy 命令
 - POSIX.1 兼容环境 + musl + `hk-abi`/`hk-crt` 薄兼容层
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
 - 网络：IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket、virtio-net
+- HolyFS 文件系统：可作 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照
 - 可选原生服务：HolyDoc、真彩 UI
 - x86_64 / AArch64 / RISC-V QEMU 与 Hosted 模拟器
 

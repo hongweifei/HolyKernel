@@ -13,13 +13,14 @@
 7. [网络](network.md) — Network Server、TCP/IP、DHCP、DNS、POSIX socket。
 8. [HolyShell 与 Holy 命令](shell.md) — 原生命令、结构化管道、POSIX 兼容入口。
 9. [VFS](vfs.md) — 挂载表、路径解析、文件句柄、页缓存。
-10. [POSIX 与 libc](posix.md) — POSIX 兼容环境、syscall shim、进程/线程/信号、ELF。
-11. [HolyDoc 与 UI](ui.md) — 可选原生显示服务与真彩界面。
-12. [Holy 原生体验](experience.md) — Workbench、Toolchain、Checkpoint、符号化调试。
-13. [平台与启动](platforms.md) — HAL、BootInfo、多架构启动、用户态驱动。
-14. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
-15. [路线图](roadmap.md) — M0–M9 与退出标准。
-16. [术语表](glossary.md) — 微内核与 POSIX 术语。
+10. [HolyFS 文件系统](holyfs.md) — 可作主根、POSIX + 整文档、COW、checksum、快照。
+11. [POSIX 与 libc](posix.md) — POSIX 兼容环境、syscall shim、进程/线程/信号、ELF。
+12. [HolyDoc 与 UI](ui.md) — 可选原生显示服务与真彩界面。
+13. [Holy 原生体验](experience.md) — Workbench、Toolchain、Checkpoint、符号化调试。
+14. [平台与启动](platforms.md) — HAL、BootInfo、多架构启动、用户态驱动。
+15. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
+16. [路线图](roadmap.md) — M0–M9 与退出标准。
+17. [术语表](glossary.md) — 微内核与 POSIX 术语。
 
 ## 文档地图
 
@@ -35,6 +36,7 @@ docs/
 ├── network.md           Network Server、TCP/IP、DHCP、DNS、socket
 ├── shell.md             HolyShell、Holy 命令、结构化管道、POSIX bridge
 ├── vfs.md               VFS 与文件系统后端
+├── holyfs.md            可作主根、POSIX + 整文档、COW、checksum、快照
 ├── posix.md             POSIX 兼容环境、musl 与 hk-abi
 ├── ui.md                HolyDoc 与真彩 Display Server
 ├── experience.md        Workbench、Toolchain、Checkpoint、符号化调试
@@ -52,7 +54,8 @@ docs/
     ├── 0006-vfs.md
     ├── 0007-posix-libc.md
     ├── 0008-preemptive-smp.md
-    └── 0009-network.md
+    ├── 0009-network.md
+    └── 0010-holyfs.md
 ```
 
 ## 状态标记
