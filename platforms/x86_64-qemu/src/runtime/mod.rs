@@ -1,17 +1,14 @@
-//! x86_64 用户态运行时适配：用户现场、平台副作用与启动装配。
+//! x86_64 用户态运行时适配：用户现场与平台副作用。
 //!
-//! 任务表、系统调用语义与 Arena 记账位于 `hk-kernel::user`；本模块只提供
-//! `InterruptFrame` 的现场操作、PCI/计时/清零适配，并把启动期服务装配成运行时。
+//! 任务表、系统调用、调度循环与启动装配都在 `crates/`；本模块只把
+//! `InterruptFrame`、PCI/计时/清零与 Arena 布局接入运行时会话。
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_hal::UserContext;
-use hk_kernel::user::{Step, Switch, UserPlatform, UserRuntime};
+use hk_kernel::user::{Switch, UserPlatform};
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
-use hk_root_server::{ServiceTable, TaskInfo};
-use spin::Mutex;
+use hk_root_server::{ServiceTable, Session, TaskInfo};
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -45,9 +42,9 @@ impl UserPlatform for X86Platform {
     }
 }
 
-type Runtime = UserRuntime<InterruptFrame, X86Platform>;
+type Runtime = Session<InterruptFrame, X86Platform>;
 
-static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
+static RUNTIME: Runtime = Session::new();
 
 /// 返回任务槽位的 Arena 基址与大小。
 pub fn arena(slot: usize) -> (u64, u64) {
@@ -56,12 +53,10 @@ pub fn arena(slot: usize) -> (u64, u64) {
 
 /// 按服务清单装配用户态运行时。
 pub fn init(names: &[&'static str]) -> Result<(), String> {
-    let runtime = hk_root_server::boot::user_runtime(names, X86Platform, |_index, endpoint| {
+    RUNTIME.boot(names, X86Platform, |_index, endpoint| {
         cpu::user_frame(0, 0, endpoint)
-    })
-    .map_err(|error| format!("{error}"))?;
+    })?;
 
-    *RUNTIME.lock() = Some(runtime);
     cpu::set_syscall_hook(dispatch);
     cpu::set_preempt_hook(preempt);
     Ok(())
@@ -69,80 +64,43 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
 
 /// 设置任务的用户态初始现场。
 pub fn attach(index: usize, context: InterruptFrame) {
-    if let Some(runtime) = RUNTIME.lock().as_mut() {
-        runtime.attach(index, context);
-    }
+    RUNTIME.attach(index, context);
 }
 
 /// 返回已登记任务数量。
 pub fn task_count() -> usize {
-    RUNTIME.lock().as_ref().map_or(0, Runtime::task_count)
+    RUNTIME.task_count()
 }
 
 /// 按名称返回任务的 TCB 编号。
 pub fn tcb_of(name: &str) -> Option<u64> {
-    RUNTIME
-        .lock()
-        .as_ref()
-        .and_then(|runtime| runtime.tcb_of(name))
+    RUNTIME.tcb_of(name)
 }
 
 /// 返回 Root 线程编号，作为引导期服务的父任务。
 pub fn root() -> u64 {
-    RUNTIME.lock().as_ref().map_or(0, Runtime::root)
+    RUNTIME.root()
 }
 
 /// 装载新任务，返回分配的端点编号。
 pub fn start(name: &str, context: InterruptFrame, parent: Option<u64>) -> Result<u64, String> {
-    let mut guard = RUNTIME.lock();
-    let runtime = guard
-        .as_mut()
-        .ok_or_else(|| String::from("运行时未初始化"))?;
-    runtime
-        .start(name, context, parent)
-        .map_err(|error| format!("{error}"))
+    RUNTIME.start(name, context, parent)
 }
 
 /// 生成任务视图快照。
 pub fn tasks() -> Vec<TaskInfo> {
-    RUNTIME
-        .lock()
-        .as_ref()
-        .map_or_else(Vec::new, Runtime::tasks)
+    RUNTIME.tasks()
 }
 
 /// 依次调度任务直到没有可运行线程。
 pub fn run(table: &mut ServiceTable) {
     cpu::start_tick();
-    loop {
-        let step = RUNTIME.lock().as_mut().map(|runtime| runtime.step());
-        match step {
-            Some(Step::Resume { index, context }) => {
-                // 恢复用户态前释放运行时锁；系统调用与抢占回调会重新获取。
-                context.resume();
-                let exited = RUNTIME
-                    .lock()
-                    .as_mut()
-                    .and_then(|runtime| runtime.finish(index));
-                if let Some((name, code)) = exited {
-                    table.mark_exited(&name, code);
-                }
-            }
-            Some(Step::Blocked) => {}
-            Some(Step::Done) | None => break,
-        }
-    }
+    RUNTIME.run(table);
     cpu::stop_tick();
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
-    let mut guard = RUNTIME.lock();
-    let Some(runtime) = guard.as_mut() else {
-        frame.rax = u64::MAX;
-        return SyscallAction::Continue;
-    };
-
-    match runtime.dispatch(frame) {
+    match RUNTIME.dispatch(frame) {
         Switch::Continue => SyscallAction::Continue,
         Switch::Block => SyscallAction::Block,
         Switch::Exit => SyscallAction::Exit,
@@ -150,9 +108,5 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 }
 
 fn preempt(frame: &InterruptFrame) -> bool {
-    let mut guard = RUNTIME.lock();
-    let Some(runtime) = guard.as_mut() else {
-        return false;
-    };
-    runtime.preempt(*frame)
+    RUNTIME.preempt(*frame)
 }

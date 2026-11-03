@@ -211,6 +211,7 @@ dependencies = [
  "hk-hal",
  "hk-handle",
  "hk-kernel",
+ "spin",
 ]
 
 [[package]]

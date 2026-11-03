@@ -1,62 +1,20 @@
 //! 内核与服务器之间的系统调用 ABI。
 //!
-//! 服务在用户态通过 `int 0x80` 进入内核：`rax` 为调用号，`rdi`/`rsi`/`rdx` 为参数。
+//! 本 crate 只描述调用号、参数与返回约定；具体入口指令由 [`arch`] 按架构提供。
 
 #![no_std]
 
-use core::arch::asm;
+mod arch;
 
 pub use hk_syscall::*;
 
-/// 发起系统调用。
-///
-/// # Safety
-/// 调用方必须处于用户态或由内核显式调用；参数语义由调用号决定。
-#[inline(always)]
-unsafe fn syscall(number: u64, first: u64, second: u64) -> u64 {
-    let result: u64;
-    // SAFETY: `int 0x80` 由内核在 IDT 中注册；寄存器约定与内核分派一致。
-    unsafe {
-        asm!(
-            "int 0x80",
-            inlateout("rax") number => result,
-            in("rdi") first,
-            in("rsi") second,
-            options(nostack),
-        );
-    }
-    result
-}
-
-/// 发起带三个参数的系统调用，返回 `rax`、`rdx` 与 `rcx`。
-///
-/// # Safety
-/// 调用方必须处于用户态或由内核显式调用；参数语义由调用号决定。
-#[inline(always)]
-unsafe fn syscall4(number: u64, first: u64, second: u64, third: u64) -> (u64, u64, u64) {
-    let result: u64;
-    let word: u64;
-    let sender: u64;
-    // SAFETY: `int 0x80` 由内核在 IDT 中注册；内核恢复 `rax`、`rdx` 与 `rcx`。
-    unsafe {
-        asm!(
-            "int 0x80",
-            inlateout("rax") number => result,
-            in("rdi") first,
-            in("rsi") second,
-            inlateout("rdx") third => word,
-            lateout("rcx") sender,
-            options(nostack),
-        );
-    }
-    (result, word, sender)
-}
+use arch::call;
 
 /// 把文本写入内核控制台。
 pub fn write(bytes: &[u8]) {
     // SAFETY: 指针与长度来自本进程的只读数据。
     unsafe {
-        syscall(SYS_WRITE, bytes.as_ptr() as u64, bytes.len() as u64);
+        call(SYS_WRITE, bytes.as_ptr() as u64, bytes.len() as u64, 0);
     }
 }
 
@@ -80,57 +38,58 @@ pub fn write_u64(mut value: u64) {
 /// 向端点发送消息。
 pub fn send(endpoint: u64, label: u64, word: u64) -> u64 {
     // SAFETY: 端点编号由内核分配；消息字按值传递。
-    unsafe { syscall4(SYS_SEND, endpoint, label, word).0 }
+    unsafe { call(SYS_SEND, endpoint, label, word).value }
 }
 
 /// 从端点接收消息，返回标签、消息字与发送者端点。
 pub fn recv(endpoint: u64) -> (u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；没有消息时内核阻塞本任务。
-    unsafe { syscall4(SYS_RECV, endpoint, 0, 0) }
+    let result = unsafe { call(SYS_RECV, endpoint, 0, 0) };
+    (result.value, result.word, result.sender)
 }
 
 /// 让出 CPU。
 pub fn yield_now() -> u64 {
     // SAFETY: 让出不携带参数，内核对调用号做分派。
-    unsafe { syscall(SYS_YIELD, 0, 0) }
+    unsafe { call(SYS_YIELD, 0, 0, 0).value }
 }
 
 /// 读取 PCI 配置空间中的一个 32 位字。
 pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);
     // SAFETY: 内核校验参数并只访问 PCI 配置端口。
-    unsafe { syscall(SYS_PCI_READ, address, u64::from(offset)) as u32 }
+    unsafe { call(SYS_PCI_READ, address, u64::from(offset), 0).value as u32 }
 }
 
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。
-    unsafe { syscall(SYS_TICKS, 0, 0) }
+    unsafe { call(SYS_TICKS, 0, 0, 0).value }
 }
 
 /// 在任务 Arena 内分配并清零内存；失败时返回空指针。
 pub fn alloc(size: usize, align: usize) -> *mut u8 {
     // SAFETY: 内核在 Arena 内按对齐分配并清零，返回用户可写地址。
-    unsafe { syscall(SYS_ALLOC, size as u64, align as u64) as *mut u8 }
+    unsafe { call(SYS_ALLOC, size as u64, align as u64, 0).value as *mut u8 }
 }
 
 /// 关闭端点句柄；成功返回 0，失败返回 `u64::MAX`。
 pub fn close_handle(endpoint: u64) -> u64 {
     // SAFETY: 端点编号由内核分配；内核校验句柄后关闭。
-    unsafe { syscall(SYS_HANDLE_CLOSE, endpoint, 0) }
+    unsafe { call(SYS_HANDLE_CLOSE, endpoint, 0, 0).value }
 }
 
 /// 返回当前任务的在用句柄数。
 pub fn handle_count() -> u64 {
     // SAFETY: 只读计数，不携带参数。
-    unsafe { syscall(SYS_HANDLE_COUNT, 0, 0) }
+    unsafe { call(SYS_HANDLE_COUNT, 0, 0, 0).value }
 }
 
 /// 结束服务，不返回。
 pub fn exit(code: u64) -> ! {
     // SAFETY: 退出调用不返回；内核据此标记任务退出并切换调度。
     unsafe {
-        syscall(SYS_EXIT, code, 0);
+        call(SYS_EXIT, code, 0, 0);
     }
     loop {
         core::hint::spin_loop();
