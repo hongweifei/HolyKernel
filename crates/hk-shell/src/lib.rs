@@ -35,6 +35,8 @@ pub enum Command<'a> {
     Focus(&'a str),
     /// 装载并启动服务。
     Start(&'a str),
+    /// 重启已退出的服务。
+    Restart(&'a str),
     /// 求值 HolyShell 脚本。
     Use(&'a str),
     /// 求值 HolyShell 脚本（`use` 的别名）。
@@ -107,6 +109,9 @@ pub trait ShellHost {
     /// 启动服务；`parent` 是当前会话选中的任务名。
     fn start(&mut self, name: &str, parent: Option<&str>) -> String;
 
+    /// 重启已退出的服务；`parent` 是当前会话选中的任务名。
+    fn restart(&mut self, name: &str, parent: Option<&str>) -> String;
+
     /// 读取脚本内容；名称可省略 `.hsh` 后缀。
     fn script(&self, name: &str) -> Result<String, String>;
 }
@@ -122,6 +127,8 @@ pub struct Response {
     pub exit: bool,
     /// 需要装载并启动的服务。
     pub start: Option<String>,
+    /// 需要重启的服务。
+    pub restart: Option<String>,
     /// 需要求值的脚本。
     pub script: Option<String>,
 }
@@ -133,6 +140,7 @@ impl Response {
             clear: false,
             exit: false,
             start: None,
+            restart: None,
             script: None,
         }
     }
@@ -175,6 +183,7 @@ pub fn parse(line: &str) -> Command<'_> {
         "mounts" => Command::Mounts,
         "focus" => Command::Focus(arguments),
         "start" => Command::Start(arguments),
+        "restart" => Command::Restart(arguments),
         "use" => Command::Use(arguments),
         "load" => Command::Load(arguments),
         "clear" => Command::Clear,
@@ -189,7 +198,7 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
@@ -199,6 +208,11 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
         Command::Start("") => Response::output(String::from("用法：start <服务>\n")),
         Command::Start(name) => Response {
             start: Some(String::from(name)),
+            ..Response::empty()
+        },
+        Command::Restart("") => Response::output(String::from("用法：restart <服务>\n")),
+        Command::Restart(name) => Response {
+            restart: Some(String::from(name)),
             ..Response::empty()
         },
         Command::Use("") | Command::Load("") => {
@@ -235,6 +249,11 @@ pub fn execute_line<H: ShellHost>(
 
     if let Some(name) = &response.start {
         let output = host.start(name, session.current());
+        io.write(&output);
+    }
+
+    if let Some(name) = &response.restart {
+        let output = host.restart(name, session.current());
         io.write(&output);
     }
 
@@ -479,6 +498,11 @@ mod tests {
             parse("start hk-server-device"),
             Command::Start("hk-server-device")
         );
+        assert_eq!(parse("restart"), Command::Restart(""));
+        assert_eq!(
+            parse("restart hk-server-demo"),
+            Command::Restart("hk-server-demo")
+        );
         assert_eq!(parse("use"), Command::Use(""));
         assert_eq!(parse("use boot.hsh"), Command::Use("boot.hsh"));
         assert_eq!(parse("load boot"), Command::Load("boot"));
@@ -550,6 +574,18 @@ mod tests {
         let response = run("start", &table, &[]);
         assert_eq!(response.start, None);
         assert_eq!(response.output, "用法：start <服务>\n");
+    }
+
+    #[test]
+    fn restart_requests_service_launch() {
+        let table = ServiceTable::new();
+        let response = run("restart hk-server-demo", &table, &[]);
+        assert_eq!(response.restart.as_deref(), Some("hk-server-demo"));
+        assert_eq!(response.output, "");
+
+        let response = run("restart", &table, &[]);
+        assert_eq!(response.restart, None);
+        assert_eq!(response.output, "用法：restart <服务>\n");
     }
 
     #[test]
@@ -643,6 +679,7 @@ mod tests {
     struct MockHost {
         services: ServiceTable,
         started: Vec<String>,
+        restarted: Vec<String>,
         scripts: Vec<(&'static str, &'static str)>,
     }
 
@@ -658,6 +695,11 @@ mod tests {
         fn start(&mut self, name: &str, _parent: Option<&str>) -> String {
             self.started.push(String::from(name));
             format!("已启动：{name}\n")
+        }
+
+        fn restart(&mut self, name: &str, _parent: Option<&str>) -> String {
+            self.restarted.push(String::from(name));
+            format!("已重启：{name}\n")
         }
 
         fn script(&self, name: &str) -> Result<String, String> {
@@ -678,6 +720,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: Vec::new(),
         };
         let mut session = Session::new();
@@ -704,6 +747,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: Vec::new(),
         };
         let mut session = Session::new();
@@ -715,6 +759,26 @@ mod tests {
     }
 
     #[test]
+    fn script_restarts_service_through_host() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            restarted: Vec::new(),
+            scripts: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["restart clock"]);
+
+        assert_eq!(host.restarted, alloc::vec!["clock"]);
+        assert!(io.output.borrow().contains("已重启：clock\n"));
+    }
+
+    #[test]
     fn use_evaluates_script_in_session() {
         let io = MockIo {
             output: core::cell::RefCell::new(String::new()),
@@ -723,6 +787,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: alloc::vec![("boot.hsh", "# 注释\necho script-ok\nstart clock\n")],
         };
         let mut session = Session::new();
@@ -744,6 +809,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: alloc::vec![("boot", "echo loaded\n")],
         };
         let mut session = Session::new();
@@ -762,6 +828,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: Vec::new(),
         };
         let mut session = Session::new();
@@ -784,6 +851,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            restarted: Vec::new(),
             scripts: alloc::vec![("loop.hsh", "use loop.hsh\n")],
         };
         let mut session = Session::new();

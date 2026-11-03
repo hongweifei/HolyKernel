@@ -72,6 +72,11 @@ impl ShellHost for Host<'_, '_> {
         start_service(self.loader, self.services, name, parent)
     }
 
+    fn restart(&mut self, name: &str, parent: Option<&str>) -> String {
+        let parent = parent.and_then(runtime::tcb_of).or(Some(runtime::root()));
+        restart_service(self.loader, self.services, name, parent)
+    }
+
     fn script(&self, name: &str) -> Result<String, String> {
         let wanted = if name.ends_with(".hsh") {
             String::from(name)
@@ -193,7 +198,31 @@ fn start_service(
     if running {
         return format!("已在运行：{name}\n");
     }
+    launch(loader, services, name, parent, "已启动")
+}
 
+fn restart_service(
+    loader: &mut Loader<'_>,
+    services: &mut ServiceTable,
+    name: &str,
+    parent: Option<u64>,
+) -> String {
+    let Some(task) = runtime::tasks().into_iter().find(|task| task.name == name) else {
+        return format!("未知服务：{name}\n");
+    };
+    if task.state != "exited" {
+        return format!("仍在运行：{name}\n");
+    }
+    launch(loader, services, name, parent, "已重启")
+}
+
+fn launch(
+    loader: &mut Loader<'_>,
+    services: &mut ServiceTable,
+    name: &str,
+    parent: Option<u64>,
+    verb: &str,
+) -> String {
     let slot = runtime::task_count();
     let context = match loader::load_service(
         loader.info,
@@ -213,7 +242,7 @@ fn start_service(
 
     services.mark_running(name);
     runtime::run(services);
-    format!("已启动：{name}\n")
+    format!("{verb}：{name}\n")
 }
 
 fn write(console: &Serial, screen: Option<&FramebufferConsole>, text: &str) {

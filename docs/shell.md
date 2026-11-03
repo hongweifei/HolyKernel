@@ -116,6 +116,7 @@ holy> debug app
 | `tasks` | 列出 Native Task/TCB、状态、Arena、子 Task |
 | `focus` | 选择当前 Native Task（会话焦点） |
 | `start` | 按需装载并启动服务模块 |
+| `restart` | 重新装载并启动已退出的服务模块 |
 | `services` | 列出服务器、Endpoint、健康与重启次数 |
 | `handles` | 列出当前 Task 的 Handle |
 | `endpoints` | 列出 Endpoint/Notification |
@@ -226,6 +227,7 @@ Kernel
 10. 命令输出可保存为 HolyDoc；错误可链接到源码/文档。
 11. `posix` 是兼容环境入口；`/bin/sh` 是兼容 shell。
 12. 恢复模式使用 HolyShell 最小会话。
+13. 服务退出后运行时关闭其他任务持有的该端点句柄；`restart` 重新装载并递增重启次数。
 
 ---
 

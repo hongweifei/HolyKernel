@@ -35,9 +35,12 @@ where
     for (index, service) in server.services().iter().enumerate() {
         endpoints.push(Some(service.endpoint));
         let mut handles = Vec::with_capacity(names.len());
-        for endpoint in server.services() {
-            let handle =
-                kernel.grant(service.tcb, endpoint.endpoint, Rights::READ | Rights::WRITE)?;
+        for (slot, endpoint) in server.services().iter().enumerate() {
+            let handle = if slot == index {
+                service.handle
+            } else {
+                kernel.grant(service.tcb, endpoint.endpoint, Rights::READ | Rights::WRITE)?
+            };
             handles.push(Some(handle));
         }
         let (arena_base, arena_size) = platform.arena_layout(index);

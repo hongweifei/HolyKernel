@@ -278,15 +278,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.endpoints.push(Some(own_id));
 
         let mut handles = Vec::with_capacity(self.endpoints.len());
-        for object in &self.endpoints {
-            let handle = match object {
-                Some(id) => kernel.grant(tcb, *id, Rights::READ | Rights::WRITE).ok(),
-                None => None,
+        for (slot, object) in self.endpoints.iter().enumerate() {
+            let handle = if slot == index {
+                Some(own)
+            } else {
+                match object {
+                    Some(id) => kernel.grant(tcb, *id, Rights::READ | Rights::WRITE).ok(),
+                    None => None,
+                }
             };
             handles.push(handle);
         }
 
         for task in &mut self.tasks {
+            if task.exited {
+                continue;
+            }
             let handle = kernel
                 .grant(task.tcb, own_id, Rights::READ | Rights::WRITE)
                 .ok();
@@ -316,11 +323,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    /// 恢复执行返回后收尾；任务退出时返回名称与退出码。
+    /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
     pub fn finish(&mut self, index: usize) -> Option<(String, u64)> {
         self.current = None;
+        if !self.tasks[index].exited {
+            return None;
+        }
+
+        for other in 0..self.tasks.len() {
+            if other == index || self.tasks[other].exited {
+                continue;
+            }
+            let Some(handle) = self.tasks[other].handles.get(index).copied().flatten() else {
+                continue;
+            };
+            let _ = self.kernel.close_handle(self.tasks[other].tcb, handle);
+            self.tasks[other].handles[index] = None;
+        }
+
         let task = &self.tasks[index];
-        task.exited.then(|| (task.name.clone(), task.exit_code))
+        Some((task.name.clone(), task.exit_code))
     }
 
     /// 分派一次系统调用。
@@ -656,5 +678,36 @@ mod tests {
         context.rdi = 3;
         assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
         assert_eq!(runtime.finish(index), Some((String::from("a"), 3)));
+    }
+
+    #[test]
+    fn exit_releases_peer_endpoint_handles() {
+        let mut runtime = runtime();
+        let Step::Resume { index, mut context } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+        let other = 1 - index;
+        let before = runtime.tasks()[other].handles;
+        assert_eq!(before, 2);
+
+        context.rax = SYS_EXIT;
+        context.rdi = 0;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
+        assert!(runtime.finish(index).is_some());
+
+        let tasks = runtime.tasks();
+        assert_eq!(tasks[index].handles, 0);
+        assert_eq!(tasks[other].handles, before - 1);
+
+        let endpoint = runtime
+            .start("c", MockContext::default(), None)
+            .expect("启动任务");
+        assert_eq!(endpoint, 3);
+
+        let tasks = runtime.tasks();
+        assert_eq!(tasks[index].handles, 0);
+        assert_eq!(tasks[other].handles, before);
+        // 退出的端点对象已释放，不再授予新任务。
+        assert_eq!(tasks[2].handles, 2);
     }
 }

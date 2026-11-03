@@ -60,7 +60,7 @@ impl SmokeMode {
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
             Self::Shell => Some(
-                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;mounts",
+                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts",
             ),
             Self::Input => Some("shell-interactive"),
             Self::Preempt => None,
@@ -100,6 +100,9 @@ impl SmokeMode {
                 "4/64K",
                 "Handle 计数",
                 "重启",
+                "已重启：hk-server-demo",
+                "hk-server-demo running",
+                "hk-server-demo 收到回复 42",
                 "hk-server-demo",
                 "hk-server-echo",
                 "hk-server-device",

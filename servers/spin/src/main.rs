@@ -29,7 +29,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     write(b"hk-server-spin: done\n");
 
     let before = handle_count();
-    let closed = close_handle(1);
+    let closed = close_handle(2);
     let after = handle_count();
     write(b"hk-server-spin: handles ");
     write_u64(before);
