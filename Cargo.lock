@@ -190,6 +190,7 @@ name = "hk-platform-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
+ "hk-test",
  "spin",
 ]
 

@@ -130,7 +130,7 @@ cargo xtask budget
 
 Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再按退出协议结束进程。
 
-x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口，读取 Limine 响应构造并校验 BootInfo，打印内存 map、内核镜像、帧缓冲与 direct map，最后通过 `isa-debug-exit` 结束 QEMU。`image` 产出 `build/holy-x86_64.iso`，`smoke` 启动 QEMU 并断言串口输出。AArch64 目标当前产出内核 crate，启动路径在 M8 提供。
+x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口、建立 GDT/TSS/IDT，读取 Limine 响应构造并校验 BootInfo，打印内存 map、内核镜像、帧缓冲与 direct map，最后通过 `isa-debug-exit` 结束 QEMU。`image` 产出 `build/holy-x86_64.iso`，`smoke` 启动 QEMU 并断言串口输出；`smoke --fault ud2` 与 `smoke --fault page` 分别校验非法指令与页错误的现场输出。AArch64 目标当前产出内核 crate，启动路径在 M8 提供。
 
 ---
 

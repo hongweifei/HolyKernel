@@ -19,8 +19,8 @@ use hk_hal::{
 use limine::BaseRevision;
 use limine::memory_map::EntryType;
 use limine::request::{
-    ExecutableAddressRequest, FramebufferRequest, HhdmRequest, MemoryMapRequest, ModuleRequest,
-    RequestsEndMarker, RequestsStartMarker, RsdpRequest,
+    ExecutableAddressRequest, ExecutableCmdlineRequest, FramebufferRequest, HhdmRequest,
+    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, RsdpRequest,
 };
 
 #[used]
@@ -42,6 +42,10 @@ static MEMORY_MAP: MemoryMapRequest = MemoryMapRequest::new();
 #[used]
 #[unsafe(link_section = ".limine_requests")]
 static EXECUTABLE_ADDRESS: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+#[used]
+#[unsafe(link_section = ".limine_requests")]
+static EXECUTABLE_CMDLINE: ExecutableCmdlineRequest = ExecutableCmdlineRequest::new();
 
 #[used]
 #[unsafe(link_section = ".limine_requests")]
@@ -215,6 +219,13 @@ pub fn boot_info() -> Result<BootInfo, BootError> {
         server_modules: leak(modules),
     };
     Ok(info)
+}
+
+/// 读取内核命令行。
+pub fn cmdline() -> Option<&'static str> {
+    let response = EXECUTABLE_CMDLINE.get_response()?;
+    let cmdline = response.cmdline();
+    core::str::from_utf8(cmdline.to_bytes()).ok()
 }
 
 fn kind_of(entry_type: EntryType) -> RegionKind {

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-test = { version = "0.1.0", path = "../hk-test" }
 spin = "0.9"
 
 [lints]

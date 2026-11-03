@@ -14,15 +14,23 @@ const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
 const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n";
 
+fn limine_config(cmdline: Option<&str>) -> String {
+    let mut config = String::from(LIMINE_CONFIG);
+    if let Some(cmdline) = cmdline {
+        config.push_str(&format!("    cmdline: {cmdline}\n"));
+    }
+    config
+}
+
 /// 构建 x86_64 QEMU 启动镜像，返回 ISO 路径。
-pub fn run(selection: Selection, release: bool) -> Result<PathBuf> {
+pub fn run(selection: Selection, release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     let targets = selection.targets();
     if targets.len() != 1 || targets[0] != Target::X86_64Qemu {
         return Err(Failure::new("image 只支持 x86_64-qemu"));
     }
 
     build_kernel(release)?;
-    build_iso(release)
+    build_iso(release, cmdline)
 }
 
 fn build_kernel(release: bool) -> Result<()> {
@@ -53,7 +61,7 @@ fn limine_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(DEFAULT_LIMINE_DIR))
 }
 
-fn build_iso(release: bool) -> Result<PathBuf> {
+fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     let root = workspace::root();
     let staging = root.join("build/iso");
     if staging.exists() {
@@ -81,7 +89,7 @@ fn build_iso(release: bool) -> Result<PathBuf> {
         &boot.join("limine-uefi-cd.bin"),
     )?;
     copy(&limine.join("BOOTX64.EFI"), &efi.join("BOOTX64.EFI"))?;
-    fs::write(boot.join("limine.conf"), LIMINE_CONFIG)
+    fs::write(boot.join("limine.conf"), limine_config(cmdline))
         .map_err(|error| Failure::new(format!("写入 limine.conf 失败：{error}")))?;
 
     let iso = root.join("build/holy-x86_64.iso");

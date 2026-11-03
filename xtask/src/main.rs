@@ -106,6 +106,9 @@ struct SmokeArguments {
     /// 使用 release 配置
     #[arg(long)]
     release: bool,
+    /// 触发异常，校验异常现场输出
+    #[arg(long, value_enum)]
+    fault: Option<smoke::FaultKind>,
 }
 
 fn main() -> ExitCode {
@@ -122,10 +125,10 @@ fn main() -> ExitCode {
 fn execute(task: Task) -> Result<()> {
     match task {
         Task::Build(arguments) => build::run(arguments.target, arguments.release),
-        Task::Image(arguments) => image::run(arguments.target, arguments.release).map(|_| ()),
+        Task::Image(arguments) => image::run(arguments.target, arguments.release, None).map(|_| ()),
         Task::Run(arguments) => run::run(arguments.target, arguments.release, &arguments.arguments),
         Task::Test(arguments) => test::run(arguments.target),
-        Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release),
+        Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.fault),
         Task::Lint => lint::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),

@@ -104,6 +104,7 @@ extern "C" fn kmain() -> ! {
     let console = Serial::new(COM1);
     console.init();
     console.write_str("HolyKernel x86_64\n");
+    hk_platform_x86_64::cpu::init();
 
     match hk_boot::boot_info() {
         Ok(info) => {
@@ -111,6 +112,23 @@ extern "C" fn kmain() -> ! {
             match info.validate() {
                 Ok(()) => {
                     console.write_str("启动信息校验通过\n");
+                    match hk_boot::cmdline() {
+                        Some(line) if line.contains("page-fault-test") => {
+                            console.write_str("触发异常测试：空指针写入\n");
+                            // SAFETY: 故意写入空指针触发 #PF，用于验证异常现场输出。
+                            unsafe {
+                                core::ptr::write_volatile(core::ptr::null_mut::<u64>(), 1);
+                            }
+                        }
+                        Some(line) if line.contains("fault-test") => {
+                            console.write_str("触发异常测试：ud2\n");
+                            // SAFETY: 故意执行非法指令触发 #UD，用于验证异常现场输出。
+                            unsafe {
+                                core::arch::asm!("ud2", options(noreturn));
+                            }
+                        }
+                        _ => {}
+                    }
                     hk_test::exit(ExitCode::Success);
                 }
                 Err(error) => {
