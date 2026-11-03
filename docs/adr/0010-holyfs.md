@@ -17,7 +17,7 @@ HolyFS 是 HolyKernel 的原生文件系统，覆盖整文档、盘符、压缩�
 5. 内部采用 **COW + segment log + 双超级块 + checksum**；整文档写入原子提交。
 6. 文件数据按 **extent** 存储：小文件连续，大文件多 extent；支持透明压缩。
 7. 提供 **快照/回滚/GC**；`check`/`repair`/`scrub`。
-8. 性能优化：页缓存、zero-copy Frame、group commit、多队列、每 inode 锁、并行压缩。
+8. 性能优化：页缓存、零拷贝 Frame、group commit、多队列、每 inode 锁、并行压缩。
 9. 由服务清单选择根文件系统：HolyFS 或 ext4/ext2；三者共用 VFS/POSIX Server。
 10. `/dev`、`/proc`、`/tmp` 由 devfs/procfs/tmpfs 单独挂载；设备节点由 devfs 提供。
 11. POSIX 权限由 VFS 与 HolyFS 共同检查；原生 Document API 通过 Handle，并采用与 POSIX 路径一致的权限规则。

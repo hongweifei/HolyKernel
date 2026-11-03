@@ -15,7 +15,7 @@ HolyKernel 需要强隔离、最小可信基与可重启服务器。单体内核
 3. 每进程独立 **VSpace**；内核与用户态地址空间分离。
 4. 驱动、VFS、文件系统、POSIX 兼容层、显示服务运行在用户态。
 5. Root Server 获得初始 Untyped/HandleTable/Endpoint，负责服务器启动与句柄分配。
-6. 服务器崩溃由 Root Server 重启，旧句柄被关闭。
+6. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄。
 7. POSIX、VFS、文件系统、网络协议栈与设备类驱动位于用户态服务；内核提供机制。
 
 ## 后果

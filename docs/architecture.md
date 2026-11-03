@@ -8,7 +8,7 @@
 
 ## 1. 一句话架构
 
-> HolyKernel 是一个句柄型微内核：内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame 与 IRQ；驱动、文件系统、POSIX 兼容层与原生服务运行在用户态；POSIX.1 应用通过 musl + `hk-abi` 与 POSIX 服务器获得完整接口。
+> HolyKernel 是一个句柄型微内核：内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame 与 IRQ；驱动、文件系统、POSIX 兼容层与原生服务运行在用户态；POSIX.1 应用通过 musl + `hk-abi` 与 POSIX Server获得完整接口。
 
 ```mermaid
 flowchart TB
@@ -57,7 +57,7 @@ flowchart TB
 1. **最小内核**：内核包含线程、地址空间、句柄、IPC、内存与中断机制。
 2. **句柄安全**：资源通过 Handle 访问；duplicate 收窄、close 失效、IPC 通过 TRANSFER 转移、epoch 撤销、Task/服务器配额。
 3. **用户态服务器**：驱动、文件系统、POSIX 兼容层、显示服务运行在用户态。
-4. **POSIX.1 兼容**：POSIX 服务器 + musl + `hk-abi` 提供应用接口。
+4. **POSIX.1 兼容**：POSIX Server + musl + `hk-abi` 提供应用接口。
 5. **故障隔离**：服务器崩溃后由 Root Server 重启；内核保持最小可信基。
 6. **多架构**：x86_64、AArch64、RISC-V、Hosted 共享同一套内核与服务器语义。
 7. **可观察**：trace、性能计数、句柄审计、服务器重启记录。
@@ -69,7 +69,7 @@ flowchart TB
 
 - 微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler
 - Root Server、Device Manager、virtio-blk/input/net 驱动
-- VFS 服务器与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
+- VFS Server与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
 - POSIX.1 服务器 + musl + `hk-abi`/`hk-crt`
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
 - 可选服务：HolyFS 文件系统（可作主根）、HolyDoc、真彩 Display Server
@@ -91,7 +91,7 @@ flowchart TB
 3. **隔离优先**：每进程独立 VSpace；内核与用户态分离。
 4. **显式 IPC**：Endpoint 同步通信，Notification 异步事件，Frame 共享数据。
 5. **服务器可重启**：Root Server 监督生命周期与句柄分配。
-6. **POSIX 在边缘**：POSIX.1 语义由用户态 POSIX 服务器实现。
+6. **POSIX 在边缘**：POSIX.1 语义由用户态 POSIX Server实现。
 7. **最小可信基**：内核、Root Server、VFS Server 构成可信基；POSIX Server 在启用兼容环境时加入。
 8. **多架构抽象**：架构差异止步于 `hk-hal` 与 platform crate。
 9. **可观察、可复现**：trace 与确定性模拟覆盖 IPC、调度、句柄、服务器重启。
@@ -184,7 +184,7 @@ sequenceDiagram
 - **调度**：抢占式、优先级 + 轮转、每 CPU run queue、SMP、tickless。
 - **VSpace**：每进程独立页表；内核高半区、用户空间、共享 Frame 映射。
 - **Untyped**：启动时由 BootInfo 提供；retype 为内核对象与 Frame。
-- **COW**：`fork` 通过只读映射与页错误 Endpoint 实现；POSIX 服务器处理写时复制。
+- **COW**：`fork` 通过只读映射与页错误 Endpoint 实现；POSIX Server处理写时复制。
 - **DMA**：用户态驱动获得 Frame 与 DeviceGrant；IOMMU 可选。
 
 详见 [内存模型](memory.md)、[执行模型](execution.md)。
@@ -347,7 +347,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 2. 所有资源访问通过 Handle；内核维护对象引用与句柄复制树。
 3. 每进程独立 VSpace；内核地址空间与用户地址空间分离。
 4. 跨服务器调用通过 Endpoint；异步事件通过 Notification。
-5. 服务器崩溃由 Root Server 重启；旧句柄被关闭。
+5. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄。
 6. POSIX 语义由用户态 POSIX Server 实现；内核提供机制。
 7. 文件系统通过 VFS Server 与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端；块设备通过 Block Driver。
 8. 驱动运行在用户态，使用 DeviceGrant 访问 MMIO/DMA/IRQ。

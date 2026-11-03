@@ -13,7 +13,7 @@ HolyShell 是原生命令行与脚本环境。**Holy 命令是主路径**；POSI
 1. **原生优先**：HolyShell 与 Holy 命令是默认命令行体验。
 2. **Handle 驱动**：原生命令通过 Handle 与 Endpoint 访问服务。
 3. **结构化输出**：命令返回记录/表格/树，支持类型化管道。
-4. **原生优先**：HolyShell 与原生命令独立运行；POSIX 环境按需启动。
+4. **独立运行**：HolyShell 与原生命令独立运行；POSIX 环境按需启动。
 5. **POSIX 兼容**：`posix` 命令进入兼容环境；`/bin/sh`、coreutils、fd/pipe/signal 由 POSIX Server 提供。
 6. **Workbench 集成**：HolyShell 在 Workbench/Console 窗口中运行，支持真彩色与主题。
 7. **脚本化**：`.hsh` 脚本使用 Holy 命令、结构化变量与控制流。
@@ -175,7 +175,7 @@ holy> run /usr/bin/ls -l /home
 - `posix` 启动 POSIX session 或执行单条 POSIX 命令。
 - POSIX 命令使用 fd/pipe/signal；由 POSIX Server 管理。
 - POSIX 环境可选；`posix` 会检查环境状态并返回明确错误。
-- 原生 shell 通过 Handle 启动 POSIX Server（若被授权）。
+- 原生 shell 通过 Handle 启动 POSIX Server（在授权后）。
 - POSIX `/bin/sh`、coreutils、编译器属于兼容环境；原生命令集由 Holy 命令提供。
 
 ---

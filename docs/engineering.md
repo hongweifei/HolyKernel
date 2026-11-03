@@ -24,12 +24,12 @@ HolyKernel/
 │   ├── hk-root-server/        Root Server
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
-│   ├── hk-vfs/                VFS 服务器
+│   ├── hk-vfs/                VFS Server
 │   ├── hk-fs-ext2/            ext2 后端
 │   ├── hk-fs-tmpfs/           tmpfs 后端
 │   ├── hk-fs-devfs/           devfs 后端
 │   ├── hk-fs-procfs/          procfs 后端
-│   ├── hk-posix-server/       POSIX 服务器
+│   ├── hk-posix-server/       POSIX Server
 │   ├── hk-abi/                POSIX syscall shim 协议与头文件
 │   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水

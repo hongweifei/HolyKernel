@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-本文描述 TCB、调度、Handle、Endpoint/Notification IPC 与故障处理。内核只提供线程与通信机制；POSIX 进程、线程、信号与 fd 由用户态 POSIX 服务器实现。
+本文描述 TCB、调度、Handle、Endpoint/Notification IPC 与故障处理。内核只提供线程与通信机制；POSIX 进程、线程、信号与 fd 由用户态 POSIX Server实现。
 
 ---
 
@@ -234,7 +234,7 @@ impl Notification {
 
 ### 7.2 内核故障
 
-- 内核保证被破坏、页表损坏、调度器死锁、中断风暴 → panic。
+- 内核保证失效、页表损坏、调度器死锁、中断风暴 → panic。
 - panic：停世界、dump CPU 寄存器、栈回溯、当前 TCB、最近 trace。
 - panic 路径使用静态缓冲与自旋锁，独立于堆与调度器。
 

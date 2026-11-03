@@ -4,7 +4,7 @@
 
 HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程、地址空间、句柄、IPC、内存与中断机制；驱动、文件系统、POSIX 兼容层、网络与原生服务运行在用户态。
 
-系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS 服务器统一管理挂载表与文件句柄；HolyFS 文件系统可作主根或 `H:` 盘符；HolyDoc 与真彩 UI 作为可选原生服务。
+系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server统一管理挂载表与文件句柄；HolyFS 文件系统可作主根或 `H:` 盘符；HolyDoc 与真彩 UI 作为可选原生服务。
 
 当前状态：**v0.1.0-design**。仓库包含微内核架构、POSIX 兼容层与路线图；代码从 M0 脚手架开始。
 
@@ -22,9 +22,9 @@ flowchart TB
         Root["Root Server<br/>服务管理与重启"]
         Device["Device Manager<br/>PCI / DTB / 驱动"]
         FS["VFS + 文件系统<br/>ext2/ext4 · HolyFS · tmpfs"]
-        POSIX["POSIX 服务器<br/>进程 · fd · 信号 · socket"]
+        POSIX["POSIX Server<br/>进程 · fd · 信号 · socket"]
         Net["Network Server<br/>TCP/IP · DHCP · DNS"]
-        Display["显示与输入服务器<br/>真彩 UI · HolyDoc"]
+        Display["Display Server<br/>真彩 UI · HolyDoc"]
     end
     subgraph Kernel["HolyKernel 微内核"]
         TCB["TCB / 调度"]
@@ -57,7 +57,7 @@ flowchart TB
 | **最小内核**            | 内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ 等机制                    |
 | **句柄模型**            | 所有资源通过 Handle 访问；duplicate 收窄、close 失效、IPC TRANSFER、epoch 撤销、配额                        |
 | **用户态服务器**          | 驱动、文件系统、POSIX 兼容层、显示服务运行在用户态                                                 |
-| **POSIX.1 兼容**      | POSIX 服务器实现进程、文件、信号、线程、管道、套接字                                                |
+| **POSIX.1 兼容**      | POSIX Server实现进程、文件、信号、线程、管道、套接字                                                |
 | **musl + ABI shim** | musl 作为 C libc；`hk-abi`/`hk-crt` 提供 syscall shim、启动与 TLS                     |
 | **故障隔离**            | 服务器崩溃后由 Root Server 重启；内核保持最小可信基                                             |
 | **Native Task**     | VSpace + HandleTable + TCB(s) + Arena + 父子关系；Task 拥有堆与生命周期；窗口由 Display Server 独立管理 |
@@ -82,7 +82,7 @@ flowchart TB
 | [内存模型](docs/memory.md) | Untyped、Frame、VSpace、COW、DMA |
 | [执行模型](docs/execution.md) | TCB、调度、Endpoint、Notification、句柄 IPC |
 | [权限模型](docs/permissions.md) | HandleTable、rights、epoch 撤销、配额、审计 |
-| [POSIX 与 libc](docs/posix.md) | POSIX 服务器、musl 移植、ABI shim、进程/线程/信号、ELF |
+| [POSIX 与 libc](docs/posix.md) | POSIX Server、musl 移植、ABI shim、进程/线程/信号、ELF |
 | [服务器](docs/servers.md) | Root Server、设备管理、驱动、VFS、POSIX、网络、重启 |
 | [网络](docs/network.md) | Network Server、TCP/IP、DHCP、DNS、POSIX socket |
 | [HolyShell 与 Holy 命令](docs/shell.md) | 原生命令、结构化管道、POSIX 兼容入口 |

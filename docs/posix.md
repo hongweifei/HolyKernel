@@ -61,7 +61,7 @@ flowchart TB
 
 ---
 
-## 3. POSIX 服务器状态
+## 3. POSIX Server状态
 
 ```rust
 pub struct PosixServer {

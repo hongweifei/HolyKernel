@@ -20,7 +20,7 @@ HolyFS 是**一等文件系统后端**：既可以作为 POSIX `/` 主根，也�
 6. **校验和**：extent、inode、目录块、superblock 全校验。
 7. **快照**：零拷贝快照、回滚、GC。
 8. **透明压缩**：每 extent 选择 LZ4/Zstd 或原始。
-9. **高性能**：extent、连续快路径、页缓存、zero-copy、group commit、多队列。
+9. **高性能**：extent、连续快路径、页缓存、零拷贝、group commit、多队列。
 10. **可选启用**：由服务清单选择 HolyFS 根或 ext4/ext2 根；HolyFS、ext4、ext2 都是一等候选。
 
 ### 范围边界
@@ -203,7 +203,7 @@ sequenceDiagram
 
 - **Extent**：小文件单 extent 连续；大文件多 extent；extent tree O(log n)。
 - **连续快路径**：allocator 优先连续；预留/预分配；后台 defrag。
-- **页缓存**：Frame 共享、readahead、writeback、zero-copy 到应用。
+- **页缓存**：Frame 共享、readahead、writeback、零拷贝 到应用。
 - **Group commit**：批量提交提高吞吐；单次 `fsync` 保证持久。
 - **并发**：每 inode rwlock/range lock；目录/分配器分片；块层多队列。
 - **压缩**：每 extent LZ4（速度）或 Zstd（比率）；并行压缩；冷热数据策略。

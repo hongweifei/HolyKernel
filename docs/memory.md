@@ -13,7 +13,7 @@ HolyKernel 的内存模型围绕 **Untyped、Frame、VSpace 与 Handle** 组织�
 1. **独立地址空间**：每个进程拥有自己的 VSpace；内核地址空间与用户地址空间分离。
 2. **Untyped 管理**：启动内存由 Untyped 描述；通过 retype 创建内核对象与 Frame。
 3. **Frame 共享**：Frame 通过 Handle 共享；支持只读映射、写时复制与 DMA。
-4. **COW**：`fork` 使用只读映射与页错误 Endpoint；POSIX 服务器处理写时复制。
+4. **COW**：`fork` 使用只读映射与页错误 Endpoint；POSIX Server处理写时复制。
 5. **W^X**：代码页 RX、数据页 RW；JIT 完成后翻转。
 6. **DMA 隔离**：用户态驱动通过 DeviceGrant 与 Frame 访问设备内存；IOMMU 可用时绑定 DeviceGrant。
 7. **可测试**：Hosted 模拟器复现 VSpace、COW、页错误与 DMA 路径。
@@ -58,7 +58,7 @@ flowchart TB
 - 内核运行在高半区，使用自己的页表根。
 - 每个进程拥有独立 VSpace；切换进程切换页表根。
 - 内核通过 direct map 访问物理内存、页表与 DMA 缓冲。
-- 用户空间区域由 POSIX 服务器与 libc 管理：text/data/heap/stack/mmap/shared。
+- 用户空间区域由 POSIX Server与 libc 管理：text/data/heap/stack/mmap/shared。
 
 ---
 
@@ -155,19 +155,19 @@ sequenceDiagram
 ```
 
 - `fork` 通过 VSpace 复制与只读映射实现。
-- 页错误通过 Fault Endpoint 发送给 POSIX 服务器。
-- POSIX 服务器分配新 Frame、复制内容、更新映射，然后恢复线程。
+- 页错误通过 Fault Endpoint 发送给 POSIX Server。
+- POSIX Server分配新 Frame、复制内容、更新映射，然后恢复线程。
 - 失败时终止进程并回收 Frame。
 
 ---
 
 ## 7. 用户态内存管理
 
-- **`brk`/`sbrk`**：POSIX 服务器维护进程 heap 区域；扩展时映射新 Frame。
-- **`mmap`**：POSIX 服务器从 Untyped 或文件系统获得 Frame，映射到进程 VSpace。
-- **`munmap`/`mprotect`**：POSIX 服务器更新 VSpace 映射。
-- **ELF 加载**：libc 的 ELF 加载器解析段，请求 POSIX 服务器映射 text/data/stack。
-- **pthreads**：libc 通过 POSIX 服务器分配线程栈与 TLS。
+- **`brk`/`sbrk`**：POSIX Server维护进程 heap 区域；扩展时映射新 Frame。
+- **`mmap`**：POSIX Server从 Untyped 或文件系统获得 Frame，映射到进程 VSpace。
+- **`munmap`/`mprotect`**：POSIX Server更新 VSpace 映射。
+- **ELF 加载**：libc 的 ELF 加载器解析段，请求 POSIX Server映射 text/data/stack。
+- **pthreads**：libc 通过 POSIX Server分配线程栈与 TLS。
 - 内核只提供 VSpace/Frame 机制；POSIX 语义在用户态完成。
 
 ---
@@ -205,7 +205,7 @@ pub struct DeviceGrant {
 1. 每个进程拥有独立 VSpace；内核与用户地址空间分离。
 2. 所有映射持有对应 Frame Handle。
 3. W^X：代码页 RX、数据页 RW。
-4. COW 页在写错误后由 POSIX 服务器替换为私有 Frame。
+4. COW 页在写错误后由 POSIX Server替换为私有 Frame。
 5. Frame 引用归零后回到 Untyped 或 Root Server。
 6. 设备 MMIO 通过 DeviceGrant 映射；DMA 只访问授权 Frame。
 7. 页表变更后，所有相关 CPU 的 TLB 完成同步。

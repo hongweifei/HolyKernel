@@ -90,7 +90,7 @@ pub struct ServiceManifest {
 - 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ。
 - 按设备类别启动驱动：块、网络、输入、显示。
 - 维护设备树与驱动绑定；设备移除时关闭 Handle。
-- 通过 Endpoint 向 VFS 与 POSIX 服务器报告设备状态。
+- 通过 Endpoint 向 VFS 与 POSIX Server报告设备状态。
 
 ---
 
@@ -205,7 +205,7 @@ sequenceDiagram
 4. 驱动通过 DeviceGrant 访问 MMIO/DMA/IRQ。
 5. VFS 是 POSIX 文件语义的统一入口；文件系统以服务器形式接入。
 6. POSIX Server 维护进程、fd 与信号；VFS 维护挂载与文件句柄。
-7. 服务器崩溃后旧句柄被关闭，新实例重新注册 Endpoint。
+7. 服务器崩溃后 Root Server 关闭旧句柄，新实例重新注册 Endpoint。
 8. 服务器清单与 Handle 需求可审计。
 9. 每个服务器有 trace 与健康状态。
 10. 服务器策略与文件系统逻辑位于用户态；内核提供机制。

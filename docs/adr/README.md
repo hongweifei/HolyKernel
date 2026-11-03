@@ -51,7 +51,7 @@
 
 1. 触及内核对象、Handle、IPC、VSpace、POSIX 兼容层、服务器边界或 ABI 的变更先写 ADR。
 2. ADR 包含“架构一致性检查”。
-3. 已接受的 ADR 通过新 ADR 演进；被取代时保留原文并链接新 ADR。
+3. 已接受的 ADR 通过新 ADR 演进；新 ADR 取代时保留原文并链接新 ADR。
 4. 代码与 ADR 冲突时，以章程与已接受 ADR 为准。
 5. ADR 与实现同 PR 更新。
 

@@ -12,7 +12,7 @@
 flowchart TB
     subgraph User["用户态"]
         Apps["POSIX 应用 / 原生应用"]
-        POSIX["POSIX 服务器"]
+        POSIX["POSIX Server"]
         FS["文件系统服务器"]
         Drivers["设备管理器 / 驱动"]
         Root["Root Server"]
@@ -57,11 +57,11 @@ flowchart TB
 
 ### 法则四：服务器可重启
 
-Root Server 监督服务器生命周期。驱动、文件系统、POSIX 服务器崩溃后按策略重启；内核保持最小可信基。
+Root Server 监督服务器生命周期。驱动、文件系统、POSIX Server崩溃后按策略重启；内核保持最小可信基。
 
 ### 法则五：POSIX 在边缘
 
-**HolyShell 与 Holy 命令是默认命令行**；原生命令通过 Handle/Endpoint 访问服务，使用结构化输出与类型化管道。POSIX.1 是**兼容环境**：由用户态 POSIX 服务器提供，应用通过 musl + `hk-abi` 使用 `/bin/sh`、coreutils、fd/pipe/signal。POSIX 语义位于用户态 POSIX Server。
+**HolyShell 与 Holy 命令是默认命令行**；原生命令通过 Handle/Endpoint 访问服务，使用结构化输出与类型化管道。POSIX.1 是**兼容环境**：由用户态 POSIX Server提供，应用通过 musl + `hk-abi` 使用 `/bin/sh`、coreutils、fd/pipe/signal。POSIX 语义位于用户态 POSIX Server。
 
 ### 法则六：显式 IPC
 
@@ -69,7 +69,7 @@ Root Server 监督服务器生命周期。驱动、文件系统、POSIX 服务�
 
 ### 法则七：最小可信基
 
-内核、Root Server、POSIX 服务器与文件系统服务器构成可信基。驱动与可选原生服务按最小权限运行。
+内核、Root Server、POSIX Server与文件系统服务器构成可信基。驱动与可选原生服务按最小权限运行。
 
 ### 法则八：多架构
 
@@ -121,7 +121,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **Block Driver** | virtio-blk / AHCI；向文件系统服务器提供块设备 Endpoint |
 | **ext2/ext4 Server** | POSIX 文件系统；目录、inode、权限位、挂载点 |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、Unix 套接字、`fork`/`exec` |
-| **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX 服务器提供 socket 后端 |
+| **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX Server提供 socket 后端 |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 |
 | **HolyFS Server** | 文件系统；可挂载 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照 |
@@ -135,13 +135,13 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 
 - **API**：POSIX.1-2017 应用接口；应用针对 musl + `hk-abi` 重新编译。
 - **libc**：musl 作为主 C libc；`hk-abi` 提供 syscall shim 协议与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。
-- **POSIX 服务器**：维护 PID 表、父子关系、fd 表、信号状态、管道、套接字、进程组与会话。
-- **文件系统**：POSIX 服务器通过 ext2/ext4 或 HolyFS Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`。
+- **POSIX Server**：维护 PID 表、父子关系、fd 表、信号状态、管道、套接字、进程组与会话。
+- **文件系统**：POSIX Server通过 ext2/ext4 或 HolyFS Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`。
 - **进程**：`fork` 通过 VSpace 复制与 COW；`exec` 通过 ELF 加载器映射新 VSpace；`wait` 通过 Endpoint 通知。
-- **线程**：pthreads 映射到 TCB；TLS、栈、join、取消由 libc 与 POSIX 服务器协作。
-- **信号**：POSIX 服务器维护 pending/blocked 集合；libc 在安全点调用 handler。
-- **IPC**：pipe、FIFO、Unix 域套接字、共享内存、POSIX 信号量由 POSIX 服务器管理。
-- **网络**：socket 通过 POSIX 服务器转发到用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket；详见 [网络](network.md)。
+- **线程**：pthreads 映射到 TCB；TLS、栈、join、取消由 libc 与 POSIX Server协作。
+- **信号**：POSIX Server维护 pending/blocked 集合；libc 在安全点调用 handler。
+- **IPC**：pipe、FIFO、Unix 域套接字、共享内存、POSIX 信号量由 POSIX Server管理。
+- **网络**：socket 通过 POSIX Server转发到用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket；详见 [网络](network.md)。
 
 兼容范围与测试矩阵见 [POSIX 与 libc](posix.md)。
 
@@ -203,4 +203,4 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 文件系统可作主根�
 
 ## 10. 一句话版本
 
-> HolyKernel 是一个句柄型微内核：内核提供线程、地址空间、句柄与 IPC；驱动、文件系统、POSIX 兼容层与原生服务运行在用户态；POSIX.1 应用通过 musl + `hk-abi` 与 POSIX 服务器获得完整兼容接口。
+> HolyKernel 是一个句柄型微内核：内核提供线程、地址空间、句柄与 IPC；驱动、文件系统、POSIX 兼容层与原生服务运行在用户态；POSIX.1 应用通过 musl + `hk-abi` 与 POSIX Server获得完整兼容接口。

@@ -11,7 +11,7 @@
 1. **先 Hosted，后裸机**：内核与 IPC 在确定性模拟器中先跑通。
 2. **先内核机制，后服务器**：TCB、VSpace、HandleTable、Endpoint、Notification、Frame 优先。
 3. **先 Root Server，后全栈**：Root Server、Device Manager、VFS、POSIX 依次接入。
-4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX 服务器依赖 VFS。
+4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX Server依赖 VFS。
 5. **POSIX 分层**：先文件/进程，后线程/信号/套接字。
 6. **可选服务**：HolyFS 文件系统、HolyDoc、UI 在 POSIX 核心之后接入。
 7. **多架构收尾**：x86_64 纵向切片完成后抽 HAL，验证 AArch64/RISC-V。
@@ -149,7 +149,7 @@ flowchart LR
 
 1. 挂载 ext2 根镜像，读写文件，重启后数据保留。
 2. tmpfs/devfs/procfs 挂载与访问正常。
-3. VFS 崩溃后重启，进行中请求返回 `EIO`，新请求恢复。
+3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动崩溃后 Device Manager 重启驱动。
 5. VFS 1 MiB 顺序读 ≥ 100 MiB/s。
 
