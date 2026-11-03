@@ -1,0 +1,10 @@
+[package]
+name = "hk-server-build"
+description = "服务镜像链接配置（构建期）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

@@ -224,10 +224,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-build"
+version = "0.1.0"
+
+[[package]]
 name = "hk-server-demo"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
@@ -235,6 +240,7 @@ name = "hk-server-device"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
@@ -242,6 +248,7 @@ name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
@@ -249,6 +256,7 @@ name = "hk-server-spin"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
