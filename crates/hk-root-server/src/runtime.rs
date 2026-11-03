@@ -15,7 +15,7 @@ use hk_syscall::{
     SYS_TICKS, SYS_YIELD,
 };
 
-use crate::{Kernel, KernelError, Priority, TcbId, ThreadState};
+use hk_kernel::{Kernel, KernelError, Priority, TcbId, ThreadState};
 
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
@@ -544,5 +544,117 @@ fn pending_name(pending: Pending) -> &'static str {
         Pending::None => "-",
         Pending::Send => "send",
         Pending::Recv { .. } => "recv",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::String;
+
+    /// 最小用户现场。
+    #[derive(Clone, Copy, Default)]
+    struct MockContext {
+        rax: u64,
+        rdi: u64,
+        rsi: u64,
+        rdx: u64,
+        rcx: u64,
+    }
+
+    impl UserContext for MockContext {
+        fn resume(&self) {}
+
+        fn set_start_argument(&mut self, argument: u64) {
+            self.rdi = argument;
+        }
+    }
+
+    impl SyscallFrame for MockContext {
+        fn number(&self) -> u64 {
+            self.rax
+        }
+
+        fn arg0(&self) -> u64 {
+            self.rdi
+        }
+
+        fn arg1(&self) -> u64 {
+            self.rsi
+        }
+
+        fn arg2(&self) -> u64 {
+            self.rdx
+        }
+
+        fn set_result(&mut self, value: u64) {
+            self.rax = value;
+        }
+
+        fn set_word(&mut self, value: u64) {
+            self.rdx = value;
+        }
+
+        fn set_sender(&mut self, value: u64) {
+            self.rcx = value;
+        }
+    }
+
+    struct MockPlatform;
+
+    impl UserPlatform for MockPlatform {
+        fn timer_ticks(&self) -> u64 {
+            7
+        }
+
+        fn pci_read(&self, _bus: u8, _device: u8, _function: u8, _offset: u8) -> u32 {
+            0x1234
+        }
+
+        fn zero(&self, _address: u64, _length: usize) {}
+
+        fn arena_layout(&self, slot: usize) -> (u64, u64) {
+            (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
+        }
+    }
+
+    fn runtime() -> UserRuntime<MockContext, MockPlatform> {
+        crate::boot::user_runtime(&["a", "b"], MockPlatform, |_index, endpoint| MockContext {
+            rdi: endpoint,
+            ..MockContext::default()
+        })
+        .expect("装配运行时")
+    }
+
+    #[test]
+    fn arena_aligns_and_exhausts() {
+        let mut arena = Arena::new(0x1000, 4096);
+        assert_eq!(arena.allocate(16, 8), Some(0x1000));
+        assert_eq!(arena.allocate(8, 64), Some(0x1040));
+        assert_eq!(arena.used(), 0x48);
+        assert_eq!(arena.allocate(4096, 8), None);
+        assert_eq!(arena.allocate(0, 8), None);
+        assert_eq!(arena.allocate(8, 3), None);
+    }
+
+    #[test]
+    fn dispatches_alloc_and_exit() {
+        let mut runtime = runtime();
+        assert_eq!(runtime.task_count(), 2);
+
+        let Step::Resume { index, mut context } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+
+        context.rax = SYS_ALLOC;
+        context.rdi = 64;
+        context.rsi = 16;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(context.rax, 0x10_0000);
+
+        context.rax = SYS_EXIT;
+        context.rdi = 3;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
+        assert_eq!(runtime.finish(index), Some((String::from("a"), 3)));
     }
 }

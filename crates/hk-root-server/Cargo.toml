@@ -10,7 +10,9 @@ repository.workspace = true
 hk-elf = { version = "0.1.0", path = "../hk-elf" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
+hk-syscall = { version = "0.1.0", path = "../hk-syscall" }
 spin = "0.9"
 
 [lints]

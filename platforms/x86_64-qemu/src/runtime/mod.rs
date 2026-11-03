@@ -1,14 +1,13 @@
 //! x86_64 用户态运行时适配：用户现场与平台副作用。
 //!
 //! 任务表、系统调用、调度循环与启动装配都在 `crates/`；本模块只把
-//! `InterruptFrame`、PCI/计时/清零与 Arena 布局接入运行时会话。
+//! `InterruptFrame`、PCI/计时/清零与 Arena 布局接入运行时宿主。
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_kernel::user::{Switch, UserPlatform};
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
-use hk_root_server::{ServiceTable, Session, TaskInfo};
+use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -42,9 +41,9 @@ impl UserPlatform for X86Platform {
     }
 }
 
-type Runtime = Session<InterruptFrame, X86Platform>;
+type Runtime = RuntimeHost<InterruptFrame, X86Platform>;
 
-static RUNTIME: Runtime = Session::new();
+static RUNTIME: Runtime = RuntimeHost::new();
 
 /// 返回任务槽位的 Arena 基址与大小。
 pub fn arena(slot: usize) -> (u64, u64) {

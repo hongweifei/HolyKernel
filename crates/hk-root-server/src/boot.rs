@@ -6,9 +6,9 @@ use alloc::vec::Vec;
 
 use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::Rights;
-use hk_kernel::user::{UserPlatform, UserRuntime, UserTask};
 use hk_kernel::{Kernel, KernelError};
 
+use crate::runtime::{UserPlatform, UserRuntime, UserTask};
 use crate::{RootServer, ServiceSpec};
 
 /// 用服务清单装配用户态运行时。

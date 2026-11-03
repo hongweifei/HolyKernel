@@ -1,30 +1,30 @@
-//! 运行时会话：全局持有用户运行时，提供启动、调度与系统调用入口。
+//! 运行时宿主：全局持有用户运行时，提供启动、调度与系统调用入口。
 //!
-//! 平台只负责在锁外恢复用户现场，并在系统调用/抢占回调里把现场交给本会话。
+//! 平台只负责在锁外恢复用户现场，并在系统调用/抢占回调里把现场交给本宿主。
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{SyscallFrame, UserContext};
-use hk_kernel::user::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
 use spin::Mutex;
 
 use crate::ServiceTable;
+use crate::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
 
-/// 运行时会话。
-pub struct Session<C, P> {
+/// 运行时宿主。
+pub struct RuntimeHost<C, P> {
     runtime: Mutex<Option<UserRuntime<C, P>>>,
 }
 
-impl<C, P> Default for Session<C, P> {
+impl<C, P> Default for RuntimeHost<C, P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<C, P> Session<C, P> {
-    /// 构造空会话。
+impl<C, P> RuntimeHost<C, P> {
+    /// 构造空宿主。
     pub const fn new() -> Self {
         Self {
             runtime: Mutex::new(None),
@@ -32,7 +32,7 @@ impl<C, P> Session<C, P> {
     }
 }
 
-impl<C: UserContext + SyscallFrame, P: UserPlatform> Session<C, P> {
+impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     /// 按服务清单启动运行时。
     pub fn boot<F>(
         &self,

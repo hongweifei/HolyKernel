@@ -172,7 +172,6 @@ dependencies = [
  "hk-ipc",
  "hk-mem",
  "hk-platform-hosted",
- "hk-syscall",
  "hk-trace",
  "spin",
 ]
@@ -212,7 +211,9 @@ dependencies = [
  "hk-elf",
  "hk-hal",
  "hk-handle",
+ "hk-ipc",
  "hk-kernel",
+ "hk-syscall",
  "spin",
 ]
 

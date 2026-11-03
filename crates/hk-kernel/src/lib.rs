@@ -16,7 +16,6 @@ pub mod kernel;
 pub mod object;
 pub mod sched;
 pub mod tcb;
-pub mod user;
 
 pub use allocator::BumpHeap;
 pub use error::KernelError;

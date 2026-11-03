@@ -14,15 +14,15 @@ HolyKernel/
 ├── rust-toolchain.toml        固定 stable 工具链
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
-│   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场与页映射契约
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；用户任务运行时、系统调用分派与线性堆
+│   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场、系统调用帧与页映射契约
+│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；线性堆
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射（经 `UserMemory`）
 │   ├── hk-platform-*          平台实现：现场、分页、ACPI/IOAPIC、键盘、引导初始化
-│   ├── hk-root-server/        Root Server、服务清单、服务表、镜像装载与用户运行时装配
+│   ├── hk-root-server/        Root Server、服务清单、服务表、镜像装载、用户运行时与运行时宿主
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
 │   ├── hk-vfs/                VFS Server

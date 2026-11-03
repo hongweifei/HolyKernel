@@ -8,13 +8,14 @@
 extern crate alloc;
 
 pub mod boot;
+pub mod host;
 pub mod loader;
 mod registry;
-pub mod session;
+pub mod runtime;
 
-pub use hk_kernel::user::TaskInfo;
+pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
-pub use session::Session;
+pub use runtime::{Arena, Pending, Step, Switch, TaskInfo, UserPlatform, UserRuntime, UserTask};
 
 use alloc::vec::Vec;
 
