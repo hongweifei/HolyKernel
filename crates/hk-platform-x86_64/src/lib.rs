@@ -10,6 +10,7 @@ pub mod framebuffer;
 pub mod ioapic;
 pub mod keyboard;
 pub mod paging;
+pub mod pci;
 pub mod port;
 pub mod serial;
 pub mod timing;

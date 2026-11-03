@@ -58,9 +58,10 @@ pub struct FrameAllocator {
 }
 
 impl FrameAllocator {
-    /// 从启动信息中挑选可用区域并避开内核镜像。
-    pub fn new(regions: &'static [MemoryRegion], kernel: MemoryRegion) -> Option<Self> {
+    /// 从启动信息中挑选最大的可用区域并避开内核镜像。
+    pub fn new(regions: &[MemoryRegion], kernel: MemoryRegion) -> Option<Self> {
         let page = PAGE_SIZE as u64;
+        let mut best: Option<(u64, u64)> = None;
 
         for region in regions {
             if !region.kind.is_usable() {
@@ -74,11 +75,18 @@ impl FrameAllocator {
             if start < kernel.end().get() && kernel.base.get() < end {
                 start = align_up(kernel.end().get(), page);
             }
-            if start + page <= end {
-                return Some(Self { next: start, end });
+            if start + page > end {
+                continue;
+            }
+
+            let capacity = end - start;
+            let larger = best.is_none_or(|(best_start, best_end)| capacity > best_end - best_start);
+            if larger {
+                best = Some((start, end));
             }
         }
-        None
+
+        best.map(|(next, end)| Self { next, end })
     }
 
     /// 分配一个 4 KiB 物理帧。
@@ -189,4 +197,36 @@ fn read_cr3() -> PhysAddr {
         asm!("mov {}, cr3", out(reg) value, options(nomem, nostack));
     }
     PhysAddr::new(value & ADDRESS_MASK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hk_hal::RegionKind;
+
+    #[test]
+    fn frame_allocator_picks_largest_usable_region() {
+        let regions = [
+            MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2_0000, RegionKind::Usable),
+            MemoryRegion::new(PhysAddr::new(0x10_0000), 0x40_0000, RegionKind::Usable),
+        ];
+        let kernel = MemoryRegion::new(PhysAddr::new(0), 0x1000, RegionKind::Kernel);
+
+        let allocator = FrameAllocator::new(&regions, kernel).expect("可用区域");
+        assert_eq!(allocator.next, 0x10_0000);
+        assert_eq!(allocator.end, 0x50_0000);
+    }
+
+    #[test]
+    fn frame_allocator_avoids_kernel_image() {
+        let regions = [MemoryRegion::new(
+            PhysAddr::new(0x1_0000),
+            0x10_0000,
+            RegionKind::Usable,
+        )];
+        let kernel = MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2000, RegionKind::Kernel);
+
+        let allocator = FrameAllocator::new(&regions, kernel).expect("可用区域");
+        assert_eq!(allocator.next, 0x1_2000);
+    }
 }

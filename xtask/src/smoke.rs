@@ -68,6 +68,7 @@ impl SmokeMode {
                 "hk-server-demo running",
                 "hk-server-echo 收到请求 21",
                 "hk-server-demo 收到回复 42",
+                "hk-server-device: 发现",
                 "启动耗时",
                 "服务已退出",
             ],
@@ -80,6 +81,7 @@ impl SmokeMode {
                 "任务表",
                 "hk-server-demo",
                 "hk-server-echo",
+                "hk-server-device",
                 "尚无挂载",
             ],
             Self::Input => &[

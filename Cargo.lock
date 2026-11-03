@@ -223,6 +223,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-device"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [

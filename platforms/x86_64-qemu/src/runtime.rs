@@ -240,6 +240,19 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
             runtime.tasks[index].exit_code = code;
             SyscallAction::Exit
         }
+        hk_server_api::SYS_PCI_READ => {
+            let address = frame.rdi;
+            let bus = (address >> 8) as u8;
+            let device = ((address >> 3) & 0x1F) as u8;
+            let function = (address & 0x07) as u8;
+            frame.rax = u64::from(hk_platform_x86_64::pci::config_read(
+                bus,
+                device,
+                function,
+                frame.rsi as u8,
+            ));
+            SyscallAction::Continue
+        }
         _ => {
             frame.rax = u64::MAX;
             SyscallAction::Continue

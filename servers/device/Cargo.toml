@@ -1,0 +1,17 @@
+[package]
+name = "hk-server-device"
+description = "HolyKernel Device Manager stub：枚举 PCI 设备"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-device"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[lints]
+workspace = true
