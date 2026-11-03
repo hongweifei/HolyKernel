@@ -9,7 +9,7 @@ use alloc::string::String;
 use hk_hal::Console;
 use hk_platform_x86_64::{FramebufferConsole, Serial, keyboard};
 use hk_root_server::ServiceTable;
-use hk_shell::{ShellState, execute, parse};
+use hk_shell::{Session, ShellState, execute, parse};
 
 /// 执行一组命令。
 pub fn run(
@@ -29,12 +29,13 @@ pub fn run(
         return Ok(());
     }
 
+    let mut session = Session::new();
     for line in script {
         if line.is_empty() {
             continue;
         }
         write(console, screen, &format!("hk> {line}\n"));
-        if execute_line(console, screen, services, line) {
+        if execute_line(console, screen, services, &mut session, line) {
             break;
         }
     }
@@ -49,14 +50,19 @@ pub fn interactive(
 ) -> Result<(), String> {
     write(console, screen, "HolyShell 交互模式（help 查看命令）\n");
 
+    let mut session = Session::new();
     loop {
-        write(console, screen, "hk> ");
+        let prompt = match session.current() {
+            Some(current) => format!("hk[{current}]> "),
+            None => String::from("hk> "),
+        };
+        write(console, screen, &prompt);
         let line = read_line(console, screen);
         let command = line.trim();
         if command.is_empty() {
             continue;
         }
-        if execute_line(console, screen, services, command) {
+        if execute_line(console, screen, services, &mut session, command) {
             break;
         }
     }
@@ -113,11 +119,12 @@ fn execute_line(
     console: &Serial,
     screen: Option<&FramebufferConsole>,
     services: &ServiceTable,
+    session: &mut Session,
     line: &str,
 ) -> bool {
     let tasks = crate::runtime::tasks();
     let state = ShellState::new(services, &tasks);
-    let response = execute(parse(line), &state);
+    let response = execute(parse(line), &state, session);
     if response.clear {
         if let Some(screen) = screen {
             screen.clear();

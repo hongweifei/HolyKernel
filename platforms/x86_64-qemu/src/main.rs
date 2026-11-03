@@ -269,7 +269,7 @@ extern "C" fn kmain() -> ! {
                     ExitCode::Failure(4),
                 );
             }
-            announce(&console, screen.as_ref(), "服务已退出\n");
+            announce(&console, screen.as_ref(), "服务进入空闲\n");
             report_time(&console, screen.as_ref(), "启动耗时", boot_start, frequency);
 
             let interactive =
@@ -286,10 +286,14 @@ extern "C" fn kmain() -> ! {
             } else if let Some(line) = hk_boot::cmdline() {
                 if line.contains("shell-test") {
                     let script: alloc::vec::Vec<&str> = line
-                        .split_whitespace()
-                        .skip_while(|word| *word != "shell-test")
-                        .skip(1)
-                        .collect();
+                        .split_once("shell-test")
+                        .map(|(_, rest)| {
+                            rest.split(';')
+                                .map(str::trim)
+                                .filter(|segment| !segment.is_empty())
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     if let Err(error) = shell::run(&console, screen.as_ref(), &services, &script) {
                         fail(
                             &console,

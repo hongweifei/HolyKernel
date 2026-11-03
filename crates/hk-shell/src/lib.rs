@@ -25,6 +25,8 @@ pub enum Command<'a> {
     Services,
     /// 列出挂载点。
     Mounts,
+    /// 选择当前任务。
+    Focus(&'a str),
     /// 清屏。
     Clear,
     /// 回显文本。
@@ -48,6 +50,24 @@ impl<'a> ShellState<'a> {
     /// 以服务表与任务视图构造上下文。
     pub const fn new(services: &'a ServiceTable, tasks: &'a [TaskInfo]) -> Self {
         Self { services, tasks }
+    }
+}
+
+/// Shell 会话：当前任务的选择。
+#[derive(Default)]
+pub struct Session {
+    current: Option<String>,
+}
+
+impl Session {
+    /// 构造空会话。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 返回当前任务名称。
+    pub fn current(&self) -> Option<&str> {
+        self.current.as_deref()
     }
 }
 
@@ -85,6 +105,7 @@ pub fn parse(line: &str) -> Command<'_> {
         "tasks" => Command::Tasks,
         "services" => Command::Services,
         "mounts" => Command::Mounts,
+        "focus" => Command::Focus(arguments),
         "clear" => Command::Clear,
         "echo" => Command::Echo(arguments),
         "exit" => Command::Exit,
@@ -93,16 +114,18 @@ pub fn parse(line: &str) -> Command<'_> {
 }
 
 /// 执行命令并返回输出与副作用。
-pub fn execute(command: Command<'_>, state: &ShellState<'_>) -> Response {
+pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Session) -> Response {
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response {
-            output: String::from("命令：help、tasks、services、mounts、clear、echo <文本>、exit\n"),
+            output: String::from(
+                "命令：help、tasks、services、mounts、focus [任务]、clear、echo <文本>、exit\n",
+            ),
             clear: false,
             exit: false,
         },
         Command::Tasks => Response {
-            output: format_tasks(state.tasks),
+            output: format_tasks(state.tasks, session.current()),
             clear: false,
             exit: false,
         },
@@ -116,6 +139,7 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>) -> Response {
             clear: false,
             exit: false,
         },
+        Command::Focus(name) => focus_task(name, state, session),
         Command::Clear => Response {
             clear: true,
             ..Response::empty()
@@ -137,21 +161,55 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>) -> Response {
     }
 }
 
-fn format_tasks(tasks: &[TaskInfo]) -> String {
+fn focus_task(name: &str, state: &ShellState<'_>, session: &mut Session) -> Response {
+    if name.is_empty() {
+        let output = match session.current() {
+            Some(current) => format!("当前任务：{current}\n"),
+            None => String::from("当前任务：无\n"),
+        };
+        return Response {
+            output,
+            clear: false,
+            exit: false,
+        };
+    }
+
+    if !state.tasks.iter().any(|task| task.name == name) {
+        return Response {
+            output: format!("未知任务：{name}\n"),
+            clear: false,
+            exit: false,
+        };
+    }
+
+    session.current = Some(String::from(name));
+    Response {
+        output: format!("当前任务：{name}\n"),
+        clear: false,
+        exit: false,
+    }
+}
+
+fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     if tasks.is_empty() {
         return String::from("任务表为空\n");
     }
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
-    output.push_str("TCB  名称              端点  状态      挂起   退出码\n");
+    output.push_str("TCB  名称              端点  状态      挂起   退出码  当前\n");
     for task in tasks {
         let exit = match task.exit_code {
             Some(code) => format!("{code}"),
             None => String::from("-"),
         };
+        let marker = if current == Some(task.name.as_str()) {
+            "*"
+        } else {
+            ""
+        };
         output.push_str(&format!(
-            "{:<4} {:<16} {:<4} {:<8} {:<5} {}\n",
-            task.tcb, task.name, task.endpoint, task.state, task.pending, exit
+            "{:<4} {:<16} {:<4} {:<8} {:<5} {:<6} {}\n",
+            task.tcb, task.name, task.endpoint, task.state, task.pending, exit, marker
         ));
     }
     output
@@ -211,6 +269,11 @@ mod tests {
         ]
     }
 
+    fn run(line: &str, table: &ServiceTable, tasks: &[TaskInfo]) -> Response {
+        let mut session = Session::new();
+        execute(parse(line), &ShellState::new(table, tasks), &mut session)
+    }
+
     #[test]
     fn parses_known_commands() {
         assert_eq!(parse(""), Command::Empty);
@@ -218,6 +281,11 @@ mod tests {
         assert_eq!(parse("tasks"), Command::Tasks);
         assert_eq!(parse("services"), Command::Services);
         assert_eq!(parse("mounts"), Command::Mounts);
+        assert_eq!(parse("focus"), Command::Focus(""));
+        assert_eq!(
+            parse("focus hk-server-echo"),
+            Command::Focus("hk-server-echo")
+        );
         assert_eq!(parse("clear"), Command::Clear);
         assert_eq!(parse("exit"), Command::Exit);
         assert_eq!(parse("echo hello world"), Command::Echo("hello world"));
@@ -227,7 +295,7 @@ mod tests {
     #[test]
     fn echoes_arguments() {
         let table = ServiceTable::new();
-        let response = execute(parse("echo hello  world"), &ShellState::new(&table, &[]));
+        let response = run("echo hello  world", &table, &[]);
         assert_eq!(response.output, "hello  world\n");
         assert!(!response.exit);
     }
@@ -236,7 +304,7 @@ mod tests {
     fn lists_tasks_with_state_and_pending_call() {
         let table = ServiceTable::new();
         let tasks = tasks();
-        let response = execute(parse("tasks"), &ShellState::new(&table, &tasks));
+        let response = run("tasks", &table, &tasks);
         assert!(response.output.contains("任务表（2 项）"));
         assert!(response.output.contains("hk-server-demo"));
         assert!(response.output.contains("hk-server-echo"));
@@ -245,16 +313,47 @@ mod tests {
     }
 
     #[test]
+    fn focus_selects_current_task() {
+        let table = ServiceTable::new();
+        let tasks = tasks();
+        let state = ShellState::new(&table, &tasks);
+        let mut session = Session::new();
+
+        assert_eq!(
+            execute(parse("focus"), &state, &mut session).output,
+            "当前任务：无\n"
+        );
+        assert_eq!(
+            execute(parse("focus hk-server-echo"), &state, &mut session).output,
+            "当前任务：hk-server-echo\n"
+        );
+        assert_eq!(session.current(), Some("hk-server-echo"));
+
+        let output = execute(parse("tasks"), &state, &mut session).output;
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("hk-server-echo") && line.contains('*'))
+        );
+
+        assert_eq!(
+            execute(parse("focus missing"), &state, &mut session).output,
+            "未知任务：missing\n"
+        );
+        assert_eq!(session.current(), Some("hk-server-echo"));
+    }
+
+    #[test]
     fn reports_empty_task_table() {
         let table = ServiceTable::new();
-        let response = execute(parse("tasks"), &ShellState::new(&table, &[]));
+        let response = run("tasks", &table, &[]);
         assert_eq!(response.output, "任务表为空\n");
     }
 
     #[test]
     fn lists_services_with_exit_codes() {
         let table = services();
-        let response = execute(parse("services"), &ShellState::new(&table, &[]));
+        let response = run("services", &table, &[]);
         assert!(response.output.contains("服务表（1 项）"));
         assert!(response.output.contains("hk-server-demo"));
         assert!(response.output.contains("exited"));
@@ -263,18 +362,18 @@ mod tests {
     #[test]
     fn reports_empty_service_table() {
         let table = ServiceTable::new();
-        let response = execute(parse("services"), &ShellState::new(&table, &[]));
+        let response = run("services", &table, &[]);
         assert_eq!(response.output, "服务表为空\n");
     }
 
     #[test]
     fn clear_and_exit_are_flags() {
         let table = ServiceTable::new();
-        let clear = execute(parse("clear"), &ShellState::new(&table, &[]));
+        let clear = run("clear", &table, &[]);
         assert!(clear.clear);
         assert_eq!(clear.output, "");
 
-        let exit = execute(parse("exit"), &ShellState::new(&table, &[]));
+        let exit = run("exit", &table, &[]);
         assert!(exit.exit);
         assert_eq!(exit.output, "");
     }
@@ -282,7 +381,7 @@ mod tests {
     #[test]
     fn reports_unknown_command() {
         let table = ServiceTable::new();
-        let response = execute(parse("bogus x"), &ShellState::new(&table, &[]));
+        let response = run("bogus x", &table, &[]);
         assert_eq!(response.output, "未知命令：bogus\n");
         assert!(!response.exit);
     }

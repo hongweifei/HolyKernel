@@ -84,6 +84,7 @@ build ok · 1.2 s · H:/System/Apps/Hello
 HolyShell 会话是一个 **Native Task**：
 
 - 每个会话拥有自己的 **Session Namespace**：命令、变量、别名、当前 Task、cwd/root、主题、输出格式。
+- `focus <任务>` 选择会话焦点，`tasks` 用 `*` 标记当前 Task。
 - 会话创建时从父 Task 继承基础命名空间；Root Server/Command Registry 提供系统命令。
 - 多个会话 = 多个 Native Task；Workbench 可打开多个终端面板。
 - 会话结束回收命名空间、历史与临时资源；系统服务保持运行。
@@ -112,6 +113,7 @@ holy> debug app
 | 命令 | 作用 |
 | --- | --- |
 | `tasks` | 列出 Native Task/TCB、状态、Arena、子 Task |
+| `focus` | 选择当前 Native Task（会话焦点） |
 | `services` | 列出服务器、Endpoint、健康与重启次数 |
 | `handles` | 列出当前 Task 的 Handle |
 | `endpoints` | 列出 Endpoint/Notification |

@@ -53,7 +53,7 @@ impl SmokeMode {
             Self::Page => Some("page-fault-test"),
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
-            Self::Shell => Some("shell-test help tasks services mounts"),
+            Self::Shell => Some("shell-test help;focus hk-server-echo;tasks;services;mounts"),
             Self::Input => Some("shell-interactive"),
         }
     }
@@ -70,7 +70,7 @@ impl SmokeMode {
                 "hk-server-demo 收到回复 42",
                 "hk-server-device: 发现",
                 "启动耗时",
-                "服务已退出",
+                "服务进入空闲",
             ],
             Self::Ud2 => &["内核异常：非法指令"],
             Self::Page => &["内核异常：页错误"],
@@ -78,6 +78,7 @@ impl SmokeMode {
             Self::Framebuffer => &["帧缓冲控制台: 80x36 字符"],
             Self::Shell => &[
                 "HolyShell",
+                "当前任务：hk-server-echo",
                 "任务表",
                 "hk-server-demo",
                 "hk-server-echo",
