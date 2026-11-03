@@ -35,7 +35,7 @@ HolyKernel/
 │   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
 │   ├── hk-syscall/            系统调用编号与共享 ABI 常量
-│   ├── hk-server-api/         内核与服务器之间的入口 ABI
+│   ├── hk-server-api/         入口 ABI：调用约定与按架构的 int 0x80 / svc 入口
 │   ├── hk-shell/              HolyShell 命令解析与输出
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
 │   ├── hk-network/            Network Server
@@ -59,7 +59,7 @@ HolyKernel/
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
 - 内核 crate 只依赖 `hk-hal` 与内核对象 crate；服务器通过 IPC 与 Handle 交互。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
-- 平台二进制保留入口、引导适配与用户现场切换；调度与 IPC 由 `hk-kernel` 提供。
+- 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。
 - libc 提供 C ABI；内核与服务器使用 Rust。
 
 ---

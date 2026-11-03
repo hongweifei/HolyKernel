@@ -5,6 +5,9 @@
 
 #![no_std]
 
+use core::cmp::min;
+
+use hk_hal::{PAGE_SIZE, UserMemory};
 use xmas_elf::ElfFile;
 use xmas_elf::program::Type;
 
@@ -54,6 +57,45 @@ pub fn load(elf: &[u8], sink: &mut impl PageSink) -> Result<u64, ElfError> {
     }
 
     Ok(entry)
+}
+
+/// 把可加载段直接映射进用户地址空间，返回入口地址。
+///
+/// 每页由 [`UserMemory::map_page`] 分配并清零，普通内存段写入文件内容，其余
+/// 保持零填充。
+pub fn load_into<M: UserMemory>(elf: &[u8], memory: &mut M) -> Result<u64, ElfError> {
+    load(elf, &mut UserSink { memory })
+}
+
+struct UserSink<'a, M> {
+    memory: &'a mut M,
+}
+
+impl<M: UserMemory> PageSink for UserSink<'_, M> {
+    fn map_segment(
+        &mut self,
+        virtual_address: u64,
+        file: &[u8],
+        memory_size: u64,
+    ) -> Result<(), MapError> {
+        let page_size = PAGE_SIZE as u64;
+        let pages = memory_size.div_ceil(page_size);
+
+        for page in 0..pages {
+            let offset = page * page_size;
+            let slice = self
+                .memory
+                .map_page(virtual_address + offset)
+                .ok_or(MapError)?;
+
+            let start = offset as usize;
+            if start < file.len() {
+                let length = min(PAGE_SIZE, file.len() - start);
+                slice[..length].copy_from_slice(&file[start..start + length]);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

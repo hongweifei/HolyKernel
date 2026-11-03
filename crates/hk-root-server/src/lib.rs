@@ -8,6 +8,7 @@
 extern crate alloc;
 
 pub mod boot;
+pub mod loader;
 mod registry;
 pub mod session;
 

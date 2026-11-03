@@ -122,6 +122,7 @@ dependencies = [
 name = "hk-elf"
 version = "0.1.0"
 dependencies = [
+ "hk-hal",
  "xmas-elf",
 ]
 
@@ -208,6 +209,7 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
+ "hk-elf",
  "hk-hal",
  "hk-handle",
  "hk-kernel",
@@ -285,7 +287,6 @@ name = "hk-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-boot",
- "hk-elf",
  "hk-hal",
  "hk-handle",
  "hk-ipc",

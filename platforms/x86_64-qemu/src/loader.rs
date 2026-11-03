@@ -1,18 +1,17 @@
 //! 服务 ELF 加载与任务登记。
 //!
-//! 从 Limine 模块中逐个取服务镜像，用 `hk-elf` 遍历可加载段，平台实现段页映射；
-//! 每个服务获得独立用户栈与端点，登记为任务后交给 `hk-kernel` 调度。
+//! 镜像解析、用户栈与 Arena 布局由 `hk-root-server::loader` 完成；本模块提供
+//! x86 用户页映射（`UserMemory`）与启动信息到镜像布局的适配。
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cmp::min;
 
-use hk_elf::{MapError, PageSink};
-use hk_hal::{BootInfo, BootModule, PAGE_SIZE, VirtAddr};
+use hk_hal::{BootInfo, BootModule, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
 use hk_root_server::ServiceTable;
+use hk_root_server::loader::{self, ImageSpec};
 
 use crate::runtime;
 
@@ -40,7 +39,7 @@ pub fn run(
     let names: Vec<&'static str> = info
         .server_modules
         .iter()
-        .map(|module| service_name(module.name))
+        .map(|module| loader::service_name(module.name))
         .collect();
     runtime::init(&names)?;
 
@@ -69,71 +68,26 @@ fn load(
         core::slice::from_raw_parts(module_virtual as *const u8, module.region.len as usize)
     };
 
-    let entry_point = {
-        let mut pages = UserPages {
-            direct_map_base,
-            paging,
-            allocator,
-        };
-        hk_elf::load(bytes, &mut pages).map_err(|error| format!("装载服务 ELF 失败：{error:?}"))?
-    };
-
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
-    map_region(
-        stack_base,
-        USER_STACK_SIZE,
-        "用户栈",
-        direct_map_base,
-        allocator,
-        paging,
-    )?;
-
     let (arena_base, arena_size) = runtime::arena(index);
-    map_region(
+    let spec = ImageSpec {
+        bytes,
+        endpoint,
+        stack_base,
+        stack_size: USER_STACK_SIZE,
         arena_base,
         arena_size,
-        "任务 Arena",
+    };
+
+    let mut memory = UserPages {
         direct_map_base,
-        allocator,
         paging,
-    )?;
-
-    Ok(cpu::user_frame(
-        entry_point,
-        stack_base + USER_STACK_SIZE,
-        endpoint,
-    ))
-}
-
-fn map_region(
-    base: u64,
-    size: u64,
-    label: &str,
-    direct_map_base: u64,
-    allocator: &mut FrameAllocator,
-    paging: &PageTable,
-) -> Result<(), String> {
-    let page_size = PAGE_SIZE as u64;
-    let pages = size.div_ceil(page_size);
-    for page in 0..pages {
-        let frame = allocator
-            .allocate()
-            .ok_or_else(|| String::from("物理帧耗尽"))?;
-        let destination = (direct_map_base + frame.get()) as *mut u8;
-        // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
-        unsafe {
-            core::ptr::write_bytes(destination, 0, PAGE_SIZE);
-        }
-        paging
-            .map(
-                VirtAddr::new(base + page * page_size),
-                frame,
-                PageFlags::USER_RW,
-                allocator,
-            )
-            .map_err(|error| format!("映射{label}失败：{error:?}"))?;
-    }
-    Ok(())
+        allocator,
+    };
+    loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
+        cpu::user_frame(entry, stack_top, endpoint)
+    })
+    .map_err(|error| format!("装载服务失败：{error}"))
 }
 
 struct UserPages<'a> {
@@ -142,50 +96,27 @@ struct UserPages<'a> {
     allocator: &'a mut FrameAllocator,
 }
 
-impl PageSink for UserPages<'_> {
-    fn map_segment(
-        &mut self,
-        virtual_address: u64,
-        file: &[u8],
-        memory_size: u64,
-    ) -> Result<(), MapError> {
-        let page_size = PAGE_SIZE as u64;
-        let pages = memory_size.div_ceil(page_size);
+impl UserMemory for UserPages<'_> {
+    fn map_page(&mut self, virtual_address: u64) -> Option<&mut [u8]> {
+        let frame = self.allocator.allocate()?;
+        let destination = (self.direct_map_base + frame.get()) as *mut u8;
 
-        for page in 0..pages {
-            let frame = self.allocator.allocate().ok_or(MapError)?;
-            let destination = (self.direct_map_base + frame.get()) as *mut u8;
-
-            // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
-            unsafe {
-                core::ptr::write_bytes(destination, 0, PAGE_SIZE);
-            }
-
-            let page_offset = page * page_size;
-            if page_offset < file.len() as u64 {
-                let copy_len = min(page_size, file.len() as u64 - page_offset) as usize;
-                let source = file.as_ptr().wrapping_add(page_offset as usize);
-                // SAFETY: 源落在段文件内容内，目标为新分配的整页，区间不重叠。
-                unsafe {
-                    core::ptr::copy_nonoverlapping(source, destination, copy_len);
-                }
-            }
-
-            self.paging
-                .map(
-                    VirtAddr::new(virtual_address + page_offset),
-                    frame,
-                    PageFlags::USER_RW,
-                    self.allocator,
-                )
-                .map_err(|_| MapError)?;
+        // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
+        unsafe {
+            core::ptr::write_bytes(destination, 0, PAGE_SIZE);
         }
-        Ok(())
-    }
-}
+        self.paging
+            .map(
+                VirtAddr::new(virtual_address),
+                frame,
+                PageFlags::USER_RW,
+                self.allocator,
+            )
+            .ok()?;
 
-fn service_name(name: &'static str) -> &'static str {
-    name.rsplit('/').next().unwrap_or(name)
+        // SAFETY: 帧经 HHDM 映射为整页可写；映射建立后返回该页视图。
+        Some(unsafe { core::slice::from_raw_parts_mut(destination, PAGE_SIZE) })
+    }
 }
 
 /// 按名称装载服务模块，用于按需启动。
@@ -200,7 +131,7 @@ pub fn load_service(
     let module = info
         .server_modules
         .iter()
-        .find(|module| service_name(module.name) == name)
+        .find(|module| loader::service_name(module.name) == name)
         .ok_or_else(|| format!("未知服务：{name}"))?;
     load(module, slot, 0, direct_map_base, allocator, paging)
 }

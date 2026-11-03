@@ -22,6 +22,7 @@ pub mod physical;
 pub mod platform;
 pub mod power;
 pub mod time;
+pub mod user_memory;
 
 pub use addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 pub use arch::{Arch, CpuId};
@@ -40,3 +41,4 @@ pub use physical::{PhysicalAccess, PhysicalError};
 pub use platform::{Platform, PlatformError};
 pub use power::Power;
 pub use time::{Duration, Moment, Timer};
+pub use user_memory::UserMemory;
