@@ -20,7 +20,7 @@ flowchart TB
         Root["Root Server"]
         Device["Device Manager"]
         Drivers["Block / Input / Net 驱动"]
-        FS["VFS + ext2 / tmpfs"]
+        FS["VFS + ext2/ext4 · HolyFS · tmpfs"]
         POSIX["POSIX Server"]
         Net["Network Server"]
         Native["HolyDoc / Display"]
@@ -69,10 +69,10 @@ flowchart TB
 
 - 微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler
 - Root Server、Device Manager、virtio-blk/input/net 驱动
-- VFS 服务器与 ext2/tmpfs/devfs/procfs 后端
+- VFS 服务器与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
 - POSIX.1 服务器 + musl + `hk-abi`/`hk-crt`
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
-- 可选原生服务：HolyDoc、真彩 Display Server
+- 可选服务：HolyFS 文件系统（可作主根）、HolyDoc、真彩 Display Server
 - x86_64 / AArch64 / RISC-V QEMU 与 Hosted 模拟器
 
 **后续版本评估**
@@ -87,7 +87,7 @@ flowchart TB
 ## 3. 设计原则
 
 1. **最小内核**：机制在内核，策略在服务器。
-2. **句柄即权限**：资源访问通过 Handle；内核不维护全局命名空间。
+2. **句柄即权限**：资源访问通过 Handle；对象命名由服务器提供。
 3. **隔离优先**：每进程独立 VSpace；内核与用户态分离。
 4. **显式 IPC**：Endpoint 同步通信，Notification 异步事件，Frame 共享数据。
 5. **服务器可重启**：Root Server 监督生命周期与句柄分配。
@@ -152,9 +152,9 @@ pub struct Rights(u32); // READ | WRITE | EXECUTE | TRANSFER | ADMIN
 - Handle 可随 IPC 消息传递；发送方需要 `TRANSFER` 权限。
 - 每个对象有 `epoch`；owner 的 `revoke_all` 递增 epoch，使该对象所有旧 Handle 失效。
 - 每 Task/服务器有 Handle 配额；`duplicate`/`transfer` 前检查。
-- 没有派生树或递归撤销；服务器重启时关闭旧 Handle。
-- 内核不提供全局对象命名；服务器通过 Endpoint 暴露服务接口。
-- badge 仅用于 Endpoint 标识客户端，不作为 Handle 权限。
+- 权限模型采用线性 HandleTable；服务器重启时关闭旧 Handle。
+- 对象命名由服务器 Endpoint 提供；内核 Handle 保持匿名。
+- badge 用于 Endpoint 标识客户端；权限由 Handle 决定。
 
 ### 5.2 IPC
 
@@ -200,11 +200,12 @@ sequenceDiagram
 | **Block Driver** | virtio-blk / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 | FS Backend Endpoint、Frame |
-| **ext2 / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
+| **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | VSpace/TCB、VFS/Network Endpoint |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略 | Net Endpoint、Socket Handle |
+| **HolyFS Server** | 文件系统；可挂载 `/` 主根或 `H:`；POSIX + 整文档 | Block Endpoint、VFS Backend、Document Handle |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI | Framebuffer、Input |
-| **HolyDoc Server** | 可选活文档渲染 | Display Endpoint |
+| **HolyDoc Server** | 可选活文档渲染 | Display Endpoint、HolyFS Endpoint |
 | **Workbench** | 编辑/浏览/构建/运行/调试 | HolyDoc、Toolchain、Debug、Display |
 | **Toolchain Server** | 系统内编译/链接/打包/缓存 | VFS、Task |
 | **Checkpoint Server** | Task/Server 快照与恢复 | VSpace/HandleTable/TCB、VFS |
@@ -223,7 +224,7 @@ flowchart LR
     App["POSIX 应用"] --> Libc["musl + hk-abi"]
     Libc -->|IPC| POSIX["POSIX Server"]
     POSIX -->|IPC| VFS["VFS Server"]
-    VFS -->|IPC| FS["ext2 / tmpfs"]
+    VFS -->|IPC| FS["ext2/ext4 · HolyFS · tmpfs"]
     POSIX -->|IPC| Net["Network Server"]
     POSIX -->|invoke| Kernel["VSpace / TCB / Frame"]
     Kernel --> POSIX
@@ -234,7 +235,7 @@ flowchart LR
 - **musl + `hk-abi`**：musl 提供 C 运行时与 pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载。
 - **进程**：`fork` 复制 VSpace（COW）；`exec` 加载 ELF；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
-- **文件**：VFS 提供路径解析、挂载表与文件句柄；ext2 Server 提供目录、inode、权限位。
+- **文件**：VFS 提供路径解析、挂载表与文件句柄；ext2/ext4 或 HolyFS Server 提供目录、inode、权限位。
 - **网络**：socket 通过 POSIX Server 转发到用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket。
 
 详见 [POSIX 与 libc](posix.md)。
@@ -243,13 +244,14 @@ flowchart LR
 
 ## 9. 原生服务
 
-HolyDoc 与 真彩 UI 作为可选原生服务：
+HolyFS 文件系统与 HolyDoc、真彩 UI 作为可选服务：
 
 - **HolyDoc**：活文档渲染、链接、代码块、表单；通过 Display Endpoint 呈现。
+- **HolyFS**：文件系统；可作 POSIX `/` 主根或 `H:` 盘符；POSIX 文件视图 + 整文档、压缩、COW、checksum、快照。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器；POSIX 应用通过终端/控制台接口使用文本界面。
 - 原生服务按最小权限运行；每个服务获得独立的 Frame、DeviceGrant 与 Endpoint。
 
-详见 [HolyShell](shell.md)、[VFS](vfs.md)、[HolyDoc 与 UI](ui.md)、[Holy 原生体验](experience.md)。
+详见 [HolyShell](shell.md)、[VFS](vfs.md)、[HolyFS](holyfs.md)、[HolyDoc 与 UI](ui.md)、[Holy 原生体验](experience.md)。
 
 ---
 
@@ -272,7 +274,7 @@ sequenceDiagram
     K->>Root: 启动 Root Task（初始句柄）
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
-    Root->>VFS: 启动 VFS Server 与 ext2 后端
+    Root->>VFS: 启动 VFS Server 与根文件系统后端
     Root->>Net: 启动 Network Server（启用网络）
     Root->>Shell: 启动 HolyShell（原生主路径）
     opt 启用 POSIX 兼容环境
@@ -287,8 +289,9 @@ sequenceDiagram
 
 - 内核只创建 Root Task，并把初始 Untyped/Endpoint 句柄与 HandleTable 交给它。
 - Root Server 启动设备管理器、VFS、Network Server、HolyShell 与可选原生服务。
+- 根文件系统为 HolyFS 时，Root Server 先启动 HolyFS Server，再启动 VFS。
 - HolyShell 是默认命令行；POSIX Server 是可选兼容环境。
-- 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2 根文件系统并启动 `/sbin/init`。
+- 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2/ext4 或 HolyFS 根文件系统并启动 `/sbin/init`。
 - 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载 ELF。
 - 服务器崩溃时，Root Server 按服务清单重启并重新分配句柄。
 
@@ -299,8 +302,8 @@ sequenceDiagram
 - **隔离**：每进程独立 VSpace；内核与用户态分离。
 - **最小权限**：服务器只获得完成职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
-- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；不可用时依赖驱动审计。
-- **可信基**：内核、Root Server、VFS Server、ext2 Server；POSIX Server 在启用兼容环境时加入。
+- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；IOMMU 关闭时依赖驱动审计。
+- **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4 或 HolyFS）；POSIX Server 在启用兼容环境时加入。
 - **验证**：Rust 内存安全、`unsafe` 审计、fuzz、确定性模拟、POSIX 测试套件。
 - **服务器监督**：Root Server 记录崩溃、重启次数与句柄重新分配。
 
@@ -328,24 +331,25 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 | 上下文切换（同 CPU） | ≤ 1 µs | `hk-bench ctx` |
 | IPC call/reply（小消息） | ≤ 2 µs | `hk-bench ipc` |
 | 中断到 Notification | ≤ 10 µs | APIC 定时器压力测试 |
-| ext2 1 MiB 顺序读 | ≥ 100 MiB/s | `hk-bench fs` |
+| ext2/ext4 1 MiB 顺序读 | ≥ 100 MiB/s | `hk-bench fs` |
+| HolyFS 1 MiB 顺序读 | ≥ 500 MiB/s | `hk-bench holyfs` |
 | `fork` + `exec` `/bin/true` | ≤ 5 ms | `hk-bench posix` |
 | 帧缓冲全屏重绘 1920×1080×32 位 RGBA | ≤ 8 ms | `hk-bench ui` |
-| 内核代码行数（不含测试/文档/第三方） | ≤ 50,000 | CI 统计 |
+| 内核代码行数（统计范围：内核代码；测试/文档/第三方单列） | ≤ 50,000 | CI 统计 |
 
 预算用基准测试锁定；里程碑退出以预算达标为依据，例外记录在 ADR。
 
 ---
 
-## 14. 关键不变量
+## 14. 关键保证
 
 1. 内核只包含机制：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler。
 2. 所有资源访问通过 Handle；内核维护对象引用与句柄复制树。
 3. 每进程独立 VSpace；内核地址空间与用户地址空间分离。
 4. 跨服务器调用通过 Endpoint；异步事件通过 Notification。
 5. 服务器崩溃由 Root Server 重启；旧句柄被关闭。
-6. POSIX 语义由用户态 POSIX Server 实现；内核保持 POSIX 无关。
-7. 文件系统通过 VFS Server 与 ext2/tmpfs/devfs/procfs 后端；块设备通过 Block Driver。
+6. POSIX 语义由用户态 POSIX Server 实现；内核提供机制。
+7. 文件系统通过 VFS Server 与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端；块设备通过 Block Driver。
 8. 驱动运行在用户态，使用 DeviceGrant 访问 MMIO/DMA/IRQ。
 9. 内核 panic 路径使用静态缓冲与自旋锁，独立于调度器与堆。
 10. 每个服务器拥有最小权限集合与独立 VSpace。
@@ -359,7 +363,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 1. **职责**：它拥有什么状态，与哪些服务器/内核对象交互。
 2. **句柄**：它需要哪些 Handle，授予哪些 Endpoint。
 3. **接口草图**：Rust trait、IPC 消息或 POSIX 函数签名。
-4. **不变量**：必须永远成立的条件。
+4. **保证**：必须始终成立的条件。
 5. **失败模式**：OOM、超时、IPC 断开、设备错误、服务器崩溃。
 6. **测试策略**：Hosted 单元、模拟器、QEMU、POSIX 测试、fuzz。
 7. **架构一致性检查**：变更如何与 [章程](charter.md) 的微内核模型协作。
@@ -376,6 +380,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 - [POSIX 与 libc](posix.md)
 - [服务器](servers.md)
 - [VFS](vfs.md)
+- [HolyFS 文件系统](holyfs.md)
 - [HolyDoc 与 UI](ui.md)
 - [平台与启动](platforms.md)
 - [工程策略](engineering.md)

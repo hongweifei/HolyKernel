@@ -100,7 +100,7 @@ pub struct BootInfo {
 }
 ```
 
-- `server_modules` 包含 Root Server、Device Manager、VFS、Network Server、HolyShell、POSIX Server 等 ELF 镜像。
+- `server_modules` 包含 Root Server、Device Manager、VFS、Network Server、HolyFS Server、HolyShell、POSIX Server 等 ELF 镜像。
 - 内核校验 memory map、内核镜像、帧缓冲、模块范围。
 - BootInfo 在启动后映射为只读，供诊断使用。
 
@@ -123,7 +123,7 @@ sequenceDiagram
     K->>Root: 启动 Root Task（初始句柄）
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
-    Root->>VFS: 启动 VFS + ext2
+    Root->>VFS: 启动 VFS + 根文件系统
     Root->>Net: 启动 Network Server
     Root->>Shell: 启动 HolyShell
     opt 启用 POSIX 兼容环境
@@ -188,13 +188,14 @@ sequenceDiagram
 | `vfs` | 挂载、路径解析、ext2 读写 |
 | `shell` | HolyShell、Holy 命令、结构化管道、`posix` 入口 |
 | `net` | virtio-net、ARP/IPv4/IPv6、TCP/UDP、DHCP、DNS、socket |
+| `holyfs` | HolyFS `/` 主根或 `H:` 挂载、POSIX、整文档、快照、恢复 |
 | `posix` | fork/exec/wait、pipe、socket、pthreads |
-| `restart` | 驱动/VFS/POSIX 崩溃与重启 |
+| `restart` | 驱动/VFS/POSIX/Network/HolyFS 崩溃与重启 |
 | `ui` | 帧缓冲、窗口、Console |
 
 ---
 
-## 10. 不变量
+## 10. 保证
 
 1. 微内核通过 HAL 访问平台，保持架构无关。
 2. 每个进程独立 VSpace；内核地址空间与用户态分离。
@@ -214,5 +215,6 @@ sequenceDiagram
 - [内存模型](memory.md)
 - [服务器](servers.md)
 - [网络](network.md)
+- [HolyFS 文件系统](holyfs.md)
 - [工程策略](engineering.md)
 - [路线图](roadmap.md)

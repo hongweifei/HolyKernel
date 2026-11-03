@@ -13,7 +13,7 @@
 3. **先 Root Server，后全栈**：Root Server、Device Manager、VFS、POSIX 依次接入。
 4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX 服务器依赖 VFS。
 5. **POSIX 分层**：先文件/进程，后线程/信号/套接字。
-6. **原生服务可选**：HolyDoc/UI 在 POSIX 核心之后接入。
+6. **可选服务**：HolyFS 文件系统、HolyDoc、UI 在 POSIX 核心之后接入。
 7. **多架构收尾**：x86_64 纵向切片完成后抽 HAL，验证 AArch64/RISC-V。
 
 ---
@@ -215,6 +215,7 @@ flowchart LR
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。
+- HolyFS Core：extent、checksum、双超级块、页缓存、VFS Backend、POSIX inode、整文档 API。
 - Sprite/Font 编辑器、Home/Once 启动文档。
 
 ### 退出标准
@@ -224,6 +225,7 @@ flowchart LR
 3. 多窗口、焦点、键盘/鼠标正常。
 4. Display Server 崩溃后重启，Console 重连。
 5. 帧缓冲全屏重绘 ≤ 8 ms。
+6. HolyFS `H:` 挂载、POSIX 文件操作、整文档读写、快照与重启恢复。
 
 ---
 
@@ -232,18 +234,20 @@ flowchart LR
 ### 交付
 
 - `hk-platform-aarch64`、`hk-platform-riscv64` 与 QEMU 启动目录。
-- AArch64/RISC-V 的 Root Server、VFS、POSIX、Network 全栈。
-- POSIX 测试套件扩展；VFS/ELF/驱动/网络 fuzz。
+- AArch64/RISC-V 的 Root Server、VFS、POSIX、Network、HolyFS 全栈。
+- POSIX 测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
 - 性能基准与预算复核。
-- 服务器重启矩阵（含 Network Server）。
+- 服务器重启矩阵（含 Network Server、HolyFS）。
+- HolyFS COW 事务、GC、check/repair、scrub、性能优化与主根启动。
 
 ### 退出标准
 
-1. 4 个目标通过同一套 `boot/ipc/memory/irq/vfs/net/posix/restart` 测试。
+1. 4 个目标通过同一套 `boot/ipc/memory/irq/vfs/net/holyfs/posix/restart` 测试。
 2. AArch64/RISC-V 上 HolyShell 与 `posix` coreutils 运行。
 3. POSIX 测试子集在 x86_64 与 AArch64 通过。
 4. 服务器崩溃/重启矩阵通过。
-5. 性能预算达标或记录例外 ADR。
+5. QEMU 以 HolyFS 为 `/` 启动并运行 POSIX 测试子集。
+6. 性能预算达标或记录例外 ADR。
 
 ---
 
@@ -278,7 +282,7 @@ flowchart LR
 | `fork`/COW 语义 | 兼容性问题 | 早期原型、POSIX 测试、页错误跟踪 |
 | 服务器重启状态恢复 | 应用中断 | 明确 EIO 语义、重连协议、会话恢复策略 |
 | 多架构移植 | 范围扩大 | Tier 分层、x86_64 纵向切片优先 |
-| libc 兼容范围 | 应用不足 | POSIX 测试套件 + 应用回归 + 增量接口 |
+| libc 兼容范围 | 应用覆盖需要提升 | POSIX 测试套件 + 应用回归 + 增量接口 |
 | 内核可信基 | 安全风险 | 最小内核、句柄模型、`unsafe` 审计 |
 
 ---

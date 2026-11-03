@@ -2,7 +2,9 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX 服务器通过 VFS 访问 ext2、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
+VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX 服务器通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
+
+HolyFS 是一等文件系统后端，可挂载为 `/` 主根或 `H:` 盘符；同一份数据同时提供 POSIX 视图与整文档 API。详见 [HolyFS](holyfs.md)。
 
 ---
 
@@ -12,7 +14,7 @@ VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中
 
 1. **统一路径空间**：挂载表、路径解析、`.`/`..`、符号链接、相对路径。
 2. **文件抽象**：inode、dentry、open file description、文件句柄、目录项缓存。
-3. **多文件系统后端**：ext2、tmpfs、devfs、procfs；后端以服务器形式接入。
+3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端以服务器形式接入。
 4. **POSIX 语义**：`open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`/`fsync`/`truncate`。
 5. **页缓存**：文件数据以 Frame 共享；POSIX 服务器与用户进程零拷贝读取。
 6. **权限检查**：POSIX 服务器传入凭证；VFS 与文件系统后端执行属主/权限位检查。
@@ -22,7 +24,7 @@ VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中
 ### 构件
 
 - **VFS Server**：挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存。
-- **FS Backend**：ext2、tmpfs、devfs、procfs 等服务器。
+- **FS Backend**：ext2/ext4、HolyFS、tmpfs、devfs、procfs 等服务器。
 - **Mount**：`(device, target, fstype, flags)`。
 - **Dentry**：路径组件到 inode 的映射。
 - **Inode**：文件元数据与后端节点句柄。
@@ -38,7 +40,8 @@ flowchart TB
     App["POSIX 应用"] --> Libc["musl + hk-abi"]
     Libc -->|IPC| POSIX["POSIX Server"]
     POSIX -->|fd → FileHandle| VFS["VFS Server"]
-    VFS -->|mount table| Ext2["ext2 Server"]
+    VFS -->|mount table| Ext2["ext2 / ext4 Server"]
+    VFS -->|mount table| HolyFS["HolyFS Server"]
     VFS -->|mount table| Tmpfs["tmpfs Server"]
     VFS -->|mount table| Devfs["devfs Server"]
     VFS -->|mount table| Procfs["procfs Server"]
@@ -58,7 +61,7 @@ flowchart TB
 ```rust
 pub struct Mount {
     pub target: PathBuf,       // "/", "/dev", "/proc", "/tmp"
-    pub fstype: FsType,        // Ext2 | Tmpfs | Devfs | Procfs
+    pub fstype: FsType,        // Ext2 | Ext4 | HolyFS | Tmpfs | Devfs | Procfs
     pub backend: Handle<Endpoint>,
     pub flags: MountFlags,     // ReadOnly | NoExec | NoSuid
     pub root: NodeId,
@@ -67,7 +70,7 @@ pub struct Mount {
 
 - Root Server 或 POSIX Server 通过 VFS 的 `mount` 接口建立挂载。
 - 挂载表由 VFS 维护；POSIX 服务器的 `mount`/`umount` 转发到 VFS。
-- 初始挂载：`/`（ext2）、`/dev`（devfs）、`/proc`（procfs）、`/tmp`（tmpfs）。
+- 初始挂载：`/`（ext2/ext4 或 HolyFS，由镜像选择）、`/dev`（devfs）、`/proc`（procfs）、`/tmp`（tmpfs）。
 - 挂载点支持嵌套；路径解析跨越挂载边界。
 - 只读挂载拒绝写操作。
 
@@ -140,8 +143,8 @@ pub enum VfsRequest {
 
 - 请求通过 FS Backend Endpoint 发送；响应携带状态与元数据。
 - 大块数据使用共享 Frame；VFS 只传 Handle。
-- 后端实现 ext2、tmpfs、devfs、procfs 的各自语义。
-- 后端崩溃时，VFS 标记挂载不可用；Root Server 重启后端。
+- 后端实现 ext2/ext4、HolyFS、tmpfs、devfs、procfs 的各自语义。
+- 后端崩溃时，VFS 将挂载标记为离线；Root Server 重启后端。
 
 ---
 
@@ -174,9 +177,9 @@ pub enum VfsRequest {
 
 ---
 
-## 10. 不变量
+## 10. 保证
 
-1. VFS 运行在用户态；内核不包含路径解析或文件系统逻辑。
+1. VFS 与路径解析运行在用户态；内核提供 Frame、Endpoint 与 Handle。
 2. 每个挂载点绑定一个 FS Backend Endpoint。
 3. 路径解析跨越挂载点；`..` 语义保持一致。
 4. 文件数据通过 Frame 共享；VFS 与后端传递 Handle。
@@ -194,9 +197,9 @@ pub enum VfsRequest {
 | 层级 | 测试 |
 | --- | --- |
 | Hosted 单元 | 路径解析、dentry 缓存、挂载表、fd/OpenFile、页缓存 |
-| Hosted 模拟 | ext2/tmpfs/devfs/procfs 后端、VFS 重启、后端崩溃 |
-| POSIX 集成 | `open/read/write/stat/readdir/rename/unlink`、`dup`、`O_APPEND` |
-| QEMU | ext2 镜像、挂载、读写、重启恢复 |
+| Hosted 模拟 | ext2/ext4/HolyFS/tmpfs/devfs/procfs 后端、VFS 重启、后端崩溃 |
+| POSIX 集成 | `open/read/write/stat/readdir/rename/unlink`、`dup`、`O_APPEND`、硬链接/符号链接 |
+| QEMU | ext2/ext4 或 HolyFS 根镜像、挂载、读写、重启恢复 |
 | fuzz | 路径、挂载表、RPC 消息、后端响应 |
 | 基准 | 路径解析、缓存命中、顺序读写、VFS RPC 延迟 |
 
@@ -207,5 +210,6 @@ pub enum VfsRequest {
 - [总体架构](architecture.md)
 - [服务器](servers.md)
 - [POSIX 与 libc](posix.md)
+- [HolyFS 文件系统](holyfs.md)
 - [内存模型](memory.md)
 - [工程策略](engineering.md)

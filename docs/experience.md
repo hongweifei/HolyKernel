@@ -12,7 +12,7 @@
 2. **一个工作台**：编辑、浏览、构建、运行、调试在同一个原生应用里完成。
 3. **系统内工具链**：编译、链接、打包、运行由 Toolchain Server 提供。
 4. **Task 命名空间**：每个 Native Task 拥有符号表与父链；服务按 Task 作用域注册。
-5. **整文件文档 I/O**：HolyDoc/原生文档整体读写、透明压缩、内容缓存。
+5. **整文件文档 I/O**：HolyDoc/原生文档整体读写、透明压缩、内容缓存；HolyFS 提供底层文件系统与 Document API。
 6. **可检查点**：Native Task/Server 可 checkpoint/restore，支持快速重启与状态恢复。
 7. **符号化调试**：Debug Server 把地址映射到源码、符号与 HolyDoc。
 8. **Home/Once**：启动与用户配置是可执行文档。
@@ -50,7 +50,7 @@ flowchart TB
 
 ## 3. HolyDoc 作为 UI 基底
 
-HolyDoc 不仅用于文档，也用于原生 UI：
+HolyDoc 同时服务文档与原生 UI：
 
 - **帮助**：符号、服务、POSIX 路径、调试信息都可链接到 HolyDoc。
 - **设置**：系统设置以 HolyDoc 表单呈现，提交调用原生函数。
@@ -92,7 +92,7 @@ Workbench 是原生一体化应用：
 源文档 → 解析 → 类型检查 → 代码生成 → 链接 → 原生模块/应用
 ```
 
-- 系统内编译：源码文档直接构建，无需外部 IDE。
+- 系统内编译：源码文档直接构建，工具链内建。
 - **编译期执行**：`@build { ... }` 在构建阶段运行，生成表、资源、配置。
 - **隐藏链接步骤**：用户看到“构建文档”，Toolchain Server 负责目标文件/链接细节。
 - 产物：原生模块、静态/动态应用、资源包、HolyDoc 资产。
@@ -149,7 +149,7 @@ sequenceDiagram
 - Native Task/Server 可 checkpoint：VSpace 映射、Frame 内容、HandleTable 状态、TCB 寄存器、Arena。
 - 快照写入 VFS；恢复时重建 Task 与 Handle。
 - 用于快速重启、调试回放、升级前备份。
-- POSIX 进程默认不 checkpoint；POSIX Server 可按策略支持。
+- POSIX 进程采用进程语义；Checkpoint 由 POSIX Server 按策略提供。
 
 ---
 
@@ -168,7 +168,7 @@ sequenceDiagram
 - **Home**：每个用户的启动文档与服务清单；定义默认 Workbench、窗口、服务。
 - **Once**：首次启动执行一次，初始化 Home、字体、示例文档。
 - **MakeHome**：重新生成 Home 的脚本/文档。
-- 启动文档是可执行 HolyDoc，不是散落的配置文件。
+- 启动文档是可执行 HolyDoc；启动与配置集中在文档中。
 - POSIX 环境对应 `/etc/holy/`、`/home/<user>/`；原生环境对应 VFS 路径。
 
 ---
@@ -196,7 +196,7 @@ sequenceDiagram
 - Native Task 默认使用固定栈 + guard page。
 - 可选可增长栈：栈错误触发 Fault Endpoint，Task 扩大映射并恢复执行。
 - POSIX pthread 保持固定栈 + guard page，遵循常规 ABI。
-- 可增长栈只用于原生 Task/服务，避免与 POSIX 栈语义冲突。
+- 可增长栈服务于原生 Task/服务；POSIX 栈保持固定语义。
 
 ---
 
@@ -204,7 +204,7 @@ sequenceDiagram
 
 - Endpoint 上增加调试/控制消息：`Ping`、`Stats`、`Suspend`、`Resume`、`Checkpoint`。
 - Debug Server 与 Workbench 通过消息查询/控制 Task。
-- 消息是显式 Handle 授权的，不提供全局后门。
+- 消息通过显式 Handle 授权。
 - 应用可注册自定义消息处理器，用于脚本化与自动化。
 
 ---
@@ -225,13 +225,13 @@ sequenceDiagram
 
 ---
 
-## 16. 不变量
+## 16. 保证
 
 1. HolyDoc 是原生 UI 的统一文档模型。
-2. Workbench 通过服务 Endpoint 使用句柄，不绕过 Handle。
+2. Workbench 通过服务 Endpoint 使用 Handle；权限由 Handle 检查。
 3. Toolchain Server 隐藏链接细节；构建产物按内容哈希缓存。
 4. Task 符号表只负责名字解析与调试；访问凭据仍是 Handle。
-5. 整文件文档 I/O 保持“全有或全无”；大文档使用显式 Stream。
+5. 整文件文档 I/O 采用原子提交；大文档使用显式 Stream。
 6. Checkpoint 快照包含 VSpace、HandleTable、TCB、Arena；恢复后句柄重新分配。
 7. Debug Server 的所有操作需要显式 Handle。
 8. Home/Once 是可执行文档；首次启动只执行一次。

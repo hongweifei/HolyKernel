@@ -16,12 +16,13 @@ flowchart TB
     Net["Network Driver<br/>virtio-net"]
     Input["Input Driver<br/>virtio / PS2"]
     VFS["VFS Server<br/>挂载表 · 路径 · 页缓存"]
-    Ext2["ext2 Server"]
+    Ext2["ext2/ext4 Server"]
     Tmpfs["tmpfs Server"]
     Devfs["devfs Server"]
     Procfs["procfs Server"]
     POSIX["POSIX Server<br/>进程 · fd · 信号"]
     NetSrv["Network Server<br/>socket 后端"]
+    HolyFS["HolyFS Server<br/>文件系统 · 主根/ H:"]
     Display["Display Server<br/>真彩 UI"]
     HolyDoc["HolyDoc Server"]
 
@@ -29,6 +30,7 @@ flowchart TB
     Root --> VFS
     Root --> POSIX
     Root --> NetSrv
+    Root --> HolyFS
     Root --> Display
     DM --> Blk
     DM --> Net
@@ -37,11 +39,14 @@ flowchart TB
     VFS --> Tmpfs
     VFS --> Devfs
     VFS --> Procfs
+    VFS --> HolyFS
+    HolyFS --> Blk
     POSIX --> VFS
     POSIX --> NetSrv
     POSIX --> Root
     Display --> Input
     HolyDoc --> Display
+    HolyDoc --> HolyFS
 ```
 
 ---
@@ -53,7 +58,7 @@ pub struct ServiceManifest {
     pub name: Name,
     pub elf: DocPath,             // 服务器镜像路径
     pub args: Vec<String>,
-    pub caps: Vec<CapSpec>,       // 初始 Handle 需求
+    pub handles: Vec<HandleSpec>, // 初始 Handle 需求
     pub endpoints: Vec<EndpointSpec>,
     pub depends_on: Vec<Name>,
     pub restart: RestartPolicy,   // Always | OnFailure | Never
@@ -109,7 +114,8 @@ pub struct ServiceManifest {
 ## 6. VFS 与文件系统
 
 - **VFS Server**：挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存。
-- **ext2 Server**：POSIX 根文件系统；目录、inode、权限位。
+- **ext2/ext4 Server**：POSIX 根文件系统；目录、inode、权限位。
+- **HolyFS Server**：POSIX + 整文档文件系统；可作 `/` 主根或 `H:` 盘符。
 - **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
@@ -140,7 +146,19 @@ pub struct ServiceManifest {
 
 ---
 
-## 9. Display Server 与 HolyDoc
+## 9. HolyFS Server
+
+- 用户态文件系统；实现 VFS Backend，可挂载为 `/` 主根、`/home` 或其他挂载点。
+- 原生命名空间通过 `H:` 盘符访问同一 Volume；`H:` 与 VFS 挂载点共享数据。
+- POSIX 视图：inode、`mode`/`uid`/`gid`、硬链接、符号链接、稀疏文件、原子 `rename`、`fsync`。
+- 原生视图：整文档、压缩、Tags、Links、快照。
+- 通过 Block Endpoint 访问存储；COW、checksum、双超级块。
+- 由服务清单选择根文件系统：HolyFS 或 ext4/ext2。
+- 详见 [HolyFS](holyfs.md)。
+
+---
+
+## 10. Display Server 与 HolyDoc
 
 - **Display Server**：帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。
 - **HolyDoc Server**：活文档渲染、链接、代码块、表单。
@@ -157,7 +175,7 @@ pub struct ServiceManifest {
 
 ---
 
-## 10. 服务重启与句柄回收
+## 11. 服务重启与句柄回收
 
 ```mermaid
 sequenceDiagram
@@ -179,7 +197,7 @@ sequenceDiagram
 
 ---
 
-## 11. 不变量
+## 12. 保证
 
 1. 服务器运行在用户态，拥有独立 VSpace 与最小 Handle 集合。
 2. 服务器通过 Endpoint 通信；客户端通过 Handle 获取入口。
@@ -190,11 +208,11 @@ sequenceDiagram
 7. 服务器崩溃后旧句柄被关闭，新实例重新注册 Endpoint。
 8. 服务器清单与 Handle 需求可审计。
 9. 每个服务器有 trace 与健康状态。
-10. 内核不包含服务器策略与文件系统逻辑。
+10. 服务器策略与文件系统逻辑位于用户态；内核提供机制。
 
 ---
 
-## 12. 测试策略
+## 13. 测试策略
 
 | 层级 | 测试 |
 | --- | --- |
@@ -206,11 +224,12 @@ sequenceDiagram
 
 ---
 
-## 13. 相关文档
+## 14. 相关文档
 
 - [总体架构](architecture.md)
 - [网络](network.md)
 - [VFS](vfs.md)
+- [HolyFS 文件系统](holyfs.md)
 - [权限模型](permissions.md)
 - [POSIX 与 libc](posix.md)
 - [HolyDoc 与 UI](ui.md)

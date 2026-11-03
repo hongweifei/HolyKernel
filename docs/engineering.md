@@ -128,6 +128,7 @@ cargo xtask budget
 - 内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped。
 - 服务器：Root Server 状态机、VFS 路径/缓存、ext2、POSIX fd/信号。
 - 网络：ARP/IPv4/IPv6、TCP 状态机、UDP、DHCP、DNS、socket 表。
+- HolyFS：extent tree、allocator、checksum、COW 事务、压缩、快照、VFS/POSIX inode、权限与硬链接。
 - 原生体验：HolyDoc 表单、Workbench 服务调用、Toolchain 构建缓存、Checkpoint/restore、Debug 符号化。
 - libc：musl 单元测试、`hk-abi` shim、`hk-crt` 启动/TLS、errno。
 
@@ -141,9 +142,10 @@ cargo xtask budget
 
 - 启动到 HolyShell；通过 `posix` 运行 coreutils、shell 脚本、编译器。
 - POSIX 测试套件子集；VFS 挂载与 ext2 读写。
-- 服务器重启：驱动、VFS、POSIX、Network 崩溃后恢复。
+- 服务器重启：驱动、VFS、POSIX、Network、HolyFS 崩溃后恢复。
 - 网络：virtio-net + QEMU user-mode networking、ping、TCP、DNS。
-- 基准：IPC、上下文切换、fork+exec、VFS 吞吐、网络吞吐。
+- HolyFS：`H:` 挂载、HolyFS 根启动、POSIX 文件操作、快照与恢复。
+- 基准：IPC、上下文切换、fork+exec、VFS 吞吐、网络吞吐、HolyFS 吞吐。
 
 ### fuzz
 
@@ -157,6 +159,7 @@ cargo xtask budget
 | `fuzz-toolchain` | 构建文档、编译期执行、资源生成 |
 | `fuzz-checkpoint` | 快照序列、恢复、句柄重建 |
 | `fuzz-net` | Ethernet、ARP、IPv4/IPv6、TCP、UDP、DHCP、DNS |
+| `fuzz-holyfs` | superblock、日志、extent、目录、inode、压缩、文档名 |
 
 ---
 
@@ -175,7 +178,7 @@ cargo xtask budget
 - **隔离**：内核与用户态分离；每进程独立 VSpace。
 - **最小权限**：服务器只获得职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启回收旧句柄。
-- **可信基**：内核、Root Server、POSIX Server、VFS Server、ext2 Server。
+- **可信基**：内核、Root Server、POSIX Server、VFS Server、根文件系统 Server（ext2/ext4 或 HolyFS）。
 - **Rust**：内核与服务器使用 Rust；`unsafe` 最小化、注释、审计。
 - **`unsafe` 规则**：每个块有 `// SAFETY:`；可变全局状态用 `Atomic*`/`SpinLock`/`Once`；裸指针集中在 MMIO/DMA/页表/上下文切换。
 - **验证**：fuzz、确定性模拟、POSIX 测试、服务器重启测试。
@@ -196,7 +199,7 @@ cargo xtask budget
 
 | 产物 | 平台 | 内容 |
 | --- | --- | --- |
-| `holy-x86_64.iso` | x86_64 BIOS/UEFI | 内核 + 服务器 + ext2 根镜像 |
+| `holy-x86_64.iso` | x86_64 BIOS/UEFI | 内核 + 服务器 + ext2/ext4 或 HolyFS 根镜像 |
 | `holy-aarch64.img` | QEMU virt | 内核 + 服务器 + 根镜像 |
 | `holy-riscv64.img` | QEMU virt | 内核 + 服务器 + 根镜像 |
 | `holy-hosted` | Linux/macOS/Windows | 模拟器 |
@@ -222,7 +225,7 @@ cargo xtask budget
 
 ---
 
-## 10. 不变量
+## 10. 保证
 
 1. 内核 crate 可 `no_std` 构建。
 2. CI 的 build matrix、sim、posix、vfs 任务持续开启。
@@ -241,6 +244,7 @@ cargo xtask budget
 - [服务器](servers.md)
 - [网络](network.md)
 - [VFS](vfs.md)
+- [HolyFS 文件系统](holyfs.md)
 - [Holy 原生体验](experience.md)
 - [POSIX 与 libc](posix.md)
 - [平台与启动](platforms.md)

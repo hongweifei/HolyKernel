@@ -49,11 +49,11 @@ flowchart TB
 
 ### 法则二：句柄即权限
 
-所有资源通过 **Handle** 访问。Handle 携带 index、generation 与 rights（READ/WRITE/EXECUTE/TRANSFER/ADMIN）；`duplicate` 收窄权限，`close` 使旧 generation 失效，IPC 通过 `TRANSFER` 显式转移。对象 epoch 支持 `revoke_all`，每 Task/服务器有 Handle 配额。内核不维护全局命名空间。细节见 [权限模型](permissions.md)。
+所有资源通过 **Handle** 访问。Handle 携带 index、generation 与 rights（READ/WRITE/EXECUTE/TRANSFER/ADMIN）；`duplicate` 收窄权限，`close` 使旧 generation 失效，IPC 通过 `TRANSFER` 显式转移。对象 epoch 支持 `revoke_all`，每 Task/服务器有 Handle 配额。对象命名由服务器提供；内核 Handle 保持匿名。细节见 [权限模型](permissions.md)。
 
 ### 法则三：隔离优先
 
-每个进程拥有独立 VSpace；内核地址空间与用户地址空间分离。服务器之间通过句柄与 IPC 协作，默认无 ambient authority。
+每个进程拥有独立 VSpace；内核地址空间与用户地址空间分离。服务器之间通过句柄与 IPC 协作；权限来自显式 Handle。
 
 ### 法则四：服务器可重启
 
@@ -61,7 +61,7 @@ Root Server 监督服务器生命周期。驱动、文件系统、POSIX 服务�
 
 ### 法则五：POSIX 在边缘
 
-**HolyShell 与 Holy 命令是默认命令行**；原生命令通过 Handle/Endpoint 访问服务，使用结构化输出与类型化管道。POSIX.1 是**兼容环境**：由用户态 POSIX 服务器提供，应用通过 musl + `hk-abi` 使用 `/bin/sh`、coreutils、fd/pipe/signal。内核保持 POSIX 无关。
+**HolyShell 与 Holy 命令是默认命令行**；原生命令通过 Handle/Endpoint 访问服务，使用结构化输出与类型化管道。POSIX.1 是**兼容环境**：由用户态 POSIX 服务器提供，应用通过 musl + `hk-abi` 使用 `/bin/sh`、coreutils、fd/pipe/signal。POSIX 语义位于用户态 POSIX Server。
 
 ### 法则六：显式 IPC
 
@@ -107,7 +107,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **IRQHandler** | 中断句柄；绑定 Endpoint、EOI |
 | **DeviceGrant** | 设备 MMIO / DMA / IRQ 句柄集合 |
 
-内核不提供文件系统、网络协议栈、POSIX syscall、设备类驱动或 shell。
+内核范围：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
 
 ---
 
@@ -119,11 +119,12 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **Network Driver** | virtio-net / e1000；持有 DeviceGrant，向 Network Server 提供 Net Endpoint |
 | **Block Driver** | virtio-blk / AHCI；向文件系统服务器提供块设备 Endpoint |
-| **ext2 Server** | POSIX 文件系统；目录、inode、权限位、挂载点 |
+| **ext2/ext4 Server** | POSIX 文件系统；目录、inode、权限位、挂载点 |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、Unix 套接字、`fork`/`exec` |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX 服务器提供 socket 后端 |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 |
+| **HolyFS Server** | 文件系统；可挂载 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照 |
 | **HolyDoc Server** | 可选活文档渲染与链接 |
 
 服务器通过句柄与 IPC 组合；每个服务器拥有自己的 VSpace 与最小权限集合。
@@ -135,7 +136,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 - **API**：POSIX.1-2017 应用接口；应用针对 musl + `hk-abi` 重新编译。
 - **libc**：musl 作为主 C libc；`hk-abi` 提供 syscall shim 协议与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。
 - **POSIX 服务器**：维护 PID 表、父子关系、fd 表、信号状态、管道、套接字、进程组与会话。
-- **文件系统**：POSIX 服务器通过 ext2 Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`。
+- **文件系统**：POSIX 服务器通过 ext2/ext4 或 HolyFS Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`。
 - **进程**：`fork` 通过 VSpace 复制与 COW；`exec` 通过 ELF 加载器映射新 VSpace；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；TLS、栈、join、取消由 libc 与 POSIX 服务器协作。
 - **信号**：POSIX 服务器维护 pending/blocked 集合；libc 在安全点调用 handler。
@@ -148,9 +149,10 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 
 ## 6. 原生服务
 
-HolyDoc 与 真彩 UI 作为可选原生服务与 POSIX 环境并存：
+HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 文件系统可作主根或 `H:`，与 POSIX 环境并存：
 
 - **HolyDoc**：活文档；链接、代码块、表单、嵌入执行结果。
+- **HolyFS**：文件系统；可作 POSIX `/` 主根或 `H:` 盘符；POSIX 文件视图 + 整文档 API、压缩、COW、checksum、快照。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器。
 - **原生应用**通过 HK 服务 API 使用这些句柄；POSIX 应用通过 Display Server 的终端/控制台接口使用文本界面。
 

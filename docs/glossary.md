@@ -44,7 +44,10 @@
 | **Root Server** | 启动服务器、分配 Handle、监督与重启 |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | 挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存 |
-| **FS Backend** | ext2、tmpfs、devfs、procfs 等文件系统服务器 |
+| **FS Backend** | ext2/ext4、HolyFS、tmpfs、devfs、procfs 等文件系统服务器 |
+| **HolyFS** | 文件系统；可作 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照 |
+| **Document** | HolyFS 整文档；内容 + Kind + Tags + Links + ContentHash |
+| **Snapshot** | COW 根引用；零拷贝、可回滚 |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、Unix 套接字 |
 | **Network Server** | 用户态 TCP/IP、UDP、DHCP、DNS、socket 表与策略 |
 | **Socket** | 网络端点对象；READ recv、WRITE send、ADMIN bind/listen |
@@ -110,10 +113,10 @@
 
 ## 6. 命名约定
 
-- 内核类型：`Tcb`、`VSpace`、`HandleTable`、`Cap`、`Endpoint`、`Notification`、`Frame`、`Untyped`。
-- 服务器：`hk-root-server`、`hk-vfs`、`hk-posix-server`、`hk-display`、`hk-holydoc`。
+- 内核类型：`Tcb`、`VSpace`、`HandleTable`、`Handle`、`Endpoint`、`Notification`、`Frame`、`Untyped`。
+- 服务器：`hk-root-server`、`hk-vfs`、`hk-posix-server`、`hk-network`、`hk-holyfs`、`hk-display`、`hk-holydoc`。
 - libc：musl 为主；`hk-abi`/`hk-crt` 提供 shim 与启动；`hk-libc` 薄兼容层；C ABI 符号使用标准 POSIX 名称。
-- 路径：POSIX 风格 `/usr/bin/sh`；根文件系统由 ext2 Server 提供。
+- 路径：POSIX 风格 `/usr/bin/sh`；根文件系统由 ext2/ext4 或 HolyFS Server 提供。
 - 句柄：`Handle`、`Rights`、`HandleTable`；Endpoint badge 仅用于客户端标识。
 
 ## 7. 相关文档

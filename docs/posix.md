@@ -13,7 +13,7 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 1. **POSIX 兼容环境**：通过 `posix` 入口提供进程、文件、目录、信号、线程、管道、FIFO、Unix 套接字、共享内存、定时器；默认命令行走 HolyShell。
 2. **musl + ABI shim**：musl 提供 C 运行时、pthreads、stdio、malloc；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 作为薄兼容层。
 3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核只提供 TCB、VSpace、Endpoint、Notification、Frame、Handle。
-4. **VFS 集成**：文件与目录操作通过 VFS Server；文件系统后端为 ext2/tmpfs/devfs/procfs。
+4. **VFS 集成**：文件与目录操作通过 VFS Server；文件系统后端为 ext2/ext4、HolyFS、tmpfs、devfs、procfs。
 5. **进程模型**：`fork`、`exec`、`wait`、`exit`、进程组、会话、作业控制。
 6. **线程模型**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
 7. **兼容性测试**：POSIX 测试套件 + 自有回归 + 应用示例。
@@ -29,7 +29,7 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 - IPC：pipe、FIFO、Unix 域套接字、POSIX 共享内存、信号量
 - `mmap`/`munmap`/`mprotect`/`brk`
 - 时间、`select`/`poll`、终端控制
-- ext2 根文件系统、tmpfs、devfs、procfs
+- ext2/ext4 或 HolyFS 根文件系统、tmpfs、devfs、procfs
 
 **后续版本评估**
 
@@ -50,7 +50,7 @@ flowchart TB
     POSIX -->|FileHandle| VFS["VFS Server"]
     POSIX -->|socket| Net["Network Server"]
     POSIX -->|invoke| Kernel["VSpace · TCB · Frame · Endpoint"]
-    VFS --> FS["ext2 / tmpfs / devfs / procfs"]
+    VFS --> FS["ext2/ext4 · HolyFS · tmpfs · devfs · procfs"]
 ```
 
 - **musl + `hk-abi`**：musl 提供 C 运行时与 POSIX 函数；`hk-abi` 把 POSIX 调用转换为 POSIX Server IPC；`hk-crt` 提供启动与 ELF 加载。
@@ -228,6 +228,8 @@ flowchart LR
 - `fcntl`：flags、锁、`O_APPEND` 由 POSIX Server 与 VFS 协作。
 - `mount`/`umount`：转发到 VFS 挂载表。
 - 设备文件：VFS devfs 后端转发到设备 Endpoint。
+- HolyFS 可作为 `/` 主根：VFS 把 POSIX inode 操作映射到 HolyFS Backend；`mode`/`uid`/`gid`、硬链接、符号链接、稀疏文件、原子 `rename`、`fsync` 由 HolyFS 与 VFS 共同支持。
+- HolyFS 的整文档 API 与 POSIX 视图共享同一批 inode/extent；直接作为根使用。
 
 详见 [VFS](vfs.md)。
 
@@ -295,7 +297,7 @@ flowchart LR
 
 ---
 
-## 14. 不变量
+## 14. 保证
 
 1. POSIX 语义由用户态 POSIX Server 实现；musl + `hk-abi` 提供应用侧 C ABI。
 2. 内核维护 TCB、VSpace、Endpoint、Notification、Frame 与 Handle。
@@ -316,6 +318,7 @@ flowchart LR
 - [权限模型](permissions.md)
 - [网络](network.md)
 - [VFS](vfs.md)
+- [HolyFS 文件系统](holyfs.md)
 - [服务器](servers.md)
 - [内存模型](memory.md)
 - [执行模型](execution.md)
