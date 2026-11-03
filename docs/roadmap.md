@@ -20,18 +20,18 @@
 
 ## 2. 里程碑总览
 
-| 里程碑 | 主题 | 关键产物 | 决策门 |
-| --- | --- | --- | --- |
-| M0 | 章程、架构、脚手架 | 文档、workspace、CI、xtask、Hosted stub | G0：架构批准 |
-| M1 | Hosted 微内核 | TCB、VSpace、HandleTable、Endpoint、Notification、Frame | G1：内核对象冻结 |
-| M2 | x86_64 启动 | Limine、BootInfo、Root Server、IPC | — |
-| M3 | 句柄与内存 | Handle duplicate/close、COW、SMP、调度 | G2：句柄模型冻结 |
-| M4 | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs | G3：VFS 接口冻结 |
-| M5 | POSIX 核心 | POSIX Server、musl、hk-abi/hk-crt、fork/exec/wait、文件 | G4：POSIX ABI 冻结 |
-| M6 | POSIX 扩展 | pthreads、信号、pipe、AF_UNIX、mmap | — |
-| M7 | 原生 UI | Display Server、HolyDoc、Console、输入 | — |
-| M8 | 多架构与测试 | AArch64/RISC-V、POSIX 套件、性能 | G5：平台抽象冻结 |
-| M9 | 1.0 | 硬化、fuzz、发布镜像、真机 | G6：1.0 |
+| 里程碑 | 主题         | 关键产物                                               | 决策门             |
+| --- | ---------- | -------------------------------------------------- | --------------- |
+| M0  | 章程、架构、脚手架  | 文档、workspace、CI、xtask、Hosted stub                  | G0：架构批准         |
+| M1  | Hosted 微内核 | TCB、VSpace、HandleTable、Endpoint、Notification、Frame | G1：内核对象冻结       |
+| M2  | x86_64 启动  | Limine、BootInfo、Root Server、IPC                    | —               |
+| M3  | 句柄与内存      | Handle duplicate/close、COW、SMP、调度                  | G2：句柄模型冻结       |
+| M4  | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs     | G3：VFS 接口冻结     |
+| M5  | POSIX 核心   | POSIX Server、musl、hk-abi/hk-crt、fork/exec/wait、文件  | G4：POSIX ABI 冻结 |
+| M6  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、mmap                      | —               |
+| M7  | 原生 UI      | Display Server、HolyDoc、Console、输入                  | —               |
+| M8  | 多架构与测试     | AArch64/RISC-V、POSIX 套件、性能                         | G5：平台抽象冻结       |
+| M9  | 1.0        | 硬化、fuzz、发布镜像、真机                                    | G6：1.0          |
 
 ```mermaid
 flowchart LR
@@ -289,9 +289,9 @@ flowchart LR
 
 ## 14. 当前状态
 
-- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、QEMU 冒烟）。
+- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、QEMU 冒烟）。
 - 当前代码：`crates/hk-handle`、`crates/hk-mem`、`crates/hk-ipc`、`crates/hk-trace`、`crates/hk-kernel`、`crates/hk-sim`、`crates/hk-root-server`、`crates/hk-server-api`、`crates/hk-boot`、`crates/hk-hal`、`crates/hk-test`、`crates/hk-platform-hosted`、`crates/hk-platform-x86_64`、`platforms/hosted`、`platforms/x86_64-qemu`、`servers/demo`、`servers/echo`、`xtask`。
-- M2 收尾：交互式 HolyShell。
+- M2 收尾：Device Manager stub、Native Task 视图与 HolyShell 会话（`use`/`load`）、启动时间预算。
 
 ---
 

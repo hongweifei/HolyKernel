@@ -20,7 +20,7 @@ pub fn run(selection: Selection, release: bool, arguments: &[String]) -> Result<
             if !arguments.is_empty() {
                 return Err(Failure::new("x86_64-qemu 不接受额外参数"));
             }
-            let iso = crate::image::run(selection, release, None)?;
+            let iso = crate::image::run(selection, release, Some("shell-interactive"))?;
             crate::qemu::run(&iso)
         }
         Target::Aarch64Qemu => Err(Failure::new(

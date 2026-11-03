@@ -35,6 +35,9 @@ pub const SYSCALL_VECTOR: u64 = 0x80;
 /// 定时器中断向量。
 pub const TIMER_VECTOR: u64 = 32;
 
+/// 键盘中断向量。
+pub const KEYBOARD_VECTOR: u64 = 33;
+
 /// 双重故障使用的中断栈表序号。
 const DOUBLE_FAULT_IST: u8 = 1;
 
@@ -67,6 +70,7 @@ const PIC2_DATA: u16 = 0xA1;
 
 const LAPIC_EOI: u64 = 0xB0;
 const LAPIC_SIVR: u64 = 0xF0;
+const LAPIC_ID: u64 = 0x20;
 const LAPIC_LVT_TIMER: u64 = 0x320;
 const LAPIC_TIMER_INITIAL: u64 = 0x380;
 const LAPIC_TIMER_DIVIDE: u64 = 0x3E0;
@@ -324,6 +328,7 @@ unsafe extern "C" {
     fn isr_30();
     fn isr_31();
     fn isr_32();
+    fn isr_33();
     fn isr_128();
 }
 
@@ -410,6 +415,7 @@ fn init_idt() {
             idt[vector] = IdtEntry::new(*handler, ist);
         }
         idt[TIMER_VECTOR as usize] = IdtEntry::new(isr_32 as *const () as usize, 0);
+        idt[KEYBOARD_VECTOR as usize] = IdtEntry::new(isr_33 as *const () as usize, 0);
         idt[SYSCALL_VECTOR as usize] =
             IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
 
@@ -473,6 +479,18 @@ fn lapic_write(offset: u64, value: u32) {
     assert!(base != 0, "本地 APIC 未初始化");
     // SAFETY: 基址由调用方映射为设备页，偏移是 LAPIC 寄存器。
     unsafe { ((base + offset) as *mut u32).write_volatile(value) };
+}
+
+fn lapic_read(offset: u64) -> u32 {
+    let base = LAPIC_BASE.load(Ordering::SeqCst);
+    assert!(base != 0, "本地 APIC 未初始化");
+    // SAFETY: 基址由调用方映射为设备页，偏移是 LAPIC 寄存器。
+    unsafe { ((base + offset) as *const u32).read_volatile() }
+}
+
+/// 返回本地 APIC 编号，用于配置 I/O APIC 的目标。
+pub fn lapic_id() -> u8 {
+    (lapic_read(LAPIC_ID) >> 24) as u8
 }
 
 /// 返回异常向量名称。
@@ -541,6 +559,7 @@ core::arch::global_asm!(
     "ISR_ERR 30",
     "ISR_NOERR 31",
     "ISR_NOERR 32",
+    "ISR_NOERR 33",
     "ISR_NOERR 128",
     ".global isr_common",
     "isr_common:",
@@ -643,11 +662,16 @@ core::arch::global_asm!(
     "    jmp rax",
 );
 
-/// 中断分派：定时器计数、系统调用分派，其余向量按异常处理。
+/// 中断分派：定时器计数、键盘输入、系统调用分派，其余向量按异常处理。
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
         TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
+        lapic_write(LAPIC_EOI, 0);
+        return;
+    }
+    if frame.vector == KEYBOARD_VECTOR {
+        crate::keyboard::handle_interrupt();
         lapic_write(LAPIC_EOI, 0);
         return;
     }

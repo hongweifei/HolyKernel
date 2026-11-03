@@ -1,6 +1,7 @@
 //! QEMU 冒烟测试：启动内核并检查串口输出。
 
 use std::fs;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -39,6 +40,9 @@ pub enum SmokeMode {
     /// HolyShell 脚本化命令
     #[value(name = "shell")]
     Shell,
+    /// 键盘输入驱动的交互式 HolyShell
+    #[value(name = "input")]
+    Input,
 }
 
 impl SmokeMode {
@@ -50,6 +54,7 @@ impl SmokeMode {
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
             Self::Shell => Some("shell-test help services mounts"),
+            Self::Input => Some("shell-interactive"),
         }
     }
 
@@ -68,12 +73,20 @@ impl SmokeMode {
             Self::Timer => &["定时器中断 5 次"],
             Self::Framebuffer => &["帧缓冲控制台: 80x36 字符"],
             Self::Shell => &["HolyShell", "hk-server-demo", "hk-server-echo", "尚无挂载"],
+            Self::Input => &[
+                "IOAPIC 就绪",
+                "HolyShell 交互模式",
+                "hk> echo hello-ioapic",
+                "hello-ioapic",
+            ],
         }
     }
 
     fn exit_code(self) -> i32 {
         match self {
-            Self::Boot | Self::Timer | Self::Framebuffer | Self::Shell => QEMU_SUCCESS,
+            Self::Boot | Self::Timer | Self::Framebuffer | Self::Shell | Self::Input => {
+                QEMU_SUCCESS
+            }
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -86,6 +99,7 @@ impl SmokeMode {
             Self::Timer => "build/serial-timer.log",
             Self::Framebuffer => "build/serial-fb.log",
             Self::Shell => "build/serial-shell.log",
+            Self::Input => "build/serial-input.log",
         }
     }
 }
@@ -101,16 +115,36 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let log = workspace::root().join(mode.log_name());
     let _ = fs::remove_file(&log);
 
-    let mut child = Command::new("qemu-system-x86_64")
+    let socket = workspace::root().join("build/qmp.sock");
+    if mode == SmokeMode::Input {
+        let _ = fs::remove_file(&socket);
+    }
+
+    let mut command = Command::new("qemu-system-x86_64");
+    command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
         .arg(&iso)
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
-        .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"])
+        .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
+    if mode == SmokeMode::Input {
+        command
+            .arg("-qmp")
+            .arg(format!("unix:{},server=on,wait=off", socket.display()));
+    }
+
+    let mut child = command
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
+
+    if mode == SmokeMode::Input {
+        thread::sleep(Duration::from_secs(3));
+        inject(&socket, "echo hello-ioapic\n")?;
+        thread::sleep(Duration::from_millis(500));
+        inject(&socket, "exit\n")?;
+    }
 
     let deadline = Instant::now() + TIMEOUT;
     let status = loop {
@@ -148,4 +182,68 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn inject(socket: &Path, text: &str) -> Result<()> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let stream = loop {
+        match UnixStream::connect(socket) {
+            Ok(stream) => break stream,
+            Err(_) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => return Err(Failure::new(format!("连接 QMP 失败：{error}"))),
+        }
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| Failure::new(format!("设置 QMP 超时失败：{error}")))?;
+
+    let mut writer = stream
+        .try_clone()
+        .map_err(|error| Failure::new(format!("复制 QMP 连接失败：{error}")))?;
+    let mut reader = BufReader::new(stream);
+    let mut greeting = String::new();
+    reader
+        .read_line(&mut greeting)
+        .map_err(|error| Failure::new(format!("读取 QMP 问候失败：{error}")))?;
+
+    writer
+        .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
+        .and_then(|()| writer.flush())
+        .map_err(|error| Failure::new(format!("发送 QMP 握手失败：{error}")))?;
+    thread::sleep(Duration::from_millis(100));
+
+    for key in qcodes(text) {
+        let command = format!(
+            "{{\"execute\":\"send-key\",\"arguments\":{{\"keys\":[{{\"type\":\"qcode\",\"data\":\"{key}\"}}]}}}}\n"
+        );
+        writer
+            .write_all(command.as_bytes())
+            .and_then(|()| writer.flush())
+            .map_err(|error| Failure::new(format!("发送按键失败：{error}")))?;
+        thread::sleep(Duration::from_millis(40));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn inject(_socket: &Path, _text: &str) -> Result<()> {
+    Err(Failure::new("键盘输入冒烟只在 Unix 主机上运行"))
+}
+
+fn qcodes(text: &str) -> Vec<String> {
+    text.chars()
+        .map(|character| match character {
+            'a'..='z' | '0'..='9' => character.to_string(),
+            ' ' => String::from("spc"),
+            '-' => String::from("minus"),
+            '\n' | '\r' => String::from("ret"),
+            _ => String::from("spc"),
+        })
+        .collect()
 }

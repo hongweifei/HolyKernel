@@ -92,6 +92,21 @@ impl FramebufferConsole {
         cursor.row = 0;
     }
 
+    /// 擦除光标前一个字符并把光标左移。
+    pub fn backspace(&self) {
+        let mut cursor = self.cursor.lock();
+        if cursor.column == 0 {
+            if cursor.row == 0 {
+                return;
+            }
+            cursor.row -= 1;
+            cursor.column = self.columns - 1;
+        } else {
+            cursor.column -= 1;
+        }
+        self.draw_char(' ', cursor.column, cursor.row);
+    }
+
     fn draw_char(&self, character: char, column: usize, row: usize) {
         let origin_x = (column * self.cell_width) as i32;
         let origin_y = (row * self.line_height) as i32;

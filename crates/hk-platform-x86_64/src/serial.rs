@@ -54,6 +54,18 @@ impl Serial {
             outb(self.base, byte);
         }
     }
+
+    /// 尝试从接收缓冲读取一个字节；没有数据时返回 `None`。
+    pub fn try_read_byte(&self) -> Option<u8> {
+        // SAFETY: 线路状态寄存器与接收缓冲寄存器属于该串口。
+        unsafe {
+            if inb(self.base + 5) & 0x01 == 0 {
+                None
+            } else {
+                Some(inb(self.base))
+            }
+        }
+    }
 }
 
 impl Console for Serial {

@@ -37,7 +37,9 @@ use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_hal::{BootInfo, Console, PhysAddr, VirtAddr};
+use hk_hal::{BootInfo, Console, PAGE_SIZE, PhysAddr, VirtAddr};
+#[cfg(target_os = "none")]
+use hk_platform_x86_64::ioapic::IoApic;
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::{COM1, FrameAllocator, PageFlags, PageTable, Serial};
 #[cfg(target_os = "none")]
@@ -184,6 +186,24 @@ extern "C" fn kmain() -> ! {
     }
     announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
 
+    match init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
+        Ok(Some(ioapic)) => announce(
+            &console,
+            screen.as_ref(),
+            &format!(
+                "IOAPIC 就绪：GSI {} → 向量 {}（目标 APIC {}）\n",
+                ioapic.gsi, ioapic.vector, ioapic.destination
+            ),
+        ),
+        Ok(None) => announce(&console, screen.as_ref(), "未找到 IOAPIC，键盘中断不可用\n"),
+        Err(error) => fail(
+            &console,
+            screen.as_ref(),
+            &format!("IOAPIC 初始化失败：{error}\n"),
+            ExitCode::Failure(3),
+        ),
+    }
+
     match hk_boot::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
             announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
@@ -236,7 +256,18 @@ extern "C" fn kmain() -> ! {
             }
             announce(&console, screen.as_ref(), "服务已退出\n");
 
-            if let Some(line) = hk_boot::cmdline() {
+            let interactive =
+                hk_boot::cmdline().is_some_and(|line| line.contains("shell-interactive"));
+            if interactive {
+                if let Err(error) = shell::interactive(&console, screen.as_ref(), &services) {
+                    fail(
+                        &console,
+                        screen.as_ref(),
+                        &format!("shell 失败：{error}\n"),
+                        ExitCode::Failure(5),
+                    );
+                }
+            } else if let Some(line) = hk_boot::cmdline() {
                 if line.contains("shell-test") {
                     let script: alloc::vec::Vec<&str> = line
                         .split_whitespace()
@@ -257,6 +288,110 @@ extern "C" fn kmain() -> ! {
     }
 
     hk_test::exit(ExitCode::Success);
+}
+
+#[cfg(target_os = "none")]
+struct IoApicSetup {
+    gsi: u32,
+    vector: u8,
+    destination: u8,
+}
+
+/// ACPI 表的临时映射窗口，避开 HHDM 未覆盖的物理页。
+#[cfg(target_os = "none")]
+const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
+
+/// 表窗口可容纳的最大页数。
+#[cfg(target_os = "none")]
+const ACPI_MAX_PAGES: usize = 16;
+
+#[cfg(target_os = "none")]
+struct AcpiWindow<'a> {
+    paging: &'a PageTable,
+    allocator: &'a mut FrameAllocator,
+    base: u64,
+}
+
+#[cfg(target_os = "none")]
+impl AcpiWindow<'_> {
+    fn read(&mut self, phys: u64, length: usize) -> Option<alloc::vec::Vec<u8>> {
+        if length == 0 {
+            return None;
+        }
+        let page = PAGE_SIZE as u64;
+        let offset = (phys & (page - 1)) as usize;
+        let span = offset.checked_add(length)?;
+        let pages = span.div_ceil(PAGE_SIZE);
+        if pages > ACPI_MAX_PAGES {
+            return None;
+        }
+
+        let page_phys = phys & !(page - 1);
+        for index in 0..pages {
+            self.paging
+                .map(
+                    VirtAddr::new(self.base + index as u64 * page),
+                    PhysAddr::new(page_phys + index as u64 * page),
+                    PageFlags::KERNEL_RW,
+                    self.allocator,
+                )
+                .ok()?;
+        }
+
+        let mut bytes = alloc::vec![0_u8; length];
+        let source = (self.base + offset as u64) as *const u8;
+        // SAFETY: 刚建立的映射覆盖 `offset + length` 字节，目标缓冲长度相同。
+        unsafe {
+            core::ptr::copy_nonoverlapping(source, bytes.as_mut_ptr(), length);
+        }
+        Some(bytes)
+    }
+}
+
+#[cfg(target_os = "none")]
+fn init_ioapic(
+    info: &BootInfo,
+    paging: &PageTable,
+    allocator: &mut FrameAllocator,
+    direct_map_base: u64,
+) -> Result<Option<IoApicSetup>, String> {
+    let Some(rsdp) = info.rsdp else {
+        return Ok(None);
+    };
+
+    let mut window = AcpiWindow {
+        paging,
+        allocator,
+        base: ACPI_SCRATCH_BASE,
+    };
+    let madt =
+        hk_platform_x86_64::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    drop(window);
+
+    let Some(madt) = madt else {
+        return Ok(None);
+    };
+
+    let phys = madt.ioapic_base;
+    let virt = VirtAddr::new(direct_map_base + phys);
+    paging
+        .map(virt, PhysAddr::new(phys), PageFlags::MMIO, allocator)
+        .map_err(|error| format!("映射 IOAPIC 失败：{error:?}"))?;
+
+    hk_platform_x86_64::keyboard::init();
+
+    let ioapic = IoApic::new(virt.get());
+    ioapic.init();
+    let gsi = madt.gsi(1);
+    let vector = hk_platform_x86_64::cpu::KEYBOARD_VECTOR as u8;
+    let destination = hk_platform_x86_64::cpu::lapic_id();
+    ioapic.route(gsi, madt.gsi_base, vector, destination);
+
+    Ok(Some(IoApicSetup {
+        gsi,
+        vector,
+        destination,
+    }))
 }
 
 #[cfg(target_os = "none")]
