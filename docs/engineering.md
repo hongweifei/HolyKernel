@@ -37,6 +37,7 @@ HolyKernel/
 │   ├── hk-syscall/            系统调用编号与共享 ABI 常量
 │   ├── hk-server-api/         入口 ABI：调用约定与按架构的 int 0x80 / svc 入口
 │   ├── hk-shell/              HolyShell 命令解析与输出
+│   ├── hk-server-build/       服务镜像链接配置（构建期生成链接脚本）
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
 │   ├── hk-network/            Network Server
 │   ├── hk-display/            Display Server

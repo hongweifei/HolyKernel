@@ -10,6 +10,7 @@
 
 extern crate alloc;
 
+pub mod allocator;
 pub mod error;
 pub mod kernel;
 pub mod object;
@@ -17,6 +18,7 @@ pub mod sched;
 pub mod tcb;
 pub mod user;
 
+pub use allocator::BumpHeap;
 pub use error::KernelError;
 pub use kernel::{Kernel, Received, TRACE_CAPACITY};
 pub use object::{KernelObject, ObjectPayload};

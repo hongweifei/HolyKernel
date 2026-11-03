@@ -9,7 +9,6 @@
 extern crate std;
 
 pub mod addr;
-pub mod allocator;
 pub mod arch;
 pub mod boot;
 pub mod console;
@@ -26,7 +25,6 @@ pub mod time;
 pub mod user_memory;
 
 pub use addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
-pub use allocator::BumpHeap;
 pub use arch::{Arch, CpuId};
 pub use boot::{
     BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
