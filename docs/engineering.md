@@ -91,6 +91,8 @@ cargo xtask budget
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像。
 
+`xtask` 与 `hk-server-build` 是宿主构建期成员（`std`）；裸机构建按平台包选择目标，避免对整个 workspace 使用裸机 target。
+
 ---
 
 ## 3. CI
