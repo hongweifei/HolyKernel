@@ -12,6 +12,7 @@
 HolyKernel/
 ├── Cargo.toml                 workspace
 ├── rust-toolchain.toml        固定 stable 工具链
+├── scripts/                  随镜像打包的 HolyShell 启动脚本（`.hsh`）
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场、系统调用帧与页映射契约
@@ -36,7 +37,7 @@ HolyKernel/
 │   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
 │   ├── hk-syscall/            系统调用编号与共享 ABI 常量
 │   ├── hk-server-api/         入口 ABI：调用约定与按架构的 int 0x80 / svc 入口
-│   ├── hk-shell/              HolyShell 命令解析、输出、ShellIo/ShellHost 与执行循环
+│   ├── hk-shell/              HolyShell 命令解析、输出、ShellIo/ShellHost、执行循环与脚本求值
 │   ├── hk-server-build/       服务镜像链接配置（构建期生成链接脚本）
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
 │   ├── hk-network/            Network Server

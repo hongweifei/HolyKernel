@@ -1,7 +1,8 @@
-//! HolyShell 平台适配：串口/帧缓冲 I/O 与服务启动副作用。
+//! HolyShell 平台适配：串口/帧缓冲 I/O、脚本读取与服务启动副作用。
 //!
 //! 命令解析、输出文本与执行循环由 `hk-shell` 提供；本模块只实现 `ShellIo`
-//! 与 `ShellHost`，把输入输出接到硬件，把 `start` 接到镜像装载与运行时。
+//! 与 `ShellHost`，把输入输出接到硬件，把 `use`/`load` 接到启动模块，把
+//! `start` 接到镜像装载与运行时。
 
 use alloc::format;
 use alloc::string::String;
@@ -69,6 +70,30 @@ impl ShellHost for Host<'_, '_> {
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
         let parent = parent.and_then(runtime::tcb_of).or(Some(runtime::root()));
         start_service(self.loader, self.services, name, parent)
+    }
+
+    fn script(&self, name: &str) -> Result<String, String> {
+        let wanted = if name.ends_with(".hsh") {
+            String::from(name)
+        } else {
+            format!("{name}.hsh")
+        };
+        let module = self
+            .loader
+            .info
+            .server_modules
+            .iter()
+            .find(|module| hk_root_server::loader::module_name(module.name) == wanted)
+            .ok_or_else(|| format!("未找到脚本：{wanted}"))?;
+
+        let address = self.loader.direct_map_base + module.region.base.get();
+        // SAFETY: 脚本模块由 bootloader 载入并落在 HHDM 映射内，长度来自启动信息。
+        let bytes = unsafe {
+            core::slice::from_raw_parts(address as *const u8, module.region.len as usize)
+        };
+        core::str::from_utf8(bytes)
+            .map(String::from)
+            .map_err(|_| format!("脚本不是 UTF-8：{wanted}"))
     }
 }
 

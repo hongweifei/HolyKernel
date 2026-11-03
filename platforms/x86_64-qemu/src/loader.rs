@@ -32,18 +32,22 @@ pub fn run(
     paging: &PageTable,
     services: &mut ServiceTable,
 ) -> Result<(), String> {
-    if info.server_modules.is_empty() {
+    let modules: Vec<&BootModule> = info
+        .server_modules
+        .iter()
+        .filter(|module| !loader::is_script(module.name))
+        .collect();
+    if modules.is_empty() {
         return Err(String::from("没有服务模块"));
     }
 
-    let names: Vec<&'static str> = info
-        .server_modules
+    let names: Vec<&'static str> = modules
         .iter()
         .map(|module| loader::service_name(module.name))
         .collect();
     runtime::init(&names)?;
 
-    for (index, module) in info.server_modules.iter().enumerate() {
+    for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
         let context = load(module, index, endpoint, direct_map_base, allocator, paging)?;
         services.register(names[index]);
@@ -131,7 +135,7 @@ pub fn load_service(
     let module = info
         .server_modules
         .iter()
-        .find(|module| loader::service_name(module.name) == name)
+        .find(|module| !loader::is_script(module.name) && loader::service_name(module.name) == name)
         .ok_or_else(|| format!("未知服务：{name}"))?;
     load(module, slot, 0, direct_map_base, allocator, paging)
 }

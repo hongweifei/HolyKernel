@@ -66,6 +66,8 @@ fn qcodes(text: &str) -> Vec<String> {
             'a'..='z' | '0'..='9' => character.to_string(),
             ' ' => String::from("spc"),
             '-' => String::from("minus"),
+            '.' => String::from("dot"),
+            '/' => String::from("slash"),
             '\n' | '\r' => String::from("ret"),
             _ => String::from("spc"),
         })
@@ -79,5 +81,6 @@ mod tests {
     #[test]
     fn keeps_qcodes_stable() {
         assert_eq!(qcodes("a b-1"), vec!["a", "spc", "b", "minus", "1"]);
+        assert_eq!(qcodes("a.b/c"), vec!["a", "dot", "b", "slash", "c"]);
     }
 }

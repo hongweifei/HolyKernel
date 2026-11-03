@@ -13,6 +13,9 @@ use alloc::vec::Vec;
 
 use hk_root_server::{ServiceTable, TaskInfo};
 
+/// 脚本嵌套上限。
+const MAX_SCRIPT_DEPTH: usize = 4;
+
 /// 解析后的命令。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command<'a> {
@@ -32,6 +35,10 @@ pub enum Command<'a> {
     Focus(&'a str),
     /// 装载并启动服务。
     Start(&'a str),
+    /// 求值 HolyShell 脚本。
+    Use(&'a str),
+    /// 求值 HolyShell 脚本（`use` 的别名）。
+    Load(&'a str),
     /// 清屏。
     Clear,
     /// 回显文本。
@@ -58,10 +65,11 @@ impl<'a> ShellState<'a> {
     }
 }
 
-/// Shell 会话：当前任务的选择。
+/// Shell 会话：当前任务的选择与脚本嵌套深度。
 #[derive(Default)]
 pub struct Session {
     current: Option<String>,
+    depth: usize,
 }
 
 impl Session {
@@ -98,6 +106,9 @@ pub trait ShellHost {
 
     /// 启动服务；`parent` 是当前会话选中的任务名。
     fn start(&mut self, name: &str, parent: Option<&str>) -> String;
+
+    /// 读取脚本内容；名称可省略 `.hsh` 后缀。
+    fn script(&self, name: &str) -> Result<String, String>;
 }
 
 /// 命令执行结果。
@@ -111,6 +122,8 @@ pub struct Response {
     pub exit: bool,
     /// 需要装载并启动的服务。
     pub start: Option<String>,
+    /// 需要求值的脚本。
+    pub script: Option<String>,
 }
 
 impl Response {
@@ -120,6 +133,7 @@ impl Response {
             clear: false,
             exit: false,
             start: None,
+            script: None,
         }
     }
 
@@ -161,6 +175,8 @@ pub fn parse(line: &str) -> Command<'_> {
         "mounts" => Command::Mounts,
         "focus" => Command::Focus(arguments),
         "start" => Command::Start(arguments),
+        "use" => Command::Use(arguments),
+        "load" => Command::Load(arguments),
         "clear" => Command::Clear,
         "echo" => Command::Echo(arguments),
         "exit" => Command::Exit,
@@ -173,7 +189,7 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
@@ -183,6 +199,13 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
         Command::Start("") => Response::output(String::from("用法：start <服务>\n")),
         Command::Start(name) => Response {
             start: Some(String::from(name)),
+            ..Response::empty()
+        },
+        Command::Use("") | Command::Load("") => {
+            Response::output(String::from("用法：use <脚本>\n"))
+        }
+        Command::Use(name) | Command::Load(name) => Response {
+            script: Some(String::from(name)),
             ..Response::empty()
         },
         Command::Clear => Response::clear(),
@@ -214,7 +237,48 @@ pub fn execute_line<H: ShellHost>(
         let output = host.start(name, session.current());
         io.write(&output);
     }
+
+    if let Some(name) = &response.script {
+        return evaluate_script(io, host, session, name);
+    }
     response.exit
+}
+
+/// 在当前会话中求值脚本；返回是否退出。
+fn evaluate_script<H: ShellHost>(
+    io: &impl ShellIo,
+    host: &mut H,
+    session: &mut Session,
+    name: &str,
+) -> bool {
+    if session.depth >= MAX_SCRIPT_DEPTH {
+        io.write("脚本嵌套过深\n");
+        return false;
+    }
+
+    let text = match host.script(name) {
+        Ok(text) => text,
+        Err(error) => {
+            io.write(&format!("无法加载脚本：{error}\n"));
+            return false;
+        }
+    };
+
+    io.write(&format!("求值：{name}\n"));
+    session.depth += 1;
+    let mut exited = false;
+    for line in text.lines() {
+        let command = line.trim();
+        if command.is_empty() || command.starts_with('#') {
+            continue;
+        }
+        if execute_line(io, host, session, command) {
+            exited = true;
+            break;
+        }
+    }
+    session.depth -= 1;
+    exited
 }
 
 /// 交互式执行，直到 `exit` 或输入结束。
@@ -415,6 +479,9 @@ mod tests {
             parse("start hk-server-device"),
             Command::Start("hk-server-device")
         );
+        assert_eq!(parse("use"), Command::Use(""));
+        assert_eq!(parse("use boot.hsh"), Command::Use("boot.hsh"));
+        assert_eq!(parse("load boot"), Command::Load("boot"));
         assert_eq!(parse("clear"), Command::Clear);
         assert_eq!(parse("exit"), Command::Exit);
         assert_eq!(parse("echo hello world"), Command::Echo("hello world"));
@@ -576,6 +643,7 @@ mod tests {
     struct MockHost {
         services: ServiceTable,
         started: Vec<String>,
+        scripts: Vec<(&'static str, &'static str)>,
     }
 
     impl ShellHost for MockHost {
@@ -591,6 +659,14 @@ mod tests {
             self.started.push(String::from(name));
             format!("已启动：{name}\n")
         }
+
+        fn script(&self, name: &str) -> Result<String, String> {
+            self.scripts
+                .iter()
+                .find(|(script, _)| *script == name)
+                .map(|(_, text)| String::from(*text))
+                .ok_or_else(|| format!("未找到脚本：{name}"))
+        }
     }
 
     #[test]
@@ -602,6 +678,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            scripts: Vec::new(),
         };
         let mut session = Session::new();
 
@@ -627,6 +704,7 @@ mod tests {
         let mut host = MockHost {
             services: ServiceTable::new(),
             started: Vec::new(),
+            scripts: Vec::new(),
         };
         let mut session = Session::new();
 
@@ -634,5 +712,84 @@ mod tests {
 
         assert_eq!(host.started, alloc::vec!["clock"]);
         assert!(io.output.borrow().contains("已启动：clock\n"));
+    }
+
+    #[test]
+    fn use_evaluates_script_in_session() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            scripts: alloc::vec![("boot.hsh", "# 注释\necho script-ok\nstart clock\n")],
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["use boot.hsh"]);
+
+        let output = io.output.borrow();
+        assert!(output.contains("求值：boot.hsh\n"));
+        assert!(output.contains("script-ok\n"));
+        assert_eq!(host.started, alloc::vec!["clock"]);
+    }
+
+    #[test]
+    fn load_is_alias_for_use() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            scripts: alloc::vec![("boot", "echo loaded\n")],
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["load boot"]);
+
+        assert!(io.output.borrow().contains("loaded\n"));
+    }
+
+    #[test]
+    fn reports_missing_script() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            scripts: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["use missing"]);
+
+        assert!(
+            io.output
+                .borrow()
+                .contains("无法加载脚本：未找到脚本：missing")
+        );
+    }
+
+    #[test]
+    fn limits_nested_scripts() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            scripts: alloc::vec![("loop.hsh", "use loop.hsh\n")],
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["use loop.hsh"]);
+
+        assert!(io.output.borrow().contains("脚本嵌套过深"));
     }
 }

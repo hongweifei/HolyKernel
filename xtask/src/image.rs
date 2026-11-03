@@ -14,8 +14,14 @@ const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
 const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n    module_path: boot():/boot/hk-server-echo\n    module_path: boot():/boot/hk-server-device\n    module_path: boot():/boot/hk-server-spin\n";
 
+/// 随镜像打包的 HolyShell 脚本。
+const SCRIPT_MODULES: &[&str] = &["boot.hsh", "services.hsh"];
+
 fn limine_config(cmdline: Option<&str>) -> String {
     let mut config = String::from(LIMINE_CONFIG);
+    for script in SCRIPT_MODULES {
+        config.push_str(&format!("    module_path: boot():/boot/scripts/{script}\n"));
+    }
     if let Some(cmdline) = cmdline {
         config.push_str(&format!("    cmdline: {cmdline}\n"));
     }
@@ -79,8 +85,10 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
 
     let boot = staging.join("boot");
     let efi = staging.join("EFI/BOOT");
+    let scripts = boot.join("scripts");
     create_dir(&boot)?;
     create_dir(&efi)?;
+    create_dir(&scripts)?;
 
     let limine = limine_dir();
     copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
@@ -100,6 +108,9 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
         &binary_path("hk-server-spin", release),
         &boot.join("hk-server-spin"),
     )?;
+    for script in SCRIPT_MODULES {
+        copy(&root.join("scripts").join(script), &scripts.join(script))?;
+    }
     copy(
         &limine.join("limine-bios-cd.bin"),
         &boot.join("limine-bios-cd.bin"),

@@ -111,6 +111,8 @@ impl SmokeMode {
                 "HolyShell 交互模式",
                 "hk> echo hello-ioapic",
                 "hello-ioapic",
+                "求值：boot.hsh",
+                "脚本：boot.hsh",
             ],
             Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
         }
@@ -188,6 +190,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::Input {
         thread::sleep(Duration::from_secs(3));
         inject(&socket, "echo hello-ioapic\n")?;
+        thread::sleep(Duration::from_millis(500));
+        inject(&socket, "use boot.hsh\n")?;
         thread::sleep(Duration::from_millis(500));
         inject(&socket, "exit\n")?;
     }

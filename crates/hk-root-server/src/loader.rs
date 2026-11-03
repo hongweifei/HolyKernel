@@ -70,7 +70,33 @@ fn map_region<M: UserMemory>(memory: &mut M, base: u64, size: u64) -> Result<(),
     Ok(())
 }
 
+/// 取模块路径的最后一段。
+pub fn module_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
 /// 取模块路径的最后一段作为服务名。
 pub fn service_name(name: &'static str) -> &'static str {
-    name.rsplit('/').next().unwrap_or(name)
+    module_name(name)
+}
+
+/// 判断模块是否为 HolyShell 脚本。
+pub fn is_script(name: &str) -> bool {
+    module_name(name).ends_with(".hsh")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_module_names() {
+        assert_eq!(module_name("boot():/boot/scripts/boot.hsh"), "boot.hsh");
+        assert_eq!(
+            service_name("boot():/boot/hk-server-demo"),
+            "hk-server-demo"
+        );
+        assert!(is_script("boot():/boot/scripts/boot.hsh"));
+        assert!(!is_script("boot():/boot/hk-server-demo"));
+    }
 }

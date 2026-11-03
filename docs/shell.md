@@ -95,6 +95,7 @@ HolyShell 会话是一个 **Native Task**：
 - 命令行是会话命名空间的 **REPL**：输入 → 解析 → 查找命令 → 调用。
 - 内置命令是会话命名空间中的函数；外部 Holy 命令是原生应用，通过 Command Registry 发现。
 - `use`/`load` 把 HolyDoc 或 HolyShell 脚本求值进当前会话命名空间；构建步骤由 Toolchain Server 按需处理。
+- 当前 M2 实现：`use`/`load` 为同义命令，从启动模块读取 `.hsh`（可省略后缀），逐行在当前会话求值；`#` 开头为注释，嵌套上限 4 层。VFS 接入后改为按路径解析。
 - 命令输出是结构化记录，可渲染为表格/树/HolyDoc，也可保存为文档。
 - 错误链接到源码或 HolyDoc；Debug Server 可定位到 Task、TCB 与文档。
 - Task 消息：`Ping`、`Stats`、`Suspend`、`Resume`、`Checkpoint`，通过 Endpoint 授权。
