@@ -47,6 +47,17 @@ static KERNEL_PACKAGES: [&str; 8] = [
     "hk-root-server",
     "hk-test",
 ];
+static X86_64_PACKAGES: [&str; 9] = [
+    "hk-hal",
+    "hk-handle",
+    "hk-ipc",
+    "hk-mem",
+    "hk-trace",
+    "hk-kernel",
+    "hk-root-server",
+    "hk-test",
+    "hk-x86_64",
+];
 
 /// 单个构建目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,15 +71,6 @@ pub enum Target {
 }
 
 impl Target {
-    /// 返回目标名称，与 xtask 的 `--target` 取值一致。
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Hosted => "hosted",
-            Self::X86_64Qemu => "x86_64-qemu",
-            Self::Aarch64Qemu => "aarch64-qemu",
-        }
-    }
-
     /// 返回目标三元组；Hosted 使用宿主三元组。
     pub const fn triple(self) -> Option<&'static str> {
         match self {
@@ -82,7 +84,8 @@ impl Target {
     pub const fn packages(self) -> &'static [&'static str] {
         match self {
             Self::Hosted => &HOSTED_PACKAGES,
-            Self::X86_64Qemu | Self::Aarch64Qemu => &KERNEL_PACKAGES,
+            Self::X86_64Qemu => &X86_64_PACKAGES,
+            Self::Aarch64Qemu => &KERNEL_PACKAGES,
         }
     }
 

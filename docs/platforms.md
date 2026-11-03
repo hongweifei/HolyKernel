@@ -30,8 +30,8 @@
 
 | 层级 | 目标 | 用途 | 状态 |
 | --- | --- | --- | --- |
-| Tier 1 | x86_64 QEMU（Limine） | 主要开发与演示 | 设计完成，待 M2 |
-| Tier 1 | Hosted 模拟器 | 单元测试、CI、确定性回放 | 设计完成，待 M1 |
+| Tier 1 | x86_64 QEMU（Limine） | 主要开发与演示 | 启动路径完成，M2 收尾中 |
+| Tier 1 | Hosted 模拟器 | 单元测试、CI、确定性回放 | 已完成（M1） |
 | Tier 2 | AArch64 QEMU `virt` | 多架构验证 | 设计完成，待 M8 |
 | Tier 2 | RISC-V 64 QEMU `virt` | 多架构验证 | 设计完成，待 M8 |
 | Tier 3 | 主流 x86_64 UEFI 真机 | 真机验证 | M9 后 |

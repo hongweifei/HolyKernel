@@ -104,8 +104,8 @@ flowchart TB
 
 | 层级 | 目标 | 状态 |
 | --- | --- | --- |
-| Tier 1 | x86_64 QEMU（Limine, BIOS/UEFI） | 设计完成，待 M2 |
-| Tier 1 | Hosted 模拟器（Linux/macOS/Windows 进程） | 脚手架完成，待 M1 |
+| Tier 1 | x86_64 QEMU（Limine, BIOS/UEFI） | 启动路径完成，M2 收尾中 |
+| Tier 1 | Hosted 模拟器（Linux/macOS/Windows 进程） | 已完成（M1） |
 | Tier 2 | AArch64 QEMU `virt`（U-Boot / 直接 `-kernel` + DTB） | 设计完成，待 M8 |
 | Tier 2 | RISC-V 64 QEMU `virt`（OpenSBI） | 设计完成，待 M8 |
 | Tier 3 | 主流 x86_64 UEFI 真机 | M9 后 |
@@ -119,14 +119,18 @@ Hosted 平台是确定性模拟器，服务于单元测试、CI、故障注入�
 ```sh
 cargo xtask build --target hosted
 cargo xtask run   --target hosted
-cargo xtask build --target x86_64-qemu --release
+cargo xtask image --target x86_64-qemu
+cargo xtask run   --target x86_64-qemu
+cargo xtask smoke --target x86_64-qemu
 cargo xtask test  --target hosted
 cargo xtask lint
 cargo xtask docs
 cargo xtask budget
 ```
 
-Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再按退出协议结束进程。x86_64 与 AArch64 目标当前产出内核与服务器 crate，启动镜像在 M2 提供。
+Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再按退出协议结束进程。
+
+x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口，读取 Limine 响应构造并校验 BootInfo，打印内存 map、内核镜像、帧缓冲与 direct map，最后通过 `isa-debug-exit` 结束 QEMU。`image` 产出 `build/holy-x86_64.iso`，`smoke` 启动 QEMU 并断言串口输出。AArch64 目标当前产出内核 crate，启动路径在 M8 提供。
 
 ---
 

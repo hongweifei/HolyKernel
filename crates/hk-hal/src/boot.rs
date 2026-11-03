@@ -214,12 +214,12 @@ impl BootInfo {
                 found: self.kernel_image.kind,
             });
         }
-        let kernel_inside_usable = self
+        let kernel_described = self
             .memory_map
             .iter()
-            .any(|region| region.kind.is_usable() && region.contains_region(&self.kernel_image));
-        if !kernel_inside_usable {
-            return Err(BootInfoError::KernelOutsideUsable {
+            .any(|region| region.contains_region(&self.kernel_image));
+        if !kernel_described {
+            return Err(BootInfoError::KernelOutsideMemory {
                 base: self.kernel_image.base,
             });
         }
@@ -317,8 +317,8 @@ pub enum BootInfoError {
         /// 实际类别。
         found: RegionKind,
     },
-    /// 内核镜像未落在可用内存内。
-    KernelOutsideUsable {
+    /// 内核镜像未落在内存 map 描述的任何区域内。
+    KernelOutsideMemory {
         /// 内核镜像起始地址。
         base: PhysAddr,
     },
@@ -363,8 +363,8 @@ impl fmt::Display for BootInfoError {
                     found.name()
                 )
             }
-            Self::KernelOutsideUsable { base } => {
-                write!(formatter, "内核镜像 {base:?} 未落在可用内存内")
+            Self::KernelOutsideMemory { base } => {
+                write!(formatter, "内核镜像 {base:?} 未落在已描述的内存内")
             }
             Self::InvalidFramebuffer => formatter.write_str("帧缓冲参数非法"),
             Self::InvalidDirectMap => formatter.write_str("direct map 参数非法"),
@@ -460,12 +460,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_kernel_outside_usable_memory() {
+    fn rejects_kernel_outside_memory() {
         let mut boot = boot_info();
         boot.kernel_image = MemoryRegion::new(PhysAddr::new(0x20_0000), 0x1000, RegionKind::Kernel);
         assert_eq!(
             boot.validate(),
-            Err(BootInfoError::KernelOutsideUsable {
+            Err(BootInfoError::KernelOutsideMemory {
                 base: PhysAddr::new(0x20_0000)
             })
         );

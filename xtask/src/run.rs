@@ -2,25 +2,34 @@
 
 use crate::cargo;
 use crate::failure::{Failure, Result};
-use crate::target::Selection;
+use crate::target::{Selection, Target};
 
 /// 运行选中的目标。
 ///
-/// 裸机目标的启动镜像在 M2 提供；在此之前 `run` 只接受 Hosted。
+/// Hosted 直接启动进程；x86_64 QEMU 先构建镜像再启动虚拟机；AArch64 的启动镜像
+/// 在 M8 提供。
 pub fn run(selection: Selection, release: bool, arguments: &[String]) -> Result<()> {
     let targets = selection.targets();
     if targets.len() != 1 {
         return Err(Failure::new("run 只接受单个目标"));
     }
-    let target = targets[0];
-    if !target.is_hosted() {
-        return Err(Failure::new(format!(
-            "{} 的启动镜像在 M2 提供；当前使用 cargo xtask build --target {} 校验构建",
-            target.name(),
-            target.name()
-        )));
-    }
 
+    match targets[0] {
+        Target::Hosted => launch_hosted(release, arguments),
+        Target::X86_64Qemu => {
+            if !arguments.is_empty() {
+                return Err(Failure::new("x86_64-qemu 不接受额外参数"));
+            }
+            let iso = crate::image::run(selection, release)?;
+            crate::qemu::run(&iso)
+        }
+        Target::Aarch64Qemu => Err(Failure::new(
+            "aarch64-qemu 的启动镜像在 M8 提供；当前使用 cargo xtask build --target aarch64-qemu 校验构建",
+        )),
+    }
+}
+
+fn launch_hosted(release: bool, arguments: &[String]) -> Result<()> {
     let mut command = cargo::command();
     command.args(["run", "-p", "hk-hosted"]);
     if release {

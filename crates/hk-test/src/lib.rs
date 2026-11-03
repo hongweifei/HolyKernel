@@ -5,7 +5,7 @@
 //! | 平台 | 通道 |
 //! | --- | --- |
 //! | Hosted（Linux/macOS/Windows 进程） | 进程退出码 |
-//! | x86_64 QEMU | `isa-debug-exit` 端口 `0xF4`，退出码为 `(code << 1) \| 1` |
+//! | x86_64 QEMU | `isa-debug-exit` 端口 `0xF4`，QEMU 退出码为 `(code << 1) \| 1` |
 //! | AArch64 QEMU | semihosting `SYS_EXIT_EXTENDED` |
 //!
 //! `isa-debug-exit` 携带 8 位诊断码；semihosting 携带 `code` 子码。两者都以 0
@@ -51,14 +51,14 @@ pub fn exit(code: ExitCode) -> ! {
 
     #[cfg(all(target_os = "none", target_arch = "x86_64"))]
     {
-        let value = code.value().wrapping_shl(1) | 1;
         // SAFETY: 0xF4 是 QEMU isa-debug-exit 设备端口；写入后 QEMU 立即终止，
-        // 控制流不再返回。该端口只存在于 QEMU 启动路径。
+        // 控制流不再返回。QEMU 以 `(value << 1) | 1` 作为自身退出码，因此这里
+        // 只写诊断码本身，成功为 0、宿主侧退出码 1。
         unsafe {
             core::arch::asm!(
                 "out dx, al",
                 in("dx") 0xf4u16,
-                in("al") value,
+                in("al") code.value(),
                 options(noreturn, nomem, nostack),
             );
         }

@@ -72,12 +72,11 @@ HolyKernel/
 ```sh
 cargo xtask build --target hosted
 cargo xtask build --target x86_64-qemu --release
+cargo xtask image --target x86_64-qemu
 cargo xtask run   --target x86_64-qemu
-cargo xtask run   --target x86_64-qemu --gdb
+cargo xtask smoke --target x86_64-qemu
 cargo xtask test  --target hosted
-cargo xtask test  --target x86_64-qemu
 cargo xtask test-posix --target x86_64-qemu
-cargo xtask image --target x86_64-qemu --out build/holy.iso
 cargo xtask bench --target hosted
 cargo xtask docs
 cargo xtask lint

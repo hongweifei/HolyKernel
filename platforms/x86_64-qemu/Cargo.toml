@@ -1,0 +1,21 @@
+[package]
+name = "hk-x86_64"
+description = "HolyKernel x86_64 QEMU 启动入口"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-x86_64"
+path = "src/main.rs"
+
+[dependencies]
+hk-boot = { version = "0.1.0", path = "../../crates/hk-boot" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
+hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/hk-platform-x86_64" }
+hk-test = { version = "0.1.0", path = "../../crates/hk-test" }
+spin = "0.9"
+
+[lints]
+workspace = true

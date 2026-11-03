@@ -15,8 +15,11 @@ mod build;
 mod cargo;
 mod docs;
 mod failure;
+mod image;
 mod lint;
+mod qemu;
 mod run;
+mod smoke;
 mod target;
 mod test;
 mod workspace;
@@ -39,10 +42,14 @@ struct Cli {
 enum Task {
     /// 构建目标
     Build(BuildArguments),
+    /// 构建可启动镜像
+    Image(ImageArguments),
     /// 运行目标
     Run(RunArguments),
     /// 运行测试
     Test(TestArguments),
+    /// 启动 QEMU 并校验串口输出
+    Smoke(SmokeArguments),
     /// 运行格式与静态检查
     Lint,
     /// 生成 rustdoc 并校验文档
@@ -55,6 +62,16 @@ enum Task {
 struct BuildArguments {
     /// 构建目标
     #[arg(long, value_enum, default_value = "hosted")]
+    target: Selection,
+    /// 使用 release 配置
+    #[arg(long)]
+    release: bool,
+}
+
+#[derive(Debug, Args)]
+struct ImageArguments {
+    /// 镜像目标
+    #[arg(long, value_enum, default_value = "x86_64-qemu")]
     target: Selection,
     /// 使用 release 配置
     #[arg(long)]
@@ -81,6 +98,16 @@ struct TestArguments {
     target: Selection,
 }
 
+#[derive(Debug, Args)]
+struct SmokeArguments {
+    /// 冒烟目标
+    #[arg(long, value_enum, default_value = "x86_64-qemu")]
+    target: Selection,
+    /// 使用 release 配置
+    #[arg(long)]
+    release: bool,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match execute(cli.task) {
@@ -95,8 +122,10 @@ fn main() -> ExitCode {
 fn execute(task: Task) -> Result<()> {
     match task {
         Task::Build(arguments) => build::run(arguments.target, arguments.release),
+        Task::Image(arguments) => image::run(arguments.target, arguments.release).map(|_| ()),
         Task::Run(arguments) => run::run(arguments.target, arguments.release, &arguments.arguments),
         Task::Test(arguments) => test::run(arguments.target),
+        Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release),
         Task::Lint => lint::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
