@@ -44,19 +44,22 @@ const DATA_DESCRIPTOR: u64 = 0x00CF_9200_0000_FFFF;
 /// 中断门属性：P=1、DPL=0、type=0xE。
 const INTERRUPT_GATE: u8 = 0x8E;
 
-const PIC1_COMMAND: u16 = 0x20;
 const PIC1_DATA: u16 = 0x21;
-const PIC2_COMMAND: u16 = 0xA0;
 const PIC2_DATA: u16 = 0xA1;
 
-const PIT_CHANNEL0: u16 = 0x40;
-const PIT_COMMAND: u16 = 0x43;
+const LAPIC_EOI: u64 = 0xB0;
+const LAPIC_SIVR: u64 = 0xF0;
+const LAPIC_LVT_TIMER: u64 = 0x320;
+const LAPIC_TIMER_INITIAL: u64 = 0x380;
+const LAPIC_TIMER_DIVIDE: u64 = 0x3E0;
 
-/// PIT 基准频率。
-const PIT_FREQUENCY: u32 = 1_193_182;
+const LVT_MASKED: u32 = 1 << 16;
+const LVT_PERIODIC: u32 = 1 << 17;
+const SPURIOUS_VECTOR: u32 = 0xFF;
+const SPURIOUS_ENABLE: u32 = 1 << 8;
 
-/// 定时器中断频率。
-const TIMER_HZ: u32 = 100;
+/// 定时器初始计数。
+const TIMER_INITIAL_COUNT: u32 = 1_000_000;
 
 #[repr(C, packed)]
 struct DescriptorPointer {
@@ -198,6 +201,7 @@ static CPU: CpuState = CpuState {
 };
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
+static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 
@@ -339,53 +343,41 @@ fn init_idt() {
     }
 }
 
-/// 初始化定时器中断：重映射 8259 PIC 到向量 32..47，编程 8254 PIT。
+/// 初始化本地 APIC：屏蔽 8259 PIC，配置伪中断向量与定时器中断。
 ///
-/// 8254 与 8259 走端口 I/O，不依赖内核分页；APIC/IOAPIC 需要映射 MMIO 页，
-/// 随内核分页在 M3 接入。
-pub fn init_timer() {
-    // SAFETY: 8259 与 8254 端口在 x86_64 上固定存在；初始化序列只写这些端口。
-    unsafe {
-        // ICW1：边沿触发、级联、需要 ICW4。
-        outb(PIC1_COMMAND, 0x11);
-        outb(PIC2_COMMAND, 0x11);
-        // ICW2：主片向量基址 32，从片向量基址 40。
-        outb(PIC1_DATA, 0x20);
-        outb(PIC2_DATA, 0x28);
-        // ICW3：主片 IRQ2 接从片，从片级联到 IRQ2。
-        outb(PIC1_DATA, 0x04);
-        outb(PIC2_DATA, 0x02);
-        // ICW4：8086 模式。
-        outb(PIC1_DATA, 0x01);
-        outb(PIC2_DATA, 0x01);
-        // 只开主片 IRQ0（定时器），其余屏蔽。
-        outb(PIC1_DATA, 0xFE);
-        outb(PIC2_DATA, 0xFF);
+/// `lapic_base` 是 LAPIC 寄存器页的虚拟地址：调用方先用内核页表把
+/// `0xFEE00000` 映射到 HHDM 窗口。
+pub fn init_apic(lapic_base: u64) {
+    LAPIC_BASE.store(lapic_base, Ordering::SeqCst);
 
-        // 8254 通道 0：模式 3（方波），先低字节后高字节。
-        let divisor = (PIT_FREQUENCY / TIMER_HZ) as u16;
-        outb(PIT_COMMAND, 0x36);
-        outb(PIT_CHANNEL0, (divisor & 0xFF) as u8);
-        outb(PIT_CHANNEL0, (divisor >> 8) as u8);
+    // SAFETY: 8259 PIC 端口固定存在；屏蔽后中断只经本地 APIC 投递。
+    unsafe {
+        outb(PIC1_DATA, 0xFF);
+        outb(PIC2_DATA, 0xFF);
     }
+
+    lapic_write(LAPIC_SIVR, SPURIOUS_ENABLE | SPURIOUS_VECTOR);
+    lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
-/// 开中断，等待定时器中断。
+/// 启动周期定时器，目标中断次数为 `target`。
 pub fn arm_timer(target: u64) {
     TIMER_TICKS.store(0, Ordering::SeqCst);
     TIMER_TARGET.store(target, Ordering::SeqCst);
 
-    // SAFETY: 开中断允许定时器中断进入；IDT 与 PIC 已就绪。
+    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, TIMER_INITIAL_COUNT);
+
+    // SAFETY: 开中断允许定时器中断进入；IDT 与本地 APIC 已就绪。
     unsafe { asm!("sti", options(nomem, nostack)) };
 }
 
 /// 停止定时器并关中断。
 pub fn disarm_timer() {
-    // SAFETY: 关中断后屏蔽 IRQ0，避免仍在途的中断再次进入。
-    unsafe {
-        asm!("cli", options(nomem, nostack));
-        outb(PIC1_DATA, 0xFF);
-    }
+    // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
+    unsafe { asm!("cli", options(nomem, nostack)) };
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
 /// 返回已记录的定时器中断次数。
@@ -396,6 +388,13 @@ pub fn timer_ticks() -> u64 {
 /// 判断定时器是否达到目标次数。
 pub fn timer_finished() -> bool {
     TIMER_TICKS.load(Ordering::SeqCst) >= TIMER_TARGET.load(Ordering::SeqCst)
+}
+
+fn lapic_write(offset: u64, value: u32) {
+    let base = LAPIC_BASE.load(Ordering::SeqCst);
+    assert!(base != 0, "本地 APIC 未初始化");
+    // SAFETY: 基址由调用方映射为设备页，偏移是 LAPIC 寄存器。
+    unsafe { ((base + offset) as *mut u32).write_volatile(value) };
 }
 
 /// 返回异常向量名称。
@@ -510,8 +509,7 @@ core::arch::global_asm!(
 extern "C" fn interrupt_dispatch(frame: &InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
         TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
-        // SAFETY: 8259 主片命令端口固定存在；写 EOI 允许后续中断进入。
-        unsafe { outb(PIC1_COMMAND, 0x20) };
+        lapic_write(LAPIC_EOI, 0);
         return;
     }
     report_exception(frame);

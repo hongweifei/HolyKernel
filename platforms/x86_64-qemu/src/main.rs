@@ -28,9 +28,9 @@ use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_hal::{BootInfo, Console};
+use hk_hal::{BootInfo, Console, PhysAddr, VirtAddr};
 #[cfg(target_os = "none")]
-use hk_platform_x86_64::{COM1, Serial};
+use hk_platform_x86_64::{COM1, FrameAllocator, PageFlags, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_test::ExitCode;
 
@@ -144,6 +144,16 @@ extern "C" fn kmain() -> ! {
 
     announce(&console, screen.as_ref(), "启动信息校验通过\n");
 
+    if let Err(error) = init_interrupts(&info) {
+        announce(
+            &console,
+            screen.as_ref(),
+            &format!("中断初始化失败：{error}\n"),
+        );
+        hk_test::exit(ExitCode::Failure(3));
+    }
+    announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
+
     match hk_boot::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
             announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
@@ -168,7 +178,6 @@ extern "C" fn kmain() -> ! {
                 screen.as_ref(),
                 "帧缓冲测试：画面保持 2 秒后退出\n",
             );
-            hk_platform_x86_64::cpu::init_timer();
             hk_platform_x86_64::cpu::arm_timer(200);
             while !hk_platform_x86_64::cpu::timer_finished() {
                 // SAFETY: `hlt` 等到下一次定时器中断。
@@ -203,14 +212,33 @@ fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferCon
 }
 
 #[cfg(target_os = "none")]
-fn run_timer_test(console: &Serial) -> ! {
-    console.write_str("启动 8254 定时器，等待 5 次中断\n");
+fn init_interrupts(info: &BootInfo) -> Result<(), String> {
+    let direct_map = info
+        .direct_map
+        .ok_or_else(|| String::from("启动信息缺少 direct map"))?;
+    let direct_map_base = direct_map.virt_base.get();
+    let mut allocator = FrameAllocator::new(info.memory_map, info.kernel_image)
+        .ok_or_else(|| String::from("没有可用的物理内存区域"))?;
 
-    hk_platform_x86_64::cpu::init_timer();
+    let paging = PageTable::new(direct_map_base);
+    let lapic_phys = PhysAddr::new(0xFEE0_0000);
+    let lapic_virt = VirtAddr::new(direct_map_base + lapic_phys.get());
+    paging
+        .map(lapic_virt, lapic_phys, PageFlags::MMIO, &mut allocator)
+        .map_err(|error| format!("映射 LAPIC 失败：{error:?}"))?;
+
+    hk_platform_x86_64::cpu::init_apic(lapic_virt.get());
+    Ok(())
+}
+
+#[cfg(target_os = "none")]
+fn run_timer_test(console: &Serial) -> ! {
+    console.write_str("启动本地 APIC 定时器，等待 5 次中断\n");
+
     hk_platform_x86_64::cpu::arm_timer(5);
 
     while !hk_platform_x86_64::cpu::timer_finished() {
-        // SAFETY: `hlt` 等到下一次中断；中断由 8254 定时器经 8259 投递。
+        // SAFETY: `hlt` 等到下一次中断；中断由本地 APIC 定时器投递。
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack));
         }

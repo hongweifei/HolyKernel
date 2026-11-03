@@ -130,7 +130,7 @@ cargo xtask budget
 
 Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再按退出协议结束进程。
 
-x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口、建立 GDT/TSS/IDT，读取 Limine 响应构造并校验 BootInfo，在串口与帧缓冲文本控制台（16 px eFont CN 点阵字体，GB2312 常用汉字 + ASCII，80×36 字符）输出内存 map、内核镜像、帧缓冲与 direct map，最后通过 `isa-debug-exit` 结束 QEMU。`image` 产出 `build/holy-x86_64.iso`，`smoke` 启动 QEMU 并断言串口输出；`smoke --mode boot|ud2|page|timer|fb` 覆盖正常启动、非法指令、页错误、8254 定时器与帧缓冲文本。AArch64 目标当前产出内核 crate，启动路径在 M8 提供。
+x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口、建立 GDT/TSS/IDT，读取 Limine 响应构造并校验 BootInfo，在串口与帧缓冲文本控制台（16 px eFont CN 点阵字体，GB2312 常用汉字 + ASCII，80×36 字符）输出内存 map、内核镜像、帧缓冲与 direct map；随后用内核页表把 LAPIC 寄存器页映射进 HHDM 窗口，启用本地 APIC 定时器，最后通过 `isa-debug-exit` 结束 QEMU。`image` 产出 `build/holy-x86_64.iso`，`smoke` 启动 QEMU 并断言串口输出；`smoke --mode boot|ud2|page|timer|fb` 覆盖正常启动、非法指令、页错误、APIC 定时器与帧缓冲文本。AArch64 目标当前产出内核 crate，启动路径在 M8 提供。
 
 ---
 
