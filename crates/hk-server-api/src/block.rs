@@ -5,11 +5,11 @@ pub const BLOCK_REQUEST: u64 = 0x600;
 /// 响应标签。
 pub const BLOCK_RESPONSE: u64 = 0x601;
 /// DeviceGrant 移交标签。
-pub const BLOCK_GRANT: u64 = 0x602;
+pub use crate::device::DEVICE_GRANT as BLOCK_GRANT;
 /// 没有块设备标签。
-pub const BLOCK_NO_DEVICE: u64 = 0x603;
+pub use crate::device::DEVICE_NONE as BLOCK_NO_DEVICE;
 /// 驱动请求下发设备授权。
-pub const DEVICE_REQUEST: u64 = 0x604;
+pub use crate::device::DEVICE_REQUEST;
 /// 请求块设备服务退出（用于故障注入与重启测试）。
 pub const BLOCK_SHUTDOWN: u64 = 0x605;
 /// 附加共享 Frame。

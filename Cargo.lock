@@ -462,6 +462,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-virtio-net"
+version = "0.1.0"
+dependencies = [
+ "hk-driver-virtio",
+ "hk-hal",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-shell"
 version = "0.1.0"
 

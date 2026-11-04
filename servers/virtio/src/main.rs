@@ -24,6 +24,8 @@ use hk_server_api::block::{
     BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, DEVICE_REQUEST, STATUS_ERROR, encode_response,
 };
 #[cfg(target_os = "none")]
+use hk_server_api::device::DEVICE_CLASS_BLOCK;
+#[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
@@ -49,7 +51,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-virtio: 没有设备管理器\n".as_bytes());
         exit(2)
     }
-    let _ = send(manager, DEVICE_REQUEST, 0);
+    let _ = send(manager, DEVICE_REQUEST, DEVICE_CLASS_BLOCK);
     let wait = wait_for_grant(endpoint);
     let Some(grant_handle) = wait.grant else {
         reply_not_ready(wait.pending);

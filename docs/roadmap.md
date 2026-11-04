@@ -158,7 +158,7 @@ flowchart LR
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
+5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类与独立驱动服务，`smoke --mode net` 校验 MAC；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
 
 ---
 

@@ -19,7 +19,10 @@ static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::de
 
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
-use hk_server_api::block::{BLOCK_GRANT, BLOCK_NO_DEVICE, DEVICE_REQUEST};
+use hk_server_api::device::{
+    DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE,
+    DEVICE_REQUEST,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
 
@@ -55,7 +58,7 @@ impl PciConfig for SyscallConfig {
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut count = 0;
     enumerate(&SyscallConfig, 0, |device| {
-        write_device(&device, 0, &mut false);
+        write_device(&device, 0, &mut false, DEVICE_CLASS_ANY);
         count += 1;
     });
     write("hk-server-device: 发现 ".as_bytes());
@@ -63,22 +66,22 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(" 个设备\n".as_bytes());
 
     loop {
-        let (label, _word, sender) = recv(endpoint);
+        let (label, requested, sender) = recv(endpoint);
         if label != DEVICE_REQUEST {
             continue;
         }
         let mut sent_grant = false;
         enumerate(&SyscallConfig, 0, |device| {
-            write_device(&device, sender, &mut sent_grant);
+            write_device(&device, sender, &mut sent_grant, requested);
         });
         if !sent_grant {
-            let _ = send(sender, BLOCK_NO_DEVICE, 0);
+            let _ = send(sender, DEVICE_NONE, 0);
         }
     }
 }
 
 #[cfg(target_os = "none")]
-fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool) {
+fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool, requested: u64) {
     write(b"  ");
     write_hex(u32::from(device.address.bus), 2);
     write(b":");
@@ -159,16 +162,28 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool) {
         write(b"\n");
         return;
     }
+    let class_matches = match requested {
+        DEVICE_CLASS_ANY => true,
+        DEVICE_CLASS_BLOCK => device.class == 0x01,
+        DEVICE_CLASS_NETWORK => device.class == 0x02,
+        _ => false,
+    };
+    if !class_matches {
+        write(b"\n");
+        return;
+    }
     let mut encoded = [0_u8; DEVICE_GRANT_BYTES];
     if let Some(length) = grant.encode(&mut encoded) {
         let handle = device_grant_create(&encoded[..length]);
         write(b"  grant-handle=");
         write_hex64(handle);
         if !*sent_grant {
-            let transferred = send_handle(driver_endpoint, BLOCK_GRANT, 0, handle);
+            let transferred = send_handle(driver_endpoint, DEVICE_GRANT, 0, handle);
             write(b"  grant-transfer=");
             write_hex64(transferred);
-            *sent_grant = transferred == 0;
+            if transferred == 0 {
+                *sent_grant = true;
+            }
         }
     }
     write(b"\n");

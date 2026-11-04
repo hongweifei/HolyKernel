@@ -65,9 +65,14 @@ impl core::error::Error for ProbeError {}
 pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> {
     hal::bind(grant, descriptor);
     let mut root = PciRoot::new(hal::SysConfig);
+    let address = descriptor.address;
     let function = root
-        .enumerate_bus(0)
-        .find(|(_, info)| virtio_device_type(info).is_some())
+        .enumerate_bus(address.bus)
+        .find(|(function, info)| {
+            function.device == address.device
+                && function.function == address.function
+                && virtio_device_type(info).is_some()
+        })
         .map(|(function, _)| function)
         .ok_or(ProbeError::NoDevice)?;
     let transport = PciTransport::new::<hal::HalImpl, _>(&mut root, function)

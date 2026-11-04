@@ -71,6 +71,9 @@ pub enum SmokeMode {
     /// HolyFS 数据盘挂载
     #[value(name = "holyfs")]
     HolyFs,
+    /// virtio-net 驱动探测与 MAC 输出
+    #[value(name = "net")]
+    Net,
 }
 
 impl SmokeMode {
@@ -90,6 +93,7 @@ impl SmokeMode {
             Self::Restart => Some("restart-test"),
             Self::Ext4Root => Some("vfs.root=ext4"),
             Self::HolyFs => Some("vfs.fs=holyfs"),
+            Self::Net => Some("net-test"),
         }
     }
 
@@ -191,6 +195,7 @@ impl SmokeMode {
                 "hk-server-demo fs ok",
                 "fs 1 MiB 读：",
             ],
+            Self::Net => &["hk-server-virtio-net: mac="],
         }
     }
 
@@ -204,7 +209,8 @@ impl SmokeMode {
             | Self::Preempt
             | Self::Restart
             | Self::Ext4Root
-            | Self::HolyFs => QEMU_SUCCESS,
+            | Self::HolyFs
+            | Self::Net => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -224,6 +230,7 @@ impl SmokeMode {
             Self::Restart => "build/serial-restart.log",
             Self::Ext4Root => "build/serial-ext4root.log",
             Self::HolyFs => "build/serial-holyfs.log",
+            Self::Net => "build/serial-net.log",
         }
     }
 
@@ -268,6 +275,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
     if mode == SmokeMode::Smp {
         command.args(["-smp", "4"]);
+    }
+    if mode == SmokeMode::Net {
+        command
+            .args(["-netdev", "user,id=net0"])
+            .args(["-device", "virtio-net-pci,netdev=net0"]);
     }
     if mode == SmokeMode::Input {
         command
