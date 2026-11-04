@@ -5,6 +5,7 @@
 #![no_std]
 
 mod arch;
+pub mod block;
 pub mod vfs;
 
 pub use hk_syscall::*;

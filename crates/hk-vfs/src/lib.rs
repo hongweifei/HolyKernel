@@ -10,6 +10,7 @@ extern crate std;
 
 extern crate alloc;
 
+mod block;
 mod cache;
 mod devfs;
 mod path;
@@ -17,6 +18,7 @@ mod procfs;
 mod tmpfs;
 mod vfs;
 
+pub use block::BlockBackend;
 pub use cache::{PAGE_SIZE, PageCache};
 pub use devfs::Devfs;
 pub use path::normalize;

@@ -63,6 +63,8 @@ fn build_kernel(release: bool) -> Result<()> {
         "hk-server-fork",
         "-p",
         "hk-server-latency",
+        "-p",
+        "hk-server-block",
     ]);
     if release {
         command.arg("--release");
@@ -131,6 +133,10 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     copy(
         &binary_path("hk-server-latency", release),
         &boot.join("hk-server-latency"),
+    )?;
+    copy(
+        &binary_path("hk-server-block", release),
+        &boot.join("hk-server-block"),
     )?;
     for script in SCRIPT_MODULES {
         copy(&root.join("scripts").join(script), &scripts.join(script))?;

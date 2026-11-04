@@ -99,6 +99,7 @@ pub struct ServiceManifest {
 
 | 驱动 | 设备 | 接口 |
 | --- | --- | --- |
+| **Block Server** | RAM disk / 块设备抽象 | Block Endpoint：read/write/flush/capacity |
 | **virtio-blk** | 块设备 | Block Endpoint：read/write/flush |
 | **AHCI** | SATA 块设备 | Block Endpoint |
 | **virtio-net** | 网络设备 | Net Endpoint：tx/rx |

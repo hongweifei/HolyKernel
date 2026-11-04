@@ -115,6 +115,13 @@ name = "hk-acpi"
 version = "0.1.0"
 
 [[package]]
+name = "hk-block"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
+
+[[package]]
 name = "hk-boot"
 version = "0.1.0"
 dependencies = [
@@ -242,6 +249,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-block"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-build"
 version = "0.1.0"
 
@@ -345,6 +361,9 @@ version = "0.1.0"
 [[package]]
 name = "hk-vfs"
 version = "0.1.0"
+dependencies = [
+ "hk-block",
+]
 
 [[package]]
 name = "hk-x86_64"

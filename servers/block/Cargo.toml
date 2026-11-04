@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-block"
+description = "HolyKernel Block Server：RAM disk 后端与块协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-block"
+path = "src/main.rs"
+
+[dependencies]
+hk-block = { version = "0.1.0", path = "../../crates/hk-block" }
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

@@ -197,6 +197,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **Root Server** | 启动、监督、重启、句柄分配 | 初始 Untyped、HandleTable、Endpoint |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
+| **Block Server** | 块设备抽象与 RAM disk | Block Endpoint |
 | **Block Driver** | virtio-blk / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 | FS Backend Endpoint、Frame |
