@@ -87,7 +87,7 @@ pub struct ServiceManifest {
 ## 4. Device Manager
 
 - 枚举 PCI（ECAM）或 DTB 设备。
-- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ。
+- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；当前已生成 BAR/IRQ/capability 描述清单。
 - 按设备类别启动驱动：块、网络、输入、显示。
 - 维护设备树与驱动绑定；设备移除时关闭 Handle。
 - 通过 Endpoint 向 VFS 与 POSIX Server报告设备状态。

@@ -7,6 +7,7 @@
 #[cfg(test)]
 extern crate alloc;
 
+pub mod grant;
 pub mod keyboard;
 pub mod pci;
 pub mod uart;

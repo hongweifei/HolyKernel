@@ -9,6 +9,8 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
+use hk_drivers::grant::DeviceGrant;
+#[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, pci_read, write, write_u64};
@@ -104,6 +106,35 @@ fn write_device(device: &Device) {
         write(b"  cap=");
         write_hex(u32::from(cap.id), 2);
     });
+
+    let grant = DeviceGrant::from_device(&SyscallConfig, device);
+    for (index, range) in grant.mmio.iter().enumerate() {
+        if let Some(range) = range {
+            write(b"  grant-mmio");
+            write_hex(index as u32, 1);
+            write(b"=");
+            write_hex64(range.base);
+            write(b"+");
+            write_hex64(range.len);
+        }
+    }
+    for (index, range) in grant.io.iter().enumerate() {
+        if let Some(range) = range {
+            write(b"  grant-io");
+            write_hex(index as u32, 1);
+            write(b"=");
+            write_hex(u32::from(range.base), 4);
+            write(b"+");
+            write_hex(u32::from(range.len), 4);
+        }
+    }
+    if let Some(irq) = grant.irq {
+        write(b"  grant-irq=");
+        write_hex(u32::from(irq), 2);
+    }
+    if grant.is_virtio() {
+        write(b"  virtio");
+    }
     write(b"\n");
 }
 
