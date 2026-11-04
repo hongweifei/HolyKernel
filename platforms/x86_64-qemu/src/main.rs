@@ -20,6 +20,8 @@ mod loader;
 mod runtime;
 #[cfg(target_os = "none")]
 mod shell;
+#[cfg(target_os = "none")]
+mod smp;
 
 #[cfg(target_os = "none")]
 use alloc::format;
@@ -161,6 +163,20 @@ extern "C" fn kmain() -> ! {
             &console,
             screen.as_ref(),
             &format!("IOAPIC 初始化失败：{error}\n"),
+            ExitCode::Failure(3),
+        ),
+    }
+
+    match smp::start() {
+        Ok((started, online)) => announce(
+            &console,
+            screen.as_ref(),
+            &format!("AP 在线：{online} 个（启动 {started}）\n"),
+        ),
+        Err(error) => fail(
+            &console,
+            screen.as_ref(),
+            &format!("SMP 启动失败：{error}\n"),
             ExitCode::Failure(3),
         ),
     }

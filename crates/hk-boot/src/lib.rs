@@ -11,6 +11,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{
     Arch, BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
@@ -18,10 +19,11 @@ use hk_hal::{
 };
 use limine::BaseRevision;
 use limine::memory_map::EntryType;
+use limine::mp::Cpu as LimineCpu;
 use limine::request::{
     ExecutableAddressRequest, ExecutableCmdlineRequest, FramebufferRequest, HhdmRequest,
-    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, RsdpRequest,
-    StackSizeRequest,
+    MemoryMapRequest, ModuleRequest, MpRequest, RequestsEndMarker, RequestsStartMarker,
+    RsdpRequest, StackSizeRequest,
 };
 
 #[used]
@@ -66,6 +68,10 @@ static FRAMEBUFFER: FramebufferRequest = FramebufferRequest::new();
 #[used]
 #[unsafe(link_section = ".limine_requests")]
 static RSDP: RsdpRequest = RsdpRequest::new();
+
+#[used]
+#[unsafe(link_section = ".limine_requests")]
+static MP: MpRequest = MpRequest::new();
 
 #[used]
 #[unsafe(link_section = ".limine_requests_end")]
@@ -234,6 +240,63 @@ pub fn cmdline() -> Option<&'static str> {
     let response = EXECUTABLE_CMDLINE.get_response()?;
     let cmdline = response.cmdline();
     core::str::from_utf8(cmdline.to_bytes()).ok()
+}
+
+/// AP 描述前缀；与 Limine CPU 结构前两个字段一致。
+#[repr(C)]
+pub struct ApCpu {
+    /// ACPI 处理器编号。
+    pub id: u32,
+    /// 本地 APIC 编号。
+    pub lapic_id: u32,
+    _reserved: u64,
+    _goto: u64,
+    /// 供内核传递 AP 序号。
+    pub extra: AtomicU64,
+}
+
+/// AP 入口。
+pub type ApEntry = unsafe extern "C" fn(*mut ApCpu) -> !;
+
+/// SMP 概要。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SmpInfo {
+    /// BSP 的本地 APIC 编号。
+    pub bsp_lapic_id: u32,
+    /// CPU 总数（含 BSP）。
+    pub cpu_count: usize,
+}
+
+/// 返回 Limine 的 SMP 概要；没有响应时为 `None`。
+pub fn smp_info() -> Option<SmpInfo> {
+    let response = MP.get_response()?;
+    Some(SmpInfo {
+        bsp_lapic_id: response.bsp_lapic_id(),
+        cpu_count: response.cpus().len(),
+    })
+}
+
+/// 为所有非 BSP CPU 写入入口，返回启动的 AP 数量。
+pub fn start_aps(entry: ApEntry) -> usize {
+    let Some(response) = MP.get_response() else {
+        return 0;
+    };
+    let bsp = response.bsp_lapic_id();
+    let mut started = 0;
+
+    for (index, cpu) in response.cpus().iter().enumerate() {
+        if cpu.lapic_id == bsp {
+            continue;
+        }
+        cpu.extra.store(index as u64, Ordering::Release);
+        // SAFETY: `ApEntry` 与 Limine 回调使用相同的 C ABI，参数指向同一 CPU 结构。
+        let callback: unsafe extern "C" fn(&LimineCpu) -> ! =
+            unsafe { core::mem::transmute(entry) };
+        cpu.goto_address.write(callback);
+        started += 1;
+    }
+
+    started
 }
 
 fn kind_of(entry_type: EntryType) -> RegionKind {

@@ -137,7 +137,7 @@ impl SmokeMode {
                 "脚本：boot.hsh",
             ],
             Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
-            Self::Smp => &["本地 APIC：2 个", "服务进入空闲"],
+            Self::Smp => &["本地 APIC：2 个", "AP 在线：1 个", "服务进入空闲"],
         }
     }
 
