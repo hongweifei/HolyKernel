@@ -21,8 +21,8 @@ use hk_fs_ext4::Ext4Backend;
 use hk_server_api::heap::BumpHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
-    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_TRUNCATE,
-    OP_UMOUNT, OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR,
+    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_SYNC,
+    OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR,
     STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, VFS_REQUEST,
     VFS_RESPONSE, decode_request, encode_response,
 };
@@ -106,12 +106,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = filesystem.create_dir("/disk");
     if mount_ext4(&mut filesystem, endpoint) {
         write("hk-server-vfs: ext4 mounted\n".as_bytes());
-        if ext4_self_test(&mut filesystem) {
-            write("hk-server-vfs: ext4 读写 ok\n".as_bytes());
-        } else {
-            write("hk-server-vfs: ext4 读写失败\n".as_bytes());
-        }
-        let _ = filesystem.sync_all();
     } else {
         write("hk-server-vfs: ext4 不可用\n".as_bytes());
     }
@@ -151,26 +145,6 @@ fn mount_ext4(filesystem: &mut Vfs, endpoint: u64) -> bool {
         return filesystem.mount("/disk", Box::new(backend)).is_ok();
     }
     false
-}
-
-/// 通过 VFS 路径写入并读回标记文件。
-#[cfg(target_os = "none")]
-fn ext4_self_test(filesystem: &mut Vfs) -> bool {
-    const CONTENT: &[u8] = b"HolyKernel ext4 ok\n";
-    let Ok(handle) = filesystem.open("/disk/hello", OpenFlags::CREATE) else {
-        return false;
-    };
-    if filesystem.write(handle, CONTENT).is_err() {
-        return false;
-    }
-    let _ = filesystem.close(handle);
-    let Ok(handle) = filesystem.open("/disk/hello", OpenFlags::READ_ONLY) else {
-        return false;
-    };
-    let mut buffer = [0_u8; 32];
-    let read = filesystem.read(handle, &mut buffer).unwrap_or(0);
-    let _ = filesystem.close(handle);
-    read == CONTENT.len() && buffer[..read] == *CONTENT
 }
 
 #[cfg(target_os = "none")]
@@ -280,6 +254,10 @@ fn handle(
             }
         }
         OP_UMOUNT => match filesystem.umount(request.path) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
+        OP_SYNC => match filesystem.sync_all() {
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (status(error), 0),
         },

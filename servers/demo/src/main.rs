@@ -71,6 +71,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write("VFS 读写失败\n".as_bytes());
             exit(1)
         }
+        if verify_ext4(endpoint) {
+            write("hk-server-demo ext4 ok\n".as_bytes());
+        } else {
+            write("hk-server-demo ext4 失败\n".as_bytes());
+            exit(1)
+        }
         exit(0)
     }
 
@@ -160,6 +166,33 @@ fn verify_vfs(endpoint: u64) -> bool {
             .any(|line| line == target.as_bytes())
     })
 }
+/// 经 VFS 写入并读回 ext4 数据盘标记文件。
+#[cfg(target_os = "none")]
+fn verify_ext4(endpoint: u64) -> bool {
+    const CONTENT: &[u8] = b"HolyKernel ext4 ok\n";
+    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let Ok(handle) = client.open("/disk/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
+        return false;
+    };
+    if client.write(handle, 0, CONTENT).is_err() {
+        return false;
+    }
+    let _ = client.close(handle);
+    if client.sync().is_err() {
+        return false;
+    }
+
+    let Ok(handle) = client.open("/disk/hello", OPEN_READ) else {
+        return false;
+    };
+    let mut buffer = [0_u8; 32];
+    let Ok(length) = client.read(handle, 0, &mut buffer) else {
+        return false;
+    };
+    let _ = client.close(handle);
+    length == CONTENT.len() && buffer[..length] == *CONTENT
+}
+
 #[cfg(target_os = "none")]
 fn verify_arena() -> bool {
     let pointer = alloc(4096, 16);

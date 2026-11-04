@@ -31,6 +31,8 @@ pub const OP_MOUNT_TMPFS: u8 = 10;
 pub const OP_MOUNTS: u8 = 11;
 /// 卸载挂载点。
 pub const OP_UMOUNT: u8 = 12;
+/// 刷写挂起写入。
+pub const OP_SYNC: u8 = 13;
 
 /// 打开读权限。
 pub const OPEN_READ: u64 = 1 << 0;
@@ -256,6 +258,11 @@ impl VfsClient {
     /// 卸载挂载点。
     pub fn umount(&mut self, path: &str) -> Result<(), u8> {
         self.exchange(OP_UMOUNT, path, 0, 0, &[]).map(|_| ())
+    }
+
+    /// 刷写后端挂起写入。
+    pub fn sync(&mut self) -> Result<(), u8> {
+        self.exchange(OP_SYNC, "", 0, 0, &[]).map(|_| ())
     }
 
     /// 列出挂载点。

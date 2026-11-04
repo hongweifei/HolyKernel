@@ -98,7 +98,7 @@ impl SmokeMode {
                 "hk-server-device: 发现",
                 "hk-server-virtio: virtio-blk sectors=131072",
                 "hk-server-vfs: ext4 mounted",
-                "hk-server-vfs: ext4 读写 ok",
+                "hk-server-demo ext4 ok",
                 "hk-server-spin: done",
                 "hk-server-spin: closed",
                 "VFS 读写 ok",
