@@ -4,6 +4,10 @@
 //! 提供的线性帧缓冲。光标按字形实际宽度推进：ASCII 半宽、汉字全宽；写满一屏后
 //! 整体上移一行。帧缓冲位于 HHDM 中，基址为 `hhdm + 物理地址`。
 
+#![no_std]
+
+extern crate alloc;
+
 use alloc::vec::Vec;
 
 use hk_hal::{Console, FramebufferInfo, PixelFormat};

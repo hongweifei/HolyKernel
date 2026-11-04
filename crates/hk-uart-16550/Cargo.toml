@@ -1,0 +1,14 @@
+[package]
+name = "hk-uart-16550"
+description = "HolyKernel 16550 UART 控制台核心"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+spin = "0.9"
+
+[lints]
+workspace = true

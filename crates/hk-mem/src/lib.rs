@@ -7,6 +7,10 @@
 
 extern crate alloc;
 
+pub mod frames;
+
+pub use frames::LinearFrames;
+
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::fmt;

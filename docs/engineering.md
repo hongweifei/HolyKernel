@@ -16,13 +16,16 @@ HolyKernel/
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场、系统调用帧与页映射契约
+│   ├── hk-acpi/               ACPI RSDP/SDT 查找（架构无关）
+│   ├── hk-framebuffer/        通用帧缓冲文本控制台
+│   ├── hk-uart-16550/         16550 UART 核心（端口/MMIO 由平台提供）
 │   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度、线性堆与 AP 池
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
-│   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA
+│   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射（经 `UserMemory`）
-│   ├── hk-platform-*          平台实现：现场、分页、每任务页表登记、ACPI/IOAPIC、per-CPU TSS 与 IPI、键盘、引导初始化
+│   ├── hk-platform-*          平台实现：端口 I/O、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化
 │   ├── hk-root-server/        Root Server、服务清单、服务表、镜像装载、用户运行时与运行时宿主
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer

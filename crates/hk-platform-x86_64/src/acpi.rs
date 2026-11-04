@@ -1,16 +1,10 @@
-//! ACPI 表解析：从 RSDP 找到 MADT，取出 I/O APIC 与中断源覆盖。
+//! x86_64 ACPI MADT 解析：I/O APIC、本地 APIC 与中断源覆盖。
 //!
-//! 调用方提供读取函数，把物理表映射到可读内存后拷贝出来；解析过程校验签名与
-//! 校验和，越界或校验失败时返回 `None`。
+//! RSDP/SDT 查找由 `hk-acpi` 完成；本模块只解释 x86 相关条目。
 
 use alloc::vec::Vec;
 
-const SIGNATURE_RSDP: &[u8; 8] = b"RSD PTR ";
 const SIGNATURE_MADT: &[u8; 4] = b"APIC";
-const RSDP_MIN_LENGTH: usize = 20;
-const RSDP_V2_EXTRA_LENGTH: usize = 16;
-const HEADER_LENGTH: usize = 36;
-const MAX_TABLE_LENGTH: usize = 64 * 1024;
 const MAX_OVERRIDES: usize = 8;
 const MAX_CPUS: usize = 16;
 
@@ -57,54 +51,8 @@ pub fn parse<F>(rsdp_phys: u64, mut read: F) -> Option<Madt>
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    let rsdp = read(rsdp_phys, RSDP_MIN_LENGTH)?;
-    if rsdp[0..8] != SIGNATURE_RSDP[..] || !checksum(&rsdp) {
-        return None;
-    }
-
-    let revision = rsdp[15];
-    let (root_phys, extended) = if revision >= 2 {
-        let extra = read(rsdp_phys + RSDP_MIN_LENGTH as u64, RSDP_V2_EXTRA_LENGTH)?;
-        let length = u32::from_le_bytes(extra[0..4].try_into().ok()?);
-        if (length as usize) < HEADER_LENGTH {
-            return None;
-        }
-        (u64::from_le_bytes(extra[4..12].try_into().ok()?), true)
-    } else {
-        (
-            u64::from(u32::from_le_bytes(rsdp[16..20].try_into().ok()?)),
-            false,
-        )
-    };
-
-    let header = read(root_phys, HEADER_LENGTH)?;
-    let length = table_length(&header)?;
-    let root = read(root_phys, length)?;
-
-    let entry_size = if extended { 8 } else { 4 };
-    let count = root.len().checked_sub(HEADER_LENGTH)? / entry_size;
-    for index in 0..count {
-        let offset = HEADER_LENGTH + index * entry_size;
-        let table_phys = if extended {
-            u64::from_le_bytes(root[offset..offset + 8].try_into().ok()?)
-        } else {
-            u64::from(u32::from_le_bytes(
-                root[offset..offset + 4].try_into().ok()?,
-            ))
-        };
-        if table_phys == 0 {
-            continue;
-        }
-
-        let header = read(table_phys, HEADER_LENGTH)?;
-        if header[0..4] == SIGNATURE_MADT[..] {
-            let length = table_length(&header)?;
-            let bytes = read(table_phys, length)?;
-            return parse_madt(&bytes);
-        }
-    }
-
-    None
+    let bytes = hk_acpi::find_table(rsdp_phys, SIGNATURE_MADT, &mut read)?;
+    parse_madt(&bytes)
 }
 
 fn parse_madt(bytes: &[u8]) -> Option<Madt> {
@@ -179,18 +127,6 @@ fn parse_madt(bytes: &[u8]) -> Option<Madt> {
         local_apics,
         local_count,
     })
-}
-
-fn table_length(header: &[u8]) -> Option<usize> {
-    let length = u32::from_le_bytes(header[4..8].try_into().ok()?) as usize;
-    if !(HEADER_LENGTH..=MAX_TABLE_LENGTH).contains(&length) {
-        return None;
-    }
-    Some(length)
-}
-
-fn checksum(bytes: &[u8]) -> bool {
-    bytes.iter().fold(0_u8, |sum, byte| sum.wrapping_add(*byte)) == 0
 }
 
 #[cfg(test)]

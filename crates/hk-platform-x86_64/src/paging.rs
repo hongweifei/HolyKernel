@@ -8,8 +8,10 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use alloc::vec::Vec;
 
-use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, VirtAddr};
+use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use spin::Mutex;
+
+pub use hk_mem::LinearFrames as FrameAllocator;
 
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
@@ -91,60 +93,6 @@ pub enum PagingError {
         /// 冲突的虚拟地址。
         address: u64,
     },
-}
-
-/// 物理帧分配器：在可用内存区域上做线性分配。
-pub struct FrameAllocator {
-    next: u64,
-    end: u64,
-}
-
-impl FrameAllocator {
-    /// 从启动信息中挑选最大的可用区域并避开内核镜像。
-    pub fn new(regions: &[MemoryRegion], kernel: MemoryRegion) -> Option<Self> {
-        let page = PAGE_SIZE as u64;
-        let mut best: Option<(u64, u64)> = None;
-
-        for region in regions {
-            if !region.kind.is_usable() {
-                continue;
-            }
-            let mut start = align_up(region.base.get(), page);
-            let end = region.end().get() & !(page - 1);
-            if end <= start {
-                continue;
-            }
-            if start < kernel.end().get() && kernel.base.get() < end {
-                start = align_up(kernel.end().get(), page);
-            }
-            if start + page > end {
-                continue;
-            }
-
-            let capacity = end - start;
-            let larger = best.is_none_or(|(best_start, best_end)| capacity > best_end - best_start);
-            if larger {
-                best = Some((start, end));
-            }
-        }
-
-        best.map(|(next, end)| Self { next, end })
-    }
-
-    /// 分配一个 4 KiB 物理帧。
-    pub fn allocate(&mut self) -> Option<PhysAddr> {
-        let page = PAGE_SIZE as u64;
-        if self.next + page > self.end {
-            return None;
-        }
-        let frame = PhysAddr::new(self.next);
-        self.next += page;
-        Some(frame)
-    }
-}
-
-fn align_up(value: u64, alignment: u64) -> u64 {
-    value.div_ceil(alignment) * alignment
 }
 
 /// 页表操作句柄。
@@ -394,33 +342,6 @@ fn read_cr3() -> PhysAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hk_hal::RegionKind;
-
-    #[test]
-    fn frame_allocator_picks_largest_usable_region() {
-        let regions = [
-            MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2_0000, RegionKind::Usable),
-            MemoryRegion::new(PhysAddr::new(0x10_0000), 0x40_0000, RegionKind::Usable),
-        ];
-        let kernel = MemoryRegion::new(PhysAddr::new(0), 0x1000, RegionKind::Kernel);
-
-        let allocator = FrameAllocator::new(&regions, kernel).expect("可用区域");
-        assert_eq!(allocator.next, 0x10_0000);
-        assert_eq!(allocator.end, 0x50_0000);
-    }
-
-    #[test]
-    fn frame_allocator_avoids_kernel_image() {
-        let regions = [MemoryRegion::new(
-            PhysAddr::new(0x1_0000),
-            0x10_0000,
-            RegionKind::Usable,
-        )];
-        let kernel = MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2000, RegionKind::Kernel);
-
-        let allocator = FrameAllocator::new(&regions, kernel).expect("可用区域");
-        assert_eq!(allocator.next, 0x1_2000);
-    }
 
     #[test]
     fn creates_user_table_with_kernel_entries() {
@@ -438,10 +359,7 @@ mod tests {
             direct_map: base,
             root: PhysAddr::new(0),
         };
-        let mut allocator = FrameAllocator {
-            next: PAGE_SIZE as u64,
-            end: 2 * PAGE_SIZE as u64,
-        };
+        let mut allocator = FrameAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
         let user = table.create_user(&mut allocator).expect("创建用户页表");
         assert_eq!(user.root, PhysAddr::new(PAGE_SIZE as u64));
 

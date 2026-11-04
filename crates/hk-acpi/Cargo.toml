@@ -1,0 +1,12 @@
+[package]
+name = "hk-acpi"
+description = "HolyKernel 通用 ACPI RSDP/SDT 查找"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
