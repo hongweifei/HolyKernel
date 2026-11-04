@@ -2,7 +2,7 @@
 
 状态：**核心库实现中** · 上级：[总体架构](architecture.md)
 
-已实现 `crates/hk-vfs`：路径规范化、挂载表、文件句柄、`Backend` 契约与 tmpfs 后端；用户态 VFS Server 与共享页缓存待接入。
+已实现 `crates/hk-vfs`：路径规范化、挂载表、dentry 缓存、4 KiB 页缓存、文件句柄、`Backend` 契约与 tmpfs 后端；用户态 VFS Server 与共享页缓存待接入。
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 

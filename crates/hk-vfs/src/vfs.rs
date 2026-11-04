@@ -6,6 +6,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::cache::PageCache;
 use crate::path::normalize;
 
 /// 后端节点编号。
@@ -168,6 +169,8 @@ pub struct Vfs {
     instances: Vec<Instance>,
     mounts: Vec<Mount>,
     handles: BTreeMap<u64, OpenFile>,
+    dentries: BTreeMap<(usize, NodeId, String), NodeId>,
+    cache: PageCache,
     next_handle: u64,
 }
 
@@ -182,6 +185,8 @@ impl Vfs {
             }],
             mounts: Vec::new(),
             handles: BTreeMap::new(),
+            dentries: BTreeMap::new(),
+            cache: PageCache::new(),
             next_handle: 1,
         }
     }
@@ -190,6 +195,8 @@ impl Vfs {
     pub fn mount(&mut self, target: &str, backend: Box<dyn Backend>) -> Result<(), VfsError> {
         let target = normalize(target);
         if target == "/" {
+            self.dentries.clear();
+            self.cache.clear();
             let root = backend.root();
             self.instances[0] = Instance { backend, root };
             return Ok(());
@@ -200,6 +207,8 @@ impl Vfs {
 
         let instance = self.instances.len();
         let root = backend.root();
+        self.dentries.clear();
+        self.cache.clear();
         self.instances.push(Instance { backend, root });
         self.mounts.push(Mount { target, instance });
         Ok(())
@@ -255,9 +264,13 @@ impl Vfs {
             (open.instance, open.node, open.offset)
         };
 
-        let read = self.instances[instance]
-            .backend
-            .read(node, offset, buffer)?;
+        let read = self.cache.read(
+            &*self.instances[instance].backend,
+            instance,
+            node,
+            offset,
+            buffer,
+        )?;
         if let Some(open) = self.handles.get_mut(&handle.0) {
             open.offset = open
                 .offset
@@ -288,13 +301,13 @@ impl Vfs {
     }
 
     /// 读取元数据。
-    pub fn metadata(&self, path: &str) -> Result<Metadata, VfsError> {
+    pub fn metadata(&mut self, path: &str) -> Result<Metadata, VfsError> {
         let (instance, node) = self.resolve(path)?;
         self.instances[instance].backend.metadata(node)
     }
 
     /// 读取目录项。
-    pub fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
+    pub fn readdir(&mut self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
         let (instance, node) = self.resolve(path)?;
         self.instances[instance].backend.readdir(node)
     }
@@ -314,10 +327,11 @@ impl Vfs {
         let node = self.instances[instance]
             .backend
             .create(parent_node, &name, kind)?;
+        self.dentries.insert((instance, parent_node, name), node);
         Ok((instance, node))
     }
 
-    fn resolve(&self, path: &str) -> Result<(usize, NodeId), VfsError> {
+    fn resolve(&mut self, path: &str) -> Result<(usize, NodeId), VfsError> {
         let path = normalize(path);
         let mut instance = 0;
         let mut node = self.instances[0].root;
@@ -335,7 +349,14 @@ impl Vfs {
                 node = root;
                 continue;
             }
-            node = self.instances[instance].backend.lookup(node, component)?;
+            let key = (instance, node, component.to_string());
+            if let Some(cached) = self.dentries.get(&key).copied() {
+                node = cached;
+                continue;
+            }
+            let found = self.instances[instance].backend.lookup(node, component)?;
+            self.dentries.insert(key, found);
+            node = found;
         }
         Ok((instance, node))
     }

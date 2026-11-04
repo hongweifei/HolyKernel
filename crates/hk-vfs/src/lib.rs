@@ -7,10 +7,12 @@
 
 extern crate alloc;
 
+mod cache;
 mod path;
 mod tmpfs;
 mod vfs;
 
+pub use cache::{PAGE_SIZE, PageCache};
 pub use path::normalize;
 pub use tmpfs::Tmpfs;
 pub use vfs::{Backend, DirEntry, FileHandle, FileType, Metadata, OpenFlags, Vfs, VfsError};
