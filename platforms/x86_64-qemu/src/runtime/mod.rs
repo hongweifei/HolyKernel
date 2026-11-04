@@ -8,9 +8,8 @@ use alloc::vec::Vec;
 
 use hk_hal::Console;
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
-use hk_platform_x86_64::{COM1, PageTable, Serial};
+use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
-use spin::Mutex;
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -22,51 +21,6 @@ const ARENA_STRIDE: u64 = 0x2_0000;
 const ARENA_SIZE: u64 = 64 * 1024;
 
 struct X86Platform;
-
-static VSPACES: Mutex<Vec<Option<PageTable>>> = Mutex::new(Vec::new());
-
-/// 登记任务槽位的用户页表。
-pub fn install_vspace(slot: usize, table: PageTable) {
-    let mut tables = VSPACES.lock();
-    if tables.len() <= slot {
-        tables.resize_with(slot + 1, || None);
-    }
-    tables[slot] = Some(table);
-}
-
-fn activate_vspace(slot: usize) {
-    let tables = VSPACES.lock();
-    if let Some(table) = tables.get(slot).and_then(Option::as_ref) {
-        table.activate();
-    }
-}
-
-fn vspace_root(slot: usize) -> u64 {
-    VSPACES
-        .lock()
-        .get(slot)
-        .and_then(Option::as_ref)
-        .map_or(0, |table| table.root().get())
-}
-
-fn fork_vspace(parent: usize, child: usize) -> bool {
-    let mut tables = VSPACES.lock();
-    let child_table = {
-        let Some(table) = tables.get(parent).and_then(Option::as_ref) else {
-            return false;
-        };
-        let Some(table) = table.fork_user() else {
-            return false;
-        };
-        table
-    };
-
-    if tables.len() <= child {
-        tables.resize_with(child + 1, || None);
-    }
-    tables[child] = Some(child_table);
-    true
-}
 
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
@@ -89,15 +43,15 @@ impl UserPlatform for X86Platform {
     }
 
     fn activate(&self, slot: usize) {
-        activate_vspace(slot);
+        USER_VSPACES.activate(slot);
     }
 
     fn vspace(&self, slot: usize) -> u64 {
-        vspace_root(slot)
+        USER_VSPACES.root(slot)
     }
 
     fn fork(&self, parent: usize, child: usize) -> bool {
-        fork_vspace(parent, child)
+        USER_VSPACES.fork(parent, child)
     }
 
     fn timestamp(&self) -> u64 {

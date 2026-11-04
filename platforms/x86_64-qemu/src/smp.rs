@@ -1,12 +1,10 @@
-//! AP 启动与停泊：由 Limine MP 协议进入 long mode，记录在线数量。
+//! AP 启动与停泊：由 Limine MP 协议进入 long mode，在线计数在内核池中维护。
 
 use alloc::format;
 use alloc::string::String;
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 use hk_boot::ApCpu;
-
-static ONLINE: AtomicUsize = AtomicUsize::new(0);
+use hk_kernel::AP_POOL;
 
 /// 启动 AP 并等待其停泊；返回（启动数、在线数）。
 pub fn start() -> Result<(usize, usize), String> {
@@ -19,14 +17,7 @@ pub fn start() -> Result<(usize, usize), String> {
         0 => 1_000_000_000,
         frequency => frequency,
     };
-    let begin = hk_platform_x86_64::timing::rdtsc();
-    while ONLINE.load(Ordering::Acquire) < started
-        && hk_platform_x86_64::timing::rdtsc().wrapping_sub(begin) < timeout
-    {
-        core::hint::spin_loop();
-    }
-
-    let online = ONLINE.load(Ordering::Acquire);
+    let online = AP_POOL.wait(started, hk_platform_x86_64::timing::rdtsc, timeout);
     if online < started {
         return Err(format!("AP 启动超时：{online}/{started}"));
     }
@@ -34,8 +25,5 @@ pub fn start() -> Result<(usize, usize), String> {
 }
 
 unsafe extern "C" fn ap_entry(_cpu: *mut ApCpu) -> ! {
-    ONLINE.fetch_add(1, Ordering::AcqRel);
-    loop {
-        core::hint::spin_loop();
-    }
+    AP_POOL.park()
 }

@@ -15,7 +15,9 @@ pub mod pci;
 pub mod port;
 pub mod serial;
 pub mod timing;
+pub mod vspace;
 
 pub use framebuffer::FramebufferConsole;
 pub use paging::{FrameAllocator, PageFlags, PageTable, PagingError};
 pub use serial::{COM1, Serial};
+pub use vspace::{USER_VSPACES, UserVspaces};

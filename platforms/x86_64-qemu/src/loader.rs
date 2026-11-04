@@ -107,7 +107,7 @@ fn load(
     })
     .map_err(|error| format!("装载服务失败：{error}"))?;
     drop(memory);
-    runtime::install_vspace(index, table);
+    hk_platform_x86_64::USER_VSPACES.install(index, table);
     Ok(context)
 }
 
