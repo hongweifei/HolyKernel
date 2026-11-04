@@ -18,9 +18,12 @@ use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerat
 static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::device();
 
 #[cfg(target_os = "none")]
+#[cfg(target_os = "none")]
+use hk_server_api::block::{BLOCK_GRANT, BLOCK_NO_DEVICE};
+#[cfg(target_os = "none")]
 use hk_server_api::{
     device_grant_create, device_map, dma_alloc, dma_sync, exit, irq_bind, pci_read,
-    self_notification, write, write_u64,
+    self_notification, send, send_handle, service_endpoint, write, write_u64,
 };
 
 /// 通过系统调用访问 PCI 配置空间。
@@ -53,11 +56,16 @@ impl PciConfig for SyscallConfig {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
+    let block_endpoint = service_endpoint("hk-server-block");
+    let mut sent_grant = false;
     let mut count = 0;
     enumerate(&SyscallConfig, 0, |device| {
-        write_device(&device);
+        write_device(&device, block_endpoint, &mut sent_grant);
         count += 1;
     });
+    if !sent_grant && block_endpoint != 0 {
+        let _ = send(block_endpoint, BLOCK_NO_DEVICE, 0);
+    }
 
     write("hk-server-device: 发现 ".as_bytes());
     write_u64(count);
@@ -66,7 +74,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn write_device(device: &Device) {
+fn write_device(device: &Device, block_endpoint: u64, sent_grant: &mut bool) {
     write(b"  ");
     write_hex(u32::from(device.address.bus), 2);
     write(b":");
@@ -172,6 +180,12 @@ fn write_device(device: &Device) {
             write(b"  grant-map=");
             write_hex64(result);
             let _ = range;
+        }
+        if grant.is_virtio() && block_endpoint != 0 && !*sent_grant {
+            let transferred = send_handle(block_endpoint, BLOCK_GRANT, 0, handle);
+            write(b"  grant-transfer=");
+            write_hex64(transferred);
+            *sent_grant = transferred == 0;
         }
     }
     write(b"\n");

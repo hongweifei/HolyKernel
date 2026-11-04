@@ -88,6 +88,9 @@ pub const SYS_RECV_DATA_FROM: u64 = 27;
 /// 按服务名查询当前任务端点。
 pub const SYS_SERVICE_ENDPOINT: u64 = 28;
 
+/// 查询 DeviceGrant 编码描述。
+pub const SYS_DEVICE_INFO: u64 = 29;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 

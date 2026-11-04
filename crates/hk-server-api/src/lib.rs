@@ -243,6 +243,21 @@ pub fn dma_sync(grant: u64, phys: u64, len: usize, to_device: bool) -> u64 {
     unsafe { syscall_call(SYS_DMA_SYNC, grant, phys, len as u64, u64::from(to_device)).value }
 }
 
+/// 读取 DeviceGrant 的固定布局编码。
+pub fn device_info(grant: u64, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 内核校验句柄并只写入给定用户缓冲。
+    unsafe {
+        syscall_call(
+            SYS_DEVICE_INFO,
+            grant,
+            buffer.len() as u64,
+            buffer.as_mut_ptr() as u64,
+            0,
+        )
+        .value
+    }
+}
+
 /// 返回当前任务自己的通知编号。
 pub fn self_notification() -> u64 {
     // SAFETY: 只读取运行时任务槽位，不涉及指针。

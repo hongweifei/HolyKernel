@@ -6,6 +6,10 @@ use crate::{recv_data_from, send_data, service_endpoint};
 pub const BLOCK_REQUEST: u64 = 0x600;
 /// 响应标签。
 pub const BLOCK_RESPONSE: u64 = 0x601;
+/// DeviceGrant 移交标签。
+pub const BLOCK_GRANT: u64 = 0x602;
+/// 没有块设备标签。
+pub const BLOCK_NO_DEVICE: u64 = 0x603;
 
 /// 读取块。
 pub const OP_READ: u8 = 1;

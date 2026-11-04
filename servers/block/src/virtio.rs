@@ -5,9 +5,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::DeviceGrant;
-use hk_server_api::{
-    device_grant_create, device_map, dma_alloc, dma_sync, pci_read, pci_write, write,
-};
+use hk_server_api::{device_map, dma_alloc, dma_sync, pci_read, pci_write, write};
 use spin::Mutex;
 use virtio_drivers::device::blk::{SECTOR_SIZE, VirtIOBlk};
 use virtio_drivers::transport::pci::PciTransport;
@@ -156,40 +154,20 @@ impl hk_hal::PciConfig for SysConfig {
 }
 
 /// 尝试初始化 virtio-blk；没有设备或初始化失败时返回 `None`。
-fn try_init() -> Option<VirtIOBlk<HalImpl, PciTransport>> {
+fn try_init(
+    grant_handle: u64,
+    descriptor: DeviceGrant,
+) -> Option<VirtIOBlk<HalImpl, PciTransport>> {
+    GRANT.store(grant_handle, Ordering::Release);
+    *GRANT_DESC.lock() = Some(descriptor);
+    write(b"virtio: descriptor\n");
     let mut root = PciRoot::new(SysConfig);
-    let mut found = None;
-    for (function, info) in root.enumerate_bus(0) {
-        if info.vendor_id == 0x1AF4 && (info.device_id == 0x1001 || info.device_id == 0x1042) {
-            found = Some(function);
-            break;
-        }
-    }
-    let function = found?;
-    write(b"virtio: found\n");
-    let address =
-        hk_drivers::pci::PciAddress::new(0, function.bus, function.device, function.function);
-    let device = hk_drivers::pci::Device {
-        address,
-        vendor: 0x1AF4,
-        device: 0,
-        revision: 0,
-        interface: 0,
-        subclass: 0,
-        class: 0,
-        header: 0,
-    };
-    let grant = hk_drivers::grant::from_device(&SysConfig, &device);
-    let mut encoded = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
-    let length = grant.encode(&mut encoded)?;
-    write(b"virtio: grant\n");
-    let handle = device_grant_create(&encoded[..length]);
-    if handle == u64::MAX {
-        return None;
-    }
-    GRANT.store(handle, Ordering::Release);
-    *GRANT_DESC.lock() = Some(grant);
-
+    let function = root
+        .enumerate_bus(0)
+        .find(|(_, info)| {
+            info.vendor_id == 0x1AF4 && (info.device_id == 0x1001 || info.device_id == 0x1042)
+        })
+        .map(|(function, _)| function)?;
     write(b"virtio: transport\n");
     let transport = PciTransport::new::<HalImpl, _>(&mut root, function).ok()?;
     write(b"virtio: blk\n");
@@ -198,21 +176,23 @@ fn try_init() -> Option<VirtIOBlk<HalImpl, PciTransport>> {
     Some(block)
 }
 
-/// 把 virtio-blk 包成 BlockDevice。
 pub struct VirtioBlock {
     block: spin::Mutex<VirtIOBlk<HalImpl, PciTransport>>,
 }
 
 impl VirtioBlock {
     /// 尝试构造。
-    pub fn new() -> Option<Self> {
-        Self::try_init().map(|block| Self {
+    pub fn new(grant_handle: u64, descriptor: DeviceGrant) -> Option<Self> {
+        Self::try_init(grant_handle, descriptor).map(|block| Self {
             block: spin::Mutex::new(block),
         })
     }
 
-    fn try_init() -> Option<VirtIOBlk<HalImpl, PciTransport>> {
-        try_init()
+    fn try_init(
+        grant_handle: u64,
+        descriptor: DeviceGrant,
+    ) -> Option<VirtIOBlk<HalImpl, PciTransport>> {
+        try_init(grant_handle, descriptor)
     }
 }
 

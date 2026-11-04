@@ -24,24 +24,19 @@ mod virtio;
 #[cfg(target_os = "none")]
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
 #[cfg(target_os = "none")]
+use hk_hal::DeviceGrant;
+#[cfg(target_os = "none")]
 use hk_server_api::block::{
-    BLOCK_REQUEST, BLOCK_RESPONSE, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_ERROR,
-    STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, encode_response,
+    BLOCK_GRANT, BLOCK_REQUEST, BLOCK_RESPONSE, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE,
+    STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{alloc, recv_data, send_data, write};
-
-#[cfg(target_os = "none")]
-#[used]
-#[unsafe(link_section = ".hk_service")]
-static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::device();
+use hk_server_api::{alloc, device_info, recv_data, recv_handle, send_data, write};
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 48 * 1024;
 #[cfg(target_os = "none")]
 const BLOCKS: u64 = 64;
-#[cfg(target_os = "none")]
-const ENABLE_VIRTIO: bool = false;
 
 #[cfg(target_os = "none")]
 struct BumpHeap;
@@ -91,14 +86,24 @@ static ALLOCATOR: BumpHeap = BumpHeap;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-block: start\n".as_bytes());
-    let mut disk: Box<dyn BlockDevice> = if ENABLE_VIRTIO {
-        match virtio::VirtioBlock::new() {
-            Some(block) => Box::new(block),
-            None => Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE)),
+    let (label, _word, _sender, grant_handle) = recv_handle(endpoint);
+    let mut grant = None;
+    if label == BLOCK_GRANT && grant_handle != 0 {
+        let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+        let length = device_info(grant_handle, &mut bytes) as usize;
+        if length != u64::MAX as usize {
+            grant = DeviceGrant::decode(&bytes[..length]);
         }
-    } else {
-        write("hk-server-block: ram disk ready\n".as_bytes());
-        Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE))
+    }
+    let mut disk: Box<dyn BlockDevice> = match grant.and_then(|descriptor| {
+        virtio::VirtioBlock::new(grant_handle, descriptor)
+            .map(|block| Box::new(block) as Box<dyn BlockDevice>)
+    }) {
+        Some(block) => block,
+        None => {
+            write("hk-server-block: ram disk ready\n".as_bytes());
+            Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE))
+        }
     };
 
     let mut request = [0_u8; 4096];

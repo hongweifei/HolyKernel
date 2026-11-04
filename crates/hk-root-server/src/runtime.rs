@@ -12,11 +12,11 @@ use hk_hal::{DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_SYNC,
-    SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
-    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_REPLY, SYS_SELF_NOTIFICATION,
-    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_TICKS, SYS_TSC,
-    SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC,
+    SYS_DMA_SYNC, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY,
+    SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_REPLY,
+    SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -457,11 +457,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
-        number
+        if let Some(handle) = number
             .checked_sub(GRANT_HANDLE_BASE + 1)
             .and_then(|slot| self.tasks[index].grants.get(slot))
             .copied()
             .flatten()
+        {
+            return Some(handle);
+        }
+        let handle = self.tasks[index]
+            .extra
+            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)
+            .copied()
+            .flatten()?;
+        self.kernel
+            .device_grant(self.tasks[index].tcb, handle)
+            .ok()?;
+        Some(handle)
     }
 
     fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
@@ -479,7 +491,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if number >= EXTRA_HANDLE_BASE {
+        if number >= GRANT_HANDLE_BASE {
+            self.grant_at(index, number)
+        } else if number >= EXTRA_HANDLE_BASE {
             self.tasks[index]
                 .extra
                 .get(number - EXTRA_HANDLE_BASE - 1)
@@ -495,7 +509,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn clear_handle(&mut self, index: usize, number: usize) {
-        if number >= EXTRA_HANDLE_BASE {
+        if number >= GRANT_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(GRANT_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].grants.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= EXTRA_HANDLE_BASE {
             if let Some(slot) = self.tasks[index]
                 .extra
                 .get_mut(number - EXTRA_HANDLE_BASE - 1)

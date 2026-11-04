@@ -196,6 +196,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(0);
                 Switch::Continue
             }
+            SYS_DEVICE_INFO => {
+                let number = frame.arg0() as usize;
+                let capacity = frame.arg1() as usize;
+                let output = frame.arg2();
+                let Some(handle) = self.grant_at(index, number) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                let Ok(grant) = self.kernel.device_grant(tcb, handle) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+                let Some(length) = grant.encode(&mut bytes) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                if length > capacity || !self.platform.write_user(output, &bytes[..length]) {
+                    frame.set_result(u64::MAX);
+                } else {
+                    frame.set_result(length as u64);
+                }
+                Switch::Continue
+            }
             SYS_PCI_WRITE => {
                 let address = frame.arg0();
                 let bus = (address >> 8) as u8;
