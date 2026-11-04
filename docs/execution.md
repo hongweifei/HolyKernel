@@ -166,9 +166,15 @@ impl Notification {
 
 ### 4.3 共享 Frame
 
-- 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace。
-- 只读/可写权限由 Frame Handle 决定。
-- 共享 Frame 的引用计数归零后回收。
+- Frame 是匿名内核对象 `{ phys, len }`，没有全局名字；只能通过 Handle 访问。
+- 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace，句柄权限决定只读/可写/可转移。
+- 内核提供 `SYS_FRAME_ALLOC`、`SYS_FRAME_MAP`、`SYS_FRAME_UNMAP`、`SYS_FRAME_INFO`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_FRAME`。
+- `SYS_FRAME_ALLOC(length, virt)` 从 DMA 池分配连续物理页、创建 Frame、映射到 `virt` 并返回帧句柄编号；`SYS_FRAME_INFO` 返回物理地址与长度，供驱动建立 DMA。
+- 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_FRAME_MAP` 映射同一物理页。
+- 块协议：客户端发送 `BLOCK_ATTACH`（携带帧句柄与长度）后，请求只携带 `{op, sector, length}` 控制信息，数据位于共享帧；驱动把帧物理地址登记给 virtio HAL，设备 DMA 直接读写帧，响应也只返回状态与长度。
+- VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_FRAME`/`OP_WRITE_FRAME` 用 8 字节参数携带长度，文件内容直接读写客户端共享帧；服务端按发送者维护帧映射。
+- 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把帧物理区间映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
+- 共享 Frame 的引用计数归零后回收；当前实现尚未在任务退出时归还帧物理页，物理页在重启前保持保留。
 
 ---
 
