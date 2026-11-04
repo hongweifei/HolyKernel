@@ -46,6 +46,47 @@ fn answers_arp_request() {
 }
 
 #[test]
+fn tcp_handshake_and_echo() {
+    let mut a = Stack::new(MAC_A, Ipv4Addr::new(10, 0, 2, 15), 24, None, 11).expect("A");
+    let mut b = Stack::new(MAC_B, Ipv4Addr::new(10, 0, 2, 16), 24, None, 12).expect("B");
+    let listener = b.open_tcp(2048).expect("监听 socket");
+    b.listen_tcp(listener, 4321).expect("监听");
+    let client = a.open_tcp(2048).expect("客户端 socket");
+    a.connect_tcp(client, Ipv4Addr::new(10, 0, 2, 16), 4321, 1234)
+        .expect("连接");
+    let mut connected = false;
+    for tick in 0..64 {
+        pump(&mut a, &mut b, tick);
+        if a.tcp_may_send(client) && b.tcp_may_recv(listener) {
+            connected = true;
+            break;
+        }
+    }
+    assert!(connected, "TCP 未建立");
+    assert_eq!(a.send_tcp(client, b"tcp").expect("发送"), 3);
+    for tick in 64..96 {
+        pump(&mut a, &mut b, tick);
+    }
+    let mut buffer = [0_u8; 8];
+    let length = b
+        .recv_tcp(listener, &mut buffer)
+        .expect("接收")
+        .unwrap_or(0);
+    assert_eq!(&buffer[..length], b"tcp");
+}
+
+fn pump(a: &mut Stack, b: &mut Stack, tick: u64) {
+    a.poll(tick);
+    while let Some(frame) = a.take_frame() {
+        b.push_frame(&frame).expect("A→B");
+    }
+    b.poll(tick);
+    while let Some(frame) = b.take_frame() {
+        a.push_frame(&frame).expect("B→A");
+    }
+}
+
+#[test]
 fn udp_between_two_stacks() {
     let mut a = Stack::new(MAC_A, Ipv4Addr::new(10, 0, 2, 15), 24, None, 1).expect("A");
     let mut b = Stack::new(MAC_B, Ipv4Addr::new(10, 0, 2, 16), 24, None, 2).expect("B");

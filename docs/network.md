@@ -19,7 +19,7 @@ HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 
 - smoltcp 启用 Ethernet、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS；不启用 std/默认特性。
 - 详见 [ADR-0013](adr/0013-net-stack.md)。
 
-实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入按类授权、精确 BDF 探测、MAC 输出、`NET_INFO`/`NET_POLL`/`NET_TX`/`NET_RX` Endpoint 与非阻塞接收；驱动可绑定 IRQ Notification，并由 Network Server 的 TX Notification 唤醒。`hk-server-net` 已完成 Net Endpoint 握手、DHCP 租约与 `ping`；QEMU 中验证了真实 ARP/ICMP/DHCP 的 TX/RX 路径。下一步是 DNS、TCP 与 `net` 命令。
+实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入按类授权、精确 BDF 探测、MAC 输出、`NET_INFO`/`NET_POLL`/`NET_TX`/`NET_RX` Endpoint 与非阻塞接收；驱动可绑定 IRQ Notification，并由 Network Server 的 TX Notification 唤醒。`hk-server-net` 已完成 Net Endpoint 握手、DHCP 租约与 `ping`；QEMU 中验证了真实 ARP/ICMP/DHCP 的 TX/RX 路径。`hk-net` 已提供 TCP socket API，并在 QEMU 中连接宿主 echo 服务，验证真实 TCP 握手、发送与接收；`smoke --mode net` 覆盖 DHCP、ICMP ping 与 TCP 回显。下一步是 DNS、`net` 命令与更完整的 Socket 状态。
 
 ---
 

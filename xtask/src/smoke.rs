@@ -3,6 +3,8 @@
 mod qmp;
 
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -25,6 +27,9 @@ const TEST_DISK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// ext4 自检写入的标记内容。
 const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
+
+/// QEMU 用户网络中的宿主 TCP echo 端口。
+const NET_TCP_PORT: u16 = 45678;
 
 /// `isa-debug-exit` 的成功退出码：`(0 << 1) | 1`。
 const QEMU_SUCCESS: i32 = 1;
@@ -199,6 +204,7 @@ impl SmokeMode {
                 "hk-server-virtio-net: mac=",
                 "hk-server-net: ready",
                 "hk-server-net: ping ok",
+                "hk-server-net: tcp ok",
             ],
         }
     }
@@ -264,6 +270,17 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         let _ = fs::remove_file(&socket);
     }
 
+    let echo = if mode == SmokeMode::Net {
+        let listener = TcpListener::bind(("0.0.0.0", NET_TCP_PORT))
+            .map_err(|error| Failure::new(format!("绑定 TCP echo 失败：{error}")))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| Failure::new(format!("设置 TCP echo 非阻塞失败：{error}")))?;
+        Some(listener)
+    } else {
+        None
+    };
+
     let mut command = Command::new("qemu-system-x86_64");
     command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
@@ -304,6 +321,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "use boot.hsh\n")?;
         thread::sleep(Duration::from_millis(500));
         inject(&socket, "exit\n")?;
+    }
+    if let Some(listener) = echo {
+        serve_tcp_echo(listener)?;
     }
 
     let deadline = Instant::now() + TIMEOUT;
@@ -397,6 +417,37 @@ const HOST_TIME_ORIGIN: CivilTime = CivilTime {
 fn host_civil_time() -> Option<CivilTime> {
     let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
     Some(HOST_TIME_ORIGIN.add_seconds(elapsed.as_secs(), elapsed.subsec_nanos()))
+}
+
+/// 接受一次 QEMU 宿主的 TCP 连接并回显。
+fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .map_err(|error| Failure::new(format!("设置 TCP 读取超时失败：{error}")))?;
+                let mut buffer = [0_u8; 16];
+                let length = stream
+                    .read(&mut buffer)
+                    .map_err(|error| Failure::new(format!("TCP echo 读取失败：{error}")))?;
+                stream
+                    .write_all(&buffer[..length])
+                    .map_err(|error| Failure::new(format!("TCP echo 写回失败：{error}")))?;
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() > deadline {
+                    return Err(Failure::new("QEMU TCP 未连接到宿主 echo"));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                return Err(Failure::new(format!("TCP echo accept 失败：{error}")));
+            }
+        }
+    }
 }
 
 /// 生成新的测试磁盘。

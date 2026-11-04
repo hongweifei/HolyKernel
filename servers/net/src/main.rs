@@ -27,6 +27,8 @@ use hk_server_api::{
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 768 * 1024;
+#[cfg(target_os = "none")]
+const TCP_PORT: u16 = 45678;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -112,6 +114,50 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(6)
     }
     write("hk-server-net: ping ok\n".as_bytes());
+
+    let tcp = match stack.open_tcp(2048) {
+        Ok(handle) => handle,
+        Err(_) => {
+            write("hk-server-net: TCP 初始化失败\n".as_bytes());
+            exit(7)
+        }
+    };
+    if stack.connect_tcp(tcp, gateway, TCP_PORT, 40000).is_err() {
+        write("hk-server-net: TCP 连接失败\n".as_bytes());
+        exit(7)
+    }
+    let connect_deadline = ticks().saturating_add(500);
+    let mut connected = false;
+    while ticks() < connect_deadline {
+        poll_once(driver, endpoint, &mut stack, &mut frame);
+        if stack.tcp_may_send(tcp) {
+            connected = true;
+            break;
+        }
+    }
+    if !connected {
+        write("hk-server-net: TCP 握手失败\n".as_bytes());
+        exit(7)
+    }
+    let _ = stack.send_tcp(tcp, b"holy");
+    let mut reply = [0_u8; 8];
+    let mut tcp_ok = false;
+    let reply_deadline = ticks().saturating_add(500);
+    while ticks() < reply_deadline {
+        poll_once(driver, endpoint, &mut stack, &mut frame);
+        if let Ok(Some(length)) = stack.recv_tcp(tcp, &mut reply)
+            && length >= 4
+        {
+            tcp_ok = true;
+            break;
+        }
+    }
+    if !tcp_ok {
+        write("hk-server-net: TCP 回显失败\n".as_bytes());
+        exit(7)
+    }
+    write("hk-server-net: tcp ok\n".as_bytes());
+
     loop {
         let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut frame);
         if label == NET_RX {

@@ -4,7 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet, SocketStorage};
-use smoltcp::socket::{dhcpv4, icmp, udp};
+use smoltcp::socket::{dhcpv4, icmp, tcp, udp};
 use smoltcp::storage::PacketMetadata;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
@@ -171,6 +171,72 @@ impl Stack {
         let mut socket = udp::Socket::new(rx, tx);
         socket.bind(port).map_err(|_| NetError::Bind)?;
         Ok(self.sockets.add(socket))
+    }
+
+    /// 打开一个 TCP socket。
+    pub fn open_tcp(&mut self, buffer: usize) -> Result<SocketHandle, NetError> {
+        let socket = tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0_u8; buffer]),
+            tcp::SocketBuffer::new(vec![0_u8; buffer]),
+        );
+        Ok(self.sockets.add(socket))
+    }
+
+    /// 监听本地 TCP 端口。
+    pub fn listen_tcp(&mut self, handle: SocketHandle, port: u16) -> Result<(), NetError> {
+        self.sockets
+            .get_mut::<tcp::Socket>(handle)
+            .listen(port)
+            .map_err(|_| NetError::Bind)
+    }
+
+    /// 主动连接远端 TCP 端点。
+    pub fn connect_tcp(
+        &mut self,
+        handle: SocketHandle,
+        remote: Ipv4Address,
+        port: u16,
+        local_port: u16,
+    ) -> Result<(), NetError> {
+        let endpoint = IpEndpoint::new(IpAddress::Ipv4(remote), port);
+        let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+        socket
+            .connect(self.interface.context(), endpoint, local_port)
+            .map_err(|_| NetError::Send)
+    }
+
+    /// TCP 是否已建立或可发送。
+    pub fn tcp_may_send(&mut self, handle: SocketHandle) -> bool {
+        self.sockets.get_mut::<tcp::Socket>(handle).may_send()
+    }
+
+    /// TCP 是否可接收。
+    pub fn tcp_may_recv(&mut self, handle: SocketHandle) -> bool {
+        self.sockets.get_mut::<tcp::Socket>(handle).may_recv()
+    }
+
+    /// 发送 TCP 数据，返回实际入队长度。
+    pub fn send_tcp(&mut self, handle: SocketHandle, data: &[u8]) -> Result<usize, NetError> {
+        self.sockets
+            .get_mut::<tcp::Socket>(handle)
+            .send_slice(data)
+            .map_err(|_| NetError::Send)
+    }
+
+    /// 接收 TCP 数据。
+    pub fn recv_tcp(
+        &mut self,
+        handle: SocketHandle,
+        buffer: &mut [u8],
+    ) -> Result<Option<usize>, NetError> {
+        let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+        if !socket.can_recv() {
+            return Ok(None);
+        }
+        socket
+            .recv_slice(buffer)
+            .map(Some)
+            .map_err(|_| NetError::Recv)
     }
 
     /// 打开 ICMP socket，绑定一个标识。
