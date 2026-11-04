@@ -10,12 +10,14 @@ extern crate std;
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::fmt;
 
 use hk_block::BlockDevice;
-use hk_vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
+use hk_vfs::{Backend, DirEntry, FileType, Metadata, NodeId, Vfs, VfsError};
 use rsext4::{
     BlockIo, Clock, DeviceCapabilities, DeviceGeometry, DirectoryCursor, DirectoryEntryType,
     EntropySource, Ext4, Ext4Error, Ext4ErrorKind, Ext4Result, Ext4Timestamp, FileName,
@@ -140,7 +142,48 @@ impl<D: BlockDevice> BlockIo for Disk<D> {
 
 /// 格式化块设备为 ext4。
 pub fn format<D: BlockDevice>(device: D) -> Result<D, Ext4Error> {
-    rsext4::format(Disk::new(device), FixedClock, MkfsOptions::default()).map(Disk::into_inner)
+    format_with_clock(device, FixedClock)
+}
+
+/// 以指定时钟格式化块设备为 ext4。
+pub fn format_with_clock<D, C>(device: D, clock: C) -> Result<D, Ext4Error>
+where
+    D: BlockDevice,
+    C: Clock + Send + 'static,
+{
+    rsext4::format(Disk::new(device), clock, MkfsOptions::default()).map(Disk::into_inner)
+}
+
+/// 挂载错误。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MountError {
+    /// ext4 后端挂载失败。
+    Ext4(Ext4Error),
+    /// VFS 挂载点安装失败。
+    Vfs(VfsError),
+}
+
+impl fmt::Display for MountError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ext4(error) => write!(formatter, "ext4 挂载失败：{error}"),
+            Self::Vfs(error) => write!(formatter, "VFS 挂载失败：{error}"),
+        }
+    }
+}
+
+impl core::error::Error for MountError {}
+
+/// 把 ext4 设备挂载到 VFS 路径。
+pub fn mount_at<D: BlockDevice + 'static>(
+    filesystem: &mut Vfs,
+    target: &str,
+    device: D,
+) -> Result<(), MountError> {
+    let backend = Ext4Backend::mount(device).map_err(MountError::Ext4)?;
+    filesystem
+        .mount(target, Box::new(backend))
+        .map_err(MountError::Vfs)
 }
 
 /// ext4 VFS 后端。
@@ -149,11 +192,19 @@ pub struct Ext4Backend<D: BlockDevice> {
 }
 
 impl<D: BlockDevice> Ext4Backend<D> {
-    /// 挂载 ext4。
+    /// 以默认时钟挂载 ext4。
     pub fn mount(device: D) -> Result<Self, Ext4Error> {
+        Self::mount_with_clock(device, FixedClock)
+    }
+
+    /// 以指定时钟挂载 ext4；平台可注入 RTC/时间服务。
+    pub fn mount_with_clock<C>(device: D, clock: C) -> Result<Self, Ext4Error>
+    where
+        C: Clock + Send + 'static,
+    {
         let filesystem = Ext4::mount(
             Disk::new(device),
-            MountServices::new(FixedClock, SimpleEntropy::default(), NoopObserver),
+            MountServices::new(clock, SimpleEntropy::default(), NoopObserver),
             MountOptions::read_write(),
         )?;
         Ok(Self {
@@ -335,6 +386,7 @@ mod tests {
     use super::*;
     use alloc::rc::Rc;
     use hk_block::{MemoryDisk, SECTOR_SIZE};
+    use hk_vfs::{OpenFlags, Tmpfs, Vfs};
 
     const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
 
@@ -402,6 +454,28 @@ mod tests {
         fn flush(&mut self) -> Result<(), hk_block::BlockError> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn mounts_ext4_through_vfs() {
+        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        vfs.create_dir("/disk").expect("目录");
+        mount_at(&mut vfs, "/disk", formatted()).expect("挂载 ext4");
+
+        let handle = vfs
+            .open("/disk/hello", OpenFlags::CREATE)
+            .expect("创建文件");
+        vfs.write(handle, b"HolyKernel ext4 ok\n").expect("写入");
+        vfs.close(handle).expect("关闭");
+        vfs.sync_all().expect("刷写");
+
+        let handle = vfs
+            .open("/disk/hello", OpenFlags::READ_ONLY)
+            .expect("打开文件");
+        let mut buffer = [0_u8; 32];
+        let read = vfs.read(handle, &mut buffer).expect("读取");
+        assert_eq!(&buffer[..read], b"HolyKernel ext4 ok\n");
+        let _ = vfs.close(handle);
     }
 
     #[test]

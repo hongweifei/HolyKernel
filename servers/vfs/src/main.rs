@@ -16,7 +16,7 @@ use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_block::ipc::ClientDisk;
 #[cfg(target_os = "none")]
-use hk_fs_ext4::Ext4Backend;
+use hk_fs_ext4::mount_at;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::BumpHeap;
 #[cfg(target_os = "none")]
@@ -139,10 +139,7 @@ fn mount_ext4(filesystem: &mut Vfs, endpoint: u64) -> bool {
             let _ = yield_now();
             continue;
         };
-        let Ok(backend) = Ext4Backend::mount(disk) else {
-            return false;
-        };
-        return filesystem.mount("/disk", Box::new(backend)).is_ok();
+        return mount_at(filesystem, "/disk", disk).is_ok();
     }
     false
 }
