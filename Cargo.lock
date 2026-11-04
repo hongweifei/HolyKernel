@@ -133,11 +133,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-block-ipc"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-boot"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
  "limine",
+]
+
+[[package]]
+name = "hk-driver-virtio"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-hal",
+ "hk-server-api",
+ "spin",
+ "virtio-drivers",
 ]
 
 [[package]]
@@ -155,6 +174,15 @@ dependencies = [
  "hk-hal",
  "lovyangfx-fonts",
  "spin",
+]
+
+[[package]]
+name = "hk-fs-ext4"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-vfs",
+ "rsext4",
 ]
 
 [[package]]
@@ -264,12 +292,9 @@ name = "hk-server-block"
 version = "0.1.0"
 dependencies = [
  "hk-block",
- "hk-drivers",
- "hk-hal",
+ "hk-block-ipc",
  "hk-server-api",
  "hk-server-build",
- "spin",
- "virtio-drivers",
 ]
 
 [[package]]
@@ -337,9 +362,23 @@ dependencies = [
 name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
+ "hk-block-ipc",
+ "hk-fs-ext4",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
+]
+
+[[package]]
+name = "hk-server-virtio"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-block-ipc",
+ "hk-driver-virtio",
+ "hk-hal",
+ "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
@@ -462,6 +501,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rsext4"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d10f5947a8d47b4cca4da1b2e394ebd46fec43e3dfca8622a14c416fefd0cf38"
+dependencies = [
+ "bitflags",
+ "thiserror",
 ]
 
 [[package]]
@@ -591,6 +640,9 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hk-block",
+ "hk-fs-ext4",
+ "hk-vfs",
 ]
 
 [[package]]

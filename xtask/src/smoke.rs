@@ -3,10 +3,13 @@
 mod qmp;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use hk_block::{MemoryDisk, SECTOR_SIZE};
+use hk_vfs::Backend;
 use qmp::inject;
 
 use crate::failure::{Failure, Result};
@@ -15,6 +18,12 @@ use crate::workspace;
 
 /// 等待内核退出的上限。
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 测试磁盘大小。
+const TEST_DISK_BYTES: u64 = 64 * 1024 * 1024;
+
+/// ext4 自检写入的标记内容。
+const EXT4_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
 
 /// `isa-debug-exit` 的成功退出码：`(0 << 1) | 1`。
 const QEMU_SUCCESS: i32 = 1;
@@ -87,6 +96,9 @@ impl SmokeMode {
                 "hk-server-echo 已发出通知",
                 "hk-server-demo 通知等待 ok",
                 "hk-server-device: 发现",
+                "hk-server-virtio: virtio-blk sectors=131072",
+                "hk-server-vfs: ext4 mounted",
+                "hk-server-vfs: ext4 读写 ok",
                 "hk-server-spin: done",
                 "hk-server-spin: closed",
                 "VFS 读写 ok",
@@ -102,12 +114,12 @@ impl SmokeMode {
                 "HolyShell",
                 "当前任务：hk-server-echo",
                 "已启动：hk-server-device",
-                "任务表（7 项）",
+                "任务表（8 项）",
                 "父",
                 "句柄",
                 "Arena",
                 "VSpace",
-                "4/64K",
+                "4/1024K",
                 "Handle 计数",
                 "重启",
                 "已重启：hk-server-demo",
@@ -193,6 +205,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
 
     let iso = crate::image::run(selection, release, mode.cmdline())?;
+    let disk = prepare_disk()?;
     let log = workspace::root().join(mode.log_name());
     let _ = fs::remove_file(&log);
 
@@ -207,10 +220,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .arg(&iso)
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
-        .args([
-            "-drive",
-            "file=build/test-disk.img,if=none,id=disk,format=raw",
-        ])
+        .arg("-drive")
+        .arg(format!(
+            "file={},if=none,id=disk,format=raw",
+            disk.display()
+        ))
         .args(["-device", "virtio-blk-pci,drive=disk"])
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
     if mode == SmokeMode::Smp {
@@ -292,6 +306,51 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
                 "串口输出顺序不符：「{first}」应在「{second}」之前\n串口输出：\n{text}"
             )));
         }
+    }
+
+    if mode == SmokeMode::Boot {
+        verify_ext4(&disk)?;
+    }
+    Ok(())
+}
+
+/// 生成新的 ext4 测试磁盘。
+fn prepare_disk() -> Result<PathBuf> {
+    let path = workspace::root().join("build/test-disk.img");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| Failure::new(format!("创建 {} 失败：{error}", parent.display())))?;
+    }
+    let blocks = TEST_DISK_BYTES / SECTOR_SIZE as u64;
+    let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
+    let disk = hk_fs_ext4::format(disk)
+        .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?;
+    fs::write(&path, disk.into_data())
+        .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
+    Ok(path)
+}
+
+/// 从磁盘镜像重新挂载 ext4，确认 VFS 写入的标记文件已经持久化。
+fn verify_ext4(path: &Path) -> Result<()> {
+    let bytes = fs::read(path)
+        .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
+    let disk = MemoryDisk::from_data(bytes, SECTOR_SIZE)
+        .ok_or_else(|| Failure::new("测试磁盘长度不是扇区整数倍"))?;
+    let backend = hk_fs_ext4::Ext4Backend::mount(disk)
+        .map_err(|error| Failure::new(format!("重新挂载 ext4 失败：{error}")))?;
+    let root = backend.root();
+    let node = backend
+        .lookup(root, "hello")
+        .map_err(|error| Failure::new(format!("ext4 标记文件缺失：{error:?}")))?;
+    let mut buffer = [0_u8; 32];
+    let read = backend
+        .read(node, 0, &mut buffer)
+        .map_err(|error| Failure::new(format!("读取 ext4 标记文件失败：{error:?}")))?;
+    if &buffer[..read] != EXT4_MARKER {
+        return Err(Failure::new(format!(
+            "ext4 标记内容不符：{:?}",
+            &buffer[..read]
+        )));
     }
     Ok(())
 }

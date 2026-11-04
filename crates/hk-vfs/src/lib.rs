@@ -24,4 +24,6 @@ pub use devfs::Devfs;
 pub use path::normalize;
 pub use procfs::Procfs;
 pub use tmpfs::Tmpfs;
-pub use vfs::{Backend, DirEntry, FileHandle, FileType, Metadata, OpenFlags, Vfs, VfsError};
+pub use vfs::{
+    Backend, DirEntry, FileHandle, FileType, Metadata, NodeId, OpenFlags, Vfs, VfsError,
+};

@@ -77,6 +77,19 @@ impl MemoryDisk {
         }
     }
 
+    /// 用已有字节构造内存盘；长度必须是块大小的整数倍。
+    pub fn from_data(data: Vec<u8>, block_size: usize) -> Option<Self> {
+        if block_size == 0 || !data.len().is_multiple_of(block_size) {
+            return None;
+        }
+        Some(Self { data, block_size })
+    }
+
+    /// 返回底层字节。
+    pub fn into_data(self) -> Vec<u8> {
+        self.data
+    }
+
     fn offset(&self, block: u64, length: usize) -> Result<usize, BlockError> {
         if length == 0 || !length.is_multiple_of(self.block_size) {
             return Err(BlockError::InvalidLength);
@@ -140,5 +153,14 @@ mod tests {
             disk.read_blocks(0, &mut buffer),
             Err(BlockError::OutOfRange)
         );
+    }
+
+    #[test]
+    fn round_trips_raw_data() {
+        let data = vec![0x5A; SECTOR_SIZE * 2];
+        let disk = MemoryDisk::from_data(data.clone(), SECTOR_SIZE).expect("构造");
+        assert_eq!(disk.capacity_blocks(), 2);
+        assert_eq!(disk.into_data(), data);
+        assert!(MemoryDisk::from_data(vec![0; 3], SECTOR_SIZE).is_none());
     }
 }

@@ -161,6 +161,11 @@ pub trait Backend {
     fn cacheable(&self, _node: NodeId) -> bool {
         true
     }
+
+    /// 把后端缓存与挂起写入刷到稳定存储。
+    fn sync(&mut self) -> Result<(), VfsError> {
+        Ok(())
+    }
 }
 
 struct Instance {
@@ -401,6 +406,14 @@ impl Vfs {
         self.mounts.remove(index);
         self.dentries.clear();
         self.cache.clear();
+        Ok(())
+    }
+
+    /// 刷写全部后端的挂起写入。
+    pub fn sync_all(&mut self) -> Result<(), VfsError> {
+        for instance in &mut self.instances {
+            instance.backend.sync()?;
+        }
         Ok(())
     }
 

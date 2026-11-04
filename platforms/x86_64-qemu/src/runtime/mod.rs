@@ -16,10 +16,10 @@ use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, U
 const ARENA_BASE: u64 = 0x0100_0000;
 
 /// 相邻任务 Arena 的间隔。
-const ARENA_STRIDE: u64 = 0x2_0000;
+const ARENA_STRIDE: u64 = 0x20_0000;
 
 /// 每个任务的 Arena 大小。
-const ARENA_SIZE: u64 = 64 * 1024;
+const ARENA_SIZE: u64 = 1024 * 1024;
 
 /// 用户可访问地址上限。
 const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
