@@ -193,6 +193,9 @@ dependencies = [
 [[package]]
 name = "hk-keyboard-ps2"
 version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
 
 [[package]]
 name = "hk-mem"

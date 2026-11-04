@@ -1,53 +1,40 @@
 //! 16550 UART 控制台核心：寄存器序列与轮询收发。
 //!
-//! 平台通过 [`PortIo`] 提供端口或 MMIO 访问；本 crate 不依赖架构。
+//! 平台通过 [`Io`] 提供端口或 MMIO 访问；本 crate 不依赖架构。
 
 #![no_std]
 
-use hk_hal::Console;
+use hk_hal::{Console, Io};
 use spin::Mutex;
 
-/// UART 寄存器访问。
-pub trait PortIo: Send + Sync {
-    /// 读取偏移处的寄存器。
-    ///
-    /// # Safety
-    /// `offset` 必须在 UART 寄存器范围内（0..8）。
-    unsafe fn read(&self, offset: u8) -> u8;
-
-    /// 写入偏移处的寄存器。
-    ///
-    /// # Safety
-    /// `offset` 必须在 UART 寄存器范围内（0..8）。
-    unsafe fn write(&self, offset: u8, value: u8);
-}
-
 /// 16550 串口。
-pub struct Uart16550<P> {
-    port: P,
+pub struct Uart16550<I> {
+    io: I,
+    base: u64,
     exclusive: Mutex<()>,
 }
 
-impl<P: PortIo> Uart16550<P> {
-    /// 以端口访问对象构造串口。
-    pub const fn new(port: P) -> Self {
+impl<I: Io> Uart16550<I> {
+    /// 以寄存器访问对象与基址构造串口。
+    pub const fn new(io: I, base: u64) -> Self {
         Self {
-            port,
+            io,
+            base,
             exclusive: Mutex::new(()),
         }
     }
 
     /// 初始化串口：115200 波特、8 位数据、无校验、1 位停止位。
     pub fn init(&self) {
-        // SAFETY: 偏移均在 16550 寄存器范围内；调用方保证端口有效。
+        // SAFETY: 偏移均在 16550 寄存器范围内；调用方保证地址有效。
         unsafe {
-            self.port.write(1, 0x00);
-            self.port.write(3, 0x80);
-            self.port.write(0, 0x03);
-            self.port.write(1, 0x00);
-            self.port.write(3, 0x03);
-            self.port.write(2, 0xC7);
-            self.port.write(4, 0x0B);
+            self.io.write8(self.base + 1, 0x00);
+            self.io.write8(self.base + 3, 0x80);
+            self.io.write8(self.base, 0x03);
+            self.io.write8(self.base + 1, 0x00);
+            self.io.write8(self.base + 3, 0x03);
+            self.io.write8(self.base + 2, 0xC7);
+            self.io.write8(self.base + 4, 0x0B);
         }
     }
 
@@ -55,10 +42,10 @@ impl<P: PortIo> Uart16550<P> {
     pub fn write_byte(&self, byte: u8) {
         // SAFETY: 线路状态与发送寄存器偏移固定。
         unsafe {
-            while self.port.read(5) & 0x20 == 0 {
+            while self.io.read8(self.base + 5) & 0x20 == 0 {
                 core::hint::spin_loop();
             }
-            self.port.write(0, byte);
+            self.io.write8(self.base, byte);
         }
     }
 
@@ -66,16 +53,16 @@ impl<P: PortIo> Uart16550<P> {
     pub fn try_read_byte(&self) -> Option<u8> {
         // SAFETY: 线路状态与接收缓冲寄存器偏移固定。
         unsafe {
-            if self.port.read(5) & 0x01 == 0 {
+            if self.io.read8(self.base + 5) & 0x01 == 0 {
                 None
             } else {
-                Some(self.port.read(0))
+                Some(self.io.read8(self.base))
             }
         }
     }
 }
 
-impl<P: PortIo> Console for Uart16550<P> {
+impl<I: Io> Console for Uart16550<I> {
     fn write_str(&self, text: &str) {
         let _guard = self.exclusive.lock();
         for byte in text.bytes() {
@@ -88,30 +75,36 @@ impl<P: PortIo> Console for Uart16550<P> {
 mod tests {
     use super::*;
 
-    struct MockPort(Mutex<[u8; 8]>);
+    struct MockIo(Mutex<[u8; 8]>);
 
-    impl PortIo for MockPort {
-        unsafe fn read(&self, offset: u8) -> u8 {
+    impl Io for MockIo {
+        unsafe fn read8(&self, address: u64) -> u8 {
             let registers = self.0.lock();
-            if offset == 5 {
+            if address == 5 {
                 0x20
             } else {
-                registers[offset as usize]
+                registers[address as usize]
             }
         }
 
-        unsafe fn write(&self, offset: u8, value: u8) {
-            self.0.lock()[offset as usize] = value;
+        unsafe fn write8(&self, address: u64, value: u8) {
+            self.0.lock()[address as usize] = value;
         }
+
+        unsafe fn read32(&self, _address: u64) -> u32 {
+            0
+        }
+
+        unsafe fn write32(&self, _address: u64, _value: u32) {}
     }
 
     #[test]
     fn initializes_and_writes_bytes() {
-        let uart = Uart16550::new(MockPort(Mutex::new([0; 8])));
+        let uart = Uart16550::new(MockIo(Mutex::new([0; 8])), 0);
         uart.init();
         uart.write_byte(b'A');
 
-        let registers = uart.port.0.lock();
+        let registers = uart.io.0.lock();
         assert_eq!(registers[0], b'A');
         assert_eq!(registers[2], 0xC7);
         assert_eq!(registers[4], 0x0B);

@@ -7,6 +7,8 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
+use hk_hal::Io;
+
 const BUFFER_SIZE: usize = 256;
 
 const STATUS_OUTPUT_FULL: u8 = 1 << 0;
@@ -24,21 +26,6 @@ const KEY_0: u8 = 0x0B;
 const KEY_BACKSPACE: u8 = 0x0E;
 const KEY_ENTER: u8 = 0x1C;
 const KEY_SPACE: u8 = 0x39;
-
-/// 键盘控制器寄存器访问。
-pub trait PortIo: Send + Sync {
-    /// 读取端口。
-    ///
-    /// # Safety
-    /// 调用方保证端口属于键盘控制器。
-    unsafe fn read(&self, port: u16) -> u8;
-
-    /// 写入端口。
-    ///
-    /// # Safety
-    /// 调用方保证端口属于键盘控制器。
-    unsafe fn write(&self, port: u16, value: u8);
-}
 
 /// 键盘控制器端口。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,7 +92,7 @@ pub struct Ps2Keyboard<P> {
     extended: AtomicBool,
 }
 
-impl<P: PortIo> Ps2Keyboard<P> {
+impl<P: Io> Ps2Keyboard<P> {
     /// 构造键盘驱动。
     pub const fn new(port: P, ports: Ports) -> Self {
         Self {
@@ -122,23 +109,23 @@ impl<P: PortIo> Ps2Keyboard<P> {
         // SAFETY: 端口由平台提供，初始化序列只访问键盘控制器寄存器。
         unsafe {
             self.wait_input();
-            self.port.write(self.ports.command, 0xAD);
+            self.port.write8(u64::from(self.ports.command), 0xAD);
 
             self.flush_output();
 
             self.wait_input();
-            self.port.write(self.ports.command, 0x20);
+            self.port.write8(u64::from(self.ports.command), 0x20);
             let mut config = self.read_data();
             config |= 0x01 | 0x40;
             config &= !0x10;
 
             self.wait_input();
-            self.port.write(self.ports.command, 0x60);
+            self.port.write8(u64::from(self.ports.command), 0x60);
             self.wait_input();
-            self.port.write(self.ports.data, config);
+            self.port.write8(u64::from(self.ports.data), config);
 
             self.wait_input();
-            self.port.write(self.ports.command, 0xAE);
+            self.port.write8(u64::from(self.ports.command), 0xAE);
 
             self.flush_output();
         }
@@ -153,10 +140,10 @@ impl<P: PortIo> Ps2Keyboard<P> {
     pub fn handle_interrupt(&self) {
         // SAFETY: 状态端口与数据端口由平台提供；只读取一个到达的字节。
         unsafe {
-            if self.port.read(self.ports.status) & STATUS_OUTPUT_FULL == 0 {
+            if self.port.read8(u64::from(self.ports.status)) & STATUS_OUTPUT_FULL == 0 {
                 return;
             }
-            let scancode = self.port.read(self.ports.data);
+            let scancode = self.port.read8(u64::from(self.ports.data));
             self.decode(scancode);
         }
     }
@@ -199,7 +186,7 @@ impl<P: PortIo> Ps2Keyboard<P> {
     fn wait_input(&self) {
         for _ in 0..100_000 {
             // SAFETY: 端口由平台提供，只读取状态寄存器。
-            if unsafe { self.port.read(self.ports.status) } & STATUS_INPUT_FULL == 0 {
+            if unsafe { self.port.read8(u64::from(self.ports.status)) } & STATUS_INPUT_FULL == 0 {
                 return;
             }
             core::hint::spin_loop();
@@ -210,8 +197,8 @@ impl<P: PortIo> Ps2Keyboard<P> {
         for _ in 0..100_000 {
             // SAFETY: 端口由平台提供，只读取状态与数据寄存器。
             unsafe {
-                if self.port.read(self.ports.status) & STATUS_OUTPUT_FULL != 0 {
-                    return self.port.read(self.ports.data);
+                if self.port.read8(u64::from(self.ports.status)) & STATUS_OUTPUT_FULL != 0 {
+                    return self.port.read8(u64::from(self.ports.data));
                 }
             }
             core::hint::spin_loop();
@@ -223,10 +210,10 @@ impl<P: PortIo> Ps2Keyboard<P> {
         for _ in 0..64 {
             // SAFETY: 端口由平台提供，只读取状态与数据寄存器。
             unsafe {
-                if self.port.read(self.ports.status) & STATUS_OUTPUT_FULL == 0 {
+                if self.port.read8(u64::from(self.ports.status)) & STATUS_OUTPUT_FULL == 0 {
                     return;
                 }
-                let _ = self.port.read(self.ports.data);
+                let _ = self.port.read8(u64::from(self.ports.data));
             }
         }
     }
@@ -292,20 +279,26 @@ mod tests {
         data: AtomicU8,
     }
 
-    impl PortIo for MockPort {
-        unsafe fn read(&self, port: u16) -> u8 {
-            if port == Ports::I8042.status {
+    impl Io for MockPort {
+        unsafe fn read8(&self, address: u64) -> u8 {
+            if address == u64::from(Ports::I8042.status) {
                 self.status.load(Ordering::Relaxed)
             } else {
                 self.data.load(Ordering::Relaxed)
             }
         }
 
-        unsafe fn write(&self, port: u16, value: u8) {
-            if port == Ports::I8042.data {
+        unsafe fn write8(&self, address: u64, value: u8) {
+            if address == u64::from(Ports::I8042.data) {
                 self.data.store(value, Ordering::Relaxed);
             }
         }
+
+        unsafe fn read32(&self, _address: u64) -> u32 {
+            0
+        }
+
+        unsafe fn write32(&self, _address: u64, _value: u32) {}
     }
 
     fn keyboard() -> Ps2Keyboard<MockPort> {

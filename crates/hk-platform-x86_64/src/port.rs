@@ -2,6 +2,36 @@
 
 use core::arch::asm;
 
+use hk_hal::Io;
+
+/// x86 端口 I/O 实现。
+pub struct PortIo;
+
+/// 全局端口 I/O。
+pub const IO: PortIo = PortIo;
+
+impl Io for PortIo {
+    unsafe fn read8(&self, address: u64) -> u8 {
+        // SAFETY: 调用方保证端口可访问。
+        unsafe { inb(address as u16) }
+    }
+
+    unsafe fn write8(&self, address: u64, value: u8) {
+        // SAFETY: 调用方保证端口可访问。
+        unsafe { outb(address as u16, value) }
+    }
+
+    unsafe fn read32(&self, address: u64) -> u32 {
+        // SAFETY: 调用方保证端口可访问。
+        unsafe { inl(address as u16) }
+    }
+
+    unsafe fn write32(&self, address: u64, value: u32) {
+        // SAFETY: 调用方保证端口可访问。
+        unsafe { outl(address as u16, value) }
+    }
+}
+
 /// 从端口读取一个字节。
 ///
 /// # Safety

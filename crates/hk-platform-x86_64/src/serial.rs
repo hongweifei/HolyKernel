@@ -1,48 +1,23 @@
 //! x86_64 16550 串口：端口 I/O 适配。
 
 use hk_hal::Console;
-use hk_uart_16550::{PortIo, Uart16550};
+use hk_uart_16550::Uart16550;
 
-use crate::port::{inb, outb};
+use crate::port::{IO, PortIo};
 
 /// COM1 端口基址。
 pub const COM1: u16 = 0x3F8;
 
-/// x86 端口 I/O。
-struct PortSerial {
-    base: u16,
-}
-
-impl PortSerial {
-    const fn new(base: u16) -> Self {
-        Self { base }
-    }
-}
-
-impl PortIo for PortSerial {
-    unsafe fn read(&self, offset: u8) -> u8 {
-        // SAFETY: 调用方保证偏移处于 UART 寄存器范围。
-        unsafe { inb(self.base + u16::from(offset)) }
-    }
-
-    unsafe fn write(&self, offset: u8, value: u8) {
-        // SAFETY: 调用方保证偏移处于 UART 寄存器范围。
-        unsafe {
-            outb(self.base + u16::from(offset), value);
-        }
-    }
-}
-
 /// 16550 串口。
 pub struct Serial {
-    uart: Uart16550<PortSerial>,
+    uart: Uart16550<PortIo>,
 }
 
 impl Serial {
     /// 以端口基址构造串口。
     pub const fn new(base: u16) -> Self {
         Self {
-            uart: Uart16550::new(PortSerial::new(base)),
+            uart: Uart16550::new(IO, base as u64),
         }
     }
 
