@@ -12,6 +12,7 @@ pub mod addr;
 pub mod arch;
 pub mod boot;
 pub mod console;
+pub mod device;
 pub mod dma;
 pub mod entropy;
 pub mod execution;
@@ -35,6 +36,7 @@ pub use boot::{
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
 pub use console::Console;
+pub use device::{DeviceGrant, IoRange, MmioRange};
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
 pub use execution::{SyscallFrame, UserContext};

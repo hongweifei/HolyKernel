@@ -2,6 +2,7 @@
 
 use alloc::sync::Arc;
 
+use hk_hal::DeviceGrant;
 use hk_handle::{Object, ObjectHeader, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
 use hk_mem::{Frame, Untyped, VSpace};
@@ -19,6 +20,8 @@ pub enum ObjectPayload {
     Frame(Frame),
     /// 未类型化内存。
     Untyped(Mutex<Untyped>),
+    /// 设备授权。
+    DeviceGrant(DeviceGrant),
 }
 
 impl ObjectPayload {
@@ -30,6 +33,7 @@ impl ObjectPayload {
             Self::Notification(_) => ObjectKind::Notification,
             Self::Frame(_) => ObjectKind::Frame,
             Self::Untyped(_) => ObjectKind::Untyped,
+            Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
         }
     }
 }
@@ -95,6 +99,14 @@ impl KernelObject {
     pub fn untyped(&self) -> Option<&Mutex<Untyped>> {
         match &self.payload {
             ObjectPayload::Untyped(untyped) => Some(untyped),
+            _ => None,
+        }
+    }
+
+    /// 返回设备授权负载。
+    pub fn device_grant(&self) -> Option<&DeviceGrant> {
+        match &self.payload {
+            ObjectPayload::DeviceGrant(grant) => Some(grant),
             _ => None,
         }
     }

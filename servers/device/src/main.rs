@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_drivers::grant::DeviceGrant;
+use hk_drivers::grant::from_device;
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
@@ -107,7 +107,7 @@ fn write_device(device: &Device) {
         write_hex(u32::from(cap.id), 2);
     });
 
-    let grant = DeviceGrant::from_device(&SyscallConfig, device);
+    let grant = from_device(&SyscallConfig, device);
     for (index, range) in grant.mmio.iter().enumerate() {
         if let Some(range) = range {
             write(b"  grant-mmio");

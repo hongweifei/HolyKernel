@@ -11,7 +11,7 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::trace::{Category, TraceRing};
-use hk_hal::{Mmu, PhysRange};
+use hk_hal::{DeviceGrant, Mmu, PhysRange};
 use hk_handle::{Handle, HandleTable, Object, ObjectId, ObjectKind, Rights};
 use hk_ipc::{Message, SendOutcome, Waiter};
 use hk_mem::{Untyped, VSpace};
@@ -90,6 +90,17 @@ impl Kernel {
     /// 在指定线程的句柄表中创建端点。
     pub fn create_endpoint(&self, thread: TcbId, rights: Rights) -> Result<Handle, KernelError> {
         let payload = ObjectPayload::Endpoint(hk_ipc::Endpoint::new());
+        self.register(thread, Arc::new(KernelObject::new(payload)), rights)
+    }
+
+    /// 在指定线程的句柄表中创建设备授权对象。
+    pub fn create_device_grant(
+        &self,
+        thread: TcbId,
+        grant: DeviceGrant,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        let payload = ObjectPayload::DeviceGrant(grant);
         self.register(thread, Arc::new(KernelObject::new(payload)), rights)
     }
 

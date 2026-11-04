@@ -1,6 +1,6 @@
 //! 内核集成测试。
 
-use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
+use hk_hal::{DeviceGrant, MmioRange, PAGE_SIZE, PciAddress, PhysAddr, PhysRange};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 
@@ -365,4 +365,35 @@ fn dump_reports_threads_and_trace() {
     assert!(report.contains("tcb=1"), "{report}");
     assert!(report.contains("state=Blocked"), "{report}");
     assert!(report.contains("trace: events="), "{report}");
+}
+
+#[test]
+fn creates_device_grant_object() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let grant = DeviceGrant {
+        address: PciAddress::new(0, 1, 0, 0),
+        vendor: 0x1AF4,
+        device: 0x1001,
+        mmio: [
+            Some(MmioRange {
+                base: 0xFE00_0000,
+                len: 0x1000,
+            }),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
+        io: [None; 6],
+        irq: Some(11),
+        capabilities: [0x09; 8],
+        capability_count: 1,
+    };
+    kernel
+        .create_device_grant(worker, grant, Rights::READ | Rights::WRITE)
+        .expect("创建设备授权");
+    assert_eq!(kernel.live_objects(), 1);
+    assert_eq!(kernel.handles_live(worker), Some(1));
 }
