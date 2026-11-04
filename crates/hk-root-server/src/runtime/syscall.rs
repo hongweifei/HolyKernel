@@ -58,6 +58,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_DEVICE_GRANT_CREATE => self.create_grant(index, tcb, frame),
+            SYS_DEVICE_MAP => self.map_grant(index, tcb, frame),
             SYS_PCI_WRITE => {
                 let address = frame.arg0();
                 let bus = (address >> 8) as u8;
@@ -427,5 +428,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
         }
+    }
+    fn map_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let grant_number = frame.arg0() as usize;
+        let resource = frame.arg1() as usize;
+        let virt = frame.arg2();
+        let Some(handle) = self.grant_at(index, grant_number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(grant) = self.kernel.device_grant(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(range) = grant.mmio.get(resource).copied().flatten() else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
+            || !self
+                .platform
+                .map_mmio(index, virt, range.base, range.len as usize)
+        {
+            frame.set_result(u64::MAX);
+        } else {
+            frame.set_result(0);
+        }
+        Switch::Continue
     }
 }

@@ -26,6 +26,7 @@ const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
 static COW_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
+static MMIO_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
 
 /// 设置页表运行时使用的 direct map 基址。
 pub fn init_runtime(direct_map: u64) {
@@ -45,6 +46,21 @@ pub fn reserve_frames(allocator: &mut FrameAllocator, count: usize) {
 
 fn take_frame() -> Option<PhysAddr> {
     COW_FRAMES.lock().pop()
+}
+
+/// 预留 MMIO 映射所需的页表帧。
+pub fn reserve_mmio_frames(allocator: &mut FrameAllocator, count: usize) {
+    let mut frames = MMIO_FRAMES.lock();
+    for _ in 0..count {
+        let Some(frame) = allocator.allocate() else {
+            break;
+        };
+        frames.push(frame);
+    }
+}
+
+fn take_mmio_frame() -> Option<PhysAddr> {
+    MMIO_FRAMES.lock().pop()
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。
@@ -71,6 +87,8 @@ impl PageFlags {
     pub const USER_RW: Self = Self(WRITABLE | USER);
     /// 设备 MMIO 页：可写、写直达、禁止缓存。
     pub const MMIO: Self = Self(WRITABLE | PWT | PCD);
+    /// 用户可访问的设备 MMIO 页。
+    pub const USER_MMIO: Self = Self(WRITABLE | USER | PWT | PCD);
 
     const fn bits(self) -> u64 {
         self.0
@@ -276,6 +294,20 @@ impl PageTable {
         flags: PageFlags,
         allocator: &mut FrameAllocator,
     ) -> Result<(), PagingError> {
+        self.map_with(virt, phys, flags, || allocator.allocate())
+    }
+
+    /// 建立映射，并用调用方提供的分配器分配中间页表。
+    pub fn map_with<F>(
+        &self,
+        virt: VirtAddr,
+        phys: PhysAddr,
+        flags: PageFlags,
+        mut allocate: F,
+    ) -> Result<(), PagingError>
+    where
+        F: FnMut() -> Option<PhysAddr>,
+    {
         if !virt.is_page_aligned() || !phys.is_page_aligned() {
             return Err(PagingError::Unaligned);
         }
@@ -288,7 +320,7 @@ impl PageTable {
             let value = unsafe { entry.read_volatile() };
 
             if value & PRESENT == 0 {
-                let frame = allocator.allocate().ok_or(PagingError::OutOfFrames)?;
+                let frame = allocate().ok_or(PagingError::OutOfFrames)?;
                 self.zero_frame(frame);
                 // SAFETY: 同上；新页表已清零，写入指向它的当前级表项。
                 // 中间级必须带 USER，否则 ring 3 访问会被拒绝。
@@ -317,6 +349,16 @@ impl PageTable {
             asm!("invlpg [{}]", in(reg) virt.get(), options(nostack, preserves_flags));
         }
         Ok(())
+    }
+
+    /// 使用 MMIO 页表帧池建立映射。
+    pub fn map_mmio(
+        &self,
+        virt: VirtAddr,
+        phys: PhysAddr,
+        flags: PageFlags,
+    ) -> Result<(), PagingError> {
+        self.map_with(virt, phys, flags, take_mmio_frame)
     }
 
     fn entry(&self, table: PhysAddr, index: usize) -> *mut u64 {

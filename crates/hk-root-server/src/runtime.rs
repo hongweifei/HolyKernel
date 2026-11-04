@@ -12,10 +12,10 @@ use hk_hal::{DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE,
-    SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY,
-    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY,
-    SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_EXIT, SYS_FORK,
+    SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV,
+    SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC,
+    SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -99,6 +99,10 @@ pub trait UserPlatform {
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。
     fn pci_write(&self, _bus: u8, _device: u8, _function: u8, _offset: u8, _value: u32) {}
+    /// 把设备 MMIO 映射到任务地址空间。
+    fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+        false
+    }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);
     /// 从当前任务用户内存读取字节；地址无效时返回 `false`。
@@ -403,6 +407,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let slot = self.tasks[index].extra.len();
         self.tasks[index].extra.push(Some(handle));
         (EXTRA_HANDLE_BASE + slot + 1) as u64
+    }
+
+    fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
+        number
+            .checked_sub(GRANT_HANDLE_BASE + 1)
+            .and_then(|slot| self.tasks[index].grants.get(slot))
+            .copied()
     }
 
     fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {

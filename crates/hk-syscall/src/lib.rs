@@ -70,5 +70,8 @@ pub const SYS_PCI_WRITE: u64 = 20;
 /// 创建 DeviceGrant 对象。
 pub const SYS_DEVICE_GRANT_CREATE: u64 = 21;
 
+/// 把 DeviceGrant 的 MMIO 范围映射到当前任务。
+pub const SYS_DEVICE_MAP: u64 = 22;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

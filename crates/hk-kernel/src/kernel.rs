@@ -125,6 +125,17 @@ impl Kernel {
         self.register(thread, Arc::new(KernelObject::new(payload)), rights)
     }
 
+    /// 解析 DeviceGrant 对象。
+    pub fn device_grant(&self, thread: TcbId, handle: Handle) -> Result<DeviceGrant, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::DeviceGrant)?;
+        object
+            .device_grant()
+            .copied()
+            .ok_or(KernelError::WrongKind {
+                expected: ObjectKind::DeviceGrant,
+            })
+    }
+
     /// 从 Untyped 切分页帧并授予句柄。
     pub fn allocate_frame(
         &self,

@@ -127,6 +127,7 @@ extern "C" fn kmain() -> ! {
     let paging = PageTable::new(direct_map_base);
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
     hk_platform_x86_64::paging::reserve_frames(&mut allocator, 512);
+    hk_platform_x86_64::paging::reserve_mmio_frames(&mut allocator, 64);
 
     if let Err(error) = bootstrap::init_interrupts(&paging, &mut allocator, direct_map_base) {
         fail(

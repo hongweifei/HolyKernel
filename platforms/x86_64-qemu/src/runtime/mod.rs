@@ -46,6 +46,10 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::pci::config_write(bus, device, function, offset, value);
     }
 
+    fn map_mmio(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
+        USER_VSPACES.map_mmio(slot, virt, phys, len)
+    }
+
     fn zero(&self, address: u64, length: usize) {
         // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
         unsafe {

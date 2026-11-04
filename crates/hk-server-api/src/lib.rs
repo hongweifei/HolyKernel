@@ -183,6 +183,12 @@ pub fn device_grant_create(encoded: &[u8]) -> u64 {
     }
 }
 
+/// 把 DeviceGrant 指定的 MMIO 范围映射到 `virt`。
+pub fn device_map(grant: u64, index: u64, virt: u64) -> u64 {
+    // SAFETY: 内核校验授权范围与目标地址。
+    unsafe { syscall_call(SYS_DEVICE_MAP, grant, index, virt, 0).value }
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。
