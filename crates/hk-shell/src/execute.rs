@@ -65,7 +65,8 @@ pub fn execute_line<H: ShellHost>(
 ) -> bool {
     let response = {
         let tasks = host.tasks();
-        let state = ShellState::new(host.services(), &tasks);
+        let services = host.services();
+        let state = ShellState::new(&services, &tasks);
         execute(parse(line), &state, session)
     };
 

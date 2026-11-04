@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-root-server = { version = "0.1.0", path = "../hk-root-server" }
 
 [lints]
 workspace = true

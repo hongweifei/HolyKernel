@@ -3,7 +3,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
+use crate::view::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent};
 
 pub(crate) fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     if tasks.is_empty() {
@@ -74,11 +74,7 @@ pub(crate) fn format_trace(events: &[TraceEvent]) -> String {
     for event in events {
         output.push_str(&format!(
             "{:<4} {:<6} {:<4} {:<4} {:#x}\n",
-            event.sequence,
-            event.category.name(),
-            event.thread,
-            event.code,
-            event.argument
+            event.sequence, event.category, event.thread, event.code, event.argument
         ));
     }
     output
@@ -128,24 +124,21 @@ fn ns(cycles: u64, frequency: u64) -> u64 {
     ((u128::from(cycles) * 1_000_000_000) / u128::from(frequency)) as u64
 }
 
-pub(crate) fn format_services(services: &ServiceTable) -> String {
+pub(crate) fn format_services(services: &[ServiceInfo]) -> String {
     if services.is_empty() {
         return String::from("服务表为空\n");
     }
 
     let mut output = format!("服务表（{} 项）\n", services.len());
     output.push_str("名称              状态      重启  退出码\n");
-    for service in services.services() {
+    for service in services {
         let exit = match service.exit_code {
             Some(code) => format!("{code}"),
             None => String::from("-"),
         };
         output.push_str(&format!(
             "{:<16}  {:<8}  {:<4}  {}\n",
-            service.name,
-            service.state.name(),
-            service.restarts,
-            exit
+            service.name, service.state, service.restarts, exit
         ));
     }
     output

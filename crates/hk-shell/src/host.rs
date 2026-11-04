@@ -3,20 +3,20 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
+use crate::view::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent};
 
 /// 命令执行所需的系统视图。
 #[derive(Clone, Copy)]
 pub struct ShellState<'a> {
-    /// 服务表。
-    pub services: &'a ServiceTable,
+    /// 服务视图。
+    pub services: &'a [ServiceInfo],
     /// 任务视图。
     pub tasks: &'a [TaskInfo],
 }
 
 impl<'a> ShellState<'a> {
-    /// 以服务表与任务视图构造上下文。
-    pub const fn new(services: &'a ServiceTable, tasks: &'a [TaskInfo]) -> Self {
+    /// 以服务与任务视图构造上下文。
+    pub const fn new(services: &'a [ServiceInfo], tasks: &'a [TaskInfo]) -> Self {
         Self { services, tasks }
     }
 }
@@ -38,8 +38,8 @@ pub trait ShellHost {
     /// 返回任务视图快照。
     fn tasks(&self) -> Vec<TaskInfo>;
 
-    /// 返回服务表（宿主可先同步其他 CPU 的退出事件）。
-    fn services(&mut self) -> &ServiceTable;
+    /// 返回服务视图快照（宿主可先同步其他 CPU 的退出事件）。
+    fn services(&mut self) -> Vec<ServiceInfo>;
 
     /// 返回最近的内核 trace 事件。
     fn trace(&self, limit: usize) -> Vec<TraceEvent>;

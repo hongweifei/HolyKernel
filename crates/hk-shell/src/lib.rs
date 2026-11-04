@@ -13,12 +13,14 @@ mod format;
 mod host;
 mod response;
 mod session;
+mod view;
 
 pub use command::{Command, parse};
 pub use execute::{execute, execute_line, run_repl, run_script};
 pub use host::{ShellHost, ShellIo, ShellState};
 pub use response::Response;
 pub use session::Session;
+pub use view::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent};
 
 #[cfg(test)]
 mod tests;

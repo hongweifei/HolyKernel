@@ -374,9 +374,6 @@ dependencies = [
 [[package]]
 name = "hk-shell"
 version = "0.1.0"
-dependencies = [
- "hk-root-server",
-]
 
 [[package]]
 name = "hk-sim"

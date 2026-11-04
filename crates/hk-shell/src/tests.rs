@@ -6,14 +6,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
-
-#[cfg(test)]
-fn services() -> ServiceTable {
-    let mut table = ServiceTable::new();
-    table.register("hk-server-demo");
-    table.mark_exited("hk-server-demo", 0);
-    table
+fn services() -> Vec<ServiceInfo> {
+    alloc::vec![ServiceInfo {
+        name: String::from("hk-server-demo"),
+        state: "exited",
+        restarts: 0,
+        exit_code: Some(0),
+    }]
 }
 
 fn tasks() -> alloc::vec::Vec<TaskInfo> {
@@ -47,9 +46,9 @@ fn tasks() -> alloc::vec::Vec<TaskInfo> {
     ]
 }
 
-fn run(line: &str, table: &ServiceTable, tasks: &[TaskInfo]) -> Response {
+fn run(line: &str, services: &[ServiceInfo], tasks: &[TaskInfo]) -> Response {
     let mut session = Session::new();
-    execute(parse(line), &ShellState::new(table, tasks), &mut session)
+    execute(parse(line), &ShellState::new(services, tasks), &mut session)
 }
 
 #[test]
@@ -88,17 +87,17 @@ fn parses_known_commands() {
 
 #[test]
 fn echoes_arguments() {
-    let table = ServiceTable::new();
-    let response = run("echo hello  world", &table, &[]);
+    let services = Vec::new();
+    let response = run("echo hello  world", &services, &[]);
     assert_eq!(response.output, "hello  world\n");
     assert!(!response.exit);
 }
 
 #[test]
 fn lists_tasks_with_state_and_pending_call() {
-    let table = ServiceTable::new();
+    let services = Vec::new();
     let tasks = tasks();
-    let response = run("tasks", &table, &tasks);
+    let response = run("tasks", &services, &tasks);
     assert!(response.output.contains("任务表（2 项）"));
     assert!(response.output.contains("hk-server-demo"));
     assert!(response.output.contains("hk-server-echo"));
@@ -109,9 +108,9 @@ fn lists_tasks_with_state_and_pending_call() {
 
 #[test]
 fn focus_selects_current_task() {
-    let table = ServiceTable::new();
+    let services = Vec::new();
     let tasks = tasks();
-    let state = ShellState::new(&table, &tasks);
+    let state = ShellState::new(&services, &tasks);
     let mut session = Session::new();
 
     assert_eq!(
@@ -140,47 +139,47 @@ fn focus_selects_current_task() {
 
 #[test]
 fn start_requests_service_launch() {
-    let table = ServiceTable::new();
-    let response = run("start hk-server-device", &table, &[]);
+    let services = Vec::new();
+    let response = run("start hk-server-device", &services, &[]);
     assert_eq!(response.start.as_deref(), Some("hk-server-device"));
     assert_eq!(response.output, "");
 
-    let response = run("start", &table, &[]);
+    let response = run("start", &services, &[]);
     assert_eq!(response.start, None);
     assert_eq!(response.output, "用法：start <服务>\n");
 }
 
 #[test]
 fn restart_requests_service_launch() {
-    let table = ServiceTable::new();
-    let response = run("restart hk-server-demo", &table, &[]);
+    let services = Vec::new();
+    let response = run("restart hk-server-demo", &services, &[]);
     assert_eq!(response.restart.as_deref(), Some("hk-server-demo"));
     assert_eq!(response.output, "");
 
-    let response = run("restart", &table, &[]);
+    let response = run("restart", &services, &[]);
     assert_eq!(response.restart, None);
     assert_eq!(response.output, "用法：restart <服务>\n");
 }
 
 #[test]
 fn trace_requests_events() {
-    let table = ServiceTable::new();
-    let response = run("trace", &table, &[]);
+    let services = Vec::new();
+    let response = run("trace", &services, &[]);
     assert!(response.trace);
 }
 
 #[test]
 fn stats_requests_statistics() {
-    let table = ServiceTable::new();
-    let response = run("stats", &table, &[]);
+    let services = Vec::new();
+    let response = run("stats", &services, &[]);
     assert!(response.stats);
 }
 
 #[test]
 fn lists_handle_counts() {
-    let table = ServiceTable::new();
+    let services = Vec::new();
     let tasks = tasks();
-    let response = run("handles", &table, &tasks);
+    let response = run("handles", &services, &tasks);
     assert!(response.output.contains("Handle 计数（2 项）"));
     assert!(response.output.contains("hk-server-demo"));
     assert!(response.output.contains('5'));
@@ -188,15 +187,15 @@ fn lists_handle_counts() {
 
 #[test]
 fn reports_empty_task_table() {
-    let table = ServiceTable::new();
-    let response = run("tasks", &table, &[]);
+    let services = Vec::new();
+    let response = run("tasks", &services, &[]);
     assert_eq!(response.output, "任务表为空\n");
 }
 
 #[test]
 fn lists_services_with_exit_codes() {
-    let table = services();
-    let response = run("services", &table, &[]);
+    let services = services();
+    let response = run("services", &services, &[]);
     assert!(response.output.contains("服务表（1 项）"));
     assert!(response.output.contains("hk-server-demo"));
     assert!(response.output.contains("exited"));
@@ -205,11 +204,13 @@ fn lists_services_with_exit_codes() {
 
 #[test]
 fn lists_restart_counts() {
-    let mut table = ServiceTable::new();
-    table.register("clock");
-    table.mark_exited("clock", 1);
-    table.mark_running("clock");
-    let response = run("services", &table, &[]);
+    let services = alloc::vec![ServiceInfo {
+        name: String::from("clock"),
+        state: "running",
+        restarts: 1,
+        exit_code: None,
+    }];
+    let response = run("services", &services, &[]);
     assert!(
         response
             .output
@@ -220,27 +221,27 @@ fn lists_restart_counts() {
 
 #[test]
 fn reports_empty_service_table() {
-    let table = ServiceTable::new();
-    let response = run("services", &table, &[]);
+    let services = Vec::new();
+    let response = run("services", &services, &[]);
     assert_eq!(response.output, "服务表为空\n");
 }
 
 #[test]
 fn clear_and_exit_are_flags() {
-    let table = ServiceTable::new();
-    let clear = run("clear", &table, &[]);
+    let services = Vec::new();
+    let clear = run("clear", &services, &[]);
     assert!(clear.clear);
     assert_eq!(clear.output, "");
 
-    let exit = run("exit", &table, &[]);
+    let exit = run("exit", &services, &[]);
     assert!(exit.exit);
     assert_eq!(exit.output, "");
 }
 
 #[test]
 fn reports_unknown_command() {
-    let table = ServiceTable::new();
-    let response = run("bogus x", &table, &[]);
+    let services = Vec::new();
+    let response = run("bogus x", &services, &[]);
     assert_eq!(response.output, "未知命令：bogus\n");
     assert!(!response.exit);
 }
@@ -265,7 +266,7 @@ impl ShellIo for MockIo {
 }
 
 struct MockHost {
-    services: ServiceTable,
+    services: Vec<ServiceInfo>,
     started: Vec<String>,
     restarted: Vec<String>,
     scripts: Vec<(&'static str, &'static str)>,
@@ -276,8 +277,8 @@ impl ShellHost for MockHost {
         alloc::vec::Vec::new()
     }
 
-    fn services(&mut self) -> &ServiceTable {
-        &self.services
+    fn services(&mut self) -> Vec<ServiceInfo> {
+        self.services.clone()
     }
 
     fn start(&mut self, name: &str, _parent: Option<&str>) -> String {
@@ -314,7 +315,7 @@ fn script_prints_empty_trace() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -333,7 +334,7 @@ fn script_prints_stats() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -352,7 +353,7 @@ fn script_runs_until_exit() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -379,7 +380,7 @@ fn script_starts_service_through_host() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -399,7 +400,7 @@ fn script_restarts_service_through_host() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -419,7 +420,7 @@ fn use_evaluates_script_in_session() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: alloc::vec![("boot.hsh", "# 注释\necho script-ok\nstart clock\n")],
@@ -441,7 +442,7 @@ fn load_is_alias_for_use() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: alloc::vec![("boot", "echo loaded\n")],
@@ -460,7 +461,7 @@ fn reports_missing_script() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: Vec::new(),
@@ -483,7 +484,7 @@ fn limits_nested_scripts() {
         cleared: core::cell::Cell::new(false),
     };
     let mut host = MockHost {
-        services: ServiceTable::new(),
+        services: Vec::new(),
         started: Vec::new(),
         restarted: Vec::new(),
         scripts: alloc::vec![("loop.hsh", "use loop.hsh\n")],

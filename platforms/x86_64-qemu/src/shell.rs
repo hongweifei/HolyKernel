@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use hk_hal::{BootInfo, Console};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageTable, Serial, keyboard};
-use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
+use hk_root_server::ServiceTable;
 use hk_shell::{Session, ShellHost, ShellIo};
 
 use crate::{loader, runtime};
@@ -88,21 +88,64 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
 }
 
 impl ShellHost for Host<'_, '_> {
-    fn tasks(&self) -> Vec<TaskInfo> {
+    fn tasks(&self) -> Vec<hk_shell::TaskInfo> {
         runtime::tasks()
+            .into_iter()
+            .map(|task| hk_shell::TaskInfo {
+                tcb: task.tcb,
+                name: task.name,
+                parent: task.parent,
+                endpoint: task.endpoint,
+                state: task.state,
+                pending: task.pending,
+                handles: task.handles,
+                arena_used: task.arena_used,
+                arena_size: task.arena_size,
+                vspace: task.vspace,
+                exit_code: task.exit_code,
+            })
+            .collect()
     }
 
-    fn services(&mut self) -> &ServiceTable {
+    fn services(&mut self) -> Vec<hk_shell::ServiceInfo> {
         runtime::drain_exits(self.services);
         self.services
+            .services()
+            .iter()
+            .map(|service| hk_shell::ServiceInfo {
+                name: service.name.clone(),
+                state: service.state.name(),
+                restarts: service.restarts,
+                exit_code: service.exit_code,
+            })
+            .collect()
     }
 
-    fn trace(&self, limit: usize) -> Vec<TraceEvent> {
+    fn trace(&self, limit: usize) -> Vec<hk_shell::TraceEvent> {
         runtime::trace(limit)
+            .into_iter()
+            .map(|event| hk_shell::TraceEvent {
+                sequence: event.sequence,
+                category: event.category.name(),
+                thread: event.thread,
+                code: event.code,
+                argument: event.argument,
+            })
+            .collect()
     }
 
-    fn stats(&self) -> RuntimeStats {
-        runtime::stats()
+    fn stats(&self) -> hk_shell::RuntimeStats {
+        let stats = runtime::stats();
+        hk_shell::RuntimeStats {
+            switches: stats.switches,
+            switch_cycles: stats.switch_cycles,
+            switch_max_cycles: stats.switch_max_cycles,
+            calls: stats.calls,
+            call_cycles: stats.call_cycles,
+            call_max_cycles: stats.call_max_cycles,
+            resumes: stats.resumes.to_vec(),
+            tsc_frequency: stats.tsc_frequency,
+        }
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
