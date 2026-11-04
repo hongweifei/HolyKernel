@@ -129,6 +129,50 @@ fn blocks_sender_until_receiver_arrives() {
 }
 
 #[test]
+fn recv_from_skips_other_senders() {
+    let kernel = kernel();
+    let first = thread(&kernel);
+    let second = thread(&kernel);
+    let receiver = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(first, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(first, endpoint).expect("端点标识");
+    let receiver_endpoint = kernel
+        .grant(receiver, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予接收方句柄");
+    let second_endpoint = kernel
+        .grant(second, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予第二个发送方句柄");
+
+    kernel
+        .send(second, second_endpoint, Message::new(2))
+        .expect("发送");
+    assert!(
+        kernel
+            .recv_from(receiver, receiver_endpoint, Some(first))
+            .expect("接收")
+            .is_none()
+    );
+
+    kernel.send(first, endpoint, Message::new(1)).expect("发送");
+    let received = kernel
+        .recv_from(receiver, receiver_endpoint, Some(first))
+        .expect("接收")
+        .expect("收到第一个发送方的消息");
+    assert_eq!(received.sender, first);
+    assert_eq!(received.message.label, 1);
+
+    let received = kernel
+        .recv(receiver, receiver_endpoint)
+        .expect("接收")
+        .expect("收到排队消息");
+    assert_eq!(received.sender, second);
+    assert_eq!(received.message.label, 2);
+}
+
+#[test]
 fn call_and_reply_round_trip() {
     let kernel = kernel();
     let client = thread(&kernel);

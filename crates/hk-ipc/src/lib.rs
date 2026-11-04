@@ -98,9 +98,14 @@ struct PendingSend {
     message: Message,
 }
 
+struct PendingRecv {
+    receiver: Waiter,
+    expected: Option<Waiter>,
+}
+
 #[derive(Default)]
 struct EndpointState {
-    receivers: VecDeque<Waiter>,
+    receivers: VecDeque<PendingRecv>,
     senders: VecDeque<PendingSend>,
 }
 
@@ -141,10 +146,23 @@ impl Endpoint {
     }
 
     /// 发送消息。
+    ///
+    /// 优先交付给愿意接收该发送者的等待者；`expected` 为 `None` 的接收者
+    /// 接收任意发送者。
     pub fn send(&self, sender: Waiter, message: Message) -> SendOutcome {
         let mut state = self.state.lock();
-        match state.receivers.pop_front() {
-            Some(receiver) => SendOutcome::Delivered { receiver, message },
+        let index = state
+            .receivers
+            .iter()
+            .position(|pending| pending.expected.is_none() || pending.expected == Some(sender));
+        match index {
+            Some(index) => {
+                let pending = state.receivers.remove(index).expect("接收者已索引");
+                SendOutcome::Delivered {
+                    receiver: pending.receiver,
+                    message,
+                }
+            }
             None => {
                 state.senders.push_back(PendingSend { sender, message });
                 SendOutcome::Queued
@@ -152,16 +170,33 @@ impl Endpoint {
         }
     }
 
-    /// 接收消息；没有待取消息时把接收者登记为等待者。
+    /// 接收任意发送者的消息；没有待取消息时把接收者登记为等待者。
     pub fn recv(&self, receiver: Waiter) -> Option<(Waiter, Message)> {
+        self.recv_from(receiver, None)
+    }
+
+    /// 接收指定发送者的消息；没有匹配消息时把接收者登记为等待者。
+    pub fn recv_from(
+        &self,
+        receiver: Waiter,
+        expected: Option<Waiter>,
+    ) -> Option<(Waiter, Message)> {
         let mut state = self.state.lock();
-        match state.senders.pop_front() {
-            Some(pending) => Some((pending.sender, pending.message)),
-            None => {
-                state.receivers.push_back(receiver);
-                None
-            }
+        let index = match expected {
+            None => (!state.senders.is_empty()).then_some(0),
+            Some(expected) => state
+                .senders
+                .iter()
+                .position(|pending| pending.sender == expected),
+        };
+        if let Some(index) = index {
+            let pending = state.senders.remove(index)?;
+            return Some((pending.sender, pending.message));
         }
+        state
+            .receivers
+            .push_back(PendingRecv { receiver, expected });
+        None
     }
 
     /// 撤销发送者的排队消息，用于超时与取消。
@@ -176,7 +211,9 @@ impl Endpoint {
     pub fn cancel_receiver(&self, receiver: Waiter) -> bool {
         let mut state = self.state.lock();
         let before = state.receivers.len();
-        state.receivers.retain(|waiter| *waiter != receiver);
+        state
+            .receivers
+            .retain(|pending| pending.receiver != receiver);
         state.receivers.len() != before
     }
 
@@ -295,6 +332,30 @@ mod tests {
             }
         );
         assert_eq!(endpoint.waiting_receivers(), 0);
+    }
+
+    #[test]
+    fn recv_from_only_takes_matching_sender() {
+        let endpoint = Endpoint::new();
+        assert_eq!(endpoint.recv_from(waiter(3), Some(waiter(1))), None);
+
+        let other = Message::new(20);
+        assert_eq!(endpoint.send(waiter(2), other.clone()), SendOutcome::Queued);
+
+        let expected = Message::new(10);
+        assert_eq!(
+            endpoint.send(waiter(1), expected.clone()),
+            SendOutcome::Delivered {
+                receiver: waiter(3),
+                message: expected,
+            }
+        );
+
+        let (sender, message) = endpoint
+            .recv_from(waiter(4), Some(waiter(2)))
+            .expect("匹配发送者");
+        assert_eq!(sender, waiter(2));
+        assert_eq!(message, other);
     }
 
     #[test]

@@ -222,6 +222,20 @@ impl Tcb {
         self.deliveries.pop_front()
     }
 
+    /// 取走指定发送者的最早一条待取消息；`None` 表示任意发送者。
+    pub fn take_delivery_from(&mut self, expected: Option<TcbId>) -> Option<PendingDelivery> {
+        match expected {
+            None => self.deliveries.pop_front(),
+            Some(expected) => {
+                let index = self
+                    .deliveries
+                    .iter()
+                    .position(|delivery| delivery.sender == expected)?;
+                self.deliveries.remove(index)
+            }
+        }
+    }
+
     /// 追加一条待取消息。
     pub fn push_delivery(&mut self, delivery: PendingDelivery) {
         self.deliveries.push_back(delivery);

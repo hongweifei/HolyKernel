@@ -527,11 +527,12 @@ fn failed_service_wakes_inflight_recv_with_empty_response() {
     };
     let other = 1 - index;
     let handle = runtime.tasks[index].handles[index].expect("自己的端点");
+    let other_tcb = runtime.tasks[other].tcb;
     runtime.tasks[index].pending = Pending::RecvData {
         handle,
         buffer: 0x1000,
         capacity: 4096,
-        expected: Some(other as u64 + 1),
+        expected: Some(other_tcb),
     };
     runtime.tasks[other].exited = true;
 

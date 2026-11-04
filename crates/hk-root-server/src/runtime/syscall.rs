@@ -2,7 +2,7 @@
 
 use super::*;
 
-const MAX_USER_DATA: usize = 4096;
+const MAX_USER_DATA: usize = 8192;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 分派一次系统调用。
@@ -524,13 +524,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        match self.kernel.recv(tcb, handle) {
+        let expected = self.tcb_of_endpoint(frame.arg3());
+        match self.kernel.recv_from(tcb, handle, expected) {
             Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
             Ok(None) => {
                 let mut context = *frame;
                 context.set_result(0);
                 self.tasks[index].context = context;
-                let expected = (frame.arg3() != 0).then(|| frame.arg3());
                 self.tasks[index].pending = Pending::RecvData {
                     handle,
                     buffer,

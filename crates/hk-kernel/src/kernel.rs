@@ -358,11 +358,21 @@ impl Kernel {
         thread: TcbId,
         endpoint_handle: Handle,
     ) -> Result<Option<Received>, KernelError> {
+        self.recv_from(thread, endpoint_handle, None)
+    }
+
+    /// 接收指定发送者的消息；`expected` 为 `None` 时接收任意发送者。
+    pub fn recv_from(
+        &self,
+        thread: TcbId,
+        endpoint_handle: Handle,
+        expected: Option<TcbId>,
+    ) -> Result<Option<Received>, KernelError> {
         if let Some(delivery) = self
             .threads
             .lock()
             .get_mut(&thread)
-            .and_then(Tcb::take_delivery)
+            .and_then(|tcb| tcb.take_delivery_from(expected))
         {
             return Ok(Some(Received {
                 sender: delivery.sender,
@@ -377,7 +387,10 @@ impl Kernel {
             expected: ObjectKind::Endpoint,
         })?;
 
-        match endpoint.recv(Waiter::new(thread.get())) {
+        match endpoint.recv_from(
+            Waiter::new(thread.get()),
+            expected.map(|tcb| Waiter::new(tcb.get())),
+        ) {
             Some((sender, message)) => {
                 let sender = TcbId::new(sender.get());
                 let reply = self.reply_token(sender, endpoint_id);

@@ -324,6 +324,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let exited_endpoint = index as u64 + 1;
+        let exited_tcb = self.tasks[index].tcb;
         for other in 0..self.tasks.len() {
             if other == index || self.tasks[other].exited {
                 continue;
@@ -334,7 +335,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     handle,
                     expected: Some(expected),
                     ..
-                } if expected == exited_endpoint => {
+                } if expected == exited_tcb => {
                     let _ = self.kernel.cancel_recv(tcb, handle);
                     let mut context = self.tasks[other].context;
                     context.set_result(0);
@@ -444,10 +445,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 handle,
                 buffer,
                 capacity,
-                expected: _,
+                expected,
             } => {
                 let tcb = self.tasks[index].tcb;
-                match self.kernel.recv(tcb, handle) {
+                match self.kernel.recv_from(tcb, handle, expected) {
                     Ok(Some(received)) => {
                         let mut frame = self.tasks[index].context;
                         let _ = self.deliver_data(index, &mut frame, &received, buffer, capacity);

@@ -32,6 +32,9 @@ const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
 /// 系统调用允许的最大写入长度。
 const MAX_WRITE: usize = 4096;
 
+/// 串口写锁：一次 `write` 系统调用独占控制台，避免服务输出交错。
+static WRITE_LOCK: spin::Mutex<()> = spin::Mutex::new(());
+
 pub(super) fn handle_syscall(frame: &mut InterruptFrame) {
     if frame.rax == hk_syscall::SYS_WRITE {
         let pointer = frame.rdi;
@@ -94,6 +97,7 @@ fn write_user(pointer: u64, length: usize) -> u64 {
     let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length) };
     match core::str::from_utf8(bytes) {
         Ok(text) => {
+            let _guard = WRITE_LOCK.lock();
             Serial::new(COM1).write_str(text);
             length as u64
         }

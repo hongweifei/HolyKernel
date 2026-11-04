@@ -55,8 +55,8 @@ pub enum Pending {
         buffer: u64,
         /// 缓冲区容量。
         capacity: usize,
-        /// 期望的响应端点编号。
-        expected: Option<u64>,
+        /// 期望的发送线程。
+        expected: Option<TcbId>,
     },
     /// 通知等待已登记。
     Notify {
@@ -437,7 +437,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .collect()
     }
 
-    /// 装载一个新任务，返回分配的端点编号。
+    /// 把端点编号解析为对应的任务线程。
+    fn tcb_of_endpoint(&self, endpoint: u64) -> Option<TcbId> {
+        let slot = usize::try_from(endpoint).ok()?.checked_sub(1)?;
+        self.tasks.get(slot).map(|task| task.tcb)
+    }
+
     fn endpoint_of(&self, tcb: TcbId) -> u64 {
         self.tasks
             .iter()
