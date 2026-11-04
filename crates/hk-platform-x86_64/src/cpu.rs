@@ -589,6 +589,17 @@ pub fn start_tick() {
     unsafe { asm!("sti", options(nomem, nostack)) };
 }
 
+/// 启动 AP 的周期性调度 tick，复用 BSP 校准的计数，不重置全局 tick 计数。
+pub fn start_ap_tick() {
+    lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
+    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
+    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    unsafe {
+        asm!("sti", options(nomem, nostack));
+    }
+}
+
 /// 停止调度 tick 并关中断。
 pub fn stop_tick() {
     // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。

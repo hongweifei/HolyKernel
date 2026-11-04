@@ -53,6 +53,7 @@ unsafe extern "C" fn ap_entry(info: *mut ApCpu) -> ! {
         (cpu.lapic_id, cpu.extra.load(Ordering::Acquire) as usize)
     };
     cpu::init_ap(cpu_index);
+    cpu::start_ap_tick();
     AP_POOL.mark_online(lapic_id);
     crate::runtime::run_ap(cpu_index)
 }
