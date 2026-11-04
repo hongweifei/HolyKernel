@@ -16,7 +16,7 @@ use alloc::vec;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
-use hk_block::ipc::ClientDisk;
+use hk_block::ipc::{ClientDisk, register_client_frame, unregister_client_frame};
 #[cfg(target_os = "none")]
 use hk_fs_ext4::mount_at_with_wall_clock;
 #[cfg(target_os = "none")]
@@ -30,11 +30,13 @@ use hk_server_api::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME,
     OP_STAT, OP_SYNC, OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_FRAME, OPEN_CREATE,
     OPEN_READ, OPEN_WRITE, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND,
-    STATUS_OK, STATUS_PERMISSION, VFS_ATTACH, VFS_REQUEST, VFS_RESPONSE, VFS_SERVER_FRAME_BASE,
-    VFS_SERVER_FRAME_STRIDE, decode_request, encode_response,
+    STATUS_OK, STATUS_PERMISSION, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, VFS_RESPONSE,
+    VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{frame_map, recv_data_handle, send_data, write, yield_now};
+use hk_server_api::{
+    close_handle, frame_map, frame_unmap, recv_data_handle, send_data, write, yield_now,
+};
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, FileHandle, FileType, OpenFlags, Procfs, Tmpfs, Vfs, VfsError};
 
@@ -84,7 +86,7 @@ impl Session {
 #[cfg(target_os = "none")]
 struct Sessions {
     clients: BTreeMap<u64, Session>,
-    frames: BTreeMap<u64, (u64, usize)>,
+    frames: BTreeMap<u64, (u64, usize, u64)>,
     next_frame: usize,
 }
 
@@ -110,13 +112,35 @@ impl Sessions {
         if frame_map(handle, virt) != length as u64 {
             return false;
         }
-        self.frames.insert(sender, (virt, length));
+        if let Some((old_virt, old_len, old_handle)) =
+            self.frames.insert(sender, (virt, length, handle))
+        {
+            let _ = frame_unmap(old_virt, old_len);
+            let _ = close_handle(old_handle);
+            unregister_client_frame(old_virt);
+        }
+        register_client_frame(virt, handle, length);
         self.next_frame += 1;
         true
     }
 
+    fn detach(&mut self, sender: u64, filesystem: &mut Vfs) {
+        if let Some((virt, length, handle)) = self.frames.remove(&sender) {
+            let _ = frame_unmap(virt, length);
+            let _ = close_handle(handle);
+            unregister_client_frame(virt);
+        }
+        if let Some(session) = self.clients.remove(&sender) {
+            for handle in session.handles.into_values() {
+                let _ = filesystem.close(handle);
+            }
+        }
+    }
+
     fn frame(&self, sender: u64) -> Option<(u64, usize)> {
-        self.frames.get(&sender).copied()
+        self.frames
+            .get(&sender)
+            .map(|(virt, length, _)| (*virt, *length))
     }
 }
 
@@ -169,6 +193,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             recv_data_handle(endpoint, &mut request, 0);
         if frame_handle != 0 && label == VFS_ATTACH {
             let _ = sessions.attach_frame(sender, frame_handle, word as usize);
+            continue;
+        }
+        if label == VFS_DETACH {
+            sessions.detach(sender, &mut filesystem);
             continue;
         }
         if label != VFS_REQUEST {

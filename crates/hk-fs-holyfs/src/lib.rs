@@ -11,6 +11,7 @@ extern crate std;
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -229,6 +230,7 @@ pub struct HolyFs<D: BlockDevice> {
     superblock: RefCell<Superblock>,
     block_bitmap: RefCell<Vec<u8>>,
     inode_bitmap: RefCell<Vec<u8>>,
+    inode_cache: RefCell<BTreeMap<u64, Inode>>,
     next_hint: Cell<u64>,
 }
 
@@ -245,6 +247,7 @@ impl<D: BlockDevice> HolyFs<D> {
             }),
             block_bitmap: RefCell::new(vec![0_u8; BLOCK_SIZE]),
             inode_bitmap: RefCell::new(vec![0_u8; BLOCK_SIZE]),
+            inode_cache: RefCell::new(BTreeMap::new()),
             next_hint: Cell::new(DATA_START),
         };
         let mut block = [0_u8; BLOCK_SIZE];
@@ -364,13 +367,19 @@ impl<D: BlockDevice> HolyFs<D> {
         if id == 0 || id > MAX_INODES as u64 {
             return Err(HolyError::NotFound);
         }
+        if let Some(inode) = self.inode_cache.borrow().get(&id) {
+            return Ok(*inode);
+        }
         let index = (id - 1) as usize;
         let byte = index * INODE_SIZE;
         let block = INODE_TABLE_START + (byte / BLOCK_SIZE) as u64;
         let offset = byte % BLOCK_SIZE;
         let mut buffer = [0_u8; BLOCK_SIZE];
         self.read_block(block, &mut buffer)?;
-        Inode::decode(id, &buffer[offset..offset + INODE_SIZE]).ok_or(HolyError::Corrupt)
+        let inode =
+            Inode::decode(id, &buffer[offset..offset + INODE_SIZE]).ok_or(HolyError::Corrupt)?;
+        self.inode_cache.borrow_mut().insert(id, inode);
+        Ok(inode)
     }
 
     fn write_inode(&self, inode: &Inode) -> Result<(), HolyError> {
@@ -381,7 +390,9 @@ impl<D: BlockDevice> HolyFs<D> {
         let mut buffer = [0_u8; BLOCK_SIZE];
         self.read_block(block, &mut buffer)?;
         buffer[offset..offset + INODE_SIZE].copy_from_slice(&inode.encode());
-        self.write_block(block, &buffer)
+        self.write_block(block, &buffer)?;
+        self.inode_cache.borrow_mut().insert(inode.id, *inode);
+        Ok(())
     }
 
     fn allocate_inode(&self) -> Result<u64, HolyError> {
@@ -824,6 +835,7 @@ pub fn format<D: BlockDevice>(device: D) -> Result<D, HolyError> {
         }),
         block_bitmap: RefCell::new(vec![0_u8; BLOCK_SIZE]),
         inode_bitmap: RefCell::new(vec![0_u8; BLOCK_SIZE]),
+        inode_cache: RefCell::new(BTreeMap::new()),
         next_hint: Cell::new(DATA_START + 1),
     };
     let capacity = fs.device.borrow().capacity_blocks();

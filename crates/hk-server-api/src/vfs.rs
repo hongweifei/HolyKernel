@@ -1,8 +1,8 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
 use crate::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, frame_alloc, handle_duplicate, recv_data_from,
-    send_data, send_handle, service_endpoint,
+    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, frame_alloc, handle_duplicate,
+    recv_data_from, send_data, send_handle, service_endpoint,
 };
 
 /// 请求标签。
@@ -11,6 +11,8 @@ pub const VFS_REQUEST: u64 = 0x500;
 pub const VFS_RESPONSE: u64 = 0x501;
 /// 附加共享 Frame。
 pub const VFS_ATTACH: u64 = 0x502;
+/// 解除共享 Frame。
+pub const VFS_DETACH: u64 = 0x503;
 
 /// 打开文件。
 pub const OP_OPEN: u8 = 1;
@@ -198,9 +200,13 @@ pub struct VfsClient {
 
 impl Drop for VfsClient {
     fn drop(&mut self) {
-        if self.frame.is_some() {
+        if let Some(number) = self.frame {
+            let endpoint = service_endpoint(self.service);
+            if endpoint != 0 {
+                let _ = send_data(endpoint, VFS_DETACH, &[]);
+            }
             let _ = crate::frame_unmap(VFS_FRAME_VIRT, VFS_FRAME_LEN);
-            let _ = crate::close_handle(self.frame.unwrap_or(0));
+            let _ = crate::close_handle(number);
         }
     }
 }
@@ -235,7 +241,10 @@ impl VfsClient {
             self.frame = Some(number);
         }
         let number = self.frame.ok_or(STATUS_IO)?;
-        let duplicate = handle_duplicate(number, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
+        let duplicate = handle_duplicate(
+            number,
+            RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
+        );
         if duplicate == u64::MAX {
             return Err(STATUS_IO);
         }

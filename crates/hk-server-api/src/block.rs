@@ -14,6 +14,8 @@ pub const DEVICE_REQUEST: u64 = 0x604;
 pub const BLOCK_SHUTDOWN: u64 = 0x605;
 /// 附加共享 Frame。
 pub const BLOCK_ATTACH: u64 = 0x606;
+/// 解除共享 Frame。
+pub const BLOCK_DETACH: u64 = 0x607;
 
 /// 块客户端共享 Frame 的固定映射地址。
 pub const FRAME_VIRT: u64 = 0x7000_0000;

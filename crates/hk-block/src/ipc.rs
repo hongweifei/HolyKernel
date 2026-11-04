@@ -6,18 +6,63 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{BlockDevice, BlockError, SECTOR_SIZE};
 use hk_server_api::block::{
-    BLOCK_ATTACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, FRAME_LEN, FRAME_VIRT,
-    OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, RESPONSE_HEADER, Request, STATUS_ERROR,
+    BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, FRAME_LEN,
+    FRAME_VIRT, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, RESPONSE_HEADER, Request, STATUS_ERROR,
     STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, decode_response, encode_request,
     encode_response,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, frame_alloc, handle_duplicate, recv_data,
-    recv_data_from, send_data, send_handle, service_endpoint,
+    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_alloc, frame_info, frame_map,
+    frame_unmap, handle_duplicate, recv_data_from, recv_data_handle, send_data, send_handle,
+    service_endpoint,
 };
+
+const CLIENT_FRAME_SLOTS: usize = 8;
+static CLIENT_FRAME_VIRT: [AtomicU64; CLIENT_FRAME_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
+static CLIENT_FRAME_HANDLE: [AtomicU64; CLIENT_FRAME_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
+static CLIENT_FRAME_LEN: [AtomicU64; CLIENT_FRAME_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
+
+/// 登记一个 VFS 客户端帧，供块客户端识别直写缓冲区。
+pub fn register_client_frame(virt: u64, handle: u64, len: usize) {
+    for (slot, virt_slot) in CLIENT_FRAME_VIRT.iter().enumerate() {
+        let current = virt_slot.load(Ordering::Acquire);
+        if current == 0 || current == virt {
+            CLIENT_FRAME_HANDLE[slot].store(handle, Ordering::Release);
+            CLIENT_FRAME_LEN[slot].store(len as u64, Ordering::Release);
+            CLIENT_FRAME_VIRT[slot].store(virt, Ordering::Release);
+            return;
+        }
+    }
+}
+
+/// 注销一个 VFS 客户端帧。
+pub fn unregister_client_frame(virt: u64) {
+    for virt_slot in &CLIENT_FRAME_VIRT {
+        if virt_slot.load(Ordering::Acquire) == virt {
+            virt_slot.store(0, Ordering::Release);
+            return;
+        }
+    }
+}
+
+fn client_frame_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
+    for (slot, virt_slot) in CLIENT_FRAME_VIRT.iter().enumerate() {
+        let virt = virt_slot.load(Ordering::Acquire);
+        let frame_len = CLIENT_FRAME_LEN[slot].load(Ordering::Acquire) as usize;
+        if virt != 0 && address == virt && len <= frame_len {
+            let handle = CLIENT_FRAME_HANDLE[slot].load(Ordering::Acquire);
+            return Some((handle, virt, frame_len));
+        }
+    }
+    None
+}
 
 /// 块协议客户端；缓冲位于堆上，避免大消息占用服务栈。
 pub struct BlockClient {
@@ -27,6 +72,7 @@ pub struct BlockClient {
     response: Vec<u8>,
     frame: Option<u64>,
     attached: u64,
+    external: Option<(u64, u64, usize)>,
 }
 
 impl BlockClient {
@@ -39,10 +85,11 @@ impl BlockClient {
             response: vec![0_u8; 64 * 1024],
             frame: None,
             attached: 0,
+            external: None,
         }
     }
 
-    fn ensure_attach(&mut self) -> Result<u64, u8> {
+    fn ensure_frame(&mut self) -> Result<u64, u8> {
         let endpoint = service_endpoint(self.service);
         if endpoint == 0 {
             return Err(STATUS_ERROR);
@@ -57,16 +104,22 @@ impl BlockClient {
             }
             self.frame = Some(number);
         }
-        let number = self.frame.ok_or(STATUS_ERROR)?;
-        let duplicate = handle_duplicate(number, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
-        if duplicate == u64::MAX {
-            return Err(STATUS_ERROR);
-        }
-        if send_handle(endpoint, BLOCK_ATTACH, FRAME_LEN as u64, duplicate) == u64::MAX {
-            self.frame = None;
-            return Err(STATUS_ERROR);
-        }
+        self.external = None;
+        self.attach_own(endpoint)?;
         self.attached = endpoint;
+        Ok(endpoint)
+    }
+
+    fn ensure_own(&mut self) -> Result<u64, u8> {
+        let endpoint = self.ensure_frame()?;
+        if self.external.is_some() {
+            if self.attach_own(endpoint).is_err() {
+                self.attached = 0;
+                self.external = None;
+                return Err(STATUS_ERROR);
+            }
+            self.external = None;
+        }
         Ok(endpoint)
     }
 
@@ -75,8 +128,54 @@ impl BlockClient {
         unsafe { core::slice::from_raw_parts_mut(FRAME_VIRT as *mut u8, FRAME_LEN) }
     }
 
+    fn attach_external(&self, endpoint: u64, handle: u64, length: usize) -> Result<(), u8> {
+        let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
+        if duplicate == u64::MAX {
+            return Err(STATUS_ERROR);
+        }
+        if send_handle(endpoint, BLOCK_ATTACH, length as u64, duplicate) == u64::MAX {
+            return Err(STATUS_ERROR);
+        }
+        Ok(())
+    }
+
+    fn attach_own(&self, endpoint: u64) -> Result<(), u8> {
+        let number = self.frame.ok_or(STATUS_ERROR)?;
+        self.attach_external(endpoint, number, FRAME_LEN)
+    }
+
+    fn read_direct(
+        &mut self,
+        endpoint: u64,
+        frame: (u64, u64, usize),
+        block: u64,
+        length: usize,
+    ) -> Result<usize, u8> {
+        if self.external != Some(frame) {
+            self.attach_external(endpoint, frame.0, frame.2)?;
+            self.external = Some(frame);
+        }
+        self.request(OP_READ, block, length as u32)?;
+        self.written()
+    }
+
+    fn write_direct(
+        &mut self,
+        endpoint: u64,
+        frame: (u64, u64, usize),
+        block: u64,
+        length: usize,
+    ) -> Result<usize, u8> {
+        if self.external != Some(frame) {
+            self.attach_external(endpoint, frame.0, frame.2)?;
+            self.external = Some(frame);
+        }
+        self.request(OP_WRITE, block, length as u32)?;
+        self.written()
+    }
+
     fn request(&mut self, op: u8, block: u64, length: u32) -> Result<(), u8> {
-        let endpoint = self.ensure_attach()?;
+        let endpoint = self.ensure_frame()?;
         let Some(request_length) = encode_request(&mut self.request, op, block, length, &[]) else {
             return Err(STATUS_INVALID);
         };
@@ -109,6 +208,16 @@ impl BlockClient {
         if buffer.len() > FRAME_LEN {
             return Err(STATUS_INVALID);
         }
+        if let Some(frame) = client_frame_at(buffer.as_ptr() as u64, buffer.len()) {
+            if let Ok(endpoint) = self.ensure_frame()
+                && let Ok(written) = self.read_direct(endpoint, frame, block, buffer.len())
+            {
+                return Ok(written);
+            }
+            self.attached = 0;
+            self.external = None;
+        }
+        self.ensure_own()?;
         self.request(OP_READ, block, buffer.len() as u32)?;
         let written = self.written()?.min(buffer.len());
         buffer[..written].copy_from_slice(&self.frame()[..written]);
@@ -120,6 +229,16 @@ impl BlockClient {
         if data.len() > FRAME_LEN {
             return Err(STATUS_INVALID);
         }
+        if let Some(frame) = client_frame_at(data.as_ptr() as u64, data.len()) {
+            if let Ok(endpoint) = self.ensure_frame()
+                && let Ok(written) = self.write_direct(endpoint, frame, block, data.len())
+            {
+                return Ok(written);
+            }
+            self.attached = 0;
+            self.external = None;
+        }
+        self.ensure_own()?;
         self.frame()[..data.len()].copy_from_slice(data);
         self.request(OP_WRITE, block, data.len() as u32)?;
         self.written()
@@ -199,15 +318,71 @@ impl BlockDevice for ClientDisk {
 }
 
 /// 在端点上服务块设备请求，直到任务退出或收到退出请求。
-pub fn serve(endpoint: u64, disk: &mut dyn BlockDevice, mut frame: Option<&mut [u8]>) {
+pub fn serve(
+    endpoint: u64,
+    disk: &mut dyn BlockDevice,
+    frame: Option<&mut [u8]>,
+    frame_handle: Option<u64>,
+) {
+    serve_with_hook(endpoint, disk, frame, frame_handle, |_, _, _, _| {});
+}
+
+/// 服务块请求，并在共享帧更新时通知驱动登记 DMA 区域。
+pub fn serve_with_hook<F: FnMut(u64, u64, usize, u64)>(
+    endpoint: u64,
+    disk: &mut dyn BlockDevice,
+    mut frame: Option<&mut [u8]>,
+    mut frame_handle: Option<u64>,
+    mut hook: F,
+) {
+    let mut frame_len = frame.as_ref().map(|frame| frame.len());
     let mut buffer = alloc::vec![0_u8; 64 * 1024];
     let mut body = alloc::vec![0_u8; 64 * 1024 - 4];
     let mut response = alloc::vec![0_u8; 64 * 1024];
 
     loop {
-        let (label, _word, sender, length) = recv_data(endpoint, &mut buffer);
+        let (label, word, sender, length, received) = recv_data_handle(endpoint, &mut buffer, 0);
         if label == BLOCK_SHUTDOWN {
             return;
+        }
+        if label == BLOCK_ATTACH {
+            let length = word as usize;
+            if received == 0 || length == 0 || length > FRAME_LEN {
+                if received != 0 {
+                    let _ = close_handle(received);
+                }
+                continue;
+            }
+            frame = None;
+            if let Some(old) = frame_handle.take() {
+                if let Some(old_len) = frame_len.take() {
+                    let _ = frame_unmap(FRAME_VIRT, old_len);
+                }
+                let _ = close_handle(old);
+            }
+            if frame_map(received, FRAME_VIRT) == length as u64 {
+                if let Some((phys, _)) = frame_info(received) {
+                    hook(FRAME_VIRT, phys, length, received);
+                }
+                // SAFETY: SYS_FRAME_MAP 把共享帧映射到固定地址。
+                frame =
+                    Some(unsafe { core::slice::from_raw_parts_mut(FRAME_VIRT as *mut u8, length) });
+                frame_handle = Some(received);
+                frame_len = Some(length);
+            } else {
+                let _ = close_handle(received);
+            }
+            continue;
+        }
+        if label == BLOCK_DETACH {
+            frame = None;
+            if let Some(old) = frame_handle.take() {
+                if let Some(old_len) = frame_len.take() {
+                    let _ = frame_unmap(FRAME_VIRT, old_len);
+                }
+                let _ = close_handle(old);
+            }
+            continue;
         }
         if label != BLOCK_REQUEST {
             continue;

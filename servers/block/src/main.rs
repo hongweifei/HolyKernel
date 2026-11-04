@@ -17,11 +17,9 @@ use hk_block::ipc::serve;
 #[cfg(target_os = "none")]
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 #[cfg(target_os = "none")]
-use hk_server_api::block::{BLOCK_ATTACH, FRAME_VIRT};
-#[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_map, recv_handle, write};
+use hk_server_api::{exit, write};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -40,19 +38,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-block: ram disk ready\n".as_bytes());
     let mut disk = MemoryDisk::new(BLOCKS, SECTOR_SIZE);
-    let (label, word, _sender, handle) = recv_handle(endpoint);
-    let mut frame = None;
-    if label == BLOCK_ATTACH && handle != 0 {
-        let length = word as usize;
-        if length == 0 || length > hk_server_api::block::FRAME_LEN {
-            exit(5)
-        }
-        if frame_map(handle, FRAME_VIRT) == length as u64 {
-            // SAFETY: SYS_FRAME_MAP 把共享帧映射到固定地址。
-            frame = Some(unsafe { core::slice::from_raw_parts_mut(FRAME_VIRT as *mut u8, length) });
-        }
-    }
-    serve(endpoint, &mut disk, frame);
+    serve(endpoint, &mut disk, None, None);
     exit(0)
 }
 

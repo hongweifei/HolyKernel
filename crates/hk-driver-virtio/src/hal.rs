@@ -39,7 +39,13 @@ struct FrameRegion {
 
 /// 登记共享 Frame 的用户虚拟地址与物理区间，供 DMA 直接引用。
 pub fn register_frame(virt: u64, phys: u64, len: usize) {
-    FRAMES.lock().push(FrameRegion { virt, phys, len });
+    let mut frames = FRAMES.lock();
+    if let Some(region) = frames.iter_mut().find(|region| region.virt == virt) {
+        region.phys = phys;
+        region.len = len;
+    } else {
+        frames.push(FrameRegion { virt, phys, len });
+    }
 }
 
 struct Free {
