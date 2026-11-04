@@ -13,7 +13,7 @@ use hk_drivers::grant::{DEVICE_GRANT_BYTES, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
-use hk_server_api::{device_grant_create, device_map, exit, pci_read, write, write_u64};
+use hk_server_api::{device_grant_create, device_map, dma_alloc, exit, pci_read, write, write_u64};
 
 /// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
@@ -51,6 +51,10 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
         count += 1;
     });
 
+    let dma = dma_alloc(4096, 0x5000_0000);
+    write(b"  dma=");
+    write_hex64(dma);
+    write(b"\n");
     write("hk-server-device: 发现 ".as_bytes());
     write_u64(count);
     write(" 个设备\n".as_bytes());

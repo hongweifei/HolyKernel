@@ -7,6 +7,7 @@ extern crate alloc;
 pub mod acpi;
 pub mod bootstrap;
 pub mod cpu;
+pub mod dma;
 pub mod ioapic;
 pub mod keyboard;
 pub mod paging;

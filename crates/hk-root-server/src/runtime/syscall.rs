@@ -59,6 +59,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_DEVICE_GRANT_CREATE => self.create_grant(index, tcb, frame),
             SYS_DEVICE_MAP => self.map_grant(index, tcb, frame),
+            SYS_DMA_ALLOC => {
+                let length = frame.arg0() as usize;
+                let virt = frame.arg1();
+                if length == 0
+                    || length > 1024 * 1024
+                    || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
+                {
+                    frame.set_result(0);
+                } else {
+                    frame.set_result(self.platform.dma_alloc(index, length, virt).unwrap_or(0));
+                }
+                Switch::Continue
+            }
             SYS_PCI_WRITE => {
                 let address = frame.arg0();
                 let bus = (address >> 8) as u8;

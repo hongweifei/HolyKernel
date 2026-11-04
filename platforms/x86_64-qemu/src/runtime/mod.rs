@@ -50,6 +50,14 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.map_mmio(slot, virt, phys, len)
     }
 
+    fn dma_alloc(&self, slot: usize, len: usize, virt: u64) -> Option<u64> {
+        let range = hk_platform_x86_64::dma::allocate(len)?;
+        if !USER_VSPACES.map_mmio(slot, virt, range.start().get(), range.len() as usize) {
+            return None;
+        }
+        Some(range.start().get())
+    }
+
     fn zero(&self, address: u64, length: usize) {
         // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
         unsafe {

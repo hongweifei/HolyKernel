@@ -128,6 +128,9 @@ extern "C" fn kmain() -> ! {
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
     hk_platform_x86_64::paging::reserve_frames(&mut allocator, 512);
     hk_platform_x86_64::paging::reserve_mmio_frames(&mut allocator, 64);
+    if let Some(dma) = allocator.allocate_contiguous(1024 * 1024) {
+        hk_platform_x86_64::dma::init(dma);
+    }
 
     if let Err(error) = bootstrap::init_interrupts(&paging, &mut allocator, direct_map_base) {
         fail(

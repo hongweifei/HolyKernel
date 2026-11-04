@@ -45,6 +45,17 @@ impl LinearFrames {
         best.map(|(next, end)| Self { next, end })
     }
 
+    /// 分配一段连续物理内存，长度按页向上取整。
+    pub fn allocate_contiguous(&mut self, len: usize) -> Option<hk_hal::PhysRange> {
+        let length = align_up(len as u64, PAGE_SIZE as u64);
+        if length == 0 || self.next.checked_add(length)? > self.end {
+            return None;
+        }
+        let start = PhysAddr::new(self.next);
+        self.next += length;
+        Some(hk_hal::PhysRange::new(start, length))
+    }
+
     /// 分配一个 4 KiB 物理帧。
     pub fn allocate(&mut self) -> Option<PhysAddr> {
         let page = PAGE_SIZE as u64;
@@ -90,5 +101,14 @@ mod tests {
 
         let allocator = LinearFrames::new(&regions, kernel).expect("可用区域");
         assert_eq!(allocator.next, 0x1_2000);
+    }
+    #[test]
+    fn allocates_contiguous_ranges() {
+        let mut frames = LinearFrames::from_range(0x10_0000, 0x10_3000);
+        let range = frames.allocate_contiguous(0x1800).expect("连续分配");
+        assert_eq!(range.start(), PhysAddr::new(0x10_0000));
+        assert_eq!(range.len(), 0x2000);
+        assert_eq!(frames.allocate(), Some(PhysAddr::new(0x10_2000)));
+        assert_eq!(frames.allocate_contiguous(0x2000), None);
     }
 }

@@ -12,10 +12,10 @@ use hk_hal::{DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_EXIT, SYS_FORK,
-    SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV,
-    SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC,
-    SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_EXIT,
+    SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
+    SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS,
+    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -102,6 +102,10 @@ pub trait UserPlatform {
     /// 把设备 MMIO 映射到任务地址空间。
     fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
+    }
+    /// 分配 DMA 缓冲并映射到任务地址空间，返回物理地址。
+    fn dma_alloc(&self, _slot: usize, _len: usize, _virt: u64) -> Option<u64> {
+        None
     }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);

@@ -73,5 +73,8 @@ pub const SYS_DEVICE_GRANT_CREATE: u64 = 21;
 /// 把 DeviceGrant 的 MMIO 范围映射到当前任务。
 pub const SYS_DEVICE_MAP: u64 = 22;
 
+/// 分配一致性 DMA 缓冲并映射到当前任务。
+pub const SYS_DMA_ALLOC: u64 = 23;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
