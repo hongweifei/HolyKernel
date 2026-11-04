@@ -17,9 +17,9 @@ use hk_block::ipc::serve;
 #[cfg(target_os = "none")]
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::BumpHeap;
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::write;
+use hk_server_api::{exit, write};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -30,7 +30,7 @@ const BLOCKS: u64 = 64;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
-static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -38,7 +38,8 @@ static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-block: ram disk ready\n".as_bytes());
     let mut disk = MemoryDisk::new(BLOCKS, SECTOR_SIZE);
-    serve(endpoint, &mut disk)
+    serve(endpoint, &mut disk);
+    exit(0)
 }
 
 #[cfg(target_os = "none")]

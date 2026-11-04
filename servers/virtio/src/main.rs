@@ -21,12 +21,14 @@ use hk_driver_virtio::{Device, probe};
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
 use hk_server_api::block::{
-    BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, STATUS_ERROR, encode_response,
+    BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, DEVICE_REQUEST, STATUS_ERROR, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::BumpHeap;
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{device_info, exit, recv_handle, send_data, write, write_u64};
+use hk_server_api::{
+    device_info, exit, recv_handle, send, send_data, service_endpoint, write, write_u64,
+};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -34,13 +36,19 @@ const HEAP_SIZE: usize = 64 * 1024;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
-static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-virtio: start\n".as_bytes());
+    let manager = service_endpoint("hk-server-device");
+    if manager == 0 {
+        write("hk-server-virtio: 没有设备管理器\n".as_bytes());
+        exit(2)
+    }
+    let _ = send(manager, DEVICE_REQUEST, 0);
     let wait = wait_for_grant(endpoint);
     let Some(grant_handle) = wait.grant else {
         reply_not_ready(wait.pending);
@@ -65,7 +73,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write_u64(block.capacity_blocks());
             write(b"\n");
             reply_not_ready(wait.pending);
-            serve(endpoint, block.as_mut())
+            serve(endpoint, block.as_mut());
+            exit(0)
         }
         Ok(Device::Unsupported(kind)) => {
             write("hk-server-virtio: 尚未支持的设备类型 ".as_bytes());

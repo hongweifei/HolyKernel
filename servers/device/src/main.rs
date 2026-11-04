@@ -19,12 +19,9 @@ static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::de
 
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
-use hk_server_api::block::{BLOCK_GRANT, BLOCK_NO_DEVICE};
+use hk_server_api::block::{BLOCK_GRANT, BLOCK_NO_DEVICE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    device_grant_create, device_map, dma_alloc, dma_sync, exit, irq_bind, pci_read,
-    self_notification, send, send_handle, service_endpoint, write, write_u64,
-};
+use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
 
 /// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
@@ -52,25 +49,32 @@ impl PciConfig for SyscallConfig {
     }
 }
 
-/// 设备入口：枚举全部总线的 PCI 设备。
+/// 设备入口：枚举 PCI 设备，常驻等待驱动申请授权。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(_endpoint: u64) -> ! {
-    let driver_endpoint = service_endpoint("hk-server-virtio");
-    let mut sent_grant = false;
+pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut count = 0;
     enumerate(&SyscallConfig, 0, |device| {
-        write_device(&device, driver_endpoint, &mut sent_grant);
+        write_device(&device, 0, &mut false);
         count += 1;
     });
-    if !sent_grant && driver_endpoint != 0 {
-        let _ = send(driver_endpoint, BLOCK_NO_DEVICE, 0);
-    }
-
     write("hk-server-device: 发现 ".as_bytes());
     write_u64(count);
     write(" 个设备\n".as_bytes());
-    exit(0)
+
+    loop {
+        let (label, _word, sender) = recv(endpoint);
+        if label != DEVICE_REQUEST {
+            continue;
+        }
+        let mut sent_grant = false;
+        enumerate(&SyscallConfig, 0, |device| {
+            write_device(&device, sender, &mut sent_grant);
+        });
+        if !sent_grant {
+            let _ = send(sender, BLOCK_NO_DEVICE, 0);
+        }
+    }
 }
 
 #[cfg(target_os = "none")]
@@ -151,37 +155,16 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool) {
     if grant.is_virtio() {
         write(b"  virtio");
     }
+    if !grant.is_virtio() || driver_endpoint == 0 {
+        write(b"\n");
+        return;
+    }
     let mut encoded = [0_u8; DEVICE_GRANT_BYTES];
     if let Some(length) = grant.encode(&mut encoded) {
         let handle = device_grant_create(&encoded[..length]);
         write(b"  grant-handle=");
         write_hex64(handle);
-        let dma_virt = 0x5000_0000 + handle.saturating_sub(0x2000) * 0x1_0000;
-        let dma = dma_alloc(handle, 4096, dma_virt);
-        write(b"  grant-dma=");
-        write_hex64(dma);
-        if dma != 0 {
-            let sync = dma_sync(handle, dma, 4096, true);
-            write(b"  grant-dma-sync=");
-            write_hex64(sync);
-        }
-        let bind = irq_bind(handle, self_notification(), 1);
-        write(b"  grant-irq-bind=");
-        write_hex64(bind);
-        if let Some((index, range)) = grant
-            .mmio
-            .iter()
-            .enumerate()
-            .find(|(_, range)| range.is_some_and(|range| range.len <= 0x1_0000))
-            && let Some(range) = range
-        {
-            let virt = 0x4000_0000 + (handle.saturating_sub(0x2000)) * 0x1_0000;
-            let result = device_map(handle, index as u64, virt);
-            write(b"  grant-map=");
-            write_hex64(result);
-            let _ = range;
-        }
-        if grant.is_virtio() && driver_endpoint != 0 && !*sent_grant {
+        if !*sent_grant {
             let transferred = send_handle(driver_endpoint, BLOCK_GRANT, 0, handle);
             write(b"  grant-transfer=");
             write_hex64(transferred);

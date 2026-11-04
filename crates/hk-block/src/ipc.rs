@@ -7,8 +7,9 @@ use core::cell::RefCell;
 
 use crate::{BlockDevice, BlockError, SECTOR_SIZE};
 use hk_server_api::block::{
-    BLOCK_REQUEST, BLOCK_RESPONSE, BlockClient, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, Request,
-    STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, encode_response,
+    BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, BlockClient, OP_CAPACITY, OP_FLUSH, OP_READ,
+    OP_WRITE, Request, STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request,
+    encode_response,
 };
 use hk_server_api::{recv_data, send_data};
 
@@ -71,14 +72,17 @@ impl BlockDevice for ClientDisk {
     }
 }
 
-/// 在端点上服务块设备请求，直到任务退出。
-pub fn serve(endpoint: u64, disk: &mut dyn BlockDevice) -> ! {
+/// 在端点上服务块设备请求，直到任务退出或收到退出请求。
+pub fn serve(endpoint: u64, disk: &mut dyn BlockDevice) {
     let mut buffer = [0_u8; 8192];
     let mut body = [0_u8; 8192];
     let mut response = [0_u8; 8192];
 
     loop {
         let (label, _word, sender, length) = recv_data(endpoint, &mut buffer);
+        if label == BLOCK_SHUTDOWN {
+            return;
+        }
         if label != BLOCK_REQUEST {
             continue;
         }

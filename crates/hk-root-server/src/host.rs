@@ -124,8 +124,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     }
 
     /// 在指定 CPU 上调度任务；`table` 为 `None` 时退出记录留待 BSP 同步。
-    pub fn run_cpu(&self, cpu: usize, mut table: Option<&mut ServiceTable>) {
+    pub fn run_cpu(&self, cpu: usize, table: Option<&mut ServiceTable>) {
+        self.run_cpu_budget(cpu, table, usize::MAX);
+    }
+
+    /// 在指定 CPU 上调度至多 `budget` 步；返回是否已无可运行线程。
+    pub fn run_cpu_budget(
+        &self,
+        cpu: usize,
+        mut table: Option<&mut ServiceTable>,
+        budget: usize,
+    ) -> bool {
+        let mut steps = 0;
         loop {
+            if steps >= budget {
+                return false;
+            }
+            steps += 1;
             let step = self
                 .runtime
                 .lock()
@@ -151,7 +166,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                     }
                 }
                 Some(Step::Blocked) => {}
-                Some(Step::Done) | None => break,
+                Some(Step::Done) | None => return true,
             }
         }
     }

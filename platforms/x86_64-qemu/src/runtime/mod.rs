@@ -19,7 +19,7 @@ const ARENA_BASE: u64 = 0x0100_0000;
 const ARENA_STRIDE: u64 = 0x20_0000;
 
 /// 每个任务的 Arena 大小。
-const ARENA_SIZE: u64 = 1024 * 1024;
+const ARENA_SIZE: u64 = 2 * 1024 * 1024;
 
 /// 用户可访问地址上限。
 const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
@@ -40,6 +40,10 @@ impl UserPlatform for X86Platform {
 
     fn civil_time(&self) -> Option<hk_hal::CivilTime> {
         hk_platform_x86_64::rtc::civil_time()
+    }
+
+    fn boot_cmdline(&self) -> Option<&'static str> {
+        hk_boot::cmdline()
     }
 
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
@@ -187,11 +191,12 @@ pub fn stats() -> hk_root_server::RuntimeStats {
     RUNTIME.stats()
 }
 
-/// 依次调度任务直到没有可运行线程。
-pub fn run(table: &mut ServiceTable) {
+/// 调度至多 `steps` 步；返回是否已无可运行线程。
+pub fn run_budgeted(table: &mut ServiceTable, steps: usize) -> bool {
     cpu::start_tick();
-    RUNTIME.run(table);
+    let idle = RUNTIME.run_cpu_budget(0, Some(table), steps);
     cpu::stop_tick();
+    idle
 }
 
 /// AP 调度循环：无任务时关闭 tick 并等待唤醒 IPI。
@@ -202,6 +207,16 @@ pub fn run_ap(cpu: usize) -> ! {
         cpu::idle(cpu);
         cpu::start_ap_tick();
     }
+}
+
+/// 按重启策略监督服务；返回重启数量。
+pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) -> usize {
+    hk_root_server::service::supervise(
+        &RUNTIME,
+        table,
+        loader,
+        hk_root_server::service::restart_policy,
+    )
 }
 
 /// 同步其他 CPU 记录的服务退出。

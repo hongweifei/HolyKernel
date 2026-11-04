@@ -11,6 +11,11 @@ pub trait UserPlatform {
     fn civil_time(&self) -> Option<CivilTime> {
         None
     }
+
+    /// 返回平台启动命令行。
+    fn boot_cmdline(&self) -> Option<&'static str> {
+        None
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。

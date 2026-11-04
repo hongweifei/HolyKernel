@@ -265,6 +265,25 @@ pub fn self_notification() -> u64 {
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
 }
 
+/// 读取平台启动命令行；未提供时返回 `None`。
+pub fn boot_cmdline(buffer: &mut [u8]) -> Option<&str> {
+    // SAFETY: 缓冲区属于本进程；内核校验长度后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_BOOT_CMDLINE,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+            0,
+        )
+    };
+    let length = result.value as usize;
+    if length == 0 || length > buffer.len() {
+        return None;
+    }
+    core::str::from_utf8(&buffer[..length]).ok()
+}
+
 /// 读取民用时间；没有 RTC 时返回 `None`。
 pub fn civil_time() -> Option<hk_hal::CivilTime> {
     let mut bytes = [0_u8; hk_hal::CivilTime::ENCODED_LEN];

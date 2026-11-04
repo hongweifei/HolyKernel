@@ -22,6 +22,7 @@ pub use registry::{ServiceRecord, ServiceState, ServiceTable};
 pub use runtime::{
     Arena, Pending, RuntimeStats, Step, Switch, TaskInfo, UserPlatform, UserRuntime, UserTask,
 };
+pub use service::RestartPolicy;
 
 use alloc::vec::Vec;
 

@@ -10,6 +10,10 @@ pub const BLOCK_RESPONSE: u64 = 0x601;
 pub const BLOCK_GRANT: u64 = 0x602;
 /// 没有块设备标签。
 pub const BLOCK_NO_DEVICE: u64 = 0x603;
+/// 驱动请求下发设备授权。
+pub const DEVICE_REQUEST: u64 = 0x604;
+/// 请求块设备服务退出（用于故障注入与重启测试）。
+pub const BLOCK_SHUTDOWN: u64 = 0x605;
 
 /// 读取块。
 pub const OP_READ: u8 = 1;

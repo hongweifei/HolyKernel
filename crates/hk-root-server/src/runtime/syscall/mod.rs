@@ -243,6 +243,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.platform.timer_ticks());
                 Switch::Continue
             }
+            SYS_BOOT_CMDLINE => {
+                let pointer = frame.arg0();
+                let capacity = frame.arg1() as usize;
+                let result = match self.platform.boot_cmdline() {
+                    Some(text) if text.len() <= capacity => {
+                        if self.platform.write_user(pointer, text.as_bytes()) {
+                            text.len() as u64
+                        } else {
+                            u64::MAX
+                        }
+                    }
+                    Some(_) => u64::MAX,
+                    None => 0,
+                };
+                frame.set_result(result);
+                Switch::Continue
+            }
             SYS_CIVIL_TIME => {
                 let pointer = frame.arg0();
                 let capacity = frame.arg1() as usize;

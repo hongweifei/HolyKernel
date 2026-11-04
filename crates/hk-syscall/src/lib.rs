@@ -94,6 +94,9 @@ pub const SYS_DEVICE_INFO: u64 = 29;
 /// 读取民用时间。
 pub const SYS_CIVIL_TIME: u64 = 30;
 
+/// 读取平台启动命令行。
+pub const SYS_BOOT_CMDLINE: u64 = 31;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 

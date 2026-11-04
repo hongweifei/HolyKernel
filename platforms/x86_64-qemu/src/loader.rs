@@ -73,7 +73,27 @@ pub fn run(
         runtime::attach(index, context);
     }
 
-    runtime::run(services);
+    let mut shell_loader = crate::shell::Loader {
+        info,
+        direct_map_base,
+        allocator,
+        paging,
+    };
+    let mut restarts = 0;
+    loop {
+        let idle = runtime::run_budgeted(services, 1024);
+        let restarted = runtime::supervise(&mut shell_loader, services);
+        if restarted > 0 {
+            restarts += restarted;
+            if restarts >= 64 {
+                break;
+            }
+            continue;
+        }
+        if idle {
+            break;
+        }
+    }
     Ok(())
 }
 
