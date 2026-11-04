@@ -6,7 +6,7 @@ mod device;
 mod ipc;
 mod task;
 
-const MAX_USER_DATA: usize = 8192;
+const MAX_USER_DATA: usize = 64 * 1024;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 分派一次系统调用。

@@ -23,7 +23,7 @@ use hk_server_api::{exit, write};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 32 * 1024;
+const HEAP_SIZE: usize = 512 * 1024;
 /// 内存盘块数。
 #[cfg(target_os = "none")]
 const BLOCKS: u64 = 64;

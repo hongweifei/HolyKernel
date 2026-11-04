@@ -61,6 +61,9 @@ const REQUEST_HEADER: usize = 1 + 2 + 8 + 8;
 /// 响应头：status + data_len。
 const RESPONSE_HEADER: usize = 3;
 
+/// 单条 VFS 协议消息的缓冲上限。
+const BUFFER: usize = 64 * 1024;
+
 /// 解码后的请求。
 pub struct Request<'a> {
     /// 操作码。
@@ -169,8 +172,8 @@ pub struct VfsClient {
     service: &'static str,
     endpoint: u64,
     own_endpoint: u64,
-    request: [u8; 4096],
-    response: [u8; 4096],
+    request: [u8; BUFFER],
+    response: [u8; BUFFER],
 }
 
 impl VfsClient {
@@ -180,8 +183,8 @@ impl VfsClient {
             service,
             endpoint: 0,
             own_endpoint,
-            request: [0; 4096],
-            response: [0; 4096],
+            request: [0; BUFFER],
+            response: [0; BUFFER],
         }
     }
 

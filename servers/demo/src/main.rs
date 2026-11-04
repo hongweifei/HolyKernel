@@ -267,8 +267,8 @@ fn verify_driver_restart(endpoint: u64) -> bool {
 /// 写入并顺序读取 1 MiB，返回 0.1 MiB/s 单位。
 #[cfg(target_os = "none")]
 fn benchmark_ext4(endpoint: u64) -> Option<u64> {
-    const CHUNK: usize = 2048;
-    const CHUNKS: usize = 512;
+    const CHUNK: usize = 60 * 1024;
+    const CHUNKS: usize = 17;
     let mut client = VfsClient::new("hk-server-vfs", endpoint);
     let (_, path) = ext4_paths(&mut client);
     let handle = client

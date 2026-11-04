@@ -81,6 +81,10 @@ impl PageCache {
         }
         let available = usize::try_from(size - offset).unwrap_or(usize::MAX);
         let limit = buffer.len().min(available);
+        // 大块顺序读直接走后端，避免逐页 IPC；代价是不填充页缓存。
+        if limit >= PAGE_SIZE * 4 && offset.is_multiple_of(PAGE_SIZE as u64) {
+            return backend.read(node, offset, &mut buffer[..limit]);
+        }
         let mut done = 0;
 
         while done < limit {
@@ -106,6 +110,12 @@ impl PageCache {
     ) -> Result<usize, VfsError> {
         if data.is_empty() {
             return Ok(0);
+        }
+        // 大块顺序写直接走后端；随后使该节点缓存失效，避免读到旧页。
+        if data.len() >= PAGE_SIZE * 4 && offset.is_multiple_of(PAGE_SIZE as u64) {
+            backend.write(node, offset, data)?;
+            self.invalidate(instance, node);
+            return Ok(data.len());
         }
         let mut done = 0;
         while done < data.len() {
@@ -203,6 +213,23 @@ mod tests {
         let mut buffer = [0_u8; 3];
         assert_eq!(cache.read(&fs, 0, file, 0, &mut buffer).expect("读"), 3);
         assert_eq!(&buffer, b"abc");
+    }
+
+    #[test]
+    fn bulk_reads_and_writes_bypass_cache() {
+        let mut fs = Tmpfs::new();
+        let file = fs.create(0, "bulk", FileType::File).expect("创建");
+        let chunk = [0x5A_u8; PAGE_SIZE * 8];
+        let mut cache = PageCache::new();
+        cache.write(&mut fs, 0, file, 0, &chunk).expect("批量写");
+        assert!(cache.is_empty());
+        let mut buffer = [0_u8; PAGE_SIZE * 8];
+        assert_eq!(
+            cache.read(&fs, 0, file, 0, &mut buffer).expect("批量读"),
+            chunk.len()
+        );
+        assert_eq!(buffer, chunk);
+        assert!(cache.is_empty());
     }
 
     #[test]

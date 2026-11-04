@@ -32,7 +32,7 @@ use hk_server_api::{
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
+const HEAP_SIZE: usize = 512 * 1024;
 
 #[cfg(target_os = "none")]
 #[global_allocator]

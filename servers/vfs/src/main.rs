@@ -11,6 +11,8 @@ use alloc::boxed::Box;
 #[cfg(target_os = "none")]
 use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
+use alloc::vec;
+#[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
@@ -124,9 +126,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();
-    let mut request = [0_u8; 4096];
-    let mut body = [0_u8; 4093];
-    let mut response = [0_u8; 4096];
+    let mut request = vec![0_u8; 64 * 1024];
+    let mut body = vec![0_u8; 64 * 1024 - 4];
+    let mut response = vec![0_u8; 64 * 1024];
 
     loop {
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);

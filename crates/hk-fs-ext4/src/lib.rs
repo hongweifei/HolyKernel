@@ -96,7 +96,7 @@ impl EntropySource for SimpleEntropy {
 }
 
 /// 单次块 I/O 的分块上限，保证 IPC 消息不超过 8 KiB。
-const IO_CHUNK: usize = 4096;
+const IO_CHUNK: usize = 60 * 1024;
 
 /// 把 [`BlockDevice`] 适配为 rsext4 的扇区 I/O。
 pub struct Disk<D> {

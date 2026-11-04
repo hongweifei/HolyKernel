@@ -39,7 +39,7 @@ pub use view::{RuntimeStats, TaskInfo};
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;
 const GRANT_HANDLE_BASE: usize = 0x2000;
-const DMA_WINDOW_BYTES: usize = 64 * 1024;
+const DMA_WINDOW_BYTES: usize = 256 * 1024;
 
 /// 用户态任务运行时。
 pub struct UserRuntime<C, P> {
