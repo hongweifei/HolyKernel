@@ -12,6 +12,8 @@ pub const NET_TX: u64 = 0x703;
 pub const NET_RX: u64 = 0x704;
 /// 轮询接收队列。
 pub const NET_POLL: u64 = 0x705;
+/// 驱动完成一次轮询。
+pub const NET_POLL_DONE: u64 = 0x706;
 
 /// 以太网帧最大长度。
 pub const NET_FRAME_MAX: usize = 1514;

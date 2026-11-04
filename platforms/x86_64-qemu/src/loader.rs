@@ -35,7 +35,12 @@ pub fn run(
     let mut modules = loader::boot_modules(info.server_modules);
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     if !network_enabled {
-        modules.retain(|module| loader::service_name(module.name) != "hk-server-virtio-net");
+        modules.retain(|module| {
+            !matches!(
+                loader::service_name(module.name),
+                "hk-server-virtio-net" | "hk-server-net"
+            )
+        });
     }
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));

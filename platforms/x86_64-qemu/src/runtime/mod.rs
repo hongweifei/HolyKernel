@@ -13,7 +13,7 @@ use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 /// Arena 虚拟基址。
-const ARENA_BASE: u64 = 0x0100_0000;
+const ARENA_BASE: u64 = 0x0200_0000;
 
 /// 相邻任务 Arena 的间隔。
 const ARENA_STRIDE: u64 = 0x20_0000;

@@ -19,7 +19,7 @@ HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 
 - smoltcp 启用 Ethernet、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS；不启用 std/默认特性。
 - 详见 [ADR-0013](adr/0013-net-stack.md)。
 
-实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入 Device Manager 的按类授权、精确 BDF 探测与 MAC 输出；`hk-net` 已有 smoltcp PHY、静态 IPv4 与 UDP 主机测试；`smoke --mode net` 已校验真实 virtio-net MAC。下一步是 Net Endpoint 与 `hk-server-net` 服务循环。
+实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入按类授权、精确 BDF 探测、MAC 输出与 `NET_INFO`/`NET_POLL`/`NET_TX`/`NET_RX` Endpoint；`hk-server-net` 已启动 smoltcp 静态 IPv4 接口并完成 Net Endpoint 握手与一次轮询，`smoke --mode net` 校验 MAC 与 `ready`。下一步是 IRQ Notification 驱动的异步 RX、`net ping`/UDP 与 DHCP/DNS。
 
 ---
 

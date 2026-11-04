@@ -20,10 +20,13 @@ use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEV
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::net::{NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_SHUTDOWN};
+use hk_server_api::net::{
+    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_POLL, NET_POLL_DONE,
+    NET_RX, NET_SHUTDOWN, NET_TX,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, exit, recv, recv_handle, send, send_data, service_endpoint, write,
+    device_info, exit, recv_data_handle, recv_handle, send, send_data, service_endpoint, write,
 };
 
 #[cfg(target_os = "none")]
@@ -43,10 +46,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(2)
     }
     let _ = send(manager, DEVICE_REQUEST, DEVICE_CLASS_NETWORK);
-    let Some(grant_handle) = wait_for_grant(endpoint) else {
+    let wait = wait_for_grant(endpoint);
+    let Some(grant_handle) = wait.grant else {
         write("hk-server-virtio-net: 没有网络设备\n".as_bytes());
         exit(0)
     };
+    let mut peer = wait.pending.unwrap_or(0);
     let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
     let length = device_info(grant_handle, &mut bytes) as usize;
     if length == u64::MAX as usize {
@@ -58,7 +63,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(2)
     };
     match probe(grant_handle, descriptor) {
-        Ok(Device::Network(network)) => {
+        Ok(Device::Network(mut network)) => {
             let mac = network.mac_address();
             write("hk-server-virtio-net: mac=".as_bytes());
             for (index, byte) in mac.iter().enumerate() {
@@ -68,7 +73,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 write_hex(*byte);
             }
             write(b"\n");
-            serve(endpoint, network.mac_address())
+            if peer != 0 {
+                send_info(peer, network.mac_address());
+            }
+            serve(endpoint, network.as_mut(), &mut peer)
         }
         Ok(_) => {
             write("hk-server-virtio-net: 授权设备不是网卡\n".as_bytes());
@@ -84,33 +92,74 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn wait_for_grant(endpoint: u64) -> Option<u64> {
+struct GrantWait {
+    grant: Option<u64>,
+    pending: Option<u64>,
+}
+
+#[cfg(target_os = "none")]
+fn wait_for_grant(endpoint: u64) -> GrantWait {
+    let mut pending = None;
     loop {
-        let (label, _word, _sender, handle) = recv_handle(endpoint);
+        let (label, _word, sender, handle) = recv_handle(endpoint);
         if label == DEVICE_GRANT && handle != 0 {
-            return Some(handle);
+            return GrantWait {
+                grant: Some(handle),
+                pending,
+            };
         }
         if label == DEVICE_NONE {
-            return None;
+            return GrantWait {
+                grant: None,
+                pending,
+            };
+        }
+        pending = Some(sender);
+    }
+}
+
+#[cfg(target_os = "none")]
+fn serve(endpoint: u64, network: &mut hk_driver_virtio::Network, peer: &mut u64) -> ! {
+    let mut buffer = [0_u8; NET_FRAME_MAX];
+    loop {
+        let (label, _word, sender, length, _handle) = recv_data_handle(endpoint, &mut buffer, 0);
+        if sender != 0 {
+            *peer = sender;
+        }
+        match label {
+            NET_INFO_REQUEST => send_info(sender, network.mac_address()),
+            NET_POLL => {
+                drain_rx(network, *peer);
+                if *peer != 0 {
+                    let _ = send_data(*peer, NET_POLL_DONE, &[]);
+                }
+            }
+            NET_TX => {
+                let length = length.min(buffer.len());
+                let _ = network.send(&buffer[..length]);
+            }
+            NET_SHUTDOWN => exit(0),
+            _ => {}
         }
     }
 }
 
 #[cfg(target_os = "none")]
-fn serve(endpoint: u64, mac: [u8; 6]) -> ! {
-    loop {
-        let (label, _word, sender) = recv(endpoint);
-        match label {
-            NET_INFO_REQUEST => {
-                let mut info = [0_u8; NET_INFO_BYTES];
-                info[..6].copy_from_slice(&mac);
-                info[6..8].copy_from_slice(&1514_u16.to_le_bytes());
-                info[8] = 1;
-                let _ = send_data(sender, NET_INFO_RESPONSE, &info);
-            }
-            NET_SHUTDOWN => exit(0),
-            _ => {}
-        }
+fn send_info(sender: u64, mac: [u8; 6]) {
+    let mut info = [0_u8; NET_INFO_BYTES];
+    info[..6].copy_from_slice(&mac);
+    info[6..8].copy_from_slice(&1514_u16.to_le_bytes());
+    info[8] = 1;
+    let _ = send_data(sender, NET_INFO_RESPONSE, &info);
+}
+
+#[cfg(target_os = "none")]
+fn drain_rx(network: &hk_driver_virtio::Network, peer: u64) {
+    if peer == 0 {
+        return;
+    }
+    while let Some(frame) = network.receive() {
+        let _ = send_data(peer, NET_RX, &frame);
     }
 }
 

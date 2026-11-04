@@ -430,6 +430,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-net"
+version = "0.1.0"
+dependencies = [
+ "hk-net",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-spin"
 version = "0.1.0"
 dependencies = [

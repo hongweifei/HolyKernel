@@ -20,6 +20,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-vfs",
     "hk-server-block",
     "hk-server-virtio-net",
+    "hk-server-net",
 ];
 
 /// 从启动模块中选出默认启动的服务。
