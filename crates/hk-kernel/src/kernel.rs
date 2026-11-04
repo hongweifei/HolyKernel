@@ -67,6 +67,7 @@ pub struct Kernel {
 #[derive(Clone, Copy)]
 struct IrqBinding {
     thread: TcbId,
+    grant: Handle,
     notification: Handle,
     bits: u64,
 }
@@ -167,6 +168,7 @@ impl Kernel {
             .or_default()
             .push(IrqBinding {
                 thread,
+                grant: grant_handle,
                 notification: notification_handle,
                 bits,
             });
@@ -326,6 +328,10 @@ impl Kernel {
             TRACE_HANDLE_RELEASE,
             live as u64,
         );
+        self.irq_bindings.lock().retain(|_, bindings| {
+            bindings.retain(|binding| binding.thread != thread);
+            !bindings.is_empty()
+        });
         Ok(())
     }
 
@@ -620,6 +626,13 @@ impl Kernel {
             id
         };
         self.record(thread.get(), Category::Handle, TRACE_HANDLE_CLOSE, id.get());
+        self.irq_bindings.lock().retain(|_, bindings| {
+            bindings.retain(|binding| {
+                binding.thread != thread
+                    || (binding.grant != handle && binding.notification != handle)
+            });
+            !bindings.is_empty()
+        });
         Ok(())
     }
 

@@ -16,6 +16,10 @@ pub trait UserVspace: Sized {
     fn map_mmio(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
+    /// 在地址空间中映射一段 DMA 内存；不支持时返回 `false`。
+    fn map_dma(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
+        false
+    }
 }
 
 /// 任务槽位到用户地址空间的映射。
@@ -66,6 +70,15 @@ impl<T: UserVspace> VspaceRegistry<T> {
             .get(slot)
             .and_then(Option::as_ref)
             .is_some_and(|table| table.map_mmio(virt, phys, len))
+    }
+
+    /// 把 DMA 内存映射到任务地址空间。
+    pub fn map_dma(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
+        self.tables
+            .lock()
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_some_and(|table| table.map_dma(virt, phys, len))
     }
 
     /// 把父任务地址空间分叉为子任务写时复制副本。

@@ -14,8 +14,8 @@ use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_EXIT,
     SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
-    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
+    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -27,6 +27,7 @@ mod task;
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;
 const GRANT_HANDLE_BASE: usize = 0x2000;
+const DMA_WINDOW_BYTES: usize = 64 * 1024;
 
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
@@ -103,8 +104,12 @@ pub trait UserPlatform {
     fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
+    /// 把 DMA 内存映射到任务地址空间。
+    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+        false
+    }
     /// 为 DeviceGrant 分配连续 DMA 窗口。
-    fn dma_window(&self, _len: usize) -> Option<hk_hal::MmioRange> {
+    fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {
         None
     }
     /// 取出并清除待处理 IRQ 位图。

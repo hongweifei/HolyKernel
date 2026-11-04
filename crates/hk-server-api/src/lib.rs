@@ -201,6 +201,12 @@ pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     unsafe { syscall_call(SYS_IRQ_BIND, grant, notification, bits, 0).value }
 }
 
+/// 返回当前任务自己的通知编号。
+pub fn self_notification() -> u64 {
+    // SAFETY: 只读取运行时任务槽位，不涉及指针。
+    unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

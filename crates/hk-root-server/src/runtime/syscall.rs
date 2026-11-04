@@ -60,6 +60,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_DEVICE_GRANT_CREATE => self.create_grant(index, tcb, frame),
             SYS_DEVICE_MAP => self.map_grant(index, tcb, frame),
             SYS_IRQ_BIND => self.bind_irq(index, tcb, frame),
+            SYS_SELF_NOTIFICATION => {
+                frame.set_result(index as u64 + 1);
+                Switch::Continue
+            }
             SYS_DMA_ALLOC => {
                 let grant_number = frame.arg0() as usize;
                 let length = frame.arg1() as usize;
@@ -77,15 +81,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     return Switch::Continue;
                 };
                 if length == 0
-                    || length as u64 > range.len
+                    || length as u64 > range.len()
                     || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
-                    || !self
-                        .platform
-                        .map_mmio(index, virt, range.base, range.len as usize)
+                    || !self.platform.map_dma(
+                        index,
+                        virt,
+                        range.start().get(),
+                        range.len() as usize,
+                    )
                 {
                     frame.set_result(0);
                 } else {
-                    frame.set_result(range.base);
+                    frame.set_result(range.start().get());
                 }
                 Switch::Continue
             }
@@ -444,11 +451,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if grant.dma.is_none()
-            && let Some(range) = self.platform.dma_window(64 * 1024)
-        {
-            grant.dma = Some(range);
-        }
+        grant.dma = self.platform.dma_window(DMA_WINDOW_BYTES);
         match self.kernel.create_device_grant(
             tcb,
             grant,
@@ -503,9 +506,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        let Ok(descriptor) = self.kernel.device_grant(tcb, grant) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(irq) = descriptor.irq else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !self.platform.route_irq(irq) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         match self.kernel.bind_irq(tcb, grant, notification, bits) {
-            Ok(irq) if self.platform.route_irq(irq) => frame.set_result(0),
-            _ => frame.set_result(u64::MAX),
+            Ok(_) => frame.set_result(0),
+            Err(_) => frame.set_result(u64::MAX),
         }
         Switch::Continue
     }

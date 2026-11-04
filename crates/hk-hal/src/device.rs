@@ -1,5 +1,6 @@
 //! 设备授权：用户态驱动可获得的 MMIO、I/O 与 IRQ 资源描述。
 
+use crate::addr::{PhysAddr, PhysRange};
 use crate::pci::PciAddress;
 
 /// MMIO 物理范围。
@@ -34,7 +35,7 @@ pub struct DeviceGrant {
     /// 端口 I/O 范围。
     pub io: [Option<IoRange>; 6],
     /// 授权给驱动的连续 DMA 窗口。
-    pub dma: Option<MmioRange>,
+    pub dma: Option<PhysRange>,
     /// 中断线。
     pub irq: Option<u8>,
     /// capability ID。
@@ -84,7 +85,9 @@ impl DeviceGrant {
             put_u16(buffer, &mut at, len);
         }
         put_u8(buffer, &mut at, u8::from(self.dma.is_some()));
-        let (dma_base, dma_len) = self.dma.map_or((0, 0), |range| (range.base, range.len));
+        let (dma_base, dma_len) = self
+            .dma
+            .map_or((0, 0), |range| (range.start().get(), range.len()));
         put_u64(buffer, &mut at, dma_base);
         put_u64(buffer, &mut at, dma_len);
         put_u8(buffer, &mut at, u8::from(self.irq.is_some()));
@@ -130,7 +133,7 @@ impl DeviceGrant {
         let dma = (get_u8(bytes, &mut at)? != 0).then(|| {
             let base = get_u64(bytes, &mut at).unwrap_or(0);
             let len = get_u64(bytes, &mut at).unwrap_or(0);
-            MmioRange { base, len }
+            PhysRange::new(PhysAddr::new(base), len)
         });
         if dma.is_none() {
             let _ = get_u64(bytes, &mut at)?;
@@ -233,10 +236,7 @@ mod tests {
                 None,
                 None,
             ],
-            dma: Some(MmioRange {
-                base: 0x200_0000,
-                len: 0x1_0000,
-            }),
+            dma: Some(PhysRange::new(PhysAddr::new(0x200_0000), 0x1_0000)),
             irq: Some(11),
             capabilities: [0x09, 0x11, 0, 0, 0, 0, 0, 0],
             capability_count: 2,

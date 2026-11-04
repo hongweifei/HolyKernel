@@ -432,4 +432,11 @@ fn binds_irq_to_notification() {
         kernel.wait(worker, notification, 0b100).expect("等待通知"),
         Some(0b100)
     );
+
+    kernel.close_handle(worker, grant).expect("关闭授权");
+    kernel.signal_irq(11);
+    assert_eq!(
+        kernel.wait(worker, notification, 0b100).expect("等待通知"),
+        None
+    );
 }

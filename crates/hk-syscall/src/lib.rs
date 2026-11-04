@@ -79,5 +79,8 @@ pub const SYS_DMA_ALLOC: u64 = 23;
 /// 把设备中断绑定到通知。
 pub const SYS_IRQ_BIND: u64 = 24;
 
+/// 返回当前任务自己的通知编号。
+pub const SYS_SELF_NOTIFICATION: u64 = 25;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

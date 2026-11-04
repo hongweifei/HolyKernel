@@ -18,6 +18,22 @@ impl UserVspace for PageTable {
     }
 
     fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
+        self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_MMIO)
+    }
+
+    fn map_dma(&self, virt: u64, phys: u64, len: usize) -> bool {
+        self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_RW)
+    }
+}
+
+impl PageTable {
+    fn map_user_range(
+        &self,
+        virt: u64,
+        phys: u64,
+        len: usize,
+        flags: crate::paging::PageFlags,
+    ) -> bool {
         if len == 0
             || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
             || !phys.is_multiple_of(hk_hal::PAGE_SIZE as u64)
@@ -30,7 +46,7 @@ impl UserVspace for PageTable {
                 .map_mmio(
                     hk_hal::VirtAddr::new(virt + offset as u64),
                     hk_hal::PhysAddr::new(phys + offset as u64),
-                    crate::paging::PageFlags::USER_MMIO,
+                    flags,
                 )
                 .is_err()
             {
