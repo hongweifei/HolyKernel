@@ -25,7 +25,7 @@ HolyKernel/
 │   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度、线性堆与 AP 池
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
-│   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器
+│   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器、用户地址空间登记表
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射（经 `UserMemory`）
 │   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化

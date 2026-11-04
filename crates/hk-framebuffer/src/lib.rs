@@ -10,7 +10,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use hk_hal::{Console, FramebufferInfo, PixelFormat};
+use hk_hal::{BootInfo, Console, FramebufferInfo, PixelFormat};
 use lovyangfx_fonts::Font;
 use lovyangfx_fonts::fonts::efont_cn_16;
 use spin::Mutex;
@@ -48,6 +48,13 @@ unsafe impl Sync for FramebufferConsole {}
 
 impl FramebufferConsole {
     /// 以启动信息中的帧缓冲描述创建控制台。
+    pub fn from_boot_info(boot: &BootInfo) -> Option<Self> {
+        let framebuffer = boot.framebuffer?;
+        let direct_map = boot.direct_map?;
+        Some(Self::new(&framebuffer, direct_map.virt_base.get()))
+    }
+
+    /// 以帧缓冲描述与 direct map 基址创建控制台。
     pub fn new(info: &FramebufferInfo, direct_map_base: u64) -> Self {
         let font = efont_cn_16();
         let cell_width = font.max_width() as usize;

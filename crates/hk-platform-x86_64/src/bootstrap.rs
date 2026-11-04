@@ -115,12 +115,7 @@ pub fn init_ioapic(
 
 /// 以启动信息中的帧缓冲描述创建文本控制台。
 pub fn framebuffer_console(info: &BootInfo) -> Option<FramebufferConsole> {
-    let framebuffer = info.framebuffer?;
-    let direct_map = info.direct_map?;
-    Some(FramebufferConsole::new(
-        &framebuffer,
-        direct_map.virt_base.get(),
-    ))
+    FramebufferConsole::from_boot_info(info)
 }
 
 /// 映射 LAPIC 寄存器页并初始化本地 APIC。

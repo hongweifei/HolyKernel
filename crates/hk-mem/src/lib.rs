@@ -8,8 +8,10 @@
 extern crate alloc;
 
 pub mod frames;
+pub mod vspace_registry;
 
 pub use frames::LinearFrames;
+pub use vspace_registry::{UserVspace, VspaceRegistry};
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
