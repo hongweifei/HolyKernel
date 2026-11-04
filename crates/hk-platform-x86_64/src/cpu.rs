@@ -10,6 +10,7 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::Console;
+use hk_smp::{IdleState, TlbHardware, TlbShootdown};
 use spin::Mutex;
 
 use crate::port::outb;
@@ -330,17 +331,9 @@ static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 /// 跨核 IPI 向量。
 pub const IPI_VECTOR: u8 = 240;
 
-/// `TLB_ADDRESS` 表示刷新整个 TLB。
-const TLB_FULL: u64 = u64::MAX;
-
 static IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
-static TLB_ADDRESS: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
-static TLB_TARGET: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
-static TLB_ACK: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
-static TLB_GENERATION: AtomicU64 = AtomicU64::new(1);
-static TLB_SHOOTDOWNS: AtomicUsize = AtomicUsize::new(0);
-static IDLE: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
-static WAKE: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
+static TLB: TlbShootdown<MAX_CPUS> = TlbShootdown::new();
+static IDLE: IdleState<MAX_CPUS> = IdleState::new();
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static SYSCALL_HOOK: AtomicUsize = AtomicUsize::new(0);
 static PREEMPT_HOOK: AtomicUsize = AtomicUsize::new(0);
@@ -550,81 +543,54 @@ pub fn ipi_count() -> usize {
     IPI_COUNT.load(Ordering::Acquire)
 }
 
+/// x86 TLB/IPI 硬件适配。
+struct X86Tlb {
+    self_id: u32,
+}
+
+impl TlbHardware for X86Tlb {
+    fn online(&self, cpu: usize) -> bool {
+        let id = APIC_IDS[cpu].load(Ordering::Acquire);
+        id != u32::MAX && id != self.self_id && id <= u32::from(u8::MAX)
+    }
+
+    fn send_ipi(&mut self, cpu: usize) {
+        send_ipi(APIC_IDS[cpu].load(Ordering::Acquire) as u8, IPI_VECTOR);
+    }
+
+    fn flush(&mut self, address: Option<u64>) {
+        flush_local(address);
+    }
+
+    fn now(&mut self) -> u64 {
+        crate::timing::rdtsc()
+    }
+}
+
 /// 刷新当前 CPU 的 TLB，并等待其他在线 CPU 确认。
 ///
 /// `address` 为 `None` 时刷新整个 TLB。返回 `false` 表示等待确认超时。
 pub fn shootdown_tlb(address: Option<u64>) -> bool {
-    flush_local(address);
-
-    let requested = address.unwrap_or(TLB_FULL);
     let current = cpu_index();
-    let self_id = APIC_IDS[current].load(Ordering::Acquire);
-    let mut targets = [0_u64; MAX_CPUS];
-
-    for cpu in 0..MAX_CPUS {
-        if cpu == current {
-            continue;
-        }
-        let id = APIC_IDS[cpu].load(Ordering::Acquire);
-        if id == u32::MAX || id == self_id || id > u32::from(u8::MAX) {
-            continue;
-        }
-
-        // 已有未确认请求时提升为整表刷新，避免后一个请求覆盖前一个地址。
-        // 每次重试都取更大的代际，防止并发请求把目标代际改小。
-        let mut previous = TLB_TARGET[cpu].load(Ordering::Acquire);
-        let generation = loop {
-            let flush = if previous > TLB_ACK[cpu].load(Ordering::Acquire) {
-                TLB_FULL
-            } else {
-                requested
-            };
-            let candidate = TLB_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-            TLB_ADDRESS[cpu].store(flush, Ordering::Release);
-            match TLB_TARGET[cpu].compare_exchange(
-                previous,
-                candidate,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => break candidate,
-                Err(actual) => previous = actual,
-            }
-        };
-        targets[cpu] = generation;
-        send_ipi(id as u8, IPI_VECTOR);
-    }
-
+    let mut hardware = X86Tlb {
+        self_id: APIC_IDS[current].load(Ordering::Acquire),
+    };
     let timeout = match crate::timing::tsc_frequency() {
         0 => 1_000_000_000,
         frequency => frequency,
     };
-    let begin = crate::timing::rdtsc();
-    while !targets.iter().enumerate().all(|(cpu, generation)| {
-        *generation == 0 || TLB_ACK[cpu].load(Ordering::Acquire) >= *generation
-    }) {
-        // 另一个 CPU 也可能正在等待本 CPU 确认，轮询时不依赖中断。
-        handle_tlb_ipi();
-        if crate::timing::rdtsc().wrapping_sub(begin) >= timeout {
-            return false;
-        }
-        core::hint::spin_loop();
-    }
 
-    TLB_SHOOTDOWNS.fetch_add(1, Ordering::Relaxed);
-    true
+    TLB.shootdown(current, address, &mut hardware, timeout)
 }
 
 /// 返回已完成的 TLB shootdown 次数。
 pub fn tlb_shootdowns() -> usize {
-    TLB_SHOOTDOWNS.load(Ordering::Acquire)
+    TLB.completed()
 }
 
 /// 空闲 CPU 数量。
 pub fn idle_cpus() -> usize {
-    IDLE.iter()
-        .filter(|idle| idle.load(Ordering::Acquire))
-        .count()
+    IDLE.idle_count()
 }
 
 /// 让当前 CPU 进入空闲等待，直到收到唤醒 IPI。
@@ -632,56 +598,47 @@ pub fn idle_cpus() -> usize {
 /// 调用前应关闭本地定时器；返回时中断仍关闭，由调用方重新启动 tick。
 pub fn idle(cpu: usize) {
     assert!(cpu < MAX_CPUS, "CPU 索引越界");
-    IDLE[cpu].store(true, Ordering::Release);
+    IDLE.enter(cpu);
     // SAFETY: 关中断后检查唤醒标志；`sti` 延迟到下一条指令，`hlt` 会等待
     // 任何在途 IPI 或中断。
     unsafe {
         asm!("cli", options(nomem, nostack));
     }
     loop {
-        if WAKE[cpu].swap(false, Ordering::AcqRel) {
+        if IDLE.take_wake(cpu) {
             break;
         }
         // SAFETY: 同上；`hlt` 在中断关闭期间不会丢失已挂起的 IPI。
         unsafe {
             asm!("sti; hlt; cli", options(nomem, nostack));
         }
-        if WAKE[cpu].swap(false, Ordering::AcqRel) {
+        if IDLE.take_wake(cpu) {
             break;
         }
     }
-    IDLE[cpu].store(false, Ordering::Release);
+    IDLE.leave(cpu);
 }
 
 /// 唤醒空闲 CPU；只在有可运行线程时调用。
 pub fn wake_aps() {
     let current = cpu_index();
     let self_id = APIC_IDS[current].load(Ordering::Acquire);
-    for cpu in 0..MAX_CPUS {
+    for (cpu, slot) in APIC_IDS.iter().enumerate() {
         if cpu == current {
             continue;
         }
-        let id = APIC_IDS[cpu].load(Ordering::Acquire);
+        let id = slot.load(Ordering::Acquire);
         if id == u32::MAX || id == self_id || id > u32::from(u8::MAX) {
             continue;
         }
-        WAKE[cpu].store(true, Ordering::Release);
-        if IDLE[cpu].load(Ordering::Acquire) {
+        if IDLE.wake(cpu) {
             send_ipi(id as u8, IPI_VECTOR);
         }
     }
 }
 
 fn handle_tlb_ipi() {
-    let cpu = cpu_index();
-    let target = TLB_TARGET[cpu].load(Ordering::Acquire);
-    if target <= TLB_ACK[cpu].load(Ordering::Acquire) {
-        return;
-    }
-
-    let address = TLB_ADDRESS[cpu].load(Ordering::Acquire);
-    flush_local((address != TLB_FULL).then_some(address));
-    TLB_ACK[cpu].store(target, Ordering::Release);
+    TLB.acknowledge(cpu_index(), flush_local);
 }
 
 fn flush_local(address: Option<u64>) {

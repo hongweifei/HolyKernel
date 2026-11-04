@@ -231,6 +231,7 @@ dependencies = [
  "hk-keyboard-ps2",
  "hk-mem",
  "hk-server-api",
+ "hk-smp",
  "hk-test",
  "hk-uart-16550",
  "spin",
@@ -332,6 +333,10 @@ dependencies = [
  "hk-ipc",
  "hk-kernel",
 ]
+
+[[package]]
+name = "hk-smp"
+version = "0.1.0"
 
 [[package]]
 name = "hk-syscall"
