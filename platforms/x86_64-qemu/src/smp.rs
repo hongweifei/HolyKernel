@@ -2,6 +2,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use core::sync::atomic::Ordering;
 
 use hk_boot::ApCpu;
 use hk_kernel::AP_POOL;
@@ -46,9 +47,12 @@ pub fn start() -> Result<(usize, usize), String> {
 }
 
 unsafe extern "C" fn ap_entry(info: *mut ApCpu) -> ! {
-    // SAFETY: Limine 传入的 CPU 描述在入口期间有效。
-    let lapic_id = unsafe { (*info).lapic_id };
-    cpu::init_ap();
+    // SAFETY: Limine 传入的 CPU 描述在入口期间有效；`extra` 由 `start_aps` 写入。
+    let (lapic_id, cpu_index) = unsafe {
+        let cpu = &*info;
+        (cpu.lapic_id, cpu.extra.load(Ordering::Acquire) as usize)
+    };
+    cpu::init_ap(cpu_index);
     AP_POOL.park_with(lapic_id, || {
         // SAFETY: 中断已开启；`hlt` 在下一个中断后返回。
         unsafe {

@@ -283,17 +283,19 @@ pub fn start_aps(entry: ApEntry) -> usize {
     };
     let bsp = response.bsp_lapic_id();
     let mut started = 0;
+    let mut slot = 1_u64;
 
-    for (index, cpu) in response.cpus().iter().enumerate() {
+    for cpu in response.cpus() {
         if cpu.lapic_id == bsp {
             continue;
         }
-        cpu.extra.store(index as u64, Ordering::Release);
+        cpu.extra.store(slot, Ordering::Release);
         // SAFETY: `ApEntry` 与 Limine 回调使用相同的 C ABI，参数指向同一 CPU 结构。
         let callback: unsafe extern "C" fn(&LimineCpu) -> ! =
             unsafe { core::mem::transmute(entry) };
         cpu.goto_address.write(callback);
         started += 1;
+        slot += 1;
     }
 
     started

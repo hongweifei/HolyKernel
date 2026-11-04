@@ -93,16 +93,21 @@ const TICK_INITIAL_COUNT: u32 = 100_000;
 /// 系统调用栈大小。
 const SYSCALL_STACK_SIZE: usize = 32 * 1024;
 
+/// 支持的 CPU 数量上限。
+pub const MAX_CPUS: usize = 16;
+
 #[repr(C, align(16))]
 struct SyscallStack(UnsafeCell<[u8; SYSCALL_STACK_SIZE]>);
 
-// SAFETY: 系统调用栈只作为 ring 0 栈使用，访问由 CPU 特权级切换与内核代码串行化。
-unsafe impl Sync for SyscallStack {}
+#[repr(C, align(16))]
+struct DoubleFaultStack(UnsafeCell<[u8; DOUBLE_FAULT_STACK_SIZE]>);
 
-static SYSCALL_STACK: SyscallStack = SyscallStack(UnsafeCell::new([0; SYSCALL_STACK_SIZE]));
+fn syscall_stack_top(cpu: usize) -> u64 {
+    CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64
+}
 
-fn syscall_stack_top() -> u64 {
-    SYSCALL_STACK.0.get() as u64 + SYSCALL_STACK_SIZE as u64
+fn double_fault_stack_top(cpu: usize) -> u64 {
+    CPUS[cpu].double_fault.0.get() as u64 + DOUBLE_FAULT_STACK_SIZE as u64
 }
 
 #[repr(C, packed)]
@@ -270,20 +275,33 @@ pub type PreemptHook = fn(&InterruptFrame) -> bool;
 
 struct CpuState {
     gdt: UnsafeCell<[u64; 7]>,
-    idt: UnsafeCell<[IdtEntry; 256]>,
     tss: UnsafeCell<TaskStateSegment>,
-    double_fault_stack: UnsafeCell<[u8; DOUBLE_FAULT_STACK_SIZE]>,
+    syscall: SyscallStack,
+    double_fault: DoubleFaultStack,
 }
 
-// SAFETY: 这些表只在 `init` 中写入一次，之后由 CPU 只读访问；中断路径只读。
+impl CpuState {
+    const fn new() -> Self {
+        Self {
+            gdt: UnsafeCell::new([0; 7]),
+            tss: UnsafeCell::new(TaskStateSegment::new()),
+            syscall: SyscallStack(UnsafeCell::new([0; SYSCALL_STACK_SIZE])),
+            double_fault: DoubleFaultStack(UnsafeCell::new([0; DOUBLE_FAULT_STACK_SIZE])),
+        }
+    }
+}
+
+// SAFETY: 每 CPU 的表只在自身初始化时写入，之后由该 CPU 只读访问。
 unsafe impl Sync for CpuState {}
 
-static CPU: CpuState = CpuState {
-    gdt: UnsafeCell::new([0; 7]),
-    idt: UnsafeCell::new([IdtEntry::EMPTY; 256]),
-    tss: UnsafeCell::new(TaskStateSegment::new()),
-    double_fault_stack: UnsafeCell::new([0; DOUBLE_FAULT_STACK_SIZE]),
-};
+static CPUS: [CpuState; MAX_CPUS] = [const { CpuState::new() }; MAX_CPUS];
+
+struct IdtState(UnsafeCell<[IdtEntry; 256]>);
+
+// SAFETY: IDT 只由 BSP 初始化一次，之后由所有 CPU 只读访问。
+unsafe impl Sync for IdtState {}
+
+static IDT: IdtState = IdtState(UnsafeCell::new([IdtEntry::EMPTY; 256]));
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
@@ -307,7 +325,7 @@ pub fn init() {
         !INITIALIZED.swap(true, Ordering::AcqRel),
         "CPU 表重复初始化"
     );
-    init_gdt();
+    init_gdt(0);
     init_idt();
 }
 
@@ -364,18 +382,23 @@ fn handlers() -> [usize; 32] {
     ]
 }
 
-fn init_gdt() {
-    let tss_base = CPU.tss.get() as u64;
+fn init_gdt(cpu: usize) {
+    configure_tss(cpu);
+    load_gdt(cpu);
+}
+
+fn configure_tss(cpu: usize) {
+    let state = &CPUS[cpu];
+    let tss_base = state.tss.get() as u64;
     let tss_limit = (core::mem::size_of::<TaskStateSegment>() - 1) as u64;
 
-    // SAFETY: 初始化期间独占写入 GDT 与 TSS；此时没有多核或中断并发访问。
+    // SAFETY: 该 CPU 尚未启用中断，独占写入自己的 GDT 与 TSS。
     unsafe {
-        let tss = &mut *CPU.tss.get();
-        tss.rsp0 = syscall_stack_top();
-        tss.ist[DOUBLE_FAULT_IST as usize - 1] =
-            CPU.double_fault_stack.get().cast::<u8>() as u64 + DOUBLE_FAULT_STACK_SIZE as u64;
+        let tss = &mut *state.tss.get();
+        tss.rsp0 = syscall_stack_top(cpu);
+        tss.ist[DOUBLE_FAULT_IST as usize - 1] = double_fault_stack_top(cpu);
 
-        let gdt = &mut *CPU.gdt.get();
+        let gdt = &mut *state.gdt.get();
         gdt[0] = 0;
         gdt[1] = CODE_DESCRIPTOR;
         gdt[2] = DATA_DESCRIPTOR;
@@ -387,7 +410,15 @@ fn init_gdt() {
         gdt[4] = tss_base >> 32;
         gdt[5] = USER_DATA_DESCRIPTOR;
         gdt[6] = USER_CODE_DESCRIPTOR;
+    }
+}
 
+fn load_gdt(cpu: usize) {
+    let state = &CPUS[cpu];
+
+    // SAFETY: GDT 已由本 CPU 初始化；加载后立即切换到同一 GDT 的段选择子。
+    unsafe {
+        let gdt = &*state.gdt.get();
         let pointer = DescriptorPointer {
             limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
             base: gdt.as_ptr() as u64,
@@ -422,9 +453,9 @@ fn init_gdt() {
 fn init_idt() {
     let handlers = handlers();
 
-    // SAFETY: 初始化期间独占写入 IDT；写入完成后由 CPU 只读访问。
+    // SAFETY: BSP 初始化期间独占写入共享 IDT；完成后各 CPU 只读加载。
     unsafe {
-        let idt = &mut *CPU.idt.get();
+        let idt = &mut *IDT.0.get();
         for entry in idt.iter_mut() {
             *entry = IdtEntry::EMPTY;
         }
@@ -437,51 +468,14 @@ fn init_idt() {
         idt[SYSCALL_VECTOR as usize] =
             IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
         idt[IPI_VECTOR as usize] = IdtEntry::new(isr_240 as *const () as usize, 0);
-
-        let pointer = DescriptorPointer {
-            limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
-            base: idt.as_ptr() as u64,
-        };
-        asm!("lidt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
     }
+    load_idt();
 }
 
-/// 在 AP 上加载 BSP 已建立的内核 GDT/TSS 与 IDT。
-pub fn load_tables_for_ap() {
-    // SAFETY: GDT/TSS/IDT 已由 BSP 初始化且此后只读；AP 尚未开启中断。
+fn load_idt() {
+    // SAFETY: IDT 已由 BSP 初始化且此后只读。
     unsafe {
-        let gdt = &*CPU.gdt.get();
-        let pointer = DescriptorPointer {
-            limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
-            base: gdt.as_ptr() as u64,
-        };
-        asm!("lgdt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
-
-        let code = u64::from(KERNEL_CODE);
-        asm!(
-            "push {code}",
-            "lea {target}, [rip + 2f]",
-            "push {target}",
-            "retfq",
-            "2:",
-            code = in(reg) code,
-            target = out(reg) _,
-        );
-
-        let data = u64::from(KERNEL_DATA);
-        asm!(
-            "mov ds, ax",
-            "mov es, ax",
-            "mov ss, ax",
-            "mov fs, ax",
-            "mov gs, ax",
-            in("ax") data,
-            options(nostack, preserves_flags),
-        );
-        // AP 只运行内核态中断，不需要加载 TR；BSP 的 `ltr` 已将 TSS 描述符
-        // 标记为 busy，重复 `ltr` 会触发 #GP。
-
-        let idt = &*CPU.idt.get();
+        let idt = &*IDT.0.get();
         let pointer = DescriptorPointer {
             limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
             base: idt.as_ptr() as u64,
@@ -490,12 +484,16 @@ pub fn load_tables_for_ap() {
     }
 }
 
-/// AP 初始化：加载 GDT/IDT、启用 LAPIC 伪中断并开启中断。
-pub fn init_ap() {
-    load_tables_for_ap();
+/// AP 初始化：建立 per-CPU TSS/GDT、加载共享 IDT、启用 LAPIC 与中断。
+pub fn init_ap(cpu: usize) {
+    assert!(cpu < MAX_CPUS, "CPU 索引越界");
+    configure_tss(cpu);
+    load_gdt(cpu);
+    load_idt();
+
     lapic_write(LAPIC_SIVR, SPURIOUS_ENABLE | SPURIOUS_VECTOR);
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
-    // SAFETY: GDT/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
+    // SAFETY: GDT/TSS/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
     unsafe {
         asm!("sti", options(nomem, nostack));
     }
