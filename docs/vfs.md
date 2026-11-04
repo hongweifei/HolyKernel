@@ -2,7 +2,7 @@
 
 状态：**VFS Server 原型已运行，缓存与客户端接口已接入** · 上级：[总体架构](architecture.md)
 
-已实现 `crates/hk-vfs`：路径规范化、挂载表、dentry 缓存、4 KiB 页缓存、文件句柄、`Backend` 契约与 tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；页缓存为有界 LRU；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。重启持久化仍待 ext2/块设备后端。
+已实现 `crates/hk-vfs`：路径规范化、挂载表、dentry 缓存、4 KiB 页缓存、文件句柄、`Backend` 契约与 tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。重启持久化仍待 ext2/块设备后端。
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 

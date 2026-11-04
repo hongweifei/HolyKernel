@@ -9,6 +9,8 @@ extern crate alloc;
 #[cfg(target_os = "none")]
 use alloc::boxed::Box;
 #[cfg(target_os = "none")]
+use alloc::collections::BTreeMap;
+#[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
@@ -75,6 +77,55 @@ unsafe impl GlobalAlloc for BumpHeap {
 #[global_allocator]
 static ALLOCATOR: BumpHeap = BumpHeap;
 
+#[cfg(target_os = "none")]
+struct Session {
+    handles: BTreeMap<u64, FileHandle>,
+    next: u64,
+}
+
+#[cfg(target_os = "none")]
+impl Session {
+    const fn new() -> Self {
+        Self {
+            handles: BTreeMap::new(),
+            next: 1,
+        }
+    }
+
+    fn insert(&mut self, handle: FileHandle) -> u64 {
+        let id = self.next;
+        self.next = self.next.saturating_add(1);
+        self.handles.insert(id, handle);
+        id
+    }
+
+    fn get(&self, id: u64) -> Option<FileHandle> {
+        self.handles.get(&id).copied()
+    }
+
+    fn remove(&mut self, id: u64) -> Option<FileHandle> {
+        self.handles.remove(&id)
+    }
+}
+
+#[cfg(target_os = "none")]
+struct Sessions {
+    clients: BTreeMap<u64, Session>,
+}
+
+#[cfg(target_os = "none")]
+impl Sessions {
+    const fn new() -> Self {
+        Self {
+            clients: BTreeMap::new(),
+        }
+    }
+
+    fn get(&mut self, sender: u64) -> &mut Session {
+        self.clients.entry(sender).or_insert_with(Session::new)
+    }
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -88,6 +139,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = filesystem.mount("/proc", Box::new(Procfs::new()));
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
+    let mut sessions = Sessions::new();
     let mut request = [0_u8; 4096];
     let mut body = [0_u8; 4093];
     let mut response = [0_u8; 4096];
@@ -102,7 +154,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let (status, written) = handle(&mut filesystem, &request, &mut body);
+        let (status, written) = handle(&mut filesystem, sessions.get(sender), &request, &mut body);
         reply(sender, status, &body[..written], &mut response);
     }
 }
@@ -117,6 +169,7 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
 #[cfg(target_os = "none")]
 fn handle(
     filesystem: &mut Vfs,
+    session: &mut Session,
     request: &hk_server_api::vfs::Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
@@ -128,33 +181,43 @@ fn handle(
             flags.create = request.arg0 & OPEN_CREATE != 0;
             match filesystem.open(request.path, flags) {
                 Ok(handle) => {
-                    body[..8].copy_from_slice(&handle.id().to_le_bytes());
+                    let id = session.insert(handle);
+                    body[..8].copy_from_slice(&id.to_le_bytes());
                     (STATUS_OK, 8)
                 }
                 Err(error) => (status(error), 0),
             }
         }
-        OP_CLOSE => match filesystem.close(FileHandle::from_id(request.arg0)) {
-            Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
-        },
+        OP_CLOSE => {
+            let Some(handle) = session.remove(request.arg0) else {
+                return (STATUS_NOT_FOUND, 0);
+            };
+            match filesystem.close(handle) {
+                Ok(()) => (STATUS_OK, 0),
+                Err(error) => (status(error), 0),
+            }
+        }
         OP_READ => {
-            match filesystem.read_at(FileHandle::from_id(request.arg0), request.arg1, body) {
+            let Some(handle) = session.get(request.arg0) else {
+                return (STATUS_NOT_FOUND, 0);
+            };
+            match filesystem.read_at(handle, request.arg1, body) {
                 Ok(length) => (STATUS_OK, length),
                 Err(error) => (status(error), 0),
             }
         }
-        OP_WRITE => match filesystem.write_at(
-            FileHandle::from_id(request.arg0),
-            request.arg1,
-            request.data,
-        ) {
-            Ok(length) => {
-                body[..8].copy_from_slice(&(length as u64).to_le_bytes());
-                (STATUS_OK, 8)
+        OP_WRITE => {
+            let Some(handle) = session.get(request.arg0) else {
+                return (STATUS_NOT_FOUND, 0);
+            };
+            match filesystem.write_at(handle, request.arg1, request.data) {
+                Ok(length) => {
+                    body[..8].copy_from_slice(&(length as u64).to_le_bytes());
+                    (STATUS_OK, 8)
+                }
+                Err(error) => (status(error), 0),
             }
-            Err(error) => (status(error), 0),
-        },
+        }
         OP_STAT => match filesystem.metadata(request.path) {
             Ok(metadata) => {
                 body[0] = match metadata.kind {
