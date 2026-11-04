@@ -111,7 +111,7 @@ flowchart TB
 | **Frame** | 物理内存帧 | 映射、共享、DMA、缓存维护 |
 | **Untyped** | 未类型化内存 | retype 为 TCB/VSpace/Frame/Endpoint |
 | **IRQHandler** | 中断句柄 | 平台路由、Notification 唤醒、ack/EOI |
-| **DeviceGrant** | 设备句柄集合；内核对象、镜像角色元数据、设备授权工厂、MMIO 映射、DMA 窗口子分配与 IRQ 通知绑定已建立 | 驱动实际使用 |
+| **DeviceGrant** | 设备句柄集合；内核对象、镜像角色元数据、设备授权工厂、MMIO 映射、DMA 窗口子分配与 IRQ 通知绑定已建立 | 独立 virtio 驱动服务使用 |
 
 内核对象由 Untyped 内存创建；每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
 
@@ -197,8 +197,8 @@ sequenceDiagram
 | --- | --- | --- |
 | **Root Server** | 启动、监督、重启、句柄分配 | 初始 Untyped、HandleTable、Endpoint |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
-| **Block Server** | 块设备抽象与 RAM disk | Block Endpoint |
-| **Block Driver** | virtio-blk / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
+| **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
+| **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 | FS Backend Endpoint、Frame |
 | **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |

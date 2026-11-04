@@ -28,9 +28,11 @@ HolyKernel/
 │   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化
 │   ├── hk-root-server/        Root Server、服务清单、服务表、ELF 装载、用户运行时与运行时宿主
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
-│   ├── hk-driver-*            virtio/PS2/console/framebuffer
+│   ├── hk-driver-virtio/      virtio 驱动：DeviceGrant、MMIO/DMA/IRQ 与 virtio-drivers 适配
+│   ├── hk-block/              块设备契约与内存盘
+│   ├── hk-block-ipc/          块协议服务循环与远端块设备客户端
 │   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
-│   ├── hk-fs-ext2/            ext2 后端
+│   ├── hk-fs-ext4/            ext4 后端（rsext4）
 │   ├── hk-fs-tmpfs/           tmpfs 后端
 │   ├── hk-fs-devfs/           devfs 后端
 │   ├── hk-fs-procfs/          procfs 后端

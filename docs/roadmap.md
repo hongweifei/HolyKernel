@@ -145,11 +145,13 @@ flowchart LR
 - VFS Server：挂载表、路径解析、dentry/inode 缓存、FileHandle、页缓存。
 - ext2、tmpfs、devfs、procfs 后端。
 - Block Driver 与 VFS 的 Endpoint 接口。
+
+已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`，写入并读回标记文件；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写。
 - VFS 重启与后端恢复。
 
 ### 退出标准
 
-1. 挂载 ext2 根镜像，读写文件，重启后数据保留。
+1. 挂载 ext4 数据盘（`rsext4`），读写文件，重新挂载后数据保留。
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动崩溃后 Device Manager 重启驱动。
@@ -292,7 +294,7 @@ flowchart LR
 ## 14. 当前状态
 
 - 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
-- 当前代码：`crates/hk-hal`、`crates/hk-handle`、`crates/hk-ipc`、`crates/hk-mem`、`crates/hk-kernel`、`crates/hk-smp`、`crates/hk-drivers`、`crates/hk-acpi`、`crates/hk-framebuffer`、`crates/hk-boot`、`crates/hk-root-server`、`crates/hk-shell`、`crates/hk-syscall`、`crates/hk-server-api`、`crates/hk-server-build`、`crates/hk-sim`、`crates/hk-test`、`crates/hk-platform-hosted`、`crates/hk-platform-x86_64`、`platforms/hosted`、`platforms/x86_64-qemu`、`servers/demo`、`servers/echo`、`servers/device`、`servers/spin`、`xtask`。
+- 当前代码：`crates/hk-hal`、`crates/hk-handle`、`crates/hk-ipc`、`crates/hk-mem`、`crates/hk-kernel`、`crates/hk-smp`、`crates/hk-drivers`、`crates/hk-acpi`、`crates/hk-framebuffer`、`crates/hk-boot`、`crates/hk-root-server`、`crates/hk-shell`、`crates/hk-syscall`、`crates/hk-server-api`、`crates/hk-server-build`、`crates/hk-sim`、`crates/hk-test`、`crates/hk-block`、`crates/hk-block-ipc`、`crates/hk-driver-virtio`、`crates/hk-fs-ext4`、`crates/hk-platform-hosted`、`crates/hk-platform-x86_64`、`platforms/hosted`、`platforms/x86_64-qemu`、`servers/demo`、`servers/echo`、`servers/device`、`servers/spin`、`servers/virtio`、`servers/vfs`、`servers/block`、`xtask`。
 - M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
 
 ---

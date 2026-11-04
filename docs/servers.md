@@ -87,9 +87,9 @@ pub struct ServiceManifest {
 ## 4. Device Manager
 
 - 枚举 PCI（ECAM）或 DTB 设备。
-- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给 Block Server。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO、`SYS_DMA_ALLOC` 在授权 DMA 窗口内按页分配并映射，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
+- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO、`SYS_DMA_ALLOC` 在授权 DMA 窗口内按页分配并映射，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
 - 服务镜像通过 `.hk_service` 段声明角色，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
-- 按设备类别启动驱动：块、网络、输入、显示。Block Server 已接入 virtio-blk，完成容量查询与 sector 0 读取验证。
+- 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务已接入 virtio-blk，完成容量查询、读、写与 flush 验证；Block Server 保留 RAM disk 后端与块协议。
 - 维护设备树与驱动绑定；设备移除时关闭 Handle。
 - 通过 Endpoint 向 VFS 与 POSIX Server报告设备状态。
 
@@ -99,8 +99,8 @@ pub struct ServiceManifest {
 
 | 驱动 | 设备 | 接口 |
 | --- | --- | --- |
-| **Block Server** | RAM disk / 块设备抽象 | Block Endpoint：read/write/flush/capacity |
-| **virtio-blk** | 块设备 | Block Endpoint：read/write/flush |
+| **Block Server** | RAM disk 与块协议服务 | Block Endpoint：read/write/flush/capacity |
+| **virtio 驱动** | virtio 设备类别；当前接入块设备 | Block Endpoint：read/write/flush/capacity |
 | **AHCI** | SATA 块设备 | Block Endpoint |
 | **virtio-net** | 网络设备 | Net Endpoint：tx/rx |
 | **virtio-input** | 键盘/鼠标 | Input Endpoint |
@@ -122,6 +122,7 @@ pub struct ServiceManifest {
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
 - VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame；客户端按服务名查询当前端点，服务重启后可重新连接。
+- VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）到 `/disk`，写入经页缓存与 ext4 日志落盘；宿主侧重新挂载镜像可读回同一文件。
 
 详见 [VFS](vfs.md)。
 
