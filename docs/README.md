@@ -15,12 +15,13 @@
 9. [VFS](vfs.md) — 挂载表、路径解析、文件句柄、页缓存。
 10. [HolyFS 文件系统](holyfs.md) — Holy 对象、修订、快照、标签、COW、checksum。
 11. [POSIX 与 libc](posix.md) — POSIX 兼容环境、syscall shim、进程/线程/信号、ELF。
-12. [HolyDoc 与 UI](ui.md) — 可选原生显示服务与真彩界面。
-13. [Holy 原生体验](experience.md) — Workbench、Toolchain、Checkpoint、符号化调试。
-14. [平台与启动](platforms.md) — HAL、BootInfo、多架构启动、用户态驱动。
-15. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
-16. [路线图](roadmap.md) — M0–M9 与退出标准。
-17. [术语表](glossary.md) — 微内核与 POSIX 术语。
+12. [应用兼容与 Linux ABI](compat.md) — 源码兼容、Linux ELF、ABI 兼容层与移植工具链。
+13. [HolyDoc 与 UI](ui.md) — 可选原生显示服务与真彩界面。
+14. [Holy 原生体验](experience.md) — Workbench、Toolchain、Checkpoint、符号化调试。
+15. [平台与启动](platforms.md) — HAL、BootInfo、多架构启动、用户态驱动。
+16. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
+17. [路线图](roadmap.md) — M0–M11 与退出标准。
+18. [术语表](glossary.md) — 微内核与 POSIX 术语。
 
 ## 文档地图
 
@@ -38,6 +39,7 @@ docs/
 ├── vfs.md               VFS 与文件系统后端
 ├── holyfs.md            Holy 对象、修订、快照、标签、COW、checksum
 ├── posix.md             POSIX 兼容环境、musl 与 hk-abi
+├── compat.md            源码兼容、Linux ABI、移植工具链
 ├── ui.md                HolyDoc 与真彩 Display Server
 ├── experience.md        Workbench、Toolchain、Checkpoint、符号化调试
 ├── platforms.md         HAL、BootInfo、多架构启动
@@ -55,7 +57,9 @@ docs/
     ├── 0007-posix-libc.md
     ├── 0008-preemptive-smp.md
     ├── 0009-network.md
-    └── 0010-holyfs.md
+    ├── 0010-holyfs.md
+    ├── 0011-linux-abi.md
+    └── 0012-musl-dynamic-abi.md
 ```
 
 ## 状态标记

@@ -2,6 +2,8 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
+里程碑：原生 UI 在 **M6** 先行交付；Console 先提供原生终端协议，POSIX 终端在 **M7** 接入。
+
 UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入，**HolyDoc Server** 渲染活文档。界面采用现代真彩色：32 位 RGBA、sRGB、主题、alpha 合成与可缩放字体；文本优先与串口回退继续保留。
 
 ---
@@ -182,7 +184,7 @@ flowchart LR
 ## 8. 启动与降级
 
 - Root Server 启动 Display Server；Display Server 获取 Framebuffer/Input DeviceGrant。
-- POSIX Server 启动 Console Service；Console 连接到 Display Server 的窗口。
+- Console Service 先以原生模式启动并连接 Display Server 的窗口；POSIX Server 在 M7 接入终端模式。
 - 原生应用可启动 HolyDoc 欢迎页与 Workbench。
 - 文本回退：Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
 - 字体回退：8×16 位图字体。

@@ -378,6 +378,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 - [权限模型](permissions.md)
 - [网络](network.md)
 - [POSIX 与 libc](posix.md)
+- [应用兼容与 Linux ABI](compat.md)
 - [服务器](servers.md)
 - [VFS](vfs.md)
 - [HolyFS 文件系统](holyfs.md)

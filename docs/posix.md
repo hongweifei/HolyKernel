@@ -2,6 +2,8 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
+里程碑：网络与原生 UI 先行（M5/M6）；POSIX 核心在 **M7**、POSIX 扩展与 socket 在 **M8** 接入。
+
 HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼容环境**。用户态 **POSIX Server** 提供 POSIX 语义，musl 作为兼容 C libc；`hk-abi` 提供 syscall shim 协议与头文件，`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。通过 `posix` 入口使用 `/bin/sh`、coreutils 与 POSIX 应用。
 
 ---
@@ -144,6 +146,34 @@ pub enum PosixRequest {
 - musl 初始化：堆、stdio、pthread 运行时、locale。
 - `main(argc, argv, envp)` 由 musl 调用。
 - 动态链接：musl 的 `ld-musl-*.so.1` 移植版；支持静态与动态链接。
+
+### 4.4 应用自带 libc
+
+HolyKernel 的稳定边界是 **`hk-abi` syscall shim**，不是某个 libc 的内部 ABI。应用可以自带 libc，但该 libc 必须把底层系统调用实现为 `hk-abi` 请求，并通过 POSIX Server 获得进程、文件、线程、信号与 socket 语义。
+
+| 形态 | 支持级别 | 说明 |
+| --- | --- | --- |
+| 静态 musl | 一等 | 默认推荐；libc 与 `hk-abi` 后端打进 ELF，无运行时 libc 依赖 |
+| 静态自有 libc | best-effort | 需移植 `hk-abi` 后端、启动/TLS/signal hook；不承诺 libc 内部 ABI |
+| 系统动态 musl | 一等 | 由系统提供 `ld-musl-*.so.1` 与共享 libc |
+| 自带动态 libc | 不推荐 | 需自带加载器，处理符号、TLS 与版本冲突；1.0 不纳入支持矩阵 |
+| glibc/Linux 二进制 | 不支持 | 依赖 Linux syscall 号、vDSO、`clone`/futex 等；需单独的 Linux ABI 兼容层 |
+
+自带 libc 的适配要求：
+
+- **系统调用**：不得直接执行 Linux syscall 或假设 `int 0x80` 的 Linux ABI；所有 POSIX 请求经 `hk-abi` 发送到 POSIX Server。
+- **启动**：`_start` 可以自带，但必须完成与 `hk-crt` 等价的初始化：TLS、栈保护、`hk-abi` 连接、atexit/析构表、signal trampoline。
+- **线程与信号**：pthread、futex、`fork`、COW、信号投递与 `sigreturn` 必须遵循 POSIX Server 与 HK TCB 的协议，libc 不能绕过服务器直接操作内核。
+- **命名与错误**：C 符号使用标准 POSIX 名称；`errno` 使用 POSIX 数值；避免与系统 musl 的动态符号混用。
+- **链接**：优先静态链接自有 libc；同一 VSpace 只应存在一套 libc 运行时。Native Holy 应用不使用 POSIX libc。
+
+因此官方表述为：**“应用可静态链接自有 libc，但该 libc 必须实现 `hk-abi` 后端；musl 是一等支持，其他 libc 为 best-effort。”**
+
+### 4.5 动态 musl ABI 兼容
+
+除源码重编译外，还提供 **L1.5 动态 musl 兼容**：保持上游 musl 的公开 ABI、loader 路径与 soname，把 syscall 后端替换为 `hk-abi`。未修改的动态 musl ELF（如 Alpine 程序）可直接使用系统的 `ld-musl-x86_64.so.1`/`libc.so` 运行，不经过 Linux ABI Server。
+
+边界：静态 musl 与 glibc 二进制仍走 L2；绕过 libc 直接发 Linux syscall 的程序不属于 L1.5。细节见 [应用兼容与 Linux ABI](compat.md) 与 [ADR-0012](adr/0012-musl-dynamic-abi.md)。
 
 ---
 
@@ -308,7 +338,8 @@ flowchart LR
 7. 信号通过 POSIX Server 的 pending/blocked 集合投递。
 8. fd 表条目指向 VFS `FileHandle`、pipe、socket 或 event。
 9. musl 提供 C 运行时；`hk-abi`/`hk-crt` 提供 ABI shim、启动与头文件；应用重新编译。
-10. POSIX Server 崩溃后，Root Server 重启并按策略恢复应用。
+10. 应用可静态链接自有 libc，但必须实现 `hk-abi` 后端；系统只承诺 `hk-abi` 边界，不承诺 libc 内部 ABI。
+11. POSIX Server 崩溃后，Root Server 重启并按策略恢复应用。
 
 ---
 
@@ -323,3 +354,4 @@ flowchart LR
 - [内存模型](memory.md)
 - [执行模型](execution.md)
 - [工程策略](engineering.md)
+- [应用兼容与 Linux ABI](compat.md)

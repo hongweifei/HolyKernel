@@ -468,8 +468,9 @@ flowchart LR
 
 ## 14. 路线图
 
-- M7：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、VFS 适配层）。
-- M8：集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub、`H:` 盘符与性能优化。
+- M6：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、VFS 适配层、`H:` 盘符）。
+- M7：POSIX 元数据与 inode 适配（POSIX 核心接入时）。
+- M8：集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub 与性能优化。
 - M9：流式写、压缩、去重、配额、加密、并行 I/O 与基准锁定。
 
 ---

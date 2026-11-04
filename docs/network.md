@@ -2,6 +2,8 @@
 
 状态：**设计中** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)
 
+里程碑：网络在 **M5** 先行交付，原生 Socket Handle 与 `net` 命令先可用；POSIX socket API 在 **M8** 映射到同一 Socket Handle。
+
 HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 Endpoint、Notification、Frame、DeviceGrant；TCP/IP、socket、DHCP、DNS、策略都在用户态。驱动是用户态 virtio-net。
 
 ---
@@ -111,7 +113,7 @@ pub struct Socket {
 
 ---
 
-## 5. POSIX socket API
+## 5. POSIX socket API（M8）
 
 支持：
 

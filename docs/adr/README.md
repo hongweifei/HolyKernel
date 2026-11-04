@@ -16,6 +16,8 @@
 | [0008](0008-preemptive-smp.md) | 抢占式对称多处理调度 | 已接受 |
 | [0009](0009-network.md) | 用户态网络服务 | 已接受 |
 | [0010](0010-holyfs.md) | HolyFS 文件系统（Holy 对象模型） | 已接受 |
+| [0011](0011-linux-abi.md) | Linux 二进制 ABI 兼容层 | 已接受 |
+| [0012](0012-musl-dynamic-abi.md) | musl 动态 ABI 兼容 | 已接受 |
 
 ## 模板
 

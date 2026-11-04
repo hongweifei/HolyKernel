@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-本文定义 M0–M9 里程碑、退出标准、决策门与风险。节奏由退出标准决定，以可演示的纵向切片推进。
+本文定义 M0–M11 里程碑、退出标准、决策门与风险。节奏由退出标准决定，以可演示的纵向切片推进。
 
 ---
 
@@ -10,11 +10,12 @@
 
 1. **先 Hosted，后裸机**：内核与 IPC 在确定性模拟器中先跑通。
 2. **先内核机制，后服务器**：TCB、VSpace、HandleTable、Endpoint、Notification、Frame 优先。
-3. **先 Root Server，后全栈**：Root Server、Device Manager、VFS、POSIX 依次接入。
-4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX Server依赖 VFS。
-5. **POSIX 分层**：先文件/进程，后线程/信号/套接字。
-6. **可选服务**：HolyFS 卷、HolyDoc、UI 在 POSIX 核心之后接入。
-7. **多架构收尾**：x86_64 纵向切片完成后抽 HAL，验证 AArch64/RISC-V。
+3. **先 Root Server，后全栈**：Root Server、Device Manager、VFS、Network、Display、POSIX 依次接入。
+4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX Server 依赖 VFS。
+5. **原生能力先行**：网络与原生 UI 在 POSIX 之前；POSIX 兼容层复用 Native Task、VFS、Network 与 Console。
+6. **POSIX 分层**：先文件/进程，后线程/信号/POSIX socket。
+7. **可选服务后置**：HolyFS 卷、Workbench、工具链等深化服务在核心链路之后接入。
+8. **多架构收尾**：x86_64 纵向切片完成后抽 HAL，验证 AArch64/RISC-V。
 
 ---
 
@@ -27,11 +28,13 @@
 | M2  | x86_64 启动  | Limine、BootInfo、Root Server、IPC                    | —               |
 | M3  | 句柄与内存      | Handle duplicate/close、COW、SMP、调度                  | G2：句柄模型冻结       |
 | M4  | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs     | G3：VFS 接口冻结     |
-| M5  | POSIX 核心   | POSIX Server、musl、hk-abi/hk-crt、fork/exec/wait、文件  | G4：POSIX ABI 冻结 |
-| M6  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、mmap                      | —               |
-| M7  | 原生 UI      | Display Server、HolyDoc、Console、输入                  | —               |
-| M8  | 多架构与测试     | AArch64/RISC-V、POSIX 套件、性能                         | G5：平台抽象冻结       |
-| M9  | 1.0        | 硬化、fuzz、发布镜像、真机                                    | G6：1.0          |
+| M5  | 网络         | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS | —               |
+| M6  | 原生 UI      | Display Server、HolyDoc、Console、输入、字体/主题          | —               |
+| M7  | POSIX 核心   | POSIX Server、musl、hk-abi/hk-crt、fork/exec/wait、文件  | G4：POSIX ABI 冻结 |
+| M8  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、mmap、POSIX socket        | —               |
+| M9  | Linux ABI 兼容 | personality、Linux ABI Server、ELF、/proc、vDSO、兼容测试 | G5：Linux ABI 冻结 |
+| M10 | 多架构与测试     | AArch64/RISC-V、POSIX/Linux ABI 套件、性能                | G6：平台抽象冻结       |
+| M11 | 1.0        | 硬化、fuzz、发布镜像、真机                                    | G7：1.0          |
 
 ```mermaid
 flowchart LR
@@ -39,13 +42,13 @@ flowchart LR
     M1 --> M2["M2 x86_64 启动"]
     M2 --> M3["M3 句柄与内存"]
     M3 --> M4["M4 驱动与 VFS"]
-    M4 --> M5["M5 POSIX 核心"]
-    M5 --> M6["M6 POSIX 扩展"]
-    M4 --> M7["M7 原生 UI"]
-    M6 --> M7
-    M6 --> M8["M8 多架构与测试"]
-    M7 --> M8
-    M8 --> M9["M9 1.0"]
+    M4 --> M5["M5 网络"]
+    M5 --> M6["M6 原生 UI"]
+    M6 --> M7["M7 POSIX 核心"]
+    M7 --> M8["M8 POSIX 扩展"]
+    M8 --> M9["M9 Linux ABI 兼容"]
+    M9 --> M10["M10 多架构与测试"]
+    M10 --> M11["M11 1.0"]
 ```
 
 ---
@@ -159,58 +162,32 @@ flowchart LR
 
 ---
 
-## 8. M5 — POSIX 核心
+## 8. M5 — 网络
 
 ### 交付
 
-- POSIX Server：PID 表、fd 表、进程组、会话、cwd/root。
-- musl 移植：C 运行时、stdio、malloc、pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 薄兼容层。
-- ELF 加载器与动态链接。
-- `fork`/`exec`/`wait`/`exit`；文件 `open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`。
-- `/sbin/init`、`/bin/sh`、基础 coreutils；`posix` 兼容入口。
-- Console Service 与 POSIX 终端基础。
+- virtio-net 驱动服务：DeviceGrant、RX/TX 队列、IRQ Notification、共享 Frame 收发环。
+- Network Server：Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP、DNS。
+- 原生 Socket Handle 与 Endpoint/Notification 收发；`net` 命令查看接口、ARP/路由、连接与统计。
+- 静态地址与 DHCP 配置；`/etc/network`、`/etc/hosts`、`/etc/resolv.conf` 由 VFS 提供。
+- 包路径使用共享 Frame，驱动与协议栈避免逐包复制；为后续 POSIX socket 复用同一 Socket Handle。
 
 ### 退出标准
 
-1. QEMU 启动到 HolyShell；`posix sh` 可用。
-2. `posix sh` 执行 `ls`、`cat`、`echo`、重定向与管道。
-3. 静态与动态链接 C 程序运行；musl 作为兼容环境主 libc。
-4. `fork` + `exec` `/bin/true` ≤ 5 ms。
-5. POSIX 文件测试子集通过。
+1. QEMU 中 `net ping`、UDP echo 与 TCP 连接成功。
+2. DHCP 获取租约；DNS 查询成功。
+3. `net` 命令展示接口、ARP/路由、Socket 状态与收发统计。
+4. 驱动退出后 Root Server 重启并恢复网络；在途请求返回明确错误。
+5. 共享 Frame 收发环有单元测试与 QEMU 冒烟，吞吐与延迟记录到基准。
 
 ---
 
-## 9. M6 — POSIX 扩展与网络
-
-### 交付
-
-- pthreads：create/join/mutex/cond/rwlock/key/TLS。
-- 信号：sigaction、kill、sigprocmask、trampoline。
-- pipe、FIFO、AF_UNIX、共享内存、信号量。
-- `mmap`/`mprotect`/`brk`。
-- `select`/`poll`、`termios`、`isatty`。
-- Network Server：virtio-net、IPv4/IPv6、ARP/NDP、TCP/UDP、DHCP、DNS。
-- POSIX socket API：socket/bind/listen/accept/connect/send/recv/getaddrinfo。
-- 原生 Socket Handle 与 `net` 命令。
-- POSIX 测试套件扩展到进程/线程/信号/IPC/网络。
-
-### 退出标准
-
-1. 多线程 C/C++ 程序运行。
-2. 信号 handler 与 `sigreturn` 正常。
-3. pipe/socket 测试通过；`select`/`poll` 正常。
-4. `mmap` 文件映射与共享内存测试通过。
-5. QEMU `ping`、TCP 连接、DNS 查询、DHCP 租约成功。
-6. POSIX 测试子集通过率达到里程碑目标。
-
----
-
-## 10. M7 — 原生 UI
+## 9. M6 — 原生 UI
 
 ### 交付
 
 - Display Server：帧缓冲、窗口、合成器、输入焦点。
-- Console Service 与 POSIX 终端。
+- Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。
 - 原生欢迎页与文档浏览。
@@ -233,20 +210,88 @@ flowchart LR
 
 ---
 
-## 11. M8 — 多架构与测试
+## 10. M7 — POSIX 核心
+
+### 交付
+
+- POSIX Server：PID 表、fd 表、进程组、会话、cwd/root。
+- musl 移植：C 运行时、stdio、malloc、pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 薄兼容层。
+- ELF 加载器与动态链接。
+- `fork`/`exec`/`wait`/`exit`；文件 `open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`。
+- `/sbin/init`、`/bin/sh`、基础 coreutils；`posix` 兼容入口。
+- 支持静态链接自有 libc（实现 `hk-abi` 后端）；musl 为一等支持，其他 libc 为 best-effort。
+- Console Service 的 POSIX 终端模式：`/dev/console`、`/dev/tty`、行规程、`termios` 基础。
+- POSIX fd 映射到 VFS FileHandle；网络 socket 在 M8 接入。
+
+### 退出标准
+
+1. QEMU 启动到 HolyShell；`posix sh` 可用。
+2. `posix sh` 执行 `ls`、`cat`、`echo`、重定向与管道。
+3. 静态与动态链接 C 程序运行；musl 作为兼容环境主 libc。
+4. `fork` + `exec` `/bin/true` ≤ 5 ms。
+5. POSIX 文件测试子集通过。
+
+---
+
+## 11. M8 — POSIX 扩展
+
+### 交付
+
+- pthreads：create/join/mutex/cond/rwlock/key/TLS。
+- 信号：sigaction、kill、sigprocmask、trampoline。
+- pipe、FIFO、AF_UNIX、共享内存、信号量。
+- `mmap`/`mprotect`/`brk`。
+- `select`/`poll`、`termios`、`isatty`。
+- POSIX socket API：socket/bind/listen/accept/connect/send/recv/getaddrinfo，映射到 M5 的 Network Server Socket Handle。
+- 动态 musl ABI 兼容（L1.5）：保持上游 musl ABI，提供 Holy `ld-musl`/`libc.so`；未修改的动态 musl ELF 直接运行。
+- POSIX 测试套件扩展到进程/线程/信号/IPC/网络。
+
+### 退出标准
+
+1. 多线程 C/C++ 程序运行。
+2. 信号 handler 与 `sigreturn` 正常。
+3. pipe/socket 测试通过；`select`/`poll` 正常。
+4. `mmap` 文件映射与共享内存测试通过。
+5. POSIX `ping`、TCP 连接、DNS 查询、DHCP 租约通过。
+6. 上游 musl 动态 hello、BusyBox、Alpine `sh`/`ls`/`cat` 无需重新编译运行；pthread/TLS/信号/`dlopen`/`getaddrinfo`/`termios` ABI 测试通过。
+7. POSIX 测试子集通过率达到里程碑目标。
+
+---
+
+## 12. M9 — Linux ABI 兼容
+
+### 交付
+
+- 每任务 ABI personality：Native/POSIX 走 `int 0x80`，Linux 走 `syscall`；内核只转发原始 syscall。
+- Linux ABI Server：ELF/`PT_INTERP`、auxv、TLS/FS/GS、信号帧、`clone`/futex、`mmap`、`epoll`/`ioctl`、socket、`/proc`/`/sys` 最小视图与 vDSO。
+- x86_64 静态 musl/glibc 二进制 → 动态 glibc 二进制；BusyBox、coreutils 与语言运行时按阶段接入。
+- `hk-compat` 兼容测试矩阵与 syscall 覆盖表；`hk-port` sysroot/工具链与 `holybuild` 打包。
+- 兼容层安全边界：独立 VSpace/Native Task、Handle 权限、最小 `/proc` 视图与 fuzz。
+
+### 退出标准
+
+1. 静态 musl/glibc BusyBox 与基础 coreutils 直接运行。
+2. 动态 glibc `ls`/`cat`/`sh` 运行，动态加载器与 `/etc/ld.so.cache` 正常。
+3. `/proc/self/maps`、`/proc/self/stat`、auxv、vDSO 与 TLS 语义正确。
+4. `hk-compat` P1/P2 syscall 覆盖与真实应用回归通过；ABI Server 重启可恢复。
+5. 源码兼容（L1）目标应用零修改重编译；静态自带 libc 走 `hk-abi` 后端。
+
+---
+
+## 13. M10 — 多架构与测试
 
 ### 交付
 
 - `hk-platform-aarch64`、`hk-platform-riscv64` 与 QEMU 启动目录。
-- AArch64/RISC-V 的 Root Server、VFS、POSIX、Network、HolyFS 全栈。
-- POSIX 测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
+- AArch64/RISC-V 的 Root Server、VFS、POSIX、Network、Linux ABI、HolyFS 全栈。
+- POSIX/Linux ABI 测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
 - 性能基准与预算复核。
 - 服务器重启矩阵（含 Network Server、HolyFS）。
 - HolyFS COW 事务、GC、check/repair、scrub、性能优化与 `H:` 盘符启动。
 
 ### 退出标准
 
-1. 4 个目标通过同一套 `boot/ipc/memory/irq/vfs/net/holyfs/posix/restart` 测试。
+1. 4 个目标通过同一套 `boot/ipc/memory/irq/vfs/net/holyfs/posix/linux-abi/restart` 测试。
 2. AArch64/RISC-V 上 HolyShell 与 `posix` coreutils 运行。
 3. POSIX 测试子集在 x86_64 与 AArch64 通过。
 4. 服务器崩溃/重启矩阵通过。
@@ -255,7 +300,7 @@ flowchart LR
 
 ---
 
-## 12. M9 — 1.0
+## 14. M11 — 1.0
 
 ### 交付
 
@@ -270,13 +315,13 @@ flowchart LR
 1. 所有里程碑退出标准成立。
 2. conformance 在 Tier 1 + Tier 2 全绿；Tier 3 至少一台真机启动到 HolyShell。
 3. 72 小时 SMP + 服务器重启 + VFS 故障注入：零死锁、零数据损坏、零未处理 panic。
-4. POSIX 测试套件达到公开目标；应用回归通过。
+4. POSIX 与 Linux ABI 测试套件达到公开目标；应用回归通过。
 5. 构建可复现。
 6. 文档完整；发布镜像与校验和齐全。
 
 ---
 
-## 13. 风险与应对
+## 15. 风险与应对
 
 | 挑战 | 影响 | 应对 |
 | --- | --- | --- |
@@ -291,15 +336,16 @@ flowchart LR
 
 ---
 
-## 14. 当前状态
+## 16. 当前状态
 
 - 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
 - 当前代码：`crates/hk-hal`、`crates/hk-handle`、`crates/hk-ipc`、`crates/hk-mem`、`crates/hk-kernel`、`crates/hk-smp`、`crates/hk-drivers`、`crates/hk-acpi`、`crates/hk-framebuffer`、`crates/hk-boot`、`crates/hk-root-server`、`crates/hk-shell`、`crates/hk-syscall`、`crates/hk-server-api`、`crates/hk-server-build`、`crates/hk-sim`、`crates/hk-test`、`crates/hk-block`、`crates/hk-driver-virtio`、`crates/hk-fs-ext4`、`crates/hk-platform-hosted`、`crates/hk-platform-x86_64`、`platforms/hosted`、`platforms/x86_64-qemu`、`servers/demo`、`servers/echo`、`servers/device`、`servers/spin`、`servers/virtio`、`servers/vfs`、`servers/block`、`xtask`。
 - M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
+- 下一阶段：**M5 网络**（virtio-net + Network Server），随后 **M6 原生 UI**；POSIX 核心与扩展移至 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
 
 ---
 
-## 15. 相关文档
+## 17. 相关文档
 
 - [章程](charter.md)
 - [总体架构](architecture.md)

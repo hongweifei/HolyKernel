@@ -75,6 +75,7 @@
 | **POSIX Bridge** | `posix` 入口；启动 POSIX session 或执行 POSIX 命令 |
 | **POSIX.1** | 兼容环境的应用接口标准；进程、文件、信号、线程、IPC |
 | **musl** | POSIX 兼容环境的主 C libc；提供 POSIX 函数、stdio、malloc、pthreads |
+| **应用自带 libc** | 应用静态链接的自有 C 运行时；必须实现 `hk-abi` 后端，非一等支持 |
 | **hk-abi** | POSIX syscall shim 协议与头文件；把 musl 调用转换为 POSIX Server IPC |
 | **hk-crt** | 启动代码、TLS、signal trampoline、ELF 加载 |
 | **hk-libc** | 薄兼容层：HK 扩展与 ABI 胶水 |
