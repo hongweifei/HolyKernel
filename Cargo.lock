@@ -149,6 +149,7 @@ dependencies = [
  "hk-handle",
  "hk-ipc",
  "hk-kernel",
+ "hk-mem",
  "hk-platform-hosted",
  "hk-root-server",
  "hk-sim",

@@ -11,6 +11,8 @@ use hk_kernel::{Kernel, Priority};
 use hk_root_server::{RootServer, ServiceSpec};
 use hk_sim::{RunReport, Simulator, ThreadStep};
 
+mod cow;
+
 /// 演示结果。
 pub struct DemoReport {
     /// 服务名称与服务线程编号。
@@ -21,6 +23,8 @@ pub struct DemoReport {
     pub dump: String,
     /// 客户端拿到的时间值。
     pub clock_value: u64,
+    /// COW fork 原型报告。
+    pub cow: String,
 }
 
 /// 运行演示。
@@ -166,6 +170,7 @@ pub fn run(seed: u64) -> Result<DemoReport, String> {
         .run()
         .map_err(|error| format!("仿真失败：{error}"))?;
     let dump = simulator.dump();
+    let cow = cow::run()?;
 
     let services = root_server
         .services()
@@ -178,6 +183,7 @@ pub fn run(seed: u64) -> Result<DemoReport, String> {
         run,
         dump,
         clock_value: clock_value * 2,
+        cow,
     })
 }
 
@@ -195,6 +201,7 @@ pub fn describe(report: &DemoReport) -> String {
         let _ = writeln!(text, "    {name}  tcb={tcb}");
     }
     let _ = writeln!(text, "  客户端 clock 返回值: {}", report.clock_value);
+    text.push_str(&report.cow);
     text.push_str(&report.dump);
     text
 }

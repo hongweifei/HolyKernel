@@ -16,6 +16,7 @@ hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-handle = { version = "0.1.0", path = "../../crates/hk-handle" }
 hk-ipc = { version = "0.1.0", path = "../../crates/hk-ipc" }
 hk-kernel = { version = "0.1.0", path = "../../crates/hk-kernel" }
+hk-mem = { version = "0.1.0", path = "../../crates/hk-mem" }
 hk-platform-hosted = { version = "0.1.0", path = "../../crates/hk-platform-hosted" }
 hk-root-server = { version = "0.1.0", path = "../../crates/hk-root-server" }
 hk-sim = { version = "0.1.0", path = "../../crates/hk-sim" }
