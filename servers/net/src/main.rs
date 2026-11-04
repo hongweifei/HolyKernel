@@ -7,12 +7,15 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+use alloc::vec::Vec;
+
+#[cfg(target_os = "none")]
 use core::net::Ipv4Addr;
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
-use hk_net::Stack;
+use hk_net::{DnsQueryType, IpAddress, Stack};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
@@ -22,13 +25,16 @@ use hk_server_api::net::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, notify, recv_data_from, send, send_data, service_endpoint, ticks, write, yield_now,
+    exit, notify, recv_data_from, send, send_data, service_endpoint, tsc, tsc_frequency, write,
+    write_u64, yield_now,
 };
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 768 * 1024;
 #[cfg(target_os = "none")]
 const TCP_PORT: u16 = 45678;
+#[cfg(target_os = "none")]
+const WAIT_MS: u64 = 5_000;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -45,8 +51,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut info = [0_u8; NET_INFO_BYTES];
-    let _ = send(driver, NET_INFO_REQUEST, 0);
     let _ = notify(driver, NET_NOTIFY_TX);
+    let _ = send(driver, NET_INFO_REQUEST, 0);
     let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut info);
     if label != NET_INFO_RESPONSE || length < NET_INFO_BYTES {
         write("hk-server-net: 接口信息失败\n".as_bytes());
@@ -54,7 +60,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     let mut mac = [0_u8; 6];
     mac.copy_from_slice(&info[..6]);
-    let (mut stack, dhcp) = match Stack::new_dhcp(mac, ticks()) {
+    let (mut stack, dhcp) = match Stack::new_dhcp(mac, now_ms()) {
         Ok(stack) => stack,
         Err(_) => {
             write("hk-server-net: 协议栈初始化失败\n".as_bytes());
@@ -62,13 +68,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     };
     let mut frame = [0_u8; NET_FRAME_MAX];
-    let deadline = ticks().saturating_add(500);
+    let deadline = now_ms().saturating_add(WAIT_MS);
     let mut gateway = Ipv4Addr::new(10, 0, 2, 2);
+    let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
     let mut leased = false;
-    while ticks() < deadline {
+    while now_ms() < deadline {
         poll_once(driver, endpoint, &mut stack, &mut frame);
         if let Some(lease) = stack.poll_dhcp(dhcp) {
             gateway = lease.gateway.unwrap_or(gateway);
+            dns_servers = lease.dns;
             write("hk-server-net: dhcp ok\n".as_bytes());
             leased = true;
             break;
@@ -97,10 +105,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     };
     let _ = stack.send_ping(icmp, gateway, 0x1234, 1, b"holy");
-    let deadline = ticks().saturating_add(500);
+    let deadline = now_ms().saturating_add(WAIT_MS);
     let mut reply = [0_u8; 64];
     let mut ping_ok = false;
-    while ticks() < deadline {
+    while now_ms() < deadline {
         poll_once(driver, endpoint, &mut stack, &mut frame);
         if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
             && length >= 8
@@ -126,9 +134,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-net: TCP 连接失败\n".as_bytes());
         exit(7)
     }
-    let connect_deadline = ticks().saturating_add(500);
+    let connect_deadline = now_ms().saturating_add(WAIT_MS);
     let mut connected = false;
-    while ticks() < connect_deadline {
+    while now_ms() < connect_deadline {
         poll_once(driver, endpoint, &mut stack, &mut frame);
         if stack.tcp_may_send(tcp) {
             connected = true;
@@ -142,8 +150,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = stack.send_tcp(tcp, b"holy");
     let mut reply = [0_u8; 8];
     let mut tcp_ok = false;
-    let reply_deadline = ticks().saturating_add(500);
-    while ticks() < reply_deadline {
+    let reply_deadline = now_ms().saturating_add(WAIT_MS);
+    while now_ms() < reply_deadline {
         poll_once(driver, endpoint, &mut stack, &mut frame);
         if let Ok(Some(length)) = stack.recv_tcp(tcp, &mut reply)
             && length >= 4
@@ -158,23 +166,136 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     write("hk-server-net: tcp ok\n".as_bytes());
 
+    // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP。
+    let mut name_buffer = [0_u8; 128];
+    if let Some(name) = hk_server_api::boot_cmdline(&mut name_buffer).and_then(|line| {
+        line.split_whitespace()
+            .find_map(|part| part.strip_prefix("net.dns="))
+    }) {
+        let dns_server = dns_servers
+            .first()
+            .copied()
+            .unwrap_or(Ipv4Addr::new(10, 0, 2, 3));
+        write("hk-server-net: dns-start\n".as_bytes());
+        resolve(
+            &mut stack,
+            &[dns_server],
+            name,
+            driver,
+            endpoint,
+            &mut frame,
+        );
+    }
+
     loop {
         let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut frame);
         if label == NET_RX {
             let _ = stack.push_frame(&frame[..length.min(frame.len())]);
-            stack.poll(ticks());
+            stack.poll(now_ms());
+            let _ = notify(driver, NET_NOTIFY_TX);
             while let Some(packet) = stack.take_frame() {
                 let _ = send_data(driver, NET_TX, &packet);
             }
-            let _ = notify(driver, NET_NOTIFY_TX);
         }
     }
 }
 
+/// 用给定 DNS 服务器解析名称，并把结果写入控制台。
+#[cfg(target_os = "none")]
+fn resolve(
+    stack: &mut Stack,
+    servers: &[Ipv4Addr],
+    name: &str,
+    driver: u64,
+    endpoint: u64,
+    frame: &mut [u8; NET_FRAME_MAX],
+) {
+    let Ok(dns) = stack.open_dns(servers) else {
+        write("hk-server-net: dns-open-failed\n".as_bytes());
+        return;
+    };
+    let query = match stack.start_dns_query(dns, name, DnsQueryType::A) {
+        Ok(query) => query,
+        Err(_) => {
+            write("hk-server-net: dns-query-failed\n".as_bytes());
+            stack.close_socket(dns);
+            return;
+        }
+    };
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    while now_ms() < deadline {
+        poll_once(driver, endpoint, stack, frame);
+        match stack.poll_dns(dns, query) {
+            Ok(Some(addresses)) if !addresses.is_empty() => {
+                write("hk-server-net: dns ok".as_bytes());
+                for address in &addresses {
+                    write(b" ");
+                    write_address(address);
+                }
+                write(b"\n");
+                stack.close_socket(dns);
+                return;
+            }
+            Ok(Some(_)) => {
+                write("hk-server-net: dns empty\n".as_bytes());
+                stack.close_socket(dns);
+                return;
+            }
+            Ok(None) => {}
+            Err(_) => {
+                write("hk-server-net: dns failed\n".as_bytes());
+                stack.close_socket(dns);
+                return;
+            }
+        }
+    }
+    stack.close_socket(dns);
+    write("hk-server-net: dns timeout\n".as_bytes());
+}
+
+/// 输出 IPv4/IPv6 地址。
+#[cfg(target_os = "none")]
+fn write_address(address: &IpAddress) {
+    match address {
+        IpAddress::Ipv4(address) => {
+            let octets = address.octets();
+            for (index, octet) in octets.iter().enumerate() {
+                if index != 0 {
+                    write(b".");
+                }
+                write_u64(u64::from(*octet));
+            }
+        }
+        IpAddress::Ipv6(address) => {
+            let octets = address.octets();
+            for (index, chunk) in octets.chunks(2).enumerate() {
+                if index != 0 {
+                    write(b":");
+                }
+                write_hex(u16::from_be_bytes([chunk[0], chunk[1]]));
+            }
+        }
+    }
+}
+
+/// 以十六进制输出 16 位整数。
+#[cfg(target_os = "none")]
+fn write_hex(mut value: u16) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut buffer = [0_u8; 4];
+    for index in (0..4).rev() {
+        buffer[index] = HEX[usize::from(value & 0xF)];
+        value >>= 4;
+    }
+    write(&buffer);
+}
+
 #[cfg(target_os = "none")]
 fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET_FRAME_MAX]) {
-    let _ = send(driver, NET_POLL, 0);
+    // 先唤醒驱动再投递请求：驱动可能正阻塞在通知等待上，若先发送，请求会在
+    // 驱动进入接收循环前阻塞发送方，形成互相等待。
     let _ = notify(driver, NET_NOTIFY_TX);
+    let _ = send(driver, NET_POLL, 0);
     loop {
         let (label, _word, _sender, length) = recv_data_from(endpoint, driver, frame);
         match label {
@@ -185,11 +306,21 @@ fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET
             _ => {}
         }
     }
-    stack.poll(ticks());
+    stack.poll(now_ms());
+    let _ = notify(driver, NET_NOTIFY_TX);
     while let Some(packet) = stack.take_frame() {
         let _ = send_data(driver, NET_TX, &packet);
     }
-    let _ = notify(driver, NET_NOTIFY_TX);
+}
+
+/// 以 TSC 换算单调毫秒时间；TSC 未知时退回累计 tick（约 10 ms）。
+#[cfg(target_os = "none")]
+fn now_ms() -> u64 {
+    let frequency = tsc_frequency();
+    if frequency == 0 {
+        return hk_server_api::ticks().saturating_mul(10);
+    }
+    tsc().saturating_mul(1_000) / frequency
 }
 
 #[cfg(target_os = "none")]
