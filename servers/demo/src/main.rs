@@ -117,13 +117,39 @@ fn verify_vfs(endpoint: u64) -> bool {
         return false;
     }
 
-    let mut mounts = [0_u8; 64];
+    let Ok(handle) = client.open("/proc/version", OPEN_READ) else {
+        return false;
+    };
+    let mut version = [0_u8; 32];
+    let Ok(length) = client.read(handle, 0, &mut version) else {
+        return false;
+    };
+    if !version[..length].starts_with(b"HolyKernel") {
+        return false;
+    }
+    let _ = client.close(handle);
+
+    let Ok(handle) = client.open("/dev/null", OPEN_WRITE) else {
+        return false;
+    };
+    if client.write(handle, 0, b"drop") != Ok(4) {
+        return false;
+    }
+    let _ = client.close(handle);
+    if client.stat("/dev/null").ok() != Some((1, 0)) {
+        return false;
+    }
+
+    let mut mounts = [0_u8; 128];
     let Ok(length) = client.mounts(&mut mounts) else {
         return false;
     };
-    mounts[..length]
-        .split(|byte| *byte == b'\n')
-        .any(|line| line == b"/tmp")
+    let mounts = &mounts[..length];
+    ["/tmp", "/dev", "/proc"].iter().all(|target| {
+        mounts
+            .split(|byte| *byte == b'\n')
+            .any(|line| line == target.as_bytes())
+    })
 }
 #[cfg(target_os = "none")]
 fn verify_arena() -> bool {

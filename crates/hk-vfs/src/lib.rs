@@ -11,11 +11,15 @@ extern crate std;
 extern crate alloc;
 
 mod cache;
+mod devfs;
 mod path;
+mod procfs;
 mod tmpfs;
 mod vfs;
 
 pub use cache::{PAGE_SIZE, PageCache};
+pub use devfs::Devfs;
 pub use path::normalize;
+pub use procfs::Procfs;
 pub use tmpfs::Tmpfs;
 pub use vfs::{Backend, DirEntry, FileHandle, FileType, Metadata, OpenFlags, Vfs, VfsError};

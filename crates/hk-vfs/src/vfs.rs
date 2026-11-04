@@ -111,6 +111,8 @@ pub enum VfsError {
     AlreadyExists,
     /// 打开标志不允许该操作。
     PermissionDenied,
+    /// 只读文件系统。
+    ReadOnly,
     /// 偏移溢出。
     InvalidOffset,
     /// 后端错误。
@@ -126,6 +128,7 @@ impl fmt::Display for VfsError {
             Self::InvalidPath => "路径非法",
             Self::AlreadyExists => "已存在",
             Self::PermissionDenied => "权限不足",
+            Self::ReadOnly => "只读文件系统",
             Self::InvalidOffset => "偏移非法",
             Self::Backend => "文件系统后端错误",
         })
@@ -380,6 +383,23 @@ impl Vfs {
         Ok(())
     }
 
+    /// 卸载挂载点。
+    pub fn umount(&mut self, target: &str) -> Result<(), VfsError> {
+        let target = normalize(target);
+        if target == "/" {
+            return Err(VfsError::ReadOnly);
+        }
+        let index = self
+            .mounts
+            .iter()
+            .position(|mount| mount.target == target)
+            .ok_or(VfsError::NotFound)?;
+        self.mounts.remove(index);
+        self.dentries.clear();
+        self.cache.clear();
+        Ok(())
+    }
+
     /// 返回挂载点。
     pub fn mounts(&self) -> Vec<String> {
         let mut mounts = alloc::vec![String::from("/")];
@@ -501,6 +521,11 @@ mod tests {
         assert!(matches!(
             vfs.open("/mnt", OpenFlags::WRITE_ONLY),
             Err(VfsError::IsDirectory)
+        ));
+        vfs.umount("/mnt").expect("卸载");
+        assert!(matches!(
+            vfs.open("/mnt/file", OpenFlags::READ_ONLY),
+            Err(VfsError::NotFound)
         ));
     }
 

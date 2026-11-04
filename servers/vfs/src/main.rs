@@ -18,14 +18,14 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_TRUNCATE,
-    OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR, STATUS_EXISTS,
-    STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, VFS_REQUEST, VFS_RESPONSE,
-    decode_request, encode_response,
+    OP_UMOUNT, OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR,
+    STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, VFS_REQUEST,
+    VFS_RESPONSE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{alloc, recv_data, send_data, write};
 #[cfg(target_os = "none")]
-use hk_vfs::{FileHandle, FileType, OpenFlags, Tmpfs, Vfs, VfsError};
+use hk_vfs::{Devfs, FileHandle, FileType, OpenFlags, Procfs, Tmpfs, Vfs, VfsError};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -82,6 +82,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut filesystem = Vfs::new(Box::new(Tmpfs::new()));
     let _ = filesystem.create_dir("/tmp");
     let _ = filesystem.mount("/tmp", Box::new(Tmpfs::new()));
+    let _ = filesystem.create_dir("/dev");
+    let _ = filesystem.mount("/dev", Box::new(Devfs::new()));
+    let _ = filesystem.create_dir("/proc");
+    let _ = filesystem.mount("/proc", Box::new(Procfs::new()));
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut request = [0_u8; 4096];
@@ -198,6 +202,10 @@ fn handle(
                 Err(error) => (status(error), 0),
             }
         }
+        OP_UMOUNT => match filesystem.umount(request.path) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
         OP_MOUNTS => {
             let mut length = 0;
             for mount in filesystem.mounts() {

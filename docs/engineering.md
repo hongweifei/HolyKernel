@@ -29,7 +29,7 @@ HolyKernel/
 │   ├── hk-root-server/        Root Server、服务清单、服务表、ELF 装载、用户运行时与运行时宿主
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
-│   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs、字节 IPC 协议
+│   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
 │   ├── hk-fs-ext2/            ext2 后端
 │   ├── hk-fs-tmpfs/           tmpfs 后端
 │   ├── hk-fs-devfs/           devfs 后端
