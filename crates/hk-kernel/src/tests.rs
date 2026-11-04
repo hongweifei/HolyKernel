@@ -387,6 +387,7 @@ fn creates_device_grant_object() {
             None,
         ],
         io: [None; 6],
+        dma: None,
         irq: Some(11),
         capabilities: [0x09; 8],
         capability_count: 1,

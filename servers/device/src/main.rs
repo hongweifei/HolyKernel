@@ -51,10 +51,6 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
         count += 1;
     });
 
-    let dma = dma_alloc(4096, 0x5000_0000);
-    write(b"  dma=");
-    write_hex64(dma);
-    write(b"\n");
     write("hk-server-device: 发现 ".as_bytes());
     write_u64(count);
     write(" 个设备\n".as_bytes());
@@ -144,6 +140,10 @@ fn write_device(device: &Device) {
         let handle = device_grant_create(&encoded[..length]);
         write(b"  grant-handle=");
         write_hex64(handle);
+        let dma_virt = 0x5000_0000 + handle.saturating_sub(0x2000) * 0x1_0000;
+        let dma = dma_alloc(handle, 4096, dma_virt);
+        write(b"  grant-dma=");
+        write_hex64(dma);
         if let Some((index, range)) = grant
             .mmio
             .iter()

@@ -50,12 +50,12 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.map_mmio(slot, virt, phys, len)
     }
 
-    fn dma_alloc(&self, slot: usize, len: usize, virt: u64) -> Option<u64> {
+    fn dma_window(&self, len: usize) -> Option<hk_hal::MmioRange> {
         let range = hk_platform_x86_64::dma::allocate(len)?;
-        if !USER_VSPACES.map_mmio(slot, virt, range.start().get(), range.len() as usize) {
-            return None;
-        }
-        Some(range.start().get())
+        Some(hk_hal::MmioRange {
+            base: range.start().get(),
+            len: range.len(),
+        })
     }
 
     fn zero(&self, address: u64, length: usize) {

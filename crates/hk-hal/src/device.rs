@@ -33,6 +33,8 @@ pub struct DeviceGrant {
     pub mmio: [Option<MmioRange>; 6],
     /// 端口 I/O 范围。
     pub io: [Option<IoRange>; 6],
+    /// 授权给驱动的连续 DMA 窗口。
+    pub dma: Option<MmioRange>,
     /// 中断线。
     pub irq: Option<u8>,
     /// capability ID。
@@ -49,7 +51,7 @@ impl DeviceGrant {
 }
 
 /// 序列化后的固定长度。
-pub const DEVICE_GRANT_BYTES: usize = 10 + 6 * 17 + 6 * 5 + 2 + 9;
+pub const DEVICE_GRANT_BYTES: usize = 10 + 6 * 17 + 6 * 5 + 17 + 2 + 9;
 
 impl DeviceGrant {
     /// 编码为固定布局字节串。
@@ -81,6 +83,10 @@ impl DeviceGrant {
             put_u16(buffer, &mut at, base);
             put_u16(buffer, &mut at, len);
         }
+        put_u8(buffer, &mut at, u8::from(self.dma.is_some()));
+        let (dma_base, dma_len) = self.dma.map_or((0, 0), |range| (range.base, range.len));
+        put_u64(buffer, &mut at, dma_base);
+        put_u64(buffer, &mut at, dma_len);
         put_u8(buffer, &mut at, u8::from(self.irq.is_some()));
         put_u8(buffer, &mut at, self.irq.unwrap_or(0));
         put_u8(buffer, &mut at, self.capability_count as u8);
@@ -121,6 +127,15 @@ impl DeviceGrant {
                 *slot = Some(IoRange { base, len });
             }
         }
+        let dma = (get_u8(bytes, &mut at)? != 0).then(|| {
+            let base = get_u64(bytes, &mut at).unwrap_or(0);
+            let len = get_u64(bytes, &mut at).unwrap_or(0);
+            MmioRange { base, len }
+        });
+        if dma.is_none() {
+            let _ = get_u64(bytes, &mut at)?;
+            let _ = get_u64(bytes, &mut at)?;
+        }
         let irq = (get_u8(bytes, &mut at)? != 0).then(|| get_u8(bytes, &mut at).unwrap_or(0));
         if irq.is_none() {
             let _ = get_u8(bytes, &mut at)?;
@@ -145,6 +160,7 @@ impl DeviceGrant {
             device,
             mmio,
             io,
+            dma,
             irq,
             capabilities,
             capability_count,
@@ -217,6 +233,10 @@ mod tests {
                 None,
                 None,
             ],
+            dma: Some(MmioRange {
+                base: 0x200_0000,
+                len: 0x1_0000,
+            }),
             irq: Some(11),
             capabilities: [0x09, 0x11, 0, 0, 0, 0, 0, 0],
             capability_count: 2,

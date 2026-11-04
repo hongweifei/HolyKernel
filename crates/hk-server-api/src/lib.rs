@@ -189,10 +189,10 @@ pub fn device_map(grant: u64, index: u64, virt: u64) -> u64 {
     unsafe { syscall_call(SYS_DEVICE_MAP, grant, index, virt, 0).value }
 }
 
-/// 分配 DMA 缓冲并映射到 `virt`，返回设备可见物理地址。
-pub fn dma_alloc(len: usize, virt: u64) -> u64 {
-    // SAFETY: 内核校验长度与目标地址并完成映射。
-    unsafe { syscall_call(SYS_DMA_ALLOC, len as u64, virt, 0, 0).value }
+/// 从 DeviceGrant 的 DMA 窗口映射 `virt`，返回设备可见物理地址。
+pub fn dma_alloc(grant: u64, len: usize, virt: u64) -> u64 {
+    // SAFETY: 内核校验授权、长度与目标地址并完成映射。
+    unsafe { syscall_call(SYS_DMA_ALLOC, grant, len as u64, virt, 0).value }
 }
 
 /// 读取调度 tick 计数。

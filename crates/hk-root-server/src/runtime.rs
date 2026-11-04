@@ -103,8 +103,8 @@ pub trait UserPlatform {
     fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
-    /// 分配 DMA 缓冲并映射到任务地址空间，返回物理地址。
-    fn dma_alloc(&self, _slot: usize, _len: usize, _virt: u64) -> Option<u64> {
+    /// 为 DeviceGrant 分配连续 DMA 窗口。
+    fn dma_window(&self, _len: usize) -> Option<hk_hal::MmioRange> {
         None
     }
     /// 把用户地址区间清零。

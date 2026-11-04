@@ -52,6 +52,7 @@ pub fn from_device(config: &dyn PciConfig, device: &Device) -> DeviceGrant {
         device: device.device,
         mmio,
         io,
+        dma: None,
         irq,
         capabilities: ids,
         capability_count: count,
