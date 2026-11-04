@@ -115,6 +115,44 @@ impl Kernel {
         )
     }
 
+    /// 用物理区间创建 Frame 对象并授予句柄。
+    pub fn create_frame(
+        &self,
+        thread: TcbId,
+        range: PhysRange,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        let frame = hk_mem::Frame::new(range.start(), range.len() as usize);
+        self.register(
+            thread,
+            Arc::new(KernelObject::new(ObjectPayload::Frame(frame))),
+            rights,
+        )
+    }
+
+    /// 解析 Frame 对象，返回物理区间。
+    pub fn frame(&self, thread: TcbId, handle: Handle) -> Result<PhysRange, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
+        let frame = object.frame().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Frame,
+        })?;
+        Ok(PhysRange::new(frame.phys(), frame.len() as u64))
+    }
+
+    /// 复制句柄并收窄权限。
+    pub fn duplicate_handle(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        let mut threads = self.threads.lock();
+        let tcb = threads
+            .get_mut(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?;
+        Ok(tcb.handles_mut().duplicate(handle, rights)?)
+    }
+
     /// 把已有对象的句柄授予指定线程。
     pub fn grant(
         &self,

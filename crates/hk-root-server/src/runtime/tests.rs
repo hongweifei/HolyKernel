@@ -533,6 +533,7 @@ fn failed_service_wakes_inflight_recv_with_empty_response() {
         buffer: 0x1000,
         capacity: 4096,
         expected: Some(other_tcb),
+        handle_out: false,
     };
     runtime.tasks[other].exited = true;
 

@@ -13,11 +13,12 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_DEVICE_GRANT_CREATE,
-    SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_SYNC, SYS_EXIT, SYS_FORK,
-    SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
-    SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
-    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
-    SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT,
+    SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_UNMAP, SYS_HANDLE_CLOSE,
+    SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
+    SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_REPLY,
+    SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -39,7 +40,15 @@ pub use view::{RuntimeStats, TaskInfo};
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;
 const GRANT_HANDLE_BASE: usize = 0x2000;
+const FRAME_HANDLE_BASE: usize = 0x3000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
+
+/// 任务持有的共享 Frame。
+pub(crate) struct FrameMap {
+    pub handle: Handle,
+    pub phys: u64,
+    pub len: usize,
+}
 
 /// 用户态任务运行时。
 pub struct UserRuntime<C, P> {
@@ -197,10 +206,51 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = message.handles[0] else {
             return 0;
         };
+        self.install_extra_handle(index, handle)
+    }
 
+    fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
         let slot = self.tasks[index].extra.len();
         self.tasks[index].extra.push(Some(handle));
         (EXTRA_HANDLE_BASE + slot + 1) as u64
+    }
+
+    fn install_frame(&mut self, index: usize, handle: Handle, range: hk_hal::PhysRange) -> u64 {
+        let slot = self.tasks[index]
+            .frames
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].frames.len());
+        let map = FrameMap {
+            handle,
+            phys: range.start().get(),
+            len: range.len() as usize,
+        };
+        if slot == self.tasks[index].frames.len() {
+            self.tasks[index].frames.push(Some(map));
+        } else {
+            self.tasks[index].frames[slot] = Some(map);
+        }
+        (FRAME_HANDLE_BASE + slot + 1) as u64
+    }
+
+    fn frame_at(&self, index: usize, number: usize) -> Option<(Handle, hk_hal::PhysRange)> {
+        if number >= FRAME_HANDLE_BASE {
+            let map = self.tasks[index]
+                .frames
+                .get(number - FRAME_HANDLE_BASE - 1)?
+                .as_ref()?;
+            return Some((
+                map.handle,
+                hk_hal::PhysRange::new(hk_hal::PhysAddr::new(map.phys), map.len as u64),
+            ));
+        }
+        let handle = self.tasks[index]
+            .extra
+            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)?
+            .as_ref()?;
+        let range = self.kernel.frame(self.tasks[index].tcb, *handle).ok()?;
+        Some((*handle, range))
     }
 
     fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
@@ -238,7 +288,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if number >= GRANT_HANDLE_BASE {
+        if number >= FRAME_HANDLE_BASE {
+            self.frame_at(index, number).map(|(handle, _)| handle)
+        } else if number >= GRANT_HANDLE_BASE {
             self.grant_at(index, number)
         } else if number >= EXTRA_HANDLE_BASE {
             self.tasks[index]

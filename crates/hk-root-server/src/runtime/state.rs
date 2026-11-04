@@ -29,6 +29,8 @@ pub enum Pending {
         capacity: usize,
         /// 期望的发送线程。
         expected: Option<TcbId>,
+        /// 是否把随消息收到的句柄编号打包返回。
+        handle_out: bool,
     },
     /// 通知等待已登记。
     Notify {

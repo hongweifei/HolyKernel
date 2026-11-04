@@ -337,6 +337,42 @@ impl PageTable {
         Ok(())
     }
 
+    /// 解除一段用户映射；页表中间级保留。
+    pub fn unmap_user_range(&self, virt: VirtAddr, len: usize) -> bool {
+        if !virt.is_page_aligned() {
+            return false;
+        }
+        let mut offset = 0;
+        while offset < len {
+            let address = virt.get() + offset as u64;
+            let mut table = self.root;
+            let mut present = true;
+            for level in [39_u32, 30, 21] {
+                let index = ((address >> level) & 0x1FF) as usize;
+                let entry = self.entry(table, index);
+                // SAFETY: 页表项位于 HHDM 映射的物理内存。
+                let value = unsafe { entry.read_volatile() };
+                if value & PRESENT == 0 || value & HUGE != 0 {
+                    present = false;
+                    break;
+                }
+                table = PhysAddr::new(value & ADDRESS_MASK);
+            }
+            if !present {
+                return false;
+            }
+            let index = ((address >> 12) & 0x1FF) as usize;
+            let entry = self.entry(table, index);
+            // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
+            unsafe {
+                entry.write_volatile(0);
+                asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
+            }
+            offset += PAGE_SIZE;
+        }
+        true
+    }
+
     /// 使用 MMIO 页表帧池建立映射。
     pub fn map_mmio(
         &self,

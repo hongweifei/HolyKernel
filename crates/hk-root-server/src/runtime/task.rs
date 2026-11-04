@@ -446,12 +446,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 buffer,
                 capacity,
                 expected,
+                handle_out,
             } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.recv_from(tcb, handle, expected) {
                     Ok(Some(received)) => {
                         let mut frame = self.tasks[index].context;
-                        let _ = self.deliver_data(index, &mut frame, &received, buffer, capacity);
+                        if handle_out {
+                            let number = self.install_handle(index, &received.message);
+                            let _ = self.deliver_data_handle(
+                                index, &mut frame, &received, buffer, capacity, number,
+                            );
+                        } else {
+                            let _ =
+                                self.deliver_data(index, &mut frame, &received, buffer, capacity);
+                        }
                         self.tasks[index].context = frame;
                     }
                     Ok(None) => blocked_again = true,

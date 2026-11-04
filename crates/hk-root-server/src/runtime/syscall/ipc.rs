@@ -240,6 +240,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     buffer,
                     capacity,
                     expected,
+                    handle_out: false,
                 };
                 Switch::Block
             }
@@ -248,6 +249,73 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
         }
+    }
+
+    pub(crate) fn recv_data_handle(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let buffer = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        if capacity > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let expected = self.tcb_of_endpoint(frame.arg3());
+        match self.kernel.recv_from(tcb, handle, expected) {
+            Ok(Some(received)) => {
+                let number = self.install_handle(index, &received.message);
+                self.deliver_data_handle(index, frame, &received, buffer, capacity, number)
+            }
+            Ok(None) => {
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::RecvData {
+                    handle,
+                    buffer,
+                    capacity,
+                    expected,
+                    handle_out: true,
+                };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    pub(crate) fn deliver_data_handle(
+        &mut self,
+        index: usize,
+        frame: &mut C,
+        received: &hk_kernel::Received,
+        buffer: u64,
+        capacity: usize,
+        number: u64,
+    ) -> Switch {
+        let length = received.message.data.len();
+        let copied = length.min(capacity);
+        if copied > 0
+            && !self
+                .platform
+                .write_user(buffer, &received.message.data[..copied])
+        {
+            frame.set_result(u64::MAX);
+            frame.set_handle(length as u64);
+            return Switch::Continue;
+        }
+
+        self.tasks[index].reply = received.reply;
+        frame.set_result(received.message.label);
+        frame.set_word(received.message.words[0]);
+        frame.set_sender(self.endpoint_of(received.sender));
+        frame.set_handle((number << 32) | length as u64);
+        Switch::Continue
     }
 
     pub(crate) fn deliver_data(

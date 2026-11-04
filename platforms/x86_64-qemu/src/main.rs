@@ -132,7 +132,7 @@ extern "C" fn kmain() -> ! {
     hk_platform_x86_64::cache::init(direct_map_base);
     hk_platform_x86_64::paging::reserve_frames(&mut allocator, 512);
     hk_platform_x86_64::paging::reserve_user_table_frames(&mut allocator, 64);
-    if let Some(dma) = allocator.allocate_contiguous(1024 * 1024) {
+    if let Some(dma) = allocator.allocate_contiguous(4 * 1024 * 1024) {
         hk_platform_x86_64::dma::init(dma);
     }
 
@@ -384,12 +384,21 @@ fn run_timer_test(console: &Serial) -> ! {
 }
 
 #[cfg(target_os = "none")]
+struct SerialWriter(Serial);
+
+#[cfg(target_os = "none")]
+impl core::fmt::Write for SerialWriter {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        self.0.write_str(text);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    let console = Serial::new(COM1);
-    let mut report = String::new();
-    let _ = writeln!(report, "\n内核 panic：{info}");
-    console.write_str(&report);
+    let mut console = SerialWriter(Serial::new(COM1));
+    let _ = writeln!(console, "\n内核 panic：{info}");
     hk_test::exit(ExitCode::Failure(70))
 }
 

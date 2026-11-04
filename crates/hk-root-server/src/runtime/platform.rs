@@ -28,6 +28,11 @@ pub trait UserPlatform {
     fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
+
+    /// 解除任务地址空间中的一段映射。
+    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+        false
+    }
     /// 为 DeviceGrant 分配连续 DMA 窗口。
     fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {
         None

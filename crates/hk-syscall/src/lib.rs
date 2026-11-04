@@ -97,6 +97,38 @@ pub const SYS_CIVIL_TIME: u64 = 30;
 /// 读取平台启动命令行。
 pub const SYS_BOOT_CMDLINE: u64 = 31;
 
+/// 分配共享 Frame 并映射。
+pub const SYS_FRAME_ALLOC: u64 = 32;
+
+/// 把 Frame 映射到调用者地址空间。
+pub const SYS_FRAME_MAP: u64 = 33;
+
+/// 解除 Frame 映射。
+pub const SYS_FRAME_UNMAP: u64 = 34;
+
+/// 查询 Frame 的物理地址与长度。
+pub const SYS_FRAME_INFO: u64 = 35;
+
+/// 复制句柄。
+pub const SYS_HANDLE_DUPLICATE: u64 = 36;
+
+/// 接收带字节载荷的消息，并把随消息收到的句柄编号打包返回。
+pub const SYS_RECV_DATA_HANDLE: u64 = 37;
+
+/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
+pub const SYS_DMA_MAP_FRAME: u64 = 38;
+
+/// 句柄权限位：读取。
+pub const RIGHT_READ: u64 = 1;
+/// 句柄权限位：写入。
+pub const RIGHT_WRITE: u64 = 2;
+/// 句柄权限位：执行。
+pub const RIGHT_EXECUTE: u64 = 4;
+/// 句柄权限位：转移。
+pub const RIGHT_TRANSFER: u64 = 8;
+/// 句柄权限位：管理。
+pub const RIGHT_ADMIN: u64 = 16;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 

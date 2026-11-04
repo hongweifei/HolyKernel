@@ -3,6 +3,7 @@
 use super::*;
 
 mod device;
+mod frame;
 mod ipc;
 mod task;
 
@@ -23,6 +24,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_RECV => self.recv(index, tcb, frame),
             SYS_SEND_DATA => self.send_data(index, tcb, frame),
             SYS_RECV_DATA => self.recv_data(index, tcb, frame),
+            SYS_RECV_DATA_HANDLE => self.recv_data_handle(index, tcb, frame),
             SYS_RECV_DATA_FROM => self.recv_data(index, tcb, frame),
             SYS_SERVICE_ENDPOINT => {
                 let length = frame.arg1() as usize;
@@ -184,7 +186,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 };
-                if length == 0 || phys < range.start().get() || end > range.end().get() {
+                let in_grant =
+                    length != 0 && phys >= range.start().get() && end <= range.end().get();
+                let in_frame = (0..self.tasks[index].frames.len()).any(|slot| {
+                    self.frame_at(index, FRAME_HANDLE_BASE + slot + 1)
+                        .is_some_and(|(_, frame)| {
+                            phys >= frame.start().get() && end <= frame.end().get()
+                        })
+                }) || (0..self.tasks[index].extra.len()).any(|slot| {
+                    self.frame_at(index, EXTRA_HANDLE_BASE + slot + 1)
+                        .is_some_and(|(_, frame)| {
+                            phys >= frame.start().get() && end <= frame.end().get()
+                        })
+                });
+                if !in_grant && !in_frame {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 }
@@ -243,6 +258,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.platform.timer_ticks());
                 Switch::Continue
             }
+            SYS_FRAME_ALLOC => self.frame_alloc(index, tcb, frame),
+            SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
+            SYS_FRAME_UNMAP => self.frame_unmap(index, frame),
+            SYS_FRAME_INFO => self.frame_info(index, tcb, frame),
+            SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
+            SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),
             SYS_BOOT_CMDLINE => {
                 let pointer = frame.arg0();
                 let capacity = frame.arg1() as usize;

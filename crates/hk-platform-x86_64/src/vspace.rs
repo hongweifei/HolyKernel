@@ -24,6 +24,10 @@ impl UserVspace for PageTable {
     fn map_dma(&self, virt: u64, phys: u64, len: usize) -> bool {
         self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_RW)
     }
+
+    fn unmap_dma(&self, virt: u64, len: usize) -> bool {
+        self.unmap_user_range(hk_hal::VirtAddr::new(virt), len)
+    }
 }
 
 impl PageTable {

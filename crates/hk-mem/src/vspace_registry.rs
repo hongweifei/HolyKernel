@@ -20,6 +20,11 @@ pub trait UserVspace: Sized {
     fn map_dma(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
+
+    /// 解除一段用户映射；不支持时返回 `false`。
+    fn unmap_dma(&self, _virt: u64, _len: usize) -> bool {
+        false
+    }
 }
 
 /// 任务槽位到用户地址空间的映射。
@@ -79,6 +84,15 @@ impl<T: UserVspace> VspaceRegistry<T> {
             .get(slot)
             .and_then(Option::as_ref)
             .is_some_and(|table| table.map_dma(virt, phys, len))
+    }
+
+    /// 解除任务地址空间中的一段映射。
+    pub fn unmap_dma(&self, slot: usize, virt: u64, len: usize) -> bool {
+        self.tables
+            .lock()
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_some_and(|table| table.unmap_dma(virt, len))
     }
 
     /// 把父任务地址空间分叉为子任务写时复制副本。

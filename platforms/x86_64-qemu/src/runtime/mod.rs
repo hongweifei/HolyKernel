@@ -62,6 +62,10 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.map_dma(slot, virt, phys, len)
     }
 
+    fn unmap_dma(&self, slot: usize, virt: u64, len: usize) -> bool {
+        USER_VSPACES.unmap_dma(slot, virt, len)
+    }
+
     fn take_irqs(&self, pending: &mut [u64; 4]) {
         *pending = hk_platform_x86_64::irq::take_pending();
     }

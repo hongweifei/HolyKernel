@@ -134,6 +134,32 @@ pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     )
 }
 
+/// 接收带字节载荷的消息，并解包随消息收到的句柄编号。
+pub fn recv_data_handle(
+    endpoint: u64,
+    buffer: &mut [u8],
+    expected: u64,
+) -> (u64, u64, u64, usize, u64) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_HANDLE,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            expected,
+        )
+    };
+    let packed = result.extra;
+    (
+        result.value,
+        result.word,
+        result.sender,
+        (packed & 0xFFFF_FFFF) as usize,
+        packed >> 32,
+    )
+}
+
 /// 让出 CPU。
 pub fn yield_now() -> u64 {
     // SAFETY: 让出不携带参数，内核对调用号做分派。
@@ -263,6 +289,57 @@ pub fn device_info(grant: u64, buffer: &mut [u8]) -> u64 {
 pub fn self_notification() -> u64 {
     // SAFETY: 只读取运行时任务槽位，不涉及指针。
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
+}
+
+/// 分配共享 Frame 并映射到 `virt`，返回帧句柄编号。
+pub fn frame_alloc(length: usize, virt: u64) -> u64 {
+    // SAFETY: 内核校验长度与目标地址后分配并映射。
+    unsafe { syscall_call(SYS_FRAME_ALLOC, length as u64, virt, 0, 0).value }
+}
+
+/// 把 Frame 映射到调用者地址空间，返回长度。
+pub fn frame_map(number: u64, virt: u64) -> u64 {
+    // SAFETY: 内核校验帧句柄与目标地址。
+    unsafe { syscall_call(SYS_FRAME_MAP, number, virt, 0, 0).value }
+}
+
+/// 解除 Frame 映射；成功返回 1。
+pub fn frame_unmap(virt: u64, length: usize) -> u64 {
+    // SAFETY: 内核只解除调用者地址空间内的映射。
+    unsafe { syscall_call(SYS_FRAME_UNMAP, virt, length as u64, 0, 0).value }
+}
+
+/// 查询 Frame 的物理地址与长度。
+pub fn frame_info(number: u64) -> Option<(u64, u64)> {
+    let mut bytes = [0_u8; 16];
+    // SAFETY: 缓冲区属于本进程；内核校验句柄与容量后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_FRAME_INFO,
+            number,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+    };
+    if result.value != 16 {
+        return None;
+    }
+    let phys = u64::from_le_bytes(bytes[..8].try_into().ok()?);
+    let length = u64::from_le_bytes(bytes[8..].try_into().ok()?);
+    Some((phys, length))
+}
+
+/// 复制句柄并收窄权限，返回新句柄编号。
+pub fn handle_duplicate(number: u64, rights: u64) -> u64 {
+    // SAFETY: 内核校验句柄与权限后复制。
+    unsafe { syscall_call(SYS_HANDLE_DUPLICATE, number, rights, 0, 0).value }
+}
+
+/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
+pub fn dma_map_frame(grant: u64, frame: u64, length: usize) -> u64 {
+    // SAFETY: 内核校验授权、帧句柄与长度后建立 IOMMU 映射。
+    unsafe { syscall_call(SYS_DMA_MAP_FRAME, grant, frame, length as u64, 0).value }
 }
 
 /// 读取平台启动命令行；未提供时返回 `None`。
