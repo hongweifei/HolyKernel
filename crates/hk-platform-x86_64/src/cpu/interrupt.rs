@@ -19,7 +19,7 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         }
         return;
     }
-    if frame.vector == KEYBOARD_VECTOR {
+    if frame.vector == crate::board::KEYBOARD_VECTOR {
         crate::keyboard::handle_interrupt();
         lapic_write(LAPIC_EOI, 0);
         return;

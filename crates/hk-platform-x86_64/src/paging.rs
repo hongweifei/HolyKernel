@@ -6,10 +6,8 @@
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use alloc::vec::Vec;
-
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
-use spin::Mutex;
+use hk_mem::FramePool;
 
 pub use hk_mem::LinearFrames as FrameAllocator;
 
@@ -25,8 +23,8 @@ const ENTRIES: usize = 512;
 const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
-static COW_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
-static USER_TABLE_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
+static COW_FRAMES: FramePool = FramePool::new();
+static USER_TABLE_FRAMES: FramePool = FramePool::new();
 
 /// 设置页表运行时使用的 direct map 基址。
 pub fn init_runtime(direct_map: u64) {
@@ -35,32 +33,20 @@ pub fn init_runtime(direct_map: u64) {
 
 /// 预留写时复制与页表使用的物理帧。
 pub fn reserve_frames(allocator: &mut FrameAllocator, count: usize) {
-    let mut frames = COW_FRAMES.lock();
-    for _ in 0..count {
-        let Some(frame) = allocator.allocate() else {
-            break;
-        };
-        frames.push(frame);
-    }
+    COW_FRAMES.reserve(allocator, count);
 }
 
 fn take_frame() -> Option<PhysAddr> {
-    COW_FRAMES.lock().pop()
+    COW_FRAMES.take()
 }
 
 /// 预留 MMIO 映射所需的页表帧。
 pub fn reserve_user_table_frames(allocator: &mut FrameAllocator, count: usize) {
-    let mut frames = USER_TABLE_FRAMES.lock();
-    for _ in 0..count {
-        let Some(frame) = allocator.allocate() else {
-            break;
-        };
-        frames.push(frame);
-    }
+    USER_TABLE_FRAMES.reserve(allocator, count);
 }
 
 fn take_user_table_frame() -> Option<PhysAddr> {
-    USER_TABLE_FRAMES.lock().pop()
+    USER_TABLE_FRAMES.take()
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。

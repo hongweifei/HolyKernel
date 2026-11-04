@@ -7,9 +7,13 @@
 
 extern crate alloc;
 
+pub mod dma;
+pub mod frame_pool;
 pub mod frames;
 pub mod vspace_registry;
 
+pub use dma::DmaPool;
+pub use frame_pool::FramePool;
 pub use frames::LinearFrames;
 pub use vspace_registry::{UserVspace, VspaceRegistry};
 

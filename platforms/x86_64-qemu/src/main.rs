@@ -148,6 +148,7 @@ extern "C" fn kmain() -> ! {
 
     match bootstrap::init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
         Ok(Some(ioapic)) => {
+            let _ = bootstrap::init_keyboard(&ioapic);
             announce(
                 &console,
                 screen.as_ref(),

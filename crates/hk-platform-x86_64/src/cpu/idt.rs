@@ -165,7 +165,8 @@ pub(super) fn init_idt() {
             idt[crate::irq::IRQ_VECTOR_BASE as usize + offset] = IdtEntry::new(*handler, 0);
         }
         idt[TIMER_VECTOR as usize] = IdtEntry::new(isr_32 as *const () as usize, 0);
-        idt[KEYBOARD_VECTOR as usize] = IdtEntry::new(isr_33 as *const () as usize, 0);
+        idt[crate::board::KEYBOARD_VECTOR as usize] =
+            IdtEntry::new(isr_33 as *const () as usize, 0);
         idt[SYSCALL_VECTOR as usize] =
             IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
         idt[IPI_VECTOR as usize] = IdtEntry::new(isr_240 as *const () as usize, 0);

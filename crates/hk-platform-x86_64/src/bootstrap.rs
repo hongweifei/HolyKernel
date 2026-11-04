@@ -141,7 +141,7 @@ pub fn init_ioapic(
     let ioapic = IoApic::new(virt.get());
     ioapic.init();
     let gsi = madt.gsi(1);
-    let vector = crate::cpu::KEYBOARD_VECTOR as u8;
+    let vector = crate::board::KEYBOARD_VECTOR as u8;
     let destination = crate::cpu::lapic_id();
     ioapic.route(gsi, madt.gsi_base, vector, destination);
     *MADT.lock() = Some(madt);
@@ -156,6 +156,20 @@ pub fn init_ioapic(
         destination,
         cpus: madt.cpu_count(),
     }))
+}
+
+/// 初始化键盘并把 IRQ1 路由到键盘向量。
+pub fn init_keyboard(setup: &IoApicSetup) -> bool {
+    crate::keyboard::init();
+    let Some(madt) = *MADT.lock() else {
+        return false;
+    };
+    let ioapic = IOAPIC.lock();
+    let Some(state) = ioapic.as_ref() else {
+        return false;
+    };
+    IoApic::new(state.base).route(madt.gsi(1), madt.gsi_base, setup.vector, setup.destination);
+    true
 }
 
 /// 以启动信息中的帧缓冲描述创建文本控制台。

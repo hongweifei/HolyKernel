@@ -1,6 +1,7 @@
 //! 中断控制器与 IPI。
 
 use core::fmt;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::CpuId;
 
@@ -91,4 +92,62 @@ pub trait InterruptController: Send + Sync {
 
     /// 向目标 CPU 发送处理器间中断。
     fn send_ipi(&self, cpu: CpuId, ipi: Ipi);
+}
+
+/// 通用 IRQ 待处理位图。
+pub struct IrqBitmap<const WORDS: usize> {
+    bits: [AtomicU64; WORDS],
+}
+
+impl<const WORDS: usize> IrqBitmap<WORDS> {
+    /// 构造空位图。
+    pub const fn new() -> Self {
+        Self {
+            bits: [const { AtomicU64::new(0) }; WORDS],
+        }
+    }
+
+    /// 记录一条待处理 IRQ。
+    pub fn note(&self, line: usize) {
+        let word = line / 64;
+        if word < WORDS {
+            self.bits[word].fetch_or(1_u64 << (line % 64), Ordering::Release);
+        }
+    }
+
+    /// 取出并清除全部待处理 IRQ。
+    pub fn take(&self) -> [u64; WORDS] {
+        let mut pending = [0_u64; WORDS];
+        for (slot, bits) in pending.iter_mut().zip(self.bits.iter()) {
+            *slot = bits.swap(0, Ordering::AcqRel);
+        }
+        pending
+    }
+
+    /// 清空全部待处理 IRQ。
+    pub fn clear(&self) {
+        for bits in &self.bits {
+            bits.store(0, Ordering::Release);
+        }
+    }
+}
+
+impl<const WORDS: usize> Default for IrqBitmap<WORDS> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_round_trips_across_words() {
+        let bitmap = IrqBitmap::<4>::new();
+        bitmap.note(3);
+        bitmap.note(70);
+        assert_eq!(bitmap.take(), [1 << 3, 1 << 6, 0, 0]);
+        assert_eq!(bitmap.take(), [0; 4]);
+    }
 }
