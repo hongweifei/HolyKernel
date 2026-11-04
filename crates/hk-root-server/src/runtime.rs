@@ -116,13 +116,9 @@ pub trait UserPlatform {
     fn dma_free(&self, _range: hk_hal::PhysRange) {}
     /// 取出并清除待处理 IRQ 位图，最多 256 条。
     fn take_irqs(&self, _pending: &mut [u64; 4]) {}
-    /// 把 IRQ 线路由到设备中断向量。
-    fn route_irq(&self, _irq: u8) -> bool {
-        false
-    }
-    /// 屏蔽 IRQ 线。
-    fn unroute_irq(&self, _irq: u8) -> bool {
-        false
+    /// 返回平台中断控制器。
+    fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
+        None
     }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);

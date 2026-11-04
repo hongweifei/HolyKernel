@@ -40,7 +40,7 @@ struct IoApicState {
 
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
-static IRQ_BINDINGS: Mutex<BTreeMap<u32, NotificationId>> = Mutex::new(BTreeMap::new());
+static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
 
 /// x86 IOAPIC 中断控制器。
 pub struct IoApicController;
@@ -85,13 +85,14 @@ impl InterruptController for IoApicController {
             return Err(IrqError::Unsupported);
         }
         let mut bindings = IRQ_BINDINGS.lock();
-        if bindings.contains_key(&line) {
-            return Err(IrqError::AlreadyBound);
+        if let Some(targets) = bindings.get_mut(&line) {
+            targets.push(target);
+            return Ok(());
         }
         if !route_irq(line as u8) {
             return Err(IrqError::Unsupported);
         }
-        bindings.insert(line, target);
+        bindings.insert(line, alloc::vec![target]);
         Ok(())
     }
 

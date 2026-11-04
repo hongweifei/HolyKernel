@@ -110,7 +110,7 @@ flowchart TB
 | **Notification** | 异步事件 | signal、wait、poll、clear |
 | **Frame** | 物理内存帧 | 映射、共享、DMA、缓存维护 |
 | **Untyped** | 未类型化内存 | retype 为 TCB/VSpace/Frame/Endpoint |
-| **IRQHandler** | 中断句柄 | 绑定 Endpoint、ack、EOI |
+| **IRQHandler** | 中断句柄 | 绑定 Notification、ack、EOI |
 | **DeviceGrant** | 设备句柄集合；内核对象、镜像角色元数据、设备授权工厂、MMIO 映射、DMA 窗口子分配与 IRQ 通知绑定已建立 | 驱动实际使用 |
 
 内核对象由 Untyped 内存创建；每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。

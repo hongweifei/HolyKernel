@@ -58,12 +58,8 @@ impl UserPlatform for X86Platform {
         *pending = hk_platform_x86_64::irq::take_pending();
     }
 
-    fn route_irq(&self, irq: u8) -> bool {
-        hk_platform_x86_64::bootstrap::route_irq(irq)
-    }
-
-    fn unroute_irq(&self, irq: u8) -> bool {
-        hk_platform_x86_64::bootstrap::unroute_irq(irq)
+    fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
+        Some(&hk_platform_x86_64::bootstrap::CONTROLLER)
     }
 
     fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {

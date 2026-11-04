@@ -541,20 +541,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if !self.platform.route_irq(irq) {
+        let Some(controller) = self.platform.interrupt_controller() else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(notification_id) = self.kernel.handle_id(tcb, notification) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let irq = hk_hal::Irq::new(u32::from(irq));
+        if controller
+            .bind(irq, hk_hal::NotificationId::new(notification_id.get()))
+            .is_err()
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         match self.kernel.bind_irq(tcb, grant, notification, bits) {
             Ok(_) => {
-                let count = &mut self.irq_routes[irq as usize];
+                let count = &mut self.irq_routes[irq.get() as usize];
                 *count = count.saturating_add(1);
-                self.tasks[index].bound_irqs.push((grant, irq));
+                self.tasks[index].bound_irqs.push((grant, irq.get() as u8));
                 frame.set_result(0);
             }
             Err(_) => {
-                if self.irq_routes[irq as usize] == 0 {
-                    self.platform.unroute_irq(irq);
+                if self.irq_routes[irq.get() as usize] == 0 {
+                    let _ = controller.unbind(irq);
                 }
                 frame.set_result(u64::MAX);
             }

@@ -236,8 +236,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let count = &mut self.irq_routes[irq as usize];
         if *count > 0 {
             *count -= 1;
-            if *count == 0 {
-                self.platform.unroute_irq(irq);
+            if *count == 0
+                && let Some(controller) = self.platform.interrupt_controller()
+            {
+                let _ = controller.unbind(hk_hal::Irq::new(u32::from(irq)));
             }
         }
     }
