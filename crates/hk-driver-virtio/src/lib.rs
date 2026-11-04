@@ -85,14 +85,12 @@ pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> 
             Ok(Device::Block(alloc::boxed::Box::new(Block::new(block))))
         }
         DeviceType::Network => {
-            let network = virtio_drivers::device::net::VirtIONet::<_, _, 16>::new(
+            let raw = virtio_drivers::device::net::VirtIONetRaw::<_, _, { net::QUEUE_SIZE }>::new(
                 transport,
-                net::RECEIVE_BUFFER,
             )
             .map_err(|_| ProbeError::Device)?;
-            Ok(Device::Network(alloc::boxed::Box::new(Network::new(
-                network,
-            ))))
+            let network = Network::new(raw).map_err(|_| ProbeError::Device)?;
+            Ok(Device::Network(alloc::boxed::Box::new(network)))
         }
         other => Ok(Device::Unsupported(other)),
     }

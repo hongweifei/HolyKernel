@@ -151,11 +151,14 @@ fn serve(endpoint: u64, grant: u64, network: &mut hk_driver_virtio::Network, pee
             }
         }
         drain_rx(network, *peer);
+        // 回收已完成的发送并补发待发帧；设备延迟完成时也不会阻塞。
+        network.flush();
         if bound {
             let bits = wait_notify(notification, NET_NOTIFY_IRQ | NET_NOTIFY_TX);
             if bits & NET_NOTIFY_IRQ != 0 {
                 network.ack_interrupt();
             }
+            network.flush();
         } else {
             let _ = yield_now();
         }
