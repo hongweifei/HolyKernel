@@ -46,6 +46,43 @@ pub fn start() -> Result<(usize, usize), String> {
     Ok((started, online))
 }
 
+/// 验证空闲 AP 能被 IPI 唤醒，并完成一次 TLB shootdown。
+pub fn verify_idle_and_tlb(started: usize) -> Result<(), String> {
+    if started == 0 {
+        return Ok(());
+    }
+
+    let timeout = match hk_platform_x86_64::timing::tsc_frequency() {
+        0 => 1_000_000_000,
+        frequency => frequency,
+    };
+    if !wait_until(timeout, || cpu::idle_cpus() >= started) {
+        return Err(format!("AP 空闲等待超时：{}/{started}", cpu::idle_cpus()));
+    }
+
+    let before = cpu::ipi_count();
+    cpu::wake_aps();
+    if !wait_until(timeout, || cpu::ipi_count() >= before + started) {
+        return Err(String::from("AP 唤醒 IPI 超时"));
+    }
+
+    if !cpu::shootdown_tlb(Some(0x1000)) {
+        return Err(String::from("TLB shootdown 超时"));
+    }
+    Ok(())
+}
+
+fn wait_until(timeout: u64, mut done: impl FnMut() -> bool) -> bool {
+    let begin = hk_platform_x86_64::timing::rdtsc();
+    while !done() {
+        if hk_platform_x86_64::timing::rdtsc().wrapping_sub(begin) >= timeout {
+            return false;
+        }
+        core::hint::spin_loop();
+    }
+    true
+}
+
 unsafe extern "C" fn ap_entry(info: *mut ApCpu) -> ! {
     // SAFETY: Limine 传入的 CPU 描述在入口期间有效；`extra` 由 `start_aps` 写入。
     let (lapic_id, cpu_index) = unsafe {

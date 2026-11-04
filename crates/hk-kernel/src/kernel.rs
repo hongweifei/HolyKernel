@@ -198,6 +198,11 @@ impl Kernel {
         Ok(())
     }
 
+    /// 判断是否有排队等待调度的线程。
+    pub fn has_runnable(&self) -> bool {
+        self.scheduler.lock().runnable() > 0
+    }
+
     /// 取 `cpu` 的下一个可运行线程；该 CPU 的当前线程按同优先级轮转回就绪队列。
     pub fn schedule(&self, cpu: usize) -> Option<TcbId> {
         let current = self.scheduler.lock().take_current(cpu);

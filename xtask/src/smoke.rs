@@ -141,6 +141,7 @@ impl SmokeMode {
             Self::Smp => &[
                 "本地 APIC：4 个",
                 "AP 在线：3 个（启动 3，IPI 1 次）",
+                "AP 空闲 IPI 唤醒完成，TLB shootdown",
                 "CPU 调度：",
                 "CPU1=",
             ],

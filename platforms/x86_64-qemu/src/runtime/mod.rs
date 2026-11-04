@@ -62,6 +62,10 @@ impl UserPlatform for X86Platform {
     fn tsc_frequency(&self) -> u64 {
         hk_platform_x86_64::timing::tsc_frequency()
     }
+
+    fn wake_aps(&self) {
+        cpu::wake_aps();
+    }
 }
 
 type Runtime = RuntimeHost<InterruptFrame, X86Platform>;
@@ -132,9 +136,14 @@ pub fn run(table: &mut ServiceTable) {
     cpu::stop_tick();
 }
 
-/// AP 调度循环。
+/// AP 调度循环：无任务时关闭 tick 并等待唤醒 IPI。
 pub fn run_ap(cpu: usize) -> ! {
-    RUNTIME.run_ap(cpu)
+    loop {
+        RUNTIME.run_cpu(cpu, None);
+        cpu::stop_tick();
+        cpu::idle(cpu);
+        cpu::start_ap_tick();
+    }
 }
 
 /// 同步其他 CPU 记录的服务退出。

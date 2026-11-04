@@ -175,6 +175,22 @@ extern "C" fn kmain() -> ! {
                 screen.as_ref(),
                 &format!("AP 在线：{online} 个（启动 {started}，IPI {ipi} 次）\n"),
             );
+            if let Err(error) = smp::verify_idle_and_tlb(started) {
+                fail(
+                    &console,
+                    screen.as_ref(),
+                    &format!("SMP 空闲唤醒失败：{error}\n"),
+                    ExitCode::Failure(3),
+                );
+            }
+            announce(
+                &console,
+                screen.as_ref(),
+                &format!(
+                    "AP 空闲 IPI 唤醒完成，TLB shootdown {} 次\n",
+                    hk_platform_x86_64::cpu::tlb_shootdowns()
+                ),
+            );
         }
         Err(error) => fail(
             &console,

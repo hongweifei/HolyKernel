@@ -179,6 +179,9 @@ impl PageTable {
             }
         }
 
+        if !crate::cpu::shootdown_tlb(None) {
+            return None;
+        }
         self.activate();
         Some(Self {
             direct_map: self.direct_map,

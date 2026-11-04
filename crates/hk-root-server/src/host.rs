@@ -54,6 +54,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         if let Some(runtime) = self.runtime.lock().as_mut() {
             runtime.attach(index, context);
         }
+        self.wake_aps();
     }
 
     /// 返回任务数量。
@@ -79,13 +80,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
 
     /// 装载新任务，返回分配的端点编号。
     pub fn start(&self, name: &str, context: C, parent: Option<u64>) -> Result<u64, String> {
-        let mut guard = self.runtime.lock();
-        let runtime = guard
-            .as_mut()
-            .ok_or_else(|| String::from("运行时未初始化"))?;
-        runtime
-            .start(name, context, parent)
-            .map_err(|error| format!("{error}"))
+        let result = {
+            let mut guard = self.runtime.lock();
+            let runtime = guard
+                .as_mut()
+                .ok_or_else(|| String::from("运行时未初始化"))?;
+            runtime
+                .start(name, context, parent)
+                .map_err(|error| format!("{error}"))
+        };
+        self.wake_aps();
+        result
     }
 
     /// 生成任务视图快照。
@@ -173,12 +178,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
 
     /// 分派一次系统调用。
     pub fn dispatch(&self, cpu: usize, frame: &mut C) -> Switch {
-        let mut guard = self.runtime.lock();
-        let Some(runtime) = guard.as_mut() else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+        let switch = {
+            let mut guard = self.runtime.lock();
+            let Some(runtime) = guard.as_mut() else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            runtime.dispatch(cpu, frame)
         };
-        runtime.dispatch(cpu, frame)
+        self.wake_aps();
+        switch
+    }
+
+    /// 有可运行线程时唤醒空闲 CPU。
+    fn wake_aps(&self) {
+        if let Some(runtime) = self.runtime.lock().as_ref()
+            && runtime.has_runnable()
+        {
+            runtime.wake_aps();
+        }
     }
 
     /// 保存抢占现场；返回是否切换任务。

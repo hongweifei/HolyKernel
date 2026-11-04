@@ -124,11 +124,11 @@ flowchart LR
 - 用户态线程创建/退出、通知与等待。
 - HandleTable 审计与 trace。
 
-已完成：服务退出关闭对端端点句柄、`restart` 重新装载已退出服务并统计重启次数、IPC 句柄转移（`SYS_SEND_HANDLE` 与接收句柄映射）、Notification 置位与阻塞等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型（父页共享只读、子页写时复制）、QEMU 每任务页表与 CR3 切换、用户态异常隔离（`hk-server-fault` 按需启动验证）、QEMU COW fork（`SYS_FORK` 复制页表、写保护页错误恢复、`hk-server-fork` 验证父子栈页独立）、HandleTable 审计（授予/关闭/转移/释放事件与 `trace` 命令）、上下文切换与 IPC 时延统计（`stats` 命令、`SYS_TSC`/`SYS_TSC_FREQ`、`hk-server-latency` 测量）、MADT 本地 APIC 枚举（`-smp 4` 冒烟）、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度与 AP 用户任务执行、AP 本地 APIC 定时抢占（TLB shootdown、AP 空闲 IPI 唤醒待后续）。
+已完成：服务退出关闭对端端点句柄、`restart` 重新装载已退出服务并统计重启次数、IPC 句柄转移（`SYS_SEND_HANDLE` 与接收句柄映射）、Notification 置位与阻塞等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型（父页共享只读、子页写时复制）、QEMU 每任务页表与 CR3 切换、用户态异常隔离（`hk-server-fault` 按需启动验证）、QEMU COW fork（`SYS_FORK` 复制页表、写保护页错误恢复、`hk-server-fork` 验证父子栈页独立）、HandleTable 审计（授予/关闭/转移/释放事件与 `trace` 命令）、上下文切换与 IPC 时延统计（`stats` 命令、`SYS_TSC`/`SYS_TSC_FREQ`、`hk-server-latency` 测量）、MADT 本地 APIC 枚举（`-smp 4` 冒烟）、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度与 AP 用户任务执行、AP 本地 APIC 定时抢占、TLB shootdown（代际邮箱、跨核 IPI 确认、COW fork 整表同步）、AP 空闲关闭 tick 并用唤醒 IPI 恢复调度。
 
 ### 退出标准
 
-1. 2/4 核 SMP 启动；跨核 IPC 与唤醒正常。
+1. 2/4 核 SMP 启动；跨核 IPC、空闲 IPI 唤醒与 TLB shootdown 正常。
 2. COW fork 原型在 Hosted 与 QEMU 通过。
 3. Handle close 后旧引用失效。
 4. 上下文切换 ≤ 1 µs；IPC call/reply ≤ 2 µs（QEMU 记录）。

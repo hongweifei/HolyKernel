@@ -104,6 +104,8 @@ pub trait UserPlatform {
     fn tsc_frequency(&self) -> u64 {
         0
     }
+    /// 唤醒空闲 CPU 重新检查调度队列。
+    fn wake_aps(&self) {}
 }
 
 /// 任务 Arena：线性分配，不回收。
@@ -315,6 +317,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 返回任务数量。
     pub fn task_count(&self) -> usize {
         self.tasks.len()
+    }
+
+    /// 判断是否有等待调度的线程。
+    pub fn has_runnable(&self) -> bool {
+        self.kernel.has_runnable()
+    }
+
+    /// 唤醒空闲 CPU。
+    pub fn wake_aps(&self) {
+        self.platform.wake_aps();
     }
 
     /// 返回最近的内核 trace 事件。
