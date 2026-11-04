@@ -197,12 +197,12 @@ impl VfsClient {
         self.exchange(OP_CLOSE, "", handle, 0, &[]).map(|_| ())
     }
 
-    /// 从偏移读取，返回服务端实际长度。
+    /// 从偏移读取，返回实际拷贝到缓冲区的长度。
     pub fn read(&mut self, handle: u64, offset: u64, buffer: &mut [u8]) -> Result<usize, u8> {
         let length = self.exchange(OP_READ, "", handle, offset, &[])?;
         let copy = length.min(buffer.len());
         buffer[..copy].copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + copy]);
-        Ok(length)
+        Ok(copy)
     }
 
     /// 从偏移写入。

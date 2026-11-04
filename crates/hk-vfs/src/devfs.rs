@@ -9,6 +9,7 @@ use crate::vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
 const ROOT: NodeId = 0;
 const NULL: NodeId = 1;
 const CONSOLE: NodeId = 2;
+const ZERO: NodeId = 3;
 
 /// 设备文件系统：`/dev/null`、`/dev/console`。
 pub struct Devfs {
@@ -21,6 +22,7 @@ impl Devfs {
         let mut names = BTreeMap::new();
         names.insert("console".to_string(), CONSOLE);
         names.insert("null".to_string(), NULL);
+        names.insert("zero".to_string(), ZERO);
         Self { names }
     }
 }
@@ -49,7 +51,7 @@ impl Backend for Devfs {
                 kind: FileType::Directory,
                 size: 0,
             }),
-            NULL | CONSOLE => Ok(Metadata {
+            NULL | CONSOLE | ZERO => Ok(Metadata {
                 kind: FileType::File,
                 size: 0,
             }),
@@ -57,8 +59,15 @@ impl Backend for Devfs {
         }
     }
 
-    fn read(&self, _node: NodeId, _offset: u64, _buffer: &mut [u8]) -> Result<usize, VfsError> {
-        Ok(0)
+    fn read(&self, node: NodeId, _offset: u64, buffer: &mut [u8]) -> Result<usize, VfsError> {
+        match node {
+            ZERO => {
+                buffer.fill(0);
+                Ok(buffer.len())
+            }
+            NULL | CONSOLE => Ok(0),
+            _ => Err(VfsError::NotFound),
+        }
     }
 
     fn write(&mut self, _node: NodeId, _offset: u64, data: &[u8]) -> Result<usize, VfsError> {
@@ -95,6 +104,10 @@ impl Backend for Devfs {
     fn unlink(&mut self, _parent: NodeId, _name: &str) -> Result<NodeId, VfsError> {
         Err(VfsError::ReadOnly)
     }
+
+    fn cacheable(&self, _node: NodeId) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -107,7 +120,11 @@ mod tests {
         let null = fs.lookup(0, "null").expect("null");
         assert_eq!(fs.metadata(null).expect("元数据").kind, FileType::File);
         assert_eq!(fs.write(null, 0, b"discard"), Ok(7));
-        assert_eq!(fs.readdir(0).expect("目录").len(), 2);
+        assert_eq!(fs.readdir(0).expect("目录").len(), 3);
+        let zero = fs.lookup(0, "zero").expect("zero");
+        let mut buffer = [1_u8; 4];
+        assert_eq!(fs.read(zero, 0, &mut buffer), Ok(4));
+        assert_eq!(buffer, [0; 4]);
         assert_eq!(fs.create(0, "x", FileType::File), Err(VfsError::ReadOnly));
     }
 }

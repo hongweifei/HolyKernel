@@ -89,7 +89,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut request = [0_u8; 4096];
-    let mut body = [0_u8; 4096];
+    let mut body = [0_u8; 4093];
     let mut response = [0_u8; 4096];
 
     loop {

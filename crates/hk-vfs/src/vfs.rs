@@ -157,6 +157,10 @@ pub trait Backend {
     fn truncate(&mut self, node: NodeId, size: u64) -> Result<(), VfsError>;
     /// 删除目录项，返回被删除的节点。
     fn unlink(&mut self, parent: NodeId, name: &str) -> Result<NodeId, VfsError>;
+    /// 该节点是否使用 VFS 页缓存；设备节点应返回 `false`。
+    fn cacheable(&self, _node: NodeId) -> bool {
+        true
+    }
 }
 
 struct Instance {
@@ -175,6 +179,8 @@ struct OpenFile {
     offset: u64,
     flags: OpenFlags,
 }
+
+const DENTRY_LIMIT: usize = 1024;
 
 /// 虚拟文件系统。
 pub struct Vfs {
@@ -280,13 +286,12 @@ impl Vfs {
             }
             (open.instance, open.node)
         };
-        self.cache.read(
-            &*self.instances[instance].backend,
-            instance,
-            node,
-            offset,
-            buffer,
-        )
+        let backend = &*self.instances[instance].backend;
+        if backend.cacheable(node) {
+            self.cache.read(backend, instance, node, offset, buffer)
+        } else {
+            backend.read(node, offset, buffer)
+        }
     }
 
     /// 从文件句柄读取，并推进偏移。
@@ -320,13 +325,12 @@ impl Vfs {
             }
             (open.instance, open.node)
         };
-        self.cache.write(
-            &mut *self.instances[instance].backend,
-            instance,
-            node,
-            offset,
-            data,
-        )
+        let backend = &mut *self.instances[instance].backend;
+        if backend.cacheable(node) {
+            self.cache.write(backend, instance, node, offset, data)
+        } else {
+            backend.write(node, offset, data)
+        }
     }
 
     /// 向文件句柄写入，并推进偏移。
@@ -447,6 +451,9 @@ impl Vfs {
                 continue;
             }
             let found = self.instances[instance].backend.lookup(node, component)?;
+            if self.dentries.len() >= DENTRY_LIMIT {
+                self.dentries.clear();
+            }
             self.dentries.insert(key, found);
             node = found;
         }
@@ -556,6 +563,20 @@ mod tests {
         vfs.close(handle).expect("关闭");
         vfs.unlink("/file").expect("删除");
         assert!(matches!(vfs.metadata("/file"), Err(VfsError::NotFound)));
+    }
+
+    #[test]
+    fn device_backends_bypass_page_cache() {
+        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        vfs.mount("/dev", Box::new(crate::Devfs::new()))
+            .expect("挂载 devfs");
+        let handle = vfs
+            .open("/dev/zero", OpenFlags::READ_ONLY)
+            .expect("打开 zero");
+        let mut buffer = [0xFF_u8; 4];
+        assert_eq!(vfs.read(handle, &mut buffer).expect("读取"), 4);
+        assert_eq!(buffer, [0; 4]);
+        vfs.close(handle).expect("关闭");
     }
 
     #[test]

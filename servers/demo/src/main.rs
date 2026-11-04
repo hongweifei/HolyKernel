@@ -140,6 +140,19 @@ fn verify_vfs(endpoint: u64) -> bool {
         return false;
     }
 
+    let Ok(handle) = client.open("/dev/zero", OPEN_READ) else {
+        return false;
+    };
+    let mut zeros = [0xFF_u8; 4];
+    let read = client.read(handle, 0, &mut zeros);
+    if read != Ok(4) {
+        return false;
+    }
+    if zeros != [0; 4] {
+        return false;
+    }
+    let _ = client.close(handle);
+
     let mut mounts = [0_u8; 128];
     let Ok(length) = client.mounts(&mut mounts) else {
         return false;
