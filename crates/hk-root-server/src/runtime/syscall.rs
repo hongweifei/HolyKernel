@@ -2,6 +2,8 @@
 
 use super::*;
 
+const MAX_USER_DATA: usize = 4096;
+
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 分派一次系统调用。
     pub fn dispatch(&mut self, cpu: usize, frame: &mut C) -> Switch {
@@ -15,6 +17,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_SEND => self.send(index, tcb, frame, false),
             SYS_SEND_HANDLE => self.send(index, tcb, frame, true),
             SYS_RECV => self.recv(index, tcb, frame),
+            SYS_SEND_DATA => self.send_data(index, tcb, frame),
+            SYS_RECV_DATA => self.recv_data(index, tcb, frame),
             SYS_NOTIFY => {
                 let result = self.notify(index, tcb, frame);
                 frame.set_result(result);
@@ -277,5 +281,105 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             Err(_) => u64::MAX,
         }
+    }
+    /// 发送带字节载荷的消息。
+    fn send_data(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let length = frame.arg3() as usize;
+        if length > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut data = alloc::vec![0_u8; length];
+        if length > 0 && !self.platform.read_user(frame.arg2(), &mut data) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+
+        let message = Message::new(frame.arg1()).with_data(data);
+        match self.kernel.send(tcb, handle, message) {
+            Ok(()) => {
+                if self.kernel.state_of(tcb) == Some(ThreadState::Blocked) {
+                    let mut context = *frame;
+                    context.set_result(0);
+                    self.tasks[index].context = context;
+                    self.tasks[index].pending = Pending::Send;
+                    Switch::Block
+                } else {
+                    frame.set_result(0);
+                    Switch::Continue
+                }
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    /// 接收带字节载荷的消息。
+    fn recv_data(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let buffer = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        if capacity > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+
+        match self.kernel.recv(tcb, handle) {
+            Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
+            Ok(None) => {
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::RecvData {
+                    handle,
+                    buffer,
+                    capacity,
+                };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    pub(crate) fn deliver_data(
+        &mut self,
+        index: usize,
+        frame: &mut C,
+        received: &hk_kernel::Received,
+        buffer: u64,
+        capacity: usize,
+    ) -> Switch {
+        let length = received.message.data.len();
+        let copied = length.min(capacity);
+        if copied > 0
+            && !self
+                .platform
+                .write_user(buffer, &received.message.data[..copied])
+        {
+            frame.set_result(u64::MAX);
+            frame.set_handle(length as u64);
+            return Switch::Continue;
+        }
+
+        self.tasks[index].reply = received.reply;
+        frame.set_result(received.message.label);
+        frame.set_word(received.message.words[0]);
+        frame.set_sender(self.endpoint_of(received.sender));
+        frame.set_handle(length as u64);
+        Switch::Continue
     }
 }

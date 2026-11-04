@@ -21,6 +21,16 @@ const ARENA_STRIDE: u64 = 0x2_0000;
 /// 每个任务的 Arena 大小。
 const ARENA_SIZE: u64 = 64 * 1024;
 
+/// 用户可访问地址上限。
+const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
+
+fn user_range(address: u64, length: usize) -> bool {
+    address >= 0x1000
+        && address
+            .checked_add(length as u64)
+            .is_some_and(|end| end <= USER_LIMIT)
+}
+
 struct X86Platform;
 
 impl UserPlatform for X86Platform {
@@ -37,6 +47,34 @@ impl UserPlatform for X86Platform {
         unsafe {
             core::ptr::write_bytes(address as *mut u8, 0, length);
         }
+    }
+
+    fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
+        if buffer.is_empty() {
+            return true;
+        }
+        if !user_range(address, buffer.len()) {
+            return false;
+        }
+        // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
+        unsafe {
+            core::ptr::copy_nonoverlapping(address as *const u8, buffer.as_mut_ptr(), buffer.len());
+        }
+        true
+    }
+
+    fn write_user(&self, address: u64, data: &[u8]) -> bool {
+        if data.is_empty() {
+            return true;
+        }
+        if !user_range(address, data.len()) {
+            return false;
+        }
+        // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr(), address as *mut u8, data.len());
+        }
+        true
     }
 
     fn arena_layout(&self, slot: usize) -> (u64, u64) {

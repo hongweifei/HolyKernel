@@ -300,6 +300,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
                 }
             }
+            Pending::RecvData {
+                handle,
+                buffer,
+                capacity,
+            } => {
+                let tcb = self.tasks[index].tcb;
+                match self.kernel.recv(tcb, handle) {
+                    Ok(Some(received)) => {
+                        let mut frame = self.tasks[index].context;
+                        let _ = self.deliver_data(index, &mut frame, &received, buffer, capacity);
+                        self.tasks[index].context = frame;
+                    }
+                    Ok(None) => blocked_again = true,
+                    Err(_) => self.tasks[index].context.set_result(u64::MAX),
+                }
+            }
             Pending::Notify { handle, mask } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.wait(tcb, handle, mask) {

@@ -22,7 +22,7 @@ HolyKernel/
 │   ├── hk-smp/                通用 SMP 状态机：AP 池、TLB shootdown、空闲唤醒
 │   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification、trace；per-CPU 调度与线性堆
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
-│   ├── hk-ipc/                Endpoint、Notification、消息
+│   ├── hk-ipc/                Endpoint、Notification、消息（含字节载荷）
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器、用户地址空间登记表
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化

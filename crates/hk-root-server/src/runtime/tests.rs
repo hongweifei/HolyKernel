@@ -369,3 +369,103 @@ fn exit_releases_peer_endpoint_handles() {
     // 退出的端点与通知对象已释放，不再授予新任务。
     assert_eq!(tasks[2].handles, 4);
 }
+
+#[test]
+fn transports_byte_payloads() {
+    use spin::Mutex;
+
+    static DATA: Mutex<[u8; 8192]> = Mutex::new([0; 8192]);
+
+    struct DataPlatform;
+
+    impl UserPlatform for DataPlatform {
+        fn timer_ticks(&self) -> u64 {
+            0
+        }
+
+        fn pci_read(&self, _: u8, _: u8, _: u8, _: u8) -> u32 {
+            0
+        }
+
+        fn zero(&self, _: u64, _: usize) {}
+
+        fn arena_layout(&self, slot: usize) -> (u64, u64) {
+            (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
+        }
+
+        fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
+            let data = DATA.lock();
+            let start = address as usize;
+            let Some(end) = start.checked_add(buffer.len()) else {
+                return false;
+            };
+            if end > data.len() {
+                return false;
+            }
+            buffer.copy_from_slice(&data[start..end]);
+            true
+        }
+
+        fn write_user(&self, address: u64, bytes: &[u8]) -> bool {
+            let mut data = DATA.lock();
+            let start = address as usize;
+            let Some(end) = start.checked_add(bytes.len()) else {
+                return false;
+            };
+            if end > data.len() {
+                return false;
+            }
+            data[start..end].copy_from_slice(bytes);
+            true
+        }
+    }
+
+    let mut runtime =
+        crate::boot::user_runtime(&["a", "b"], DataPlatform, |_, endpoint| MockContext {
+            rdi: endpoint,
+            ..MockContext::default()
+        })
+        .expect("装配运行时");
+    for index in 0..runtime.task_count() {
+        runtime.attach(
+            index,
+            MockContext {
+                rdi: index as u64 + 1,
+                ..MockContext::default()
+            },
+        );
+    }
+
+    DATA.lock()[0x100..0x105].copy_from_slice(b"hello");
+    let Step::Resume {
+        index: sender,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("发送方应可运行");
+    };
+    assert_eq!(sender, 0);
+    context.rax = SYS_SEND_DATA;
+    context.rdi = 2;
+    context.rsi = 0x400;
+    context.rdx = 0x100;
+    context.r10 = 5;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+
+    let Step::Resume {
+        index: receiver,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("接收方应可运行");
+    };
+    assert_eq!(receiver, 1);
+    context.rax = SYS_RECV_DATA;
+    context.rdi = 2;
+    context.rsi = 0x200;
+    context.rdx = 64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0x400);
+    assert_eq!(context.r8, 5);
+    assert_eq!(&DATA.lock()[0x200..0x205], b"hello");
+}

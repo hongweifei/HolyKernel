@@ -13,8 +13,8 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY,
-    SYS_PCI_READ, SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
-    SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_PCI_READ, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -37,6 +37,15 @@ pub enum Pending {
     Recv {
         /// 接收使用的端点句柄。
         handle: Handle,
+    },
+    /// 字节接收已登记。
+    RecvData {
+        /// 接收使用的端点句柄。
+        handle: Handle,
+        /// 用户缓冲区地址。
+        buffer: u64,
+        /// 缓冲区容量。
+        capacity: usize,
     },
     /// 通知等待已登记。
     Notify {
@@ -88,6 +97,14 @@ pub trait UserPlatform {
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);
+    /// 从当前任务用户内存读取字节；地址无效时返回 `false`。
+    fn read_user(&self, _address: u64, _buffer: &mut [u8]) -> bool {
+        false
+    }
+    /// 向当前任务用户内存写入字节；地址无效时返回 `false`。
+    fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
+        false
+    }
     /// 返回任务槽位的 Arena 基址与大小。
     fn arena_layout(&self, slot: usize) -> (u64, u64);
     /// 切换到任务槽位的地址空间。
@@ -428,6 +445,7 @@ fn pending_name(pending: Pending) -> &'static str {
         Pending::None => "-",
         Pending::Send => "send",
         Pending::Recv { .. } => "recv",
+        Pending::RecvData { .. } => "recv-data",
         Pending::Notify { .. } => "notify",
         Pending::Call { .. } => "call",
     }

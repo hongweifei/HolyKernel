@@ -58,5 +58,11 @@ pub const SYS_TSC: u64 = 16;
 /// 读取时间戳频率。
 pub const SYS_TSC_FREQ: u64 = 17;
 
+/// 发送带字节载荷的消息。
+pub const SYS_SEND_DATA: u64 = 18;
+
+/// 接收带字节载荷的消息。
+pub const SYS_RECV_DATA: u64 = 19;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

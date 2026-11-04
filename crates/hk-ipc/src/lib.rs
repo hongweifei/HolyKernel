@@ -8,6 +8,7 @@
 extern crate alloc;
 
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_handle::Handle;
@@ -42,6 +43,8 @@ pub struct Message {
     pub label: u64,
     /// 消息字。
     pub words: [u64; MAX_MESSAGE_WORDS],
+    /// 字节载荷。
+    pub data: Vec<u8>,
     /// 随消息转移的句柄。
     pub handles: [Option<Handle>; MAX_MESSAGE_HANDLES],
 }
@@ -52,6 +55,7 @@ impl Message {
         Self {
             label,
             words: [0; MAX_MESSAGE_WORDS],
+            data: Vec::new(),
             handles: [None; MAX_MESSAGE_HANDLES],
         }
     }
@@ -59,6 +63,12 @@ impl Message {
     /// 设置消息字。
     pub fn with_words(mut self, words: [u64; MAX_MESSAGE_WORDS]) -> Self {
         self.words = words;
+        self
+    }
+
+    /// 设置字节载荷。
+    pub fn with_data(mut self, data: Vec<u8>) -> Self {
+        self.data = data;
         self
     }
 
