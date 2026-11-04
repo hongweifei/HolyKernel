@@ -13,6 +13,11 @@ use hk_drivers::grant::{DEVICE_GRANT_BYTES, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
+#[used]
+#[unsafe(link_section = ".hk_service")]
+static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::device();
+
+#[cfg(target_os = "none")]
 use hk_server_api::{
     device_grant_create, device_map, dma_alloc, exit, irq_bind, pci_read, self_notification, write,
     write_u64,

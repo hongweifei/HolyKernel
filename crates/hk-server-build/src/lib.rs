@@ -48,6 +48,11 @@ SECTIONS
     }} :rodata
 
     . = ALIGN(0x1000);
+    .hk_service : {{
+        KEEP(*(.hk_service))
+    }} :rodata
+
+    . = ALIGN(0x1000);
     .data : {{
         *(.data .data.*)
         *(.data.rel.ro .data.rel.ro.*)

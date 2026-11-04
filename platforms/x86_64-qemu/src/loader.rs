@@ -11,7 +11,7 @@ use hk_hal::{BootInfo, BootModule, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
-use hk_root_server::{DEVICE_MANAGER_SERVICE, ServiceSpec, ServiceTable};
+use hk_root_server::{ServiceRole, ServiceSpec, ServiceTable};
 
 use crate::runtime;
 
@@ -41,10 +41,15 @@ pub fn run(
         .iter()
         .map(|module| loader::service_name(module.name))
         .collect();
-    let specs: Vec<ServiceSpec> = names
+    let specs: Vec<ServiceSpec> = modules
         .iter()
-        .map(|name| {
-            if *name == DEVICE_MANAGER_SERVICE {
+        .zip(names.iter())
+        .map(|(module, name)| {
+            let role = info
+                .module_bytes(module)
+                .map(loader::service_role)
+                .unwrap_or(0);
+            if role & ServiceRole::DEVICE != 0 {
                 ServiceSpec::device(name)
             } else {
                 ServiceSpec::new(name)

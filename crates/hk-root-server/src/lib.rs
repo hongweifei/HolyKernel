@@ -16,6 +16,7 @@ pub mod runtime;
 pub mod service;
 
 pub use hk_kernel::{TraceCategory, TraceEvent};
+pub use hk_syscall::ServiceRole;
 pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
 pub use runtime::{
@@ -53,9 +54,6 @@ impl ServiceSpec {
         }
     }
 }
-
-/// 设备管理服务的约定名称，仅用于模块清单装配。
-pub const DEVICE_MANAGER_SERVICE: &str = "hk-server-device";
 
 /// 已启动的服务。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

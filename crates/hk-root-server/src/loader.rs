@@ -7,6 +7,8 @@ use core::fmt;
 
 use crate::elf::{ElfError, load_into};
 use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
+use hk_syscall::ServiceRole;
+use xmas_elf::ElfFile;
 
 /// 启动时默认装载的服务；其余模块按需启动。
 pub const BOOT_SERVICES: &[&str] = &[
@@ -25,6 +27,30 @@ pub fn boot_modules(modules: &[BootModule]) -> Vec<&BootModule> {
             !is_script(module.name) && BOOT_SERVICES.contains(&service_name(module.name))
         })
         .collect()
+}
+
+/// 读取镜像的 `.hk_service` 角色元数据；缺失或无效时返回 0。
+pub fn service_role(bytes: &[u8]) -> u32 {
+    let Ok(file) = ElfFile::new(bytes) else {
+        return 0;
+    };
+    for section in file.section_iter() {
+        if section.get_name(&file).ok() != Some(".hk_service") {
+            continue;
+        }
+        let data = section.raw_data(&file);
+        let (magic, role) = match data {
+            [a, b, c, d, e, f, g, h, ..] => (
+                u32::from_le_bytes([*a, *b, *c, *d]),
+                u32::from_le_bytes([*e, *f, *g, *h]),
+            ),
+            _ => return 0,
+        };
+        if magic == ServiceRole::MAGIC {
+            return role;
+        }
+    }
+    0
 }
 
 /// 镜像装载错误。

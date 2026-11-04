@@ -84,3 +84,27 @@ pub const SYS_SELF_NOTIFICATION: u64 = 25;
 
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
+
+/// 服务角色元数据，链接到镜像的 `.hk_service` 段。
+#[repr(C)]
+pub struct ServiceRole {
+    /// 固定魔数。
+    pub magic: u32,
+    /// 角色位图。
+    pub role: u32,
+}
+
+impl ServiceRole {
+    /// 元数据魔数。
+    pub const MAGIC: u32 = 0x484B_5352;
+    /// 设备管理服务角色。
+    pub const DEVICE: u32 = 1;
+
+    /// 构建设备管理服务角色。
+    pub const fn device() -> Self {
+        Self {
+            magic: Self::MAGIC,
+            role: Self::DEVICE,
+        }
+    }
+}
