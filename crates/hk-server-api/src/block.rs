@@ -1,6 +1,6 @@
 //! Block Server 请求/响应协议与客户端。
 
-use crate::{recv_data_from, send_data};
+use crate::{recv_data_from, send_data, service_endpoint};
 
 /// 请求标签。
 pub const BLOCK_REQUEST: u64 = 0x600;
@@ -96,6 +96,7 @@ pub fn decode_response(bytes: &[u8]) -> Option<(u8, &[u8])> {
 
 /// 固定缓冲 Block 客户端。
 pub struct BlockClient {
+    service: &'static str,
     endpoint: u64,
     own_endpoint: u64,
     request: [u8; 4096],
@@ -104,9 +105,10 @@ pub struct BlockClient {
 
 impl BlockClient {
     /// 构造客户端。
-    pub const fn new(endpoint: u64, own_endpoint: u64) -> Self {
+    pub const fn new(service: &'static str, own_endpoint: u64) -> Self {
         Self {
-            endpoint,
+            service,
+            endpoint: 0,
             own_endpoint,
             request: [0; 4096],
             response: [0; 4096],
@@ -118,6 +120,11 @@ impl BlockClient {
         else {
             return Err(STATUS_INVALID);
         };
+        let endpoint = service_endpoint(self.service);
+        if endpoint == 0 {
+            return Err(STATUS_ERROR);
+        }
+        self.endpoint = endpoint;
         if send_data(
             self.endpoint,
             BLOCK_REQUEST,

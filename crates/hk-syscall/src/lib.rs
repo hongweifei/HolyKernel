@@ -85,6 +85,9 @@ pub const SYS_DMA_SYNC: u64 = 26;
 /// 接收带字节载荷的消息，并指定期望的发送端点。
 pub const SYS_RECV_DATA_FROM: u64 = 27;
 
+/// 按服务名查询当前任务端点。
+pub const SYS_SERVICE_ENDPOINT: u64 = 28;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 

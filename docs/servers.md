@@ -121,7 +121,7 @@ pub struct ServiceManifest {
 - **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
-- VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame。
+- VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame；客户端按服务名查询当前端点，服务重启后可重新连接。
 
 详见 [VFS](vfs.md)。
 

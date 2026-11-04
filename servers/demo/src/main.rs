@@ -35,10 +35,6 @@ const HANDOFF_REPLY: u64 = 0x201;
 #[cfg(target_os = "none")]
 const NOTIFY_REQUEST: u64 = 0x300;
 
-/// VFS 服务端点（启动服务列表中的第 5 个）。
-#[cfg(target_os = "none")]
-const ENDPOINT_VFS: u64 = 5;
-
 /// 服务入口：内核以用户态进入，参数是内核分配给本服务的端点编号。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -84,7 +80,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn verify_vfs(endpoint: u64) -> bool {
-    let mut client = VfsClient::new(ENDPOINT_VFS, endpoint);
+    let mut client = VfsClient::new("hk-server-vfs", endpoint);
     let Ok(handle) = client.open("/tmp/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
         return false;
     };

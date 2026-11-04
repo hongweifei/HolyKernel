@@ -56,6 +56,21 @@ pub fn recv(endpoint: u64) -> (u64, u64, u64) {
     (result.value, result.word, result.sender)
 }
 
+/// 按服务名查询当前端点；服务不存在时返回 0。
+pub fn service_endpoint(name: &str) -> u64 {
+    // SAFETY: 名称来自本进程只读内存；内核只读取该范围。
+    unsafe {
+        syscall_call(
+            SYS_SERVICE_ENDPOINT,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            0,
+            0,
+        )
+        .value
+    }
+}
+
 /// 从端点接收消息，并校验期望的发送端点。
 pub fn recv_data_from(endpoint: u64, expected: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     // SAFETY: 缓冲区属于本进程；内核校验范围后写入。

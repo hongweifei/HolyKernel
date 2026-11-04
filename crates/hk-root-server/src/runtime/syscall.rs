@@ -20,6 +20,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_SEND_DATA => self.send_data(index, tcb, frame),
             SYS_RECV_DATA => self.recv_data(index, tcb, frame),
             SYS_RECV_DATA_FROM => self.recv_data(index, tcb, frame),
+            SYS_SERVICE_ENDPOINT => {
+                let length = frame.arg1() as usize;
+                let mut name = [0_u8; 64];
+                if length == 0
+                    || length > name.len()
+                    || !self.platform.read_user(frame.arg0(), &mut name[..length])
+                {
+                    frame.set_result(0);
+                } else if let Ok(name) = core::str::from_utf8(&name[..length]) {
+                    let endpoint = self
+                        .tasks
+                        .iter()
+                        .position(|task| !task.exited && task.name == name)
+                        .map_or(0, |slot| slot as u64 + 1);
+                    frame.set_result(endpoint);
+                } else {
+                    frame.set_result(0);
+                }
+                Switch::Continue
+            }
             SYS_NOTIFY => {
                 let result = self.notify(index, tcb, frame);
                 frame.set_result(result);

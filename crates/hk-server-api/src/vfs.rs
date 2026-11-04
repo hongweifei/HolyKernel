@@ -1,6 +1,6 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
-use crate::{recv_data_from, send_data};
+use crate::{recv_data_from, send_data, service_endpoint};
 
 /// 请求标签。
 pub const VFS_REQUEST: u64 = 0x500;
@@ -164,6 +164,7 @@ pub fn decode_response(bytes: &[u8]) -> Option<Response<'_>> {
 
 /// 固定缓冲 VFS 客户端。
 pub struct VfsClient {
+    service: &'static str,
     endpoint: u64,
     own_endpoint: u64,
     request: [u8; 4096],
@@ -171,10 +172,11 @@ pub struct VfsClient {
 }
 
 impl VfsClient {
-    /// 构造客户端；`endpoint` 是 VFS 服务端点，`own_endpoint` 是本任务端点。
-    pub const fn new(endpoint: u64, own_endpoint: u64) -> Self {
+    /// 构造客户端；`service` 是 VFS 服务名，`own_endpoint` 是本任务端点。
+    pub const fn new(service: &'static str, own_endpoint: u64) -> Self {
         Self {
-            endpoint,
+            service,
+            endpoint: 0,
             own_endpoint,
             request: [0; 4096],
             response: [0; 4096],
@@ -275,6 +277,11 @@ impl VfsClient {
         let Some(length) = encode_request(&mut self.request, op, path, arg0, arg1, data) else {
             return Err(STATUS_INVALID);
         };
+        let endpoint = service_endpoint(self.service);
+        if endpoint == 0 {
+            return Err(STATUS_IO);
+        }
+        self.endpoint = endpoint;
         if send_data(self.endpoint, VFS_REQUEST, &self.request[..length]) == u64::MAX {
             return Err(STATUS_IO);
         }
