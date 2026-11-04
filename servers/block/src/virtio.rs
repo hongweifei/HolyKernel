@@ -44,7 +44,9 @@ impl HalImpl {
 
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
+        write(b"virtio: dma\n");
         let (phys, virt) = Self::alloc_pages(pages).expect("DMA 分配失败");
+        write(b"virtio: dma ok\n");
         // SAFETY: SYS_DMA_ALLOC 已把该连续区间映射到当前任务。
         unsafe {
             core::ptr::write_bytes(virt as *mut u8, 0, pages * PAGE);

@@ -207,6 +207,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .arg(&iso)
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
+        .args([
+            "-drive",
+            "file=build/test-disk.img,if=none,id=disk,format=raw",
+        ])
+        .args(["-device", "virtio-blk-pci,drive=disk"])
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
     if mode == SmokeMode::Smp {
         command.args(["-smp", "4"]);
