@@ -49,5 +49,8 @@ pub const SYS_CALL: u64 = 13;
 /// 回复最近一次调用。
 pub const SYS_REPLY: u64 = 14;
 
+/// 复制当前任务。
+pub const SYS_FORK: u64 = 15;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

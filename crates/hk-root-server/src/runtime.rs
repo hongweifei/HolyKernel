@@ -4,6 +4,7 @@
 //! 的映射、系统调用语义与 Arena 记账。平台只提供现场保存/恢复、PCI 访问、
 //! 计时与 Arena 布局。
 
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -11,8 +12,9 @@ use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ,
-    SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY,
+    SYS_PCI_READ, SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY,
+    SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -85,9 +87,14 @@ pub trait UserPlatform {
     fn vspace(&self, _slot: usize) -> u64 {
         0
     }
+    /// 把父任务的用户地址空间复制为子任务的写时复制副本。
+    fn fork(&self, _parent: usize, _child: usize) -> bool {
+        false
+    }
 }
 
 /// 任务 Arena：线性分配，不回收。
+#[derive(Clone, Copy)]
 pub struct Arena {
     base: u64,
     next: u64,
@@ -123,6 +130,11 @@ impl Arena {
     /// 返回已用字节数。
     pub fn used(&self) -> u64 {
         self.next - self.base
+    }
+
+    /// 返回 Arena 基址。
+    pub fn base(&self) -> u64 {
+        self.base
     }
 
     /// 返回总字节数。
@@ -379,6 +391,95 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Ok(endpoint)
     }
 
+    /// 复制当前任务：页表写时复制、句柄与通知映射；子任务返回 0。
+    fn fork_task(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let child_index = self.tasks.len();
+        if !self.platform.fork(index, child_index) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+
+        let kernel = &self.kernel;
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let child = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+
+        let Ok(own_endpoint) = kernel.create_endpoint(child, rights) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(own_endpoint_id) = kernel.handle_id(child, own_endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        self.endpoints.push(Some(own_endpoint_id));
+
+        let Ok(own_notification) = kernel.create_notification(child, rights) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(own_notification_id) = kernel.handle_id(child, own_notification) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        self.notifications.push(Some(own_notification_id));
+
+        let mut handles = Vec::with_capacity(self.endpoints.len());
+        for (slot, object) in self.endpoints.iter().enumerate() {
+            let handle = if slot == child_index {
+                Some(own_endpoint)
+            } else {
+                match object {
+                    Some(id) => kernel.grant(child, *id, rights).ok(),
+                    None => None,
+                }
+            };
+            handles.push(handle);
+        }
+
+        let mut notifications = Vec::with_capacity(self.notifications.len());
+        for (slot, object) in self.notifications.iter().enumerate() {
+            let handle = if slot == child_index {
+                Some(own_notification)
+            } else {
+                match object {
+                    Some(id) => kernel.grant(child, *id, rights).ok(),
+                    None => None,
+                }
+            };
+            notifications.push(handle);
+        }
+
+        for task in &mut self.tasks {
+            if task.exited {
+                continue;
+            }
+            task.handles
+                .push(kernel.grant(task.tcb, own_endpoint_id, rights).ok());
+            task.notifications
+                .push(kernel.grant(task.tcb, own_notification_id, rights).ok());
+        }
+
+        let mut context = *frame;
+        context.set_result(0);
+        let name = format!("{}-fork", self.tasks[index].name);
+        let arena = self.tasks[index].arena;
+        let mut task = UserTask::new(
+            child,
+            &name,
+            Some(tcb.get()),
+            handles,
+            notifications,
+            context,
+            arena.base(),
+            arena.size(),
+        );
+        task.arena = arena;
+        self.tasks.push(task);
+
+        frame.set_result(child_index as u64 + 1);
+        Switch::Continue
+    }
+
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self) -> Step<C> {
         let Some(index) = self.next_task() else {
@@ -450,6 +551,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(result);
                 Switch::Continue
             }
+            SYS_FORK => self.fork_task(index, tcb, frame),
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;
@@ -916,6 +1018,10 @@ mod tests {
         fn arena_layout(&self, slot: usize) -> (u64, u64) {
             (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
         }
+
+        fn fork(&self, _parent: usize, _child: usize) -> bool {
+            true
+        }
     }
 
     fn runtime() -> UserRuntime<MockContext, MockPlatform> {
@@ -1098,6 +1204,42 @@ mod tests {
         assert_eq!(context.rdx, 6);
         assert_eq!(context.rcx, 2);
         assert_eq!(runtime.tasks()[caller].pending, "-");
+    }
+
+    #[test]
+    fn forks_task_with_child_context() {
+        let mut runtime = runtime();
+        let Step::Resume {
+            index: parent,
+            mut context,
+        } = runtime.step()
+        else {
+            panic!("任务应可运行");
+        };
+
+        context.rax = SYS_FORK;
+        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(context.rax, 3);
+        assert_eq!(runtime.task_count(), 3);
+
+        let tasks = runtime.tasks();
+        assert_eq!(tasks[2].name, "a-fork");
+        assert_eq!(tasks[2].parent, Some(tasks[parent].tcb));
+
+        let mut steps = 0;
+        loop {
+            match runtime.step() {
+                Step::Resume { index: 2, context } => {
+                    assert_eq!(context.rax, 0);
+                    break;
+                }
+                Step::Resume { .. } => {
+                    steps += 1;
+                    assert!(steps < 10);
+                }
+                _ => panic!("子任务应可运行"),
+            }
+        }
     }
 
     #[test]

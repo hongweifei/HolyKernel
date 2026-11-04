@@ -7,7 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::Console;
-use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
+use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::{COM1, PageTable, Serial};
 use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
 use spin::Mutex;
@@ -49,6 +49,25 @@ fn vspace_root(slot: usize) -> u64 {
         .map_or(0, |table| table.root().get())
 }
 
+fn fork_vspace(parent: usize, child: usize) -> bool {
+    let mut tables = VSPACES.lock();
+    let child_table = {
+        let Some(table) = tables.get(parent).and_then(Option::as_ref) else {
+            return false;
+        };
+        let Some(table) = table.fork_user() else {
+            return false;
+        };
+        table
+    };
+
+    if tables.len() <= child {
+        tables.resize_with(child + 1, || None);
+    }
+    tables[child] = Some(child_table);
+    true
+}
+
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
         cpu::timer_ticks()
@@ -75,6 +94,10 @@ impl UserPlatform for X86Platform {
 
     fn vspace(&self, slot: usize) -> u64 {
         vspace_root(slot)
+    }
+
+    fn fork(&self, parent: usize, child: usize) -> bool {
+        fork_vspace(parent, child)
     }
 }
 
@@ -148,10 +171,18 @@ fn preempt(frame: &InterruptFrame) -> bool {
     RUNTIME.preempt(*frame)
 }
 
-fn fault(frame: &mut InterruptFrame) -> bool {
+fn fault(frame: &mut InterruptFrame) -> FaultAction {
+    if frame.vector == 14
+        && frame.error & 0b11 == 0b11
+        && hk_platform_x86_64::paging::resolve_cow(cpu::fault_address())
+    {
+        return FaultAction::Resume;
+    }
+
     let console = Serial::new(COM1);
     console.write_str("用户异常：");
     console.write_str(cpu::exception_name(frame.vector));
     console.write_str("，任务已退出\n");
-    RUNTIME.fault(0xE000 | frame.vector)
+    RUNTIME.fault(0xE000 | frame.vector);
+    FaultAction::Exit
 }

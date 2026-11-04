@@ -717,14 +717,33 @@ core::arch::global_asm!(
     "    jmp rax",
 );
 
-/// 用户态异常 hook：返回 `true` 表示异常已处理并应返回调度器。
-pub type FaultHook = fn(&mut InterruptFrame) -> bool;
+/// 用户态异常处理动作。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaultAction {
+    /// 已修复，返回用户态重试。
+    Resume,
+    /// 终止当前任务并返回调度器。
+    Exit,
+}
+
+/// 用户态异常 hook。
+pub type FaultHook = fn(&mut InterruptFrame) -> FaultAction;
 
 static FAULT_HOOK: Mutex<Option<FaultHook>> = Mutex::new(None);
 
 /// 注册用户态异常处理 hook。
 pub fn set_fault_hook(hook: FaultHook) {
     *FAULT_HOOK.lock() = Some(hook);
+}
+
+/// 返回页错误地址（CR2）。
+pub fn fault_address() -> u64 {
+    let value: u64;
+    // SAFETY: CR2 只在异常处理中使用，读取不影响机器状态。
+    unsafe {
+        asm!("mov {}, cr2", out(reg) value, options(nomem, nostack, preserves_flags));
+    }
+    value
 }
 
 /// 中断分派：定时器计数、键盘输入、系统调用分派，其余向量按异常处理。
@@ -751,10 +770,11 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
 
     if frame.cs == u64::from(USER_CODE_SELECTOR) {
         let hook = *FAULT_HOOK.lock();
-        if let Some(hook) = hook
-            && hook(frame)
-        {
-            leave_user();
+        if let Some(hook) = hook {
+            match hook(frame) {
+                FaultAction::Resume => return,
+                FaultAction::Exit => leave_user(),
+            }
         }
     }
 

@@ -92,6 +92,12 @@ pub fn reply(label: u64, word: u64) -> u64 {
     unsafe { syscall_call(SYS_REPLY, label, word, 0, 0).value }
 }
 
+/// 复制当前任务；子任务返回 0，父任务返回子任务编号。
+pub fn fork() -> u64 {
+    // SAFETY: 复制由内核完成；失败时返回 `u64::MAX`。
+    unsafe { syscall_call(SYS_FORK, 0, 0, 0, 0).value }
+}
+
 /// 读取 PCI 配置空间中的一个 32 位字。
 pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);
