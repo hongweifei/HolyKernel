@@ -32,6 +32,7 @@ HolyKernel/
 │   ├── hk-block/              块设备契约、内存盘与块协议 IPC 适配（`ipc` feature）
 │   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
 │   ├── hk-fs-ext4/            ext4 后端（rsext4）
+│   ├── hk-fs-holyfs/          HolyFS v1 后端（extent、CRC32C、双超级块）
 │   ├── hk-fs-tmpfs/           tmpfs 后端（规划）
 │   ├── hk-fs-devfs/           devfs 后端（规划）
 │   ├── hk-fs-procfs/          procfs 后端（规划）

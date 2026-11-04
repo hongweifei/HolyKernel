@@ -1,8 +1,10 @@
 # HolyFS 文件系统
 
-状态：**设计中** · 定位：**用户态文件系统，可作主根** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS](vfs.md)、[POSIX 与 libc](posix.md)
+状态：**v1 后端已实现，数据盘挂载可用** · 定位：**用户态文件系统，可作主根** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS](vfs.md)、[POSIX 与 libc](posix.md)
 
 HolyFS 是 HolyKernel 的原生文件系统，采用盘符、整文档、压缩、单用户与快照设计；内部使用 COW、extent、checksum、cache 与并发 I/O。
+
+已实现 `crates/hk-fs-holyfs` v1：4 KiB 块、双超级块（generation + CRC32C）、连续 extent、inode/目录 CRC32C、追加写连续快路径、整文档后端读写与 VFS Backend；数据盘通过 `vfs.fs=holyfs` 挂载，QEMU `smoke --mode holyfs` 校验落盘。v1 支持根目录与普通文件；子目录、COW 日志、快照、压缩、Document API 与 `H:` 盘符在后续版本。
 
 HolyFS 是**一等文件系统后端**：既可以作为 POSIX `/` 主根，也可以挂到 `/home` 或其他挂载点；原生命名空间通过 `H:` 盘符访问同一卷。同一套磁盘格式同时提供 POSIX 文件视图与整文档 Document API。
 
