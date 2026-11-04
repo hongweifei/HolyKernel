@@ -36,6 +36,7 @@ impl Kernel {
                 self.wake(receiver);
             }
             SendOutcome::Queued => {}
+            SendOutcome::Full => return Err(KernelError::QueueFull),
         }
         self.record(thread.get(), Category::Ipc, TRACE_SEND, endpoint_id.get());
         Ok(())
@@ -157,26 +158,34 @@ impl Kernel {
             sequence
         };
 
-        if let SendOutcome::Delivered { receiver, message } =
-            endpoint.send(Waiter::new(thread.get()), message)
-        {
-            let receiver = TcbId::new(receiver.get());
-            let message = self.transfer_handles(thread, receiver, message)?;
-            {
-                let mut threads = self.threads.lock();
-                let target = threads
-                    .get_mut(&receiver)
-                    .ok_or(KernelError::UnknownThread(receiver))?;
-                target.push_delivery(PendingDelivery {
-                    sender: thread,
-                    message,
-                    reply: Some(ReplyToken {
-                        caller: thread,
-                        sequence,
-                    }),
-                });
+        match endpoint.send(Waiter::new(thread.get()), message) {
+            SendOutcome::Delivered { receiver, message } => {
+                let receiver = TcbId::new(receiver.get());
+                let message = self.transfer_handles(thread, receiver, message)?;
+                {
+                    let mut threads = self.threads.lock();
+                    let target = threads
+                        .get_mut(&receiver)
+                        .ok_or(KernelError::UnknownThread(receiver))?;
+                    target.push_delivery(PendingDelivery {
+                        sender: thread,
+                        message,
+                        reply: Some(ReplyToken {
+                            caller: thread,
+                            sequence,
+                        }),
+                    });
+                }
+                self.wake(receiver);
             }
-            self.wake(receiver);
+            SendOutcome::Queued => {}
+            SendOutcome::Full => {
+                let mut threads = self.threads.lock();
+                if let Some(tcb) = threads.get_mut(&thread) {
+                    tcb.set_pending_call(None);
+                }
+                return Err(KernelError::QueueFull);
+            }
         }
 
         self.block(

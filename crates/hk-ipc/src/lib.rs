@@ -79,6 +79,13 @@ impl Message {
     }
 }
 
+/// 每个 Endpoint 最多缓存的待接收消息数。
+///
+/// 异步发送不会阻塞发送者；超过上限时 [`Endpoint::send`] 返回
+/// [`SendOutcome::Full`]，由内核把错误回传给调用方，避免慢消费者导致内存
+/// 无界增长。
+pub const ENDPOINT_QUEUE_CAPACITY: usize = 64;
+
 /// 发送结果。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SendOutcome {
@@ -89,8 +96,10 @@ pub enum SendOutcome {
         /// 交付的消息。
         message: Message,
     },
-    /// 没有接收者，发送者进入等待队列。
+    /// 没有接收者，消息进入有界队列。
     Queued,
+    /// 队列已满，消息被拒绝。
+    Full,
 }
 
 struct PendingSend {
@@ -163,10 +172,11 @@ impl Endpoint {
                     message,
                 }
             }
-            None => {
+            None if state.senders.len() < ENDPOINT_QUEUE_CAPACITY => {
                 state.senders.push_back(PendingSend { sender, message });
                 SendOutcome::Queued
             }
+            None => SendOutcome::Full,
         }
     }
 
@@ -314,6 +324,26 @@ mod tests {
         assert_eq!(sender, waiter(1));
         assert_eq!(message.label, 7);
         assert_eq!(endpoint.waiting_senders(), 0);
+    }
+
+    #[test]
+    fn rejects_send_when_queue_is_full() {
+        let endpoint = Endpoint::new();
+        for _ in 0..ENDPOINT_QUEUE_CAPACITY {
+            assert_eq!(
+                endpoint.send(waiter(1), Message::new(1)),
+                SendOutcome::Queued
+            );
+        }
+        assert_eq!(endpoint.send(waiter(1), Message::new(2)), SendOutcome::Full);
+        assert_eq!(endpoint.waiting_senders(), ENDPOINT_QUEUE_CAPACITY);
+
+        // 取走一条后应重新可以入队。
+        assert!(endpoint.recv(waiter(2)).is_some());
+        assert_eq!(
+            endpoint.send(waiter(1), Message::new(3)),
+            SendOutcome::Queued
+        );
     }
 
     #[test]

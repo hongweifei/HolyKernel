@@ -129,6 +129,25 @@ fn queues_message_without_blocking_sender() {
 }
 
 #[test]
+fn send_reports_queue_full() {
+    let kernel = kernel();
+    let sender = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(sender, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    for _ in 0..hk_ipc::ENDPOINT_QUEUE_CAPACITY {
+        kernel
+            .send(sender, endpoint, Message::new(1))
+            .expect("入队");
+    }
+    assert_eq!(
+        kernel.send(sender, endpoint, Message::new(2)),
+        Err(crate::KernelError::QueueFull)
+    );
+}
+
+#[test]
 fn recv_from_skips_other_senders() {
     let kernel = kernel();
     let first = thread(&kernel);

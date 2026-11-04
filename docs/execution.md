@@ -127,7 +127,7 @@ pub struct Message {
 }
 ```
 
-- **Endpoint** 是同步 IPC 通道；内核暴露 `send`、`recv`、`call`、`reply`。
+- **Endpoint** 提供 `send`、`recv`、`call`、`reply`。`send` 为异步：消息入队后立即返回，队列有界（每个 Endpoint 最多缓存 64 条），满时返回 `QueueFull`，避免慢消费者导致内存无界增长；同步请求/应答使用 `call`/`reply`。
 - 消息携带 label、最多 8 个字与 4 个 Handle；发送方需要 `TRANSFER` 权限。
 - 大块数据通过共享 Frame 传递；消息只携带 Frame Handle。
 - 阻塞、超时与取消由内核管理；等待队列按优先级排序。

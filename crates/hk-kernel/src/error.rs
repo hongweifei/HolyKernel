@@ -29,6 +29,8 @@ pub enum KernelError {
     InvalidReply,
     /// 调用方没有待取回复。
     NoReply,
+    /// Endpoint 的消息队列已满。
+    QueueFull,
 }
 
 impl fmt::Display for KernelError {
@@ -44,6 +46,7 @@ impl fmt::Display for KernelError {
             Self::NotBlocked(id) => write!(formatter, "线程 {} 未处于阻塞状态", id.get()),
             Self::InvalidReply => formatter.write_str("回复令牌无效"),
             Self::NoReply => formatter.write_str("没有待取回复"),
+            Self::QueueFull => formatter.write_str("Endpoint 消息队列已满"),
         }
     }
 }
