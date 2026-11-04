@@ -24,7 +24,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const TEST_DISK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// ext4 自检写入的标记内容。
-const EXT4_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
+const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
 
 /// `isa-debug-exit` 的成功退出码：`(0 << 1) | 1`。
 const QEMU_SUCCESS: i32 = 1;
@@ -68,6 +68,9 @@ pub enum SmokeMode {
     /// ext4 作为 VFS 主根挂载
     #[value(name = "ext4root")]
     Ext4Root,
+    /// HolyFS 数据盘挂载
+    #[value(name = "holyfs")]
+    HolyFs,
 }
 
 impl SmokeMode {
@@ -86,6 +89,7 @@ impl SmokeMode {
             Self::Smp => Some("shell-test tasks;stats"),
             Self::Restart => Some("restart-test"),
             Self::Ext4Root => Some("vfs.root=ext4"),
+            Self::HolyFs => Some("vfs.fs=holyfs"),
         }
     }
 
@@ -108,8 +112,8 @@ impl SmokeMode {
                 "hk-server-virtio: virtio-blk sectors=131072",
                 "hk-server-vfs: rtc ok",
                 "hk-server-vfs: ext4 mounted",
-                "hk-server-demo ext4 ok",
-                "ext4 1 MiB 读：",
+                "hk-server-demo fs ok",
+                "fs 1 MiB 读：",
                 "hk-server-spin: done",
                 "hk-server-spin: closed",
                 "VFS 读写 ok",
@@ -172,15 +176,20 @@ impl SmokeMode {
             Self::Restart => &[
                 "hk-server-vfs: rtc ok",
                 "hk-server-vfs: ext4 mounted",
-                "hk-server-demo ext4 ok",
+                "hk-server-demo fs ok",
                 "hk-server-demo 驱动重启 ok",
-                "ext4 重连 ok",
-                "ext4 1 MiB 读：",
+                "fs 重连 ok",
+                "fs 1 MiB 读：",
             ],
             Self::Ext4Root => &[
                 "hk-server-vfs: ext4 mounted",
-                "hk-server-demo ext4 ok",
-                "ext4 1 MiB 读：",
+                "hk-server-demo fs ok",
+                "fs 1 MiB 读：",
+            ],
+            Self::HolyFs => &[
+                "hk-server-vfs: holyfs mounted",
+                "hk-server-demo fs ok",
+                "fs 1 MiB 读：",
             ],
         }
     }
@@ -194,7 +203,8 @@ impl SmokeMode {
             | Self::Input
             | Self::Preempt
             | Self::Restart
-            | Self::Ext4Root => QEMU_SUCCESS,
+            | Self::Ext4Root
+            | Self::HolyFs => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -213,6 +223,7 @@ impl SmokeMode {
             Self::Smp => "build/serial-smp.log",
             Self::Restart => "build/serial-restart.log",
             Self::Ext4Root => "build/serial-ext4root.log",
+            Self::HolyFs => "build/serial-holyfs.log",
         }
     }
 
@@ -233,7 +244,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
 
     let iso = crate::image::run(selection, release, mode.cmdline())?;
-    let disk = prepare_disk()?;
+    let disk = prepare_disk(mode)?;
     let log = workspace::root().join(mode.log_name());
     let _ = fs::remove_file(&log);
 
@@ -336,7 +347,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     }
 
-    if matches!(
+    if mode == SmokeMode::HolyFs {
+        verify_holyfs(&disk)?;
+    } else if matches!(
         mode,
         SmokeMode::Boot | SmokeMode::Restart | SmokeMode::Ext4Root
     ) {
@@ -370,8 +383,8 @@ fn host_civil_time() -> Option<CivilTime> {
     Some(HOST_TIME_ORIGIN.add_seconds(elapsed.as_secs(), elapsed.subsec_nanos()))
 }
 
-/// 生成新的 ext4 测试磁盘。
-fn prepare_disk() -> Result<PathBuf> {
+/// 生成新的测试磁盘。
+fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
     let path = workspace::root().join("build/test-disk.img");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -379,11 +392,41 @@ fn prepare_disk() -> Result<PathBuf> {
     }
     let blocks = TEST_DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
-    let disk = hk_fs_ext4::format_with_wall_clock(disk, HostClock)
-        .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?;
+    let disk = if mode == SmokeMode::HolyFs {
+        hk_fs_holyfs::format(disk)
+            .map_err(|error| Failure::new(format!("格式化 HolyFS 测试磁盘失败：{error}")))?
+    } else {
+        hk_fs_ext4::format_with_wall_clock(disk, HostClock)
+            .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?
+    };
     fs::write(&path, disk.into_data())
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
     Ok(path)
+}
+
+/// 从磁盘镜像重新挂载 HolyFS，确认标记文件已经持久化。
+fn verify_holyfs(path: &Path) -> Result<()> {
+    let bytes = fs::read(path)
+        .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
+    let disk = MemoryDisk::from_data(bytes, SECTOR_SIZE)
+        .ok_or_else(|| Failure::new("测试磁盘长度不是扇区整数倍"))?;
+    let backend = hk_fs_holyfs::HolyFs::mount(disk)
+        .map_err(|error| Failure::new(format!("重新挂载 HolyFS 失败：{error}")))?;
+    let root = backend.root();
+    let node = backend
+        .lookup(root, "hello")
+        .map_err(|error| Failure::new(format!("HolyFS 标记文件缺失：{error:?}")))?;
+    let mut buffer = [0_u8; 32];
+    let read = backend
+        .read(node, 0, &mut buffer)
+        .map_err(|error| Failure::new(format!("读取 HolyFS 标记文件失败：{error:?}")))?;
+    if &buffer[..read] != FS_MARKER {
+        return Err(Failure::new(format!(
+            "HolyFS 标记内容不符：{:?}",
+            &buffer[..read]
+        )));
+    }
+    Ok(())
 }
 
 /// 从磁盘镜像重新挂载 ext4，确认 VFS 写入的标记文件已经持久化。
@@ -407,7 +450,7 @@ fn verify_ext4(path: &Path) -> Result<()> {
     let read = backend
         .read(node, 0, &mut buffer)
         .map_err(|error| Failure::new(format!("读取 ext4 标记文件失败：{error:?}")))?;
-    if &buffer[..read] != EXT4_MARKER {
+    if &buffer[..read] != FS_MARKER {
         return Err(Failure::new(format!(
             "ext4 标记内容不符：{:?}",
             &buffer[..read]

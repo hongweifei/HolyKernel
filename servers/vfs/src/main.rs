@@ -20,6 +20,8 @@ use hk_block::ipc::ClientDisk;
 #[cfg(target_os = "none")]
 use hk_fs_ext4::mount_at_with_wall_clock;
 #[cfg(target_os = "none")]
+use hk_fs_holyfs::HolyFs;
+#[cfg(target_os = "none")]
 use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -104,18 +106,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     let ext4_root = cmdline.contains("vfs.root=ext4");
+    let holyfs = cmdline.contains("vfs.fs=holyfs");
     match hk_server_api::civil_time() {
         Some(time) if time.year >= 2000 => write("hk-server-vfs: rtc ok\n".as_bytes()),
         _ => write("hk-server-vfs: rtc 不可用\n".as_bytes()),
     }
-    let target = if ext4_root { "/" } else { "/disk" };
-    if !ext4_root {
+    let target = if ext4_root && !holyfs { "/" } else { "/disk" };
+    if target != "/" {
         let _ = filesystem.create_dir("/disk");
     }
-    if mount_ext4(&mut filesystem, endpoint, target) {
-        write("hk-server-vfs: ext4 mounted\n".as_bytes());
+    let mounted = if holyfs {
+        mount_holyfs(&mut filesystem, endpoint, target)
     } else {
-        write("hk-server-vfs: ext4 不可用\n".as_bytes());
+        mount_ext4(&mut filesystem, endpoint, target)
+    };
+    if mounted {
+        if holyfs {
+            write("hk-server-vfs: holyfs mounted\n".as_bytes());
+        } else {
+            write("hk-server-vfs: ext4 mounted\n".as_bytes());
+        }
+    } else {
+        write("hk-server-vfs: 文件系统不可用\n".as_bytes());
     }
     let _ = filesystem.create_dir("/tmp");
     let _ = filesystem.mount("/tmp", Box::new(Tmpfs::new()));
@@ -154,6 +166,22 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
     fn now(&self) -> Option<CivilTime> {
         hk_server_api::civil_time()
     }
+}
+
+/// 等待驱动就绪并挂载 HolyFS。
+#[cfg(target_os = "none")]
+fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
+    for _ in 0..4096 {
+        let Ok(disk) = ClientDisk::open(BLOCK_SERVICE, endpoint) else {
+            let _ = yield_now();
+            continue;
+        };
+        let Ok(backend) = HolyFs::mount(disk) else {
+            return false;
+        };
+        return filesystem.mount(target, Box::new(backend)).is_ok();
+    }
+    false
 }
 
 /// 等待驱动就绪并在 `/disk` 挂载 ext4。

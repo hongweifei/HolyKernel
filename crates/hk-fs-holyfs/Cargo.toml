@@ -1,0 +1,14 @@
+[package]
+name = "hk-fs-holyfs"
+description = "HolyFS v1：整文档、extent、checksum 与双超级块"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-vfs = { version = "0.1.0", path = "../hk-vfs" }
+
+[lints]
+workspace = true

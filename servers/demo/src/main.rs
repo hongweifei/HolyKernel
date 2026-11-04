@@ -75,9 +75,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(1)
         }
         if verify_ext4(endpoint) {
-            write("hk-server-demo ext4 ok\n".as_bytes());
+            write("hk-server-demo fs ok\n".as_bytes());
         } else {
-            write("hk-server-demo ext4 失败\n".as_bytes());
+            write("hk-server-demo fs 失败\n".as_bytes());
             exit(1)
         }
 
@@ -92,7 +92,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
         }
         if let Some(tenths) = benchmark_ext4(endpoint) {
-            write("ext4 1 MiB 读：".as_bytes());
+            write("fs 1 MiB 读：".as_bytes());
             write_u64(tenths / 10);
             write(".".as_bytes());
             write_u64(tenths % 10);
@@ -254,7 +254,7 @@ fn verify_driver_restart(endpoint: u64) -> bool {
             if let Ok(length) = client.read(handle, 0, &mut buffer) {
                 let _ = client.close(handle);
                 if buffer[..length] == *b"HolyKernel ext4 ok\n" {
-                    write("ext4 重连 ok\n".as_bytes());
+                    write("fs 重连 ok\n".as_bytes());
                     return true;
                 }
             }
