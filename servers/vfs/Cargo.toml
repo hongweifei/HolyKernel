@@ -11,7 +11,7 @@ name = "hk-server-vfs"
 path = "src/main.rs"
 
 [dependencies]
-hk-block-ipc = { version = "0.1.0", path = "../../crates/hk-block-ipc" }
+hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
 hk-fs-ext4 = { version = "0.1.0", path = "../../crates/hk-fs-ext4" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-vfs = { version = "0.1.0", path = "../../crates/hk-vfs" }

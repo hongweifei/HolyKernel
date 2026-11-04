@@ -1,13 +1,11 @@
 //! 块协议的服务端循环与远端块设备客户端。
 //!
-//! 协议编码在 [`hk_server_api::block`]；本 crate 把协议接到
-//! [`hk_block::BlockDevice`]，供 Block Server、virtio 驱动服务与 VFS 复用。
-
-#![no_std]
+//! 协议编码在 [`hk_server_api::block`]；本模块把协议接到 [`BlockDevice`]，
+//! 供 Block Server、virtio 驱动服务与 VFS 复用。
 
 use core::cell::RefCell;
 
-use hk_block::{BlockDevice, BlockError, SECTOR_SIZE};
+use crate::{BlockDevice, BlockError, SECTOR_SIZE};
 use hk_server_api::block::{
     BLOCK_REQUEST, BLOCK_RESPONSE, BlockClient, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, Request,
     STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, encode_response,

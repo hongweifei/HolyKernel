@@ -11,16 +11,14 @@ use alloc::boxed::Box;
 #[cfg(target_os = "none")]
 use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
-use core::alloc::{GlobalAlloc, Layout};
-#[cfg(target_os = "none")]
 use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_block_ipc::ClientDisk;
+use hk_block::ipc::ClientDisk;
 #[cfg(target_os = "none")]
 use hk_fs_ext4::Ext4Backend;
+#[cfg(target_os = "none")]
+use hk_server_api::heap::BumpHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_TRUNCATE,
@@ -29,7 +27,7 @@ use hk_server_api::vfs::{
     VFS_RESPONSE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{alloc, recv_data, send_data, write, yield_now};
+use hk_server_api::{recv_data, send_data, write, yield_now};
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, FileHandle, FileType, OpenFlags, Procfs, Tmpfs, Vfs, VfsError};
 
@@ -42,48 +40,8 @@ const HEAP_SIZE: usize = 768 * 1024;
 const BLOCK_SERVICE: &str = "hk-server-virtio";
 
 #[cfg(target_os = "none")]
-struct BumpHeap;
-
-#[cfg(target_os = "none")]
-static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
-#[cfg(target_os = "none")]
-static HEAP_NEXT: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(target_os = "none")]
-unsafe impl GlobalAlloc for BumpHeap {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut base = HEAP_BASE.load(Ordering::Acquire);
-        if base == 0 {
-            base = alloc(HEAP_SIZE, 16) as usize;
-            if base == 0 {
-                return core::ptr::null_mut();
-            }
-            HEAP_BASE.store(base, Ordering::Release);
-            HEAP_NEXT.store(base, Ordering::Release);
-        }
-
-        let mut current = HEAP_NEXT.load(Ordering::Acquire);
-        loop {
-            let aligned = (current + layout.align() - 1) & !(layout.align() - 1);
-            let Some(end) = aligned.checked_add(layout.size()) else {
-                return core::ptr::null_mut();
-            };
-            if end > base + HEAP_SIZE {
-                return core::ptr::null_mut();
-            }
-            match HEAP_NEXT.compare_exchange(current, end, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => return aligned as *mut u8,
-                Err(actual) => current = actual,
-            }
-        }
-    }
-
-    unsafe fn dealloc(&self, _pointer: *mut u8, _layout: Layout) {}
-}
-
-#[cfg(target_os = "none")]
 #[global_allocator]
-static ALLOCATOR: BumpHeap = BumpHeap;
+static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 struct Session {

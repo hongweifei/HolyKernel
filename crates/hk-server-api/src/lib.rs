@@ -6,6 +6,7 @@
 
 mod arch;
 pub mod block;
+pub mod heap;
 pub mod vfs;
 
 pub use hk_syscall::*;

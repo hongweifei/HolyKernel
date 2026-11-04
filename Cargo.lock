@@ -129,14 +129,6 @@ version = "0.1.0"
 name = "hk-block"
 version = "0.1.0"
 dependencies = [
- "hk-hal",
-]
-
-[[package]]
-name = "hk-block-ipc"
-version = "0.1.0"
-dependencies = [
- "hk-block",
  "hk-server-api",
 ]
 
@@ -292,7 +284,6 @@ name = "hk-server-block"
 version = "0.1.0"
 dependencies = [
  "hk-block",
- "hk-block-ipc",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -362,7 +353,7 @@ dependencies = [
 name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
- "hk-block-ipc",
+ "hk-block",
  "hk-fs-ext4",
  "hk-server-api",
  "hk-server-build",
@@ -374,7 +365,6 @@ name = "hk-server-virtio"
 version = "0.1.0"
 dependencies = [
  "hk-block",
- "hk-block-ipc",
  "hk-driver-virtio",
  "hk-hal",
  "hk-server-api",

@@ -10,18 +10,16 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use core::alloc::{GlobalAlloc, Layout};
-#[cfg(target_os = "none")]
 use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
-use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(target_os = "none")]
+use hk_block::ipc::serve;
 #[cfg(target_os = "none")]
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 #[cfg(target_os = "none")]
-use hk_block_ipc::serve;
+use hk_server_api::heap::BumpHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{alloc, write};
+use hk_server_api::write;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -31,47 +29,8 @@ const HEAP_SIZE: usize = 32 * 1024;
 const BLOCKS: u64 = 64;
 
 #[cfg(target_os = "none")]
-struct BumpHeap;
-
-#[cfg(target_os = "none")]
-static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
-#[cfg(target_os = "none")]
-static HEAP_NEXT: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(target_os = "none")]
-unsafe impl GlobalAlloc for BumpHeap {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut base = HEAP_BASE.load(Ordering::Acquire);
-        if base == 0 {
-            base = alloc(HEAP_SIZE, 16) as usize;
-            if base == 0 {
-                return core::ptr::null_mut();
-            }
-            HEAP_BASE.store(base, Ordering::Release);
-            HEAP_NEXT.store(base, Ordering::Release);
-        }
-        let mut current = HEAP_NEXT.load(Ordering::Acquire);
-        loop {
-            let aligned = (current + layout.align() - 1) & !(layout.align() - 1);
-            let Some(end) = aligned.checked_add(layout.size()) else {
-                return core::ptr::null_mut();
-            };
-            if end > base + HEAP_SIZE {
-                return core::ptr::null_mut();
-            }
-            match HEAP_NEXT.compare_exchange(current, end, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => return aligned as *mut u8,
-                Err(actual) => current = actual,
-            }
-        }
-    }
-
-    unsafe fn dealloc(&self, _pointer: *mut u8, _layout: Layout) {}
-}
-
-#[cfg(target_os = "none")]
 #[global_allocator]
-static ALLOCATOR: BumpHeap = BumpHeap;
+static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]
