@@ -1,0 +1,181 @@
+//! virtio 驱动服务：接收 Device Manager 移交的设备授权并暴露块设备协议。
+
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
+
+#[cfg(target_os = "none")]
+extern crate alloc;
+
+#[cfg(target_os = "none")]
+use alloc::string::ToString;
+#[cfg(target_os = "none")]
+use core::alloc::{GlobalAlloc, Layout};
+#[cfg(target_os = "none")]
+use core::panic::PanicInfo;
+#[cfg(target_os = "none")]
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(target_os = "none")]
+use hk_block::BlockDevice;
+#[cfg(target_os = "none")]
+use hk_block_ipc::serve;
+#[cfg(target_os = "none")]
+use hk_driver_virtio::{Device, probe};
+#[cfg(target_os = "none")]
+use hk_hal::DeviceGrant;
+#[cfg(target_os = "none")]
+use hk_server_api::block::{
+    BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, STATUS_ERROR, encode_response,
+};
+#[cfg(target_os = "none")]
+use hk_server_api::{device_info, exit, recv_handle, send_data, write, write_u64};
+
+/// 服务堆大小。
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 64 * 1024;
+
+#[cfg(target_os = "none")]
+struct BumpHeap;
+
+#[cfg(target_os = "none")]
+static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "none")]
+static HEAP_NEXT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "none")]
+unsafe impl GlobalAlloc for BumpHeap {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let mut base = HEAP_BASE.load(Ordering::Acquire);
+        if base == 0 {
+            base = hk_server_api::alloc(HEAP_SIZE, 16) as usize;
+            if base == 0 {
+                return core::ptr::null_mut();
+            }
+            HEAP_BASE.store(base, Ordering::Release);
+            HEAP_NEXT.store(base, Ordering::Release);
+        }
+        let mut current = HEAP_NEXT.load(Ordering::Acquire);
+        loop {
+            let aligned = (current + layout.align() - 1) & !(layout.align() - 1);
+            let Some(end) = aligned.checked_add(layout.size()) else {
+                return core::ptr::null_mut();
+            };
+            if end > base + HEAP_SIZE {
+                return core::ptr::null_mut();
+            }
+            match HEAP_NEXT.compare_exchange(current, end, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => return aligned as *mut u8,
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    unsafe fn dealloc(&self, _pointer: *mut u8, _layout: Layout) {}
+}
+
+#[cfg(target_os = "none")]
+#[global_allocator]
+static ALLOCATOR: BumpHeap = BumpHeap;
+
+/// 服务入口。
+#[cfg(target_os = "none")]
+#[unsafe(no_mangle)]
+pub extern "C" fn _start(endpoint: u64) -> ! {
+    write("hk-server-virtio: start\n".as_bytes());
+    let wait = wait_for_grant(endpoint);
+    let Some(grant_handle) = wait.grant else {
+        reply_not_ready(wait.pending);
+        exit(0)
+    };
+    let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+    let length = device_info(grant_handle, &mut bytes) as usize;
+    if length == u64::MAX as usize {
+        write("hk-server-virtio: 授权描述读取失败\n".as_bytes());
+        reply_not_ready(wait.pending);
+        exit(2)
+    }
+    let Some(descriptor) = DeviceGrant::decode(&bytes[..length]) else {
+        write("hk-server-virtio: 授权描述无效\n".as_bytes());
+        reply_not_ready(wait.pending);
+        exit(2)
+    };
+
+    match probe(grant_handle, descriptor) {
+        Ok(Device::Block(mut block)) => {
+            write("hk-server-virtio: virtio-blk sectors=".as_bytes());
+            write_u64(block.capacity_blocks());
+            write(b"\n");
+            reply_not_ready(wait.pending);
+            serve(endpoint, block.as_mut())
+        }
+        Ok(Device::Unsupported(kind)) => {
+            write("hk-server-virtio: 尚未支持的设备类型 ".as_bytes());
+            write_u64(kind as u64);
+            write(b"\n");
+            reply_not_ready(wait.pending);
+            exit(3)
+        }
+        Err(error) => {
+            write("hk-server-virtio: ".as_bytes());
+            write(error.to_string().as_bytes());
+            write(b"\n");
+            reply_not_ready(wait.pending);
+            exit(4)
+        }
+    }
+}
+
+/// 等待设备授权期间暂存提前到达的块请求发送者。
+#[cfg(target_os = "none")]
+struct GrantWait {
+    grant: Option<u64>,
+    pending: Option<u64>,
+}
+
+/// 等待设备授权；提前到达的块请求只记下发送者，等驱动就绪后再回复。
+#[cfg(target_os = "none")]
+fn wait_for_grant(endpoint: u64) -> GrantWait {
+    let mut pending = None;
+    loop {
+        let (label, _word, sender, handle) = recv_handle(endpoint);
+        if label == BLOCK_GRANT && handle != 0 {
+            return GrantWait {
+                grant: Some(handle),
+                pending,
+            };
+        }
+        if label == BLOCK_NO_DEVICE {
+            write("hk-server-virtio: 没有设备授权\n".as_bytes());
+            return GrantWait {
+                grant: None,
+                pending,
+            };
+        }
+        pending = Some(sender);
+    }
+}
+
+/// 回复「驱动尚未就绪」，让客户端可以重试。
+#[cfg(target_os = "none")]
+fn reply_not_ready(pending: Option<u64>) {
+    let Some(sender) = pending else {
+        return;
+    };
+    let mut response = [0_u8; 8];
+    if let Some(length) = encode_response(&mut response, STATUS_ERROR, &[]) {
+        let _ = send_data(sender, BLOCK_RESPONSE, &response[..length]);
+    }
+}
+
+#[cfg(target_os = "none")]
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn main() {
+    eprintln!("hk-server-virtio 只在 x86_64-unknown-none 目标上构建");
+}

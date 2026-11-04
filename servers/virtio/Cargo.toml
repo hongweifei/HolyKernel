@@ -1,0 +1,24 @@
+[package]
+name = "hk-server-virtio"
+description = "HolyKernel virtio 驱动服务：DeviceGrant 探测与块设备协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-virtio"
+path = "src/main.rs"
+
+[dependencies]
+hk-block = { version = "0.1.0", path = "../../crates/hk-block" }
+hk-block-ipc = { version = "0.1.0", path = "../../crates/hk-block-ipc" }
+hk-driver-virtio = { version = "0.1.0", path = "../../crates/hk-driver-virtio" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

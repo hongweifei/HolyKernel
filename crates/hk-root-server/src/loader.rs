@@ -16,6 +16,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-echo",
     "hk-server-device",
     "hk-server-spin",
+    "hk-server-virtio",
     "hk-server-vfs",
     "hk-server-block",
 ];

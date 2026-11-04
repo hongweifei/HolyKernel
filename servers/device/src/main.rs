@@ -56,15 +56,15 @@ impl PciConfig for SyscallConfig {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
-    let block_endpoint = service_endpoint("hk-server-block");
+    let driver_endpoint = service_endpoint("hk-server-virtio");
     let mut sent_grant = false;
     let mut count = 0;
     enumerate(&SyscallConfig, 0, |device| {
-        write_device(&device, block_endpoint, &mut sent_grant);
+        write_device(&device, driver_endpoint, &mut sent_grant);
         count += 1;
     });
-    if !sent_grant && block_endpoint != 0 {
-        let _ = send(block_endpoint, BLOCK_NO_DEVICE, 0);
+    if !sent_grant && driver_endpoint != 0 {
+        let _ = send(driver_endpoint, BLOCK_NO_DEVICE, 0);
     }
 
     write("hk-server-device: 发现 ".as_bytes());
@@ -74,7 +74,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn write_device(device: &Device, block_endpoint: u64, sent_grant: &mut bool) {
+fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool) {
     write(b"  ");
     write_hex(u32::from(device.address.bus), 2);
     write(b":");
@@ -181,8 +181,8 @@ fn write_device(device: &Device, block_endpoint: u64, sent_grant: &mut bool) {
             write_hex64(result);
             let _ = range;
         }
-        if grant.is_virtio() && block_endpoint != 0 && !*sent_grant {
-            let transferred = send_handle(block_endpoint, BLOCK_GRANT, 0, handle);
+        if grant.is_virtio() && driver_endpoint != 0 && !*sent_grant {
+            let transferred = send_handle(driver_endpoint, BLOCK_GRANT, 0, handle);
             write(b"  grant-transfer=");
             write_hex64(transferred);
             *sent_grant = transferred == 0;

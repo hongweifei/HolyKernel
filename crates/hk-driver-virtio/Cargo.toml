@@ -1,0 +1,17 @@
+[package]
+name = "hk-driver-virtio"
+description = "HolyKernel virtio 用户态驱动：DeviceGrant 之下的 virtio-drivers 适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+spin = "0.9"
+virtio-drivers = { version = "0.13", default-features = false }
+
+[lints]
+workspace = true

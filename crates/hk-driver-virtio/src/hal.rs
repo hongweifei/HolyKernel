@@ -1,25 +1,27 @@
-//! virtio-blk 用户态适配（HAL + PCI 探测）。
+//! `virtio-drivers` 的 HAL 适配：MMIO、DMA 与 PCI 配置空间都来自系统调用。
 
 use alloc::vec::Vec;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::DeviceGrant;
-use hk_server_api::{device_map, dma_alloc, dma_sync, pci_read, pci_write, write};
+use hk_server_api::{device_map, dma_alloc, dma_sync, pci_read, pci_write};
 use spin::Mutex;
-use virtio_drivers::device::blk::{SECTOR_SIZE, VirtIOBlk};
-use virtio_drivers::transport::pci::PciTransport;
-use virtio_drivers::transport::pci::bus::{ConfigurationAccess, DeviceFunction, PciRoot};
+use virtio_drivers::transport::pci::bus::{ConfigurationAccess, DeviceFunction};
 use virtio_drivers::{BufferDirection, Hal, PhysAddr};
 
+/// 页大小。
 const PAGE: usize = 4096;
+/// DMA 虚拟基址。
 const DMA_BASE: u64 = 0x5000_0000;
+/// MMIO 虚拟基址。
 const MMIO_BASE: u64 = 0x6000_0000;
 
 static GRANT: AtomicU64 = AtomicU64::new(0);
 static NEXT_DMA: AtomicU64 = AtomicU64::new(DMA_BASE);
 static GRANT_DESC: Mutex<Option<DeviceGrant>> = Mutex::new(None);
 static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
+static FREE: Mutex<Vec<Free>> = Mutex::new(Vec::new());
 
 struct Shared {
     phys: u64,
@@ -27,10 +29,30 @@ struct Shared {
     len: usize,
 }
 
-struct HalImpl;
+struct Free {
+    pages: usize,
+    phys: u64,
+    virt: u64,
+}
+
+/// 绑定本次驱动实例使用的设备授权。
+pub fn bind(grant: u64, descriptor: DeviceGrant) {
+    GRANT.store(grant, Ordering::Release);
+    *GRANT_DESC.lock() = Some(descriptor);
+}
+
+/// `virtio-drivers` 在当前任务内的 HAL 实现。
+pub struct HalImpl;
 
 impl HalImpl {
     fn alloc_pages(pages: usize) -> Option<(u64, u64)> {
+        {
+            let mut free = FREE.lock();
+            if let Some(index) = free.iter().position(|entry| entry.pages == pages) {
+                let entry = free.swap_remove(index);
+                return Some((entry.phys, entry.virt));
+            }
+        }
         let len = pages.checked_mul(PAGE)?;
         let virt = NEXT_DMA.fetch_add(len as u64, Ordering::AcqRel);
         let grant = GRANT.load(Ordering::Acquire);
@@ -40,8 +62,14 @@ impl HalImpl {
         let phys = dma_alloc(grant, len, virt);
         (phys != 0).then_some((phys, virt))
     }
+
+    fn release_pages(pages: usize, phys: u64, virt: u64) {
+        FREE.lock().push(Free { pages, phys, virt });
+    }
 }
 
+// SAFETY: HAL 方法只在驱动自己的用户态任务内调用；DMA 与 MMIO 地址都来自
+// DeviceGrant 授权，映射由内核校验；共享缓冲在一次请求内保持有效。
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
         let (phys, virt) = Self::alloc_pages(pages).expect("DMA 分配失败");
@@ -52,7 +80,8 @@ unsafe impl Hal for HalImpl {
         (phys, NonNull::new(virt as *mut u8).expect("非空 DMA 指针"))
     }
 
-    unsafe fn dma_dealloc(_paddr: PhysAddr, _vaddr: NonNull<u8>, _pages: usize) -> i32 {
+    unsafe fn dma_dealloc(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
+        HalImpl::release_pages(pages, paddr, vaddr.as_ptr() as u64);
         0
     }
 
@@ -70,8 +99,7 @@ unsafe impl Hal for HalImpl {
             }
             let virt = MMIO_BASE + index as u64 * 0x1_0000;
             let grant = GRANT.load(Ordering::Acquire);
-            let result = device_map(grant, index as u64, virt);
-            let _ = result;
+            let _ = device_map(grant, index as u64, virt);
             let pointer = virt + (paddr - range.base);
             return NonNull::new(pointer as *mut u8).expect("MMIO 指针");
         }
@@ -79,6 +107,7 @@ unsafe impl Hal for HalImpl {
     }
 
     unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr {
+        // SAFETY: 调用方保证缓冲区在本任务内有效。
         let bytes = unsafe { buffer.as_ref() };
         let len = bytes.len();
         let pages = len.div_ceil(PAGE);
@@ -100,6 +129,7 @@ unsafe impl Hal for HalImpl {
             return;
         };
         let entry = shared.swap_remove(index);
+        drop(shared);
         if direction != BufferDirection::DriverToDevice {
             // SAFETY: 调用方保证 buffer 仍有效；长度来自 share 时的记录。
             unsafe {
@@ -111,10 +141,12 @@ unsafe impl Hal for HalImpl {
             }
         }
         let _ = dma_sync(GRANT.load(Ordering::Acquire), entry.phys, entry.len, false);
+        HalImpl::release_pages(entry.len.div_ceil(PAGE), entry.phys, entry.virt);
     }
 }
 
-struct SysConfig;
+/// 通过系统调用访问 PCI 配置空间。
+pub struct SysConfig;
 
 impl ConfigurationAccess for SysConfig {
     fn read_word(&self, device: DeviceFunction, offset: u8) -> u32 {
@@ -148,78 +180,5 @@ impl hk_hal::PciConfig for SysConfig {
             address.offset,
             value,
         );
-    }
-}
-
-/// 尝试初始化 virtio-blk；没有设备或初始化失败时返回 `None`。
-fn try_init(
-    grant_handle: u64,
-    descriptor: DeviceGrant,
-) -> Option<VirtIOBlk<HalImpl, PciTransport>> {
-    GRANT.store(grant_handle, Ordering::Release);
-    *GRANT_DESC.lock() = Some(descriptor);
-    let mut root = PciRoot::new(SysConfig);
-    let function = root
-        .enumerate_bus(0)
-        .find(|(_, info)| {
-            info.vendor_id == 0x1AF4 && (info.device_id == 0x1001 || info.device_id == 0x1042)
-        })
-        .map(|(function, _)| function)?;
-    let transport = PciTransport::new::<HalImpl, _>(&mut root, function).ok()?;
-    let block = VirtIOBlk::new(transport).ok()?;
-    write(b"hk-server-block: virtio-blk ready\n");
-    Some(block)
-}
-
-pub struct VirtioBlock {
-    block: spin::Mutex<VirtIOBlk<HalImpl, PciTransport>>,
-}
-
-impl VirtioBlock {
-    /// 尝试构造。
-    pub fn new(grant_handle: u64, descriptor: DeviceGrant) -> Option<Self> {
-        Self::try_init(grant_handle, descriptor).map(|block| Self {
-            block: spin::Mutex::new(block),
-        })
-    }
-
-    fn try_init(
-        grant_handle: u64,
-        descriptor: DeviceGrant,
-    ) -> Option<VirtIOBlk<HalImpl, PciTransport>> {
-        try_init(grant_handle, descriptor)
-    }
-}
-
-impl hk_block::BlockDevice for VirtioBlock {
-    fn block_size(&self) -> usize {
-        SECTOR_SIZE
-    }
-
-    fn capacity_blocks(&self) -> u64 {
-        self.block.lock().capacity()
-    }
-
-    fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, hk_block::BlockError> {
-        self.block
-            .lock()
-            .read_blocks(block as usize, buffer)
-            .map_err(|_| hk_block::BlockError::Io)?;
-        Ok(buffer.len())
-    }
-
-    fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, hk_block::BlockError> {
-        self.block
-            .lock()
-            .write_blocks(block as usize, data)
-            .map_err(|_| hk_block::BlockError::Io)?;
-        Ok(data.len())
-    }
-
-    fn flush(&mut self) -> Result<(), hk_block::BlockError> {
-        self.block
-            .lock()
-            .flush()
-            .map_err(|_| hk_block::BlockError::Io)
     }
 }

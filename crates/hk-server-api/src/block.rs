@@ -1,4 +1,4 @@
-//! Block Server 请求/响应协议与客户端。
+//! 块设备请求/响应协议与客户端。
 
 use crate::{recv_data_from, send_data, service_endpoint};
 
@@ -103,8 +103,8 @@ pub struct BlockClient {
     service: &'static str,
     endpoint: u64,
     own_endpoint: u64,
-    request: [u8; 4096],
-    response: [u8; 4096],
+    request: [u8; 8192],
+    response: [u8; 8192],
 }
 
 impl BlockClient {
@@ -114,8 +114,8 @@ impl BlockClient {
             service,
             endpoint: 0,
             own_endpoint,
-            request: [0; 4096],
-            response: [0; 4096],
+            request: [0; 8192],
+            response: [0; 8192],
         }
     }
 
@@ -179,5 +179,28 @@ impl BlockClient {
         let mut bytes = [0_u8; 8];
         bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
         Ok(u64::from_le_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trips_full_block_requests_and_responses() {
+        let payload = [0xAB_u8; 4096];
+        let mut buffer = [0_u8; 8192];
+
+        let length = encode_request(&mut buffer, OP_WRITE, 7, 4096, &payload).expect("编码请求");
+        let request = decode_request(&buffer[..length]).expect("解码请求");
+        assert_eq!(request.op, OP_WRITE);
+        assert_eq!(request.block, 7);
+        assert_eq!(request.length, 4096);
+        assert_eq!(request.data, payload);
+
+        let length = encode_response(&mut buffer, STATUS_OK, &payload).expect("编码响应");
+        let (status, body) = decode_response(&buffer[..length]).expect("解码响应");
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(body, payload);
     }
 }
