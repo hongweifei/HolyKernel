@@ -49,6 +49,9 @@ pub enum SmokeMode {
     /// 定时器抢占调度
     #[value(name = "preempt")]
     Preempt,
+    /// 多 CPU MADT 本地 APIC 枚举
+    #[value(name = "smp")]
+    Smp,
 }
 
 impl SmokeMode {
@@ -63,7 +66,7 @@ impl SmokeMode {
                 "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts;start hk-server-fault;start hk-server-fork;start hk-server-latency;tasks;trace;stats",
             ),
             Self::Input => Some("shell-interactive"),
-            Self::Preempt => None,
+            Self::Preempt | Self::Smp => None,
         }
     }
 
@@ -134,6 +137,7 @@ impl SmokeMode {
                 "脚本：boot.hsh",
             ],
             Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
+            Self::Smp => &["本地 APIC：2 个", "服务进入空闲"],
         }
     }
 
@@ -145,6 +149,7 @@ impl SmokeMode {
             | Self::Shell
             | Self::Input
             | Self::Preempt => QEMU_SUCCESS,
+            Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -159,6 +164,7 @@ impl SmokeMode {
             Self::Shell => "build/serial-shell.log",
             Self::Input => "build/serial-input.log",
             Self::Preempt => "build/serial-preempt.log",
+            Self::Smp => "build/serial-smp.log",
         }
     }
 
@@ -194,6 +200,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
+    if mode == SmokeMode::Smp {
+        command.args(["-smp", "2"]);
+    }
     if mode == SmokeMode::Input {
         command
             .arg("-qmp")

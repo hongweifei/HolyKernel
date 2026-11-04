@@ -17,6 +17,8 @@ pub struct IoApicSetup {
     pub vector: u8,
     /// 目标本地 APIC 编号。
     pub destination: u8,
+    /// MADT 报告的 CPU 数量。
+    pub cpus: usize,
 }
 
 /// ACPI 表的临时映射窗口，避开 HHDM 未覆盖的物理页。
@@ -107,6 +109,7 @@ pub fn init_ioapic(
         gsi,
         vector,
         destination,
+        cpus: madt.cpu_count(),
     }))
 }
 

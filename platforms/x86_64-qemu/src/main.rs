@@ -141,14 +141,21 @@ extern "C" fn kmain() -> ! {
     }
 
     match bootstrap::init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
-        Ok(Some(ioapic)) => announce(
-            &console,
-            screen.as_ref(),
-            &format!(
-                "IOAPIC 就绪：GSI {} → 向量 {}（目标 APIC {}）\n",
-                ioapic.gsi, ioapic.vector, ioapic.destination
-            ),
-        ),
+        Ok(Some(ioapic)) => {
+            announce(
+                &console,
+                screen.as_ref(),
+                &format!(
+                    "IOAPIC 就绪：GSI {} → 向量 {}（目标 APIC {}）\n",
+                    ioapic.gsi, ioapic.vector, ioapic.destination
+                ),
+            );
+            announce(
+                &console,
+                screen.as_ref(),
+                &format!("本地 APIC：{} 个\n", ioapic.cpus),
+            );
+        }
         Ok(None) => announce(&console, screen.as_ref(), "未找到 IOAPIC，键盘中断不可用\n"),
         Err(error) => fail(
             &console,
