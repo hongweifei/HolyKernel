@@ -11,7 +11,7 @@ name = "hk-server-device"
 path = "src/main.rs"
 
 [dependencies]
-hk-pci = { version = "0.1.0", path = "../../crates/hk-pci" }
+hk-drivers = { version = "0.1.0", path = "../../crates/hk-drivers" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 
 [build-dependencies]

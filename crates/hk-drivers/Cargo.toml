@@ -1,12 +1,13 @@
 [package]
-name = "hk-trace"
-description = "HolyKernel trace 环形缓冲与事件记录"
+name = "hk-drivers"
+description = "HolyKernel 通用设备协议核心"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
 spin = "0.9"
 
 [lints]

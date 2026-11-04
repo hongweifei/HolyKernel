@@ -3,10 +3,6 @@
 //! 每 CPU 一个 [`TraceRing`]，事件带序号、时间戳、CPU、线程、类别与诊断码。
 //! 环形缓冲固定容量，覆盖旧事件，适合 panic dump 与确定性回放。
 
-#![no_std]
-
-use spin::Mutex;
-
 /// 事件类别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
@@ -149,9 +145,6 @@ impl<const N: usize> Default for TraceRing<N> {
         Self::new()
     }
 }
-
-/// 可共享的 trace 缓冲。
-pub type SharedTrace<const N: usize> = Mutex<TraceRing<N>>;
 
 #[cfg(test)]
 extern crate std;

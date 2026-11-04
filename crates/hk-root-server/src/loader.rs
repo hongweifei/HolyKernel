@@ -5,7 +5,7 @@
 use alloc::vec::Vec;
 use core::fmt;
 
-use hk_elf::ElfError;
+use crate::elf::{ElfError, load_into};
 use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
 
 /// 启动时默认装载的服务；其余模块按需启动。
@@ -68,7 +68,7 @@ where
     M: UserMemory,
     F: FnOnce(u64, u64, u64) -> C,
 {
-    let entry = hk_elf::load_into(spec.bytes, memory).map_err(LoadError::Elf)?;
+    let entry = load_into(spec.bytes, memory).map_err(LoadError::Elf)?;
     map_region(memory, spec.stack_base, spec.stack_size)?;
     map_region(memory, spec.arena_base, spec.arena_size)?;
     Ok(make_context(

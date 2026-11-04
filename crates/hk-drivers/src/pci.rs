@@ -4,11 +4,6 @@
 //! 枚举从根总线开始，遇到 PCI-to-PCI 桥时沿 secondary bus 递归，并用访问表防止
 //! 总线环。不依赖架构；ECAM 或 legacy 端口访问由平台实现。
 
-#![no_std]
-
-#[cfg(test)]
-extern crate alloc;
-
 pub use hk_hal::{PciAddress, PciConfig};
 
 const VENDOR_DEVICE: u8 = 0x00;

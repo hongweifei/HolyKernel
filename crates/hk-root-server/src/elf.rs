@@ -3,8 +3,6 @@
 //! 遍历程序头中的可加载段，把文件内容与内存长度交给 [`PageSink`]；页分配与
 //! 页表映射由平台实现。
 
-#![no_std]
-
 use core::cmp::min;
 
 use hk_hal::{PAGE_SIZE, UserMemory};

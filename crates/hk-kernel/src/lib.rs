@@ -16,16 +16,17 @@ pub mod kernel;
 pub mod object;
 pub mod sched;
 pub mod tcb;
+mod trace;
 
 pub use allocator::BumpHeap;
 pub use error::KernelError;
-pub use hk_trace::{Category as TraceCategory, Event as TraceEvent};
 pub use kernel::{Kernel, Received, TRACE_CAPACITY};
 pub use object::{KernelObject, ObjectPayload};
 pub use sched::Scheduler;
 pub use tcb::{
     BlockReason, PendingCall, PendingDelivery, Priority, ReplyToken, Tcb, TcbId, ThreadState,
 };
+pub use trace::{Category as TraceCategory, Event as TraceEvent, TraceRing};
 
 #[cfg(test)]
 mod tests;

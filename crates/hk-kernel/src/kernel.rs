@@ -10,11 +10,11 @@ use alloc::vec::Vec;
 use core::fmt::Write;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use crate::trace::{Category, TraceRing};
 use hk_hal::{Mmu, PhysRange};
 use hk_handle::{Handle, HandleTable, Object, ObjectId, ObjectKind, Rights};
 use hk_ipc::{Message, SendOutcome, Waiter};
 use hk_mem::{Untyped, VSpace};
-use hk_trace::{Category, TraceRing};
 use spin::Mutex;
 
 use crate::error::KernelError;
@@ -552,7 +552,7 @@ impl Kernel {
     }
 
     /// 返回最近的 trace 事件。
-    pub fn trace_events(&self, limit: usize) -> Vec<hk_trace::Event> {
+    pub fn trace_events(&self, limit: usize) -> Vec<crate::trace::Event> {
         self.trace.lock().latest(limit).copied().collect()
     }
 

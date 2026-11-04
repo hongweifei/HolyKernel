@@ -2,8 +2,6 @@
 //!
 //! 平台通过 [`Io`] 提供端口或 MMIO 访问；本 crate 不依赖架构。
 
-#![no_std]
-
 use hk_hal::{Console, Io};
 use spin::Mutex;
 

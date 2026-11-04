@@ -123,11 +123,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-elf"
+name = "hk-drivers"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
- "xmas-elf",
+ "spin",
 ]
 
 [[package]]
@@ -186,15 +186,7 @@ dependencies = [
  "hk-ipc",
  "hk-mem",
  "hk-platform-hosted",
- "hk-trace",
  "spin",
-]
-
-[[package]]
-name = "hk-keyboard-ps2"
-version = "0.1.0"
-dependencies = [
- "hk-hal",
 ]
 
 [[package]]
@@ -205,13 +197,6 @@ dependencies = [
  "hk-handle",
  "hk-platform-hosted",
  "spin",
-]
-
-[[package]]
-name = "hk-pci"
-version = "0.1.0"
-dependencies = [
- "hk-hal",
 ]
 
 [[package]]
@@ -226,14 +211,13 @@ name = "hk-platform-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-acpi",
+ "hk-drivers",
  "hk-framebuffer",
  "hk-hal",
- "hk-keyboard-ps2",
  "hk-mem",
  "hk-smp",
  "hk-syscall",
  "hk-test",
- "hk-uart-16550",
  "spin",
 ]
 
@@ -241,13 +225,13 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
- "hk-elf",
  "hk-hal",
  "hk-handle",
  "hk-ipc",
  "hk-kernel",
  "hk-syscall",
  "spin",
+ "xmas-elf",
 ]
 
 [[package]]
@@ -273,7 +257,7 @@ dependencies = [
 name = "hk-server-device"
 version = "0.1.0"
 dependencies = [
- "hk-pci",
+ "hk-drivers",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -348,21 +332,6 @@ version = "0.1.0"
 [[package]]
 name = "hk-test"
 version = "0.1.0"
-
-[[package]]
-name = "hk-trace"
-version = "0.1.0"
-dependencies = [
- "spin",
-]
-
-[[package]]
-name = "hk-uart-16550"
-version = "0.1.0"
-dependencies = [
- "hk-hal",
- "spin",
-]
 
 [[package]]
 name = "hk-x86_64"

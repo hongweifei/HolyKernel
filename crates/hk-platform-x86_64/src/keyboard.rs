@@ -1,6 +1,6 @@
 //! x86_64 PS/2 键盘：i8042 端口 I/O 适配。
 
-use hk_keyboard_ps2::{Ports, Ps2Keyboard};
+use hk_drivers::keyboard::{Ports, Ps2Keyboard};
 
 use crate::port::{IO, PortIo};
 

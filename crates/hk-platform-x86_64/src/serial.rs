@@ -1,7 +1,7 @@
 //! x86_64 16550 串口：端口 I/O 适配。
 
+use hk_drivers::uart::Uart16550;
 use hk_hal::Console;
-use hk_uart_16550::Uart16550;
 
 use crate::port::{IO, PortIo};
 

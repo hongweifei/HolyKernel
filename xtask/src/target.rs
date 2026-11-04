@@ -37,22 +37,20 @@ impl Selection {
 }
 
 static HOSTED_PACKAGES: [&str; 1] = ["hk-hosted"];
-static KERNEL_PACKAGES: [&str; 8] = [
+static KERNEL_PACKAGES: [&str; 7] = [
     "hk-hal",
     "hk-handle",
     "hk-ipc",
     "hk-mem",
-    "hk-trace",
     "hk-kernel",
     "hk-root-server",
     "hk-test",
 ];
-static X86_64_PACKAGES: [&str; 11] = [
+static X86_64_PACKAGES: [&str; 10] = [
     "hk-hal",
     "hk-handle",
     "hk-ipc",
     "hk-mem",
-    "hk-trace",
     "hk-kernel",
     "hk-root-server",
     "hk-server-api",

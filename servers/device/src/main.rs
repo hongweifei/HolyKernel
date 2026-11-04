@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_pci::{Device, PciAddress, PciConfig, enumerate};
+use hk_drivers::pci::{Device, PciAddress, PciConfig, enumerate};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, pci_read, write, write_u64};
 

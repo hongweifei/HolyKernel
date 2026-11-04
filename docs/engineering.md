@@ -17,19 +17,16 @@ HolyKernel/
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI 契约与 ECAM、Port/MMIO Io；现场与页映射
 │   ├── hk-acpi/               ACPI RSDP/SDT 查找与表条目迭代（架构无关）
+│   ├── hk-drivers/            通用设备协议：桥感知 PCI、16550 UART、PS/2 键盘
 │   ├── hk-framebuffer/        通用帧缓冲文本控制台
-│   ├── hk-keyboard-ps2/       PS/2 键盘协议与扫描码解码
-│   ├── hk-uart-16550/         16550 UART 核心（端口/MMIO 由平台提供）
-│   ├── hk-pci/                桥感知 PCI 总线/设备/功能枚举
 │   ├── hk-smp/                通用 SMP 状态机：AP 池、TLB shootdown、空闲唤醒
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度与线性堆
+│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification、trace；per-CPU 调度与线性堆
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器、用户地址空间登记表
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
-│   ├── hk-elf/                用户镜像 ELF：程序头遍历与段映射（经 `UserMemory`）
 │   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化
-│   ├── hk-root-server/        Root Server、服务清单、服务表、镜像装载、用户运行时与运行时宿主
+│   ├── hk-root-server/        Root Server、服务清单、服务表、ELF 装载、用户运行时与运行时宿主
 │   ├── hk-device-manager/     设备枚举与 DeviceGrant
 │   ├── hk-driver-*            virtio/PS2/console/framebuffer
 │   ├── hk-vfs/                VFS Server
@@ -49,7 +46,6 @@ HolyKernel/
 │   ├── hk-network/            Network Server
 │   ├── hk-display/            Display Server
 │   ├── hk-holydoc/            HolyDoc Server
-│   ├── hk-trace/              trace、日志、panic dump
 │   ├── hk-sim/                确定性模拟、故障注入
 │   └── hk-test/               测试支撑、QEMU 退出协议
 ├── platforms/
