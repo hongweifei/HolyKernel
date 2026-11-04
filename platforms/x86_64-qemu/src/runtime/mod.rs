@@ -42,6 +42,10 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::pci::config_read(bus, device, function, offset)
     }
 
+    fn pci_write(&self, bus: u8, device: u8, function: u8, offset: u8, value: u32) {
+        hk_platform_x86_64::pci::config_write(bus, device, function, offset, value);
+    }
+
     fn zero(&self, address: u64, length: usize) {
         // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
         unsafe {

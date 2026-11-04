@@ -28,7 +28,15 @@ impl PciConfig for SyscallConfig {
         )
     }
 
-    fn write32(&self, _address: PciAddress, _value: u32) {}
+    fn write32(&self, address: PciAddress, value: u32) {
+        hk_server_api::pci_write(
+            address.bus,
+            address.device,
+            address.function,
+            address.offset,
+            value,
+        );
+    }
 }
 
 /// 设备入口：枚举全部总线的 PCI 设备。
@@ -85,6 +93,10 @@ fn write_device(device: &Device) {
                         write(b":prefetch");
                     }
                 }
+            }
+            if let Some(size) = hk_drivers::pci::bar_size(&SyscallConfig, device, index) {
+                write(b" size=");
+                write_hex64(size);
             }
         }
     }

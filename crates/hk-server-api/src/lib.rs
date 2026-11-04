@@ -153,6 +153,21 @@ pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     unsafe { syscall_call(SYS_PCI_READ, address, u64::from(offset), 0, 0).value as u32 }
 }
 
+/// 写入 PCI 配置空间中的一个 32 位字。
+pub fn pci_write(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
+    let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);
+    // SAFETY: 内核校验参数并只访问 PCI 配置端口。
+    unsafe {
+        syscall_call(
+            SYS_PCI_WRITE,
+            address,
+            u64::from(offset),
+            u64::from(value),
+            0,
+        );
+    }
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

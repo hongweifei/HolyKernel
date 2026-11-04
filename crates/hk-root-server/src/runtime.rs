@@ -13,8 +13,8 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY,
-    SYS_PCI_READ, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA,
+    SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -95,6 +95,8 @@ pub trait UserPlatform {
     fn timer_ticks(&self) -> u64;
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
+    /// 写入 PCI 配置空间中的一个 32 位字。
+    fn pci_write(&self, _bus: u8, _device: u8, _function: u8, _offset: u8, _value: u32) {}
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);
     /// 从当前任务用户内存读取字节；地址无效时返回 `false`。

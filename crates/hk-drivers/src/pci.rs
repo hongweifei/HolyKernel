@@ -109,6 +109,59 @@ pub fn read_bars(config: &dyn PciConfig, device: &Device) -> [Option<Bar>; 6] {
     bars
 }
 
+/// 探测指定 BAR 的大小。
+///
+/// 通过临时关闭命令寄存器的 I/O 与内存解码、写入全 1 再读回掩码来测量；
+/// 完成后恢复 BAR 与命令寄存器。
+pub fn bar_size(config: &dyn PciConfig, device: &Device, index: usize) -> Option<u64> {
+    if index >= 6 {
+        return None;
+    }
+    let offset = 0x10 + index as u8 * 4;
+    let address = device.address.at(offset);
+    let original = config.read32(address);
+    if original == 0 || original == u32::MAX {
+        return None;
+    }
+
+    let command_address = device.address.at(0x04);
+    let command = config.read32(command_address) & 0xFFFF;
+    config.write32(command_address, command & !0x3);
+
+    let is_io = original & 1 != 0;
+    let is_64bit = !is_io && (original >> 1) & 0x3 == 2;
+    let high_offset = offset + 4;
+    let original_high = if is_64bit && high_offset <= 0x24 {
+        Some((high_offset, config.read32(device.address.at(high_offset))))
+    } else {
+        None
+    };
+
+    config.write32(address, u32::MAX);
+    let mut mask = u64::from(config.read32(address) & !0x3);
+    if let Some((high, _)) = original_high {
+        let high_address = device.address.at(high);
+        config.write32(high_address, u32::MAX);
+        mask |= u64::from(config.read32(high_address)) << 32;
+        config.write32(high_address, original_high.unwrap().1);
+    }
+
+    config.write32(address, original);
+    config.write32(command_address, command);
+
+    let mask = if is_io { mask & !0x3 } else { mask & !0xF };
+    let size = if is_64bit {
+        (!mask).wrapping_add(1)
+    } else {
+        u64::from((!(mask as u32)).wrapping_add(1))
+    };
+    if size == 0 || !size.is_power_of_two() {
+        None
+    } else {
+        Some(size)
+    }
+}
+
 /// 遍历设备的 capability 链。
 pub fn capabilities<F>(config: &dyn PciConfig, device: &Device, mut visit: F)
 where
@@ -426,5 +479,36 @@ mod tests {
         let mut ids = Vec::new();
         capabilities(&ResourceConfig, &device, |cap| ids.push(cap.id));
         assert_eq!(ids, [0x09]);
+    }
+    struct SizingConfig {
+        registers: spin::Mutex<[u32; 64]>,
+    }
+
+    impl PciConfig for SizingConfig {
+        fn read32(&self, address: PciAddress) -> u32 {
+            self.registers.lock()[usize::from(address.offset / 4)]
+        }
+
+        fn write32(&self, address: PciAddress, value: u32) {
+            let index = usize::from(address.offset / 4);
+            self.registers.lock()[index] = if address.offset == 0x10 && value == u32::MAX {
+                0xFFFF_F000
+            } else {
+                value
+            };
+        }
+    }
+
+    #[test]
+    fn probes_bar_size_and_restores_config() {
+        let config = SizingConfig {
+            registers: spin::Mutex::new([0; 64]),
+        };
+        config.write32(PciAddress::new(0, 0, 0, 0x04), 0x0003);
+        config.write32(PciAddress::new(0, 0, 0, 0x10), 0xFE00_0000);
+        let device = resource_device();
+        assert_eq!(bar_size(&config, &device, 0), Some(0x1000));
+        assert_eq!(config.read32(PciAddress::new(0, 0, 0, 0x10)), 0xFE00_0000);
+        assert_eq!(config.read32(PciAddress::new(0, 0, 0, 0x04)) & 0xFFFF, 3);
     }
 }

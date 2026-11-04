@@ -57,6 +57,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 )));
                 Switch::Continue
             }
+            SYS_PCI_WRITE => {
+                let address = frame.arg0();
+                let bus = (address >> 8) as u8;
+                let device = ((address >> 3) & 0x1F) as u8;
+                let function = (address & 0x07) as u8;
+                self.platform.pci_write(
+                    bus,
+                    device,
+                    function,
+                    frame.arg1() as u8,
+                    frame.arg2() as u32,
+                );
+                frame.set_result(0);
+                Switch::Continue
+            }
             SYS_TICKS => {
                 frame.set_result(self.platform.timer_ticks());
                 Switch::Continue
