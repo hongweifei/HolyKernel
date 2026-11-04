@@ -10,6 +10,7 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::Console;
+use spin::Mutex;
 
 use crate::port::outb;
 use crate::serial::{COM1, Serial};
@@ -716,6 +717,16 @@ core::arch::global_asm!(
     "    jmp rax",
 );
 
+/// 用户态异常 hook：返回 `true` 表示异常已处理并应返回调度器。
+pub type FaultHook = fn(&mut InterruptFrame) -> bool;
+
+static FAULT_HOOK: Mutex<Option<FaultHook>> = Mutex::new(None);
+
+/// 注册用户态异常处理 hook。
+pub fn set_fault_hook(hook: FaultHook) {
+    *FAULT_HOOK.lock() = Some(hook);
+}
+
 /// 中断分派：定时器计数、键盘输入、系统调用分派，其余向量按异常处理。
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
@@ -737,6 +748,16 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         handle_syscall(frame);
         return;
     }
+
+    if frame.cs == u64::from(USER_CODE_SELECTOR) {
+        let hook = *FAULT_HOOK.lock();
+        if let Some(hook) = hook
+            && hook(frame)
+        {
+            leave_user();
+        }
+    }
+
     report_exception(frame);
 }
 

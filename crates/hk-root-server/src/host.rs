@@ -135,4 +135,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .as_mut()
             .is_some_and(|runtime| runtime.preempt(context))
     }
+
+    /// 标记当前任务因用户态异常退出。
+    pub fn fault(&self, code: u64) -> bool {
+        self.runtime
+            .lock()
+            .as_mut()
+            .is_some_and(|runtime| runtime.fault(code))
+    }
 }

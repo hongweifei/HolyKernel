@@ -6,8 +6,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_platform_x86_64::PageTable;
+use hk_hal::Console;
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
+use hk_platform_x86_64::{COM1, PageTable, Serial};
 use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
 use spin::Mutex;
 
@@ -94,6 +95,7 @@ pub fn init(names: &[&'static str]) -> Result<(), String> {
 
     cpu::set_syscall_hook(dispatch);
     cpu::set_preempt_hook(preempt);
+    cpu::set_fault_hook(fault);
     Ok(())
 }
 
@@ -144,4 +146,12 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 
 fn preempt(frame: &InterruptFrame) -> bool {
     RUNTIME.preempt(*frame)
+}
+
+fn fault(frame: &mut InterruptFrame) -> bool {
+    let console = Serial::new(COM1);
+    console.write_str("用户异常：");
+    console.write_str(cpu::exception_name(frame.vector));
+    console.write_str("，任务已退出\n");
+    RUNTIME.fault(0xE000 | frame.vector)
 }

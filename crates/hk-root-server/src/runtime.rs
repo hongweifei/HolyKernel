@@ -512,6 +512,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
+    /// 标记当前任务因用户态异常退出；成功返回 `true`。
+    pub fn fault(&mut self, code: u64) -> bool {
+        let Some(index) = self.current else {
+            return false;
+        };
+        if self.tasks[index].exited {
+            return false;
+        }
+
+        let tcb = self.tasks[index].tcb;
+        let _ = self.kernel.exit(tcb);
+        self.tasks[index].exited = true;
+        self.tasks[index].exit_code = code;
+        self.tasks[index].pending = Pending::None;
+        self.current = None;
+        true
+    }
+
     fn next_task(&mut self) -> Option<usize> {
         let tcb = self.kernel.schedule()?;
         self.tasks.iter().position(|task| task.tcb == tcb)
@@ -1080,6 +1098,20 @@ mod tests {
         assert_eq!(context.rdx, 6);
         assert_eq!(context.rcx, 2);
         assert_eq!(runtime.tasks()[caller].pending, "-");
+    }
+
+    #[test]
+    fn user_fault_exits_current_task() {
+        let mut runtime = runtime();
+        let Step::Resume { index, .. } = runtime.step() else {
+            panic!("任务应可运行");
+        };
+
+        assert!(runtime.fault(0xE00E));
+        assert!(!runtime.fault(0xE00E));
+        assert_eq!(runtime.tasks()[index].state, "exited");
+        assert_eq!(runtime.tasks()[index].handles, 0);
+        assert_eq!(runtime.finish(index), Some((String::from("a"), 0xE00E)));
     }
 
     #[test]

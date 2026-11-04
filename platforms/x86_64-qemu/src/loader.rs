@@ -24,6 +24,14 @@ const USER_STACK_SIZE: u64 = 8 * PAGE_SIZE as u64;
 /// 各服务用户栈之间的间隔。
 const USER_STACK_STRIDE: u64 = 0x1_0000;
 
+/// 启动时装载的服务；其余模块按需启动。
+const BOOT_SERVICES: &[&str] = &[
+    "hk-server-demo",
+    "hk-server-echo",
+    "hk-server-device",
+    "hk-server-spin",
+];
+
 /// 加载全部服务模块并运行到退出。
 pub fn run(
     info: &BootInfo,
@@ -35,7 +43,10 @@ pub fn run(
     let modules: Vec<&BootModule> = info
         .server_modules
         .iter()
-        .filter(|module| !loader::is_script(module.name))
+        .filter(|module| {
+            !loader::is_script(module.name)
+                && BOOT_SERVICES.contains(&loader::service_name(module.name))
+        })
         .collect();
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));
