@@ -1,16 +1,19 @@
 //! LAPIC 定时器与调度 tick。
 
 use core::arch::asm;
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use super::apic::{lapic_read, lapic_write};
 use super::*;
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+static UPTIME_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static TICK_COUNT: AtomicU32 = AtomicU32::new(TICK_INITIAL_COUNT);
+static TICK_ARMED: AtomicBool = AtomicBool::new(false);
 /// 启动周期定时器，目标中断次数为 `target`。
 pub fn arm_timer(target: u64) {
+    TICK_ARMED.store(true, Ordering::SeqCst);
     TIMER_TICKS.store(0, Ordering::SeqCst);
     TIMER_TARGET.store(target, Ordering::SeqCst);
 
@@ -23,17 +26,24 @@ pub fn arm_timer(target: u64) {
 
 /// 停止定时器并关中断。
 pub fn disarm_timer() {
+    TICK_ARMED.store(false, Ordering::SeqCst);
     // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
     unsafe { asm!("cli", options(nomem, nostack)) };
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
 /// 启动周期性调度 tick。
+///
+/// 首次调用编程 LAPIC 并开始计数；之后的调用只解除屏蔽，不重置计数。调度器
+/// 会在每个预算切片之间停止并重新启动 tick，若每次都重写初始计数，短于一个
+/// tick 周期的切片就会反复清零定时器，导致抢占 tick 停止投递。
 pub fn start_tick() {
-    TIMER_TICKS.store(0, Ordering::SeqCst);
+    if !TICK_ARMED.swap(true, Ordering::SeqCst) {
+        TIMER_TICKS.store(0, Ordering::SeqCst);
+        lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
+    }
     TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
-    lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
 
     // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
     unsafe { asm!("sti", options(nomem, nostack)) };
@@ -84,14 +94,20 @@ pub fn calibrate_tick(tsc_frequency: u64) {
     }
 }
 
-/// 返回已记录的定时器中断次数。
+/// 记录一次定时器中断。
 pub(super) fn note_tick() {
     TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
+    UPTIME_TICKS.fetch_add(1, Ordering::SeqCst);
 }
 
 /// 返回已记录的定时器中断次数。
 pub fn timer_ticks() -> u64 {
     TIMER_TICKS.load(Ordering::SeqCst)
+}
+
+/// 返回自启动以来的累计定时器中断次数；不会因重新启动调度 tick 而清零。
+pub fn uptime_ticks() -> u64 {
+    UPTIME_TICKS.load(Ordering::SeqCst)
 }
 
 /// 判断定时器是否达到目标次数。

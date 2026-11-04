@@ -22,7 +22,7 @@ pub use smp::{idle, idle_cpus, shootdown_tlb, tlb_shootdowns, wake_aps};
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
     arm_timer, calibrate_tick, disarm_timer, start_ap_tick, start_tick, stop_tick, timer_finished,
-    timer_ticks,
+    timer_ticks, uptime_ticks,
 };
 pub use user::{
     FaultAction, FaultHook, exception_name, fault_address, leave_user, resume_user, set_fault_hook,

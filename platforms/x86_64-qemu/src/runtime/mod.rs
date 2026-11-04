@@ -35,7 +35,7 @@ struct X86Platform;
 
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
-        cpu::timer_ticks()
+        cpu::uptime_ticks()
     }
 
     fn civil_time(&self) -> Option<hk_hal::CivilTime> {
