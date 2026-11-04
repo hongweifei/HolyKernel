@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_drivers::grant::{DEVICE_GRANT_BYTES, from_device};
+use hk_drivers::grant::{DEVICE_GRANT_BYTES, DeviceGrant, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
@@ -52,17 +52,28 @@ impl PciConfig for SyscallConfig {
     }
 }
 
-/// 设备入口：枚举 PCI 设备，常驻等待驱动申请授权。
+/// 缓存的 PCI 设备数量上限。
+#[cfg(target_os = "none")]
+const MAX_DEVICES: usize = 32;
+
+/// 设备入口：枚举 PCI 设备并缓存授权，常驻等待驱动申请授权。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
+    // 启动时只枚举一次并缓存 DeviceGrant。`bar_size` 会临时关闭设备的命令
+    // 寄存器解码并改写 BAR，若在驱动运行期间重复测量会打断正在工作的设备
+    // （例如 virtio-blk 的容量读取与块 I/O）。
+    let mut devices: [Option<(Device, DeviceGrant)>; MAX_DEVICES] = [None; MAX_DEVICES];
     let mut count = 0;
     enumerate(&SyscallConfig, 0, |device| {
         write_device(&device, 0, &mut false, DEVICE_CLASS_ANY);
-        count += 1;
+        if count < MAX_DEVICES {
+            devices[count] = Some((device, from_device(&SyscallConfig, &device)));
+            count += 1;
+        }
     });
     write("hk-server-device: 发现 ".as_bytes());
-    write_u64(count);
+    write_u64(count as u64);
     write(" 个设备\n".as_bytes());
 
     loop {
@@ -71,13 +82,48 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         let mut sent_grant = false;
-        enumerate(&SyscallConfig, 0, |device| {
-            write_device(&device, sender, &mut sent_grant, requested);
-        });
+        for entry in devices.iter().flatten() {
+            let (device, grant) = entry;
+            if send_cached_grant(*device, grant, requested, sender, &mut sent_grant) {
+                break;
+            }
+        }
         if !sent_grant {
             let _ = send(sender, DEVICE_NONE, 0);
         }
     }
+}
+
+/// 用缓存的授权响应一次设备申请；成功交出授权时返回 `true`。
+#[cfg(target_os = "none")]
+fn send_cached_grant(
+    device: Device,
+    grant: &DeviceGrant,
+    requested: u64,
+    sender: u64,
+    sent_grant: &mut bool,
+) -> bool {
+    if *sent_grant || !grant.is_virtio() {
+        return false;
+    }
+    let class_matches = match requested {
+        DEVICE_CLASS_ANY => true,
+        DEVICE_CLASS_BLOCK => device.class == 0x01,
+        DEVICE_CLASS_NETWORK => device.class == 0x02,
+        _ => false,
+    };
+    if !class_matches {
+        return false;
+    }
+    let mut encoded = [0_u8; DEVICE_GRANT_BYTES];
+    let Some(length) = grant.encode(&mut encoded) else {
+        return false;
+    };
+    let handle = device_grant_create(&encoded[..length]);
+    if send_handle(sender, DEVICE_GRANT, 0, handle) == 0 {
+        *sent_grant = true;
+    }
+    true
 }
 
 #[cfg(target_os = "none")]
