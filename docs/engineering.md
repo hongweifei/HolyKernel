@@ -27,27 +27,26 @@ HolyKernel/
 │   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
 │   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化
 │   ├── hk-root-server/        Root Server、服务清单、服务表、ELF 装载、用户运行时与运行时宿主
-│   ├── hk-device-manager/     设备枚举与 DeviceGrant
+│   ├── hk-device-manager/     设备枚举与 DeviceGrant（规划）
 │   ├── hk-driver-virtio/      virtio 驱动：DeviceGrant、MMIO/DMA/IRQ 与 virtio-drivers 适配
-│   ├── hk-block/              块设备契约与内存盘
-│   ├── hk-block-ipc/          块协议服务循环与远端块设备客户端
+│   ├── hk-block/              块设备契约、内存盘与块协议 IPC 适配（`ipc` feature）
 │   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
 │   ├── hk-fs-ext4/            ext4 后端（rsext4）
-│   ├── hk-fs-tmpfs/           tmpfs 后端
-│   ├── hk-fs-devfs/           devfs 后端
-│   ├── hk-fs-procfs/          procfs 后端
-│   ├── hk-posix-server/       POSIX Server
-│   ├── hk-abi/                POSIX syscall shim 协议与头文件
-│   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载
-│   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水
+│   ├── hk-fs-tmpfs/           tmpfs 后端（规划）
+│   ├── hk-fs-devfs/           devfs 后端（规划）
+│   ├── hk-fs-procfs/          procfs 后端（规划）
+│   ├── hk-posix-server/       POSIX Server（规划）
+│   ├── hk-abi/                POSIX syscall shim 协议与头文件（规划）
+│   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载（规划）
+│   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水（规划）
 │   ├── hk-syscall/            系统调用编号与共享 ABI 常量
-│   ├── hk-server-api/         入口 ABI：调用约定与按架构的 int 0x80 / svc 入口
+│   ├── hk-server-api/         入口 ABI：调用约定、按架构的 int 0x80 / svc 入口与服务器线性堆
 │   ├── hk-shell/              HolyShell 命令解析、输出、ShellIo/ShellHost、执行循环与脚本求值
 │   ├── hk-server-build/       服务镜像链接配置（构建期生成链接脚本）
-│   ├── third_party/musl/      musl 移植（兼容环境主 C libc）
-│   ├── hk-network/            Network Server
-│   ├── hk-display/            Display Server
-│   ├── hk-holydoc/            HolyDoc Server
+│   ├── third_party/musl/      musl 移植（兼容环境主 C libc）（规划）
+│   ├── hk-network/            Network Server（规划）
+│   ├── hk-display/            Display Server（规划）
+│   ├── hk-holydoc/            HolyDoc Server（规划）
 │   ├── hk-sim/                确定性模拟、故障注入
 │   └── hk-test/               测试支撑、QEMU 退出协议
 ├── platforms/
