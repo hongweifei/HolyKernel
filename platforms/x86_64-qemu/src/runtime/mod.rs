@@ -62,8 +62,16 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::bootstrap::route_irq(irq)
     }
 
+    fn unroute_irq(&self, irq: u8) -> bool {
+        hk_platform_x86_64::bootstrap::unroute_irq(irq)
+    }
+
     fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {
         hk_platform_x86_64::dma::allocate(len)
+    }
+
+    fn dma_free(&self, range: hk_hal::PhysRange) {
+        hk_platform_x86_64::dma::free(range);
     }
 
     fn zero(&self, address: u64, length: usize) {

@@ -1,6 +1,8 @@
 //! 启动期预留的连续 DMA 池。
 
-use hk_hal::{PAGE_SIZE, PhysRange};
+use alloc::vec::Vec;
+
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 use spin::Mutex;
 
 struct Pool {
@@ -9,9 +11,11 @@ struct Pool {
 }
 
 static POOL: Mutex<Option<Pool>> = Mutex::new(None);
+static FREE: Mutex<Vec<PhysRange>> = Mutex::new(Vec::new());
 
 /// 注册启动期预留的连续 DMA 区域。
 pub fn init(range: PhysRange) {
+    FREE.lock().clear();
     *POOL.lock() = Some(Pool {
         next: range.start().get(),
         end: range.end().get(),
@@ -25,6 +29,19 @@ pub fn allocate(len: usize) -> Option<PhysRange> {
     if length == 0 {
         return None;
     }
+    let mut free = FREE.lock();
+    if let Some(index) = free.iter().position(|range| range.len() >= length) {
+        let range = free.swap_remove(index);
+        let start = range.start();
+        if range.len() > length {
+            free.push(PhysRange::new(
+                PhysAddr::new(start.get() + length),
+                range.len() - length,
+            ));
+        }
+        return Some(PhysRange::new(start, length));
+    }
+
     let mut pool = POOL.lock();
     let pool = pool.as_mut()?;
     if pool.next.checked_add(length)? > pool.end {
@@ -32,7 +49,15 @@ pub fn allocate(len: usize) -> Option<PhysRange> {
     }
     let start = pool.next;
     pool.next += length;
-    Some(PhysRange::new(hk_hal::PhysAddr::new(start), length))
+    Some(PhysRange::new(PhysAddr::new(start), length))
+}
+
+/// 归还一段 DMA 内存。
+pub fn free(range: PhysRange) {
+    if range.is_empty() {
+        return;
+    }
+    FREE.lock().push(range);
 }
 
 #[cfg(test)]
@@ -49,5 +74,11 @@ mod tests {
         assert_eq!(first.len(), 4096);
         assert_eq!(second.start(), PhysAddr::new(0x10_1000));
         assert_eq!(second.len(), 8192);
+
+        free(first);
+        assert_eq!(
+            allocate(4096).expect("复用").start(),
+            PhysAddr::new(0x10_0000)
+        );
     }
 }

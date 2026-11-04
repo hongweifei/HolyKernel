@@ -41,6 +41,9 @@ impl ServiceSpec {
     }
 }
 
+/// 拥有设备授权创建能力的服务名。
+pub const DEVICE_MANAGER_SERVICE: &str = "hk-server-device";
+
 /// 已启动的服务。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Service {

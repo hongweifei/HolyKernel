@@ -74,6 +74,19 @@ impl IoApic {
         self.write_route(gsi, gsi_base, vector, destination, ACTIVE_LOW_LEVEL);
     }
 
+    /// 屏蔽全局系统中断。
+    pub fn mask(&self, gsi: u32, gsi_base: u32) {
+        let Some(index) = gsi.checked_sub(gsi_base) else {
+            return;
+        };
+        if index > self.max_redirection_entry() {
+            return;
+        }
+        let register = IOREDTBL + index * 2;
+        self.write(register + 1, 0);
+        self.write(register, 1 << 16);
+    }
+
     fn write_route(&self, gsi: u32, gsi_base: u32, vector: u8, destination: u8, flags: u32) {
         let Some(index) = gsi.checked_sub(gsi_base) else {
             return;

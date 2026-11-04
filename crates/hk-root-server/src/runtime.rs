@@ -112,12 +112,18 @@ pub trait UserPlatform {
     fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {
         None
     }
+    /// 归还 DeviceGrant 的 DMA 窗口。
+    fn dma_free(&self, _range: hk_hal::PhysRange) {}
     /// 取出并清除待处理 IRQ 位图。
     fn take_irqs(&self) -> u64 {
         0
     }
     /// 把 IRQ 线路由到设备中断向量。
     fn route_irq(&self, _irq: u8) -> bool {
+        false
+    }
+    /// 屏蔽 IRQ 线。
+    fn unroute_irq(&self, _irq: u8) -> bool {
         false
     }
     /// 把用户地址区间清零。
@@ -204,7 +210,9 @@ pub struct UserTask<C> {
     /// 随消息接收的额外句柄。
     pub extra: Vec<Option<Handle>>,
     /// 本任务持有的 DeviceGrant 句柄。
-    pub grants: Vec<Handle>,
+    pub grants: Vec<Option<Handle>>,
+    /// DeviceGrant 句柄到已绑定 IRQ 的映射。
+    pub bound_irqs: Vec<(Handle, u8)>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -213,6 +221,8 @@ pub struct UserTask<C> {
     pub reply: Option<ReplyToken>,
     /// 任务 Arena。
     pub arena: Arena,
+    /// 是否允许创建 DeviceGrant。
+    pub device_authority: bool,
     /// 是否已退出。
     pub exited: bool,
     /// 退出码。
@@ -240,10 +250,12 @@ impl<C> UserTask<C> {
             notifications,
             extra: Vec::new(),
             grants: Vec::new(),
+            bound_irqs: Vec::new(),
             context,
             pending: Pending::None,
             reply: None,
             arena: Arena::new(arena_base, arena_size),
+            device_authority: false,
             exited: false,
             exit_code: 0,
         }
@@ -288,6 +300,7 @@ pub struct UserRuntime<C, P> {
     call_cycles: u64,
     call_max: u64,
     resumes: [u64; MAX_CPUS],
+    irq_routes: [u16; 256],
     platform: P,
 }
 
@@ -317,6 +330,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             call_cycles: 0,
             call_max: 0,
             resumes: [0; MAX_CPUS],
+            irq_routes: [0; 256],
             platform,
         }
     }
@@ -431,11 +445,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .checked_sub(GRANT_HANDLE_BASE + 1)
             .and_then(|slot| self.tasks[index].grants.get(slot))
             .copied()
+            .flatten()
     }
 
     fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index].grants.len();
-        self.tasks[index].grants.push(handle);
+        let slot = self.tasks[index]
+            .grants
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].grants.len());
+        if slot == self.tasks[index].grants.len() {
+            self.tasks[index].grants.push(Some(handle));
+        } else {
+            self.tasks[index].grants[slot] = Some(handle);
+        }
         (GRANT_HANDLE_BASE + slot + 1) as u64
     }
 

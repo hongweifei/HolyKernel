@@ -37,6 +37,19 @@ struct IoApicState {
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 
+/// 屏蔽 IRQ 线。
+pub fn unroute_irq(irq: u8) -> bool {
+    let Some(madt) = *MADT.lock() else {
+        return false;
+    };
+    let ioapic = IOAPIC.lock();
+    let Some(state) = ioapic.as_ref() else {
+        return false;
+    };
+    IoApic::new(state.base).mask(madt.gsi(irq), madt.gsi_base);
+    true
+}
+
 /// 把 IRQ 线路由到对应的设备中断向量。
 pub fn route_irq(irq: u8) -> bool {
     if irq >= crate::irq::IRQ_LINES {

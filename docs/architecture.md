@@ -111,7 +111,7 @@ flowchart TB
 | **Frame** | 物理内存帧 | 映射、共享、DMA、缓存维护 |
 | **Untyped** | 未类型化内存 | retype 为 TCB/VSpace/Frame/Endpoint |
 | **IRQHandler** | 中断句柄 | 绑定 Endpoint、ack、EOI |
-| **DeviceGrant** | 设备句柄集合；内核对象、创建、MMIO 映射、授权 DMA 窗口与 IRQ 通知绑定已建立 | 驱动实际使用 |
+| **DeviceGrant** | 设备句柄集合；内核对象、受权限控制的创建、MMIO 映射、授权 DMA 窗口与 IRQ 通知绑定已建立 | 驱动实际使用 |
 
 内核对象由 Untyped 内存创建；每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
 

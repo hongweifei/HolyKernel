@@ -73,7 +73,7 @@ where
 
         let (arena_base, arena_size) = platform.arena_layout(index);
         let context = make_context(index, index as u64 + 1);
-        tasks.push(UserTask::new(
+        let mut task = UserTask::new(
             service.tcb,
             names[index],
             Some(root),
@@ -82,7 +82,9 @@ where
             context,
             arena_base,
             arena_size,
-        ));
+        );
+        task.device_authority = names[index] == crate::DEVICE_MANAGER_SERVICE;
+        tasks.push(task);
     }
 
     kernel.exit(server.root())?;

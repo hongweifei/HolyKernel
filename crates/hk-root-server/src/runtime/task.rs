@@ -78,7 +78,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        self.tasks.push(UserTask::new(
+        let mut task = UserTask::new(
             tcb,
             name,
             parent,
@@ -87,7 +87,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             arena_base,
             arena_size,
-        ));
+        );
+        task.device_authority = name == crate::DEVICE_MANAGER_SERVICE;
+        self.tasks.push(task);
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }
@@ -193,6 +195,42 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
     }
+
+    pub(crate) fn release_grants(&mut self, index: usize) {
+        let tcb = self.tasks[index].tcb;
+        for handle in core::mem::take(&mut self.tasks[index].grants)
+            .into_iter()
+            .flatten()
+        {
+            self.release_bindings(index, handle);
+            if let Ok(grant) = self.kernel.device_grant(tcb, handle)
+                && let Some(range) = grant.dma
+            {
+                self.platform.dma_free(range);
+            }
+        }
+    }
+
+    pub(crate) fn release_bindings(&mut self, index: usize, grant: Handle) {
+        let bindings = core::mem::take(&mut self.tasks[index].bound_irqs);
+        for (handle, irq) in bindings {
+            if handle == grant {
+                self.release_irq(irq);
+            } else {
+                self.tasks[index].bound_irqs.push((handle, irq));
+            }
+        }
+    }
+
+    pub(crate) fn release_irq(&mut self, irq: u8) {
+        let count = &mut self.irq_routes[irq as usize];
+        if *count > 0 {
+            *count -= 1;
+            if *count == 0 {
+                self.platform.unroute_irq(irq);
+            }
+        }
+    }
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
         self.drain_irqs();
@@ -274,6 +312,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let tcb = self.tasks[index].tcb;
+        self.release_grants(index);
         let _ = self.kernel.exit(tcb);
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;

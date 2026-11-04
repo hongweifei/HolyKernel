@@ -469,3 +469,17 @@ fn transports_byte_payloads() {
     assert_eq!(context.r8, 5);
     assert_eq!(&DATA.lock()[0x200..0x205], b"hello");
 }
+
+#[test]
+fn rejects_device_grant_without_authority() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = hk_syscall::SYS_DEVICE_GRANT_CREATE;
+    context.rdi = 0x1000;
+    context.rsi = hk_hal::DEVICE_GRANT_BYTES as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert_eq!(runtime.tasks()[index].handles, 4);
+}

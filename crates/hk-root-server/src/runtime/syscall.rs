@@ -39,6 +39,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_EXIT => {
                 let code = frame.arg0();
+                self.release_grants(index);
                 let _ = self.kernel.exit(tcb);
                 self.tasks[index].exited = true;
                 self.tasks[index].exit_code = code;
@@ -135,7 +136,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_HANDLE_CLOSE => {
-                let result = self.close_handle(index, tcb, frame.arg0() as usize);
+                let number = frame.arg0() as usize;
+                let result = if number >= GRANT_HANDLE_BASE {
+                    self.close_grant(index, tcb, number)
+                } else {
+                    self.close_handle(index, tcb, number)
+                };
                 frame.set_result(result);
                 Switch::Continue
             }
@@ -437,6 +443,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
     fn create_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        if !self.tasks[index].device_authority {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let length = frame.arg1() as usize;
         if length == 0 || length > hk_hal::DEVICE_GRANT_BYTES {
             frame.set_result(u64::MAX);
@@ -519,9 +529,40 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         match self.kernel.bind_irq(tcb, grant, notification, bits) {
-            Ok(_) => frame.set_result(0),
-            Err(_) => frame.set_result(u64::MAX),
+            Ok(_) => {
+                let count = &mut self.irq_routes[irq as usize];
+                *count = count.saturating_add(1);
+                self.tasks[index].bound_irqs.push((grant, irq));
+                frame.set_result(0);
+            }
+            Err(_) => {
+                if self.irq_routes[irq as usize] == 0 {
+                    self.platform.unroute_irq(irq);
+                }
+                frame.set_result(u64::MAX);
+            }
         }
         Switch::Continue
+    }
+    fn close_grant(&mut self, index: usize, tcb: TcbId, number: usize) -> u64 {
+        let Some(slot) = number.checked_sub(GRANT_HANDLE_BASE + 1) else {
+            return u64::MAX;
+        };
+        let Some(handle) = self.tasks[index].grants.get(slot).copied().flatten() else {
+            return u64::MAX;
+        };
+        self.release_bindings(index, handle);
+        if let Ok(grant) = self.kernel.device_grant(tcb, handle)
+            && let Some(range) = grant.dma
+        {
+            self.platform.dma_free(range);
+        }
+        match self.kernel.close_handle(tcb, handle) {
+            Ok(()) => {
+                self.tasks[index].grants[slot] = None;
+                0
+            }
+            Err(_) => u64::MAX,
+        }
     }
 }
