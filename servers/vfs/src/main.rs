@@ -17,13 +17,15 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
-    OP_LIST, OP_MKDIR, OP_READ, OP_STAT, OP_WRITE, STATUS_ERROR, STATUS_INVALID, STATUS_NOT_FOUND,
-    STATUS_OK, VFS_REQUEST, VFS_RESPONSE, decode_request, encode_response,
+    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_TRUNCATE,
+    OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR, STATUS_EXISTS,
+    STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, VFS_REQUEST, VFS_RESPONSE,
+    decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{alloc, recv_data, send_data, write};
 #[cfg(target_os = "none")]
-use hk_vfs::{FileType, OpenFlags, Tmpfs, Vfs, VfsError};
+use hk_vfs::{FileHandle, FileType, OpenFlags, Tmpfs, Vfs, VfsError};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -115,6 +117,40 @@ fn handle(
     body: &mut [u8],
 ) -> (u8, usize) {
     match request.op {
+        OP_OPEN => {
+            let mut flags = OpenFlags::default();
+            flags.read = request.arg0 & OPEN_READ != 0;
+            flags.write = request.arg0 & OPEN_WRITE != 0;
+            flags.create = request.arg0 & OPEN_CREATE != 0;
+            match filesystem.open(request.path, flags) {
+                Ok(handle) => {
+                    body[..8].copy_from_slice(&handle.id().to_le_bytes());
+                    (STATUS_OK, 8)
+                }
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_CLOSE => match filesystem.close(FileHandle::from_id(request.arg0)) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
+        OP_READ => {
+            match filesystem.read_at(FileHandle::from_id(request.arg0), request.arg1, body) {
+                Ok(length) => (STATUS_OK, length),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_WRITE => match filesystem.write_at(
+            FileHandle::from_id(request.arg0),
+            request.arg1,
+            request.data,
+        ) {
+            Ok(length) => {
+                body[..8].copy_from_slice(&(length as u64).to_le_bytes());
+                (STATUS_OK, 8)
+            }
+            Err(error) => (status(error), 0),
+        },
         OP_STAT => match filesystem.metadata(request.path) {
             Ok(metadata) => {
                 body[0] = match metadata.kind {
@@ -126,29 +162,11 @@ fn handle(
             }
             Err(error) => (status(error), 0),
         },
-        OP_READ => {
-            let Ok(handle) = filesystem.open(request.path, OpenFlags::READ_ONLY) else {
-                return (STATUS_NOT_FOUND, 0);
-            };
-            let result = filesystem.read(handle, body);
-            let _ = filesystem.close(handle);
-            match result {
-                Ok(length) => (STATUS_OK, length),
-                Err(error) => (status(error), 0),
-            }
-        }
-        OP_WRITE => {
-            let Ok(handle) = filesystem.open(request.path, OpenFlags::CREATE) else {
-                return (STATUS_ERROR, 0);
-            };
-            let result = filesystem.write(handle, request.data);
-            let _ = filesystem.close(handle);
-            match result {
-                Ok(_) => (STATUS_OK, 0),
-                Err(error) => (status(error), 0),
-            }
-        }
-        OP_MKDIR => match filesystem.create_dir(request.path) {
+        OP_TRUNCATE => match filesystem.truncate(request.path, request.arg0) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
+        OP_UNLINK => match filesystem.unlink(request.path) {
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (status(error), 0),
         },
@@ -169,15 +187,41 @@ fn handle(
             }
             Err(error) => (status(error), 0),
         },
+        OP_MKDIR => match filesystem.create_dir(request.path) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
+        OP_MOUNT_TMPFS => {
+            let _ = filesystem.create_dir(request.path);
+            match filesystem.mount(request.path, Box::new(Tmpfs::new())) {
+                Ok(()) => (STATUS_OK, 0),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_MOUNTS => {
+            let mut length = 0;
+            for mount in filesystem.mounts() {
+                let bytes = mount.as_bytes();
+                if length + bytes.len() + 1 > body.len() {
+                    return (STATUS_ERROR, 0);
+                }
+                body[length..length + bytes.len()].copy_from_slice(bytes);
+                length += bytes.len();
+                body[length] = b'\n';
+                length += 1;
+            }
+            (STATUS_OK, length)
+        }
         _ => (STATUS_INVALID, 0),
     }
 }
-
 #[cfg(target_os = "none")]
 fn status(error: VfsError) -> u8 {
     match error {
         VfsError::NotFound => STATUS_NOT_FOUND,
         VfsError::InvalidPath => STATUS_INVALID,
+        VfsError::PermissionDenied => STATUS_PERMISSION,
+        VfsError::AlreadyExists => STATUS_EXISTS,
         _ => STATUS_ERROR,
     }
 }

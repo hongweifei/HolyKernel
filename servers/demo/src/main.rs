@@ -9,13 +9,10 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::vfs::{
-    OP_READ, OP_WRITE, STATUS_OK, VFS_REQUEST, VFS_RESPONSE, decode_response, encode_request,
-};
+use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, call, exit, recv, recv_data, send, send_data, send_handle, wait_notify,
-    write,
+    ENDPOINT_ECHO, alloc, call, exit, recv, send, send_handle, wait_notify, write,
 };
 
 /// 请求标签。
@@ -87,38 +84,47 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn verify_vfs(endpoint: u64) -> bool {
-    let mut request = [0_u8; 128];
-    let mut response = [0_u8; 128];
+    let mut client = VfsClient::new(ENDPOINT_VFS, endpoint);
+    let Ok(handle) = client.open("/tmp/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
+        return false;
+    };
+    if client.write(handle, 0, b"vfs").is_err() {
+        return false;
+    }
+    let mut buffer = [0_u8; 16];
+    let Ok(length) = client.read(handle, 0, &mut buffer) else {
+        return false;
+    };
+    if length < 3 || &buffer[..3] != b"vfs" {
+        return false;
+    }
+    if client.close(handle).is_err() {
+        return false;
+    }
+    if client.stat("/tmp/hello").ok() != Some((1, 3)) {
+        return false;
+    }
+    if client.truncate("/tmp/hello", 1).is_err() {
+        return false;
+    }
+    if client.stat("/tmp/hello").ok() != Some((1, 1)) {
+        return false;
+    }
+    if client.unlink("/tmp/hello").is_err() {
+        return false;
+    }
+    if client.stat("/tmp/hello").is_ok() {
+        return false;
+    }
 
-    let Some(length) = encode_request(&mut request, OP_WRITE, "/tmp/hello", b"vfs") else {
+    let mut mounts = [0_u8; 64];
+    let Ok(length) = client.mounts(&mut mounts) else {
         return false;
     };
-    send_data(ENDPOINT_VFS, VFS_REQUEST, &request[..length]);
-    let (label, _word, _sender, length) = recv_data(endpoint, &mut response);
-    if label != VFS_RESPONSE || length == 0 {
-        return false;
-    }
-    let Some(reply) = decode_response(&response[..length]) else {
-        return false;
-    };
-    if reply.status != STATUS_OK {
-        return false;
-    }
-
-    let Some(length) = encode_request(&mut request, OP_READ, "/tmp/hello", b"") else {
-        return false;
-    };
-    send_data(ENDPOINT_VFS, VFS_REQUEST, &request[..length]);
-    let (label, _word, _sender, length) = recv_data(endpoint, &mut response);
-    if label != VFS_RESPONSE || length == 0 {
-        return false;
-    }
-    let Some(reply) = decode_response(&response[..length]) else {
-        return false;
-    };
-    reply.status == STATUS_OK && reply.data == b"vfs"
+    mounts[..length]
+        .split(|byte| *byte == b'\n')
+        .any(|line| line == b"/tmp")
 }
-
 #[cfg(target_os = "none")]
 fn verify_arena() -> bool {
     let pointer = alloc(4096, 16);

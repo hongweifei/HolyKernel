@@ -123,6 +123,41 @@ impl Backend for Tmpfs {
         Ok(id)
     }
 
+    fn truncate(&mut self, node: NodeId, size: u64) -> Result<(), VfsError> {
+        let node = self.node_mut(node)?;
+        if node.kind != FileType::File {
+            return Err(VfsError::IsDirectory);
+        }
+        let size = usize::try_from(size).map_err(|_| VfsError::InvalidOffset)?;
+        node.data.resize(size, 0);
+        Ok(())
+    }
+
+    fn unlink(&mut self, parent: NodeId, name: &str) -> Result<NodeId, VfsError> {
+        Self::check_name(name)?;
+        let node = {
+            let parent_node = self.node_mut(parent)?;
+            if parent_node.kind != FileType::Directory {
+                return Err(VfsError::NotDirectory);
+            }
+            parent_node
+                .children
+                .remove(name)
+                .ok_or(VfsError::NotFound)?
+        };
+        let non_empty_directory = self
+            .nodes
+            .get(node as usize)
+            .is_some_and(|child| child.kind == FileType::Directory && !child.children.is_empty());
+        if non_empty_directory {
+            self.node_mut(parent)?
+                .children
+                .insert(name.to_string(), node);
+            return Err(VfsError::IsDirectory);
+        }
+        Ok(node)
+    }
+
     fn readdir(&self, node: NodeId) -> Result<Vec<DirEntry>, VfsError> {
         let node = self.node(node)?;
         if node.kind != FileType::Directory {

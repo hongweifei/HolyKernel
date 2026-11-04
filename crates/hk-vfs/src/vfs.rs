@@ -85,6 +85,11 @@ impl OpenFlags {
 pub struct FileHandle(u64);
 
 impl FileHandle {
+    /// 从协议句柄编号恢复。
+    pub const fn from_id(id: u64) -> Self {
+        Self(id)
+    }
+
     /// 返回句柄编号。
     pub const fn id(self) -> u64 {
         self.0
@@ -145,6 +150,10 @@ pub trait Backend {
     fn create(&mut self, parent: NodeId, name: &str, kind: FileType) -> Result<NodeId, VfsError>;
     /// 读取目录项。
     fn readdir(&self, node: NodeId) -> Result<Vec<DirEntry>, VfsError>;
+    /// 调整文件大小。
+    fn truncate(&mut self, node: NodeId, size: u64) -> Result<(), VfsError>;
+    /// 删除目录项，返回被删除的节点。
+    fn unlink(&mut self, parent: NodeId, name: &str) -> Result<NodeId, VfsError>;
 }
 
 struct Instance {
@@ -254,23 +263,37 @@ impl Vfs {
             .ok_or(VfsError::NotFound)
     }
 
-    /// 从文件句柄读取。
-    pub fn read(&mut self, handle: FileHandle, buffer: &mut [u8]) -> Result<usize, VfsError> {
-        let (instance, node, offset) = {
+    /// 从文件句柄的指定偏移读取。
+    pub fn read_at(
+        &mut self,
+        handle: FileHandle,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, VfsError> {
+        let (instance, node) = {
             let open = self.handles.get(&handle.0).ok_or(VfsError::NotFound)?;
             if !open.flags.read {
                 return Err(VfsError::PermissionDenied);
             }
-            (open.instance, open.node, open.offset)
+            (open.instance, open.node)
         };
-
-        let read = self.cache.read(
+        self.cache.read(
             &*self.instances[instance].backend,
             instance,
             node,
             offset,
             buffer,
-        )?;
+        )
+    }
+
+    /// 从文件句柄读取，并推进偏移。
+    pub fn read(&mut self, handle: FileHandle, buffer: &mut [u8]) -> Result<usize, VfsError> {
+        let offset = self
+            .handles
+            .get(&handle.0)
+            .ok_or(VfsError::NotFound)?
+            .offset;
+        let read = self.read_at(handle, offset, buffer)?;
         if let Some(open) = self.handles.get_mut(&handle.0) {
             open.offset = open
                 .offset
@@ -280,17 +303,37 @@ impl Vfs {
         Ok(read)
     }
 
-    /// 向文件句柄写入。
-    pub fn write(&mut self, handle: FileHandle, data: &[u8]) -> Result<usize, VfsError> {
-        let (instance, node, offset) = {
+    /// 向文件句柄的指定偏移写入。
+    pub fn write_at(
+        &mut self,
+        handle: FileHandle,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<usize, VfsError> {
+        let (instance, node) = {
             let open = self.handles.get(&handle.0).ok_or(VfsError::NotFound)?;
             if !open.flags.write {
                 return Err(VfsError::PermissionDenied);
             }
-            (open.instance, open.node, open.offset)
+            (open.instance, open.node)
         };
+        self.cache.write(
+            &mut *self.instances[instance].backend,
+            instance,
+            node,
+            offset,
+            data,
+        )
+    }
 
-        let written = self.instances[instance].backend.write(node, offset, data)?;
+    /// 向文件句柄写入，并推进偏移。
+    pub fn write(&mut self, handle: FileHandle, data: &[u8]) -> Result<usize, VfsError> {
+        let offset = self
+            .handles
+            .get(&handle.0)
+            .ok_or(VfsError::NotFound)?
+            .offset;
+        let written = self.write_at(handle, offset, data)?;
         if let Some(open) = self.handles.get_mut(&handle.0) {
             open.offset = open
                 .offset
@@ -315,6 +358,35 @@ impl Vfs {
     /// 创建目录。
     pub fn create_dir(&mut self, path: &str) -> Result<(), VfsError> {
         self.create_node(path, FileType::Directory).map(|_| ())
+    }
+
+    /// 调整文件大小。
+    pub fn truncate(&mut self, path: &str, size: u64) -> Result<(), VfsError> {
+        let (instance, node) = self.resolve(path)?;
+        self.instances[instance].backend.truncate(node, size)?;
+        self.cache.invalidate(instance, node);
+        Ok(())
+    }
+
+    /// 删除文件或空目录。
+    pub fn unlink(&mut self, path: &str) -> Result<(), VfsError> {
+        let (parent, name) = split_parent(path)?;
+        let (instance, parent_node) = self.resolve(&parent)?;
+        let node = self.instances[instance]
+            .backend
+            .unlink(parent_node, &name)?;
+        self.dentries.remove(&(instance, parent_node, name));
+        self.cache.invalidate(instance, node);
+        Ok(())
+    }
+
+    /// 返回挂载点。
+    pub fn mounts(&self) -> Vec<String> {
+        let mut mounts = alloc::vec![String::from("/")];
+        for mount in &self.mounts {
+            mounts.push(mount.target.clone());
+        }
+        mounts
     }
 
     fn create_node(&mut self, path: &str, kind: FileType) -> Result<(usize, NodeId), VfsError> {
@@ -445,5 +517,48 @@ mod tests {
             vfs.open("/file/child", OpenFlags::CREATE),
             Err(VfsError::NotDirectory)
         ));
+    }
+    #[test]
+    fn truncates_unlinks_and_reads_at_offsets() {
+        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let handle = vfs.open("/file", OpenFlags::CREATE).expect("创建");
+        vfs.write(handle, b"hello").expect("写入");
+        let mut buffer = [0_u8; 8];
+        assert_eq!(vfs.read_at(handle, 1, &mut buffer).expect("偏移读"), 4);
+        assert_eq!(&buffer[..4], b"ello");
+        vfs.truncate("/file", 2).expect("截断");
+        assert_eq!(vfs.metadata("/file").expect("元数据").size, 2);
+        vfs.close(handle).expect("关闭");
+        vfs.unlink("/file").expect("删除");
+        assert!(matches!(vfs.metadata("/file"), Err(VfsError::NotFound)));
+    }
+
+    #[test]
+    fn sequential_read_1mib() {
+        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let handle = vfs.open("/large", OpenFlags::CREATE).expect("创建");
+        let chunk = [0x5A_u8; 4096];
+        for _ in 0..256 {
+            vfs.write(handle, &chunk).expect("写入");
+        }
+        vfs.close(handle).expect("关闭");
+
+        let handle = vfs.open("/large", OpenFlags::READ_ONLY).expect("打开");
+        let start = std::time::Instant::now();
+        let mut buffer = [0_u8; 4096];
+        let mut total = 0;
+        loop {
+            let read = vfs.read(handle, &mut buffer).expect("读取");
+            if read == 0 {
+                break;
+            }
+            total += read;
+        }
+        let elapsed = start.elapsed();
+        assert_eq!(total, 1024 * 1024);
+        std::eprintln!(
+            "VFS 顺序读：{} MiB/s",
+            (total as f64 / (1024.0 * 1024.0)) / elapsed.as_secs_f64()
+        );
     }
 }

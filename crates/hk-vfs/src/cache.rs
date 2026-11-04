@@ -2,7 +2,6 @@
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::collections::btree_map::Entry;
 
 use crate::vfs::{Backend, NodeId, VfsError};
 
@@ -12,22 +11,46 @@ pub const PAGE_SIZE: usize = 4096;
 type PageKey = (usize, NodeId, u64);
 type Page = Box<[u8; PAGE_SIZE]>;
 
+/// 默认缓存容量（页）。
+pub const DEFAULT_CAPACITY: usize = 64;
+
+struct Entry {
+    page: Page,
+    last_used: u64,
+}
+
 /// 页缓存。
 pub struct PageCache {
-    pages: BTreeMap<PageKey, Page>,
+    pages: BTreeMap<PageKey, Entry>,
+    capacity: usize,
+    clock: u64,
 }
 
 impl PageCache {
-    /// 构造空缓存。
-    pub const fn new() -> Self {
+    /// 构造默认容量的空缓存。
+    pub fn new() -> Self {
+        Self::with_capacity(DEFAULT_CAPACITY)
+    }
+
+    /// 以指定容量构造空缓存。
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
             pages: BTreeMap::new(),
+            capacity: capacity.max(1),
+            clock: 0,
         }
     }
 
     /// 清空全部缓存。
     pub fn clear(&mut self) {
         self.pages.clear();
+    }
+
+    /// 使某节点的全部页失效。
+    pub fn invalidate(&mut self, instance: usize, node: NodeId) {
+        self.pages.retain(|(cached_instance, cached_node, _), _| {
+            *cached_instance != instance || *cached_node != node
+        });
     }
 
     /// 返回缓存页数。
@@ -106,12 +129,36 @@ impl PageCache {
         index: u64,
     ) -> Result<&mut Page, VfsError> {
         let key = (instance, node, index);
-        if let Entry::Vacant(entry) = self.pages.entry(key) {
+        self.clock = self.clock.wrapping_add(1);
+        let clock = self.clock;
+
+        if let Some(entry) = self.pages.get_mut(&key) {
+            entry.last_used = clock;
+        } else {
+            if self.pages.len() >= self.capacity
+                && let Some(oldest) = self
+                    .pages
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.last_used)
+                    .map(|(key, _)| *key)
+            {
+                self.pages.remove(&oldest);
+            }
+
             let mut page = Box::new([0_u8; PAGE_SIZE]);
             backend.read(node, index * PAGE_SIZE as u64, &mut page[..])?;
-            entry.insert(page);
+            self.pages.insert(
+                key,
+                Entry {
+                    page,
+                    last_used: clock,
+                },
+            );
         }
-        self.pages.get_mut(&key).ok_or(VfsError::Backend)
+        self.pages
+            .get_mut(&key)
+            .map(|entry| &mut entry.page)
+            .ok_or(VfsError::Backend)
     }
 }
 
@@ -169,5 +216,27 @@ mod tests {
         let mut buffer = [0_u8; 6];
         assert_eq!(vfs.read(handle, &mut buffer).expect("读"), 6);
         assert_eq!(&buffer, b"cached");
+    }
+    #[test]
+    fn evicts_least_recently_used_pages() {
+        let mut fs = Tmpfs::new();
+        let file = fs.create(0, "file", FileType::File).expect("创建");
+        let first = [1_u8; PAGE_SIZE];
+        let second = [2_u8; PAGE_SIZE];
+        fs.write(file, 0, &first).expect("写第一页");
+        fs.write(file, PAGE_SIZE as u64, &second).expect("写第二页");
+
+        let mut cache = PageCache::with_capacity(1);
+        let mut buffer = [0_u8; 4];
+        cache.read(&fs, 0, file, 0, &mut buffer).expect("读第一页");
+        cache
+            .read(&fs, 0, file, PAGE_SIZE as u64, &mut buffer)
+            .expect("读第二页");
+        assert_eq!(cache.len(), 1);
+        cache
+            .read(&fs, 0, file, 0, &mut buffer)
+            .expect("再读第一页");
+        assert_eq!(cache.len(), 1);
+        assert_eq!(&buffer, &[1; 4]);
     }
 }
