@@ -21,11 +21,12 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
     NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL,
-    NET_POLL_DONE, NET_RX, NET_TX,
+    NET_POLL_DONE, NET_RX, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX,
+    NetStatus,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, notify, recv_data_from, recv_data_try, send, send_data, service_endpoint, tsc,
+    exit, notify, recv_data, recv_data_from, recv_data_try, send, send_data, service_endpoint, tsc,
     tsc_frequency, write, write_u64, yield_now,
 };
 
@@ -39,6 +40,16 @@ const WAIT_MS: u64 = 5_000;
 const DNS_WAIT_MS: u64 = 10_000;
 #[cfg(target_os = "none")]
 const POLL_WAIT_MS: u64 = 100;
+
+/// 收发计数。
+#[cfg(target_os = "none")]
+#[derive(Default)]
+struct Stats {
+    rx_frames: u64,
+    tx_frames: u64,
+    rx_bytes: u64,
+    tx_bytes: u64,
+}
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -72,12 +83,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     };
     let mut frame = [0_u8; NET_FRAME_MAX];
+    let mut stats = Stats::default();
     let deadline = now_ms().saturating_add(WAIT_MS);
     let mut gateway = Ipv4Addr::new(10, 0, 2, 2);
     let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
     let mut leased = false;
     while now_ms() < deadline {
-        poll_once(driver, endpoint, &mut stack, &mut frame);
+        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
         if let Some(lease) = stack.poll_dhcp(dhcp) {
             gateway = lease.gateway.unwrap_or(gateway);
             dns_servers = lease.dns;
@@ -113,7 +125,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut reply = [0_u8; 64];
     let mut ping_ok = false;
     while now_ms() < deadline {
-        poll_once(driver, endpoint, &mut stack, &mut frame);
+        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
         if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
             && length >= 8
         {
@@ -141,7 +153,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let connect_deadline = now_ms().saturating_add(WAIT_MS);
     let mut connected = false;
     while now_ms() < connect_deadline {
-        poll_once(driver, endpoint, &mut stack, &mut frame);
+        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
         if stack.tcp_may_send(tcp) {
             connected = true;
             break;
@@ -156,7 +168,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut tcp_ok = false;
     let reply_deadline = now_ms().saturating_add(WAIT_MS);
     while now_ms() < reply_deadline {
-        poll_once(driver, endpoint, &mut stack, &mut frame);
+        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
         if let Ok(Some(length)) = stack.recv_tcp(tcp, &mut reply)
             && length >= 4
         {
@@ -187,21 +199,56 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             name,
             driver,
             endpoint,
+            &mut stats,
             &mut frame,
         );
     }
 
     loop {
-        let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut frame);
-        if label == NET_RX {
-            let _ = stack.push_frame(&frame[..length.min(frame.len())]);
-            stack.poll(now_ms());
-            while let Some(packet) = stack.take_frame() {
-                let _ = send_data(driver, NET_TX, &packet);
+        let (label, _word, sender, length) = recv_data(endpoint, &mut frame);
+        match label {
+            NET_RX => {
+                let length = length.min(frame.len());
+                let _ = stack.push_frame(&frame[..length]);
+                stats.rx_frames = stats.rx_frames.saturating_add(1);
+                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
+                stack.poll(now_ms());
+                while let Some(packet) = stack.take_frame() {
+                    stats.tx_frames = stats.tx_frames.saturating_add(1);
+                    stats.tx_bytes = stats.tx_bytes.saturating_add(packet.len() as u64);
+                    let _ = send_data(driver, NET_TX, &packet);
+                }
+                let _ = notify(driver, NET_NOTIFY_TX);
             }
-            let _ = notify(driver, NET_NOTIFY_TX);
+            NET_STATUS_REQUEST => {
+                let mut encoded = [0_u8; NET_STATUS_BYTES];
+                if let Some(length) = status_blob(&stack, &stats, &mut encoded) {
+                    let _ = send_data(sender, NET_STATUS_RESPONSE, &encoded[..length]);
+                }
+            }
+            _ => {}
         }
     }
+}
+
+/// 把接口状态与收发计数编码为线协议字节串。
+#[cfg(target_os = "none")]
+fn status_blob(stack: &Stack, stats: &Stats, buffer: &mut [u8]) -> Option<usize> {
+    let status = stack.status();
+    NetStatus {
+        mac: status.mac,
+        ipv4: status.ipv4.map_or([0; 4], |address| address.octets()),
+        has_ipv4: status.ipv4.is_some(),
+        prefix: status.prefix,
+        gateway: status.gateway.map_or([0; 4], |address| address.octets()),
+        has_gateway: status.gateway.is_some(),
+        sockets: status.sockets as u16,
+        rx_frames: stats.rx_frames,
+        tx_frames: stats.tx_frames,
+        rx_bytes: stats.rx_bytes,
+        tx_bytes: stats.tx_bytes,
+    }
+    .encode(buffer)
 }
 
 /// 用给定 DNS 服务器解析名称，并把结果写入控制台。
@@ -212,6 +259,7 @@ fn resolve(
     name: &str,
     driver: u64,
     endpoint: u64,
+    stats: &mut Stats,
     frame: &mut [u8; NET_FRAME_MAX],
 ) {
     let Ok(dns) = stack.open_dns(servers) else {
@@ -228,7 +276,7 @@ fn resolve(
     };
     let deadline = now_ms().saturating_add(DNS_WAIT_MS);
     while now_ms() < deadline {
-        poll_once(driver, endpoint, stack, frame);
+        poll_once(driver, endpoint, stack, stats, frame);
         match stack.poll_dns(dns, query) {
             Ok(Some(addresses)) if !addresses.is_empty() => {
                 write("hk-server-net: dns ok".as_bytes());
@@ -295,7 +343,13 @@ fn write_hex(mut value: u16) {
 }
 
 #[cfg(target_os = "none")]
-fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET_FRAME_MAX]) {
+fn poll_once(
+    driver: u64,
+    endpoint: u64,
+    stack: &mut Stack,
+    stats: &mut Stats,
+    frame: &mut [u8; NET_FRAME_MAX],
+) {
     // 先入队再通知：发送为异步，消息已在端点队列中，唤醒不会丢失。
     let _ = send(driver, NET_POLL, 0);
     let _ = notify(driver, NET_NOTIFY_TX);
@@ -305,7 +359,10 @@ fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET
         let (label, _word, _sender, length) = recv_data_try(endpoint, frame);
         match label {
             NET_RX => {
-                let _ = stack.push_frame(&frame[..length.min(frame.len())]);
+                let length = length.min(frame.len());
+                let _ = stack.push_frame(&frame[..length]);
+                stats.rx_frames = stats.rx_frames.saturating_add(1);
+                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
             }
             NET_POLL_DONE => break,
             0 => {
@@ -319,6 +376,8 @@ fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET
     }
     stack.poll(now_ms());
     while let Some(packet) = stack.take_frame() {
+        stats.tx_frames = stats.tx_frames.saturating_add(1);
+        stats.tx_bytes = stats.tx_bytes.saturating_add(packet.len() as u64);
         let _ = send_data(driver, NET_TX, &packet);
     }
     let _ = notify(driver, NET_NOTIFY_TX);

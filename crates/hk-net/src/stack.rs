@@ -32,6 +32,21 @@ pub struct DhcpLease {
     pub dns: Vec<Ipv4Address>,
 }
 
+/// 接口状态快照。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StackStatus {
+    /// 以太网地址。
+    pub mac: [u8; 6],
+    /// IPv4 地址；未配置时为空。
+    pub ipv4: Option<Ipv4Address>,
+    /// IPv4 前缀长度。
+    pub prefix: u8,
+    /// 默认网关。
+    pub gateway: Option<Ipv4Address>,
+    /// 当前打开的 socket 数量。
+    pub sockets: usize,
+}
+
 /// 一个以太网接口上的 smoltcp 协议栈。
 pub struct Stack {
     device: FrameQueue,
@@ -132,6 +147,36 @@ impl Stack {
                     .update_ip_addrs(|addresses| addresses.clear());
                 None
             }
+        }
+    }
+
+    /// 返回接口状态快照。
+    pub fn status(&self) -> StackStatus {
+        let HardwareAddress::Ethernet(address) = self.interface.hardware_addr();
+        let mac = address.0;
+        let mut ipv4 = None;
+        let mut prefix = 0;
+        for address in self.interface.ip_addrs() {
+            if let IpCidr::Ipv4(cidr) = address {
+                ipv4 = Some(cidr.address());
+                prefix = cidr.prefix_len();
+                break;
+            }
+        }
+        let gateway =
+            self.interface
+                .routes()
+                .get_default_ipv4_route()
+                .and_then(|route| match route.via_router {
+                    IpAddress::Ipv4(address) => Some(address),
+                    _ => None,
+                });
+        StackStatus {
+            mac,
+            ipv4,
+            prefix,
+            gateway,
+            sockets: self.sockets.iter().count(),
         }
     }
 

@@ -34,14 +34,15 @@ pub fn run(
 ) -> Result<(), String> {
     let mut modules = loader::boot_modules(info.server_modules);
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
-    if !network_enabled {
-        modules.retain(|module| {
-            !matches!(
-                loader::service_name(module.name),
-                "hk-server-virtio-net" | "hk-server-net"
-            )
-        });
-    }
+    // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
+    // “找不到 Network Server”的噪声与额外任务。
+    modules.retain(|module| {
+        let name = loader::service_name(module.name);
+        if name == "hk-server-netstat" {
+            return false;
+        }
+        network_enabled || !matches!(name, "hk-server-virtio-net" | "hk-server-net")
+    });
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));
     }
