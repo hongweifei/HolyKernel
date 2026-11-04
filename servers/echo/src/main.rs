@@ -21,9 +21,7 @@ const NOTIFY_REQUEST: u64 = 0x300;
 pub extern "C" fn _start(endpoint: u64) -> ! {
     loop {
         let (label, word, sender, handle) = recv_handle(endpoint);
-        write("hk-server-echo 收到请求 ".as_bytes());
-        write_u64(word);
-        write(b"\n");
+        write_request(word);
         if handle != 0 {
             write("hk-server-echo 收到句柄 ".as_bytes());
             write_u64(handle);
@@ -40,6 +38,34 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             send(sender, label + 1, word * 2);
         }
     }
+}
+
+#[cfg(target_os = "none")]
+fn write_request(word: u64) {
+    let prefix = "hk-server-echo 收到请求 ";
+    let mut buffer = [0_u8; 64];
+    buffer[..prefix.len()].copy_from_slice(prefix.as_bytes());
+
+    let mut digits = [0_u8; 20];
+    let mut length = 0;
+    let mut value = word;
+    loop {
+        digits[length] = b'0' + (value % 10) as u8;
+        length += 1;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+
+    let mut end = prefix.len();
+    while length > 0 {
+        length -= 1;
+        buffer[end] = digits[length];
+        end += 1;
+    }
+    buffer[end] = b'\n';
+    write(&buffer[..=end]);
 }
 
 #[cfg(target_os = "none")]

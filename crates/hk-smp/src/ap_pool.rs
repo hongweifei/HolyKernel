@@ -1,4 +1,4 @@
-//! SMP AP 停泊与在线计数。
+//! AP 停泊与在线计数。
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};

@@ -13,12 +13,9 @@ path = "src/main.rs"
 [dependencies]
 hk-boot = { version = "0.1.0", path = "../../crates/hk-boot" }
 hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
-hk-handle = { version = "0.1.0", path = "../../crates/hk-handle" }
-hk-ipc = { version = "0.1.0", path = "../../crates/hk-ipc" }
 hk-kernel = { version = "0.1.0", path = "../../crates/hk-kernel" }
 hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/hk-platform-x86_64" }
 hk-root-server = { version = "0.1.0", path = "../../crates/hk-root-server" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-shell = { version = "0.1.0", path = "../../crates/hk-shell" }
 hk-test = { version = "0.1.0", path = "../../crates/hk-test" }
 spin = "0.9"

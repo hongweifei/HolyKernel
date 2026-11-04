@@ -4,8 +4,12 @@
 
 #![no_std]
 
+extern crate alloc;
+
+pub mod ap_pool;
 pub mod idle;
 pub mod tlb;
 
+pub use ap_pool::{AP_POOL, ApPool};
 pub use idle::IdleState;
 pub use tlb::{TlbHardware, TlbShootdown};

@@ -11,6 +11,7 @@ hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
 hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
+hk-smp = { version = "0.1.0", path = "../hk-smp" }
 hk-trace = { version = "0.1.0", path = "../hk-trace" }
 spin = "0.9"
 

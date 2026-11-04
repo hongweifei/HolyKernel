@@ -24,15 +24,7 @@ const USER_STACK_SIZE: u64 = 8 * PAGE_SIZE as u64;
 /// 各服务用户栈之间的间隔。
 const USER_STACK_STRIDE: u64 = 0x1_0000;
 
-/// 启动时装载的服务；其余模块按需启动。
-const BOOT_SERVICES: &[&str] = &[
-    "hk-server-demo",
-    "hk-server-echo",
-    "hk-server-device",
-    "hk-server-spin",
-];
-
-/// 加载全部服务模块并运行到退出。
+/// 加载默认启动服务并运行到退出。
 pub fn run(
     info: &BootInfo,
     direct_map_base: u64,
@@ -40,14 +32,7 @@ pub fn run(
     paging: &PageTable,
     services: &mut ServiceTable,
 ) -> Result<(), String> {
-    let modules: Vec<&BootModule> = info
-        .server_modules
-        .iter()
-        .filter(|module| {
-            !loader::is_script(module.name)
-                && BOOT_SERVICES.contains(&loader::service_name(module.name))
-        })
-        .collect();
+    let modules = loader::boot_modules(info.server_modules);
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));
     }
@@ -60,7 +45,15 @@ pub fn run(
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
-        let context = load(module, index, endpoint, direct_map_base, allocator, paging)?;
+        let context = load(
+            info,
+            module,
+            index,
+            endpoint,
+            direct_map_base,
+            allocator,
+            paging,
+        )?;
         services.register(names[index]);
         runtime::attach(index, context);
     }
@@ -70,6 +63,7 @@ pub fn run(
 }
 
 fn load(
+    info: &BootInfo,
     module: &BootModule,
     index: usize,
     endpoint: u64,
@@ -77,11 +71,9 @@ fn load(
     allocator: &mut FrameAllocator,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
-    let module_virtual = direct_map_base + module.region.base.get();
-    // SAFETY: 模块区域由 bootloader 载入并落在 HHDM 映射内，长度来自启动信息。
-    let bytes = unsafe {
-        core::slice::from_raw_parts(module_virtual as *const u8, module.region.len as usize)
-    };
+    let bytes = info
+        .module_bytes(module)
+        .ok_or_else(|| format!("模块不在 direct map 内：{}", module.name))?;
 
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
     let (arena_base, arena_size) = runtime::arena(index);
@@ -154,5 +146,5 @@ pub fn load_service(
         .iter()
         .find(|module| !loader::is_script(module.name) && loader::service_name(module.name) == name)
         .ok_or_else(|| format!("未知服务：{name}"))?;
-    load(module, slot, 0, direct_map_base, allocator, paging)
+    load(info, module, slot, 0, direct_map_base, allocator, paging)
 }

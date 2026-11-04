@@ -51,7 +51,9 @@ impl FramebufferConsole {
     pub fn from_boot_info(boot: &BootInfo) -> Option<Self> {
         let framebuffer = boot.framebuffer?;
         let direct_map = boot.direct_map?;
-        Some(Self::new(&framebuffer, direct_map.virt_base.get()))
+        let mapped = direct_map.virtual_address(framebuffer.phys)?;
+        let direct_map_base = mapped.get().checked_sub(framebuffer.phys.get())?;
+        Some(Self::new(&framebuffer, direct_map_base))
     }
 
     /// 以帧缓冲描述与 direct map 基址创建控制台。

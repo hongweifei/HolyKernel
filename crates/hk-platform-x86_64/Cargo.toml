@@ -12,8 +12,8 @@ hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-keyboard-ps2 = { version = "0.1.0", path = "../hk-keyboard-ps2" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
 hk-smp = { version = "0.1.0", path = "../hk-smp" }
+hk-syscall = { version = "0.1.0", path = "../hk-syscall" }
 hk-test = { version = "0.1.0", path = "../hk-test" }
 hk-uart-16550 = { version = "0.1.0", path = "../hk-uart-16550" }
 spin = "0.9"

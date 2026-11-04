@@ -2,10 +2,29 @@
 //!
 //! 页的分配与映射由平台的 [`UserMemory`] 提供；本模块只负责布局与镜像解析。
 
+use alloc::vec::Vec;
 use core::fmt;
 
 use hk_elf::ElfError;
-use hk_hal::{PAGE_SIZE, UserMemory};
+use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
+
+/// 启动时默认装载的服务；其余模块按需启动。
+pub const BOOT_SERVICES: &[&str] = &[
+    "hk-server-demo",
+    "hk-server-echo",
+    "hk-server-device",
+    "hk-server-spin",
+];
+
+/// 从启动模块中选出默认启动的服务。
+pub fn boot_modules(modules: &[BootModule]) -> Vec<&BootModule> {
+    modules
+        .iter()
+        .filter(|module| {
+            !is_script(module.name) && BOOT_SERVICES.contains(&service_name(module.name))
+        })
+        .collect()
+}
 
 /// 镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +107,7 @@ pub fn is_script(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hk_hal::{MemoryRegion, PhysAddr, RegionKind};
 
     #[test]
     fn extracts_module_names() {
@@ -98,5 +118,27 @@ mod tests {
         );
         assert!(is_script("boot():/boot/scripts/boot.hsh"));
         assert!(!is_script("boot():/boot/hk-server-demo"));
+    }
+
+    #[test]
+    fn selects_boot_services_only() {
+        static MODULES: [BootModule; 3] = [
+            BootModule {
+                name: "boot():/boot/hk-server-demo",
+                region: MemoryRegion::new(PhysAddr::new(0x1000), 0x1000, RegionKind::Module),
+            },
+            BootModule {
+                name: "boot():/boot/scripts/boot.hsh",
+                region: MemoryRegion::new(PhysAddr::new(0x2000), 0x1000, RegionKind::Module),
+            },
+            BootModule {
+                name: "boot():/boot/hk-server-fault",
+                region: MemoryRegion::new(PhysAddr::new(0x3000), 0x1000, RegionKind::Module),
+            },
+        ];
+
+        let selected = boot_modules(&MODULES);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].name, "boot():/boot/hk-server-demo");
     }
 }

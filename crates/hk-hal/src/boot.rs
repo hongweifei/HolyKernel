@@ -149,6 +149,15 @@ impl DirectMapInfo {
         };
         base.get() >= self.phys_base.get() && end <= map_end
     }
+
+    /// 把 direct map 覆盖的物理地址转换为虚拟地址。
+    pub fn virtual_address(&self, physical: PhysAddr) -> Option<VirtAddr> {
+        let offset = physical.get().checked_sub(self.phys_base.get())?;
+        if offset >= self.len {
+            return None;
+        }
+        self.virt_base.get().checked_add(offset).map(VirtAddr::new)
+    }
 }
 
 /// bootloader 提供的模块，例如服务器 ELF 镜像与服务清单。
@@ -350,6 +359,20 @@ impl BootInfo {
         self.memory_map
             .iter()
             .any(|region| base.get() >= region.base.get() && end <= region.end().get())
+    }
+
+    /// 返回启动模块的字节视图。
+    ///
+    /// 要求模块落在 direct map 覆盖的物理区间内；否则返回 `None`。
+    pub fn module_bytes(&self, module: &BootModule) -> Option<&[u8]> {
+        let direct_map = self.direct_map?;
+        if !direct_map.covers(module.region.base, module.region.len) {
+            return None;
+        }
+        let address = direct_map.virtual_address(module.region.base)?;
+        let length = usize::try_from(module.region.len).ok()?;
+        // SAFETY: BootInfo 的 direct map 描述承诺该物理区间已映射；长度来自模块区域。
+        Some(unsafe { core::slice::from_raw_parts(address.get() as *const u8, length) })
     }
 
     /// 判断物理地址是否落在内存 map 描述的任一区域内。

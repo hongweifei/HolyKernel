@@ -100,11 +100,11 @@ impl ShellHost for Host<'_, '_> {
             .find(|module| hk_root_server::loader::module_name(module.name) == wanted)
             .ok_or_else(|| format!("未找到脚本：{wanted}"))?;
 
-        let address = self.loader.direct_map_base + module.region.base.get();
-        // SAFETY: 脚本模块由 bootloader 载入并落在 HHDM 映射内，长度来自启动信息。
-        let bytes = unsafe {
-            core::slice::from_raw_parts(address as *const u8, module.region.len as usize)
-        };
+        let bytes = self
+            .loader
+            .info
+            .module_bytes(module)
+            .ok_or_else(|| format!("脚本不在 direct map 内：{wanted}"))?;
         core::str::from_utf8(bytes)
             .map(String::from)
             .map_err(|_| format!("脚本不是 UTF-8：{wanted}"))

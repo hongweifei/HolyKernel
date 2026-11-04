@@ -1032,7 +1032,7 @@ const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
 const MAX_WRITE: usize = 4096;
 
 fn handle_syscall(frame: &mut InterruptFrame) {
-    if frame.rax == hk_server_api::SYS_WRITE {
+    if frame.rax == hk_syscall::SYS_WRITE {
         let pointer = frame.rdi;
         let length = frame.rsi as usize;
         frame.rax = if user_range_valid(pointer, length) {
@@ -1055,7 +1055,7 @@ fn handle_syscall(frame: &mut InterruptFrame) {
     }
 
     match frame.rax {
-        hk_server_api::SYS_EXIT => leave_user(),
+        hk_syscall::SYS_EXIT => leave_user(),
         _ => frame.rax = u64::MAX,
     }
 }
