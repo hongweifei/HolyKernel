@@ -36,6 +36,8 @@ const TCP_PORT: u16 = 45678;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
 #[cfg(target_os = "none")]
+const DNS_WAIT_MS: u64 = 10_000;
+#[cfg(target_os = "none")]
 const POLL_WAIT_MS: u64 = 100;
 
 #[cfg(target_os = "none")]
@@ -224,7 +226,7 @@ fn resolve(
             return;
         }
     };
-    let deadline = now_ms().saturating_add(WAIT_MS);
+    let deadline = now_ms().saturating_add(DNS_WAIT_MS);
     while now_ms() < deadline {
         poll_once(driver, endpoint, stack, frame);
         match stack.poll_dns(dns, query) {

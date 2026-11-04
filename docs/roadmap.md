@@ -158,7 +158,7 @@ flowchart LR
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类、独立驱动服务与 `hk-server-net`，`smoke --mode net` 校验 MAC、Net Endpoint 握手、DHCP 租约与 `ping 10.0.2.2`；`hk-net` TCP/DNS API 已有双栈主机测试（含 A/AAAA/失败/超时），QEMU `net` 模式已连接宿主 echo 验证 TCP 握手/回显，并用 `net.dns=localhost` 验证 DNS 解析；内核 `send` 改为异步入队避免双向发送死锁，DNS 默认冒烟待 virtio-net 非阻塞 TX 后再纳入；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
+5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类、独立驱动服务与 `hk-server-net`，`smoke --mode net` 校验 MAC、Net Endpoint 握手、DHCP 租约与 `ping 10.0.2.2`；`hk-net` TCP/DNS API 已有双栈主机测试（含 A/AAAA/失败/超时），QEMU `net` 模式已连接宿主 echo 验证 TCP 握手/回显，并用 `net.dns=localhost` 验证 DNS 解析；内核 `send` 改为异步入队避免双向发送死锁，网络驱动改为非阻塞收发去掉 TX 自旋，DNS 默认冒烟待解析稳定性修复后再纳入；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
 
 ---
 
