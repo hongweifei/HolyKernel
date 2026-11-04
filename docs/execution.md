@@ -249,7 +249,8 @@ pub struct CivilTime { ... }
 
 - 每 CPU 一个时钟源；选择全局最稳定的作为单调时间。
 - 定时器轮处理 IPC 超时、时间片、Notification 等待。
-- RTC 在启动时读取；民用时间由单调时钟推进。
+- 平台通过 `SYS_CIVIL_TIME` 读取 RTC 民用时间（年/月/日/时/分/秒/纳秒）；RTC 缺失时返回空值。
+- 民用时间交给需要日历语义的服务；ext4 后端只在磁盘格式边界换算为 ext4 时间戳。
 - POSIX 时间通过 POSIX Server 与 libc 暴露。
 
 ---

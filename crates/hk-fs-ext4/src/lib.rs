@@ -17,6 +17,7 @@ use core::cell::RefCell;
 use core::fmt;
 
 use hk_block::BlockDevice;
+use hk_hal::CivilTime;
 use hk_vfs::{Backend, DirEntry, FileType, Metadata, NodeId, Vfs, VfsError};
 use rsext4::{
     BlockIo, Clock, DeviceCapabilities, DeviceGeometry, DirectoryCursor, DirectoryEntryType,
@@ -36,6 +37,48 @@ impl Clock for FixedClock {
     fn now(&self) -> Ext4Result<Ext4Timestamp> {
         Ok(Ext4Timestamp::UNIX_EPOCH)
     }
+}
+
+/// 平台民用时间来源。
+pub trait WallClock {
+    /// 返回当前民用时间；不可用时返回 `None`。
+    fn now(&self) -> Option<CivilTime>;
+}
+
+/// 把民用时间适配为 ext4 的磁盘时间戳。
+struct ClockAdapter<C>(C);
+
+impl<C: WallClock> Clock for ClockAdapter<C> {
+    fn now(&self) -> Ext4Result<Ext4Timestamp> {
+        Ok(match self.0.now() {
+            Some(time) => Ext4Timestamp::new(civil_seconds(time), time.nanosecond),
+            None => Ext4Timestamp::UNIX_EPOCH,
+        })
+    }
+}
+
+/// ext4 磁盘格式使用自 1970 起的秒数；换算只发生在后端边界。
+fn civil_seconds(time: CivilTime) -> i64 {
+    let days = days_from_civil(
+        i64::from(time.year),
+        i64::from(time.month),
+        i64::from(time.day),
+    );
+    let seconds = days * 86_400
+        + i64::from(time.hour) * 3_600
+        + i64::from(time.minute) * 60
+        + i64::from(time.second);
+    seconds.max(0)
+}
+
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let shifted_month = (month + 9) % 12;
+    let doy = (153 * shifted_month + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 /// 确定性熵源：ext4 只在启用 MMP 时需要。
@@ -154,6 +197,15 @@ where
     rsext4::format(Disk::new(device), clock, MkfsOptions::default()).map(Disk::into_inner)
 }
 
+/// 以平台民用时间格式化块设备为 ext4。
+pub fn format_with_wall_clock<D, C>(device: D, clock: C) -> Result<D, Ext4Error>
+where
+    D: BlockDevice,
+    C: WallClock + Send + 'static,
+{
+    format_with_clock(device, ClockAdapter(clock))
+}
+
 /// 挂载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MountError {
@@ -186,6 +238,23 @@ pub fn mount_at<D: BlockDevice + 'static>(
         .map_err(MountError::Vfs)
 }
 
+/// 以平台民用时间把 ext4 设备挂载到 VFS 路径。
+pub fn mount_at_with_wall_clock<D, C>(
+    filesystem: &mut Vfs,
+    target: &str,
+    device: D,
+    clock: C,
+) -> Result<(), MountError>
+where
+    D: BlockDevice + 'static,
+    C: WallClock + Send + 'static,
+{
+    let backend = Ext4Backend::mount_with_wall_clock(device, clock).map_err(MountError::Ext4)?;
+    filesystem
+        .mount(target, Box::new(backend))
+        .map_err(MountError::Vfs)
+}
+
 /// ext4 VFS 后端。
 pub struct Ext4Backend<D: BlockDevice> {
     filesystem: RefCell<Ext4<Disk<D>, Services>>,
@@ -197,7 +266,7 @@ impl<D: BlockDevice> Ext4Backend<D> {
         Self::mount_with_clock(device, FixedClock)
     }
 
-    /// 以指定时钟挂载 ext4；平台可注入 RTC/时间服务。
+    /// 以指定时钟挂载 ext4。
     pub fn mount_with_clock<C>(device: D, clock: C) -> Result<Self, Ext4Error>
     where
         C: Clock + Send + 'static,
@@ -210,6 +279,14 @@ impl<D: BlockDevice> Ext4Backend<D> {
         Ok(Self {
             filesystem: RefCell::new(filesystem),
         })
+    }
+
+    /// 以平台民用时间挂载 ext4。
+    pub fn mount_with_wall_clock<C>(device: D, clock: C) -> Result<Self, Ext4Error>
+    where
+        C: WallClock + Send + 'static,
+    {
+        Self::mount_with_clock(device, ClockAdapter(clock))
     }
 }
 
@@ -456,11 +533,42 @@ mod tests {
         }
     }
 
+    struct FakeClock(CivilTime);
+
+    impl WallClock for FakeClock {
+        fn now(&self) -> Option<CivilTime> {
+            Some(self.0)
+        }
+    }
+
+    #[test]
+    fn converts_civil_time_to_disk_seconds() {
+        let time = CivilTime {
+            year: 2026,
+            month: 11,
+            day: 4,
+            hour: 12,
+            minute: 34,
+            second: 56,
+            nanosecond: 789,
+        };
+        assert_eq!(civil_seconds(time), 1_793_795_696);
+    }
+
     #[test]
     fn mounts_ext4_through_vfs() {
         let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
         vfs.create_dir("/disk").expect("目录");
-        mount_at(&mut vfs, "/disk", formatted()).expect("挂载 ext4");
+        let clock = FakeClock(CivilTime {
+            year: 2026,
+            month: 11,
+            day: 4,
+            hour: 12,
+            minute: 34,
+            second: 56,
+            nanosecond: 0,
+        });
+        mount_at_with_wall_clock(&mut vfs, "/disk", formatted(), clock).expect("挂载 ext4");
 
         let handle = vfs
             .open("/disk/hello", OpenFlags::CREATE)

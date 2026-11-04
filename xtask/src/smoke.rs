@@ -6,9 +6,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use hk_block::{MemoryDisk, SECTOR_SIZE};
+use hk_hal::CivilTime;
 use hk_vfs::Backend;
 use qmp::inject;
 
@@ -97,6 +98,7 @@ impl SmokeMode {
                 "hk-server-demo 通知等待 ok",
                 "hk-server-device: 发现",
                 "hk-server-virtio: virtio-blk sectors=131072",
+                "hk-server-vfs: rtc ok",
                 "hk-server-vfs: ext4 mounted",
                 "hk-server-demo ext4 ok",
                 "hk-server-spin: done",
@@ -314,6 +316,49 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     Ok(())
 }
 
+/// 宿主墙钟，用于给测试镜像写入正常时间戳。
+struct HostClock;
+
+impl hk_fs_ext4::WallClock for HostClock {
+    fn now(&self) -> Option<CivilTime> {
+        host_civil_time()
+    }
+}
+
+fn host_civil_time() -> Option<CivilTime> {
+    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    let seconds = elapsed.as_secs() as i64;
+    let days = seconds.div_euclid(86_400);
+    let within = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    Some(CivilTime {
+        year: u16::try_from(year).ok()?,
+        month: month as u8,
+        day: day as u8,
+        hour: (within / 3_600) as u8,
+        minute: ((within % 3_600) / 60) as u8,
+        second: (within % 60) as u8,
+        nanosecond: elapsed.subsec_nanos(),
+    })
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    if month <= 2 {
+        (year + 1, month, day)
+    } else {
+        (year, month, day)
+    }
+}
+
 /// 生成新的 ext4 测试磁盘。
 fn prepare_disk() -> Result<PathBuf> {
     let path = workspace::root().join("build/test-disk.img");
@@ -323,7 +368,7 @@ fn prepare_disk() -> Result<PathBuf> {
     }
     let blocks = TEST_DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
-    let disk = hk_fs_ext4::format(disk)
+    let disk = hk_fs_ext4::format_with_wall_clock(disk, HostClock)
         .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?;
     fs::write(&path, disk.into_data())
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;

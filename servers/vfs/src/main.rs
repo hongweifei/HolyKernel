@@ -16,7 +16,9 @@ use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_block::ipc::ClientDisk;
 #[cfg(target_os = "none")]
-use hk_fs_ext4::mount_at;
+use hk_fs_ext4::mount_at_with_wall_clock;
+#[cfg(target_os = "none")]
+use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::BumpHeap;
 #[cfg(target_os = "none")]
@@ -104,6 +106,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = filesystem.create_dir("/proc");
     let _ = filesystem.mount("/proc", Box::new(Procfs::new()));
     let _ = filesystem.create_dir("/disk");
+    match hk_server_api::civil_time() {
+        Some(time) if time.year >= 2000 => write("hk-server-vfs: rtc ok\n".as_bytes()),
+        _ => write("hk-server-vfs: rtc 不可用\n".as_bytes()),
+    }
     if mount_ext4(&mut filesystem, endpoint) {
         write("hk-server-vfs: ext4 mounted\n".as_bytes());
     } else {
@@ -131,6 +137,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
+/// 平台民用时间来源。
+#[cfg(target_os = "none")]
+struct RealtimeClock;
+
+#[cfg(target_os = "none")]
+impl hk_fs_ext4::WallClock for RealtimeClock {
+    fn now(&self) -> Option<CivilTime> {
+        hk_server_api::civil_time()
+    }
+}
+
 /// 等待驱动就绪并在 `/disk` 挂载 ext4。
 #[cfg(target_os = "none")]
 fn mount_ext4(filesystem: &mut Vfs, endpoint: u64) -> bool {
@@ -139,7 +156,7 @@ fn mount_ext4(filesystem: &mut Vfs, endpoint: u64) -> bool {
             let _ = yield_now();
             continue;
         };
-        return mount_at(filesystem, "/disk", disk).is_ok();
+        return mount_at_with_wall_clock(filesystem, "/disk", disk, RealtimeClock).is_ok();
     }
     false
 }

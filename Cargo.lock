@@ -173,6 +173,7 @@ name = "hk-fs-ext4"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+ "hk-hal",
  "hk-vfs",
  "rsext4",
 ]
@@ -276,6 +277,7 @@ dependencies = [
 name = "hk-server-api"
 version = "0.1.0"
 dependencies = [
+ "hk-hal",
  "hk-syscall",
 ]
 
@@ -355,6 +357,7 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-fs-ext4",
+ "hk-hal",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
@@ -629,6 +632,7 @@ dependencies = [
  "clap",
  "hk-block",
  "hk-fs-ext4",
+ "hk-hal",
  "hk-vfs",
 ]
 

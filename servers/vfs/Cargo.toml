@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
 hk-fs-ext4 = { version = "0.1.0", path = "../../crates/hk-fs-ext4" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-vfs = { version = "0.1.0", path = "../../crates/hk-vfs" }
 
