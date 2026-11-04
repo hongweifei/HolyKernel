@@ -94,26 +94,6 @@ pub fn attach(index: usize, context: InterruptFrame) {
     RUNTIME.attach(index, context);
 }
 
-/// 返回已登记任务数量。
-pub fn task_count() -> usize {
-    RUNTIME.task_count()
-}
-
-/// 按名称返回任务的 TCB 编号。
-pub fn tcb_of(name: &str) -> Option<u64> {
-    RUNTIME.tcb_of(name)
-}
-
-/// 返回 Root 线程编号，作为引导期服务的父任务。
-pub fn root() -> u64 {
-    RUNTIME.root()
-}
-
-/// 装载新任务，返回分配的端点编号。
-pub fn start(name: &str, context: InterruptFrame, parent: Option<u64>) -> Result<u64, String> {
-    RUNTIME.start(name, context, parent)
-}
-
 /// 生成任务视图快照。
 pub fn tasks() -> Vec<TaskInfo> {
     RUNTIME.tasks()
@@ -149,6 +129,26 @@ pub fn run_ap(cpu: usize) -> ! {
 /// 同步其他 CPU 记录的服务退出。
 pub fn drain_exits(table: &mut ServiceTable) {
     RUNTIME.drain_exits(table);
+}
+
+/// 启动服务。
+pub fn start_service(
+    loader: &mut crate::shell::Loader<'_>,
+    services: &mut ServiceTable,
+    name: &str,
+    parent: Option<&str>,
+) -> String {
+    hk_root_server::service::start(&RUNTIME, services, loader, name, parent)
+}
+
+/// 重启已退出的服务。
+pub fn restart_service(
+    loader: &mut crate::shell::Loader<'_>,
+    services: &mut ServiceTable,
+    name: &str,
+    parent: Option<&str>,
+) -> String {
+    hk_root_server::service::restart(&RUNTIME, services, loader, name, parent)
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {

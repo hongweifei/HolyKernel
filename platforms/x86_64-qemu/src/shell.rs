@@ -9,6 +9,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, Console};
+use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageTable, Serial, keyboard};
 use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
 use hk_shell::{Session, ShellHost, ShellIo};
@@ -58,6 +59,19 @@ struct Host<'a, 'b> {
     loader: &'a mut Loader<'b>,
 }
 
+impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> {
+    fn load(&mut self, name: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
+        loader::load_service(
+            self.info,
+            name,
+            slot,
+            self.direct_map_base,
+            self.allocator,
+            self.paging,
+        )
+    }
+}
+
 impl ShellHost for Host<'_, '_> {
     fn tasks(&self) -> Vec<TaskInfo> {
         runtime::tasks()
@@ -77,13 +91,11 @@ impl ShellHost for Host<'_, '_> {
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
-        let parent = parent.and_then(runtime::tcb_of).or(Some(runtime::root()));
-        start_service(self.loader, self.services, name, parent)
+        runtime::start_service(self.loader, self.services, name, parent)
     }
 
     fn restart(&mut self, name: &str, parent: Option<&str>) -> String {
-        let parent = parent.and_then(runtime::tcb_of).or(Some(runtime::root()));
-        restart_service(self.loader, self.services, name, parent)
+        runtime::restart_service(self.loader, self.services, name, parent)
     }
 
     fn script(&self, name: &str) -> Result<String, String> {
@@ -193,65 +205,6 @@ fn wait_byte(console: &Serial) -> u8 {
             core::arch::asm!("sti; hlt; cli", options(nomem, nostack));
         }
     }
-}
-
-fn start_service(
-    loader: &mut Loader<'_>,
-    services: &mut ServiceTable,
-    name: &str,
-    parent: Option<u64>,
-) -> String {
-    let running = runtime::tasks()
-        .iter()
-        .any(|task| task.name == name && task.state != "exited");
-    if running {
-        return format!("已在运行：{name}\n");
-    }
-    launch(loader, services, name, parent, "已启动")
-}
-
-fn restart_service(
-    loader: &mut Loader<'_>,
-    services: &mut ServiceTable,
-    name: &str,
-    parent: Option<u64>,
-) -> String {
-    let Some(task) = runtime::tasks().into_iter().find(|task| task.name == name) else {
-        return format!("未知服务：{name}\n");
-    };
-    if task.state != "exited" {
-        return format!("仍在运行：{name}\n");
-    }
-    launch(loader, services, name, parent, "已重启")
-}
-
-fn launch(
-    loader: &mut Loader<'_>,
-    services: &mut ServiceTable,
-    name: &str,
-    parent: Option<u64>,
-    verb: &str,
-) -> String {
-    let slot = runtime::task_count();
-    let context = match loader::load_service(
-        loader.info,
-        name,
-        slot,
-        loader.direct_map_base,
-        loader.allocator,
-        loader.paging,
-    ) {
-        Ok(context) => context,
-        Err(error) => return format!("装载失败：{error}\n"),
-    };
-
-    if let Err(error) = runtime::start(name, context, parent) {
-        return format!("启动失败：{error}\n");
-    }
-
-    services.mark_running(name);
-    runtime::run(services);
-    format!("{verb}：{name}\n")
 }
 
 fn write(console: &Serial, screen: Option<&FramebufferConsole>, text: &str) {

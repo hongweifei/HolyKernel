@@ -12,6 +12,7 @@ pub mod host;
 pub mod loader;
 mod registry;
 pub mod runtime;
+pub mod service;
 
 pub use hk_kernel::{TraceCategory, TraceEvent};
 pub use host::RuntimeHost;
