@@ -76,5 +76,8 @@ pub const SYS_DEVICE_MAP: u64 = 22;
 /// 分配一致性 DMA 缓冲并映射到当前任务。
 pub const SYS_DMA_ALLOC: u64 = 23;
 
+/// 把设备中断绑定到通知。
+pub const SYS_IRQ_BIND: u64 = 24;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

@@ -182,8 +182,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    fn drain_irqs(&mut self) {
+        let pending = self.platform.take_irqs();
+        if pending == 0 {
+            return;
+        }
+        for irq in 0..64 {
+            if pending & (1_u64 << irq) != 0 {
+                self.kernel.signal_irq(irq as u8);
+            }
+        }
+    }
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
+        self.drain_irqs();
         let Some(index) = self.next_task(cpu) else {
             self.last_finish = None;
             return Step::Done;

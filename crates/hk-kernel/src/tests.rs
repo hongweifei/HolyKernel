@@ -398,3 +398,38 @@ fn creates_device_grant_object() {
     assert_eq!(kernel.live_objects(), 1);
     assert_eq!(kernel.handles_live(worker), Some(1));
 }
+
+#[test]
+fn binds_irq_to_notification() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let notification = kernel
+        .create_notification(worker, Rights::READ | Rights::WRITE)
+        .expect("创建通知");
+    let grant = DeviceGrant {
+        address: PciAddress::new(0, 1, 0, 0),
+        vendor: 0x1AF4,
+        device: 0x1001,
+        mmio: [None; 6],
+        io: [None; 6],
+        dma: None,
+        irq: Some(11),
+        capabilities: [0; 8],
+        capability_count: 0,
+    };
+    let grant = kernel
+        .create_device_grant(worker, grant, Rights::READ | Rights::WRITE)
+        .expect("创建设备授权");
+
+    assert_eq!(
+        kernel
+            .bind_irq(worker, grant, notification, 0b100)
+            .expect("绑定中断"),
+        11
+    );
+    kernel.signal_irq(11);
+    assert_eq!(
+        kernel.wait(worker, notification, 0b100).expect("等待通知"),
+        Some(0b100)
+    );
+}

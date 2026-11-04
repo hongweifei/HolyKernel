@@ -60,7 +60,15 @@ pub struct Kernel {
     next_tcb: AtomicU64,
     scheduler: Mutex<Scheduler>,
     trace: Mutex<TraceRing<TRACE_CAPACITY>>,
+    irq_bindings: Mutex<BTreeMap<u8, Vec<IrqBinding>>>,
     moment: AtomicU64,
+}
+
+#[derive(Clone, Copy)]
+struct IrqBinding {
+    thread: TcbId,
+    notification: Handle,
+    bits: u64,
 }
 
 impl Kernel {
@@ -72,6 +80,7 @@ impl Kernel {
             next_tcb: AtomicU64::new(1),
             scheduler: Mutex::new(Scheduler::new()),
             trace: Mutex::new(TraceRing::new()),
+            irq_bindings: Mutex::new(BTreeMap::new()),
             moment: AtomicU64::new(0),
         }
     }
@@ -134,6 +143,47 @@ impl Kernel {
             .ok_or(KernelError::WrongKind {
                 expected: ObjectKind::DeviceGrant,
             })
+    }
+
+    /// 把 DeviceGrant 的中断线绑定到通知。
+    pub fn bind_irq(
+        &self,
+        thread: TcbId,
+        grant_handle: Handle,
+        notification_handle: Handle,
+        bits: u64,
+    ) -> Result<u8, KernelError> {
+        let grant = self.device_grant(thread, grant_handle)?;
+        let irq = grant.irq.ok_or(KernelError::NoIrq)?;
+        self.resolve(
+            thread,
+            notification_handle,
+            Rights::WRITE,
+            ObjectKind::Notification,
+        )?;
+        self.irq_bindings
+            .lock()
+            .entry(irq)
+            .or_default()
+            .push(IrqBinding {
+                thread,
+                notification: notification_handle,
+                bits,
+            });
+        Ok(irq)
+    }
+
+    /// 把硬件中断转成通知位。
+    pub fn signal_irq(&self, irq: u8) {
+        let bindings = self
+            .irq_bindings
+            .lock()
+            .get(&irq)
+            .cloned()
+            .unwrap_or_default();
+        for binding in bindings {
+            let _ = self.signal(binding.thread, binding.notification, binding.bits);
+        }
     }
 
     /// 从 Untyped 切分页帧并授予句柄。

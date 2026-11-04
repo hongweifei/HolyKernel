@@ -13,9 +13,9 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_EXIT,
-    SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
-    SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS,
-    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
+    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -106,6 +106,14 @@ pub trait UserPlatform {
     /// 为 DeviceGrant 分配连续 DMA 窗口。
     fn dma_window(&self, _len: usize) -> Option<hk_hal::MmioRange> {
         None
+    }
+    /// 取出并清除待处理 IRQ 位图。
+    fn take_irqs(&self) -> u64 {
+        0
+    }
+    /// 把 IRQ 线路由到设备中断向量。
+    fn route_irq(&self, _irq: u8) -> bool {
+        false
     }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);

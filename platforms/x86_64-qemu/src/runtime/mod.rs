@@ -50,6 +50,14 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.map_mmio(slot, virt, phys, len)
     }
 
+    fn take_irqs(&self) -> u64 {
+        hk_platform_x86_64::irq::take_pending()
+    }
+
+    fn route_irq(&self, irq: u8) -> bool {
+        hk_platform_x86_64::bootstrap::route_irq(irq)
+    }
+
     fn dma_window(&self, len: usize) -> Option<hk_hal::MmioRange> {
         let range = hk_platform_x86_64::dma::allocate(len)?;
         Some(hk_hal::MmioRange {

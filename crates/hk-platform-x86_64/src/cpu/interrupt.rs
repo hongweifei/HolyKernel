@@ -28,6 +28,14 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         handle_syscall(frame);
         return;
     }
+    if (u64::from(crate::irq::IRQ_VECTOR_BASE)
+        ..u64::from(crate::irq::IRQ_VECTOR_BASE + crate::irq::IRQ_LINES))
+        .contains(&frame.vector)
+    {
+        crate::irq::note((frame.vector - u64::from(crate::irq::IRQ_VECTOR_BASE)) as u8);
+        lapic_write(LAPIC_EOI, 0);
+        return;
+    }
     if frame.vector == u64::from(IPI_VECTOR) {
         note_ipi();
         handle_tlb_ipi();

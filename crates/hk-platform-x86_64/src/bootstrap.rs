@@ -5,7 +5,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, PAGE_SIZE, PhysAddr, VirtAddr};
+use spin::Mutex;
 
+use crate::acpi::Madt;
 use crate::ioapic::IoApic;
 use crate::{FrameAllocator, FramebufferConsole, PageFlags, PageTable};
 
@@ -26,6 +28,31 @@ const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
 
 /// 表窗口可容纳的最大页数。
 const ACPI_MAX_PAGES: usize = 16;
+
+struct IoApicState {
+    base: u64,
+    destination: u8,
+}
+
+static MADT: Mutex<Option<Madt>> = Mutex::new(None);
+static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
+
+/// 把 IRQ 线路由到对应的设备中断向量。
+pub fn route_irq(irq: u8) -> bool {
+    if irq >= crate::irq::IRQ_LINES {
+        return false;
+    }
+    let Some(madt) = *MADT.lock() else {
+        return false;
+    };
+    let ioapic = IOAPIC.lock();
+    let Some(state) = ioapic.as_ref() else {
+        return false;
+    };
+    let vector = crate::irq::IRQ_VECTOR_BASE + irq;
+    IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base, vector, state.destination);
+    true
+}
 
 struct AcpiWindow<'a> {
     paging: &'a PageTable,
@@ -104,6 +131,11 @@ pub fn init_ioapic(
     let vector = crate::cpu::KEYBOARD_VECTOR as u8;
     let destination = crate::cpu::lapic_id();
     ioapic.route(gsi, madt.gsi_base, vector, destination);
+    *MADT.lock() = Some(madt);
+    *IOAPIC.lock() = Some(IoApicState {
+        base: virt.get(),
+        destination,
+    });
 
     Ok(Some(IoApicSetup {
         gsi,

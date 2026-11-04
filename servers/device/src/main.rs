@@ -13,7 +13,9 @@ use hk_drivers::grant::{DEVICE_GRANT_BYTES, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
-use hk_server_api::{device_grant_create, device_map, dma_alloc, exit, pci_read, write, write_u64};
+use hk_server_api::{
+    device_grant_create, device_map, dma_alloc, exit, irq_bind, pci_read, write, write_u64,
+};
 
 /// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
@@ -144,6 +146,9 @@ fn write_device(device: &Device) {
         let dma = dma_alloc(handle, 4096, dma_virt);
         write(b"  grant-dma=");
         write_hex64(dma);
+        let bind = irq_bind(handle, 1, 1);
+        write(b"  grant-irq-bind=");
+        write_hex64(bind);
         if let Some((index, range)) = grant
             .mmio
             .iter()

@@ -65,6 +65,16 @@ impl IoApic {
     ///
     /// 使用固定投递、物理目标、高有效、边沿触发与未屏蔽设置。
     pub fn route(&self, gsi: u32, gsi_base: u32, vector: u8, destination: u8) {
+        self.write_route(gsi, gsi_base, vector, destination, 0);
+    }
+
+    /// 按 PCI 中断语义路由：低有效、电平触发。
+    pub fn route_level(&self, gsi: u32, gsi_base: u32, vector: u8, destination: u8) {
+        const ACTIVE_LOW_LEVEL: u32 = (1 << 13) | (1 << 15);
+        self.write_route(gsi, gsi_base, vector, destination, ACTIVE_LOW_LEVEL);
+    }
+
+    fn write_route(&self, gsi: u32, gsi_base: u32, vector: u8, destination: u8, flags: u32) {
         let Some(index) = gsi.checked_sub(gsi_base) else {
             return;
         };
@@ -74,8 +84,8 @@ impl IoApic {
 
         let register = IOREDTBL + index * 2;
         let high = u32::from(destination) << 24;
-        // 低半部分：向量号即全部属性位，屏蔽位清零。
-        let low = u32::from(vector);
+        // 低半部分：向量号与触发属性，屏蔽位清零。
+        let low = u32::from(vector) | flags;
         self.write(register + 1, high);
         self.write(register, low);
     }

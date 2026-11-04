@@ -9,6 +9,7 @@ pub mod bootstrap;
 pub mod cpu;
 pub mod dma;
 pub mod ioapic;
+pub mod irq;
 pub mod keyboard;
 pub mod paging;
 pub mod pci;

@@ -195,6 +195,12 @@ pub fn dma_alloc(grant: u64, len: usize, virt: u64) -> u64 {
     unsafe { syscall_call(SYS_DMA_ALLOC, grant, len as u64, virt, 0).value }
 }
 
+/// 把 DeviceGrant 的中断线绑定到通知位。
+pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
+    // SAFETY: 内核校验授权与通知句柄。
+    unsafe { syscall_call(SYS_IRQ_BIND, grant, notification, bits, 0).value }
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

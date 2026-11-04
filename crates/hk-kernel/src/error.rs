@@ -29,6 +29,8 @@ pub enum KernelError {
     InvalidReply,
     /// 调用方没有待取回复。
     NoReply,
+    /// 设备授权没有可用中断线。
+    NoIrq,
 }
 
 impl fmt::Display for KernelError {
@@ -44,6 +46,7 @@ impl fmt::Display for KernelError {
             Self::NotBlocked(id) => write!(formatter, "线程 {} 未处于阻塞状态", id.get()),
             Self::InvalidReply => formatter.write_str("回复令牌无效"),
             Self::NoReply => formatter.write_str("没有待取回复"),
+            Self::NoIrq => formatter.write_str("设备授权没有中断线"),
         }
     }
 }

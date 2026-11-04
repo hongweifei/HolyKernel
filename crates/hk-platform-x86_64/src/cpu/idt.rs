@@ -90,6 +90,38 @@ unsafe extern "C" {
     fn isr_31();
     fn isr_32();
     fn isr_33();
+    fn isr_64();
+    fn isr_65();
+    fn isr_66();
+    fn isr_67();
+    fn isr_68();
+    fn isr_69();
+    fn isr_70();
+    fn isr_71();
+    fn isr_72();
+    fn isr_73();
+    fn isr_74();
+    fn isr_75();
+    fn isr_76();
+    fn isr_77();
+    fn isr_78();
+    fn isr_79();
+    fn isr_80();
+    fn isr_81();
+    fn isr_82();
+    fn isr_83();
+    fn isr_84();
+    fn isr_85();
+    fn isr_86();
+    fn isr_87();
+    fn isr_88();
+    fn isr_89();
+    fn isr_90();
+    fn isr_91();
+    fn isr_92();
+    fn isr_93();
+    fn isr_94();
+    fn isr_95();
     fn isr_128();
     fn isr_240();
 }
@@ -108,6 +140,14 @@ fn handlers() -> [usize; 32] {
     ]
 }
 
+fn irq_handlers() -> [usize; 32] {
+    handler_addresses![
+        isr_64, isr_65, isr_66, isr_67, isr_68, isr_69, isr_70, isr_71, isr_72, isr_73, isr_74,
+        isr_75, isr_76, isr_77, isr_78, isr_79, isr_80, isr_81, isr_82, isr_83, isr_84, isr_85,
+        isr_86, isr_87, isr_88, isr_89, isr_90, isr_91, isr_92, isr_93, isr_94, isr_95,
+    ]
+}
+
 pub(super) fn init_idt() {
     let handlers = handlers();
 
@@ -120,6 +160,9 @@ pub(super) fn init_idt() {
         for (vector, handler) in handlers.iter().enumerate() {
             let ist = if vector == 8 { DOUBLE_FAULT_IST } else { 0 };
             idt[vector] = IdtEntry::new(*handler, ist);
+        }
+        for (offset, handler) in irq_handlers().iter().enumerate() {
+            idt[crate::irq::IRQ_VECTOR_BASE as usize + offset] = IdtEntry::new(*handler, 0);
         }
         idt[TIMER_VECTOR as usize] = IdtEntry::new(isr_32 as *const () as usize, 0);
         idt[KEYBOARD_VECTOR as usize] = IdtEntry::new(isr_33 as *const () as usize, 0);

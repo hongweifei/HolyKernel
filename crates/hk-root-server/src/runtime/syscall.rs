@@ -59,6 +59,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_DEVICE_GRANT_CREATE => self.create_grant(index, tcb, frame),
             SYS_DEVICE_MAP => self.map_grant(index, tcb, frame),
+            SYS_IRQ_BIND => self.bind_irq(index, tcb, frame),
             SYS_DMA_ALLOC => {
                 let grant_number = frame.arg0() as usize;
                 let length = frame.arg1() as usize;
@@ -487,6 +488,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
         } else {
             frame.set_result(0);
+        }
+        Switch::Continue
+    }
+    fn bind_irq(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let grant_number = frame.arg0() as usize;
+        let notification_number = frame.arg1() as usize;
+        let bits = frame.arg2();
+        let Some(grant) = self.grant_at(index, grant_number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(notification) = self.notification_handle(index, notification_number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        match self.kernel.bind_irq(tcb, grant, notification, bits) {
+            Ok(irq) if self.platform.route_irq(irq) => frame.set_result(0),
+            _ => frame.set_result(u64::MAX),
         }
         Switch::Continue
     }
