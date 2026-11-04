@@ -1,11 +1,16 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
-use crate::{recv_data_from, send_data, service_endpoint};
+use crate::{
+    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, frame_alloc, handle_duplicate, recv_data_from,
+    send_data, send_handle, service_endpoint,
+};
 
 /// 请求标签。
 pub const VFS_REQUEST: u64 = 0x500;
 /// 响应标签。
 pub const VFS_RESPONSE: u64 = 0x501;
+/// 附加共享 Frame。
+pub const VFS_ATTACH: u64 = 0x502;
 
 /// 打开文件。
 pub const OP_OPEN: u8 = 1;
@@ -33,6 +38,19 @@ pub const OP_MOUNTS: u8 = 11;
 pub const OP_UMOUNT: u8 = 12;
 /// 刷写挂起写入。
 pub const OP_SYNC: u8 = 13;
+/// 从共享帧读取文件内容。
+pub const OP_READ_FRAME: u8 = 14;
+/// 写入共享帧中的文件内容。
+pub const OP_WRITE_FRAME: u8 = 15;
+
+/// 客户端共享帧长度。
+pub const VFS_FRAME_LEN: usize = 60 * 1024;
+/// 客户端共享帧在本任务中的固定映射地址。
+pub const VFS_FRAME_VIRT: u64 = 0x7000_0000;
+/// VFS 服务端映射客户端帧的起始地址。
+pub const VFS_SERVER_FRAME_BASE: u64 = 0x7100_0000;
+/// VFS 服务端每个客户端帧的地址间距。
+pub const VFS_SERVER_FRAME_STRIDE: u64 = 0x10000;
 
 /// 打开读权限。
 pub const OPEN_READ: u64 = 1 << 0;
@@ -174,6 +192,17 @@ pub struct VfsClient {
     own_endpoint: u64,
     request: [u8; BUFFER],
     response: [u8; BUFFER],
+    frame: Option<u64>,
+    attached: u64,
+}
+
+impl Drop for VfsClient {
+    fn drop(&mut self) {
+        if self.frame.is_some() {
+            let _ = crate::frame_unmap(VFS_FRAME_VIRT, VFS_FRAME_LEN);
+            let _ = crate::close_handle(self.frame.unwrap_or(0));
+        }
+    }
 }
 
 impl VfsClient {
@@ -185,7 +214,76 @@ impl VfsClient {
             own_endpoint,
             request: [0; BUFFER],
             response: [0; BUFFER],
+            frame: None,
+            attached: 0,
         }
+    }
+
+    fn ensure_attach(&mut self) -> Result<u64, u8> {
+        let endpoint = service_endpoint(self.service);
+        if endpoint == 0 {
+            return Err(STATUS_IO);
+        }
+        if self.attached == endpoint && self.frame.is_some() {
+            return Ok(endpoint);
+        }
+        if self.frame.is_none() {
+            let number = frame_alloc(VFS_FRAME_LEN, VFS_FRAME_VIRT);
+            if number == 0 || number == u64::MAX {
+                return Err(STATUS_IO);
+            }
+            self.frame = Some(number);
+        }
+        let number = self.frame.ok_or(STATUS_IO)?;
+        let duplicate = handle_duplicate(number, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
+        if duplicate == u64::MAX {
+            return Err(STATUS_IO);
+        }
+        if send_handle(endpoint, VFS_ATTACH, VFS_FRAME_LEN as u64, duplicate) == u64::MAX {
+            self.frame = None;
+            return Err(STATUS_IO);
+        }
+        self.attached = endpoint;
+        Ok(endpoint)
+    }
+
+    /// 返回客户端共享帧。
+    pub fn frame(&mut self) -> &mut [u8] {
+        // SAFETY: SYS_FRAME_ALLOC 把 VFS_FRAME_LEN 字节映射到 VFS_FRAME_VIRT。
+        unsafe { core::slice::from_raw_parts_mut(VFS_FRAME_VIRT as *mut u8, VFS_FRAME_LEN) }
+    }
+
+    /// 从共享帧读取文件内容，返回字节数。
+    pub fn read_frame(&mut self, handle: u64, offset: u64, length: usize) -> Result<usize, u8> {
+        if length > VFS_FRAME_LEN {
+            return Err(STATUS_INVALID);
+        }
+        self.ensure_attach()?;
+        let argument = (length as u64).to_le_bytes();
+        let response = self.exchange(OP_READ_FRAME, "", handle, offset, &argument)?;
+        if response < 8 {
+            return Err(STATUS_INVALID);
+        }
+        let mut bytes = [0_u8; 8];
+        bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
+        Ok(u64::from_le_bytes(bytes) as usize)
+    }
+
+    /// 把共享帧中的内容写入文件，返回字节数。
+    pub fn write_frame(&mut self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
+        if data.len() > VFS_FRAME_LEN {
+            return Err(STATUS_INVALID);
+        }
+        self.ensure_attach()?;
+        self.frame()[..data.len()].copy_from_slice(data);
+        let argument = (data.len() as u64).to_le_bytes();
+        let response = self.exchange(OP_WRITE_FRAME, "", handle, offset, &argument)?;
+        if response < 8 {
+            return Err(STATUS_INVALID);
+        }
+        let mut bytes = [0_u8; 8];
+        bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
+        Ok(u64::from_le_bytes(bytes) as usize)
     }
 
     /// 打开文件，返回句柄。

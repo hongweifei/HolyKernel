@@ -27,13 +27,14 @@ use hk_hal::CivilTime;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
-    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_SYNC,
-    OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OPEN_CREATE, OPEN_READ, OPEN_WRITE, STATUS_ERROR,
-    STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, VFS_REQUEST,
-    VFS_RESPONSE, decode_request, encode_response,
+    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME,
+    OP_STAT, OP_SYNC, OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_FRAME, OPEN_CREATE,
+    OPEN_READ, OPEN_WRITE, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND,
+    STATUS_OK, STATUS_PERMISSION, VFS_ATTACH, VFS_REQUEST, VFS_RESPONSE, VFS_SERVER_FRAME_BASE,
+    VFS_SERVER_FRAME_STRIDE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data, send_data, write, yield_now};
+use hk_server_api::{frame_map, recv_data_handle, send_data, write, yield_now};
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, FileHandle, FileType, OpenFlags, Procfs, Tmpfs, Vfs, VfsError};
 
@@ -83,6 +84,8 @@ impl Session {
 #[cfg(target_os = "none")]
 struct Sessions {
     clients: BTreeMap<u64, Session>,
+    frames: BTreeMap<u64, (u64, usize)>,
+    next_frame: usize,
 }
 
 #[cfg(target_os = "none")]
@@ -90,11 +93,30 @@ impl Sessions {
     const fn new() -> Self {
         Self {
             clients: BTreeMap::new(),
+            frames: BTreeMap::new(),
+            next_frame: 0,
         }
     }
 
     fn get(&mut self, sender: u64) -> &mut Session {
         self.clients.entry(sender).or_insert_with(Session::new)
+    }
+
+    fn attach_frame(&mut self, sender: u64, handle: u64, length: usize) -> bool {
+        if length == 0 || length > hk_server_api::vfs::VFS_FRAME_LEN {
+            return false;
+        }
+        let virt = VFS_SERVER_FRAME_BASE + self.next_frame as u64 * VFS_SERVER_FRAME_STRIDE;
+        if frame_map(handle, virt) != length as u64 {
+            return false;
+        }
+        self.frames.insert(sender, (virt, length));
+        self.next_frame += 1;
+        true
+    }
+
+    fn frame(&self, sender: u64) -> Option<(u64, usize)> {
+        self.frames.get(&sender).copied()
     }
 }
 
@@ -143,7 +165,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut response = vec![0_u8; 64 * 1024];
 
     loop {
-        let (label, _word, sender, length) = recv_data(endpoint, &mut request);
+        let (label, word, sender, length, frame_handle) =
+            recv_data_handle(endpoint, &mut request, 0);
+        if frame_handle != 0 && label == VFS_ATTACH {
+            let _ = sessions.attach_frame(sender, frame_handle, word as usize);
+            continue;
+        }
         if label != VFS_REQUEST {
             continue;
         }
@@ -152,7 +179,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let (status, written) = handle(&mut filesystem, sessions.get(sender), &request, &mut body);
+        let mapped = sessions.frame(sender).map(|(virt, length)| {
+            // SAFETY: VFS_ATTACH 已把该客户端的共享帧映射到此地址。
+            unsafe { core::slice::from_raw_parts_mut(virt as *mut u8, length) }
+        });
+        let (status, written) = handle(
+            &mut filesystem,
+            sessions.get(sender),
+            &request,
+            &mut body,
+            mapped,
+        );
         reply(sender, status, &body[..written], &mut response);
     }
 }
@@ -198,6 +235,11 @@ fn mount_ext4(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
 }
 
 #[cfg(target_os = "none")]
+fn frame_length(data: &[u8]) -> Option<usize> {
+    Some(u64::from_le_bytes(data.get(..8)?.try_into().ok()?) as usize)
+}
+
+#[cfg(target_os = "none")]
 fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
     if let Some(length) = encode_response(response, status, data) {
         let _ = send_data(sender, VFS_RESPONSE, &response[..length]);
@@ -210,6 +252,7 @@ fn handle(
     session: &mut Session,
     request: &hk_server_api::vfs::Request<'_>,
     body: &mut [u8],
+    frame: Option<&mut [u8]>,
 ) -> (u8, usize) {
     match request.op {
         OP_OPEN => {
@@ -249,6 +292,48 @@ fn handle(
                 return (STATUS_NOT_FOUND, 0);
             };
             match filesystem.write_at(handle, request.arg1, request.data) {
+                Ok(length) => {
+                    body[..8].copy_from_slice(&(length as u64).to_le_bytes());
+                    (STATUS_OK, 8)
+                }
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_READ_FRAME => {
+            let Some(handle) = session.get(request.arg0) else {
+                return (STATUS_NOT_FOUND, 0);
+            };
+            let Some(frame) = frame else {
+                return (STATUS_INVALID, 0);
+            };
+            let Some(length) = frame_length(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            if length > frame.len() {
+                return (STATUS_INVALID, 0);
+            }
+            match filesystem.read_at(handle, request.arg1, &mut frame[..length]) {
+                Ok(length) => {
+                    body[..8].copy_from_slice(&(length as u64).to_le_bytes());
+                    (STATUS_OK, 8)
+                }
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_WRITE_FRAME => {
+            let Some(handle) = session.get(request.arg0) else {
+                return (STATUS_NOT_FOUND, 0);
+            };
+            let Some(frame) = frame else {
+                return (STATUS_INVALID, 0);
+            };
+            let Some(length) = frame_length(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            if length > frame.len() {
+                return (STATUS_INVALID, 0);
+            }
+            match filesystem.write_at(handle, request.arg1, &frame[..length]) {
                 Ok(length) => {
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)
