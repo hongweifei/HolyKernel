@@ -17,6 +17,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-device",
     "hk-server-spin",
     "hk-server-vfs",
+    "hk-server-block",
 ];
 
 /// 从启动模块中选出默认启动的服务。
@@ -100,7 +101,7 @@ where
     map_region(memory, spec.arena_base, spec.arena_size)?;
     Ok(make_context(
         entry,
-        spec.stack_base + spec.stack_size,
+        spec.stack_base + spec.stack_size - 8,
         spec.endpoint,
     ))
 }

@@ -44,9 +44,7 @@ impl HalImpl {
 
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
-        write(b"virtio: dma\n");
         let (phys, virt) = Self::alloc_pages(pages).expect("DMA 分配失败");
-        write(b"virtio: dma ok\n");
         // SAFETY: SYS_DMA_ALLOC 已把该连续区间映射到当前任务。
         unsafe {
             core::ptr::write_bytes(virt as *mut u8, 0, pages * PAGE);
@@ -59,7 +57,6 @@ unsafe impl Hal for HalImpl {
     }
 
     unsafe fn mmio_phys_to_virt(paddr: PhysAddr, size: usize) -> NonNull<u8> {
-        write(b"virtio: mmio\n");
         let descriptor = *GRANT_DESC.lock();
         let Some(descriptor) = descriptor else {
             panic!("没有 DeviceGrant");
@@ -74,7 +71,6 @@ unsafe impl Hal for HalImpl {
             let virt = MMIO_BASE + index as u64 * 0x1_0000;
             let grant = GRANT.load(Ordering::Acquire);
             let result = device_map(grant, index as u64, virt);
-            write(b"virtio: mmio mapped\n");
             let _ = result;
             let pointer = virt + (paddr - range.base);
             return NonNull::new(pointer as *mut u8).expect("MMIO 指针");
@@ -162,7 +158,6 @@ fn try_init(
 ) -> Option<VirtIOBlk<HalImpl, PciTransport>> {
     GRANT.store(grant_handle, Ordering::Release);
     *GRANT_DESC.lock() = Some(descriptor);
-    write(b"virtio: descriptor\n");
     let mut root = PciRoot::new(SysConfig);
     let function = root
         .enumerate_bus(0)
@@ -170,9 +165,7 @@ fn try_init(
             info.vendor_id == 0x1AF4 && (info.device_id == 0x1001 || info.device_id == 0x1042)
         })
         .map(|(function, _)| function)?;
-    write(b"virtio: transport\n");
     let transport = PciTransport::new::<HalImpl, _>(&mut root, function).ok()?;
-    write(b"virtio: blk\n");
     let block = VirtIOBlk::new(transport).ok()?;
     write(b"hk-server-block: virtio-blk ready\n");
     Some(block)

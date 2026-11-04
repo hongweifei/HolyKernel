@@ -31,7 +31,7 @@ use hk_server_api::block::{
     STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, decode_request, encode_response,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{alloc, device_info, recv_data, recv_handle, send_data, write};
+use hk_server_api::{alloc, device_info, recv_data, recv_handle, send_data, write, write_u64};
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 48 * 1024;
@@ -95,6 +95,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             grant = DeviceGrant::decode(&bytes[..length]);
         }
     }
+    let virtio = grant.is_some();
     let mut disk: Box<dyn BlockDevice> = match grant.and_then(|descriptor| {
         virtio::VirtioBlock::new(grant_handle, descriptor)
             .map(|block| Box::new(block) as Box<dyn BlockDevice>)
@@ -105,6 +106,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE))
         }
     };
+
+    if virtio {
+        let mut sector = [0_u8; SECTOR_SIZE];
+        let read = disk.read_blocks(0, &mut sector).is_ok();
+        write(b"hk-server-block: virtio sectors=");
+        write_u64(disk.capacity_blocks());
+        write(b" read0=");
+        write(if read { b"ok" } else { b"fail" });
+        write(b"\n");
+    }
 
     let mut request = [0_u8; 4096];
     let mut body = [0_u8; 4096];

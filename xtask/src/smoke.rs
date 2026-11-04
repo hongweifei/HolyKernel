@@ -102,7 +102,7 @@ impl SmokeMode {
                 "HolyShell",
                 "当前任务：hk-server-echo",
                 "已启动：hk-server-device",
-                "任务表（6 项）",
+                "任务表（7 项）",
                 "父",
                 "句柄",
                 "Arena",
