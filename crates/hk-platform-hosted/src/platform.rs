@@ -1,8 +1,8 @@
 //! Hosted 平台实现。
 
 use hk_hal::{
-    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PciConfig, PhysAddr,
-    PhysRange, PhysicalAccess, Platform, PlatformError, Timer,
+    Arch, BootInfo, CivilClock, CivilTime, Console, CpuId, DmaOps, Entropy, InterruptController,
+    Mmu, PciConfig, PhysAddr, PhysRange, PhysicalAccess, Platform, PlatformError, Timer,
 };
 
 use crate::boot::{HOSTED_RAM_BASE, HOSTED_RAM_SIZE, boot_info};
@@ -30,7 +30,19 @@ pub struct HostedPlatform {
     memory: HostedMemory,
     dma: HostedDma,
     entropy: HostedEntropy,
+    civil: CivilClock,
 }
+
+/// Hosted 模拟民用时间的起点。
+const HOSTED_CIVIL_ANCHOR: CivilTime = CivilTime {
+    year: 2000,
+    month: 1,
+    day: 1,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    nanosecond: 0,
+};
 
 impl HostedPlatform {
     /// 按配置启动 Hosted 平台。
@@ -39,11 +51,13 @@ impl HostedPlatform {
     /// `config.cpu_count` 为 0 时 panic：CPU 数量是平台的硬性约束。
     pub fn boot(config: HostedConfig) -> Self {
         assert!(config.cpu_count > 0, "Hosted 平台至少需要一个逻辑 CPU");
+        let timer = HostedTimer::new(config.deterministic);
+        let civil = CivilClock::new(HOSTED_CIVIL_ANCHOR, timer.now().ticks(), timer.frequency());
         Self {
             config,
             boot: boot_info(),
             console: HostedConsole::new(),
-            timer: HostedTimer::new(config.deterministic),
+            timer,
             irq: HostedInterruptController::new(),
             mmu: HostedMmu::new(),
             memory: HostedMemory::new(PhysRange::new(
@@ -52,7 +66,13 @@ impl HostedPlatform {
             )),
             dma: HostedDma::new(),
             entropy: HostedEntropy::new(config.seed),
+            civil,
         }
+    }
+
+    /// 返回当前模拟民用时间。
+    pub fn civil_time(&self) -> Option<CivilTime> {
+        Some(self.civil.now(self.timer.now().ticks()))
     }
 
     /// 返回启动信息。
@@ -159,6 +179,17 @@ mod tests {
 
     fn platform() -> HostedPlatform {
         HostedPlatform::boot(HostedConfig::new(2, 1, true))
+    }
+
+    #[test]
+    fn civil_time_advances_with_virtual_clock() {
+        let platform = platform();
+        let start = platform.civil_time().expect("民用时间");
+        platform
+            .timer
+            .advance(hk_hal::Duration::from_ticks(1_000_000_000));
+        let next = platform.civil_time().expect("民用时间");
+        assert_eq!(next.second, start.second + 1);
     }
 
     #[test]
