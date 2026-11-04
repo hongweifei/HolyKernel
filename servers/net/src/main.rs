@@ -52,22 +52,41 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     let mut mac = [0_u8; 6];
     mac.copy_from_slice(&info[..6]);
-    let mut stack = match Stack::new(
-        mac,
-        Ipv4Addr::new(10, 0, 2, 15),
-        24,
-        Some(Ipv4Addr::new(10, 0, 2, 2)),
-        ticks(),
-    ) {
+    let (mut stack, dhcp) = match Stack::new_dhcp(mac, ticks()) {
         Ok(stack) => stack,
         Err(_) => {
             write("hk-server-net: 协议栈初始化失败\n".as_bytes());
             exit(4)
         }
     };
-    write("hk-server-net: ready\n".as_bytes());
-
     let mut frame = [0_u8; NET_FRAME_MAX];
+    let deadline = ticks().saturating_add(500);
+    let mut gateway = Ipv4Addr::new(10, 0, 2, 2);
+    let mut leased = false;
+    while ticks() < deadline {
+        poll_once(driver, endpoint, &mut stack, &mut frame);
+        if let Some(lease) = stack.poll_dhcp(dhcp) {
+            gateway = lease.gateway.unwrap_or(gateway);
+            write("hk-server-net: dhcp ok\n".as_bytes());
+            leased = true;
+            break;
+        }
+    }
+    if !leased {
+        if stack
+            .set_ipv4(
+                Ipv4Addr::new(10, 0, 2, 15),
+                24,
+                Some(Ipv4Addr::new(10, 0, 2, 2)),
+            )
+            .is_err()
+        {
+            write("hk-server-net: 静态地址失败\n".as_bytes());
+            exit(4)
+        }
+        write("hk-server-net: dhcp timeout, static\n".as_bytes());
+    }
+    write("hk-server-net: ready\n".as_bytes());
     let icmp = match stack.open_icmp(0x1234) {
         Ok(handle) => handle,
         Err(_) => {
@@ -75,7 +94,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(5)
         }
     };
-    let _ = stack.send_ping(icmp, Ipv4Addr::new(10, 0, 2, 2), 0x1234, 1, b"holy");
+    let _ = stack.send_ping(icmp, gateway, 0x1234, 1, b"holy");
     let deadline = ticks().saturating_add(500);
     let mut reply = [0_u8; 64];
     let mut ping_ok = false;

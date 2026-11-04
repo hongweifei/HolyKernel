@@ -4,7 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet, SocketStorage};
-use smoltcp::socket::{icmp, udp};
+use smoltcp::socket::{dhcpv4, icmp, udp};
 use smoltcp::storage::PacketMetadata;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
@@ -18,6 +18,19 @@ use crate::phy::FrameQueue;
 const UDP_RX_SLOTS: usize = 8;
 const UDP_TX_SLOTS: usize = 8;
 const UDP_BUFFER: usize = 2048;
+
+/// DHCP 租约。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DhcpLease {
+    /// 分配的 IPv4 地址。
+    pub address: Ipv4Address,
+    /// 前缀长度。
+    pub prefix: u8,
+    /// 默认网关。
+    pub gateway: Option<Ipv4Address>,
+    /// DNS 服务器。
+    pub dns: Vec<Ipv4Address>,
+}
 
 /// 一个以太网接口上的 smoltcp 协议栈。
 pub struct Stack {
@@ -57,6 +70,69 @@ impl Stack {
             interface,
             sockets,
         })
+    }
+
+    /// 构造等待 DHCP 租约的接口，返回协议栈与 DHCP SocketHandle。
+    pub fn new_dhcp(mac: [u8; 6], random_seed: u64) -> Result<(Self, SocketHandle), NetError> {
+        let mut device = FrameQueue::new();
+        let mut config = Config::new(HardwareAddress::Ethernet(EthernetAddress(mac)));
+        config.random_seed = random_seed;
+        let interface = Interface::new(config, &mut device, Instant::from_millis(0));
+        let mut sockets: SocketSet<'static> = SocketSet::new(Vec::<SocketStorage<'static>>::new());
+        let handle = sockets.add(dhcpv4::Socket::new());
+        Ok((
+            Self {
+                device,
+                interface,
+                sockets,
+            },
+            handle,
+        ))
+    }
+
+    /// 应用静态 IPv4 配置。
+    pub fn set_ipv4(
+        &mut self,
+        address: Ipv4Address,
+        prefix: u8,
+        gateway: Option<Ipv4Address>,
+    ) -> Result<(), NetError> {
+        if prefix > 32 {
+            return Err(NetError::Address);
+        }
+        self.interface.update_ip_addrs(|addresses| {
+            addresses.clear();
+            let _ = addresses.push(IpCidr::new(IpAddress::Ipv4(address), prefix));
+        });
+        if let Some(gateway) = gateway {
+            self.interface
+                .routes_mut()
+                .add_default_ipv4_route(gateway)
+                .map_err(|_| NetError::Route)?;
+        }
+        Ok(())
+    }
+
+    /// 读取 DHCP 事件；获得租约时应用到接口并返回租约。
+    pub fn poll_dhcp(&mut self, handle: SocketHandle) -> Option<DhcpLease> {
+        let event = self.sockets.get_mut::<dhcpv4::Socket>(handle).poll()?;
+        match event {
+            dhcpv4::Event::Configured(config) => {
+                let lease = DhcpLease {
+                    address: config.address.address(),
+                    prefix: config.address.prefix_len(),
+                    gateway: config.router,
+                    dns: config.dns_servers.iter().copied().collect(),
+                };
+                let _ = self.set_ipv4(lease.address, lease.prefix, lease.gateway);
+                Some(lease)
+            }
+            dhcpv4::Event::Deconfigured => {
+                self.interface
+                    .update_ip_addrs(|addresses| addresses.clear());
+                None
+            }
+        }
     }
 
     /// 注入一帧接收数据。
