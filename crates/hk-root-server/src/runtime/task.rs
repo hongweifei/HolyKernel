@@ -199,7 +199,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             for bit in 0..64 {
                 if bits & (1_u64 << bit) != 0 {
-                    self.kernel.signal_irq((word * 64 + bit) as u8);
+                    self.signal_irq((word * 64 + bit) as u8);
                 }
             }
         }
@@ -221,13 +221,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    pub(crate) fn signal_irq(&self, irq: u8) {
+        let bindings: Vec<_> = self
+            .tasks
+            .iter()
+            .flat_map(|task| task.bound_irqs.iter())
+            .filter(|(_, line, _, _)| *line == irq)
+            .map(|(_, _, notification, bits)| (*notification, *bits))
+            .collect();
+        for (notification, bits) in bindings {
+            let _ = self
+                .kernel
+                .signal_id(ObjectId::new(notification.get()), bits);
+        }
+    }
+
     pub(crate) fn release_bindings(&mut self, index: usize, grant: Handle) {
         let bindings = core::mem::take(&mut self.tasks[index].bound_irqs);
-        for (handle, irq) in bindings {
+        for (handle, irq, notification, bits) in bindings {
             if handle == grant {
                 self.release_irq(irq);
             } else {
-                self.tasks[index].bound_irqs.push((handle, irq));
+                self.tasks[index]
+                    .bound_irqs
+                    .push((handle, irq, notification, bits));
             }
         }
     }

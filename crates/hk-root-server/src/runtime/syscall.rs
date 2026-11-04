@@ -557,20 +557,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        match self.kernel.bind_irq(tcb, grant, notification, bits) {
-            Ok(_) => {
-                let count = &mut self.irq_routes[irq.get() as usize];
-                *count = count.saturating_add(1);
-                self.tasks[index].bound_irqs.push((grant, irq.get() as u8));
-                frame.set_result(0);
-            }
-            Err(_) => {
-                if self.irq_routes[irq.get() as usize] == 0 {
-                    let _ = controller.unbind(irq);
-                }
-                frame.set_result(u64::MAX);
-            }
-        }
+        let count = &mut self.irq_routes[irq.get() as usize];
+        *count = count.saturating_add(1);
+        self.tasks[index].bound_irqs.push((
+            grant,
+            irq.get() as u8,
+            hk_hal::NotificationId::new(notification_id.get()),
+            bits,
+        ));
+        frame.set_result(0);
         Switch::Continue
     }
     fn close_grant(&mut self, index: usize, tcb: TcbId, number: usize) -> u64 {

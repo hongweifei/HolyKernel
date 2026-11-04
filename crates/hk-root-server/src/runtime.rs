@@ -205,8 +205,8 @@ pub struct UserTask<C> {
     pub extra: Vec<Option<Handle>>,
     /// 本任务持有的 DeviceGrant 句柄。
     pub grants: Vec<Option<Handle>>,
-    /// DeviceGrant 句柄到已绑定 IRQ 的映射。
-    pub bound_irqs: Vec<(Handle, u8)>,
+    /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
+    pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
     /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
     pub dma_used: Vec<(Handle, u64)>,
     /// 用户现场。

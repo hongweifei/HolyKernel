@@ -60,16 +60,7 @@ pub struct Kernel {
     next_tcb: AtomicU64,
     scheduler: Mutex<Scheduler>,
     trace: Mutex<TraceRing<TRACE_CAPACITY>>,
-    irq_bindings: Mutex<BTreeMap<u8, Vec<IrqBinding>>>,
     moment: AtomicU64,
-}
-
-#[derive(Clone, Copy)]
-struct IrqBinding {
-    thread: TcbId,
-    grant: Handle,
-    notification: Handle,
-    bits: u64,
 }
 
 impl Kernel {
@@ -81,7 +72,6 @@ impl Kernel {
             next_tcb: AtomicU64::new(1),
             scheduler: Mutex::new(Scheduler::new()),
             trace: Mutex::new(TraceRing::new()),
-            irq_bindings: Mutex::new(BTreeMap::new()),
             moment: AtomicU64::new(0),
         }
     }
@@ -174,48 +164,6 @@ impl Kernel {
             .ok_or(KernelError::WrongKind {
                 expected: ObjectKind::DeviceGrant,
             })
-    }
-
-    /// 把 DeviceGrant 的中断线绑定到通知。
-    pub fn bind_irq(
-        &self,
-        thread: TcbId,
-        grant_handle: Handle,
-        notification_handle: Handle,
-        bits: u64,
-    ) -> Result<u8, KernelError> {
-        let grant = self.device_grant(thread, grant_handle)?;
-        let irq = grant.irq.ok_or(KernelError::NoIrq)?;
-        self.resolve(
-            thread,
-            notification_handle,
-            Rights::WRITE,
-            ObjectKind::Notification,
-        )?;
-        self.irq_bindings
-            .lock()
-            .entry(irq)
-            .or_default()
-            .push(IrqBinding {
-                thread,
-                grant: grant_handle,
-                notification: notification_handle,
-                bits,
-            });
-        Ok(irq)
-    }
-
-    /// 把硬件中断转成通知位。
-    pub fn signal_irq(&self, irq: u8) {
-        let bindings = self
-            .irq_bindings
-            .lock()
-            .get(&irq)
-            .cloned()
-            .unwrap_or_default();
-        for binding in bindings {
-            let _ = self.signal(binding.thread, binding.notification, binding.bits);
-        }
     }
 
     /// 从 Untyped 切分页帧并授予句柄。
@@ -358,10 +306,6 @@ impl Kernel {
             TRACE_HANDLE_RELEASE,
             live as u64,
         );
-        self.irq_bindings.lock().retain(|_, bindings| {
-            bindings.retain(|binding| binding.thread != thread);
-            !bindings.is_empty()
-        });
         Ok(())
     }
 
@@ -580,6 +524,24 @@ impl Kernel {
         Ok(())
     }
 
+    /// 按对象标识向通知置位；供平台中断分派路径使用。
+    pub fn signal_id(&self, id: ObjectId, bits: u64) -> Result<(), KernelError> {
+        let object = self
+            .objects
+            .lock()
+            .get(&id)
+            .and_then(Weak::upgrade)
+            .ok_or(KernelError::StaleObject(id))?;
+        let notification = object.notification().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Notification,
+        })?;
+        if let Some(waiter) = notification.signal(bits) {
+            self.wake(TcbId::new(waiter.get()));
+        }
+        self.record(TcbId::new(0).get(), Category::Ipc, TRACE_SIGNAL, id.get());
+        Ok(())
+    }
+
     /// 等待通知位；没有待处理位时阻塞并返回 `None`。
     pub fn wait(
         &self,
@@ -656,13 +618,6 @@ impl Kernel {
             id
         };
         self.record(thread.get(), Category::Handle, TRACE_HANDLE_CLOSE, id.get());
-        self.irq_bindings.lock().retain(|_, bindings| {
-            bindings.retain(|binding| {
-                binding.thread != thread
-                    || (binding.grant != handle && binding.notification != handle)
-            });
-            !bindings.is_empty()
-        });
         Ok(())
     }
 

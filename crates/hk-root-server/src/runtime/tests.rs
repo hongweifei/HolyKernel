@@ -489,3 +489,32 @@ fn rejects_device_grant_without_authority() {
     assert_eq!(context.rax, u64::MAX);
     assert_eq!(runtime.tasks()[index].handles, 4);
 }
+
+#[test]
+fn deferred_irq_wakes_bound_notification() {
+    let mut runtime = runtime();
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let notification = runtime.tasks[index].notifications[index].expect("自己的通知");
+    let id = runtime
+        .kernel
+        .handle_id(tcb, notification)
+        .expect("通知标识");
+    runtime.tasks[index].bound_irqs.push((
+        notification,
+        11,
+        hk_hal::NotificationId::new(id.get()),
+        0b100,
+    ));
+
+    runtime.signal_irq(11);
+    assert_eq!(
+        runtime
+            .kernel
+            .wait(tcb, notification, 0b100)
+            .expect("等待通知"),
+        Some(0b100)
+    );
+}

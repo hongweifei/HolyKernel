@@ -77,7 +77,7 @@ pub trait Platform: Send + Sync {
 
 - 核心 crate 通过 trait 访问硬件；架构判断位于 `hk-hal` 实现或 platform crate。
 - `Mmu` 管理 VSpace 页表、映射、TLB shootdown。
-- `InterruptController` 提供 IRQ 绑定与 IPI；运行时通过平台控制器路由/解绑，不直接操作 IOAPIC。
+- `InterruptController` 提供 IRQ 绑定与 IPI；运行时保存 IRQ→Notification 绑定，收到待处理中断后按对象标识直接唤醒通知，平台只负责路由/解绑。
 - `Timer` 提供一次性定时器与单调时间。
 - `DmaOps` 提供 DMA Frame 的缓存维护。
 - `PciConfig` 提供 ECAM/legacy 配置访问。
