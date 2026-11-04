@@ -10,6 +10,7 @@ repository.workspace = true
 hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
 hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-keyboard-ps2 = { version = "0.1.0", path = "../hk-keyboard-ps2" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
 hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
 hk-test = { version = "0.1.0", path = "../hk-test" }

@@ -16,8 +16,9 @@ HolyKernel/
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI 契约与 ECAM；现场、系统调用帧与页映射
-│   ├── hk-acpi/               ACPI RSDP/SDT 查找（架构无关）
+│   ├── hk-acpi/               ACPI RSDP/SDT 查找与表条目迭代（架构无关）
 │   ├── hk-framebuffer/        通用帧缓冲文本控制台
+│   ├── hk-keyboard-ps2/       PS/2 键盘协议与扫描码解码
 │   ├── hk-uart-16550/         16550 UART 核心（端口/MMIO 由平台提供）
 │   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度、线性堆与 AP 池
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close

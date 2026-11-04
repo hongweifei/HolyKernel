@@ -95,6 +95,39 @@ fn checksum(bytes: &[u8]) -> bool {
     bytes.iter().fold(0_u8, |sum, byte| sum.wrapping_add(*byte)) == 0
 }
 
+/// 遍历起始偏移之后的 ACPI 表条目。
+pub struct Entries<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for Entries<'a> {
+    type Item = (u8, &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset + 2 > self.bytes.len() {
+            return None;
+        }
+        let entry_type = self.bytes[self.offset];
+        let length = self.bytes[self.offset + 1] as usize;
+        if length < 2 || self.offset + length > self.bytes.len() {
+            self.offset = self.bytes.len();
+            return None;
+        }
+        let entry = &self.bytes[self.offset..self.offset + length];
+        self.offset += length;
+        Some((entry_type, entry))
+    }
+}
+
+/// 从 `start` 开始遍历 ACPI 表条目；越界或长度非法时结束。
+pub fn entries(table: &[u8], start: usize) -> Entries<'_> {
+    Entries {
+        bytes: table,
+        offset: start,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +136,20 @@ mod tests {
         bytes[9] = 0;
         let sum = bytes.iter().fold(0_u8, |sum, byte| sum.wrapping_add(*byte));
         bytes[9] = 0_u8.wrapping_sub(sum);
+    }
+
+    #[test]
+    fn iterates_table_entries() {
+        let table = [
+            0, 8, 0, 1, 1, 0, 0, 0, // 类型 0，长度 8
+            9, 16, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, // 类型 9，长度 16
+        ];
+        let entries: alloc::vec::Vec<_> = entries(&table, 0).collect();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].0, 0);
+        assert_eq!(entries[0].1.len(), 8);
+        assert_eq!(entries[1].0, 9);
+        assert_eq!(entries[1].1.len(), 16);
     }
 
     #[test]

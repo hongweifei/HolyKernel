@@ -191,6 +191,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-keyboard-ps2"
+version = "0.1.0"
+
+[[package]]
 name = "hk-mem"
 version = "0.1.0"
 dependencies = [
@@ -214,6 +218,7 @@ dependencies = [
  "hk-acpi",
  "hk-framebuffer",
  "hk-hal",
+ "hk-keyboard-ps2",
  "hk-mem",
  "hk-server-api",
  "hk-test",

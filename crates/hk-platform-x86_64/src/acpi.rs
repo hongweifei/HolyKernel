@@ -67,19 +67,12 @@ fn parse_madt(bytes: &[u8]) -> Option<Madt> {
     let mut local_apics = [0_u32; MAX_CPUS];
     let mut local_count = 0;
 
-    let mut offset = 44;
-    while offset + 2 <= bytes.len() {
-        let entry_type = bytes[offset];
-        let entry_length = bytes[offset + 1] as usize;
-        if entry_length < 2 || offset + entry_length > bytes.len() {
-            break;
-        }
-
+    for (entry_type, entry) in hk_acpi::entries(bytes, 44) {
         match entry_type {
             // 处理器本地 APIC：ACPI ID、APIC ID、标志。
-            0 if entry_length >= 8 => {
-                let flags = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?);
-                let apic = u32::from(bytes[offset + 3]);
+            0 if entry.len() >= 8 => {
+                let flags = u32::from_le_bytes(entry[4..8].try_into().ok()?);
+                let apic = u32::from(entry[3]);
                 if flags & 1 != 0
                     && local_count < MAX_CPUS
                     && !local_apics[..local_count].contains(&apic)
@@ -89,9 +82,9 @@ fn parse_madt(bytes: &[u8]) -> Option<Madt> {
                 }
             }
             // x2APIC：APIC ID、标志、UID。
-            9 if entry_length >= 16 => {
-                let apic = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?);
-                let flags = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().ok()?);
+            9 if entry.len() >= 16 => {
+                let apic = u32::from_le_bytes(entry[4..8].try_into().ok()?);
+                let flags = u32::from_le_bytes(entry[8..12].try_into().ok()?);
                 if flags & 1 != 0
                     && local_count < MAX_CPUS
                     && !local_apics[..local_count].contains(&apic)
@@ -101,22 +94,20 @@ fn parse_madt(bytes: &[u8]) -> Option<Madt> {
                 }
             }
             // I/O APIC：id、保留、地址、GSI 基址。
-            1 if entry_length >= 12 => {
-                let address = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?);
+            1 if entry.len() >= 12 => {
+                let address = u32::from_le_bytes(entry[4..8].try_into().ok()?);
                 ioapic_base = Some(u64::from(address));
-                gsi_base = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().ok()?);
+                gsi_base = u32::from_le_bytes(entry[8..12].try_into().ok()?);
             }
             // 中断源覆盖：总线、源 IRQ、GSI、标志。
-            2 if entry_length >= 10 && override_count < MAX_OVERRIDES => {
-                let source = bytes[offset + 3];
-                let gsi = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?);
+            2 if entry.len() >= 10 && override_count < MAX_OVERRIDES => {
+                let source = entry[3];
+                let gsi = u32::from_le_bytes(entry[4..8].try_into().ok()?);
                 overrides[override_count] = (source, gsi);
                 override_count += 1;
             }
             _ => {}
         }
-
-        offset += entry_length;
     }
 
     Some(Madt {
