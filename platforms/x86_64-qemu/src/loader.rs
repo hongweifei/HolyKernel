@@ -83,15 +83,21 @@ fn load(
         arena_size,
     };
 
+    let table = paging
+        .create_user(allocator)
+        .map_err(|error| format!("创建地址空间失败：{error:?}"))?;
     let mut memory = UserPages {
         direct_map_base,
-        paging,
+        paging: &table,
         allocator,
     };
-    loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
+    let context = loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
         cpu::user_frame(entry, stack_top, endpoint)
     })
-    .map_err(|error| format!("装载服务失败：{error}"))
+    .map_err(|error| format!("装载服务失败：{error}"))?;
+    drop(memory);
+    runtime::install_vspace(index, table);
+    Ok(context)
 }
 
 struct UserPages<'a> {

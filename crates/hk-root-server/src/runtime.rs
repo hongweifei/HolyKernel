@@ -79,6 +79,12 @@ pub trait UserPlatform {
     fn zero(&self, address: u64, length: usize);
     /// 返回任务槽位的 Arena 基址与大小。
     fn arena_layout(&self, slot: usize) -> (u64, u64);
+    /// 切换到任务槽位的地址空间。
+    fn activate(&self, _slot: usize) {}
+    /// 返回任务槽位的页表根；没有地址空间时为 0。
+    fn vspace(&self, _slot: usize) -> u64 {
+        0
+    }
 }
 
 /// 任务 Arena：线性分配，不回收。
@@ -146,6 +152,8 @@ pub struct TaskInfo {
     pub arena_used: u64,
     /// Arena 总字节数。
     pub arena_size: u64,
+    /// 页表根物理地址。
+    pub vspace: u64,
     /// 退出码。
     pub exit_code: Option<u64>,
 }
@@ -277,6 +285,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
                 arena_used: task.arena.used(),
                 arena_size: task.arena.size(),
+                vspace: self.platform.vspace(index),
                 exit_code: task.exited.then_some(task.exit_code),
             })
             .collect()
@@ -380,6 +389,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Step::Blocked;
         }
 
+        self.platform.activate(index);
         Step::Resume {
             index,
             context: self.tasks[index].context,

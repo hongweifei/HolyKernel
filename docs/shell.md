@@ -113,7 +113,7 @@ holy> debug app
 
 | 命令 | 作用 |
 | --- | --- |
-| `tasks` | 列出 Native Task/TCB、状态、Arena、子 Task |
+| `tasks` | 列出 Native Task/TCB、状态、Arena、VSpace、子 Task |
 | `focus` | 选择当前 Native Task（会话焦点） |
 | `start` | 按需装载并启动服务模块 |
 | `restart` | 重新装载并启动已退出的服务模块 |

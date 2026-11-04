@@ -6,8 +6,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_platform_x86_64::PageTable;
 use hk_platform_x86_64::cpu::{self, InterruptFrame, SyscallAction};
 use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
+use spin::Mutex;
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -20,6 +22,32 @@ const ARENA_SIZE: u64 = 64 * 1024;
 
 struct X86Platform;
 
+static VSPACES: Mutex<Vec<Option<PageTable>>> = Mutex::new(Vec::new());
+
+/// 登记任务槽位的用户页表。
+pub fn install_vspace(slot: usize, table: PageTable) {
+    let mut tables = VSPACES.lock();
+    if tables.len() <= slot {
+        tables.resize_with(slot + 1, || None);
+    }
+    tables[slot] = Some(table);
+}
+
+fn activate_vspace(slot: usize) {
+    let tables = VSPACES.lock();
+    if let Some(table) = tables.get(slot).and_then(Option::as_ref) {
+        table.activate();
+    }
+}
+
+fn vspace_root(slot: usize) -> u64 {
+    VSPACES
+        .lock()
+        .get(slot)
+        .and_then(Option::as_ref)
+        .map_or(0, |table| table.root().get())
+}
+
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
         cpu::timer_ticks()
@@ -30,7 +58,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn zero(&self, address: u64, length: usize) {
-        // SAFETY: Arena 页已映射为用户可写；内核与用户共享同一页表。
+        // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
         unsafe {
             core::ptr::write_bytes(address as *mut u8, 0, length);
         }
@@ -38,6 +66,14 @@ impl UserPlatform for X86Platform {
 
     fn arena_layout(&self, slot: usize) -> (u64, u64) {
         (ARENA_BASE + slot as u64 * ARENA_STRIDE, ARENA_SIZE)
+    }
+
+    fn activate(&self, slot: usize) {
+        activate_vspace(slot);
+    }
+
+    fn vspace(&self, slot: usize) -> u64 {
+        vspace_root(slot)
     }
 }
 

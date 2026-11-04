@@ -101,6 +101,7 @@ impl SmokeMode {
                 "父",
                 "句柄",
                 "Arena",
+                "VSpace",
                 "4/64K",
                 "Handle 计数",
                 "重启",

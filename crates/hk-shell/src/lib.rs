@@ -362,7 +362,7 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
     output.push_str(
-        "TCB  名称              父   端点  状态      挂起   退出码  句柄  Arena     当前\n",
+        "TCB  名称              父   端点  状态      挂起   退出码  句柄  Arena     VSpace       当前\n",
     );
     for task in tasks {
         let exit = match task.exit_code {
@@ -374,13 +374,14 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
             None => String::from("-"),
         };
         let arena = format!("{}/{}K", task.arena_used / 1024, task.arena_size / 1024);
+        let vspace = format!("{:#x}", task.vspace);
         let marker = if current == Some(task.name.as_str()) {
             "*"
         } else {
             ""
         };
         output.push_str(&format!(
-            "{:<4} {:<16} {:<4} {:<4} {:<8} {:<5} {:<6} {:<4} {:<9} {}\n",
+            "{:<4} {:<16} {:<4} {:<4} {:<8} {:<5} {:<6} {:<4} {:<9} {:<12} {}\n",
             task.tcb,
             task.name,
             parent,
@@ -390,6 +391,7 @@ fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
             exit,
             task.handles,
             arena,
+            vspace,
             marker
         ));
     }
@@ -458,6 +460,7 @@ mod tests {
                 handles: 5,
                 arena_used: 4096,
                 arena_size: 65536,
+                vspace: 0x10_0000,
                 exit_code: Some(0),
             },
             TaskInfo {
@@ -470,6 +473,7 @@ mod tests {
                 handles: 3,
                 arena_used: 0,
                 arena_size: 65536,
+                vspace: 0x11_0000,
                 exit_code: None,
             },
         ]

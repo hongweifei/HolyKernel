@@ -15,6 +15,7 @@ const PCD: u64 = 1 << 4;
 const HUGE: u64 = 1 << 7;
 const ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 const ENTRIES: usize = 512;
+const KERNEL_PML4_START: usize = 256;
 
 /// 页表项属性。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +126,34 @@ impl PageTable {
         self.root
     }
 
+    /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
+    pub fn create_user(&self, allocator: &mut FrameAllocator) -> Result<Self, PagingError> {
+        let root = allocator.allocate().ok_or(PagingError::OutOfFrames)?;
+        self.zero_frame(root);
+
+        for index in KERNEL_PML4_START..ENTRIES {
+            // SAFETY: 两侧 PML4 均经 HHDM 映射，索引在 0..512 范围内。
+            let value = unsafe { self.entry(self.root, index).read_volatile() };
+            // SAFETY: 目标 PML4 已清零且经 HHDM 可写，索引在 0..512 范围内。
+            unsafe {
+                self.entry(root, index).write_volatile(value);
+            }
+        }
+
+        Ok(Self {
+            direct_map: self.direct_map,
+            root,
+        })
+    }
+
+    /// 切换到该页表。
+    pub fn activate(&self) {
+        // SAFETY: 根物理地址来自页表或帧分配器；写入 CR3 只影响当前 CPU。
+        unsafe {
+            asm!("mov cr3, {}", in(reg) self.root.get(), options(nostack, preserves_flags));
+        }
+    }
+
     /// 建立 4 KiB 映射。
     pub fn map(
         &self,
@@ -228,5 +257,37 @@ mod tests {
 
         let allocator = FrameAllocator::new(&regions, kernel).expect("可用区域");
         assert_eq!(allocator.next, 0x1_2000);
+    }
+
+    #[test]
+    fn creates_user_table_with_kernel_entries() {
+        let mut memory = alloc::vec![0_u8; 3 * PAGE_SIZE];
+        let base = memory.as_mut_ptr() as u64;
+        // SAFETY: 缓冲区覆盖模板与用户页表各一页。
+        unsafe {
+            let root = base as *mut u64;
+            root.add(0).write_volatile(0x9ABC);
+            root.add(256).write_volatile(0x1234);
+            root.add(511).write_volatile(0x5678);
+        }
+
+        let table = PageTable {
+            direct_map: base,
+            root: PhysAddr::new(0),
+        };
+        let mut allocator = FrameAllocator {
+            next: PAGE_SIZE as u64,
+            end: 2 * PAGE_SIZE as u64,
+        };
+        let user = table.create_user(&mut allocator).expect("创建用户页表");
+        assert_eq!(user.root, PhysAddr::new(PAGE_SIZE as u64));
+
+        // SAFETY: 用户页表位于缓冲区第二页，已清零并复制内核入口。
+        unsafe {
+            let root = (base + PAGE_SIZE as u64) as *const u64;
+            assert_eq!(root.add(0).read_volatile(), 0);
+            assert_eq!(root.add(256).read_volatile(), 0x1234);
+            assert_eq!(root.add(511).read_volatile(), 0x5678);
+        }
     }
 }
