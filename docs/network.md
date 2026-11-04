@@ -6,6 +6,19 @@
 
 HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 Endpoint、Notification、Frame、DeviceGrant；TCP/IP、socket、DHCP、DNS、策略都在用户态。驱动是用户态 virtio-net。
 
+## 实现选型
+
+| 层 | 选型 | 边界 |
+| --- | --- | --- |
+| virtio-net 驱动 | `virtio-drivers` 0.13 `VirtIONetRaw` | 独立 `hk-server-virtio-net`，持有 DeviceGrant |
+| TCP/IP 协议栈 | `smoltcp`（无 std/堆） | `hk-server-net` 内的 `Interface` + `SocketSet` |
+| PHY 适配 | 自研 `phy::Device` | Net Endpoint + 共享 Frame 队列 |
+| Socket | 自研 `hk-net` | Socket Handle、rights、配额、`net` 命令 |
+
+- 驱动与协议栈通过以太网 Frame 交换；驱动侧零拷贝，smoltcp 边界允许一次复制。
+- smoltcp 启用 Ethernet、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS；不启用 std/默认特性。
+- 详见 [ADR-0013](adr/0013-net-stack.md)。
+
 ---
 
 ## 1. 目标与范围
@@ -53,7 +66,7 @@ flowchart TB
     Net --> Trace["trace / stats"]
 ```
 
-- **Network Driver** 持有 NIC 的 DeviceGrant；**Network Server** 持有 Net Endpoint、TCP/IP 栈、socket 表、路由表、策略。
+- **Network Driver** 持有 NIC 的 DeviceGrant，基于 `virtio-drivers` 的 `VirtIONetRaw` 收发 Frame；**Network Server** 持有 Net Endpoint、`smoltcp` 协议栈、socket 表、路由表、策略。
 - POSIX Server 把 socket fd 映射到 Network Server 的 Socket Handle。
 - 原生应用可直接通过 Network Server Endpoint 使用 Socket Handle。
 - 驱动只负责收发 Frame；协议在 Network Server。
@@ -175,7 +188,7 @@ sequenceDiagram
     POSIX-->>APP: recv(fd, buf)
 ```
 
-- 驱动使用 DeviceGrant 的 MMIO/DMA/IRQ；RX/TX 使用 Frame 队列。
+- 驱动使用 DeviceGrant 的 MMIO/DMA/IRQ；RX/TX 使用 Frame 队列；协议栈通过自定义 smoltcp `phy::Device` 读取/写入队列。
 - 中断通过 IRQHandler → Notification 交付驱动 Task。
 - 协议栈与驱动通过共享 Frame 传递数据包，保持零拷贝路径。
 - IOMMU 可用时绑定 DeviceGrant 域；IOMMU 关闭时驱动采用受信任模式。

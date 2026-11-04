@@ -32,7 +32,7 @@ HolyKernel/
 │   ├── hk-block/              块设备契约、内存盘与块协议 IPC 适配（`ipc` feature）
 │   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
 │   ├── hk-fs-ext4/            ext4 后端（rsext4）
-│   ├── hk-fs-holyfs/          HolyFS v1 后端（连续 extent、CRC32C、双超级块）
+│   ├── hk-fs-holyfs/          HolyFS v1：Document/Revision/Collection、COW 元数据树、VFS 适配
 │   ├── hk-fs-tmpfs/           tmpfs 后端（规划）
 │   ├── hk-fs-devfs/           devfs 后端（规划）
 │   ├── hk-fs-procfs/          procfs 后端（规划）
@@ -45,6 +45,7 @@ HolyKernel/
 │   ├── hk-shell/              HolyShell 命令解析、输出、ShellIo/ShellHost、执行循环与脚本求值
 │   ├── hk-server-build/       服务镜像链接配置（构建期生成链接脚本）
 │   ├── third_party/musl/      musl 移植（兼容环境主 C libc）（规划）
+│   ├── hk-net/                smoltcp 协议栈核心、Frame 队列 PHY、原生 UDP
 │   ├── hk-network/            Network Server（规划）
 │   ├── hk-display/            Display Server（规划）
 │   ├── hk-holydoc/            HolyDoc Server（规划）

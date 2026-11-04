@@ -11,7 +11,7 @@ hk-block = { version = "0.1.0", path = "../hk-block" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
 spin = "0.9"
-virtio-drivers = { version = "0.13", default-features = false }
+virtio-drivers = { version = "0.13", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true

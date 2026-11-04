@@ -18,6 +18,7 @@
 | [0010](0010-holyfs.md) | HolyFS 文件系统（Holy 对象模型） | 已接受 |
 | [0011](0011-linux-abi.md) | Linux 二进制 ABI 兼容层 | 已接受 |
 | [0012](0012-musl-dynamic-abi.md) | musl 动态 ABI 兼容 | 已接受 |
+| [0013](0013-net-stack.md) | virtio-net 与 smoltcp 网络栈 | 已接受 |
 
 ## 模板
 

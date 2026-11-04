@@ -1,0 +1,24 @@
+[package]
+name = "hk-net"
+description = "HolyKernel 网络协议栈：smoltcp 与 Net Endpoint 之间的适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+smoltcp = { version = "0.14", default-features = false, features = [
+    "alloc",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-icmp",
+    "socket-udp",
+    "socket-tcp",
+    "socket-dhcpv4",
+    "socket-dns",
+    "auto-icmp-echo-reply",
+] }
+
+[lints]
+workspace = true

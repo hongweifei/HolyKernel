@@ -166,8 +166,8 @@ flowchart LR
 
 ### 交付
 
-- virtio-net 驱动服务：DeviceGrant、RX/TX 队列、IRQ Notification、共享 Frame 收发环。
-- Network Server：Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP、DNS。
+- virtio-net 驱动服务：复用 `virtio-drivers` `VirtIONetRaw`，DeviceGrant、RX/TX 队列、IRQ Notification、共享 Frame 收发环。
+- Network Server：基于 `smoltcp` 的 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP、DNS；自定义 PHY 适配 Net Endpoint。
 - 原生 Socket Handle 与 Endpoint/Notification 收发；`net` 命令查看接口、ARP/路由、连接与统计。
 - 静态地址与 DHCP 配置；`/etc/network`、`/etc/hosts`、`/etc/resolv.conf` 由 VFS 提供。
 - 包路径使用共享 Frame，驱动与协议栈避免逐包复制；为后续 POSIX socket 复用同一 Socket Handle。

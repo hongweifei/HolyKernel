@@ -87,6 +87,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             );
             exit(0)
         }
+        Ok(Device::Network(_)) => {
+            write("hk-server-virtio: 网络设备需要 hk-server-virtio-net\n".as_bytes());
+            reply_not_ready(wait.pending);
+            exit(6)
+        }
         Ok(Device::Unsupported(kind)) => {
             write("hk-server-virtio: 尚未支持的设备类型 ".as_bytes());
             write_u64(kind as u64);
