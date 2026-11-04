@@ -168,11 +168,14 @@ extern "C" fn kmain() -> ! {
     }
 
     match smp::start() {
-        Ok((started, online)) => announce(
-            &console,
-            screen.as_ref(),
-            &format!("AP 在线：{online} 个（启动 {started}）\n"),
-        ),
+        Ok((started, online)) => {
+            let ipi = hk_platform_x86_64::cpu::ipi_count();
+            announce(
+                &console,
+                screen.as_ref(),
+                &format!("AP 在线：{online} 个（启动 {started}，IPI {ipi} 次）\n"),
+            );
+        }
         Err(error) => fail(
             &console,
             screen.as_ref(),

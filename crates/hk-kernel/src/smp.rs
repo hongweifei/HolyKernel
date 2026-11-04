@@ -1,10 +1,14 @@
 //! SMP AP 停泊与在线计数。
 
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
+
+use spin::Mutex;
 
 /// AP 停泊池。
 pub struct ApPool {
     online: AtomicUsize,
+    ids: Mutex<Vec<u32>>,
 }
 
 impl ApPool {
@@ -12,6 +16,7 @@ impl ApPool {
     pub const fn new() -> Self {
         Self {
             online: AtomicUsize::new(0),
+            ids: Mutex::new(Vec::new()),
         }
     }
 
@@ -20,11 +25,28 @@ impl ApPool {
         self.online.load(Ordering::Acquire)
     }
 
+    /// 返回在线 AP 的本地 APIC 编号。
+    pub fn ids(&self) -> Vec<u32> {
+        self.ids.lock().clone()
+    }
+
     /// 递增在线计数并停泊；不返回。
     pub fn park(&self) -> ! {
         self.online.fetch_add(1, Ordering::AcqRel);
         loop {
             core::hint::spin_loop();
+        }
+    }
+
+    /// 记录 APIC 编号、递增在线计数，并以 `idle` 停泊；不返回。
+    pub fn park_with<F>(&self, lapic_id: u32, mut idle: F) -> !
+    where
+        F: FnMut(),
+    {
+        self.ids.lock().push(lapic_id);
+        self.online.fetch_add(1, Ordering::AcqRel);
+        loop {
+            idle();
         }
     }
 
@@ -68,5 +90,6 @@ mod tests {
         );
         assert_eq!(online, 0);
         assert_eq!(pool.wait(0, || 0, 0), 0);
+        assert!(pool.ids().is_empty());
     }
 }

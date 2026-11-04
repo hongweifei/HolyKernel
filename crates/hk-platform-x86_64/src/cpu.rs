@@ -76,6 +76,8 @@ const LAPIC_LVT_TIMER: u64 = 0x320;
 const LAPIC_TIMER_INITIAL: u64 = 0x380;
 const LAPIC_TIMER_CURRENT: u64 = 0x390;
 const LAPIC_TIMER_DIVIDE: u64 = 0x3E0;
+const LAPIC_ICR_LOW: u64 = 0x300;
+const LAPIC_ICR_HIGH: u64 = 0x310;
 
 const LVT_MASKED: u32 = 1 << 16;
 const LVT_PERIODIC: u32 = 1 << 17;
@@ -286,6 +288,11 @@ static CPU: CpuState = CpuState {
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
+
+/// 跨核 IPI 向量。
+pub const IPI_VECTOR: u8 = 240;
+
+static IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static SYSCALL_HOOK: AtomicUsize = AtomicUsize::new(0);
 static PREEMPT_HOOK: AtomicUsize = AtomicUsize::new(0);
@@ -340,6 +347,7 @@ unsafe extern "C" {
     fn isr_32();
     fn isr_33();
     fn isr_128();
+    fn isr_240();
 }
 
 macro_rules! handler_addresses {
@@ -428,6 +436,7 @@ fn init_idt() {
         idt[KEYBOARD_VECTOR as usize] = IdtEntry::new(isr_33 as *const () as usize, 0);
         idt[SYSCALL_VECTOR as usize] =
             IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
+        idt[IPI_VECTOR as usize] = IdtEntry::new(isr_240 as *const () as usize, 0);
 
         let pointer = DescriptorPointer {
             limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
@@ -435,6 +444,72 @@ fn init_idt() {
         };
         asm!("lidt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
     }
+}
+
+/// 在 AP 上加载 BSP 已建立的内核 GDT/TSS 与 IDT。
+pub fn load_tables_for_ap() {
+    // SAFETY: GDT/TSS/IDT 已由 BSP 初始化且此后只读；AP 尚未开启中断。
+    unsafe {
+        let gdt = &*CPU.gdt.get();
+        let pointer = DescriptorPointer {
+            limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
+            base: gdt.as_ptr() as u64,
+        };
+        asm!("lgdt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
+
+        let code = u64::from(KERNEL_CODE);
+        asm!(
+            "push {code}",
+            "lea {target}, [rip + 2f]",
+            "push {target}",
+            "retfq",
+            "2:",
+            code = in(reg) code,
+            target = out(reg) _,
+        );
+
+        let data = u64::from(KERNEL_DATA);
+        asm!(
+            "mov ds, ax",
+            "mov es, ax",
+            "mov ss, ax",
+            "mov fs, ax",
+            "mov gs, ax",
+            in("ax") data,
+            options(nostack, preserves_flags),
+        );
+        // AP 只运行内核态中断，不需要加载 TR；BSP 的 `ltr` 已将 TSS 描述符
+        // 标记为 busy，重复 `ltr` 会触发 #GP。
+
+        let idt = &*CPU.idt.get();
+        let pointer = DescriptorPointer {
+            limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
+            base: idt.as_ptr() as u64,
+        };
+        asm!("lidt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
+    }
+}
+
+/// AP 初始化：加载 GDT/IDT、启用 LAPIC 伪中断并开启中断。
+pub fn init_ap() {
+    load_tables_for_ap();
+    lapic_write(LAPIC_SIVR, SPURIOUS_ENABLE | SPURIOUS_VECTOR);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+    // SAFETY: GDT/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
+    unsafe {
+        asm!("sti", options(nomem, nostack));
+    }
+}
+
+/// 向指定本地 APIC 发送固定投递 IPI。
+pub fn send_ipi(destination: u8, vector: u8) {
+    lapic_write(LAPIC_ICR_HIGH, u32::from(destination) << 24);
+    lapic_write(LAPIC_ICR_LOW, 0x0000_4000 | u32::from(vector));
+}
+
+/// 返回已接收的 IPI 数量。
+pub fn ipi_count() -> usize {
+    IPI_COUNT.load(Ordering::Acquire)
 }
 
 /// 初始化本地 APIC：屏蔽 8259 PIC，配置伪中断向量与定时器中断。
@@ -616,6 +691,7 @@ core::arch::global_asm!(
     "ISR_NOERR 32",
     "ISR_NOERR 33",
     "ISR_NOERR 128",
+    "ISR_NOERR 240",
     ".global isr_common",
     "isr_common:",
     "    push r15",
@@ -765,6 +841,11 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     }
     if frame.vector == SYSCALL_VECTOR {
         handle_syscall(frame);
+        return;
+    }
+    if frame.vector == u64::from(IPI_VECTOR) {
+        IPI_COUNT.fetch_add(1, Ordering::SeqCst);
+        lapic_write(LAPIC_EOI, 0);
         return;
     }
 
