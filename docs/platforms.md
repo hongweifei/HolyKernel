@@ -102,7 +102,7 @@ pub struct BootInfo {
 ```
 
 - `server_modules` 包含 Root Server、Device Manager、VFS、Network Server、HolyFS Server、HolyShell、POSIX Server 等 ELF 镜像。
-- 内核校验 memory map、内核镜像、帧缓冲、模块范围。
+- 内核校验 memory map 非空且不重叠、内核镜像非空且被内存描述、帧缓冲整段落在内存、direct map 覆盖内核/帧缓冲/模块且地址不溢出、模块非空、不重名、互不重叠且不与内核重叠。
 - BootInfo 在启动后映射为只读，供诊断使用。
 
 ---

@@ -138,6 +138,19 @@ pub struct DirectMapInfo {
     pub len: u64,
 }
 
+impl DirectMapInfo {
+    /// 判断 direct map 是否覆盖指定物理区间。
+    pub fn covers(&self, base: PhysAddr, len: u64) -> bool {
+        let Some(end) = base.get().checked_add(len) else {
+            return false;
+        };
+        let Some(map_end) = self.phys_base.get().checked_add(self.len) else {
+            return false;
+        };
+        base.get() >= self.phys_base.get() && end <= map_end
+    }
+}
+
 /// bootloader 提供的模块，例如服务器 ELF 镜像与服务清单。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BootModule {
@@ -209,6 +222,9 @@ impl BootInfo {
             }
         }
 
+        if self.kernel_image.len == 0 {
+            return Err(BootInfoError::EmptyKernelImage);
+        }
         if self.kernel_image.kind != RegionKind::Kernel {
             return Err(BootInfoError::KernelKindMismatch {
                 found: self.kernel_image.kind,
@@ -223,6 +239,11 @@ impl BootInfo {
                 base: self.kernel_image.base,
             });
         }
+        if let Some(direct_map) = self.direct_map
+            && !direct_map.covers(self.kernel_image.base, self.kernel_image.len)
+        {
+            return Err(BootInfoError::DirectMapDoesNotCover { what: "kernel" });
+        }
 
         if let Some(framebuffer) = self.framebuffer {
             let minimum_stride =
@@ -233,13 +254,38 @@ impl BootInfo {
             {
                 return Err(BootInfoError::InvalidFramebuffer);
             }
+            let length = u64::from(framebuffer.stride)
+                .checked_mul(u64::from(framebuffer.height))
+                .ok_or(BootInfoError::InvalidFramebuffer)?;
+            if !self.describes_range(framebuffer.phys, length) {
+                return Err(BootInfoError::AddressOutsideMemory {
+                    what: "framebuffer",
+                });
+            }
+            if let Some(direct_map) = self.direct_map
+                && !direct_map.covers(framebuffer.phys, length)
+            {
+                return Err(BootInfoError::DirectMapDoesNotCover {
+                    what: "framebuffer",
+                });
+            }
         }
 
         if let Some(direct_map) = self.direct_map {
             let aligned = direct_map.phys_base.is_page_aligned()
                 && direct_map.virt_base.is_page_aligned()
                 && (direct_map.len as usize).is_multiple_of(PAGE_SIZE);
-            if direct_map.len == 0 || !aligned {
+            let within_address_space = direct_map
+                .phys_base
+                .get()
+                .checked_add(direct_map.len)
+                .is_some()
+                && direct_map
+                    .virt_base
+                    .get()
+                    .checked_add(direct_map.len)
+                    .is_some();
+            if direct_map.len == 0 || !aligned || !within_address_space {
                 return Err(BootInfoError::InvalidDirectMap);
             }
         }
@@ -255,9 +301,12 @@ impl BootInfo {
             return Err(BootInfoError::AddressOutsideMemory { what: "rsdp" });
         }
 
-        for module in self.server_modules {
+        for (index, module) in self.server_modules.iter().enumerate() {
             if module.name.is_empty() {
                 return Err(BootInfoError::EmptyModuleName);
+            }
+            if module.region.len == 0 {
+                return Err(BootInfoError::EmptyModule { name: module.name });
             }
             if module.region.kind != RegionKind::Module {
                 return Err(BootInfoError::ModuleKindMismatch { name: module.name });
@@ -269,9 +318,38 @@ impl BootInfo {
             if !inside {
                 return Err(BootInfoError::ModuleOutsideMemory { name: module.name });
             }
+            if module.region.overlaps(&self.kernel_image) {
+                return Err(BootInfoError::ModuleKernelOverlap { name: module.name });
+            }
+            for previous in &self.server_modules[..index] {
+                if previous.name == module.name {
+                    return Err(BootInfoError::DuplicateModuleName { name: module.name });
+                }
+                if previous.region.overlaps(&module.region) {
+                    return Err(BootInfoError::ModuleOverlap {
+                        first: previous.name,
+                        second: module.name,
+                    });
+                }
+            }
+            if let Some(direct_map) = self.direct_map
+                && !direct_map.covers(module.region.base, module.region.len)
+            {
+                return Err(BootInfoError::DirectMapDoesNotCover { what: "module" });
+            }
         }
 
         Ok(())
+    }
+
+    /// 判断物理区间是否完全落在内存 map 描述的某一区域内。
+    pub fn describes_range(&self, base: PhysAddr, len: u64) -> bool {
+        let Some(end) = base.get().checked_add(len) else {
+            return false;
+        };
+        self.memory_map
+            .iter()
+            .any(|region| base.get() >= region.base.get() && end <= region.end().get())
     }
 
     /// 判断物理地址是否落在内存 map 描述的任一区域内。
@@ -391,6 +469,35 @@ pub enum BootInfoError {
     },
     /// 模块名称为空。
     EmptyModuleName,
+    /// 内核镜像为空。
+    EmptyKernelImage,
+    /// 模块区域为空。
+    EmptyModule {
+        /// 模块名称。
+        name: &'static str,
+    },
+    /// direct map 未覆盖必要区域。
+    DirectMapDoesNotCover {
+        /// 区域来源，取值为 `kernel`、`framebuffer` 或 `module`。
+        what: &'static str,
+    },
+    /// 模块与内核镜像重叠。
+    ModuleKernelOverlap {
+        /// 模块名称。
+        name: &'static str,
+    },
+    /// 两个模块区域重叠。
+    ModuleOverlap {
+        /// 前一个模块。
+        first: &'static str,
+        /// 后一个模块。
+        second: &'static str,
+    },
+    /// 模块名称重复。
+    DuplicateModuleName {
+        /// 重复的名称。
+        name: &'static str,
+    },
 }
 
 impl fmt::Display for BootInfoError {
@@ -426,6 +533,18 @@ impl fmt::Display for BootInfoError {
                 write!(formatter, "模块 {name} 未落在已描述的内存内")
             }
             Self::EmptyModuleName => formatter.write_str("模块名称为空"),
+            Self::EmptyKernelImage => formatter.write_str("内核镜像为空"),
+            Self::EmptyModule { name } => write!(formatter, "模块 {name} 的区域为空"),
+            Self::DirectMapDoesNotCover { what } => {
+                write!(formatter, "direct map 未覆盖 {what}")
+            }
+            Self::ModuleKernelOverlap { name } => {
+                write!(formatter, "模块 {name} 与内核镜像重叠")
+            }
+            Self::ModuleOverlap { first, second } => {
+                write!(formatter, "模块 {first} 与模块 {second} 重叠")
+            }
+            Self::DuplicateModuleName { name } => write!(formatter, "模块名称重复：{name}"),
         }
     }
 }
@@ -456,6 +575,33 @@ mod tests {
         region: MemoryRegion::new(PhysAddr::new(0x10_0000), 0x1000, RegionKind::Module),
     }];
 
+    static KERNEL_OVERLAP_MODULE: [BootModule; 1] = [BootModule {
+        name: "overlap",
+        region: MemoryRegion::new(PhysAddr::new(0x2000), 0x1000, RegionKind::Module),
+    }];
+
+    static OVERLAP_MODULES: [BootModule; 2] = [
+        BootModule {
+            name: "a",
+            region: MemoryRegion::new(PhysAddr::new(0x8000), 0x1000, RegionKind::Module),
+        },
+        BootModule {
+            name: "b",
+            region: MemoryRegion::new(PhysAddr::new(0x8000), 0x1000, RegionKind::Module),
+        },
+    ];
+
+    static DUPLICATE_MODULES: [BootModule; 2] = [
+        BootModule {
+            name: "a",
+            region: MemoryRegion::new(PhysAddr::new(0x8000), 0x1000, RegionKind::Module),
+        },
+        BootModule {
+            name: "a",
+            region: MemoryRegion::new(PhysAddr::new(0x9000), 0x1000, RegionKind::Module),
+        },
+    ];
+
     fn boot_info() -> BootInfo {
         BootInfo {
             magic: BOOT_INFO_MAGIC,
@@ -467,7 +613,7 @@ mod tests {
             direct_map: Some(DirectMapInfo {
                 phys_base: PhysAddr::new(0),
                 virt_base: VirtAddr::new(0xFFFF_8000_0000_0000),
-                len: 0x2000,
+                len: 0x1_0000,
             }),
             dtb: None,
             rsdp: None,
@@ -558,6 +704,102 @@ mod tests {
         assert_eq!(
             boot.validate(),
             Err(BootInfoError::AddressOutsideMemory { what: "dtb" })
+        );
+    }
+
+    #[test]
+    fn rejects_empty_kernel_image() {
+        let mut boot = boot_info();
+        boot.kernel_image = MemoryRegion::new(PhysAddr::new(0x2000), 0, RegionKind::Kernel);
+        assert_eq!(boot.validate(), Err(BootInfoError::EmptyKernelImage));
+    }
+
+    #[test]
+    fn rejects_direct_map_without_kernel() {
+        let mut boot = boot_info();
+        boot.direct_map = Some(DirectMapInfo {
+            phys_base: PhysAddr::new(0),
+            virt_base: VirtAddr::new(0xFFFF_8000_0000_0000),
+            len: 0x1000,
+        });
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::DirectMapDoesNotCover { what: "kernel" })
+        );
+    }
+
+    #[test]
+    fn rejects_framebuffer_outside_memory() {
+        let mut boot = boot_info();
+        boot.framebuffer = Some(FramebufferInfo {
+            phys: PhysAddr::new(0x20_0000),
+            width: 10,
+            height: 10,
+            stride: 64,
+            format: PixelFormat::Rgb32,
+        });
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::AddressOutsideMemory {
+                what: "framebuffer"
+            })
+        );
+    }
+
+    #[test]
+    fn accepts_framebuffer_inside_direct_map() {
+        let mut boot = boot_info();
+        boot.framebuffer = Some(FramebufferInfo {
+            phys: PhysAddr::new(0x4000),
+            width: 10,
+            height: 10,
+            stride: 64,
+            format: PixelFormat::Rgb32,
+        });
+        assert_eq!(boot.validate(), Ok(()));
+    }
+
+    #[test]
+    fn rejects_module_kernel_overlap() {
+        let mut boot = boot_info();
+        boot.server_modules = &KERNEL_OVERLAP_MODULE;
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::ModuleKernelOverlap { name: "overlap" })
+        );
+    }
+
+    #[test]
+    fn rejects_module_overlap_and_duplicate_names() {
+        let mut boot = boot_info();
+        boot.server_modules = &OVERLAP_MODULES;
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::ModuleOverlap {
+                first: "a",
+                second: "b"
+            })
+        );
+
+        boot.server_modules = &DUPLICATE_MODULES;
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::DuplicateModuleName { name: "a" })
+        );
+    }
+
+    #[test]
+    fn rejects_direct_map_without_module() {
+        let mut boot = boot_info();
+        boot.server_modules = &MODULE;
+        boot.direct_map = Some(DirectMapInfo {
+            phys_base: PhysAddr::new(0),
+            virt_base: VirtAddr::new(0xFFFF_8000_0000_0000),
+            len: 0x4000,
+        });
+        assert_eq!(
+            boot.validate(),
+            Err(BootInfoError::DirectMapDoesNotCover { what: "module" })
         );
     }
 }
