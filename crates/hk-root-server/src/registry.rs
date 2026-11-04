@@ -67,6 +67,19 @@ impl ServiceTable {
         });
     }
 
+    /// 设置服务的设备授权创建能力。
+    pub fn set_device_authority(&mut self, name: &str, authority: bool) {
+        if let Some(service) = self
+            .services
+            .iter_mut()
+            .find(|service| service.name == name)
+        {
+            service.device_authority = authority;
+        } else {
+            self.register_with_authority(name, authority);
+        }
+    }
+
     /// 返回服务是否具有设备授权创建能力。
     pub fn device_authority(&self, name: &str) -> bool {
         self.services

@@ -70,6 +70,21 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
             self.paging,
         )
     }
+
+    fn role(&self, name: &str) -> u32 {
+        let Some(module) = self
+            .info
+            .server_modules
+            .iter()
+            .find(|module| hk_root_server::loader::service_name(module.name) == name)
+        else {
+            return 0;
+        };
+        self.info
+            .module_bytes(module)
+            .map(hk_root_server::loader::service_role)
+            .unwrap_or(0)
+    }
 }
 
 impl ShellHost for Host<'_, '_> {

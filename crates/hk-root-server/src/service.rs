@@ -14,6 +14,11 @@ use crate::{RuntimeHost, ServiceTable, UserPlatform};
 pub trait ServiceLoader<C> {
     /// 把服务装载为初始用户现场；`slot` 是运行时任务槽位。
     fn load(&mut self, name: &str, slot: usize) -> Result<C, String>;
+
+    /// 返回服务镜像声明的角色；未知时返回 0。
+    fn role(&self, _name: &str) -> u32 {
+        0
+    }
 }
 
 /// 启动服务；已在运行时直接返回提示。
@@ -83,11 +88,16 @@ where
         Err(error) => return format!("装载失败：{error}\n"),
     };
 
-    let device_authority = services.device_authority(name);
+    let role = loader.role(name);
+    let device_authority =
+        services.device_authority(name) || role & hk_syscall::ServiceRole::DEVICE != 0;
     if let Err(error) = host.start(name, device_authority, context, parent) {
         return format!("启动失败：{error}\n");
     }
 
+    if device_authority {
+        services.set_device_authority(name, true);
+    }
     services.mark_running(name);
     host.run(services);
     format!("{verb}：{name}\n")
