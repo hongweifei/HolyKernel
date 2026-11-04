@@ -51,5 +51,5 @@ pub use pci::{PciAddress, PciConfig};
 pub use physical::{PhysicalAccess, PhysicalError};
 pub use platform::{Platform, PlatformError};
 pub use power::Power;
-pub use time::{CivilTime, Duration, Moment, Timer};
+pub use time::{CivilClock, CivilTime, Duration, Moment, Timer};
 pub use user_memory::UserMemory;

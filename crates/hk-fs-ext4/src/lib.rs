@@ -57,28 +57,19 @@ impl<C: WallClock> Clock for ClockAdapter<C> {
     }
 }
 
-/// ext4 磁盘格式使用自 1970 起的秒数；换算只发生在后端边界。
-fn civil_seconds(time: CivilTime) -> i64 {
-    let days = days_from_civil(
-        i64::from(time.year),
-        i64::from(time.month),
-        i64::from(time.day),
-    );
-    let seconds = days * 86_400
-        + i64::from(time.hour) * 3_600
-        + i64::from(time.minute) * 60
-        + i64::from(time.second);
-    seconds.max(0)
-}
+/// ext4 磁盘格式的历元（1970-01-01 UTC）；换算只发生在后端边界。
+const EXT4_EPOCH: CivilTime = CivilTime {
+    year: 1970,
+    month: 1,
+    day: 1,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    nanosecond: 0,
+};
 
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let yoe = year - era * 400;
-    let shifted_month = (month + 9) % 12;
-    let doy = (153 * shifted_month + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+fn civil_seconds(time: CivilTime) -> i64 {
+    time.seconds_since(EXT4_EPOCH).max(0)
 }
 
 /// 确定性熵源：ext4 只在启用 MMP 时需要。

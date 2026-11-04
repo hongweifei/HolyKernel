@@ -65,7 +65,10 @@ extern "C" fn kmain() -> ! {
 
     let frequency = hk_platform_x86_64::timing::calibrate();
     match frequency {
-        Some(hz) => console.write_str(&format!("TSC 频率：{} MHz\n", hz / 1_000_000)),
+        Some(hz) => {
+            console.write_str(&format!("TSC 频率：{} MHz\n", hz / 1_000_000));
+            hk_platform_x86_64::rtc::init(hz);
+        }
         None => console.write_str("TSC 校准失败\n"),
     }
 

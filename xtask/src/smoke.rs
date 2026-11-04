@@ -325,38 +325,20 @@ impl hk_fs_ext4::WallClock for HostClock {
     }
 }
 
+/// std::time 的原点；宿主工具只在镜像生成时使用。
+const HOST_TIME_ORIGIN: CivilTime = CivilTime {
+    year: 1970,
+    month: 1,
+    day: 1,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    nanosecond: 0,
+};
+
 fn host_civil_time() -> Option<CivilTime> {
     let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    let seconds = elapsed.as_secs() as i64;
-    let days = seconds.div_euclid(86_400);
-    let within = seconds.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    Some(CivilTime {
-        year: u16::try_from(year).ok()?,
-        month: month as u8,
-        day: day as u8,
-        hour: (within / 3_600) as u8,
-        minute: ((within % 3_600) / 60) as u8,
-        second: (within % 60) as u8,
-        nanosecond: elapsed.subsec_nanos(),
-    })
-}
-
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    if month <= 2 {
-        (year + 1, month, day)
-    } else {
-        (year, month, day)
-    }
+    Some(HOST_TIME_ORIGIN.add_seconds(elapsed.as_secs(), elapsed.subsec_nanos()))
 }
 
 /// 生成新的 ext4 测试磁盘。

@@ -3,7 +3,7 @@
 //! QEMU 默认把 RTC 设为 UTC。寄存器可能是 BCD 或二进制、12 或 24 小时制，
 //! 都由状态寄存器 B 描述；读值时等待更新周期结束并连续读取两次确认稳定。
 
-use hk_hal::CivilTime;
+use hk_hal::{CivilClock, CivilTime};
 use spin::Mutex;
 
 use crate::port::{inb, outb};
@@ -24,6 +24,7 @@ const REG_STATUS_B: u8 = 0x0B;
 const REG_CENTURY: u8 = 0x32;
 
 static RTC_LOCK: Mutex<()> = Mutex::new(());
+static ANCHOR: Mutex<Option<CivilClock>> = Mutex::new(None);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Snapshot {
@@ -37,8 +38,28 @@ struct Snapshot {
     status_b: u8,
 }
 
+/// 启动时读取 RTC，建立民用时间锚点。
+pub fn init(frequency: u64) {
+    if frequency == 0 {
+        return;
+    }
+    let Some(time) = read_civil() else {
+        return;
+    };
+    *ANCHOR.lock() = Some(CivilClock::new(time, crate::timing::rdtsc(), frequency));
+}
+
 /// 读取当前民用时间；RTC 不可用或时间非法时返回 `None`。
+///
+/// 启动后使用 RTC 锚点加单调 tick 推进，亚秒由 tick 频率换算。
 pub fn civil_time() -> Option<CivilTime> {
+    if let Some(clock) = *ANCHOR.lock() {
+        return Some(clock.now(crate::timing::rdtsc()));
+    }
+    read_civil()
+}
+
+fn read_civil() -> Option<CivilTime> {
     let _guard = RTC_LOCK.lock();
     wait_ready();
     let mut last = snapshot();
