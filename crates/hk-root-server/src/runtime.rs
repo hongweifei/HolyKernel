@@ -114,10 +114,8 @@ pub trait UserPlatform {
     }
     /// 归还 DeviceGrant 的 DMA 窗口。
     fn dma_free(&self, _range: hk_hal::PhysRange) {}
-    /// 取出并清除待处理 IRQ 位图。
-    fn take_irqs(&self) -> u64 {
-        0
-    }
+    /// 取出并清除待处理 IRQ 位图，最多 256 条。
+    fn take_irqs(&self, _pending: &mut [u64; 4]) {}
     /// 把 IRQ 线路由到设备中断向量。
     fn route_irq(&self, _irq: u8) -> bool {
         false
@@ -213,6 +211,8 @@ pub struct UserTask<C> {
     pub grants: Vec<Option<Handle>>,
     /// DeviceGrant 句柄到已绑定 IRQ 的映射。
     pub bound_irqs: Vec<(Handle, u8)>,
+    /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
+    pub dma_used: Vec<(Handle, u64)>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -251,6 +251,7 @@ impl<C> UserTask<C> {
             extra: Vec::new(),
             grants: Vec::new(),
             bound_irqs: Vec::new(),
+            dma_used: Vec::new(),
             context,
             pending: Pending::None,
             reply: None,

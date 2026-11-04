@@ -81,19 +81,35 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     frame.set_result(0);
                     return Switch::Continue;
                 };
+                let page = hk_hal::PAGE_SIZE as u64;
+                let aligned = (length as u64).div_ceil(page) * page;
+                let used = self.tasks[index]
+                    .dma_used
+                    .iter()
+                    .find(|(bound, _)| *bound == handle)
+                    .map_or(0, |(_, used)| *used);
                 if length == 0
-                    || length as u64 > range.len()
-                    || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
+                    || aligned > range.len().saturating_sub(used)
+                    || !virt.is_multiple_of(page)
                     || !self.platform.map_dma(
                         index,
                         virt,
-                        range.start().get(),
-                        range.len() as usize,
+                        range.start().get() + used,
+                        aligned as usize,
                     )
                 {
                     frame.set_result(0);
                 } else {
-                    frame.set_result(range.start().get());
+                    if let Some((_, used)) = self.tasks[index]
+                        .dma_used
+                        .iter_mut()
+                        .find(|(bound, _)| *bound == handle)
+                    {
+                        *used += aligned;
+                    } else {
+                        self.tasks[index].dma_used.push((handle, aligned));
+                    }
+                    frame.set_result(range.start().get() + used);
                 }
                 Switch::Continue
             }
@@ -552,6 +568,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return u64::MAX;
         };
         self.release_bindings(index, handle);
+        self.tasks[index]
+            .dma_used
+            .retain(|(bound, _)| *bound != handle);
         if let Ok(grant) = self.kernel.device_grant(tcb, handle)
             && let Some(range) = grant.dma
         {

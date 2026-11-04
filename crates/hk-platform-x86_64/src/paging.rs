@@ -26,7 +26,7 @@ const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
 static COW_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
-static MMIO_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
+static USER_TABLE_FRAMES: Mutex<Vec<PhysAddr>> = Mutex::new(Vec::new());
 
 /// 设置页表运行时使用的 direct map 基址。
 pub fn init_runtime(direct_map: u64) {
@@ -49,8 +49,8 @@ fn take_frame() -> Option<PhysAddr> {
 }
 
 /// 预留 MMIO 映射所需的页表帧。
-pub fn reserve_mmio_frames(allocator: &mut FrameAllocator, count: usize) {
-    let mut frames = MMIO_FRAMES.lock();
+pub fn reserve_user_table_frames(allocator: &mut FrameAllocator, count: usize) {
+    let mut frames = USER_TABLE_FRAMES.lock();
     for _ in 0..count {
         let Some(frame) = allocator.allocate() else {
             break;
@@ -59,8 +59,8 @@ pub fn reserve_mmio_frames(allocator: &mut FrameAllocator, count: usize) {
     }
 }
 
-fn take_mmio_frame() -> Option<PhysAddr> {
-    MMIO_FRAMES.lock().pop()
+fn take_user_table_frame() -> Option<PhysAddr> {
+    USER_TABLE_FRAMES.lock().pop()
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。
@@ -358,7 +358,7 @@ impl PageTable {
         phys: PhysAddr,
         flags: PageFlags,
     ) -> Result<(), PagingError> {
-        self.map_with(virt, phys, flags, take_mmio_frame)
+        self.map_with(virt, phys, flags, take_user_table_frame)
     }
 
     fn entry(&self, table: PhysAddr, index: usize) -> *mut u64 {

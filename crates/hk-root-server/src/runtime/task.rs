@@ -185,19 +185,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn drain_irqs(&mut self) {
-        let pending = self.platform.take_irqs();
-        if pending == 0 {
-            return;
-        }
-        for irq in 0..64 {
-            if pending & (1_u64 << irq) != 0 {
-                self.kernel.signal_irq(irq as u8);
+        let mut pending = [0_u64; 4];
+        self.platform.take_irqs(&mut pending);
+        for (word, bits) in pending.iter().enumerate() {
+            if *bits == 0 {
+                continue;
+            }
+            for bit in 0..64 {
+                if bits & (1_u64 << bit) != 0 {
+                    self.kernel.signal_irq((word * 64 + bit) as u8);
+                }
             }
         }
     }
 
     pub(crate) fn release_grants(&mut self, index: usize) {
         let tcb = self.tasks[index].tcb;
+        self.tasks[index].dma_used.clear();
         for handle in core::mem::take(&mut self.tasks[index].grants)
             .into_iter()
             .flatten()
