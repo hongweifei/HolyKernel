@@ -149,20 +149,58 @@ impl Kernel {
         self.register(thread, target, rights)
     }
 
-    /// 创建线程；线程获得独立的句柄表。
+    /// 创建线程；线程获得独立的句柄表并立即可运行。
     pub fn spawn_thread(&self, handles: HandleTable, priority: Priority) -> TcbId {
+        let id = self.spawn_parked(handles, priority);
+        let _ = self.activate(id);
+        id
+    }
+
+    /// 创建线程但不进入调度队列，等待 [`Self::activate`]。
+    pub fn spawn_parked(&self, handles: HandleTable, priority: Priority) -> TcbId {
         let id = TcbId::new(self.next_tcb.fetch_add(1, Ordering::Relaxed));
-        self.threads
-            .lock()
-            .insert(id, Tcb::new(id, priority, handles));
-        self.scheduler.lock().enqueue(id, priority);
+        let mut tcb = Tcb::new(id, priority, handles);
+        tcb.set_state(ThreadState::Inactive);
+        self.threads.lock().insert(id, tcb);
         self.record(id.get(), Category::Sched, TRACE_THREAD_SPAWN, 0);
         id
     }
 
-    /// 取下一个可运行线程；当前线程按同优先级轮转回到就绪队列。
-    pub fn schedule(&self) -> Option<TcbId> {
-        let current = self.scheduler.lock().take_current();
+    /// 把停泊线程置为可运行并加入调度队列。
+    pub fn activate(&self, thread: TcbId) -> Result<(), KernelError> {
+        let priority = {
+            let mut threads = self.threads.lock();
+            let tcb = threads
+                .get_mut(&thread)
+                .ok_or(KernelError::UnknownThread(thread))?;
+            if tcb.state() != ThreadState::Inactive {
+                return Ok(());
+            }
+            tcb.set_state(ThreadState::Runnable);
+            tcb.priority()
+        };
+        self.scheduler.lock().enqueue(thread, priority);
+        Ok(())
+    }
+
+    /// 把线程停泊并移出调度队列。
+    pub fn suspend(&self, thread: TcbId) -> Result<(), KernelError> {
+        {
+            let mut threads = self.threads.lock();
+            let tcb = threads
+                .get_mut(&thread)
+                .ok_or(KernelError::UnknownThread(thread))?;
+            tcb.set_state(ThreadState::Inactive);
+        }
+        let mut scheduler = self.scheduler.lock();
+        scheduler.remove(thread);
+        scheduler.clear_current_if(thread);
+        Ok(())
+    }
+
+    /// 取 `cpu` 的下一个可运行线程；该 CPU 的当前线程按同优先级轮转回就绪队列。
+    pub fn schedule(&self, cpu: usize) -> Option<TcbId> {
+        let current = self.scheduler.lock().take_current(cpu);
         if let Some(current) = current {
             let requeue = {
                 let mut threads = self.threads.lock();
@@ -179,7 +217,7 @@ impl Kernel {
             }
         }
 
-        let next = self.scheduler.lock().pick()?;
+        let next = self.scheduler.lock().pick(cpu)?;
         {
             let mut threads = self.threads.lock();
             if let Some(tcb) = threads.get_mut(&next) {

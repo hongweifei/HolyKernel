@@ -27,7 +27,7 @@ where
 {
     let kernel = Kernel::new();
     let specs: Vec<ServiceSpec> = names.iter().map(|name| ServiceSpec::new(name)).collect();
-    let server = RootServer::boot(&kernel, &specs)?;
+    let server = RootServer::boot_parked(&kernel, &specs)?;
     let root = server.root().get();
 
     let mut endpoints = Vec::with_capacity(names.len());

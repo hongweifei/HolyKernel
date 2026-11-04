@@ -3,6 +3,7 @@
 //! 任务表、系统调用、调度循环与启动装配都在 `crates/`；本模块只把
 //! `InterruptFrame`、PCI/计时/清零与 Arena 布局接入运行时宿主。
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -131,8 +132,18 @@ pub fn run(table: &mut ServiceTable) {
     cpu::stop_tick();
 }
 
+/// AP 调度循环。
+pub fn run_ap(cpu: usize) -> ! {
+    RUNTIME.run_ap(cpu)
+}
+
+/// 同步其他 CPU 记录的服务退出。
+pub fn drain_exits(table: &mut ServiceTable) {
+    RUNTIME.drain_exits(table);
+}
+
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
-    match RUNTIME.dispatch(frame) {
+    match RUNTIME.dispatch(cpu::cpu_index(), frame) {
         Switch::Continue => SyscallAction::Continue,
         Switch::Block => SyscallAction::Block,
         Switch::Exit => SyscallAction::Exit,
@@ -140,7 +151,7 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 }
 
 fn preempt(frame: &InterruptFrame) -> bool {
-    RUNTIME.preempt(*frame)
+    RUNTIME.preempt(cpu::cpu_index(), *frame)
 }
 
 fn fault(frame: &mut InterruptFrame) -> FaultAction {
@@ -152,9 +163,13 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
     }
 
     let console = Serial::new(COM1);
-    console.write_str("用户异常：");
-    console.write_str(cpu::exception_name(frame.vector));
-    console.write_str("，任务已退出\n");
-    RUNTIME.fault(0xE000 | frame.vector);
+    console.write_str(&format!(
+        "用户异常：{}（CPU {}）cr2={:#x} rip={:#x}\n",
+        cpu::exception_name(frame.vector),
+        cpu::cpu_index(),
+        cpu::fault_address(),
+        frame.rip
+    ));
+    RUNTIME.fault(cpu::cpu_index(), 0xE000 | frame.vector);
     FaultAction::Exit
 }

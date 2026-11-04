@@ -53,10 +53,6 @@ unsafe extern "C" fn ap_entry(info: *mut ApCpu) -> ! {
         (cpu.lapic_id, cpu.extra.load(Ordering::Acquire) as usize)
     };
     cpu::init_ap(cpu_index);
-    AP_POOL.park_with(lapic_id, || {
-        // SAFETY: 中断已开启；`hlt` 在下一个中断后返回。
-        unsafe {
-            core::arch::asm!("sti; hlt", options(nomem, nostack));
-        }
-    })
+    AP_POOL.mark_online(lapic_id);
+    crate::runtime::run_ap(cpu_index)
 }

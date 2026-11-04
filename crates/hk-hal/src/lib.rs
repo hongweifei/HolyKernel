@@ -24,6 +24,9 @@ pub mod power;
 pub mod time;
 pub mod user_memory;
 
+/// 支持的 CPU 数量上限。
+pub const MAX_CPUS: usize = 16;
+
 pub use addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 pub use arch::{Arch, CpuId};
 pub use boot::{

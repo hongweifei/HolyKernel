@@ -107,8 +107,8 @@ pub trait ShellHost {
     /// 返回任务视图快照。
     fn tasks(&self) -> Vec<TaskInfo>;
 
-    /// 返回服务表。
-    fn services(&self) -> &ServiceTable;
+    /// 返回服务表（宿主可先同步其他 CPU 的退出事件）。
+    fn services(&mut self) -> &ServiceTable;
 
     /// 返回最近的内核 trace 事件。
     fn trace(&self, limit: usize) -> Vec<TraceEvent>;
@@ -488,6 +488,14 @@ fn format_stats(stats: &RuntimeStats) -> String {
         average_ns(stats.call_cycles, stats.calls, stats.tsc_frequency),
         ns(stats.call_max_cycles, stats.tsc_frequency),
     ));
+    let mut cpus = String::from("  CPU 调度：");
+    for (cpu, count) in stats.resumes.iter().enumerate() {
+        if *count > 0 {
+            cpus.push_str(&format!("CPU{cpu}={count} "));
+        }
+    }
+    cpus.push('\n');
+    output.push_str(&cpus);
     output
 }
 
@@ -799,7 +807,7 @@ mod tests {
             alloc::vec::Vec::new()
         }
 
-        fn services(&self) -> &ServiceTable {
+        fn services(&mut self) -> &ServiceTable {
             &self.services
         }
 

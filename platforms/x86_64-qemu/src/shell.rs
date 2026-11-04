@@ -63,7 +63,8 @@ impl ShellHost for Host<'_, '_> {
         runtime::tasks()
     }
 
-    fn services(&self) -> &ServiceTable {
+    fn services(&mut self) -> &ServiceTable {
+        runtime::drain_exits(self.services);
         self.services
     }
 

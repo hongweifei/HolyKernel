@@ -133,7 +133,7 @@ impl Simulator {
         let mut exits = 0;
 
         while self.kernel.thread_count() > 0 {
-            let Some(thread) = self.kernel.schedule() else {
+            let Some(thread) = self.kernel.schedule(0) else {
                 return Err(SimError::Deadlock {
                     blocked: self.kernel.thread_count(),
                 });

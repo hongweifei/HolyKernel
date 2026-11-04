@@ -8,7 +8,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use hk_hal::{SyscallFrame, UserContext};
+use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
@@ -256,6 +256,8 @@ pub struct RuntimeStats {
     pub call_cycles: u64,
     /// 单次 call/reply 最大周期数。
     pub call_max_cycles: u64,
+    /// 各 CPU 恢复用户任务的次数。
+    pub resumes: [u64; MAX_CPUS],
     /// TSC 频率；未知时为 0。
     pub tsc_frequency: u64,
 }
@@ -267,7 +269,8 @@ pub struct UserRuntime<C, P> {
     tasks: Vec<UserTask<C>>,
     endpoints: Vec<Option<ObjectId>>,
     notifications: Vec<Option<ObjectId>>,
-    current: Option<usize>,
+    current: [Option<usize>; MAX_CPUS],
+    pending_exits: Vec<(String, u64)>,
     last_finish: Option<u64>,
     switch_count: u64,
     switch_cycles: u64,
@@ -275,6 +278,7 @@ pub struct UserRuntime<C, P> {
     call_count: u64,
     call_cycles: u64,
     call_max: u64,
+    resumes: [u64; MAX_CPUS],
     platform: P,
 }
 
@@ -294,7 +298,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             tasks,
             endpoints,
             notifications,
-            current: None,
+            current: [None; MAX_CPUS],
+            pending_exits: Vec::new(),
             last_finish: None,
             switch_count: 0,
             switch_cycles: 0,
@@ -302,6 +307,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             call_count: 0,
             call_cycles: 0,
             call_max: 0,
+            resumes: [0; MAX_CPUS],
             platform,
         }
     }
@@ -325,8 +331,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             calls: self.call_count,
             call_cycles: self.call_cycles,
             call_max_cycles: self.call_max,
+            resumes: self.resumes,
             tsc_frequency: self.platform.tsc_frequency(),
         }
+    }
+
+    /// 记录非 BSP 观察到的服务退出，等待 BSP 同步到服务表。
+    pub fn defer_exit(&mut self, name: String, code: u64) {
+        self.pending_exits.push((name, code));
+    }
+
+    /// 取走待同步的服务退出记录。
+    pub fn take_exits(&mut self) -> Vec<(String, u64)> {
+        core::mem::take(&mut self.pending_exits)
     }
 
     /// 返回 Root 线程编号。
@@ -342,10 +359,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .map(|task| task.tcb.get())
     }
 
-    /// 设置任务的用户态初始现场。
+    /// 设置任务的用户态初始现场，并使任务进入调度。
     pub fn attach(&mut self, index: usize, context: C) {
         if let Some(task) = self.tasks.get_mut(index) {
             task.context = context;
+            let _ = self.kernel.activate(task.tcb);
         }
     }
 
@@ -382,7 +400,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context.set_start_argument(endpoint);
 
         let kernel = &self.kernel;
-        let tcb = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
         let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
         self.endpoints.push(Some(own_id));
@@ -455,6 +473,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             arena_base,
             arena_size,
         ));
+        let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }
 
@@ -468,7 +487,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        let child = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+        let child = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
 
         let Ok(own_endpoint) = kernel.create_endpoint(child, rights) else {
             frame.set_result(u64::MAX);
@@ -542,19 +561,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         );
         task.arena = arena;
         self.tasks.push(task);
+        let _ = self.kernel.activate(child);
 
         frame.set_result(child_index as u64 + 1);
         Switch::Continue
     }
 
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
-    pub fn step(&mut self) -> Step<C> {
-        let Some(index) = self.next_task() else {
+    pub fn step(&mut self, cpu: usize) -> Step<C> {
+        let Some(index) = self.next_task(cpu) else {
             self.last_finish = None;
             return Step::Done;
         };
 
-        if self.prepare(index) {
+        if self.prepare(cpu, index) {
             return Step::Blocked;
         }
 
@@ -569,6 +589,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         self.platform.activate(index);
+        self.resumes[cpu] = self.resumes[cpu].saturating_add(1);
         Step::Resume {
             index,
             context: self.tasks[index].context,
@@ -576,8 +597,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
-    pub fn finish(&mut self, index: usize) -> Option<(String, u64)> {
-        self.current = None;
+    pub fn finish(&mut self, cpu: usize, index: usize) -> Option<(String, u64)> {
+        self.current[cpu] = None;
         self.last_finish = Some(self.platform.timestamp());
         if !self.tasks[index].exited {
             return None;
@@ -607,8 +628,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 分派一次系统调用。
-    pub fn dispatch(&mut self, frame: &mut C) -> Switch {
-        let Some(index) = self.current else {
+    pub fn dispatch(&mut self, cpu: usize, frame: &mut C) -> Switch {
+        let Some(index) = self.current[cpu] else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -692,8 +713,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 命中调度 tick 时保存现场；返回是否切换任务。
-    pub fn preempt(&mut self, context: C) -> bool {
-        let Some(index) = self.current else {
+    pub fn preempt(&mut self, cpu: usize, context: C) -> bool {
+        let Some(index) = self.current[cpu] else {
             return false;
         };
         self.tasks[index].context = context;
@@ -702,8 +723,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 标记当前任务因用户态异常退出；成功返回 `true`。
-    pub fn fault(&mut self, code: u64) -> bool {
-        let Some(index) = self.current else {
+    pub fn fault(&mut self, cpu: usize, code: u64) -> bool {
+        let Some(index) = self.current[cpu] else {
             return false;
         };
         if self.tasks[index].exited {
@@ -715,17 +736,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
-        self.current = None;
+        self.current[cpu] = None;
         true
     }
 
-    fn next_task(&mut self) -> Option<usize> {
-        let tcb = self.kernel.schedule()?;
+    fn next_task(&mut self, cpu: usize) -> Option<usize> {
+        let tcb = self.kernel.schedule(cpu)?;
         self.tasks.iter().position(|task| task.tcb == tcb)
     }
 
-    fn prepare(&mut self, index: usize) -> bool {
-        self.current = Some(index);
+    fn prepare(&mut self, cpu: usize, index: usize) -> bool {
+        self.current[cpu] = Some(index);
 
         let pending = self.tasks[index].pending;
         self.tasks[index].pending = Pending::None;
@@ -781,7 +802,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         if blocked_again {
             self.tasks[index].pending = pending;
-            self.current = None;
+            self.current[cpu] = None;
         }
 
         blocked_again
@@ -1133,11 +1154,22 @@ mod tests {
     }
 
     fn runtime() -> UserRuntime<MockContext, MockPlatform> {
-        crate::boot::user_runtime(&["a", "b"], MockPlatform, |_index, endpoint| MockContext {
-            rdi: endpoint,
-            ..MockContext::default()
-        })
-        .expect("装配运行时")
+        let mut runtime =
+            crate::boot::user_runtime(&["a", "b"], MockPlatform, |_index, endpoint| MockContext {
+                rdi: endpoint,
+                ..MockContext::default()
+            })
+            .expect("装配运行时");
+        for index in 0..runtime.task_count() {
+            runtime.attach(
+                index,
+                MockContext {
+                    rdi: index as u64 + 1,
+                    ..MockContext::default()
+                },
+            );
+        }
+        runtime
     }
 
     #[test]
@@ -1156,51 +1188,51 @@ mod tests {
         let mut runtime = runtime();
         assert_eq!(runtime.task_count(), 2);
 
-        let Step::Resume { index, mut context } = runtime.step() else {
+        let Step::Resume { index, mut context } = runtime.step(0) else {
             panic!("任务应可运行");
         };
 
         context.rax = SYS_ALLOC;
         context.rdi = 64;
         context.rsi = 16;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(context.rax, 0x10_0000);
 
         context.rax = SYS_EXIT;
         context.rdi = 3;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
-        assert_eq!(runtime.finish(index), Some((String::from("a"), 3)));
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
+        assert_eq!(runtime.finish(0, index), Some((String::from("a"), 3)));
     }
 
     #[test]
     fn transfers_handle_over_ipc() {
         let mut runtime = runtime();
 
-        let Step::Resume { index: sender, .. } = runtime.step() else {
+        let Step::Resume { index: sender, .. } = runtime.step(0) else {
             panic!("任务应可运行");
         };
         let mut context = MockContext {
             rax: SYS_YIELD,
             ..MockContext::default()
         };
-        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
 
         let Step::Resume {
             index: receiver,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
         assert_eq!(receiver, 1);
         context.rax = SYS_RECV;
         context.rdi = 2;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
 
         let Step::Resume {
             index: sender_again,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
@@ -1210,10 +1242,10 @@ mod tests {
         context.rsi = 9;
         context.rdx = 5;
         context.r10 = 2;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(runtime.tasks()[receiver].state, "runnable");
 
-        let Step::Resume { index, context } = runtime.step() else {
+        let Step::Resume { index, context } = runtime.step(0) else {
             panic!("任务应可运行");
         };
         assert_eq!(index, receiver);
@@ -1231,7 +1263,7 @@ mod tests {
         let Step::Resume {
             index: waiter,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
@@ -1239,13 +1271,13 @@ mod tests {
         context.rax = SYS_WAIT_NOTIFY;
         context.rdi = 1;
         context.rsi = 1;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
         assert_eq!(runtime.tasks()[waiter].pending, "notify");
 
         let Step::Resume {
             index: signaler,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
@@ -1253,10 +1285,10 @@ mod tests {
         context.rax = SYS_NOTIFY;
         context.rdi = 1;
         context.rsi = 1;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(context.rax, 0);
 
-        let Step::Resume { index, context } = runtime.step() else {
+        let Step::Resume { index, context } = runtime.step(0) else {
             panic!("任务应可运行");
         };
         assert_eq!(index, waiter);
@@ -1271,7 +1303,7 @@ mod tests {
         let Step::Resume {
             index: caller,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
@@ -1280,20 +1312,20 @@ mod tests {
         context.rdi = 2;
         context.rsi = 9;
         context.rdx = 5;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Block);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
         assert_eq!(runtime.tasks()[caller].pending, "call");
 
         let Step::Resume {
             index: server,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
         assert_eq!(server, 1);
         context.rax = SYS_RECV;
         context.rdi = 2;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(context.rax, 9);
         assert_eq!(context.rdx, 5);
         assert_eq!(context.rcx, 1);
@@ -1301,10 +1333,10 @@ mod tests {
         context.rax = SYS_REPLY;
         context.rdi = 10;
         context.rsi = 6;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(context.rax, 0);
 
-        let Step::Resume { index, context } = runtime.step() else {
+        let Step::Resume { index, context } = runtime.step(0) else {
             panic!("任务应可运行");
         };
         assert_eq!(index, caller);
@@ -1320,13 +1352,13 @@ mod tests {
         let Step::Resume {
             index: parent,
             mut context,
-        } = runtime.step()
+        } = runtime.step(0)
         else {
             panic!("任务应可运行");
         };
 
         context.rax = SYS_FORK;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Continue);
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
         assert_eq!(context.rax, 3);
         assert_eq!(runtime.task_count(), 3);
 
@@ -1336,7 +1368,7 @@ mod tests {
 
         let mut steps = 0;
         loop {
-            match runtime.step() {
+            match runtime.step(0) {
                 Step::Resume { index: 2, context } => {
                     assert_eq!(context.rax, 0);
                     break;
@@ -1351,23 +1383,35 @@ mod tests {
     }
 
     #[test]
+    fn schedules_on_multiple_cpus() {
+        let mut runtime = runtime();
+        let Step::Resume { index: first, .. } = runtime.step(0) else {
+            panic!("BSP 应可调度");
+        };
+        let Step::Resume { index: second, .. } = runtime.step(1) else {
+            panic!("AP 应可调度");
+        };
+        assert_ne!(first, second);
+    }
+
+    #[test]
     fn user_fault_exits_current_task() {
         let mut runtime = runtime();
-        let Step::Resume { index, .. } = runtime.step() else {
+        let Step::Resume { index, .. } = runtime.step(0) else {
             panic!("任务应可运行");
         };
 
-        assert!(runtime.fault(0xE00E));
-        assert!(!runtime.fault(0xE00E));
+        assert!(runtime.fault(0, 0xE00E));
+        assert!(!runtime.fault(0, 0xE00E));
         assert_eq!(runtime.tasks()[index].state, "exited");
         assert_eq!(runtime.tasks()[index].handles, 0);
-        assert_eq!(runtime.finish(index), Some((String::from("a"), 0xE00E)));
+        assert_eq!(runtime.finish(0, index), Some((String::from("a"), 0xE00E)));
     }
 
     #[test]
     fn exit_releases_peer_endpoint_handles() {
         let mut runtime = runtime();
-        let Step::Resume { index, mut context } = runtime.step() else {
+        let Step::Resume { index, mut context } = runtime.step(0) else {
             panic!("任务应可运行");
         };
         let other = 1 - index;
@@ -1376,8 +1420,8 @@ mod tests {
 
         context.rax = SYS_EXIT;
         context.rdi = 0;
-        assert_eq!(runtime.dispatch(&mut context), Switch::Exit);
-        assert!(runtime.finish(index).is_some());
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
+        assert!(runtime.finish(0, index).is_some());
 
         let tasks = runtime.tasks();
         assert_eq!(tasks[index].handles, 0);

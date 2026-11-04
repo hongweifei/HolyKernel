@@ -66,7 +66,8 @@ impl SmokeMode {
                 "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts;start hk-server-fault;start hk-server-fork;start hk-server-latency;tasks;trace;stats",
             ),
             Self::Input => Some("shell-interactive"),
-            Self::Preempt | Self::Smp => None,
+            Self::Preempt => None,
+            Self::Smp => Some("shell-test tasks;stats"),
         }
     }
 
@@ -140,7 +141,8 @@ impl SmokeMode {
             Self::Smp => &[
                 "本地 APIC：2 个",
                 "AP 在线：1 个（启动 1，IPI 1 次）",
-                "服务进入空闲",
+                "CPU 调度：",
+                "CPU1=",
             ],
         }
     }

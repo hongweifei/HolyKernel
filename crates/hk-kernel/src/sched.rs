@@ -1,16 +1,18 @@
-//! 调度器：固定优先级 + 同优先级轮转。
+//! 调度器：固定优先级 + 同优先级轮转，每 CPU 维护当前线程。
 
 use alloc::collections::VecDeque;
 
+use hk_hal::MAX_CPUS;
+
 use crate::tcb::{Priority, TcbId};
 
-/// 每 CPU 就绪队列。
+/// 调度器。
 ///
 /// 32 个优先级各一条 FIFO 队列，`pick` 取最高优先级的队首，实现固定优先级与
-/// 同优先级轮转。
+/// 同优先级轮转；`currents` 记录每 CPU 正在运行的线程。
 pub struct Scheduler {
     queues: [VecDeque<TcbId>; Priority::LEVELS],
-    current: Option<TcbId>,
+    currents: [Option<TcbId>; MAX_CPUS],
 }
 
 impl Scheduler {
@@ -18,7 +20,7 @@ impl Scheduler {
     pub fn new() -> Self {
         Self {
             queues: core::array::from_fn(|_| VecDeque::new()),
-            current: None,
+            currents: [None; MAX_CPUS],
         }
     }
 
@@ -38,31 +40,35 @@ impl Scheduler {
         false
     }
 
-    /// 取下一个可运行线程并记录为当前线程。
-    pub fn pick(&mut self) -> Option<TcbId> {
+    /// 取下一个可运行线程并记录为 `cpu` 的当前线程。
+    pub fn pick(&mut self, cpu: usize) -> Option<TcbId> {
+        assert!(cpu < MAX_CPUS, "CPU 索引越界");
         for queue in &mut self.queues {
             if let Some(id) = queue.pop_front() {
-                self.current = Some(id);
+                self.currents[cpu] = Some(id);
                 return Some(id);
             }
         }
         None
     }
 
-    /// 返回当前线程。
-    pub fn current(&self) -> Option<TcbId> {
-        self.current
+    /// 返回 `cpu` 的当前线程。
+    pub fn current(&self, cpu: usize) -> Option<TcbId> {
+        self.currents[cpu]
     }
 
-    /// 取走当前线程记录。
-    pub fn take_current(&mut self) -> Option<TcbId> {
-        self.current.take()
+    /// 取走 `cpu` 的当前线程记录。
+    pub fn take_current(&mut self, cpu: usize) -> Option<TcbId> {
+        assert!(cpu < MAX_CPUS, "CPU 索引越界");
+        self.currents[cpu].take()
     }
 
-    /// 当前线程是 `id` 时清除记录。
+    /// 线程是任意 CPU 的当前线程时清除记录。
     pub fn clear_current_if(&mut self, id: TcbId) {
-        if self.current == Some(id) {
-            self.current = None;
+        for current in &mut self.currents {
+            if *current == Some(id) {
+                *current = None;
+            }
         }
     }
 
@@ -93,10 +99,10 @@ mod tests {
         scheduler.enqueue(id(2), Priority::NORMAL);
         scheduler.enqueue(id(3), Priority::HIGHEST);
 
-        assert_eq!(scheduler.pick(), Some(id(3)));
-        assert_eq!(scheduler.pick(), Some(id(2)));
-        assert_eq!(scheduler.pick(), Some(id(1)));
-        assert_eq!(scheduler.pick(), None);
+        assert_eq!(scheduler.pick(0), Some(id(3)));
+        assert_eq!(scheduler.pick(0), Some(id(2)));
+        assert_eq!(scheduler.pick(0), Some(id(1)));
+        assert_eq!(scheduler.pick(0), None);
     }
 
     #[test]
@@ -105,8 +111,23 @@ mod tests {
         scheduler.enqueue(id(1), Priority::NORMAL);
         scheduler.enqueue(id(2), Priority::NORMAL);
 
-        assert_eq!(scheduler.pick(), Some(id(1)));
-        assert_eq!(scheduler.pick(), Some(id(2)));
+        assert_eq!(scheduler.pick(0), Some(id(1)));
+        assert_eq!(scheduler.pick(0), Some(id(2)));
+    }
+
+    #[test]
+    fn tracks_current_per_cpu() {
+        let mut scheduler = Scheduler::new();
+        scheduler.enqueue(id(1), Priority::NORMAL);
+        scheduler.enqueue(id(2), Priority::NORMAL);
+
+        assert_eq!(scheduler.pick(0), Some(id(1)));
+        assert_eq!(scheduler.pick(1), Some(id(2)));
+        assert_eq!(scheduler.current(0), Some(id(1)));
+        assert_eq!(scheduler.current(1), Some(id(2)));
+        scheduler.clear_current_if(id(1));
+        assert_eq!(scheduler.current(0), None);
+        assert_eq!(scheduler.current(1), Some(id(2)));
     }
 
     #[test]
@@ -118,6 +139,6 @@ mod tests {
         assert!(scheduler.remove(id(1)));
         assert!(!scheduler.remove(id(1)));
         assert_eq!(scheduler.runnable(), 1);
-        assert_eq!(scheduler.pick(), Some(id(2)));
+        assert_eq!(scheduler.pick(0), Some(id(2)));
     }
 }

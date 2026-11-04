@@ -296,6 +296,26 @@ unsafe impl Sync for CpuState {}
 
 static CPUS: [CpuState; MAX_CPUS] = [const { CpuState::new() }; MAX_CPUS];
 
+#[repr(C)]
+struct UserReturn {
+    kernel_rsp: u64,
+    kernel_rip: u64,
+}
+
+struct UserReturnCell(UnsafeCell<UserReturn>);
+
+// SAFETY: 每 CPU 只写自己的槽位，且只在自身上下文切换路径访问。
+unsafe impl Sync for UserReturnCell {}
+
+static USER_RETURNS: [UserReturnCell; MAX_CPUS] = [const {
+    UserReturnCell(UnsafeCell::new(UserReturn {
+        kernel_rsp: 0,
+        kernel_rip: 0,
+    }))
+}; MAX_CPUS];
+
+static APIC_IDS: [AtomicU32; MAX_CPUS] = [const { AtomicU32::new(u32::MAX) }; MAX_CPUS];
+
 struct IdtState(UnsafeCell<[IdtEntry; 256]>);
 
 // SAFETY: IDT 只由 BSP 初始化一次，之后由所有 CPU 只读访问。
@@ -447,6 +467,15 @@ fn load_gdt(cpu: usize) {
             options(nostack, preserves_flags),
         );
         asm!("ltr ax", in("ax") TSS_SELECTOR, options(nostack, preserves_flags));
+
+        let base = USER_RETURNS[cpu].0.get() as u64;
+        asm!(
+            "wrmsr",
+            in("ecx") 0xC000_0101_u32,
+            in("eax") base as u32,
+            in("edx") (base >> 32) as u32,
+            options(nostack, preserves_flags),
+        );
     }
 }
 
@@ -493,6 +522,7 @@ pub fn init_ap(cpu: usize) {
 
     lapic_write(LAPIC_SIVR, SPURIOUS_ENABLE | SPURIOUS_VECTOR);
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+    APIC_IDS[cpu].store(u32::from(lapic_id()), Ordering::Release);
     // SAFETY: GDT/TSS/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
     unsafe {
         asm!("sti", options(nomem, nostack));
@@ -516,6 +546,7 @@ pub fn ipi_count() -> usize {
 /// `0xFEE00000` 映射到 HHDM 窗口。
 pub fn init_apic(lapic_base: u64) {
     LAPIC_BASE.store(lapic_base, Ordering::SeqCst);
+    APIC_IDS[0].store(u32::from(lapic_id()), Ordering::Release);
 
     // SAFETY: 8259 PIC 端口固定存在；屏蔽后中断只经本地 APIC 投递。
     unsafe {
@@ -619,6 +650,17 @@ fn lapic_read(offset: u64) -> u32 {
 /// 返回本地 APIC 编号，用于配置 I/O APIC 的目标。
 pub fn lapic_id() -> u8 {
     (lapic_read(LAPIC_ID) >> 24) as u8
+}
+
+/// 返回当前 CPU 的运行时索引；未登记时返回 0。
+pub fn cpu_index() -> usize {
+    let id = u32::from(lapic_id());
+    for (index, slot) in APIC_IDS.iter().enumerate() {
+        if slot.load(Ordering::Acquire) == id {
+            return index;
+        }
+    }
+    0
 }
 
 /// 返回异常向量名称。
@@ -729,12 +771,6 @@ core::arch::global_asm!(
     "    pop r15",
     "    add rsp, 16",
     "    iretq",
-    ".section .bss",
-    ".align 8",
-    "hk_kernel_rsp:",
-    "    .quad 0",
-    "hk_kernel_rip:",
-    "    .quad 0",
     ".section .text",
     ".global hk_resume_user",
     "hk_resume_user:",
@@ -744,9 +780,9 @@ core::arch::global_asm!(
     "    push r13",
     "    push r14",
     "    push r15",
-    "    mov [rip + hk_kernel_rsp], rsp",
+    "    mov gs:[0], rsp",
     "    lea rax, [rip + hk_user_return]",
-    "    mov [rip + hk_kernel_rip], rax",
+    "    mov gs:[8], rax",
     "    mov rbx, rdi",
     "    mov ax, 0x2b",
     "    mov ds, ax",
@@ -776,7 +812,7 @@ core::arch::global_asm!(
     "    mov ax, 0x10",
     "    mov ds, ax",
     "    mov es, ax",
-    "    mov rsp, [rip + hk_kernel_rsp]",
+    "    mov rsp, gs:[0]",
     "    pop r15",
     "    pop r14",
     "    pop r13",
@@ -786,8 +822,8 @@ core::arch::global_asm!(
     "    ret",
     ".global hk_leave_user",
     "hk_leave_user:",
-    "    mov rsp, [rip + hk_kernel_rsp]",
-    "    mov rax, [rip + hk_kernel_rip]",
+    "    mov rsp, gs:[0]",
+    "    mov rax, gs:[8]",
     "    jmp rax",
 );
 

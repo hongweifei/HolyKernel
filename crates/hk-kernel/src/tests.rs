@@ -299,11 +299,11 @@ fn schedules_higher_priority_first() {
     let low = kernel.spawn_thread(HandleTable::new(8), Priority::LOWEST);
     let high = kernel.spawn_thread(HandleTable::new(8), Priority::HIGHEST);
 
-    assert_eq!(kernel.schedule(), Some(high));
+    assert_eq!(kernel.schedule(0), Some(high));
     assert_eq!(kernel.state_of(high), Some(ThreadState::Running));
 
     kernel.exit(high).expect("退出高优先级线程");
-    assert_eq!(kernel.schedule(), Some(low));
+    assert_eq!(kernel.schedule(0), Some(low));
 }
 
 #[test]
@@ -312,9 +312,9 @@ fn rotates_threads_of_equal_priority() {
     let first = thread(&kernel);
     let second = thread(&kernel);
 
-    assert_eq!(kernel.schedule(), Some(first));
-    assert_eq!(kernel.schedule(), Some(second));
-    assert_eq!(kernel.schedule(), Some(first));
+    assert_eq!(kernel.schedule(0), Some(first));
+    assert_eq!(kernel.schedule(0), Some(second));
+    assert_eq!(kernel.schedule(0), Some(first));
 }
 
 #[test]

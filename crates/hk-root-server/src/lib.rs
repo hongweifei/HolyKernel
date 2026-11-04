@@ -64,11 +64,32 @@ impl RootServer {
     /// Root 线程使用最高优先级；每个服务获得独立句柄表、一个端点以及在自身表中
     /// 有效的端点句柄。
     pub fn boot(kernel: &Kernel, specs: &[ServiceSpec]) -> Result<Self, KernelError> {
-        let root = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::HIGHEST);
+        Self::boot_impl(kernel, specs, false)
+    }
+
+    /// 启动 Root Server，但服务线程保持停泊，等待调用方 attach 后激活。
+    pub fn boot_parked(kernel: &Kernel, specs: &[ServiceSpec]) -> Result<Self, KernelError> {
+        Self::boot_impl(kernel, specs, true)
+    }
+
+    fn boot_impl(
+        kernel: &Kernel,
+        specs: &[ServiceSpec],
+        parked: bool,
+    ) -> Result<Self, KernelError> {
+        let spawn = |handles, priority| {
+            if parked {
+                kernel.spawn_parked(handles, priority)
+            } else {
+                kernel.spawn_thread(handles, priority)
+            }
+        };
+
+        let root = spawn(HandleTable::with_default_quota(), Priority::HIGHEST);
         let mut services = Vec::with_capacity(specs.len());
 
         for spec in specs {
-            let tcb = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+            let tcb = spawn(HandleTable::with_default_quota(), Priority::NORMAL);
             let endpoint =
                 kernel.create_endpoint(root, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
             let endpoint_id = kernel.handle_id(root, endpoint)?;

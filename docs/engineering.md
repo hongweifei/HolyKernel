@@ -16,7 +16,7 @@ HolyKernel/
 ├── xtask/                     构建、镜像、QEMU、测试、文档
 ├── crates/
 │   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI；用户现场、系统调用帧与页映射契约
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；线性堆与 AP 停泊池
+│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度、线性堆与 AP 池
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
 │   ├── hk-ipc/                Endpoint、Notification、消息
 │   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA

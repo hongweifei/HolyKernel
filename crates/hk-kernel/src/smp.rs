@@ -30,6 +30,12 @@ impl ApPool {
         self.ids.lock().clone()
     }
 
+    /// 记录 APIC 编号并递增在线计数。
+    pub fn mark_online(&self, lapic_id: u32) {
+        self.ids.lock().push(lapic_id);
+        self.online.fetch_add(1, Ordering::AcqRel);
+    }
+
     /// 递增在线计数并停泊；不返回。
     pub fn park(&self) -> ! {
         self.online.fetch_add(1, Ordering::AcqRel);
@@ -43,8 +49,7 @@ impl ApPool {
     where
         F: FnMut(),
     {
-        self.ids.lock().push(lapic_id);
-        self.online.fetch_add(1, Ordering::AcqRel);
+        self.mark_online(lapic_id);
         loop {
             idle();
         }

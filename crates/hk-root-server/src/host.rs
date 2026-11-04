@@ -112,10 +112,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or_else(crate::RuntimeStats::default, UserRuntime::stats)
     }
 
-    /// 依次调度任务直到没有可运行线程；恢复现场时释放锁。
+    /// 在 BSP 上依次调度任务直到没有可运行线程；恢复现场时释放锁。
     pub fn run(&self, table: &mut ServiceTable) {
+        self.run_cpu(0, Some(table));
+    }
+
+    /// 在指定 CPU 上调度任务；`table` 为 `None` 时退出记录留待 BSP 同步。
+    pub fn run_cpu(&self, cpu: usize, mut table: Option<&mut ServiceTable>) {
         loop {
-            let step = self.runtime.lock().as_mut().map(UserRuntime::step);
+            let step = self
+                .runtime
+                .lock()
+                .as_mut()
+                .map(|runtime| runtime.step(cpu));
             match step {
                 Some(Step::Resume { index, context }) => {
                     context.resume();
@@ -123,9 +132,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                         .runtime
                         .lock()
                         .as_mut()
-                        .and_then(|runtime| runtime.finish(index));
+                        .and_then(|runtime| runtime.finish(cpu, index));
                     if let Some((name, code)) = exited {
-                        table.mark_exited(&name, code);
+                        match table.as_deref_mut() {
+                            Some(table) => table.mark_exited(&name, code),
+                            None => {
+                                if let Some(runtime) = self.runtime.lock().as_mut() {
+                                    runtime.defer_exit(name, code);
+                                }
+                            }
+                        }
                     }
                 }
                 Some(Step::Blocked) => {}
@@ -134,29 +150,50 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         }
     }
 
+    /// AP 调度循环：无任务时轮询等待新任务。
+    pub fn run_ap(&self, cpu: usize) -> ! {
+        loop {
+            self.run_cpu(cpu, None);
+            core::hint::spin_loop();
+        }
+    }
+
+    /// 把其他 CPU 记录的服务退出同步到服务表。
+    pub fn drain_exits(&self, table: &mut ServiceTable) {
+        let exits = self
+            .runtime
+            .lock()
+            .as_mut()
+            .map(|runtime| runtime.take_exits())
+            .unwrap_or_default();
+        for (name, code) in exits {
+            table.mark_exited(&name, code);
+        }
+    }
+
     /// 分派一次系统调用。
-    pub fn dispatch(&self, frame: &mut C) -> Switch {
+    pub fn dispatch(&self, cpu: usize, frame: &mut C) -> Switch {
         let mut guard = self.runtime.lock();
         let Some(runtime) = guard.as_mut() else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        runtime.dispatch(frame)
+        runtime.dispatch(cpu, frame)
     }
 
     /// 保存抢占现场；返回是否切换任务。
-    pub fn preempt(&self, context: C) -> bool {
+    pub fn preempt(&self, cpu: usize, context: C) -> bool {
         self.runtime
             .lock()
             .as_mut()
-            .is_some_and(|runtime| runtime.preempt(context))
+            .is_some_and(|runtime| runtime.preempt(cpu, context))
     }
 
     /// 标记当前任务因用户态异常退出。
-    pub fn fault(&self, code: u64) -> bool {
+    pub fn fault(&self, cpu: usize, code: u64) -> bool {
         self.runtime
             .lock()
             .as_mut()
-            .is_some_and(|runtime| runtime.fault(code))
+            .is_some_and(|runtime| runtime.fault(cpu, code))
     }
 }
