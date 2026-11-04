@@ -168,6 +168,21 @@ pub fn pci_write(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
     }
 }
 
+/// 创建内核 DeviceGrant 对象，返回用户句柄。
+pub fn device_grant_create(encoded: &[u8]) -> u64 {
+    // SAFETY: 编码缓冲区属于本进程；内核复制后解码。
+    unsafe {
+        syscall_call(
+            SYS_DEVICE_GRANT_CREATE,
+            encoded.as_ptr() as u64,
+            encoded.len() as u64,
+            0,
+            0,
+        )
+        .value
+    }
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

@@ -9,11 +9,11 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_drivers::grant::from_device;
+use hk_drivers::grant::{DEVICE_GRANT_BYTES, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, pci_read, write, write_u64};
+use hk_server_api::{device_grant_create, exit, pci_read, write, write_u64};
 
 /// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
@@ -134,6 +134,12 @@ fn write_device(device: &Device) {
     }
     if grant.is_virtio() {
         write(b"  virtio");
+    }
+    let mut encoded = [0_u8; DEVICE_GRANT_BYTES];
+    if let Some(length) = grant.encode(&mut encoded) {
+        let handle = device_grant_create(&encoded[..length]);
+        write(b"  grant-handle=");
+        write_hex64(handle);
     }
     write(b"\n");
 }

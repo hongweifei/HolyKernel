@@ -36,7 +36,7 @@ pub use boot::{
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
 pub use console::Console;
-pub use device::{DeviceGrant, IoRange, MmioRange};
+pub use device::{DEVICE_GRANT_BYTES, DeviceGrant, IoRange, MmioRange};
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
 pub use execution::{SyscallFrame, UserContext};

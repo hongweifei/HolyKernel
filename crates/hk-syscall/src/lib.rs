@@ -67,5 +67,8 @@ pub const SYS_RECV_DATA: u64 = 19;
 /// 写入 PCI 配置空间。
 pub const SYS_PCI_WRITE: u64 = 20;
 
+/// 创建 DeviceGrant 对象。
+pub const SYS_DEVICE_GRANT_CREATE: u64 = 21;
+
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;

@@ -8,13 +8,14 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
+use hk_hal::{DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY,
-    SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SEND, SYS_SEND_DATA,
-    SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE,
+    SYS_HANDLE_COUNT, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY,
+    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY,
+    SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -25,6 +26,7 @@ mod syscall;
 mod task;
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;
+const GRANT_HANDLE_BASE: usize = 0x2000;
 
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
@@ -180,6 +182,8 @@ pub struct UserTask<C> {
     pub notifications: Vec<Option<Handle>>,
     /// 随消息接收的额外句柄。
     pub extra: Vec<Option<Handle>>,
+    /// 本任务持有的 DeviceGrant 句柄。
+    pub grants: Vec<Handle>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -214,6 +218,7 @@ impl<C> UserTask<C> {
             handles,
             notifications,
             extra: Vec::new(),
+            grants: Vec::new(),
             context,
             pending: Pending::None,
             reply: None,
@@ -398,6 +403,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let slot = self.tasks[index].extra.len();
         self.tasks[index].extra.push(Some(handle));
         (EXTRA_HANDLE_BASE + slot + 1) as u64
+    }
+
+    fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index].grants.len();
+        self.tasks[index].grants.push(handle);
+        (GRANT_HANDLE_BASE + slot + 1) as u64
     }
 
     fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {

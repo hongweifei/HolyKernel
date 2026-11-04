@@ -57,6 +57,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 )));
                 Switch::Continue
             }
+            SYS_DEVICE_GRANT_CREATE => self.create_grant(index, tcb, frame),
             SYS_PCI_WRITE => {
                 let address = frame.arg0();
                 let bus = (address >> 8) as u8;
@@ -396,5 +397,35 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         frame.set_sender(self.endpoint_of(received.sender));
         frame.set_handle(length as u64);
         Switch::Continue
+    }
+    fn create_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let length = frame.arg1() as usize;
+        if length == 0 || length > hk_hal::DEVICE_GRANT_BYTES {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+        if !self.platform.read_user(frame.arg0(), &mut bytes[..length]) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(grant) = DeviceGrant::decode(&bytes[..length]) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        match self.kernel.create_device_grant(
+            tcb,
+            grant,
+            hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::TRANSFER,
+        ) {
+            Ok(handle) => {
+                frame.set_result(self.install_grant(index, handle));
+                Switch::Continue
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
     }
 }

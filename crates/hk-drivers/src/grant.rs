@@ -1,6 +1,6 @@
 //! 从 PCI 资源生成 DeviceGrant。
 
-pub use hk_hal::{DeviceGrant, IoRange, MmioRange};
+pub use hk_hal::{DEVICE_GRANT_BYTES, DeviceGrant, IoRange, MmioRange};
 
 use crate::pci::{Bar, Device, PciConfig, bar_size, capabilities, read_bars};
 
