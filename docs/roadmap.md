@@ -146,7 +146,7 @@ flowchart LR
 - ext2、tmpfs、devfs、procfs 后端。
 - Block Driver 与 VFS 的 Endpoint 接口。
 
-已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器。
+已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上。
 - VFS 重启与后端恢复。
 
 ### 退出标准
@@ -155,7 +155,7 @@ flowchart LR
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；当前 QEMU 测得 debug 约 0.7 MiB/s、release 约 5.6 MiB/s，需共享 Frame 与大块传输优化。
+5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；当前 QEMU 测得 debug 约 8.6 MiB/s、release 约 63 MiB/s（64 KiB 消息、大块 VFS 读写、堆缓冲），距预算仍需共享 Frame。
 
 ---
 
