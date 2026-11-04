@@ -6,11 +6,18 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::Console;
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
+use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
+
+/// 看门狗两次快照之间的墙钟间隔。
+const WATCHDOG_INTERVAL_MS: u64 = 3_000;
+
+static WATCHDOG_LAST_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0200_0000;
@@ -200,7 +207,42 @@ pub fn run_budgeted(table: &mut ServiceTable, steps: usize) -> bool {
     cpu::start_tick();
     let idle = RUNTIME.run_cpu_budget(0, Some(table), steps);
     cpu::stop_tick();
+    if !idle && watchdog_enabled() {
+        watchdog_snapshot();
+    }
     idle
+}
+
+/// 是否通过 `watchdog` 启动参数开启活性看门狗。
+fn watchdog_enabled() -> bool {
+    hk_boot::cmdline().is_some_and(|line| line.contains("watchdog"))
+}
+
+/// 系统未空闲但持续运行时，周期性输出任务快照，便于定位活性停顿。
+fn watchdog_snapshot() {
+    let frequency = timing::tsc_frequency();
+    if frequency == 0 {
+        return;
+    }
+    let now = ((u128::from(timing::rdtsc()) * 1000) / u128::from(frequency)) as u64;
+    let last = WATCHDOG_LAST_MS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < WATCHDOG_INTERVAL_MS {
+        return;
+    }
+    WATCHDOG_LAST_MS.store(now, Ordering::Relaxed);
+
+    let console = Serial::new(COM1);
+    let stats = RUNTIME.stats();
+    console.write_str(&format!(
+        "[watchdog] t={now}ms resumes={:?}\n",
+        stats.resumes
+    ));
+    for task in RUNTIME.tasks() {
+        console.write_str(&format!(
+            "[watchdog] {} tcb={} state={} pending={} handles={}\n",
+            task.name, task.tcb, task.state, task.pending, task.handles
+        ));
+    }
 }
 
 /// AP 调度循环：无任务时关闭 tick 并等待唤醒 IPI。
