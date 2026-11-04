@@ -38,6 +38,10 @@ impl UserPlatform for X86Platform {
         cpu::timer_ticks()
     }
 
+    fn civil_time(&self) -> Option<hk_hal::CivilTime> {
+        hk_platform_x86_64::rtc::civil_time()
+    }
+
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
         hk_platform_x86_64::pci::config_read(bus, device, function, offset)
     }

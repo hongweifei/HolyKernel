@@ -243,6 +243,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.platform.timer_ticks());
                 Switch::Continue
             }
+            SYS_CIVIL_TIME => {
+                let pointer = frame.arg0();
+                let capacity = frame.arg1() as usize;
+                let result = match self.platform.civil_time() {
+                    Some(time) if capacity >= CivilTime::ENCODED_LEN => {
+                        let mut bytes = [0_u8; CivilTime::ENCODED_LEN];
+                        time.encode(&mut bytes);
+                        if self.platform.write_user(pointer, &bytes) {
+                            CivilTime::ENCODED_LEN as u64
+                        } else {
+                            u64::MAX
+                        }
+                    }
+                    Some(_) => u64::MAX,
+                    None => 0,
+                };
+                frame.set_result(result);
+                Switch::Continue
+            }
             SYS_TSC => {
                 frame.set_result(self.platform.timestamp());
                 Switch::Continue

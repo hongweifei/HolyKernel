@@ -265,6 +265,25 @@ pub fn self_notification() -> u64 {
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
 }
 
+/// 读取民用时间；没有 RTC 时返回 `None`。
+pub fn civil_time() -> Option<hk_hal::CivilTime> {
+    let mut bytes = [0_u8; hk_hal::CivilTime::ENCODED_LEN];
+    // SAFETY: 缓冲区属于本进程；内核校验长度后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_CIVIL_TIME,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+    };
+    if result.value as usize != hk_hal::CivilTime::ENCODED_LEN {
+        return None;
+    }
+    hk_hal::CivilTime::decode(&bytes)
+}
+
 /// 读取调度 tick 计数。
 pub fn ticks() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

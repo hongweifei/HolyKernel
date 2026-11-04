@@ -1,9 +1,16 @@
 //! 平台提供的用户态运行支持。
 
+use hk_hal::CivilTime;
+
 /// 平台提供的用户态运行支持。
 pub trait UserPlatform {
     /// 返回调度 tick 计数。
     fn timer_ticks(&self) -> u64;
+
+    /// 返回当前民用时间；没有 RTC 时返回 `None`。
+    fn civil_time(&self) -> Option<CivilTime> {
+        None
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。

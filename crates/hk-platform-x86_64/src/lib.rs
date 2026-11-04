@@ -17,6 +17,7 @@ pub mod keyboard;
 pub mod paging;
 pub mod pci;
 pub mod port;
+pub mod rtc;
 pub mod serial;
 pub mod timing;
 pub mod vspace;
