@@ -149,7 +149,7 @@ flowchart LR
 - ext2、tmpfs、devfs、procfs 后端。
 - Block Driver 与 VFS 的 Endpoint 接口。
 
-已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上；HolyFS v1 后端（连续 extent、CRC32C、双超级块、追加快路径）通过 `vfs.fs=holyfs` 挂载并通过 QEMU `holyfs` 冒烟；共享 Frame 数据路径落地（`SYS_FRAME_*`、`SYS_HANDLE_DUPLICATE`、`SYS_RECV_DATA_HANDLE`，块设备与 VFS 的 attach 协议），驱动把帧物理地址直接交给 virtio DMA，VFS 文件读写直接落在客户端共享帧；客户端 detach 清理帧映射与会话句柄，Frame 最后句柄释放时归还 DMA 池；HolyFS inode 缓存与块客户端直写帧使文档路径零拷贝。
+已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上；HolyFS v1 完成对象化重构（Document/Revision/Entry、文档与集合项共用修订链、Document/Revision/Collection 三棵 COW 元数据树、子集合、追加快路径与整文档读取）并通过 `vfs.fs=holyfs` 挂载与 QEMU `holyfs` 冒烟；共享 Frame 数据路径落地（`SYS_FRAME_*`、`SYS_HANDLE_DUPLICATE`、`SYS_RECV_DATA_HANDLE`，块设备与 VFS 的 attach 协议），驱动把帧物理地址直接交给 virtio DMA，VFS 文件读写直接落在客户端共享帧；客户端 detach 清理帧映射与会话句柄，Frame 最后句柄释放时归还 DMA 池；HolyFS inode 缓存与块客户端直写帧使文档路径零拷贝。
 - VFS 重启与后端恢复。
 
 ### 退出标准
@@ -158,7 +158,7 @@ flowchart LR
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 154–163 MiB/s（debug HolyFS 约 25 MiB/s）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
+5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
 
 ---
 

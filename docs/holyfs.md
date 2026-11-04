@@ -6,7 +6,7 @@ HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空�
 
 Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/hk-fs-holyfs` v1：4 KiB 块、双超级块（generation + CRC32C）、连续 extent、文档记录与目录项 CRC32C、追加写连续快路径、整文档读取，以及供 POSIX 兼容环境使用的 VFS 适配层；数据卷通过 `vfs.fs=holyfs` 挂载，QEMU `smoke --mode holyfs` 校验落盘。v1 支持根集合与普通文档；子集合、修订链、快照、压缩、原生 Document API 与 `H:` 盘符在后续版本落地。
+已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。数据卷通过 `vfs.fs=holyfs` 挂载，QEMU `smoke --mode holyfs` 校验落盘。快照、标签、句柄令牌、分配组、修订保留/GC、流式写、压缩、原生 Document API 与 `H:` 盘符在后续版本落地。
 
 ---
 
@@ -444,12 +444,31 @@ flowchart LR
 | 能力                              | 状态  |
 | ------------------------------- | --- |
 | 4 KiB 块、双超级块、CRC32C、连续 extent   | 已实现 |
-| 追加写连续快路径、整文档读取                  | 已实现 |
-| 根集合、普通文档、数据卷接入、VFS 适配层          | 已实现 |
-| QEMU `smoke --mode holyfs` 落盘校验 | 已实现 |
-| 子集合、修订链、集合块跨块增长                 | 规划  |
+| Document/Revision/Entry 对象模型、文档与集合项共用修订链 | 已实现 |
+| Document/Revision/Collection 元数据 COW 树与根切换 | 已实现 |
+| 追加写快路径、整文档读取、子集合、跨块集合项 | 已实现 |
+| 数据卷接入、VFS 适配层、QEMU 落盘校验 | 已实现 |
 | 原生 Document API、`H:` 盘符         | 规划  |
-| 快照、标签、封存、流式写、压缩、去重、配额、scrub     | 规划  |
+| 快照、标签、句柄令牌、分配组、修订保留/GC | 规划  |
+| 流式写、压缩、去重、配额、scrub            | 规划  |
+| ContentHash/民用时间写入、内容校验 | 字段保留，规划 |
+
+### 代码组织
+
+```text
+crates/hk-fs-holyfs/src/
+├── lib.rs          公共 API、模块装配、format
+├── ids.rs          DocId、RevisionId、VolumeId、HandleRights
+├── types.rs        Document/Revision/Entry 记录与编码
+├── error.rs        HolyError 与 VFS 错误映射
+├── crc32c.rs       CRC32C
+├── superblock.rs   卷布局、双超级块、校验
+├── store.rs        块设备、位图分配器、区间 I/O
+├── tree.rs         持久化 COW 元数据树
+├── volume.rs       卷状态、文档/修订/集合操作、提交
+├── vfs.rs          VFS Backend 适配
+└── tests.rs        单元、子集合、持久化测试
+```
 
 ---
 
