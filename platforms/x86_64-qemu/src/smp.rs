@@ -5,8 +5,8 @@ use alloc::string::String;
 use core::sync::atomic::Ordering;
 
 use hk_boot::ApCpu;
-use hk_kernel::AP_POOL;
 use hk_platform_x86_64::cpu;
+use hk_smp::AP_POOL;
 
 /// 启动 AP、等待其初始化完成，并发送一次 IPI 自检。
 pub fn start() -> Result<(usize, usize), String> {

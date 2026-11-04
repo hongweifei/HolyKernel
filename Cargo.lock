@@ -186,7 +186,6 @@ dependencies = [
  "hk-ipc",
  "hk-mem",
  "hk-platform-hosted",
- "hk-smp",
  "hk-trace",
  "spin",
 ]
@@ -375,6 +374,7 @@ dependencies = [
  "hk-platform-x86_64",
  "hk-root-server",
  "hk-shell",
+ "hk-smp",
  "hk-test",
  "spin",
 ]

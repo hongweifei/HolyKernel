@@ -36,25 +36,6 @@ impl ApPool {
         self.online.fetch_add(1, Ordering::AcqRel);
     }
 
-    /// 递增在线计数并停泊；不返回。
-    pub fn park(&self) -> ! {
-        self.online.fetch_add(1, Ordering::AcqRel);
-        loop {
-            core::hint::spin_loop();
-        }
-    }
-
-    /// 记录 APIC 编号、递增在线计数，并以 `idle` 停泊；不返回。
-    pub fn park_with<F>(&self, lapic_id: u32, mut idle: F) -> !
-    where
-        F: FnMut(),
-    {
-        self.mark_online(lapic_id);
-        loop {
-            idle();
-        }
-    }
-
     /// 等待在线数量达到 `expected`；超时返回当前数量。
     pub fn wait<F>(&self, expected: usize, mut now: F, timeout: u64) -> usize
     where

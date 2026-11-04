@@ -18,8 +18,5 @@ impl UserVspace for PageTable {
     }
 }
 
-/// 任务槽位到用户页表的映射。
-pub type UserVspaces = VspaceRegistry<PageTable>;
-
 /// 全局用户页表登记表。
-pub static USER_VSPACES: UserVspaces = VspaceRegistry::new();
+pub static USER_VSPACES: VspaceRegistry<PageTable> = VspaceRegistry::new();

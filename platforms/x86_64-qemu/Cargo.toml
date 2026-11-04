@@ -17,6 +17,7 @@ hk-kernel = { version = "0.1.0", path = "../../crates/hk-kernel" }
 hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/hk-platform-x86_64" }
 hk-root-server = { version = "0.1.0", path = "../../crates/hk-root-server" }
 hk-shell = { version = "0.1.0", path = "../../crates/hk-shell" }
+hk-smp = { version = "0.1.0", path = "../../crates/hk-smp" }
 hk-test = { version = "0.1.0", path = "../../crates/hk-test" }
 spin = "0.9"
 
