@@ -62,6 +62,12 @@ pub enum SmokeMode {
     /// 多 CPU MADT 本地 APIC 枚举
     #[value(name = "smp")]
     Smp,
+    /// 块驱动退出后由监督循环重启并恢复 ext4
+    #[value(name = "restart")]
+    Restart,
+    /// ext4 作为 VFS 主根挂载
+    #[value(name = "ext4root")]
+    Ext4Root,
 }
 
 impl SmokeMode {
@@ -78,6 +84,8 @@ impl SmokeMode {
             Self::Input => Some("shell-interactive"),
             Self::Preempt => None,
             Self::Smp => Some("shell-test tasks;stats"),
+            Self::Restart => Some("restart-test"),
+            Self::Ext4Root => Some("vfs.root=ext4"),
         }
     }
 
@@ -101,6 +109,7 @@ impl SmokeMode {
                 "hk-server-vfs: rtc ok",
                 "hk-server-vfs: ext4 mounted",
                 "hk-server-demo ext4 ok",
+                "ext4 1 MiB 读：",
                 "hk-server-spin: done",
                 "hk-server-spin: closed",
                 "VFS 读写 ok",
@@ -115,13 +124,13 @@ impl SmokeMode {
             Self::Shell => &[
                 "HolyShell",
                 "当前任务：hk-server-echo",
-                "已启动：hk-server-device",
-                "任务表（8 项）",
+                "已在运行：hk-server-device",
+                "任务表（7 项）",
                 "父",
                 "句柄",
                 "Arena",
                 "VSpace",
-                "4/1024K",
+                "4/2048K",
                 "Handle 计数",
                 "重启",
                 "已重启：hk-server-demo",
@@ -160,6 +169,19 @@ impl SmokeMode {
                 "CPU 调度：",
                 "CPU1=",
             ],
+            Self::Restart => &[
+                "hk-server-vfs: rtc ok",
+                "hk-server-vfs: ext4 mounted",
+                "hk-server-demo ext4 ok",
+                "hk-server-demo 驱动重启 ok",
+                "ext4 重连 ok",
+                "ext4 1 MiB 读：",
+            ],
+            Self::Ext4Root => &[
+                "hk-server-vfs: ext4 mounted",
+                "hk-server-demo ext4 ok",
+                "ext4 1 MiB 读：",
+            ],
         }
     }
 
@@ -170,7 +192,9 @@ impl SmokeMode {
             | Self::Framebuffer
             | Self::Shell
             | Self::Input
-            | Self::Preempt => QEMU_SUCCESS,
+            | Self::Preempt
+            | Self::Restart
+            | Self::Ext4Root => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -187,6 +211,8 @@ impl SmokeMode {
             Self::Input => "build/serial-input.log",
             Self::Preempt => "build/serial-preempt.log",
             Self::Smp => "build/serial-smp.log",
+            Self::Restart => "build/serial-restart.log",
+            Self::Ext4Root => "build/serial-ext4root.log",
         }
     }
 
@@ -310,7 +336,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     }
 
-    if mode == SmokeMode::Boot {
+    if matches!(
+        mode,
+        SmokeMode::Boot | SmokeMode::Restart | SmokeMode::Ext4Root
+    ) {
         verify_ext4(&disk)?;
     }
     Ok(())
@@ -368,6 +397,11 @@ fn verify_ext4(path: &Path) -> Result<()> {
     let root = backend.root();
     let node = backend
         .lookup(root, "hello")
+        .or_else(|_| {
+            backend
+                .lookup(root, "disk")
+                .and_then(|disk| backend.lookup(disk, "hello"))
+        })
         .map_err(|error| Failure::new(format!("ext4 标记文件缺失：{error:?}")))?;
     let mut buffer = [0_u8; 32];
     let read = backend

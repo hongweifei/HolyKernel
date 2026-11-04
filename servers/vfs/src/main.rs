@@ -20,7 +20,7 @@ use hk_fs_ext4::mount_at_with_wall_clock;
 #[cfg(target_os = "none")]
 use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::BumpHeap;
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_STAT, OP_SYNC,
@@ -43,7 +43,7 @@ const BLOCK_SERVICE: &str = "hk-server-virtio";
 
 #[cfg(target_os = "none")]
 #[global_allocator]
-static ALLOCATOR: BumpHeap = BumpHeap::new(HEAP_SIZE);
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 struct Session {
@@ -99,22 +99,28 @@ impl Sessions {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut filesystem = Vfs::new(Box::new(Tmpfs::new()));
+    let mut cmdline_buffer = [0_u8; 128];
+    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
+    let ext4_root = cmdline.contains("vfs.root=ext4");
+    match hk_server_api::civil_time() {
+        Some(time) if time.year >= 2000 => write("hk-server-vfs: rtc ok\n".as_bytes()),
+        _ => write("hk-server-vfs: rtc 不可用\n".as_bytes()),
+    }
+    let target = if ext4_root { "/" } else { "/disk" };
+    if !ext4_root {
+        let _ = filesystem.create_dir("/disk");
+    }
+    if mount_ext4(&mut filesystem, endpoint, target) {
+        write("hk-server-vfs: ext4 mounted\n".as_bytes());
+    } else {
+        write("hk-server-vfs: ext4 不可用\n".as_bytes());
+    }
     let _ = filesystem.create_dir("/tmp");
     let _ = filesystem.mount("/tmp", Box::new(Tmpfs::new()));
     let _ = filesystem.create_dir("/dev");
     let _ = filesystem.mount("/dev", Box::new(Devfs::new()));
     let _ = filesystem.create_dir("/proc");
     let _ = filesystem.mount("/proc", Box::new(Procfs::new()));
-    let _ = filesystem.create_dir("/disk");
-    match hk_server_api::civil_time() {
-        Some(time) if time.year >= 2000 => write("hk-server-vfs: rtc ok\n".as_bytes()),
-        _ => write("hk-server-vfs: rtc 不可用\n".as_bytes()),
-    }
-    if mount_ext4(&mut filesystem, endpoint) {
-        write("hk-server-vfs: ext4 mounted\n".as_bytes());
-    } else {
-        write("hk-server-vfs: ext4 不可用\n".as_bytes());
-    }
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();
@@ -150,13 +156,13 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
 
 /// 等待驱动就绪并在 `/disk` 挂载 ext4。
 #[cfg(target_os = "none")]
-fn mount_ext4(filesystem: &mut Vfs, endpoint: u64) -> bool {
+fn mount_ext4(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
     for _ in 0..4096 {
         let Ok(disk) = ClientDisk::open(BLOCK_SERVICE, endpoint) else {
             let _ = yield_now();
             continue;
         };
-        return mount_at_with_wall_clock(filesystem, "/disk", disk, RealtimeClock).is_ok();
+        return mount_at_with_wall_clock(filesystem, target, disk, RealtimeClock).is_ok();
     }
     false
 }

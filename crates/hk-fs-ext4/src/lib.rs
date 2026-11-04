@@ -95,6 +95,9 @@ impl EntropySource for SimpleEntropy {
     }
 }
 
+/// 单次块 I/O 的分块上限，保证 IPC 消息不超过 8 KiB。
+const IO_CHUNK: usize = 4096;
+
 /// 把 [`BlockDevice`] 适配为 rsext4 的扇区 I/O。
 pub struct Disk<D> {
     device: RefCell<D>,
@@ -117,30 +120,38 @@ impl<D: BlockDevice> Disk<D> {
 impl<D: BlockDevice> BlockIo for Disk<D> {
     fn write(&mut self, buffer: &[u8], sector: SectorId, count: u32) -> Ext4Result<()> {
         let device = self.device.get_mut();
+        let block_size = device.block_size();
         let expected = (count as usize)
-            .checked_mul(device.block_size())
+            .checked_mul(block_size)
             .ok_or_else(Ext4Error::overflow)?;
         if buffer.len() != expected {
             return Err(Ext4Error::invalid_block_size(buffer.len(), expected));
         }
-        device
-            .write_blocks(sector.raw(), buffer)
-            .map(|_| ())
-            .map_err(|_| Ext4Error::io())
+        for (index, chunk) in buffer.chunks(IO_CHUNK).enumerate() {
+            let block = sector.raw() + (index * IO_CHUNK / block_size) as u64;
+            device
+                .write_blocks(block, chunk)
+                .map_err(|_| Ext4Error::io())?;
+        }
+        Ok(())
     }
 
     fn read(&mut self, buffer: &mut [u8], sector: SectorId, count: u32) -> Ext4Result<()> {
         let device = self.device.get_mut();
+        let block_size = device.block_size();
         let expected = (count as usize)
-            .checked_mul(device.block_size())
+            .checked_mul(block_size)
             .ok_or_else(Ext4Error::overflow)?;
         if buffer.len() != expected {
             return Err(Ext4Error::invalid_block_size(buffer.len(), expected));
         }
-        device
-            .read_blocks(sector.raw(), buffer)
-            .map(|_| ())
-            .map_err(|_| Ext4Error::io())
+        for (index, chunk) in buffer.chunks_mut(IO_CHUNK).enumerate() {
+            let block = sector.raw() + (index * IO_CHUNK / block_size) as u64;
+            device
+                .read_blocks(block, chunk)
+                .map_err(|_| Ext4Error::io())?;
+        }
+        Ok(())
     }
 
     fn write_with_flags(
@@ -575,6 +586,33 @@ mod tests {
         let read = vfs.read(handle, &mut buffer).expect("读取");
         assert_eq!(&buffer[..read], b"HolyKernel ext4 ok\n");
         let _ = vfs.close(handle);
+    }
+
+    #[test]
+    fn creates_two_files_with_wall_clock() {
+        let clock = || {
+            FakeClock(CivilTime {
+                year: 2026,
+                month: 11,
+                day: 4,
+                hour: 12,
+                minute: 34,
+                second: 56,
+                nanosecond: 0,
+            })
+        };
+        let disk = format_with_wall_clock(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE), clock())
+            .expect("格式化");
+        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        vfs.create_dir("/disk").expect("目录");
+        mount_at_with_wall_clock(&mut vfs, "/disk", disk, clock()).expect("挂载");
+        for name in ["one", "two"] {
+            let path = alloc::format!("/disk/{name}");
+            let handle = vfs.open(&path, OpenFlags::CREATE).expect("创建");
+            vfs.write(handle, name.as_bytes()).expect("写");
+            vfs.close(handle).expect("关闭");
+            vfs.sync_all().expect("刷写");
+        }
     }
 
     #[test]

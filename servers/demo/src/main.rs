@@ -9,10 +9,13 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
+use hk_server_api::block::BLOCK_SHUTDOWN;
+#[cfg(target_os = "none")]
 use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, call, exit, recv, send, send_handle, wait_notify, write,
+    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, recv, send, send_handle, service_endpoint, tsc,
+    tsc_frequency, wait_notify, write, write_u64, yield_now,
 };
 
 /// 请求标签。
@@ -76,6 +79,24 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         } else {
             write("hk-server-demo ext4 失败\n".as_bytes());
             exit(1)
+        }
+
+        let mut cmdline_buffer = [0_u8; 128];
+        let cmdline = boot_cmdline(&mut cmdline_buffer).unwrap_or("");
+        if cmdline.contains("restart-test") {
+            if verify_driver_restart(endpoint) {
+                write("hk-server-demo 驱动重启 ok\n".as_bytes());
+            } else {
+                write("hk-server-demo 驱动重启失败\n".as_bytes());
+                exit(1)
+            }
+        }
+        if let Some(tenths) = benchmark_ext4(endpoint) {
+            write("ext4 1 MiB 读：".as_bytes());
+            write_u64(tenths / 10);
+            write(".".as_bytes());
+            write_u64(tenths % 10);
+            write(" MiB/s\n".as_bytes());
         }
         exit(0)
     }
@@ -166,12 +187,23 @@ fn verify_vfs(endpoint: u64) -> bool {
             .any(|line| line == target.as_bytes())
     })
 }
-/// 经 VFS 写入并读回 ext4 数据盘标记文件。
+/// 返回 ext4 标记与基准路径：数据盘挂载用 `/disk`，主根挂载用 `/`。
+#[cfg(target_os = "none")]
+fn ext4_paths(client: &mut VfsClient) -> (&'static str, &'static str) {
+    if client.stat("/disk").is_ok() {
+        ("/disk/hello", "/disk/bench")
+    } else {
+        ("/hello", "/bench")
+    }
+}
+
+/// 经 VFS 写入并读回 ext4 标记文件。
 #[cfg(target_os = "none")]
 fn verify_ext4(endpoint: u64) -> bool {
     const CONTENT: &[u8] = b"HolyKernel ext4 ok\n";
     let mut client = VfsClient::new("hk-server-vfs", endpoint);
-    let Ok(handle) = client.open("/disk/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
+    let (marker, _) = ext4_paths(&mut client);
+    let Ok(handle) = client.open(marker, OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
         return false;
     };
     if client.write(handle, 0, CONTENT).is_err() {
@@ -182,7 +214,7 @@ fn verify_ext4(endpoint: u64) -> bool {
         return false;
     }
 
-    let Ok(handle) = client.open("/disk/hello", OPEN_READ) else {
+    let Ok(handle) = client.open(marker, OPEN_READ) else {
         return false;
     };
     let mut buffer = [0_u8; 32];
@@ -191,6 +223,86 @@ fn verify_ext4(endpoint: u64) -> bool {
     };
     let _ = client.close(handle);
     length == CONTENT.len() && buffer[..length] == *CONTENT
+}
+
+/// 请求块驱动退出并确认监督重启后 ext4 仍可读。
+#[cfg(target_os = "none")]
+fn verify_driver_restart(endpoint: u64) -> bool {
+    let old = service_endpoint("hk-server-virtio");
+    if old == 0 {
+        return false;
+    }
+    send(old, BLOCK_SHUTDOWN, 0);
+    let mut restarted = false;
+    for _ in 0..100_000 {
+        let current = service_endpoint("hk-server-virtio");
+        if current != 0 && current != old {
+            restarted = true;
+            break;
+        }
+        let _ = yield_now();
+    }
+    if !restarted {
+        return false;
+    }
+
+    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let (marker, _) = ext4_paths(&mut client);
+    for _ in 0..1_000 {
+        if let Ok(handle) = client.open(marker, OPEN_READ) {
+            let mut buffer = [0_u8; 32];
+            if let Ok(length) = client.read(handle, 0, &mut buffer) {
+                let _ = client.close(handle);
+                if buffer[..length] == *b"HolyKernel ext4 ok\n" {
+                    write("ext4 重连 ok\n".as_bytes());
+                    return true;
+                }
+            }
+        }
+        let _ = yield_now();
+    }
+    false
+}
+
+/// 写入并顺序读取 1 MiB，返回 0.1 MiB/s 单位。
+#[cfg(target_os = "none")]
+fn benchmark_ext4(endpoint: u64) -> Option<u64> {
+    const CHUNK: usize = 2048;
+    const CHUNKS: usize = 512;
+    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let (_, path) = ext4_paths(&mut client);
+    let handle = client
+        .open(path, OPEN_READ | OPEN_WRITE | OPEN_CREATE)
+        .ok()?;
+    let chunk = [0x5A_u8; CHUNK];
+    for index in 0..CHUNKS {
+        client.write(handle, (index * CHUNK) as u64, &chunk).ok()?;
+    }
+    let _ = client.close(handle);
+    client.sync().ok()?;
+
+    let handle = client.open(path, OPEN_READ).ok()?;
+    let frequency = tsc_frequency();
+    if frequency == 0 {
+        return None;
+    }
+    let start = tsc();
+    let mut buffer = [0_u8; CHUNK];
+    let mut total = 0;
+    loop {
+        let length = client.read(handle, total as u64, &mut buffer).ok()?;
+        if length == 0 {
+            break;
+        }
+        total += length;
+    }
+    let elapsed = tsc().saturating_sub(start);
+    let _ = client.close(handle);
+    if total != CHUNK * CHUNKS || elapsed == 0 {
+        return None;
+    }
+    let bytes = total as u128 * u128::from(frequency) / u128::from(elapsed);
+    Some((bytes * 10 / (1024 * 1024)) as u64)
 }
 
 #[cfg(target_os = "none")]
