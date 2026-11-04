@@ -21,6 +21,7 @@ use virtio_drivers::transport::pci::bus::PciRoot;
 use virtio_drivers::transport::pci::virtio_device_type;
 
 pub use blk::Block;
+pub use hal::register_frame;
 pub use virtio_drivers::transport::DeviceType as VirtioDeviceType;
 
 /// 探测到的 virtio 设备。

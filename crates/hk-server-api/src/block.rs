@@ -12,6 +12,13 @@ pub const BLOCK_NO_DEVICE: u64 = 0x603;
 pub const DEVICE_REQUEST: u64 = 0x604;
 /// 请求块设备服务退出（用于故障注入与重启测试）。
 pub const BLOCK_SHUTDOWN: u64 = 0x605;
+/// 附加共享 Frame。
+pub const BLOCK_ATTACH: u64 = 0x606;
+
+/// 块客户端共享 Frame 的固定映射地址。
+pub const FRAME_VIRT: u64 = 0x7000_0000;
+/// 块客户端共享 Frame 的长度。
+pub const FRAME_LEN: usize = 60 * 1024;
 
 /// 读取块。
 pub const OP_READ: u8 = 1;

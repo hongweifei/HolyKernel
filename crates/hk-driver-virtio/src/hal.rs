@@ -22,11 +22,24 @@ static NEXT_DMA: AtomicU64 = AtomicU64::new(DMA_BASE);
 static GRANT_DESC: Mutex<Option<DeviceGrant>> = Mutex::new(None);
 static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
 static FREE: Mutex<Vec<Free>> = Mutex::new(Vec::new());
+static FRAMES: Mutex<Vec<FrameRegion>> = Mutex::new(Vec::new());
 
 struct Shared {
     phys: u64,
     virt: u64,
     len: usize,
+    borrowed: bool,
+}
+
+struct FrameRegion {
+    virt: u64,
+    phys: u64,
+    len: usize,
+}
+
+/// 登记共享 Frame 的用户虚拟地址与物理区间，供 DMA 直接引用。
+pub fn register_frame(virt: u64, phys: u64, len: usize) {
+    FRAMES.lock().push(FrameRegion { virt, phys, len });
 }
 
 struct Free {
@@ -110,6 +123,21 @@ unsafe impl Hal for HalImpl {
         // SAFETY: 调用方保证缓冲区在本任务内有效。
         let bytes = unsafe { buffer.as_ref() };
         let len = bytes.len();
+        let address = bytes.as_ptr() as u64;
+        if let Some(region) = FRAMES.lock().iter().find(|region| {
+            address >= region.virt && address + len as u64 <= region.virt + region.len as u64
+        }) {
+            let phys = region.phys + (address - region.virt);
+            let to_device = direction != BufferDirection::DeviceToDriver;
+            let _ = dma_sync(GRANT.load(Ordering::Acquire), phys, len, to_device);
+            SHARED.lock().push(Shared {
+                phys,
+                virt: 0,
+                len,
+                borrowed: true,
+            });
+            return phys;
+        }
         let pages = len.div_ceil(PAGE);
         let (phys, virt) = Self::alloc_pages(pages).expect("共享缓冲分配失败");
         if direction != BufferDirection::DeviceToDriver {
@@ -118,7 +146,12 @@ unsafe impl Hal for HalImpl {
                 core::ptr::copy_nonoverlapping(bytes.as_ptr(), virt as *mut u8, len);
             }
         }
-        SHARED.lock().push(Shared { phys, virt, len });
+        SHARED.lock().push(Shared {
+            phys,
+            virt,
+            len,
+            borrowed: false,
+        });
         let _ = dma_sync(GRANT.load(Ordering::Acquire), phys, len, true);
         phys
     }
@@ -130,7 +163,7 @@ unsafe impl Hal for HalImpl {
         };
         let entry = shared.swap_remove(index);
         drop(shared);
-        if direction != BufferDirection::DriverToDevice {
+        if !entry.borrowed && direction != BufferDirection::DriverToDevice {
             // SAFETY: 调用方保证 buffer 仍有效；长度来自 share 时的记录。
             unsafe {
                 core::ptr::copy_nonoverlapping(
@@ -141,7 +174,9 @@ unsafe impl Hal for HalImpl {
             }
         }
         let _ = dma_sync(GRANT.load(Ordering::Acquire), entry.phys, entry.len, false);
-        HalImpl::release_pages(entry.len.div_ceil(PAGE), entry.phys, entry.virt);
+        if !entry.borrowed {
+            HalImpl::release_pages(entry.len.div_ceil(PAGE), entry.phys, entry.virt);
+        }
     }
 }
 

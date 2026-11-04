@@ -21,13 +21,15 @@ use hk_driver_virtio::{Device, probe};
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
 use hk_server_api::block::{
-    BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, DEVICE_REQUEST, STATUS_ERROR, encode_response,
+    BLOCK_ATTACH, BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, DEVICE_REQUEST, FRAME_VIRT,
+    STATUS_ERROR, encode_response,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, exit, recv_handle, send, send_data, service_endpoint, write, write_u64,
+    device_info, dma_map_frame, exit, frame_info, frame_map, recv_handle, send, send_data,
+    service_endpoint, write, write_u64,
 };
 
 /// 服务堆大小。
@@ -73,7 +75,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write_u64(block.capacity_blocks());
             write(b"\n");
             reply_not_ready(wait.pending);
-            serve(endpoint, block.as_mut());
+            let (label, word, _sender, handle) = recv_handle(endpoint);
+            let mut frame = None;
+            if label == BLOCK_ATTACH && handle != 0 {
+                let length = word as usize;
+                if length == 0 || length > hk_server_api::block::FRAME_LEN {
+                    exit(5)
+                }
+                if frame_map(handle, FRAME_VIRT) == length as u64 {
+                    if let Some((phys, _len)) = frame_info(handle)
+                        && dma_map_frame(grant_handle, handle, length) != u64::MAX
+                    {
+                        hk_driver_virtio::register_frame(FRAME_VIRT, phys, length);
+                    }
+                    // SAFETY: SYS_FRAME_MAP 把共享帧映射到固定地址。
+                    frame = Some(unsafe {
+                        core::slice::from_raw_parts_mut(FRAME_VIRT as *mut u8, length)
+                    });
+                }
+            }
+            serve(endpoint, block.as_mut(), frame);
             exit(0)
         }
         Ok(Device::Unsupported(kind)) => {
