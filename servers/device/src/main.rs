@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_drivers::pci::{Device, PciAddress, PciConfig, enumerate};
+use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, pci_read, write, write_u64};
 
@@ -63,7 +63,42 @@ fn write_device(device: &Device) {
     let class = (u32::from(device.class) << 8) | u32::from(device.subclass);
     write(b"  class=");
     write_hex(class, 4);
+
+    for (index, bar) in read_bars(&SyscallConfig, device).iter().enumerate() {
+        if let Some(bar) = bar {
+            write(b"  bar");
+            write_hex(index as u32, 1);
+            write(b"=");
+            match bar {
+                Bar::Io { base } => {
+                    write(b"io:");
+                    write_hex(*base, 4);
+                }
+                Bar::Memory {
+                    base,
+                    prefetchable,
+                    is_64bit,
+                } => {
+                    write(if *is_64bit { b"mem64:" } else { b"mem:" });
+                    write_hex64(*base);
+                    if *prefetchable {
+                        write(b":prefetch");
+                    }
+                }
+            }
+        }
+    }
+    capabilities(&SyscallConfig, device, |cap| {
+        write(b"  cap=");
+        write_hex(u32::from(cap.id), 2);
+    });
     write(b"\n");
+}
+
+#[cfg(target_os = "none")]
+fn write_hex64(value: u64) {
+    write_hex((value >> 32) as u32, 8);
+    write_hex(value as u32, 8);
 }
 
 #[cfg(target_os = "none")]

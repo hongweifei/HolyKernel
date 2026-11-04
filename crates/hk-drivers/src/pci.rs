@@ -42,6 +42,103 @@ impl Device {
     }
 }
 
+/// BAR 资源。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bar {
+    /// 端口 I/O。
+    Io {
+        /// 基址。
+        base: u32,
+    },
+    /// 内存映射。
+    Memory {
+        /// 基址。
+        base: u64,
+        /// 是否可预取。
+        prefetchable: bool,
+        /// 是否 64 位。
+        is_64bit: bool,
+    },
+}
+
+/// 配置空间 capability。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Capability {
+    /// capability ID。
+    pub id: u8,
+    /// 配置空间偏移。
+    pub offset: u8,
+}
+
+/// 读取设备的 6 个 BAR；64 位 BAR 会占用两个槽位。
+pub fn read_bars(config: &dyn PciConfig, device: &Device) -> [Option<Bar>; 6] {
+    let count = if device.header & 0x7F == 1 { 2 } else { 6 };
+    let mut bars = [None; 6];
+    let mut index = 0;
+    while index < count {
+        let offset = 0x10 + index as u8 * 4;
+        let raw = config.read32(device.address.at(offset));
+        if raw == 0 || raw == u32::MAX {
+            index += 1;
+            continue;
+        }
+        if raw & 1 != 0 {
+            bars[index] = Some(Bar::Io { base: raw & !0x3 });
+            index += 1;
+            continue;
+        }
+        let kind = (raw >> 1) & 0x3;
+        if kind == 1 {
+            index += 1;
+            continue;
+        }
+        let is_64bit = kind == 2;
+        let prefetchable = raw & 0x8 != 0;
+        let mut base = u64::from(raw & !0xF);
+        if is_64bit && index + 1 < 6 {
+            base |= u64::from(config.read32(device.address.at(offset + 4))) << 32;
+            index += 1;
+        }
+        bars[index - usize::from(is_64bit)] = Some(Bar::Memory {
+            base,
+            prefetchable,
+            is_64bit,
+        });
+        index += 1;
+    }
+    bars
+}
+
+/// 遍历设备的 capability 链。
+pub fn capabilities<F>(config: &dyn PciConfig, device: &Device, mut visit: F)
+where
+    F: FnMut(Capability),
+{
+    let status = config.read32(device.address.at(0x04)) >> 16;
+    if status & 0x10 == 0 {
+        return;
+    }
+    let mut offset = (config.read32(device.address.at(0x34)) & 0xFF) as u8;
+    let mut visited = [false; 256];
+    let mut count = 0;
+    while offset != 0 && !visited[offset as usize] && count < 48 {
+        visited[offset as usize] = true;
+        let id = read_u8(config, device.address, offset);
+        visit(Capability { id, offset });
+        offset = read_u8(config, device.address, offset.wrapping_add(1));
+        count += 1;
+    }
+}
+
+fn read_u8(config: &dyn PciConfig, address: PciAddress, offset: u8) -> u8 {
+    let aligned = offset & !0x3;
+    let shift = u32::from(offset & 0x3) * 8;
+    (config.read32(PciAddress {
+        offset: aligned,
+        ..address
+    }) >> shift) as u8
+}
+
 /// 从根总线 0 开始，按桥递归枚举全部可达设备。
 pub fn enumerate<F>(config: &dyn PciConfig, segment: u16, visit: F)
 where
@@ -261,5 +358,73 @@ mod tests {
             offset: 0,
         }));
         assert!(!devices.iter().any(|address| address.bus == 5));
+    }
+    struct ResourceConfig;
+
+    impl PciConfig for ResourceConfig {
+        fn read32(&self, address: PciAddress) -> u32 {
+            match address.offset {
+                0x04 => 0x0010_0000,
+                0x10 => 0xFE00_0000,
+                0x14 => 0,
+                0x18 => 0x0000_C001,
+                0x1C => 0x0000_0004,
+                0x20 => 1,
+                0x24 => 0,
+                0x28 => 0,
+                0x34 => 0x40,
+                0x40 => 0x0000_0009,
+                _ => 0,
+            }
+        }
+
+        fn write32(&self, _address: PciAddress, _value: u32) {}
+    }
+
+    fn resource_device() -> Device {
+        Device {
+            address: PciAddress {
+                segment: 0,
+                bus: 0,
+                device: 0,
+                function: 0,
+                offset: 0,
+            },
+            vendor: 1,
+            device: 2,
+            revision: 0,
+            interface: 0,
+            subclass: 0,
+            class: 0,
+            header: 0,
+        }
+    }
+
+    #[test]
+    fn decodes_bars_and_capabilities() {
+        let device = resource_device();
+        let bars = read_bars(&ResourceConfig, &device);
+        assert_eq!(
+            bars[0],
+            Some(Bar::Memory {
+                base: 0xFE00_0000,
+                prefetchable: false,
+                is_64bit: false
+            })
+        );
+        assert_eq!(bars[2], Some(Bar::Io { base: 0xC000 }));
+        assert_eq!(
+            bars[3],
+            Some(Bar::Memory {
+                base: 0x1_0000_0000,
+                prefetchable: false,
+                is_64bit: true
+            })
+        );
+        assert_eq!(bars[4], None);
+
+        let mut ids = Vec::new();
+        capabilities(&ResourceConfig, &device, |cap| ids.push(cap.id));
+        assert_eq!(ids, [0x09]);
     }
 }
