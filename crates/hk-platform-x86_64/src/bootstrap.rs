@@ -1,10 +1,14 @@
 //! x86_64 引导期初始化：帧缓冲控制台、LAPIC、ACPI MADT、IOAPIC 与键盘。
 
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_hal::{BootInfo, PAGE_SIZE, PhysAddr, VirtAddr};
+use hk_hal::{
+    BootInfo, CpuId, InterruptController, Ipi, Irq, IrqError, NotificationId, PAGE_SIZE, PhysAddr,
+    VirtAddr,
+};
 use spin::Mutex;
 
 use crate::acpi::Madt;
@@ -36,6 +40,13 @@ struct IoApicState {
 
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
+static IRQ_BINDINGS: Mutex<BTreeMap<u32, NotificationId>> = Mutex::new(BTreeMap::new());
+
+/// x86 IOAPIC 中断控制器。
+pub struct IoApicController;
+
+/// 全局 x86 中断控制器。
+pub static CONTROLLER: IoApicController = IoApicController;
 
 /// 屏蔽 IRQ 线。
 pub fn unroute_irq(irq: u8) -> bool {
@@ -65,6 +76,53 @@ pub fn route_irq(irq: u8) -> bool {
     let vector = crate::irq::IRQ_VECTOR_BASE + irq;
     IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base, vector, state.destination);
     true
+}
+
+impl InterruptController for IoApicController {
+    fn bind(&self, irq: Irq, target: NotificationId) -> Result<(), IrqError> {
+        let line = irq.get();
+        if line >= u32::from(crate::irq::IRQ_LINES) {
+            return Err(IrqError::Unsupported);
+        }
+        let mut bindings = IRQ_BINDINGS.lock();
+        if bindings.contains_key(&line) {
+            return Err(IrqError::AlreadyBound);
+        }
+        if !route_irq(line as u8) {
+            return Err(IrqError::Unsupported);
+        }
+        bindings.insert(line, target);
+        Ok(())
+    }
+
+    fn unbind(&self, irq: Irq) -> Result<(), IrqError> {
+        let line = irq.get();
+        if IRQ_BINDINGS.lock().remove(&line).is_none() {
+            return Err(IrqError::NotBound);
+        }
+        unroute_irq(line as u8);
+        Ok(())
+    }
+
+    fn mask(&self, irq: Irq) {
+        unroute_irq(irq.get() as u8);
+    }
+
+    fn unmask(&self, irq: Irq) {
+        route_irq(irq.get() as u8);
+    }
+
+    fn eoi(&self, _irq: Irq) {
+        // LAPIC EOI 由中断分派路径负责。
+    }
+
+    fn send_ipi(&self, cpu: CpuId, ipi: Ipi) {
+        let vector = match ipi {
+            Ipi::Halt => return,
+            Ipi::Reschedule | Ipi::TlbShootdown => crate::cpu::IPI_VECTOR,
+        };
+        crate::cpu::send_ipi(cpu.get() as u8, vector);
+    }
 }
 
 struct AcpiWindow<'a> {
