@@ -82,6 +82,9 @@ pub const SYS_IRQ_BIND: u64 = 24;
 /// 同步 DMA 缓冲缓存。
 pub const SYS_DMA_SYNC: u64 = 26;
 
+/// 接收带字节载荷的消息，并指定期望的发送端点。
+pub const SYS_RECV_DATA_FROM: u64 = 27;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 

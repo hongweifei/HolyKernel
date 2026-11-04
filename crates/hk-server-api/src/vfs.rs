@@ -1,6 +1,6 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
-use crate::{recv_data, send_data};
+use crate::{recv_data_from, send_data};
 
 /// 请求标签。
 pub const VFS_REQUEST: u64 = 0x500;
@@ -278,7 +278,8 @@ impl VfsClient {
         if send_data(self.endpoint, VFS_REQUEST, &self.request[..length]) == u64::MAX {
             return Err(STATUS_IO);
         }
-        let (label, _word, _sender, length) = recv_data(self.own_endpoint, &mut self.response);
+        let (label, _word, _sender, length) =
+            recv_data_from(self.own_endpoint, self.endpoint, &mut self.response);
         if label != VFS_RESPONSE {
             return Err(STATUS_IO);
         }

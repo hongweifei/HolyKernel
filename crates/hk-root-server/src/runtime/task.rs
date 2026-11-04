@@ -323,6 +323,39 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return None;
         }
 
+        let exited_endpoint = index as u64 + 1;
+        for other in 0..self.tasks.len() {
+            if other == index || self.tasks[other].exited {
+                continue;
+            }
+            let tcb = self.tasks[other].tcb;
+            match self.tasks[other].pending {
+                Pending::RecvData {
+                    handle,
+                    expected: Some(expected),
+                    ..
+                } if expected == exited_endpoint => {
+                    let _ = self.kernel.cancel_recv(tcb, handle);
+                    let mut context = self.tasks[other].context;
+                    context.set_result(0);
+                    context.set_handle(0);
+                    context.set_sender(0);
+                    self.tasks[other].context = context;
+                    self.tasks[other].pending = Pending::None;
+                    self.kernel.wake_thread(tcb);
+                }
+                Pending::Send { endpoint, handle } if endpoint == exited_endpoint => {
+                    let _ = self.kernel.cancel_send(tcb, handle);
+                    let mut context = self.tasks[other].context;
+                    context.set_result(u64::MAX);
+                    self.tasks[other].context = context;
+                    self.tasks[other].pending = Pending::None;
+                    self.kernel.wake_thread(tcb);
+                }
+                _ => {}
+            }
+        }
+
         for other in 0..self.tasks.len() {
             if other == index || self.tasks[other].exited {
                 continue;
@@ -411,6 +444,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 handle,
                 buffer,
                 capacity,
+                expected: _,
             } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.recv(tcb, handle) {
@@ -450,7 +484,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     None => blocked_again = true,
                 }
             }
-            Pending::None | Pending::Send => {}
+            Pending::None | Pending::Send { .. } => {}
         }
 
         if blocked_again {

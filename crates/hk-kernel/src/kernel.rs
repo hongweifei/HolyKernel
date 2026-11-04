@@ -405,6 +405,33 @@ impl Kernel {
         }
     }
 
+    /// 取消线程在端点上的接收等待。
+    pub fn cancel_recv(&self, thread: TcbId, endpoint_handle: Handle) -> Result<(), KernelError> {
+        let (object, _) =
+            self.resolve(thread, endpoint_handle, Rights::READ, ObjectKind::Endpoint)?;
+        let endpoint = object.endpoint().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Endpoint,
+        })?;
+        endpoint.cancel_receiver(Waiter::new(thread.get()));
+        Ok(())
+    }
+
+    /// 取消线程在端点上的发送等待。
+    pub fn cancel_send(&self, thread: TcbId, endpoint_handle: Handle) -> Result<(), KernelError> {
+        let (object, _) =
+            self.resolve(thread, endpoint_handle, Rights::WRITE, ObjectKind::Endpoint)?;
+        let endpoint = object.endpoint().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Endpoint,
+        })?;
+        endpoint.cancel_sender(Waiter::new(thread.get()));
+        Ok(())
+    }
+
+    /// 唤醒被阻塞的线程。
+    pub fn wake_thread(&self, thread: TcbId) {
+        self.wake(thread);
+    }
+
     /// 调用端点；调用方阻塞，服务端回复后由 [`Kernel::take_reply`] 取回结果。
     pub fn call(
         &self,

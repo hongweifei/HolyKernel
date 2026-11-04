@@ -518,3 +518,25 @@ fn deferred_irq_wakes_bound_notification() {
         Some(0b100)
     );
 }
+
+#[test]
+fn failed_service_wakes_inflight_recv_with_empty_response() {
+    let mut runtime = runtime();
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let other = 1 - index;
+    let handle = runtime.tasks[index].handles[index].expect("自己的端点");
+    runtime.tasks[index].pending = Pending::RecvData {
+        handle,
+        buffer: 0x1000,
+        capacity: 4096,
+        expected: Some(other as u64 + 1),
+    };
+    runtime.tasks[other].exited = true;
+
+    assert!(runtime.finish(0, other).is_some());
+    assert!(matches!(runtime.tasks[index].pending, Pending::None));
+    assert_eq!(runtime.tasks[index].context.rax, 0);
+    assert_eq!(runtime.tasks[index].context.r8, 0);
+}

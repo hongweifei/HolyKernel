@@ -19,6 +19,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_RECV => self.recv(index, tcb, frame),
             SYS_SEND_DATA => self.send_data(index, tcb, frame),
             SYS_RECV_DATA => self.recv_data(index, tcb, frame),
+            SYS_RECV_DATA_FROM => self.recv_data(index, tcb, frame),
             SYS_NOTIFY => {
                 let result = self.notify(index, tcb, frame);
                 frame.set_result(result);
@@ -264,7 +265,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     let mut context = *frame;
                     context.set_result(0);
                     self.tasks[index].context = context;
-                    self.tasks[index].pending = Pending::Send;
+                    self.tasks[index].pending = Pending::Send {
+                        endpoint: frame.arg0(),
+                        handle,
+                    };
                     Switch::Block
                 } else {
                     if let Some((number, _)) = transferred {
@@ -445,7 +449,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     let mut context = *frame;
                     context.set_result(0);
                     self.tasks[index].context = context;
-                    self.tasks[index].pending = Pending::Send;
+                    self.tasks[index].pending = Pending::Send {
+                        endpoint: frame.arg0(),
+                        handle,
+                    };
                     Switch::Block
                 } else {
                     frame.set_result(0);
@@ -479,10 +486,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let mut context = *frame;
                 context.set_result(0);
                 self.tasks[index].context = context;
+                let expected = (frame.arg3() != 0).then(|| frame.arg3());
                 self.tasks[index].pending = Pending::RecvData {
                     handle,
                     buffer,
                     capacity,
+                    expected,
                 };
                 Switch::Block
             }

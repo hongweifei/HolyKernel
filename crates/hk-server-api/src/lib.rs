@@ -56,6 +56,26 @@ pub fn recv(endpoint: u64) -> (u64, u64, u64) {
     (result.value, result.word, result.sender)
 }
 
+/// 从端点接收消息，并校验期望的发送端点。
+pub fn recv_data_from(endpoint: u64, expected: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_FROM,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            expected,
+        )
+    };
+    (
+        result.value,
+        result.word,
+        result.sender,
+        result.extra as usize,
+    )
+}
+
 /// 从端点接收消息，并返回随消息收到的句柄编号；`0` 表示没有句柄。
 pub fn recv_handle(endpoint: u64) -> (u64, u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；没有消息时内核阻塞本任务。

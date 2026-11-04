@@ -1,6 +1,6 @@
 //! Block Server 请求/响应协议与客户端。
 
-use crate::{recv_data, send_data};
+use crate::{recv_data_from, send_data};
 
 /// 请求标签。
 pub const BLOCK_REQUEST: u64 = 0x600;
@@ -127,7 +127,7 @@ impl BlockClient {
             return Err(STATUS_ERROR);
         }
         let (label, _word, _sender, response_length) =
-            recv_data(self.own_endpoint, &mut self.response);
+            recv_data_from(self.own_endpoint, self.endpoint, &mut self.response);
         if label != BLOCK_RESPONSE {
             return Err(STATUS_ERROR);
         }

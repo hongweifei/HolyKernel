@@ -14,8 +14,9 @@ use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_SYNC,
     SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
-    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
-    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_REPLY, SYS_SELF_NOTIFICATION,
+    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY,
+    SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -35,7 +36,12 @@ pub enum Pending {
     /// 没有挂起操作。
     None,
     /// 发送已排队，等待接收者取走。
-    Send,
+    Send {
+        /// 目标端点编号。
+        endpoint: u64,
+        /// 发送使用的端点句柄。
+        handle: Handle,
+    },
     /// 接收已登记，等待消息到达。
     Recv {
         /// 接收使用的端点句柄。
@@ -49,6 +55,8 @@ pub enum Pending {
         buffer: u64,
         /// 缓冲区容量。
         capacity: usize,
+        /// 期望的响应端点编号。
+        expected: Option<u64>,
     },
     /// 通知等待已登记。
     Notify {
@@ -515,7 +523,7 @@ fn state_name(state: Option<ThreadState>) -> &'static str {
 fn pending_name(pending: Pending) -> &'static str {
     match pending {
         Pending::None => "-",
-        Pending::Send => "send",
+        Pending::Send { .. } => "send",
         Pending::Recv { .. } => "recv",
         Pending::RecvData { .. } => "recv-data",
         Pending::Notify { .. } => "notify",
