@@ -20,7 +20,7 @@ HolyKernel/
 │   ├── hk-framebuffer/        通用帧缓冲文本控制台
 │   ├── hk-keyboard-ps2/       PS/2 键盘协议与扫描码解码
 │   ├── hk-uart-16550/         16550 UART 核心（端口/MMIO 由平台提供）
-│   ├── hk-pci/                通用 PCI 总线/设备/功能枚举
+│   ├── hk-pci/                桥感知 PCI 总线/设备/功能枚举
 │   ├── hk-smp/                通用 SMP 状态机：TLB shootdown、空闲唤醒
 │   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification；per-CPU 调度、线性堆与 AP 池
 │   ├── hk-handle/                Handle、HandleTable、duplicate/close
