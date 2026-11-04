@@ -334,6 +334,10 @@ name = "hk-test"
 version = "0.1.0"
 
 [[package]]
+name = "hk-vfs"
+version = "0.1.0"
+
+[[package]]
 name = "hk-x86_64"
 version = "0.1.0"
 dependencies = [
