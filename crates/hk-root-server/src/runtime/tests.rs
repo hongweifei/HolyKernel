@@ -456,7 +456,7 @@ fn transports_byte_payloads() {
     context.rsi = 0x400;
     context.rdx = 0x100;
     context.r10 = 5;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
 
     let Step::Resume {
         index: receiver,

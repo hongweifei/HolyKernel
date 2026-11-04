@@ -37,22 +37,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         match self.kernel.send(tcb, handle, message) {
             Ok(()) => {
-                if self.kernel.state_of(tcb) == Some(ThreadState::Blocked) {
-                    let mut context = *frame;
-                    context.set_result(0);
-                    self.tasks[index].context = context;
-                    self.tasks[index].pending = Pending::Send {
-                        endpoint: frame.arg0(),
-                        handle,
-                    };
-                    Switch::Block
-                } else {
-                    if let Some((number, _)) = transferred {
-                        self.clear_handle(index, number);
-                    }
-                    frame.set_result(0);
-                    Switch::Continue
+                if let Some((number, _)) = transferred {
+                    self.clear_handle(index, number);
                 }
+                frame.set_result(0);
+                Switch::Continue
             }
             Err(_) => {
                 frame.set_result(u64::MAX);
@@ -193,19 +182,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let message = Message::new(frame.arg1()).with_data(data);
         match self.kernel.send(tcb, handle, message) {
             Ok(()) => {
-                if self.kernel.state_of(tcb) == Some(ThreadState::Blocked) {
-                    let mut context = *frame;
-                    context.set_result(0);
-                    self.tasks[index].context = context;
-                    self.tasks[index].pending = Pending::Send {
-                        endpoint: frame.arg0(),
-                        handle,
-                    };
-                    Switch::Block
-                } else {
-                    frame.set_result(0);
-                    Switch::Continue
-                }
+                frame.set_result(0);
+                Switch::Continue
             }
             Err(_) => {
                 frame.set_result(u64::MAX);

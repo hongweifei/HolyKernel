@@ -1,7 +1,11 @@
 use super::*;
 
 impl Kernel {
-    /// 发送消息；没有接收者时发送方阻塞。
+    /// 发送消息；消息入队或直接交付后立即返回，不阻塞发送者。
+    ///
+    /// Endpoint 自带消息队列。若发送方在入队后阻塞等待接收方取走，两个服务互相
+    /// 发送时就可能都停在发送上（例如网络服务发送轮询请求时，驱动正把收到的帧
+    /// 发回），形成双向死锁。需要应答的同步请求使用 [`Self::call`]。
     pub fn send(
         &self,
         thread: TcbId,
@@ -31,14 +35,7 @@ impl Kernel {
                 }
                 self.wake(receiver);
             }
-            SendOutcome::Queued => {
-                self.block(
-                    thread,
-                    BlockReason::Send {
-                        endpoint: endpoint_id,
-                    },
-                )?;
-            }
+            SendOutcome::Queued => {}
         }
         self.record(thread.get(), Category::Ipc, TRACE_SEND, endpoint_id.get());
         Ok(())

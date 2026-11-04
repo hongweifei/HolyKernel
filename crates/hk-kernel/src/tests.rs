@@ -101,7 +101,7 @@ fn send_delivers_to_waiting_receiver() {
 }
 
 #[test]
-fn blocks_sender_until_receiver_arrives() {
+fn queues_message_without_blocking_sender() {
     let kernel = kernel();
     let sender = thread(&kernel);
     let receiver = thread(&kernel);
@@ -117,8 +117,8 @@ fn blocks_sender_until_receiver_arrives() {
     kernel
         .send(sender, endpoint, Message::new(3))
         .expect("发送");
-    assert_eq!(kernel.state_of(sender), Some(ThreadState::Blocked));
-    assert_eq!(kernel.runnable(), 1);
+    assert_eq!(kernel.state_of(sender), Some(ThreadState::Runnable));
+    assert_eq!(kernel.runnable(), 2);
 
     let received = kernel
         .recv(receiver, receiver_endpoint)
