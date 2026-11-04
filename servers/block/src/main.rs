@@ -110,10 +110,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if virtio {
         let mut sector = [0_u8; SECTOR_SIZE];
         let read = disk.read_blocks(0, &mut sector).is_ok();
+        let pattern = [0x5A_u8; SECTOR_SIZE];
+        let wrote = disk.write_blocks(1, &pattern).is_ok();
+        let mut verify = [0_u8; SECTOR_SIZE];
+        let verify_ok = disk.read_blocks(1, &mut verify).is_ok() && verify == pattern;
+        let flush = disk.flush().is_ok();
         write(b"hk-server-block: virtio sectors=");
         write_u64(disk.capacity_blocks());
         write(b" read0=");
         write(if read { b"ok" } else { b"fail" });
+        write(b" write1=");
+        write(if wrote && verify_ok { b"ok" } else { b"fail" });
+        write(b" flush=");
+        write(if flush { b"ok" } else { b"fail" });
         write(b"\n");
     }
 
