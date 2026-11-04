@@ -1,4 +1,4 @@
-//! Device Manager stub：通过系统调用读取 PCI 配置空间并打印设备清单。
+//! Device Manager stub：通过通用 PCI 枚举打印设备清单。
 //!
 //! 本 crate 只在 `x86_64-unknown-none` 目标上构建；宿主构建保留占位入口，便于
 //! `cargo clippy --workspace --all-targets` 与工作区测试。
@@ -9,50 +9,37 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
+use hk_pci::{Device, PciAddress, PciConfig, enumerate};
+#[cfg(target_os = "none")]
 use hk_server_api::{exit, pci_read, write, write_u64};
 
-/// 配置空间偏移：厂商与设备标识。
+/// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
-const VENDOR_DEVICE: u8 = 0x00;
+struct SyscallConfig;
 
-/// 配置空间偏移：类代码与子类。
 #[cfg(target_os = "none")]
-const CLASS: u8 = 0x08;
+impl PciConfig for SyscallConfig {
+    fn read32(&self, address: PciAddress) -> u32 {
+        pci_read(
+            address.bus,
+            address.device,
+            address.function,
+            address.offset,
+        )
+    }
 
-/// 配置空间偏移：头类型。
-#[cfg(target_os = "none")]
-const HEADER_TYPE: u8 = 0x0C;
+    fn write32(&self, _address: PciAddress, _value: u32) {}
+}
 
 /// 设备入口：枚举全部总线的 PCI 设备。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
     let mut count = 0;
-
-    for bus in 0..=255_u16 {
-        let bus = bus as u8;
-        for device in 0..32_u8 {
-            let first = pci_read(bus, device, 0, VENDOR_DEVICE);
-            if first == u32::MAX {
-                continue;
-            }
-
-            let header = pci_read(bus, device, 0, HEADER_TYPE) >> 16;
-            let functions = if header & 0x80 != 0 { 8 } else { 1 };
-            for function in 0..functions {
-                let id = if function == 0 {
-                    first
-                } else {
-                    pci_read(bus, device, function, VENDOR_DEVICE)
-                };
-                if id == u32::MAX {
-                    continue;
-                }
-                write_device(bus, device, function, id);
-                count += 1;
-            }
-        }
-    }
+    enumerate(&SyscallConfig, 0, |device| {
+        write_device(&device);
+        count += 1;
+    });
 
     write("hk-server-device: 发现 ".as_bytes());
     write_u64(count);
@@ -61,22 +48,21 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn write_device(bus: u8, device: u8, function: u8, id: u32) {
+fn write_device(device: &Device) {
     write(b"  ");
-    write_hex(u32::from(bus), 2);
+    write_hex(u32::from(device.address.bus), 2);
     write(b":");
-    write_hex(u32::from(device), 2);
+    write_hex(u32::from(device.address.device), 2);
     write(b".");
-    write_hex(u32::from(function), 1);
+    write_hex(u32::from(device.address.function), 1);
     write(b"  ");
-    write_hex(id & 0xFFFF, 4);
+    write_hex(u32::from(device.vendor), 4);
     write(b":");
-    write_hex(id >> 16, 4);
+    write_hex(u32::from(device.device), 4);
 
-    let class = pci_read(bus, device, function, CLASS);
-    let codes = ((class >> 24) << 8) | ((class >> 16) & 0xFF);
+    let class = (u32::from(device.class) << 8) | u32::from(device.subclass);
     write(b"  class=");
-    write_hex(codes, 4);
+    write_hex(class, 4);
     write(b"\n");
 }
 

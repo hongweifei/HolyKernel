@@ -205,6 +205,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-pci"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
+
+[[package]]
 name = "hk-platform-hosted"
 version = "0.1.0"
 dependencies = [
@@ -262,6 +269,7 @@ dependencies = [
 name = "hk-server-device"
 version = "0.1.0"
 dependencies = [
+ "hk-pci",
  "hk-server-api",
  "hk-server-build",
 ]
