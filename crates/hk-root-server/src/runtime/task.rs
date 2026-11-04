@@ -277,6 +277,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     fn prepare(&mut self, cpu: usize, index: usize) -> bool {
         self.current[cpu] = Some(index);
+        // 恢复阻塞接收前先切到目标地址空间，字节载荷才能写入用户缓冲。
+        self.platform.activate(index);
 
         let pending = self.tasks[index].pending;
         self.tasks[index].pending = Pending::None;

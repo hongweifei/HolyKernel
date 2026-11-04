@@ -14,6 +14,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-echo",
     "hk-server-device",
     "hk-server-spin",
+    "hk-server-vfs",
 ];
 
 /// 从启动模块中选出默认启动的服务。

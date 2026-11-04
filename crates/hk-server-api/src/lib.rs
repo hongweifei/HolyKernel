@@ -5,6 +5,7 @@
 #![no_std]
 
 mod arch;
+pub mod vfs;
 
 pub use hk_syscall::*;
 
@@ -59,6 +60,41 @@ pub fn recv_handle(endpoint: u64) -> (u64, u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；没有消息时内核阻塞本任务。
     let result = unsafe { syscall_call(SYS_RECV, endpoint, 0, 0, 0) };
     (result.value, result.word, result.sender, result.extra)
+}
+
+/// 向端点发送带字节载荷的消息。
+pub fn send_data(endpoint: u64, label: u64, data: &[u8]) -> u64 {
+    // SAFETY: 数据指针与长度来自本进程的只读内存；内核复制后立即返回。
+    unsafe {
+        syscall_call(
+            SYS_SEND_DATA,
+            endpoint,
+            label,
+            data.as_ptr() as u64,
+            data.len() as u64,
+        )
+        .value
+    }
+}
+
+/// 从端点接收带字节载荷的消息，返回标签、消息字、发送者与载荷长度。
+pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+    };
+    (
+        result.value,
+        result.word,
+        result.sender,
+        result.extra as usize,
+    )
 }
 
 /// 让出 CPU。

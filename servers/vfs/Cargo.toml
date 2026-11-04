@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-vfs"
+description = "HolyKernel VFS Server：tmpfs 根与文件操作协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-vfs"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-vfs = { version = "0.1.0", path = "../../crates/hk-vfs" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

@@ -9,8 +9,13 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
+use hk_server_api::vfs::{
+    OP_READ, OP_WRITE, STATUS_OK, VFS_REQUEST, VFS_RESPONSE, decode_response, encode_request,
+};
+#[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, call, exit, recv, send, send_handle, wait_notify, write,
+    ENDPOINT_ECHO, alloc, call, exit, recv, recv_data, send, send_data, send_handle, wait_notify,
+    write,
 };
 
 /// 请求标签。
@@ -32,6 +37,10 @@ const HANDOFF_REPLY: u64 = 0x201;
 /// 通知请求标签。
 #[cfg(target_os = "none")]
 const NOTIFY_REQUEST: u64 = 0x300;
+
+/// VFS 服务端点（启动服务列表中的第 5 个）。
+#[cfg(target_os = "none")]
+const ENDPOINT_VFS: u64 = 5;
 
 /// 服务入口：内核以用户态进入，参数是内核分配给本服务的端点编号。
 #[cfg(target_os = "none")]
@@ -63,11 +72,51 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(1)
         }
         write("hk-server-demo 句柄转移 ok\n".as_bytes());
+        if verify_vfs(endpoint) {
+            write("VFS 读写 ok\n".as_bytes());
+        } else {
+            write("VFS 读写失败\n".as_bytes());
+            exit(1)
+        }
         exit(0)
     }
 
     write("hk-server-demo 回复异常\n".as_bytes());
     exit(1)
+}
+
+#[cfg(target_os = "none")]
+fn verify_vfs(endpoint: u64) -> bool {
+    let mut request = [0_u8; 128];
+    let mut response = [0_u8; 128];
+
+    let Some(length) = encode_request(&mut request, OP_WRITE, "/tmp/hello", b"vfs") else {
+        return false;
+    };
+    send_data(ENDPOINT_VFS, VFS_REQUEST, &request[..length]);
+    let (label, _word, _sender, length) = recv_data(endpoint, &mut response);
+    if label != VFS_RESPONSE || length == 0 {
+        return false;
+    }
+    let Some(reply) = decode_response(&response[..length]) else {
+        return false;
+    };
+    if reply.status != STATUS_OK {
+        return false;
+    }
+
+    let Some(length) = encode_request(&mut request, OP_READ, "/tmp/hello", b"") else {
+        return false;
+    };
+    send_data(ENDPOINT_VFS, VFS_REQUEST, &request[..length]);
+    let (label, _word, _sender, length) = recv_data(endpoint, &mut response);
+    if label != VFS_RESPONSE || length == 0 {
+        return false;
+    }
+    let Some(reply) = decode_response(&response[..length]) else {
+        return false;
+    };
+    reply.status == STATUS_OK && reply.data == b"vfs"
 }
 
 #[cfg(target_os = "none")]

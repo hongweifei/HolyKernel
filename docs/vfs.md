@@ -1,6 +1,6 @@
 # VFS 虚拟文件系统
 
-状态：**核心库实现中** · 上级：[总体架构](architecture.md)
+状态：**VFS Server 原型已运行** · 上级：[总体架构](architecture.md)
 
 已实现 `crates/hk-vfs`：路径规范化、挂载表、dentry 缓存、4 KiB 页缓存、文件句柄、`Backend` 契约与 tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷，可直接承载路径与文件数据；用户态 VFS Server 与共享页缓存待接入。
 
