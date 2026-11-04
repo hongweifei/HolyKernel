@@ -45,7 +45,7 @@
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | 挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存 |
 | **FS Backend** | ext2/ext4、HolyFS、tmpfs、devfs、procfs 等文件系统服务器 |
-| **HolyFS** | Holy 卷文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
+| **HolyFS** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **Document** | HolyFS 文档；DocId + head 修订 + 校验和；内容与集合项住在修订里 |
 | **DocId** | HolyFS 文档的 128 位稳定身份 |
 | **Revision** | HolyFS 文档的不可变版本；payload 承载内容 extent、集合项索引或两者 |

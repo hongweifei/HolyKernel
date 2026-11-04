@@ -6,7 +6,7 @@
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 
-HolyFS 是 Holy 卷文件系统，以 `H:` 盘符与文档对象工作；POSIX 兼容环境通过 VFS 适配层访问卷中的文档。详见 [HolyFS](holyfs.md)。
+HolyFS 是 HolyKernel 的原生文件系统，以 `H:` 盘符与文档对象工作；POSIX 兼容环境通过 VFS 适配层访问卷中的文档。详见 [HolyFS](holyfs.md)。
 
 ---
 

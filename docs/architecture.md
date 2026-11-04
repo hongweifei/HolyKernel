@@ -204,7 +204,7 @@ sequenceDiagram
 | **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | VSpace/TCB、VFS/Network Endpoint |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略 | Net Endpoint、Socket Handle |
-| **HolyFS Server** | Holy 卷文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、VFS 适配层、Document Handle |
+| **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、VFS 适配层、Document Handle |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI | Framebuffer、Input |
 | **HolyDoc Server** | 可选活文档渲染 | Display Endpoint、HolyFS Endpoint |
 | **Workbench** | 编辑/浏览/构建/运行/调试 | HolyDoc、Toolchain、Debug、Display |
@@ -248,7 +248,7 @@ flowchart LR
 HolyFS 文件系统与 HolyDoc、真彩 UI 作为可选服务：
 
 - **HolyDoc**：活文档渲染、链接、代码块、表单；通过 Display Endpoint 呈现。
-- **HolyFS**：Holy 卷文件系统；`H:` 盘符；文档、修订、集合、标签、快照、压缩、COW、checksum。
+- **HolyFS**：HolyKernel 原生文件系统；`H:` 盘符；文档、修订、集合、标签、快照、压缩、COW、checksum。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器；POSIX 应用通过终端/控制台接口使用文本界面。
 - 原生服务按最小权限运行；每个服务获得独立的 Frame、DeviceGrant 与 Endpoint。
 

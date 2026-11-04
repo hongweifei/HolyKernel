@@ -1,6 +1,6 @@
 # HolyFS 文件系统
 
-状态：**v1 后端已实现，数据卷接入可用** · 定位：**Holy 原生文件系统** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS](vfs.md)、[POSIX 与 libc](posix.md)
+状态：**v1 后端已实现，数据卷接入可用** · 定位：**HolyKernel 原生文件系统** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS](vfs.md)、[POSIX 与 libc](posix.md)
 
 HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空间，以文档为内容单位，以修订记录历史，以集合表达原生关系。设计目标是现代、稳定、可靠、高性能。
 

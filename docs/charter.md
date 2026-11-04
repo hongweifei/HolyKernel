@@ -124,7 +124,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX Server提供 socket 后端 |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 |
-| **HolyFS Server** | Holy 卷文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
+| **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **HolyDoc Server** | 可选活文档渲染与链接 |
 
 服务器通过句柄与 IPC 组合；每个服务器拥有自己的 VSpace 与最小权限集合。
@@ -152,7 +152,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Holy 卷，与 POSIX 兼容环境并存：
 
 - **HolyDoc**：活文档；链接、代码块、表单、嵌入执行结果。
-- **HolyFS**：Holy 卷文件系统；`H:` 盘符、文档、修订、集合、标签、快照、压缩、COW、checksum。
+- **HolyFS**：HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照、压缩、COW、checksum。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器。
 - **原生应用**通过 HK 服务 API 使用这些句柄；POSIX 应用通过 Display Server 的终端/控制台接口使用文本界面。
 

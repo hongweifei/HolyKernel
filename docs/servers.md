@@ -119,12 +119,12 @@ pub struct ServiceManifest {
 
 - **VFS Server**：挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存。
 - **ext2/ext4 Server**：POSIX 根文件系统；目录、inode、权限位。
-- **HolyFS Server**：Holy 卷文件系统；`H:` 盘符与文档对象。
+- **HolyFS Server**：HolyKernel 原生文件系统；`H:` 盘符与文档对象。
 - **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
-- VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame；客户端按服务名查询当前端点，服务重启后可重新连接。客户端用 `VFS_ATTACH` 移交帧句柄，之后用 `OP_READ_FRAME`/`OP_WRITE_FRAME` 直接读写该帧。
-- VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）到 `/disk`，写入经页缓存与 ext4 日志落盘；宿主侧重新挂载镜像可读回同一文件。块客户端以 `BLOCK_ATTACH` 移交共享帧，驱动把帧物理地址用于 virtio DMA，块请求只传控制信息。
+- VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame；客户端按服务名查询当前端点，服务重启后可重新连接。客户端用 `VFS_ATTACH` 移交帧句柄，之后用 `OP_READ_FRAME`/`OP_WRITE_FRAME` 直接读写该帧；重连时 VFS 解除旧映射并关闭旧句柄，`VFS_DETACH` 清理帧与会话。
+- VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）到 `/disk`，写入经页缓存与 ext4 日志落盘；宿主侧重新挂载镜像可读回同一文件。块客户端以 `BLOCK_ATTACH` 移交共享帧，驱动把帧物理地址用于 virtio DMA，块请求只传控制信息；`BLOCK_DETACH` 解除映射。块客户端识别 VFS 客户端帧后可让驱动直接 DMA 到该帧，HolyFS 文档路径因此零拷贝。
 
 详见 [VFS](vfs.md)。
 
