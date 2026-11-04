@@ -12,6 +12,9 @@ pub static DMA: DmaPool = DmaPool::new();
 pub fn init(range: PhysRange) {
     DMA.set_cache(&crate::cache::CACHE);
     DMA.init(range);
+    hk_mem::set_frame_releaser(|phys, len| {
+        DMA.free(PhysRange::new(phys, len as u64));
+    });
 }
 
 /// 从 DMA 池分配一段连续内存。

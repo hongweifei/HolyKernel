@@ -46,8 +46,6 @@ const DMA_WINDOW_BYTES: usize = 256 * 1024;
 /// 任务持有的共享 Frame。
 pub(crate) struct FrameMap {
     pub handle: Handle,
-    pub phys: u64,
-    pub len: usize,
 }
 
 /// 用户态任务运行时。
@@ -215,17 +213,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         (EXTRA_HANDLE_BASE + slot + 1) as u64
     }
 
-    fn install_frame(&mut self, index: usize, handle: Handle, range: hk_hal::PhysRange) -> u64 {
+    fn install_frame(&mut self, index: usize, handle: Handle) -> u64 {
         let slot = self.tasks[index]
             .frames
             .iter()
             .position(Option::is_none)
             .unwrap_or(self.tasks[index].frames.len());
-        let map = FrameMap {
-            handle,
-            phys: range.start().get(),
-            len: range.len() as usize,
-        };
+        let map = FrameMap { handle };
         if slot == self.tasks[index].frames.len() {
             self.tasks[index].frames.push(Some(map));
         } else {
@@ -240,10 +234,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .frames
                 .get(number - FRAME_HANDLE_BASE - 1)?
                 .as_ref()?;
-            return Some((
-                map.handle,
-                hk_hal::PhysRange::new(hk_hal::PhysAddr::new(map.phys), map.len as u64),
-            ));
+            let range = self.kernel.frame(self.tasks[index].tcb, map.handle).ok()?;
+            return Some((map.handle, range));
         }
         let handle = self.tasks[index]
             .extra

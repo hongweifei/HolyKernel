@@ -37,7 +37,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let number = self.install_frame(index, handle, range);
+        let number = self.install_frame(index, handle);
         frame.set_result(number);
         Switch::Continue
     }
@@ -111,6 +111,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 | u32::from(grant.address.function),
         );
         let iova = hk_hal::Iova::new(range.start().get());
+        if self.tasks[index]
+            .dma_mappings
+            .iter()
+            .any(|(_, mapped_domain, mapped_iova, _)| {
+                *mapped_domain == domain && *mapped_iova == iova
+            })
+        {
+            frame.set_result(0);
+            return Switch::Continue;
+        }
         if iommu
             .map(
                 domain,

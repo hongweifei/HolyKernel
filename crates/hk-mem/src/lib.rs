@@ -22,6 +22,7 @@ pub use vspace_registry::{UserVspace, VspaceRegistry};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::fmt;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use hk_hal::{
     MapFlags, Mmu, MmuError, PAGE_SHIFT, PAGE_SIZE, PhysAddr, PhysRange, PhysicalAccess,
@@ -104,6 +105,14 @@ pub struct Frame {
     len: usize,
 }
 
+/// 最后一个 Frame 句柄释放时归还物理区间的回调。
+static FRAME_RELEASER: AtomicUsize = AtomicUsize::new(0);
+
+/// 注册 Frame 物理区间回收回调；重复调用会替换旧回调。
+pub fn set_frame_releaser(release: fn(PhysAddr, usize)) {
+    FRAME_RELEASER.store(release as usize, Ordering::Release);
+}
+
 impl Frame {
     /// 创建页帧对象并分配对象头。
     pub fn new(phys: PhysAddr, len: usize) -> Self {
@@ -132,6 +141,17 @@ impl Frame {
     /// 返回对象头的共享引用。
     pub fn header_arc(&self) -> &Arc<ObjectHeader> {
         &self.header
+    }
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        let release = FRAME_RELEASER.load(Ordering::Acquire);
+        if release != 0 {
+            // SAFETY: 回调由平台在启动期注册，签名与存储的地址一致。
+            let release: fn(PhysAddr, usize) = unsafe { core::mem::transmute(release) };
+            release(self.phys, self.len);
+        }
     }
 }
 
