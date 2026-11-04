@@ -195,7 +195,11 @@ impl SmokeMode {
                 "hk-server-demo fs ok",
                 "fs 1 MiB 读：",
             ],
-            Self::Net => &["hk-server-virtio-net: mac=", "hk-server-net: ready"],
+            Self::Net => &[
+                "hk-server-virtio-net: mac=",
+                "hk-server-net: ready",
+                "hk-server-net: ping ok",
+            ],
         }
     }
 

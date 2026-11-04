@@ -21,12 +21,13 @@ use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEV
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
-    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_POLL, NET_POLL_DONE,
-    NET_RX, NET_SHUTDOWN, NET_TX,
+    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_IRQ,
+    NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX, NET_SHUTDOWN, NET_TX,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, exit, recv_data_handle, recv_handle, send, send_data, service_endpoint, write,
+    device_info, exit, irq_bind, recv_data_try, recv_handle, self_notification, send, send_data,
+    service_endpoint, wait_notify, write, yield_now,
 };
 
 #[cfg(target_os = "none")]
@@ -76,7 +77,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             if peer != 0 {
                 send_info(peer, network.mac_address());
             }
-            serve(endpoint, network.as_mut(), &mut peer)
+            serve(endpoint, grant_handle, network.as_mut(), &mut peer)
         }
         Ok(_) => {
             write("hk-server-virtio-net: 授权设备不是网卡\n".as_bytes());
@@ -119,27 +120,44 @@ fn wait_for_grant(endpoint: u64) -> GrantWait {
 }
 
 #[cfg(target_os = "none")]
-fn serve(endpoint: u64, network: &mut hk_driver_virtio::Network, peer: &mut u64) -> ! {
+fn serve(endpoint: u64, grant: u64, network: &mut hk_driver_virtio::Network, peer: &mut u64) -> ! {
+    network.enable_interrupts();
+    let notification = self_notification();
+    let bound = irq_bind(grant, notification, NET_NOTIFY_IRQ) == 0;
     let mut buffer = [0_u8; NET_FRAME_MAX];
     loop {
-        let (label, _word, sender, length, _handle) = recv_data_handle(endpoint, &mut buffer, 0);
-        if sender != 0 {
-            *peer = sender;
-        }
-        match label {
-            NET_INFO_REQUEST => send_info(sender, network.mac_address()),
-            NET_POLL => {
-                drain_rx(network, *peer);
-                if *peer != 0 {
-                    let _ = send_data(*peer, NET_POLL_DONE, &[]);
+        loop {
+            let (label, _word, sender, length) = recv_data_try(endpoint, &mut buffer);
+            if label == 0 {
+                break;
+            }
+            if sender != 0 {
+                *peer = sender;
+            }
+            match label {
+                NET_INFO_REQUEST => send_info(sender, network.mac_address()),
+                NET_POLL => {
+                    drain_rx(network, *peer);
+                    if *peer != 0 {
+                        let _ = send_data(*peer, NET_POLL_DONE, &[]);
+                    }
                 }
+                NET_TX => {
+                    let length = length.min(buffer.len());
+                    let _ = network.send(&buffer[..length]);
+                }
+                NET_SHUTDOWN => exit(0),
+                _ => {}
             }
-            NET_TX => {
-                let length = length.min(buffer.len());
-                let _ = network.send(&buffer[..length]);
+        }
+        drain_rx(network, *peer);
+        if bound {
+            let bits = wait_notify(notification, NET_NOTIFY_IRQ | NET_NOTIFY_TX);
+            if bits & NET_NOTIFY_IRQ != 0 {
+                network.ack_interrupt();
             }
-            NET_SHUTDOWN => exit(0),
-            _ => {}
+        } else {
+            let _ = yield_now();
         }
     }
 }

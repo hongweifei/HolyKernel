@@ -40,6 +40,22 @@ impl Network {
         self.net.lock().send(TxBuffer::from(packet)).is_ok()
     }
 
+    /// 确认设备中断。
+    pub fn ack_interrupt(&self) {
+        let mut net = self.net.lock();
+        let _ = net.ack_interrupt();
+    }
+
+    /// 启用设备中断。
+    pub fn enable_interrupts(&self) {
+        self.net.lock().enable_interrupts();
+    }
+
+    /// 禁用设备中断。
+    pub fn disable_interrupts(&self) {
+        self.net.lock().disable_interrupts();
+    }
+
     /// 返回 MAC 地址。
     pub fn mac_address(&self) -> [u8; 6] {
         self.net.lock().mac_address()

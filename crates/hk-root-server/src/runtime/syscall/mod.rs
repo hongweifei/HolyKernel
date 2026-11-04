@@ -24,6 +24,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_RECV => self.recv(index, tcb, frame),
             SYS_SEND_DATA => self.send_data(index, tcb, frame),
             SYS_RECV_DATA => self.recv_data(index, tcb, frame),
+            SYS_RECV_DATA_TRY => self.recv_data_try(index, tcb, frame),
             SYS_RECV_DATA_HANDLE => self.recv_data_handle(index, tcb, frame),
             SYS_RECV_DATA_FROM => self.recv_data(index, tcb, frame),
             SYS_SERVICE_ENDPOINT => {

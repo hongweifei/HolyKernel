@@ -118,6 +118,9 @@ pub const SYS_RECV_DATA_HANDLE: u64 = 37;
 /// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP_FRAME: u64 = 38;
 
+/// 非阻塞接收带字节载荷的消息；无消息时返回 0。
+pub const SYS_RECV_DATA_TRY: u64 = 39;
+
 /// 句柄权限位：读取。
 pub const RIGHT_READ: u64 = 1;
 /// 句柄权限位：写入。

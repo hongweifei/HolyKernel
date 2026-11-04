@@ -136,6 +136,26 @@ pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     )
 }
 
+/// 非阻塞接收带字节载荷的消息；无消息时返回标签 0。
+pub fn recv_data_try(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入；无消息时立即返回。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_TRY,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+    };
+    (
+        result.value,
+        result.word,
+        result.sender,
+        result.extra as usize,
+    )
+}
+
 /// 接收带字节载荷的消息，并解包随消息收到的句柄编号。
 pub fn recv_data_handle(
     endpoint: u64,

@@ -15,6 +15,11 @@ pub const NET_POLL: u64 = 0x705;
 /// 驱动完成一次轮询。
 pub const NET_POLL_DONE: u64 = 0x706;
 
+/// IRQ Notification 位：设备中断。
+pub const NET_NOTIFY_IRQ: u64 = 1 << 0;
+/// IRQ Notification 位：Network Server 发来 TX 帧。
+pub const NET_NOTIFY_TX: u64 = 1 << 1;
+
 /// 以太网帧最大长度。
 pub const NET_FRAME_MAX: usize = 1514;
 /// 接口信息编码长度：MAC + MTU + link。

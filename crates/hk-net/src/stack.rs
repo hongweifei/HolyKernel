@@ -4,10 +4,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet, SocketStorage};
-use smoltcp::socket::udp;
+use smoltcp::socket::{icmp, udp};
 use smoltcp::storage::PacketMetadata;
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address};
+use smoltcp::wire::{
+    EthernetAddress, HardwareAddress, Icmpv4Message, Icmpv4Packet, IpAddress, IpCidr, IpEndpoint,
+    Ipv4Address,
+};
 
 use crate::error::NetError;
 use crate::phy::FrameQueue;
@@ -92,6 +95,64 @@ impl Stack {
         let mut socket = udp::Socket::new(rx, tx);
         socket.bind(port).map_err(|_| NetError::Bind)?;
         Ok(self.sockets.add(socket))
+    }
+
+    /// 打开 ICMP socket，绑定一个标识。
+    pub fn open_icmp(&mut self, ident: u16) -> Result<SocketHandle, NetError> {
+        let rx = icmp::PacketBuffer::new(vec![PacketMetadata::EMPTY; 4], vec![0_u8; 1024]);
+        let tx = icmp::PacketBuffer::new(vec![PacketMetadata::EMPTY; 4], vec![0_u8; 1024]);
+        let mut socket = icmp::Socket::new(rx, tx);
+        socket
+            .bind(icmp::Endpoint::Ident(ident))
+            .map_err(|_| NetError::Bind)?;
+        Ok(self.sockets.add(socket))
+    }
+
+    /// 发送 ICMP echo request。
+    pub fn send_ping(
+        &mut self,
+        handle: SocketHandle,
+        target: Ipv4Address,
+        ident: u16,
+        sequence: u16,
+        payload: &[u8],
+    ) -> Result<(), NetError> {
+        let socket = self.sockets.get_mut::<icmp::Socket>(handle);
+        let size = 8 + payload.len();
+        socket
+            .send_with(size, IpAddress::Ipv4(target), |buffer| {
+                buffer[8..].copy_from_slice(payload);
+                let mut packet = Icmpv4Packet::new_unchecked(buffer);
+                packet.set_msg_type(Icmpv4Message::EchoRequest);
+                packet.set_msg_code(0);
+                packet.set_echo_ident(ident);
+                packet.set_echo_seq_no(sequence);
+                packet.fill_checksum();
+                size
+            })
+            .map_err(|_| NetError::Send)?;
+        Ok(())
+    }
+
+    /// 接收 ICMP echo reply，返回长度与来源。
+    pub fn recv_ping(
+        &mut self,
+        handle: SocketHandle,
+        buffer: &mut [u8],
+    ) -> Result<Option<(usize, Ipv4Address)>, NetError> {
+        let socket = self.sockets.get_mut::<icmp::Socket>(handle);
+        if !socket.can_recv() {
+            return Ok(None);
+        }
+        let (length, address) = socket.recv_slice(buffer).map_err(|_| NetError::Recv)?;
+        let IpAddress::Ipv4(address) = address else {
+            return Ok(None);
+        };
+        let packet = Icmpv4Packet::new_checked(&buffer[..length]).map_err(|_| NetError::Recv)?;
+        if packet.msg_type() != Icmpv4Message::EchoReply {
+            return Ok(None);
+        }
+        Ok(Some((length, address)))
     }
 
     /// 发送 UDP 数据。

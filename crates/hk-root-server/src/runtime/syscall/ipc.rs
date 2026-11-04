@@ -251,6 +251,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    pub(crate) fn recv_data_try(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(0);
+            return Switch::Continue;
+        };
+        let buffer = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        if capacity > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        match self.kernel.recv_from(tcb, handle, None) {
+            Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
+            Ok(None) => {
+                frame.set_result(0);
+                Switch::Continue
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
     pub(crate) fn recv_data_handle(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let endpoint = frame.arg0() as usize;
         let Some(handle) = self.handle_at(index, endpoint) else {

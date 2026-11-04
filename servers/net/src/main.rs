@@ -17,12 +17,12 @@ use hk_net::Stack;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
-    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_POLL, NET_POLL_DONE,
-    NET_RX, NET_TX,
+    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL,
+    NET_POLL_DONE, NET_RX, NET_TX,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, recv_data_from, send, send_data, service_endpoint, ticks, write, yield_now,
+    exit, notify, recv_data_from, send, send_data, service_endpoint, ticks, write, yield_now,
 };
 
 #[cfg(target_os = "none")]
@@ -44,6 +44,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let mut info = [0_u8; NET_INFO_BYTES];
     let _ = send(driver, NET_INFO_REQUEST, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
     let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut info);
     if label != NET_INFO_RESPONSE || length < NET_INFO_BYTES {
         write("hk-server-net: 接口信息失败\n".as_bytes());
@@ -67,7 +68,31 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-net: ready\n".as_bytes());
 
     let mut frame = [0_u8; NET_FRAME_MAX];
-    poll_once(driver, endpoint, &mut stack, &mut frame);
+    let icmp = match stack.open_icmp(0x1234) {
+        Ok(handle) => handle,
+        Err(_) => {
+            write("hk-server-net: ICMP 初始化失败\n".as_bytes());
+            exit(5)
+        }
+    };
+    let _ = stack.send_ping(icmp, Ipv4Addr::new(10, 0, 2, 2), 0x1234, 1, b"holy");
+    let deadline = ticks().saturating_add(500);
+    let mut reply = [0_u8; 64];
+    let mut ping_ok = false;
+    while ticks() < deadline {
+        poll_once(driver, endpoint, &mut stack, &mut frame);
+        if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
+            && length >= 8
+        {
+            ping_ok = true;
+            break;
+        }
+    }
+    if !ping_ok {
+        write("hk-server-net: ping failed\n".as_bytes());
+        exit(6)
+    }
+    write("hk-server-net: ping ok\n".as_bytes());
     loop {
         let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut frame);
         if label == NET_RX {
@@ -76,6 +101,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             while let Some(packet) = stack.take_frame() {
                 let _ = send_data(driver, NET_TX, &packet);
             }
+            let _ = notify(driver, NET_NOTIFY_TX);
         }
     }
 }
@@ -83,6 +109,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 #[cfg(target_os = "none")]
 fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET_FRAME_MAX]) {
     let _ = send(driver, NET_POLL, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
     loop {
         let (label, _word, _sender, length) = recv_data_from(endpoint, driver, frame);
         match label {
@@ -97,6 +124,7 @@ fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET
     while let Some(packet) = stack.take_frame() {
         let _ = send_data(driver, NET_TX, &packet);
     }
+    let _ = notify(driver, NET_NOTIFY_TX);
 }
 
 #[cfg(target_os = "none")]
