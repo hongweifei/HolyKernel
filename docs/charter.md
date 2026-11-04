@@ -124,7 +124,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX Server提供 socket 后端 |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 |
-| **HolyFS Server** | 文件系统；可挂载 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照 |
+| **HolyFS Server** | Holy 卷文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **HolyDoc Server** | 可选活文档渲染与链接 |
 
 服务器通过句柄与 IPC 组合；每个服务器拥有自己的 VSpace 与最小权限集合。
@@ -136,7 +136,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 - **API**：POSIX.1-2017 应用接口；应用针对 musl + `hk-abi` 重新编译。
 - **libc**：musl 作为主 C libc；`hk-abi` 提供 syscall shim 协议与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。
 - **POSIX Server**：维护 PID 表、父子关系、fd 表、信号状态、管道、套接字、进程组与会话。
-- **文件系统**：POSIX Server通过 ext2/ext4 或 HolyFS Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`。
+- **文件系统**：POSIX Server 通过 ext2/ext4 Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`；HolyFS 经适配层提供 Holy 文档。
 - **进程**：`fork` 通过 VSpace 复制与 COW；`exec` 通过 ELF 加载器映射新 VSpace；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；TLS、栈、join、取消由 libc 与 POSIX Server协作。
 - **信号**：POSIX Server维护 pending/blocked 集合；libc 在安全点调用 handler。
@@ -149,10 +149,10 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 
 ## 6. 原生服务
 
-HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 文件系统可作主根或 `H:`，与 POSIX 环境并存：
+HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Holy 卷，与 POSIX 兼容环境并存：
 
 - **HolyDoc**：活文档；链接、代码块、表单、嵌入执行结果。
-- **HolyFS**：文件系统；可作 POSIX `/` 主根或 `H:` 盘符；POSIX 文件视图 + 整文档 API、压缩、COW、checksum、快照。
+- **HolyFS**：Holy 卷文件系统；`H:` 盘符、文档、修订、集合、标签、快照、压缩、COW、checksum。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器。
 - **原生应用**通过 HK 服务 API 使用这些句柄；POSIX 应用通过 Display Server 的终端/控制台接口使用文本界面。
 

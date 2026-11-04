@@ -72,7 +72,7 @@ flowchart TB
 - VFS Server与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
 - POSIX.1 服务器 + musl + `hk-abi`/`hk-crt`
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
-- 可选服务：HolyFS 文件系统（可作主根）、HolyDoc、真彩 Display Server
+- 可选服务：HolyFS 卷（盘符、文档、修订、快照）、HolyDoc、真彩 Display Server
 - x86_64 / AArch64 / RISC-V QEMU 与 Hosted 模拟器
 
 **后续版本评估**
@@ -204,7 +204,7 @@ sequenceDiagram
 | **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | VSpace/TCB、VFS/Network Endpoint |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略 | Net Endpoint、Socket Handle |
-| **HolyFS Server** | 文件系统；可挂载 `/` 主根或 `H:`；POSIX + 整文档 | Block Endpoint、VFS Backend、Document Handle |
+| **HolyFS Server** | Holy 卷文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、VFS 适配层、Document Handle |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI | Framebuffer、Input |
 | **HolyDoc Server** | 可选活文档渲染 | Display Endpoint、HolyFS Endpoint |
 | **Workbench** | 编辑/浏览/构建/运行/调试 | HolyDoc、Toolchain、Debug、Display |
@@ -236,7 +236,7 @@ flowchart LR
 - **musl + `hk-abi`**：musl 提供 C 运行时与 pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载。
 - **进程**：`fork` 复制 VSpace（COW）；`exec` 加载 ELF；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
-- **文件**：VFS 提供路径解析、挂载表与文件句柄；ext2/ext4 或 HolyFS Server 提供目录、inode、权限位。
+- **文件**：VFS 提供路径解析、挂载表与文件句柄；ext2/ext4 提供目录、inode、权限位；HolyFS 经适配层提供 Holy 文档。
 - **网络**：socket 通过 POSIX Server 转发到用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket。
 
 详见 [POSIX 与 libc](posix.md)。
@@ -248,7 +248,7 @@ flowchart LR
 HolyFS 文件系统与 HolyDoc、真彩 UI 作为可选服务：
 
 - **HolyDoc**：活文档渲染、链接、代码块、表单；通过 Display Endpoint 呈现。
-- **HolyFS**：文件系统；可作 POSIX `/` 主根或 `H:` 盘符；POSIX 文件视图 + 整文档、压缩、COW、checksum、快照。
+- **HolyFS**：Holy 卷文件系统；`H:` 盘符；文档、修订、集合、标签、快照、压缩、COW、checksum。
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器；POSIX 应用通过终端/控制台接口使用文本界面。
 - 原生服务按最小权限运行；每个服务获得独立的 Frame、DeviceGrant 与 Endpoint。
 
@@ -290,9 +290,9 @@ sequenceDiagram
 
 - 内核只创建 Root Task，并把初始 Untyped/Endpoint 句柄与 HandleTable 交给它。
 - Root Server 启动设备管理器、VFS、Network Server、HolyShell 与可选原生服务。
-- 根文件系统为 HolyFS 时，Root Server 先启动 HolyFS Server，再启动 VFS。
+- POSIX 兼容环境的根文件系统为 ext2/ext4；HolyFS 卷作为数据卷接入。
 - HolyShell 是默认命令行；POSIX Server 是可选兼容环境。
-- 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2/ext4 或 HolyFS 根文件系统并启动 `/sbin/init`。
+- 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2/ext4 根文件系统并启动 `/sbin/init`。
 - 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载 ELF。
 - 服务器崩溃时，Root Server 按服务清单重启并重新分配句柄。
 
@@ -304,7 +304,7 @@ sequenceDiagram
 - **最小权限**：服务器只获得完成职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
 - **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；当前 x86 使用软件 IOMMU 域表，硬件 VT-d 后端待接入；关闭时依赖驱动审计。
-- **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4 或 HolyFS）；POSIX Server 在启用兼容环境时加入。
+- **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务；POSIX Server 在启用兼容环境时加入。
 - **验证**：Rust 内存安全、`unsafe` 审计、fuzz、确定性模拟、POSIX 测试套件。
 - **服务器监督**：Root Server 记录崩溃、重启次数与句柄重新分配。
 

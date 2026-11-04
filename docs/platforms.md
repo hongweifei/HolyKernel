@@ -189,7 +189,7 @@ sequenceDiagram
 | `vfs` | 挂载、路径解析、ext2 读写 |
 | `shell` | HolyShell、Holy 命令、结构化管道、`posix` 入口 |
 | `net` | virtio-net、ARP/IPv4/IPv6、TCP/UDP、DHCP、DNS、socket |
-| `holyfs` | HolyFS `/` 主根或 `H:` 挂载、POSIX、整文档、快照、恢复 |
+| `holyfs` | HolyFS `H:` 卷、文档、修订、快照、恢复 |
 | `posix` | fork/exec/wait、pipe、socket、pthreads |
 | `restart` | 驱动/VFS/POSIX/Network/HolyFS 崩溃与重启 |
 | `ui` | 帧缓冲、窗口、Console |

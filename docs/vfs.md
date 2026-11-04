@@ -6,7 +6,7 @@
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 
-HolyFS 是一等文件系统后端，可挂载为 `/` 主根或 `H:` 盘符；同一份数据同时提供 POSIX 视图与整文档 API。详见 [HolyFS](holyfs.md)。
+HolyFS 是 Holy 卷文件系统，以 `H:` 盘符与文档对象工作；POSIX 兼容环境通过 VFS 适配层访问卷中的文档。详见 [HolyFS](holyfs.md)。
 
 ---
 
@@ -16,7 +16,7 @@ HolyFS 是一等文件系统后端，可挂载为 `/` 主根或 `H:` 盘符；�
 
 1. **统一路径空间**：挂载表、路径解析、`.`/`..`、符号链接、相对路径。
 2. **文件抽象**：inode、dentry、open file description、文件句柄、目录项缓存。
-3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端以服务器形式接入。
+3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端以服务器形式接入，HolyFS 经适配层提供 Holy 文档。
 4. **POSIX 语义**：`open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`/`fsync`/`truncate`。
 5. **页缓存**：文件数据以 Frame 共享；POSIX Server与用户进程零拷贝读取。
 6. **权限检查**：POSIX Server传入凭证；VFS 与文件系统后端执行属主/权限位检查。
@@ -43,7 +43,7 @@ flowchart TB
     Libc -->|IPC| POSIX["POSIX Server"]
     POSIX -->|fd → FileHandle| VFS["VFS Server"]
     VFS -->|mount table| Ext2["ext2 / ext4 Server"]
-    VFS -->|mount table| HolyFS["HolyFS Server"]
+    VFS -->|mount table| HolyFS["HolyFS 卷适配层"]
     VFS -->|mount table| Tmpfs["tmpfs Server"]
     VFS -->|mount table| Devfs["devfs Server"]
     VFS -->|mount table| Procfs["procfs Server"]
@@ -72,7 +72,7 @@ pub struct Mount {
 
 - Root Server 或 POSIX Server 通过 VFS 的 `mount` 接口建立挂载。
 - 挂载表由 VFS 维护；POSIX Server的 `mount`/`umount` 转发到 VFS。
-- 初始挂载：`/`（ext2/ext4 或 HolyFS，由镜像选择）、`/dev`（devfs）、`/proc`（procfs）、`/tmp`（tmpfs）。
+- 初始挂载：`/`（ext2/ext4）、`/dev`（devfs）、`/proc`（procfs）、`/tmp`（tmpfs）。
 - 挂载点支持嵌套；路径解析跨越挂载边界。
 - 只读挂载拒绝写操作。
 
@@ -145,7 +145,7 @@ pub enum VfsRequest {
 
 - 请求通过 FS Backend Endpoint 发送；响应携带状态与元数据。
 - 大块数据使用共享 Frame；VFS 只传 Handle。
-- 后端实现 ext2/ext4、HolyFS、tmpfs、devfs、procfs 的各自语义。
+- 后端实现 ext2/ext4、tmpfs、devfs、procfs 的各自语义；HolyFS 通过适配层提供 Holy 文档。
 - 后端崩溃时，VFS 将挂载标记为离线；Root Server 重启后端。
 
 ---
@@ -201,7 +201,7 @@ pub enum VfsRequest {
 | Hosted 单元 | 路径解析、dentry 缓存、挂载表、fd/OpenFile、页缓存 |
 | Hosted 模拟 | ext2/ext4/HolyFS/tmpfs/devfs/procfs 后端、VFS 重启、后端崩溃 |
 | POSIX 集成 | `open/read/write/stat/readdir/rename/unlink`、`dup`、`O_APPEND`、硬链接/符号链接 |
-| QEMU | ext2/ext4 或 HolyFS 根镜像、挂载、读写、重启恢复 |
+| QEMU | ext2/ext4 根镜像；HolyFS 数据卷挂载、读写、重启恢复 |
 | fuzz | 路径、挂载表、RPC 消息、后端响应 |
 | 基准 | 路径解析、缓存命中、顺序读写、VFS RPC 延迟 |
 

@@ -18,7 +18,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 6. **POSIX 终端**：控制台/终端接口与 `termios` 后端；支持 256 色/真彩色 SGR。
 7. **最小权限**：Display Server 只获得 Framebuffer 与 Input DeviceGrant。
 8. **可重启**：Display Server 崩溃后由 Root Server 重启；客户端重连。
-9. **可降级**：帧缓冲缺失时使用串口/VGA 文本模式。
+9. **可降级**：文本回退使用串口/VGA 文本模式。
 
 ### 构件
 
@@ -184,8 +184,8 @@ flowchart LR
 - Root Server 启动 Display Server；Display Server 获取 Framebuffer/Input DeviceGrant。
 - POSIX Server 启动 Console Service；Console 连接到 Display Server 的窗口。
 - 原生应用可启动 HolyDoc 欢迎页与 Workbench。
-- 帧缓冲缺失时，Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
-- 字体文件缺失时，回退到 8×16 位图字体。
+- 文本回退：Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
+- 字体回退：8×16 位图字体。
 - Display Server 崩溃后，Root Server 重启；Console 客户端重连并恢复文本缓冲。
 
 ---
@@ -208,8 +208,8 @@ flowchart LR
 5. 输入事件通过 Endpoint/Notification 交付。
 6. POSIX 应用通过 Console Service 使用终端。
 7. HolyDoc 链接指向文档、符号、POSIX 路径或服务 Endpoint。
-8. 帧缓冲缺失时，Console 使用串口/VGA 文本后端。
-9. 字体缺失时，回退到 8×16 位图字体。
+8. 文本回退：Console 使用串口/VGA 文本后端。
+9. 字体回退：8×16 位图字体。
 10. 原生服务只获得必要的 DeviceGrant 与 Endpoint。
 
 ---

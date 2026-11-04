@@ -4,7 +4,7 @@
 
 HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程、地址空间、句柄、IPC、内存与中断机制；驱动、文件系统、POSIX 兼容层、网络与原生服务运行在用户态。
 
-系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server统一管理挂载表与文件句柄；HolyFS 文件系统可作主根或 `H:` 盘符；HolyDoc 与真彩 UI 作为可选原生服务。
+系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server 统一管理 POSIX 兼容环境的挂载表与文件句柄；HolyFS 以卷与 `H:` 盘符提供 Holy 文档；HolyDoc 与真彩 UI 作为可选原生服务。
 
 当前状态：**v0.1.0**。M0 脚手架与 M1 Hosted 微内核已落地：Cargo workspace、`xtask`、CI、HAL、句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真。x86_64 启动从 M2 开始。
 
@@ -66,7 +66,7 @@ flowchart TB
 | **网络**             | 用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket                          |
 | **Holy 命令**          | HolyShell 与 Holy 命令是主路径；POSIX 工具通过兼容环境使用                                  |
 | **Holy 原生体验**        | HolyDoc UI、Workbench、系统内 Toolchain、Checkpoint、符号化调试                        |
-| **原生服务可选**          | HolyDoc、真彩 UI 作为用户态服务；HolyFS 文件系统可作主根或 `H:` 盘符                |
+| **原生服务可选**          | HolyDoc、真彩 UI 作为用户态服务；HolyFS 以卷与 `H:` 盘符提供 Holy 文档                |
 | **多架构**             | x86_64 / AArch64 / RISC-V / Hosted 共享同一套内核与服务器                               |
 | **现代工程**            | Rust、CI、确定性模拟、故障注入、可观测性                                                      |
 
@@ -87,7 +87,7 @@ flowchart TB
 | [网络](docs/network.md) | Network Server、TCP/IP、DHCP、DNS、POSIX socket |
 | [HolyShell 与 Holy 命令](docs/shell.md) | 原生命令、结构化管道、POSIX 兼容入口 |
 | [VFS](docs/vfs.md) | 挂载表、路径解析、文件句柄、页缓存 |
-| [HolyFS 文件系统](docs/holyfs.md) | 可作主根、POSIX + 整文档、COW、checksum、快照 |
+| [HolyFS 文件系统](docs/holyfs.md) | Holy 对象、修订、快照、标签、COW、checksum |
 | [HolyDoc 与 UI](docs/ui.md) | 可选原生显示服务与真彩界面 |
 | [Holy 原生体验](docs/experience.md) | Workbench、Toolchain、Checkpoint、符号化调试 |
 | [平台与启动](docs/platforms.md) | HAL、BootInfo、各架构启动、用户态驱动 |
@@ -140,12 +140,12 @@ x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口、建立 GDT/T
 
 - 句柄型微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ
 - 用户态 Root Server、Device Manager、virtio 驱动
-- ext2/ext4 与 HolyFS 文件系统服务器；HolyFS 可作主根
+- ext2/ext4（POSIX 兼容环境）与 HolyFS（Holy 卷）文件系统服务器
 - HolyShell 与 Holy 命令
 - POSIX.1 兼容环境 + musl + `hk-abi`/`hk-crt` 薄兼容层
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
 - 网络：IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket、virtio-net
-- HolyFS 文件系统：可作 `/` 主根或 `H:` 盘符；POSIX + 整文档、COW、checksum、快照
+- HolyFS 文件系统：卷、文档、修订、集合、标签与快照；COW、checksum、`H:` 盘符
 - 可选原生服务：HolyDoc、真彩 UI
 - x86_64 / AArch64 / RISC-V QEMU 与 Hosted 模拟器
 

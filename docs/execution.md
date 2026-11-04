@@ -166,7 +166,7 @@ impl Notification {
 
 ### 4.3 共享 Frame
 
-- Frame 是匿名内核对象 `{ phys, len }`，没有全局名字；只能通过 Handle 访问。
+- Frame 是匿名内核对象 `{ phys, len }`，通过 Handle 访问。
 - 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace，句柄权限决定只读/可写/可转移。
 - 内核提供 `SYS_FRAME_ALLOC`、`SYS_FRAME_MAP`、`SYS_FRAME_UNMAP`、`SYS_FRAME_INFO`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_FRAME`。
 - `SYS_FRAME_ALLOC(length, virt)` 从 DMA 池分配连续物理页、创建 Frame、映射到 `virt` 并返回帧句柄编号；`SYS_FRAME_INFO` 返回物理地址与长度，供驱动建立 DMA。
@@ -256,7 +256,7 @@ pub struct CivilTime { ... }
 - 每 CPU 一个时钟源；选择全局最稳定的作为单调时间。
 - 定时器轮处理 IPC 超时、时间片、Notification 等待。
 - RTC 在启动时读取，与当时的 `Moment` 组成民用时间锚点；之后民用时间由单调 tick 推进，亚秒按 tick 频率换算。
-- 平台通过 `SYS_CIVIL_TIME` 返回 `CivilTime`；RTC 缺失时返回空值。
+- 平台通过 `SYS_CIVIL_TIME` 返回 `CivilTime`；RTC 就绪前返回空值。
 - 民用时间交给需要日历语义的服务；ext4 后端只在磁盘格式边界换算为 ext4 时间戳。
 - Hosted 平台用虚拟时钟推进模拟民用时间。
 - POSIX 时间通过 POSIX Server 与 libc 暴露。

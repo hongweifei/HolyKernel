@@ -22,7 +22,7 @@ flowchart TB
     Procfs["procfs Server"]
     POSIX["POSIX Server<br/>进程 · fd · 信号"]
     NetSrv["Network Server<br/>socket 后端"]
-    HolyFS["HolyFS Server<br/>文件系统 · 主根/ H:"]
+    HolyFS["HolyFS Server<br/>Holy 卷 · H: 盘符"]
     Display["Display Server<br/>真彩 UI"]
     HolyDoc["HolyDoc Server"]
 
@@ -119,7 +119,7 @@ pub struct ServiceManifest {
 
 - **VFS Server**：挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存。
 - **ext2/ext4 Server**：POSIX 根文件系统；目录、inode、权限位。
-- **HolyFS Server**：POSIX + 整文档文件系统；可作 `/` 主根或 `H:` 盘符。
+- **HolyFS Server**：Holy 卷文件系统；`H:` 盘符与文档对象。
 - **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
@@ -153,12 +153,12 @@ pub struct ServiceManifest {
 
 ## 9. HolyFS Server
 
-- 用户态文件系统；实现 VFS Backend，可挂载为 `/` 主根、`/home` 或其他挂载点。
+- 用户态文件系统；以 `H:` 盘符提供 Holy 卷，经 VFS 适配层接入兼容环境的挂载点。
 - 原生命名空间通过 `H:` 盘符访问同一 Volume；`H:` 与 VFS 挂载点共享数据。
-- POSIX 视图：inode、`mode`/`uid`/`gid`、硬链接、符号链接、稀疏文件、原子 `rename`、`fsync`。
-- 原生视图：整文档、压缩、Tags、Links、快照。
-- 通过 Block Endpoint 访问存储；COW、checksum、双超级块。
-- 由服务清单选择根文件系统：HolyFS 或 ext4/ext2。
+- 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
+- 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
+- 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。
+- POSIX 兼容环境的根文件系统为 ext4/ext2；HolyFS 作为 Holy 卷服务。
 - 详见 [HolyFS](holyfs.md)。
 
 ---

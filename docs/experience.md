@@ -17,7 +17,7 @@
 7. **符号化调试**：Debug Server 把地址映射到源码、符号与 HolyDoc。
 8. **Home/Once**：启动与用户配置是可执行文档。
 9. **原生资源编辑**：Sprite/Font 编辑器内建，资源直接嵌入 HolyDoc。
-10. **降级可用**：帧缓冲缺失时使用文本/串口回退；真彩色与可缩放字体（8×16 位图回退）保持一致。
+10. **降级可用**：文本/串口回退路径可用；真彩色与可缩放字体（8×16 位图回退）保持一致。
 
 ---
 
@@ -185,7 +185,7 @@ sequenceDiagram
 ## 12. 文本回退与显示约束
 
 - 帧缓冲可用：Display Server 多窗口 + 合成器。
-- 帧缓冲缺失：Console Service 使用串口/VGA 文本模式；Workbench 降级为行模式。
+- 文本回退：Console Service 使用串口/VGA 文本模式；Workbench 降级为行模式。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）贯穿原生 UI。
 - 文本层始终可用；像素层是可选增强。
 
@@ -247,7 +247,7 @@ sequenceDiagram
 | Hosted 单元 | HolyDoc 解析、表单、Task 符号表、整文件缓存、压缩 |
 | Hosted 模拟 | Workbench 服务调用、Checkpoint/restore、Debug 符号化 |
 | QEMU | Toolchain 构建、Workbench 编辑/运行、Sprite/Font 编辑器 |
-| 故障注入 | Checkpoint 中断、恢复失败、构建失败、符号缺失 |
+| 故障注入 | Checkpoint 中断、恢复失败、构建失败、符号解析失败 |
 | 基准 | 构建时间、文档打开、缓存命中、Checkpoint/restore |
 
 ---
