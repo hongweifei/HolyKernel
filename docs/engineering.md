@@ -62,6 +62,7 @@ HolyKernel/
 规则：
 
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
+- 内核与服务堆使用可回收分配器（`linked_list_allocator`）；服务堆按需从 Arena 初始化，内核堆使用静态区间。
 - 内核 crate 只依赖 `hk-hal` 与内核对象 crate；服务器通过 IPC 与 Handle 交互。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
 - 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。

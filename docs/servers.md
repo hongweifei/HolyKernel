@@ -78,7 +78,8 @@ pub struct ServiceManifest {
 - 解析服务清单，创建服务器 VSpace/TCB，加载 ELF，分配 Handle。
 - 维护服务表：PID、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
-- 监督服务器：崩溃后按 `restart` 策略重启，关闭旧句柄，重新分配。
+- 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。
+- 监督循环按有界步进调度，避免持续 yield 的服务阻塞重启时机。
 - 提供管理接口：`start`、`stop`、`restart`、`status`、`list`。
 - Root Server 自身崩溃时，内核按配置停机或重启。
 
@@ -90,6 +91,7 @@ pub struct ServiceManifest {
 - 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO、`SYS_DMA_ALLOC` 在授权 DMA 窗口内按页分配并映射，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
 - 服务镜像通过 `.hk_service` 段声明角色，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
 - 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务已接入 virtio-blk，完成容量查询、读、写与 flush 验证；Block Server 保留 RAM disk 后端与块协议。
+- Device Manager 常驻并等待驱动的设备授权申请（`DEVICE_REQUEST`），驱动重启后重新枚举并下发 DeviceGrant。
 - 维护设备树与驱动绑定；设备移除时关闭 Handle。
 - 通过 Endpoint 向 VFS 与 POSIX Server报告设备状态。
 
