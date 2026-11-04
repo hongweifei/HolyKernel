@@ -122,6 +122,7 @@ holy> debug app
 | `endpoints` | 列出 Endpoint/Notification |
 | `mounts` | 查看 VFS 挂载表 |
 | `trace` | 查看最近的内核 trace 事件（含句柄审计） |
+| `stats` | 查看上下文切换与 IPC call/reply 时延统计 |
 | `docs` | 列出/搜索 HolyDoc |
 | `open` | 打开文档/窗口 |
 | `edit` | 编辑源码或 HolyDoc |

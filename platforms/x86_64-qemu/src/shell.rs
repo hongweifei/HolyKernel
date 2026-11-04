@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, Console};
 use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageTable, Serial, keyboard};
-use hk_root_server::{ServiceTable, TaskInfo, TraceEvent};
+use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
 use hk_shell::{Session, ShellHost, ShellIo};
 
 use crate::{loader, runtime};
@@ -69,6 +69,10 @@ impl ShellHost for Host<'_, '_> {
 
     fn trace(&self, limit: usize) -> Vec<TraceEvent> {
         runtime::trace(limit)
+    }
+
+    fn stats(&self) -> RuntimeStats {
+        runtime::stats()
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {

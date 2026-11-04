@@ -3,6 +3,8 @@
 //! PIT 频率固定为 1.193182 MHz，用它在启动时校准 TSC，得到以毫秒计的启动
 //! 耗时。校准只读通道 2，不产生中断。
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use crate::port::{inb, outb};
 
 const PIT_CHANNEL2: u16 = 0x42;
@@ -12,6 +14,13 @@ const PIT_FREQUENCY: u64 = 1_193_182;
 
 /// 校准期间等待的 PIT tick 数，约 16.8 ms。
 const CALIBRATION_TICKS: u16 = 20_000;
+
+static FREQUENCY: AtomicU64 = AtomicU64::new(0);
+
+/// 返回校准后的 TSC 频率；尚未校准或校准失败时为 0。
+pub fn tsc_frequency() -> u64 {
+    FREQUENCY.load(Ordering::Acquire)
+}
 
 /// 读取时间戳计数器。
 pub fn rdtsc() -> u64 {
@@ -48,6 +57,9 @@ pub fn calibrate() -> Option<u64> {
     // SAFETY: 恢复端口 0x61 的原值，结束通道 2 的计数。
     unsafe {
         outb(PIT_GATE, saved_gate);
+    }
+    if let Some(frequency) = frequency {
+        FREQUENCY.store(frequency, Ordering::Release);
     }
     frequency
 }

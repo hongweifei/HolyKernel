@@ -16,7 +16,9 @@ pub mod runtime;
 pub use hk_kernel::{TraceCategory, TraceEvent};
 pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
-pub use runtime::{Arena, Pending, Step, Switch, TaskInfo, UserPlatform, UserRuntime, UserTask};
+pub use runtime::{
+    Arena, Pending, RuntimeStats, Step, Switch, TaskInfo, UserPlatform, UserRuntime, UserTask,
+};
 
 use alloc::vec::Vec;
 

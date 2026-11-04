@@ -11,7 +11,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_root_server::{ServiceTable, TaskInfo, TraceEvent};
+use hk_root_server::{RuntimeStats, ServiceTable, TaskInfo, TraceEvent};
 
 /// 脚本嵌套上限。
 const MAX_SCRIPT_DEPTH: usize = 4;
@@ -33,6 +33,8 @@ pub enum Command<'a> {
     Mounts,
     /// 列出最近的内核 trace 事件。
     Trace,
+    /// 显示运行时统计。
+    Stats,
     /// 选择当前任务。
     Focus(&'a str),
     /// 装载并启动服务。
@@ -111,6 +113,9 @@ pub trait ShellHost {
     /// 返回最近的内核 trace 事件。
     fn trace(&self, limit: usize) -> Vec<TraceEvent>;
 
+    /// 返回运行时统计。
+    fn stats(&self) -> RuntimeStats;
+
     /// 启动服务；`parent` 是当前会话选中的任务名。
     fn start(&mut self, name: &str, parent: Option<&str>) -> String;
 
@@ -138,6 +143,8 @@ pub struct Response {
     pub script: Option<String>,
     /// 是否需要输出 trace。
     pub trace: bool,
+    /// 是否需要输出统计。
+    pub stats: bool,
 }
 
 impl Response {
@@ -150,6 +157,7 @@ impl Response {
             restart: None,
             script: None,
             trace: false,
+            stats: false,
         }
     }
 
@@ -190,6 +198,7 @@ pub fn parse(line: &str) -> Command<'_> {
         "services" => Command::Services,
         "mounts" => Command::Mounts,
         "trace" => Command::Trace,
+        "stats" => Command::Stats,
         "focus" => Command::Focus(arguments),
         "start" => Command::Start(arguments),
         "restart" => Command::Restart(arguments),
@@ -207,7 +216,7 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、handles、services、mounts、trace、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、mounts、trace、stats、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
@@ -215,6 +224,10 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
         Command::Mounts => Response::output(String::from("尚无挂载（VFS 在 M4 接入）\n")),
         Command::Trace => Response {
             trace: true,
+            ..Response::empty()
+        },
+        Command::Stats => Response {
+            stats: true,
             ..Response::empty()
         },
         Command::Focus(name) => focus_task(name, state, session),
@@ -273,6 +286,10 @@ pub fn execute_line<H: ShellHost>(
     if response.trace {
         let events = host.trace(32);
         io.write(&format_trace(&events));
+    }
+
+    if response.stats {
+        io.write(&format_stats(&host.stats()));
     }
 
     if let Some(name) = &response.script {
@@ -452,6 +469,42 @@ fn format_trace(events: &[TraceEvent]) -> String {
     output
 }
 
+fn format_stats(stats: &RuntimeStats) -> String {
+    let mut output = String::from("运行时统计\n");
+    if stats.tsc_frequency == 0 {
+        output.push_str("  TSC 频率：未知\n");
+        return output;
+    }
+
+    output.push_str(&format!(
+        "  上下文切换：{} 次，平均 {} ns，最大 {} ns\n",
+        stats.switches,
+        average_ns(stats.switch_cycles, stats.switches, stats.tsc_frequency),
+        ns(stats.switch_max_cycles, stats.tsc_frequency),
+    ));
+    output.push_str(&format!(
+        "  IPC call/reply：{} 次，平均 {} ns，最大 {} ns\n",
+        stats.calls,
+        average_ns(stats.call_cycles, stats.calls, stats.tsc_frequency),
+        ns(stats.call_max_cycles, stats.tsc_frequency),
+    ));
+    output
+}
+
+fn average_ns(cycles: u64, count: u64, frequency: u64) -> u64 {
+    if count == 0 || frequency == 0 {
+        return 0;
+    }
+    ((u128::from(cycles) * 1_000_000_000) / (u128::from(frequency) * u128::from(count))) as u64
+}
+
+fn ns(cycles: u64, frequency: u64) -> u64 {
+    if frequency == 0 {
+        return 0;
+    }
+    ((u128::from(cycles) * 1_000_000_000) / u128::from(frequency)) as u64
+}
+
 fn format_services(services: &ServiceTable) -> String {
     if services.is_empty() {
         return String::from("服务表为空\n");
@@ -531,6 +584,7 @@ mod tests {
         assert_eq!(parse("services"), Command::Services);
         assert_eq!(parse("mounts"), Command::Mounts);
         assert_eq!(parse("trace"), Command::Trace);
+        assert_eq!(parse("stats"), Command::Stats);
         assert_eq!(parse("focus"), Command::Focus(""));
         assert_eq!(
             parse("focus hk-server-echo"),
@@ -636,6 +690,13 @@ mod tests {
         let table = ServiceTable::new();
         let response = run("trace", &table, &[]);
         assert!(response.trace);
+    }
+
+    #[test]
+    fn stats_requests_statistics() {
+        let table = ServiceTable::new();
+        let response = run("stats", &table, &[]);
+        assert!(response.stats);
     }
 
     #[test]
@@ -756,6 +817,10 @@ mod tests {
             Vec::new()
         }
 
+        fn stats(&self) -> RuntimeStats {
+            RuntimeStats::default()
+        }
+
         fn script(&self, name: &str) -> Result<String, String> {
             self.scripts
                 .iter()
@@ -782,6 +847,25 @@ mod tests {
         run_script(&io, &mut host, &mut session, &["trace"]);
 
         assert!(io.output.borrow().contains("trace 为空"));
+    }
+
+    #[test]
+    fn script_prints_stats() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            restarted: Vec::new(),
+            scripts: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["stats"]);
+
+        assert!(io.output.borrow().contains("运行时统计"));
     }
 
     #[test]

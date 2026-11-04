@@ -12,7 +12,7 @@ use crate::workspace;
 /// Limine 安装目录的默认位置。
 const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
-const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n    module_path: boot():/boot/hk-server-echo\n    module_path: boot():/boot/hk-server-device\n    module_path: boot():/boot/hk-server-spin\n    module_path: boot():/boot/hk-server-fault\n    module_path: boot():/boot/hk-server-fork\n";
+const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n    module_path: boot():/boot/hk-server-echo\n    module_path: boot():/boot/hk-server-device\n    module_path: boot():/boot/hk-server-spin\n    module_path: boot():/boot/hk-server-fault\n    module_path: boot():/boot/hk-server-fork\n    module_path: boot():/boot/hk-server-latency\n";
 
 /// 随镜像打包的 HolyShell 脚本。
 const SCRIPT_MODULES: &[&str] = &["boot.hsh", "services.hsh"];
@@ -59,6 +59,8 @@ fn build_kernel(release: bool) -> Result<()> {
         "hk-server-fault",
         "-p",
         "hk-server-fork",
+        "-p",
+        "hk-server-latency",
     ]);
     if release {
         command.arg("--release");
@@ -119,6 +121,10 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
     copy(
         &binary_path("hk-server-fork", release),
         &boot.join("hk-server-fork"),
+    )?;
+    copy(
+        &binary_path("hk-server-latency", release),
+        &boot.join("hk-server-latency"),
     )?;
     for script in SCRIPT_MODULES {
         copy(&root.join("scripts").join(script), &scripts.join(script))?;

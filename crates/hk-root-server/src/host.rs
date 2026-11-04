@@ -104,6 +104,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or_else(Vec::new, |runtime| runtime.trace(limit))
     }
 
+    /// 返回运行时统计。
+    pub fn stats(&self) -> crate::RuntimeStats {
+        self.runtime
+            .lock()
+            .as_ref()
+            .map_or_else(crate::RuntimeStats::default, UserRuntime::stats)
+    }
+
     /// 依次调度任务直到没有可运行线程；恢复现场时释放锁。
     pub fn run(&self, table: &mut ServiceTable) {
         loop {

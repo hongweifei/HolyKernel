@@ -98,6 +98,18 @@ pub fn fork() -> u64 {
     unsafe { syscall_call(SYS_FORK, 0, 0, 0, 0).value }
 }
 
+/// 读取单调时间戳（TSC）。
+pub fn tsc() -> u64 {
+    // SAFETY: 只读计数器，不携带参数。
+    unsafe { syscall_call(SYS_TSC, 0, 0, 0, 0).value }
+}
+
+/// 读取时间戳频率；未知时返回 0。
+pub fn tsc_frequency() -> u64 {
+    // SAFETY: 只读校准结果，不携带参数。
+    unsafe { syscall_call(SYS_TSC_FREQ, 0, 0, 0, 0).value }
+}
+
 /// 读取 PCI 配置空间中的一个 32 位字。
 pub fn pci_read(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     let address = (u64::from(bus) << 8) | (u64::from(device) << 3) | u64::from(function);

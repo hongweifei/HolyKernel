@@ -99,6 +99,14 @@ impl UserPlatform for X86Platform {
     fn fork(&self, parent: usize, child: usize) -> bool {
         fork_vspace(parent, child)
     }
+
+    fn timestamp(&self) -> u64 {
+        hk_platform_x86_64::timing::rdtsc()
+    }
+
+    fn tsc_frequency(&self) -> u64 {
+        hk_platform_x86_64::timing::tsc_frequency()
+    }
 }
 
 type Runtime = RuntimeHost<InterruptFrame, X86Platform>;
@@ -155,6 +163,11 @@ pub fn tasks() -> Vec<TaskInfo> {
 /// 返回最近的内核 trace 事件。
 pub fn trace(limit: usize) -> Vec<hk_root_server::TraceEvent> {
     RUNTIME.trace(limit)
+}
+
+/// 返回运行时统计。
+pub fn stats() -> hk_root_server::RuntimeStats {
+    RUNTIME.stats()
 }
 
 /// 依次调度任务直到没有可运行线程。

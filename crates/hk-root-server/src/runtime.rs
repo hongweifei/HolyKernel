@@ -13,11 +13,14 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
     SYS_ALLOC, SYS_CALL, SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_NOTIFY,
-    SYS_PCI_READ, SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_WAIT_NOTIFY,
-    SYS_YIELD,
+    SYS_PCI_READ, SYS_RECV, SYS_REPLY, SYS_SEND, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
+    SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
+
+/// 随消息接收的句柄编号起点。
+const EXTRA_HANDLE_BASE: usize = 0x1000;
 
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
@@ -42,6 +45,8 @@ pub enum Pending {
     Call {
         /// 调用目标端点编号，用于回报发送者。
         endpoint: u64,
+        /// 调用开始时间戳。
+        started: u64,
     },
 }
 
@@ -90,6 +95,14 @@ pub trait UserPlatform {
     /// 把父任务的用户地址空间复制为子任务的写时复制副本。
     fn fork(&self, _parent: usize, _child: usize) -> bool {
         false
+    }
+    /// 返回单调时间戳；无计时能力时为 0。
+    fn timestamp(&self) -> u64 {
+        0
+    }
+    /// 返回时间戳频率；未知时为 0。
+    fn tsc_frequency(&self) -> u64 {
+        0
     }
 }
 
@@ -182,6 +195,8 @@ pub struct UserTask<C> {
     pub handles: Vec<Option<Handle>>,
     /// 通知编号到句柄的映射。
     pub notifications: Vec<Option<Handle>>,
+    /// 随消息接收的额外句柄。
+    pub extra: Vec<Option<Handle>>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -215,6 +230,7 @@ impl<C> UserTask<C> {
             parent,
             handles,
             notifications,
+            extra: Vec::new(),
             context,
             pending: Pending::None,
             reply: None,
@@ -225,6 +241,25 @@ impl<C> UserTask<C> {
     }
 }
 
+/// 运行时统计。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RuntimeStats {
+    /// 上下文切换次数。
+    pub switches: u64,
+    /// 上下文切换总周期数。
+    pub switch_cycles: u64,
+    /// 单次切换最大周期数。
+    pub switch_max_cycles: u64,
+    /// IPC call/reply 次数。
+    pub calls: u64,
+    /// IPC call/reply 总周期数。
+    pub call_cycles: u64,
+    /// 单次 call/reply 最大周期数。
+    pub call_max_cycles: u64,
+    /// TSC 频率；未知时为 0。
+    pub tsc_frequency: u64,
+}
+
 /// 用户态任务运行时。
 pub struct UserRuntime<C, P> {
     kernel: Kernel,
@@ -233,6 +268,13 @@ pub struct UserRuntime<C, P> {
     endpoints: Vec<Option<ObjectId>>,
     notifications: Vec<Option<ObjectId>>,
     current: Option<usize>,
+    last_finish: Option<u64>,
+    switch_count: u64,
+    switch_cycles: u64,
+    switch_max: u64,
+    call_count: u64,
+    call_cycles: u64,
+    call_max: u64,
     platform: P,
 }
 
@@ -253,6 +295,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             endpoints,
             notifications,
             current: None,
+            last_finish: None,
+            switch_count: 0,
+            switch_cycles: 0,
+            switch_max: 0,
+            call_count: 0,
+            call_cycles: 0,
+            call_max: 0,
             platform,
         }
     }
@@ -265,6 +314,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 返回最近的内核 trace 事件。
     pub fn trace(&self, limit: usize) -> Vec<hk_kernel::TraceEvent> {
         self.kernel.trace_events(limit)
+    }
+
+    /// 返回运行时统计。
+    pub fn stats(&self) -> RuntimeStats {
+        RuntimeStats {
+            switches: self.switch_count,
+            switch_cycles: self.switch_cycles,
+            switch_max_cycles: self.switch_max,
+            calls: self.call_count,
+            call_cycles: self.call_cycles,
+            call_max_cycles: self.call_max,
+            tsc_frequency: self.platform.tsc_frequency(),
+        }
     }
 
     /// 返回 Root 线程编号。
@@ -488,11 +550,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self) -> Step<C> {
         let Some(index) = self.next_task() else {
+            self.last_finish = None;
             return Step::Done;
         };
 
         if self.prepare(index) {
             return Step::Blocked;
+        }
+
+        if let Some(last) = self.last_finish.take() {
+            let now = self.platform.timestamp();
+            if now >= last {
+                let cycles = now - last;
+                self.switch_count = self.switch_count.saturating_add(1);
+                self.switch_cycles = self.switch_cycles.saturating_add(cycles);
+                self.switch_max = self.switch_max.max(cycles);
+            }
         }
 
         self.platform.activate(index);
@@ -505,6 +578,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
     pub fn finish(&mut self, index: usize) -> Option<(String, u64)> {
         self.current = None;
+        self.last_finish = Some(self.platform.timestamp());
         if !self.tasks[index].exited {
             return None;
         }
@@ -584,6 +658,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_TICKS => {
                 frame.set_result(self.platform.timer_ticks());
+                Switch::Continue
+            }
+            SYS_TSC => {
+                frame.set_result(self.platform.timestamp());
+                Switch::Continue
+            }
+            SYS_TSC_FREQ => {
+                frame.set_result(self.platform.tsc_frequency());
                 Switch::Continue
             }
             SYS_ALLOC => {
@@ -675,10 +757,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
                 }
             }
-            Pending::Call { endpoint } => {
+            Pending::Call { endpoint, started } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.take_reply(tcb) {
                     Some(message) => {
+                        let now = self.platform.timestamp();
+                        if now >= started {
+                            let cycles = now - started;
+                            self.call_count = self.call_count.saturating_add(1);
+                            self.call_cycles = self.call_cycles.saturating_add(cycles);
+                            self.call_max = self.call_max.max(cycles);
+                        }
                         let context = &mut self.tasks[index].context;
                         context.set_result(message.label);
                         context.set_word(message.words[0]);
@@ -708,25 +797,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     fn send(&mut self, index: usize, tcb: TcbId, frame: &mut C, transfer: bool) -> Switch {
         let endpoint = frame.arg0() as usize;
-        let Some(handle) = self.tasks[index]
-            .handles
-            .get(endpoint.wrapping_sub(1))
-            .copied()
-            .flatten()
-        else {
+        let Some(handle) = self.handle_at(index, endpoint) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
 
         let transferred = if transfer {
-            let slot = frame.arg3() as usize;
-            match self.tasks[index]
-                .handles
-                .get(slot.wrapping_sub(1))
-                .copied()
-                .flatten()
-            {
-                Some(transferred) => Some((slot.wrapping_sub(1), transferred)),
+            let number = frame.arg3() as usize;
+            match self.handle_at(index, number) {
+                Some(transferred) => Some((number, transferred)),
                 None => {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
@@ -752,8 +831,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     self.tasks[index].pending = Pending::Send;
                     Switch::Block
                 } else {
-                    if let Some((slot, _)) = transferred {
-                        self.tasks[index].handles[slot] = None;
+                    if let Some((number, _)) = transferred {
+                        self.clear_handle(index, number);
                     }
                     frame.set_result(0);
                     Switch::Continue
@@ -768,12 +847,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     fn recv(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let endpoint = frame.arg0() as usize;
-        let Some(handle) = self.tasks[index]
-            .handles
-            .get(endpoint.wrapping_sub(1))
-            .copied()
-            .flatten()
-        else {
+        let Some(handle) = self.handle_at(index, endpoint) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -857,12 +931,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     fn call(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let endpoint = frame.arg0() as usize;
-        let Some(handle) = self.tasks[index]
-            .handles
-            .get(endpoint.wrapping_sub(1))
-            .copied()
-            .flatten()
-        else {
+        let Some(handle) = self.handle_at(index, endpoint) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -877,6 +946,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.tasks[index].context = context;
                 self.tasks[index].pending = Pending::Call {
                     endpoint: endpoint as u64,
+                    started: self.platform.timestamp(),
                 };
                 Switch::Block
             }
@@ -900,24 +970,57 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    /// 把随消息收到的句柄加入任务句柄映射，返回新端点编号；没有句柄时为 0。
+    /// 把随消息收到的句柄加入任务额外句柄表，返回编号；没有句柄时为 0。
     fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
         let Some(handle) = message.handles[0] else {
             return 0;
         };
-        self.tasks[index].handles.push(Some(handle));
-        self.tasks[index].handles.len() as u64
+
+        let slot = self.tasks[index].extra.len();
+        self.tasks[index].extra.push(Some(handle));
+        (EXTRA_HANDLE_BASE + slot + 1) as u64
+    }
+
+    fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
+        if number >= EXTRA_HANDLE_BASE {
+            self.tasks[index]
+                .extra
+                .get(number - EXTRA_HANDLE_BASE - 1)
+                .copied()
+                .flatten()
+        } else {
+            self.tasks[index]
+                .handles
+                .get(number.wrapping_sub(1))
+                .copied()
+                .flatten()
+        }
+    }
+
+    fn clear_handle(&mut self, index: usize, number: usize) {
+        if number >= EXTRA_HANDLE_BASE {
+            if let Some(slot) = self.tasks[index]
+                .extra
+                .get_mut(number - EXTRA_HANDLE_BASE - 1)
+            {
+                *slot = None;
+            }
+        } else if let Some(slot) = number
+            .checked_sub(1)
+            .and_then(|slot| self.tasks[index].handles.get_mut(slot))
+        {
+            *slot = None;
+        }
     }
 
     fn close_handle(&mut self, index: usize, tcb: TcbId, endpoint: usize) -> u64 {
-        let slot = endpoint.wrapping_sub(1);
-        let Some(handle) = self.tasks[index].handles.get(slot).copied().flatten() else {
+        let Some(handle) = self.handle_at(index, endpoint) else {
             return u64::MAX;
         };
 
         match self.kernel.close_handle(tcb, handle) {
             Ok(()) => {
-                self.tasks[index].handles[slot] = None;
+                self.clear_handle(index, endpoint);
                 0
             }
             Err(_) => u64::MAX,
@@ -1117,7 +1220,7 @@ mod tests {
         assert_eq!(context.rax, 9);
         assert_eq!(context.rdx, 5);
         assert_eq!(context.rcx, 1);
-        assert_eq!(context.r8, 3);
+        assert_eq!(context.r8, (EXTRA_HANDLE_BASE + 1) as u64);
         assert_eq!(runtime.tasks()[receiver].handles, 5);
     }
 
