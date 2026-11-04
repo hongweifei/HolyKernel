@@ -262,6 +262,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks.len()
     }
 
+    /// 返回最近的内核 trace 事件。
+    pub fn trace(&self, limit: usize) -> Vec<hk_kernel::TraceEvent> {
+        self.kernel.trace_events(limit)
+    }
+
     /// 返回 Root 线程编号。
     pub fn root(&self) -> u64 {
         self.root

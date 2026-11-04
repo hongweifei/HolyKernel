@@ -11,7 +11,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_root_server::{ServiceTable, TaskInfo};
+use hk_root_server::{ServiceTable, TaskInfo, TraceEvent};
 
 /// 脚本嵌套上限。
 const MAX_SCRIPT_DEPTH: usize = 4;
@@ -31,6 +31,8 @@ pub enum Command<'a> {
     Services,
     /// 列出挂载点。
     Mounts,
+    /// 列出最近的内核 trace 事件。
+    Trace,
     /// 选择当前任务。
     Focus(&'a str),
     /// 装载并启动服务。
@@ -106,6 +108,9 @@ pub trait ShellHost {
     /// 返回服务表。
     fn services(&self) -> &ServiceTable;
 
+    /// 返回最近的内核 trace 事件。
+    fn trace(&self, limit: usize) -> Vec<TraceEvent>;
+
     /// 启动服务；`parent` 是当前会话选中的任务名。
     fn start(&mut self, name: &str, parent: Option<&str>) -> String;
 
@@ -131,6 +136,8 @@ pub struct Response {
     pub restart: Option<String>,
     /// 需要求值的脚本。
     pub script: Option<String>,
+    /// 是否需要输出 trace。
+    pub trace: bool,
 }
 
 impl Response {
@@ -142,6 +149,7 @@ impl Response {
             start: None,
             restart: None,
             script: None,
+            trace: false,
         }
     }
 
@@ -181,6 +189,7 @@ pub fn parse(line: &str) -> Command<'_> {
         "handles" => Command::Handles,
         "services" => Command::Services,
         "mounts" => Command::Mounts,
+        "trace" => Command::Trace,
         "focus" => Command::Focus(arguments),
         "start" => Command::Start(arguments),
         "restart" => Command::Restart(arguments),
@@ -198,12 +207,16 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、handles、services、mounts、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、mounts、trace、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
         Command::Services => Response::output(format_services(state.services)),
         Command::Mounts => Response::output(String::from("尚无挂载（VFS 在 M4 接入）\n")),
+        Command::Trace => Response {
+            trace: true,
+            ..Response::empty()
+        },
         Command::Focus(name) => focus_task(name, state, session),
         Command::Start("") => Response::output(String::from("用法：start <服务>\n")),
         Command::Start(name) => Response {
@@ -255,6 +268,11 @@ pub fn execute_line<H: ShellHost>(
     if let Some(name) = &response.restart {
         let output = host.restart(name, session.current());
         io.write(&output);
+    }
+
+    if response.trace {
+        let events = host.trace(32);
+        io.write(&format_trace(&events));
     }
 
     if let Some(name) = &response.script {
@@ -414,6 +432,26 @@ fn format_handles(tasks: &[TaskInfo]) -> String {
     output
 }
 
+fn format_trace(events: &[TraceEvent]) -> String {
+    if events.is_empty() {
+        return String::from("trace 为空\n");
+    }
+
+    let mut output = format!("trace（{} 项）\n", events.len());
+    output.push_str("序号  类别   线程  代码  参数\n");
+    for event in events {
+        output.push_str(&format!(
+            "{:<4} {:<6} {:<4} {:<4} {:#x}\n",
+            event.sequence,
+            event.category.name(),
+            event.thread,
+            event.code,
+            event.argument
+        ));
+    }
+    output
+}
+
 fn format_services(services: &ServiceTable) -> String {
     if services.is_empty() {
         return String::from("服务表为空\n");
@@ -492,6 +530,7 @@ mod tests {
         assert_eq!(parse("handles"), Command::Handles);
         assert_eq!(parse("services"), Command::Services);
         assert_eq!(parse("mounts"), Command::Mounts);
+        assert_eq!(parse("trace"), Command::Trace);
         assert_eq!(parse("focus"), Command::Focus(""));
         assert_eq!(
             parse("focus hk-server-echo"),
@@ -590,6 +629,13 @@ mod tests {
         let response = run("restart", &table, &[]);
         assert_eq!(response.restart, None);
         assert_eq!(response.output, "用法：restart <服务>\n");
+    }
+
+    #[test]
+    fn trace_requests_events() {
+        let table = ServiceTable::new();
+        let response = run("trace", &table, &[]);
+        assert!(response.trace);
     }
 
     #[test]
@@ -706,6 +752,10 @@ mod tests {
             format!("已重启：{name}\n")
         }
 
+        fn trace(&self, _limit: usize) -> Vec<TraceEvent> {
+            Vec::new()
+        }
+
         fn script(&self, name: &str) -> Result<String, String> {
             self.scripts
                 .iter()
@@ -713,6 +763,25 @@ mod tests {
                 .map(|(_, text)| String::from(*text))
                 .ok_or_else(|| format!("未找到脚本：{name}"))
         }
+    }
+
+    #[test]
+    fn script_prints_empty_trace() {
+        let io = MockIo {
+            output: core::cell::RefCell::new(String::new()),
+            cleared: core::cell::Cell::new(false),
+        };
+        let mut host = MockHost {
+            services: ServiceTable::new(),
+            started: Vec::new(),
+            restarted: Vec::new(),
+            scripts: Vec::new(),
+        };
+        let mut session = Session::new();
+
+        run_script(&io, &mut host, &mut session, &["trace"]);
+
+        assert!(io.output.borrow().contains("trace 为空"));
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod loader;
 mod registry;
 pub mod runtime;
 
+pub use hk_kernel::{TraceCategory, TraceEvent};
 pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
 pub use runtime::{Arena, Pending, Step, Switch, TaskInfo, UserPlatform, UserRuntime, UserTask};

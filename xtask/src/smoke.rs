@@ -60,7 +60,7 @@ impl SmokeMode {
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
             Self::Shell => Some(
-                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts;start hk-server-fault;start hk-server-fork;tasks",
+                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts;start hk-server-fault;start hk-server-fork;tasks;trace",
             ),
             Self::Input => Some("shell-interactive"),
             Self::Preempt => None,
@@ -114,6 +114,8 @@ impl SmokeMode {
                 "hk-server-fault",
                 "hk-server-fork: child 22",
                 "hk-server-fork: parent 33",
+                "trace（",
+                "handle",
                 "hk-server-demo",
                 "hk-server-echo",
                 "hk-server-device",

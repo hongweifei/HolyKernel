@@ -38,6 +38,9 @@ const TRACE_RECV: u32 = 8;
 const TRACE_CALL: u32 = 9;
 const TRACE_REPLY: u32 = 10;
 const TRACE_SIGNAL: u32 = 11;
+const TRACE_HANDLE_CLOSE: u32 = 12;
+const TRACE_HANDLE_TRANSFER: u32 = 13;
+const TRACE_HANDLE_RELEASE: u32 = 14;
 
 /// 接收方取到的消息。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,6 +197,7 @@ impl Kernel {
             .lock()
             .remove(&thread)
             .ok_or(KernelError::UnknownThread(thread))?;
+        let live = tcb.handles().live();
         drop(tcb);
         {
             let mut scheduler = self.scheduler.lock();
@@ -201,6 +205,12 @@ impl Kernel {
             scheduler.clear_current_if(thread);
         }
         self.record(thread.get(), Category::Sched, TRACE_EXIT, 0);
+        self.record(
+            thread.get(),
+            Category::Handle,
+            TRACE_HANDLE_RELEASE,
+            live as u64,
+        );
         Ok(())
     }
 
@@ -485,12 +495,22 @@ impl Kernel {
 
     /// 关闭线程句柄表中的一个句柄。
     pub fn close_handle(&self, thread: TcbId, handle: Handle) -> Result<(), KernelError> {
-        let mut threads = self.threads.lock();
-        let tcb = threads
-            .get_mut(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        tcb.handles_mut().close(handle)?;
+        let id = {
+            let mut threads = self.threads.lock();
+            let tcb = threads
+                .get_mut(&thread)
+                .ok_or(KernelError::UnknownThread(thread))?;
+            let id = tcb.handles().resolve(handle, Rights::empty())?.id();
+            tcb.handles_mut().close(handle)?;
+            id
+        };
+        self.record(thread.get(), Category::Handle, TRACE_HANDLE_CLOSE, id.get());
         Ok(())
+    }
+
+    /// 返回最近的 trace 事件。
+    pub fn trace_events(&self, limit: usize) -> Vec<hk_trace::Event> {
+        self.trace.lock().latest(limit).copied().collect()
     }
 
     /// 返回句柄指向的对象标识。
@@ -706,6 +726,14 @@ impl Kernel {
         message.handles = [None; hk_ipc::MAX_MESSAGE_HANDLES];
         for (index, handle) in granted.into_iter().enumerate() {
             message.handles[index] = Some(handle);
+        }
+        if !moved.is_empty() {
+            self.record(
+                sender.get(),
+                Category::Handle,
+                TRACE_HANDLE_TRANSFER,
+                moved.len() as u64,
+            );
         }
         Ok(message)
     }

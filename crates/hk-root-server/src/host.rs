@@ -96,6 +96,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or_else(Vec::new, UserRuntime::tasks)
     }
 
+    /// 返回最近的内核 trace 事件。
+    pub fn trace(&self, limit: usize) -> Vec<hk_kernel::TraceEvent> {
+        self.runtime
+            .lock()
+            .as_ref()
+            .map_or_else(Vec::new, |runtime| runtime.trace(limit))
+    }
+
     /// 依次调度任务直到没有可运行线程；恢复现场时释放锁。
     pub fn run(&self, table: &mut ServiceTable) {
         loop {

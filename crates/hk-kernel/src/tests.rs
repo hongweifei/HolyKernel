@@ -4,7 +4,7 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 
-use crate::{Kernel, Priority, TcbId, ThreadState};
+use crate::{Kernel, Priority, TcbId, ThreadState, TraceCategory};
 
 fn kernel() -> Kernel {
     Kernel::new()
@@ -32,6 +32,32 @@ fn creates_objects_and_grants_handles() {
         kernel.handle_id(worker, endpoint).expect("端点句柄"),
         kernel.handle_id(worker, notification).expect("通知句柄")
     );
+}
+
+#[test]
+fn traces_handle_grants_and_closes() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let before = kernel.trace_len();
+
+    let endpoint = kernel
+        .create_endpoint(worker, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    assert_eq!(kernel.trace_len(), before + 1);
+
+    kernel.close_handle(worker, endpoint).expect("关闭句柄");
+    assert_eq!(kernel.trace_len(), before + 2);
+
+    kernel.exit(worker).expect("退出线程");
+    assert_eq!(kernel.trace_len(), before + 4);
+
+    let events = kernel.trace_events(4);
+    assert_eq!(events[0].category, TraceCategory::Handle);
+    assert_eq!(events[0].code, 1);
+    assert_eq!(events[1].category, TraceCategory::Handle);
+    assert_eq!(events[1].code, 12);
+    assert_eq!(events[3].category, TraceCategory::Handle);
+    assert_eq!(events[3].code, 14);
 }
 
 #[test]

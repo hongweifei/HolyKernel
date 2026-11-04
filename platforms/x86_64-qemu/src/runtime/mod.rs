@@ -152,6 +152,11 @@ pub fn tasks() -> Vec<TaskInfo> {
     RUNTIME.tasks()
 }
 
+/// 返回最近的内核 trace 事件。
+pub fn trace(limit: usize) -> Vec<hk_root_server::TraceEvent> {
+    RUNTIME.trace(limit)
+}
+
 /// 依次调度任务直到没有可运行线程。
 pub fn run(table: &mut ServiceTable) {
     cpu::start_tick();
