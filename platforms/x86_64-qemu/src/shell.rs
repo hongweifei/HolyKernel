@@ -87,6 +87,24 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
     }
 }
 
+impl Host<'_, '_> {
+    /// 启动用户态 `netstat` 客户端并驱动调度，按需查询网络状态。
+    ///
+    /// 内核态 shell 只负责编排，不接触网络协议或实现。
+    fn net_status(&mut self) -> String {
+        let message = runtime::start_service(self.loader, self.services, "hk-server-netstat", None);
+        if message.contains("失败") || message.contains("未知") {
+            return message;
+        }
+        for _ in 0..64 {
+            if runtime::run_budgeted(self.services, 4096) {
+                break;
+            }
+        }
+        message
+    }
+}
+
 impl ShellHost for Host<'_, '_> {
     fn tasks(&self) -> Vec<hk_shell::TaskInfo> {
         runtime::tasks()
@@ -146,6 +164,17 @@ impl ShellHost for Host<'_, '_> {
             resumes: stats.resumes.to_vec(),
             tsc_frequency: stats.tsc_frequency,
         }
+    }
+
+    fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
+        match name {
+            "net" => Some(self.net_status()),
+            _ => None,
+        }
+    }
+
+    fn help_extra(&self) -> String {
+        String::from("扩展：net\n")
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {

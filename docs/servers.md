@@ -147,6 +147,7 @@ pub struct ServiceManifest {
 - 管理网络设备与协议栈；支持 IPv4/IPv6、TCP/UDP、DHCP、DNS、loopback、AF_UNIX。
 - 向 POSIX Server 提供 socket 后端：`socket`、`bind`、`connect`、`send`、`recv`、`poll`。
 - 网络驱动通过 Net Endpoint 提供收发队列；数据使用共享 Frame。
+- 状态查询：`hk-server-netstat` 是独立用户态客户端，向 Network Server 发送 `NET_STATUS_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数与收发计数；`net` 命令在两种 shell 下语义一致。
 - TLS/Wi-Fi/USB 网卡属于后续版本；详见 [网络](network.md)。
 
 ---
@@ -172,6 +173,7 @@ pub struct ServiceManifest {
 - **Checkpoint Server**：Native Task/Server 快照与恢复。
 - **Debug Server**：符号化栈回溯、Task/资源视图、`hk-dbg`。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
+- **Shell 分层**：`hk-shell` 只提供命令解析、格式化与 `ShellHost`/`ShellIo` 契约，保持零依赖。内核态 shell 只实现内核可见命令，并通过通用扩展点把 `net` 等富命令转交用户态服务（例如启动 `netstat`）；用户态 shell 作为普通服务客户端，用 `hk-server-api` 直接查询。用户态能力不得进入 `hk-shell` 核心命令集。
 - **POSIX Bridge**：`posix` 入口；连接 POSIX Server 与兼容工具。
 - POSIX 应用通过终端/控制台接口使用文本界面；原生应用通过 Display Endpoint 使用窗口。
 - 显示服务崩溃后由 Root Server 重启；窗口与输入状态重新建立。

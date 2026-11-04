@@ -98,7 +98,7 @@ impl SmokeMode {
             Self::Restart => Some("restart-test"),
             Self::Ext4Root => Some("vfs.root=ext4"),
             Self::HolyFs => Some("vfs.fs=holyfs"),
-            Self::Net => Some("net-test net.dns=localhost"),
+            Self::Net => Some("net-test net.dns=localhost shell-test net"),
         }
     }
 
@@ -206,6 +206,8 @@ impl SmokeMode {
                 "hk-server-net: ping ok",
                 "hk-server-net: tcp ok",
                 "hk-server-net: dns ok 127.0.0.1",
+                "hk-server-netstat: mac=",
+                "hk-server-netstat: rx_frames=",
             ],
         }
     }

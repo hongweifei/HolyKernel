@@ -47,6 +47,16 @@ pub trait ShellHost {
     /// 返回运行时统计。
     fn stats(&self) -> RuntimeStats;
 
+    /// 执行扩展命令；返回 `None` 表示当前宿主不支持该命令。
+    fn extension(&mut self, _name: &str, _args: &str) -> Option<String> {
+        None
+    }
+
+    /// 返回扩展命令的帮助文本。
+    fn help_extra(&self) -> String {
+        String::new()
+    }
+
     /// 启动服务；`parent` 是当前会话选中的任务名。
     fn start(&mut self, name: &str, parent: Option<&str>) -> String;
 

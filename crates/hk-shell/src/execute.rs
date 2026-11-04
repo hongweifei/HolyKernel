@@ -63,17 +63,31 @@ pub fn execute_line<H: ShellHost>(
     session: &mut Session,
     line: &str,
 ) -> bool {
+    let command = parse(line);
+    // 未知命令交给宿主扩展；核心命令集不随各 shell 的能力增长。
+    if let Command::Unknown(name) = command {
+        let arguments = line[name.len()..].trim();
+        match host.extension(name, arguments) {
+            Some(output) => io.write(&output),
+            None => io.write(&format!("未知命令：{name}\n")),
+        }
+        return false;
+    }
+
     let response = {
         let tasks = host.tasks();
         let services = host.services();
         let state = ShellState::new(&services, &tasks);
-        execute(parse(line), &state, session)
+        execute(command, &state, session)
     };
 
     if response.clear {
         io.clear();
     }
     io.write(&response.output);
+    if matches!(command, Command::Help) {
+        io.write(&host.help_extra());
+    }
 
     if let Some(name) = &response.start {
         let output = host.start(name, session.current());
