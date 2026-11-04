@@ -207,6 +207,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     pub(crate) fn release_grants(&mut self, index: usize) {
         let tcb = self.tasks[index].tcb;
+        self.release_all_dma_mappings(index);
         self.tasks[index].dma_used.clear();
         for handle in core::mem::take(&mut self.tasks[index].grants)
             .into_iter()
@@ -233,6 +234,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self
                 .kernel
                 .signal_id(ObjectId::new(notification.get()), bits);
+        }
+    }
+
+    pub(crate) fn release_dma_mappings(&mut self, index: usize, grant: Handle) {
+        let mappings = core::mem::take(&mut self.tasks[index].dma_mappings);
+        let mut kept = Vec::new();
+        for (handle, domain, iova, len) in mappings {
+            if handle == grant {
+                if let Some(iommu) = self.platform.iommu() {
+                    let _ = iommu.unmap(domain, iova, len);
+                }
+            } else {
+                kept.push((handle, domain, iova, len));
+            }
+        }
+        self.tasks[index].dma_mappings = kept;
+    }
+
+    fn release_all_dma_mappings(&mut self, index: usize) {
+        let mappings = core::mem::take(&mut self.tasks[index].dma_mappings);
+        if let Some(iommu) = self.platform.iommu() {
+            for (_, domain, iova, len) in mappings {
+                let _ = iommu.unmap(domain, iova, len);
+            }
         }
     }
 

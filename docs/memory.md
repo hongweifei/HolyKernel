@@ -185,8 +185,9 @@ pub struct DeviceGrant {
 - Device Manager 将 DeviceGrant 授予驱动。
 - 驱动映射 MMIO 为 `DEVICE`；通过 `volatile` 访问。
 - 驱动分配 Frame 作为 DMA 缓冲；缓存维护由平台实现。
-- IOMMU 可用时，DeviceGrant 绑定地址空间；DMA 只访问授权 Frame。
+- IOMMU 可用时，DeviceGrant 绑定地址空间；当前 x86 使用软件 IOMMU 域表做 IOVA 映射与重叠检查，VT-d 后端待接入。
 - IOMMU 关闭时，驱动按受信任组件审计。
+- DMA 缓冲通过 `SYS_DMA_SYNC` 做写回/失效；x86 使用 `clflush` + `mfence`。
 
 ---
 

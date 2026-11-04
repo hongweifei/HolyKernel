@@ -10,6 +10,7 @@ pub static DMA: DmaPool = DmaPool::new();
 
 /// 注册启动期预留的连续 DMA 区域。
 pub fn init(range: PhysRange) {
+    DMA.set_cache(&crate::cache::CACHE);
     DMA.init(range);
 }
 

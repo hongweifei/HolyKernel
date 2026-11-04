@@ -99,18 +99,80 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     )
                 {
                     frame.set_result(0);
-                } else {
-                    if let Some((_, used)) = self.tasks[index]
-                        .dma_used
-                        .iter_mut()
-                        .find(|(bound, _)| *bound == handle)
-                    {
-                        *used += aligned;
-                    } else {
-                        self.tasks[index].dma_used.push((handle, aligned));
-                    }
-                    frame.set_result(range.start().get() + used);
+                    return Switch::Continue;
                 }
+                let phys = range.start().get() + used;
+                let iova = hk_hal::Iova::new(phys);
+                let domain = hk_hal::IommuDomain::new(
+                    (u32::from(grant.address.bus) << 8)
+                        | (u32::from(grant.address.device) << 3)
+                        | u32::from(grant.address.function),
+                );
+                if let Some(iommu) = self.platform.iommu()
+                    && iommu
+                        .map(
+                            domain,
+                            iova,
+                            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(phys), aligned),
+                            hk_hal::IommuFlags::READ | hk_hal::IommuFlags::WRITE,
+                        )
+                        .is_err()
+                {
+                    frame.set_result(0);
+                    return Switch::Continue;
+                }
+                if let Some((_, used)) = self.tasks[index]
+                    .dma_used
+                    .iter_mut()
+                    .find(|(bound, _)| *bound == handle)
+                {
+                    *used += aligned;
+                } else {
+                    self.tasks[index].dma_used.push((handle, aligned));
+                }
+                if self.platform.iommu().is_some() {
+                    self.tasks[index]
+                        .dma_mappings
+                        .push((handle, domain, iova, aligned as usize));
+                }
+                frame.set_result(phys);
+                Switch::Continue
+            }
+            SYS_DMA_SYNC => {
+                let grant_number = frame.arg0() as usize;
+                let phys = frame.arg1();
+                let length = frame.arg2() as usize;
+                let to_device = frame.arg3() != 0;
+                let Some(handle) = self.grant_at(index, grant_number) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                let Ok(grant) = self.kernel.device_grant(tcb, handle) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                let Some(range) = grant.dma else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                let Some(end) = phys.checked_add(length as u64) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                if length == 0 || phys < range.start().get() || end > range.end().get() {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+                if let Some(cache) = self.platform.cache_ops() {
+                    let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(phys), length as u64);
+                    if to_device {
+                        cache.clean(range);
+                    } else {
+                        cache.invalidate(range);
+                    }
+                    cache.barrier();
+                }
+                frame.set_result(0);
                 Switch::Continue
             }
             SYS_PCI_WRITE => {
@@ -576,6 +638,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return u64::MAX;
         };
         self.release_bindings(index, handle);
+        self.release_dma_mappings(index, handle);
         self.tasks[index]
             .dma_used
             .retain(|(bound, _)| *bound != handle);

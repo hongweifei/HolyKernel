@@ -10,11 +10,13 @@ extern crate alloc;
 pub mod dma;
 pub mod frame_pool;
 pub mod frames;
+pub mod iommu;
 pub mod vspace_registry;
 
 pub use dma::DmaPool;
 pub use frame_pool::FramePool;
 pub use frames::LinearFrames;
+pub use iommu::SoftwareIommu;
 pub use vspace_registry::{UserVspace, VspaceRegistry};
 
 use alloc::collections::BTreeMap;

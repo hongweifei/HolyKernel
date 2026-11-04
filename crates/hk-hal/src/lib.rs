@@ -11,12 +11,14 @@ extern crate std;
 pub mod addr;
 pub mod arch;
 pub mod boot;
+pub mod cache;
 pub mod console;
 pub mod device;
 pub mod dma;
 pub mod entropy;
 pub mod execution;
 pub mod io;
+pub mod iommu;
 pub mod irq;
 pub mod mmu;
 pub mod pci;
@@ -35,12 +37,14 @@ pub use boot::{
     BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
+pub use cache::{CacheOps, NoCacheOps};
 pub use console::Console;
 pub use device::{DEVICE_GRANT_BYTES, DeviceGrant, IoRange, MmioRange};
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
 pub use execution::{SyscallFrame, UserContext};
 pub use io::Io;
+pub use iommu::{IdentityIommu, Iommu, IommuDomain, IommuError, IommuFlags, Iova, NoIommu};
 pub use irq::{InterruptController, Ipi, Irq, IrqBitmap, IrqError, NotificationId};
 pub use mmu::{MapFlags, Mmu, MmuError, VSpaceId};
 pub use pci::{PciAddress, PciConfig};

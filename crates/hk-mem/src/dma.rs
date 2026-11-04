@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use hk_hal::{DmaBuffer, DmaError, DmaOps, PAGE_SIZE, PhysAddr, PhysRange};
+use hk_hal::{CacheOps, DmaBuffer, DmaError, DmaOps, PAGE_SIZE, PhysAddr, PhysRange};
 use spin::Mutex;
 
 struct Pool {
@@ -14,6 +14,7 @@ struct Pool {
 pub struct DmaPool {
     pool: Mutex<Option<Pool>>,
     free: Mutex<Vec<PhysRange>>,
+    cache: Mutex<Option<&'static dyn CacheOps>>,
 }
 
 impl DmaPool {
@@ -22,7 +23,13 @@ impl DmaPool {
         Self {
             pool: Mutex::new(None),
             free: Mutex::new(Vec::new()),
+            cache: Mutex::new(None),
         }
+    }
+
+    /// 设置 DMA 缓存维护后端。
+    pub fn set_cache(&self, cache: &'static dyn CacheOps) {
+        *self.cache.lock() = Some(cache);
     }
 
     /// 注册启动期预留的连续 DMA 区域。
@@ -88,9 +95,17 @@ impl DmaOps for DmaPool {
         self.free(PhysRange::new(buffer.phys(), buffer.len() as u64));
     }
 
-    fn sync_for_device(&self, _buffer: &DmaBuffer) {}
+    fn sync_for_device(&self, buffer: &DmaBuffer) {
+        if let Some(cache) = *self.cache.lock() {
+            cache.clean(PhysRange::new(buffer.phys(), buffer.len() as u64));
+        }
+    }
 
-    fn sync_for_cpu(&self, _buffer: &DmaBuffer) {}
+    fn sync_for_cpu(&self, buffer: &DmaBuffer) {
+        if let Some(cache) = *self.cache.lock() {
+            cache.invalidate(PhysRange::new(buffer.phys(), buffer.len() as u64));
+        }
+    }
 }
 
 #[cfg(test)]

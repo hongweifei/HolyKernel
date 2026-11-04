@@ -19,8 +19,8 @@ static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::de
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_grant_create, device_map, dma_alloc, exit, irq_bind, pci_read, self_notification, write,
-    write_u64,
+    device_grant_create, device_map, dma_alloc, dma_sync, exit, irq_bind, pci_read,
+    self_notification, write, write_u64,
 };
 
 /// 通过系统调用访问 PCI 配置空间。
@@ -152,6 +152,11 @@ fn write_device(device: &Device) {
         let dma = dma_alloc(handle, 4096, dma_virt);
         write(b"  grant-dma=");
         write_hex64(dma);
+        if dma != 0 {
+            let sync = dma_sync(handle, dma, 4096, true);
+            write(b"  grant-dma-sync=");
+            write_hex64(sync);
+        }
         let bind = irq_bind(handle, self_notification(), 1);
         write(b"  grant-irq-bind=");
         write_hex64(bind);

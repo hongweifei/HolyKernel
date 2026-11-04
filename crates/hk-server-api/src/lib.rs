@@ -201,6 +201,12 @@ pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     unsafe { syscall_call(SYS_IRQ_BIND, grant, notification, bits, 0).value }
 }
 
+/// 同步 DeviceGrant 的 DMA 缓冲缓存；`to_device` 为真时写回，否则使失效。
+pub fn dma_sync(grant: u64, phys: u64, len: usize, to_device: bool) -> u64 {
+    // SAFETY: 内核校验物理范围属于该授权。
+    unsafe { syscall_call(SYS_DMA_SYNC, grant, phys, len as u64, u64::from(to_device)).value }
+}
+
 /// 返回当前任务自己的通知编号。
 pub fn self_notification() -> u64 {
     // SAFETY: 只读取运行时任务槽位，不涉及指针。

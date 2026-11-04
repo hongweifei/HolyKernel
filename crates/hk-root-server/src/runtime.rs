@@ -12,8 +12,8 @@ use hk_hal::{DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::{
-    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_EXIT,
-    SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
+    SYS_ALLOC, SYS_CALL, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_SYNC,
+    SYS_EXIT, SYS_FORK, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ,
     SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
     SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
@@ -120,6 +120,14 @@ pub trait UserPlatform {
     fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
         None
     }
+    /// 返回平台 IOMMU。
+    fn iommu(&self) -> Option<&dyn hk_hal::Iommu> {
+        None
+    }
+    /// 返回平台缓存维护接口。
+    fn cache_ops(&self) -> Option<&dyn hk_hal::CacheOps> {
+        None
+    }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);
     /// 从当前任务用户内存读取字节；地址无效时返回 `false`。
@@ -209,6 +217,8 @@ pub struct UserTask<C> {
     pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
     /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
     pub dma_used: Vec<(Handle, u64)>,
+    /// DeviceGrant 的 IOMMU 映射。
+    pub dma_mappings: Vec<(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)>,
     /// 用户现场。
     pub context: C,
     /// 挂起的系统调用。
@@ -248,6 +258,7 @@ impl<C> UserTask<C> {
             grants: Vec::new(),
             bound_irqs: Vec::new(),
             dma_used: Vec::new(),
+            dma_mappings: Vec::new(),
             context,
             pending: Pending::None,
             reply: None,

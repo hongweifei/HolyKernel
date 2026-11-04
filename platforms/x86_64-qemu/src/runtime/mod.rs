@@ -62,6 +62,14 @@ impl UserPlatform for X86Platform {
         Some(&hk_platform_x86_64::bootstrap::CONTROLLER)
     }
 
+    fn iommu(&self) -> Option<&dyn hk_hal::Iommu> {
+        Some(&hk_platform_x86_64::iommu::IOMMU)
+    }
+
+    fn cache_ops(&self) -> Option<&dyn hk_hal::CacheOps> {
+        Some(&hk_platform_x86_64::cache::CACHE)
+    }
+
     fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {
         hk_platform_x86_64::dma::allocate(len)
     }

@@ -302,7 +302,7 @@ sequenceDiagram
 - **隔离**：每进程独立 VSpace；内核与用户态分离。
 - **最小权限**：服务器只获得完成职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
-- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；IOMMU 关闭时依赖驱动审计。
+- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；当前 x86 使用软件 IOMMU 域表，硬件 VT-d 后端待接入；关闭时依赖驱动审计。
 - **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4 或 HolyFS）；POSIX Server 在启用兼容环境时加入。
 - **验证**：Rust 内存安全、`unsafe` 审计、fuzz、确定性模拟、POSIX 测试套件。
 - **服务器监督**：Root Server 记录崩溃、重启次数与句柄重新分配。

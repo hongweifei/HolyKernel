@@ -79,6 +79,9 @@ pub const SYS_DMA_ALLOC: u64 = 23;
 /// 把设备中断绑定到通知。
 pub const SYS_IRQ_BIND: u64 = 24;
 
+/// 同步 DMA 缓冲缓存。
+pub const SYS_DMA_SYNC: u64 = 26;
+
 /// 返回当前任务自己的通知编号。
 pub const SYS_SELF_NOTIFICATION: u64 = 25;
 
