@@ -1,6 +1,12 @@
 //! 任务 Arena：线性分配，不回收。
 
-use super::*;
+/// 任务 Arena：线性分配，不回收。
+#[derive(Clone, Copy)]
+pub struct Arena {
+    base: u64,
+    next: u64,
+    end: u64,
+}
 
 impl Arena {
     /// 以基址与大小构造 Arena。

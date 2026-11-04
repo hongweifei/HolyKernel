@@ -1,0 +1,76 @@
+//! 用户任务条目：现场、句柄映射与 Arena。
+
+use super::*;
+
+/// 用户任务。
+pub struct UserTask<C> {
+    /// 线程控制块。
+    pub tcb: TcbId,
+    /// 任务名称。
+    pub name: String,
+    /// 父任务 TCB 编号。
+    pub parent: Option<u64>,
+    /// 端点编号到句柄的映射。
+    pub handles: Vec<Option<Handle>>,
+    /// 通知编号到句柄的映射。
+    pub notifications: Vec<Option<Handle>>,
+    /// 随消息接收的额外句柄。
+    pub extra: Vec<Option<Handle>>,
+    /// 本任务持有的 DeviceGrant 句柄。
+    pub grants: Vec<Option<Handle>>,
+    /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
+    pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
+    /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
+    pub dma_used: Vec<(Handle, u64)>,
+    /// DeviceGrant 的 IOMMU 映射。
+    pub dma_mappings: Vec<(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)>,
+    /// 用户现场。
+    pub context: C,
+    /// 挂起的系统调用。
+    pub pending: Pending,
+    /// 最近一次收到的调用令牌。
+    pub reply: Option<ReplyToken>,
+    /// 任务 Arena。
+    pub arena: Arena,
+    /// 设备授权工厂句柄；存在时才允许创建 DeviceGrant。
+    pub device_factory: Option<Handle>,
+    /// 是否已退出。
+    pub exited: bool,
+    /// 退出码。
+    pub exit_code: u64,
+}
+
+impl<C> UserTask<C> {
+    /// 构造任务条目。
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        tcb: TcbId,
+        name: &str,
+        parent: Option<u64>,
+        handles: Vec<Option<Handle>>,
+        notifications: Vec<Option<Handle>>,
+        context: C,
+        arena_base: u64,
+        arena_size: u64,
+    ) -> Self {
+        Self {
+            tcb,
+            name: name.to_string(),
+            parent,
+            handles,
+            notifications,
+            extra: Vec::new(),
+            grants: Vec::new(),
+            bound_irqs: Vec::new(),
+            dma_used: Vec::new(),
+            dma_mappings: Vec::new(),
+            context,
+            pending: Pending::None,
+            reply: None,
+            arena: Arena::new(arena_base, arena_size),
+            device_factory: None,
+            exited: false,
+            exit_code: 0,
+        }
+    }
+}
