@@ -25,8 +25,8 @@ use hk_server_api::net::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, notify, recv_data_from, send, send_data, service_endpoint, tsc, tsc_frequency, write,
-    write_u64, yield_now,
+    exit, notify, recv_data_from, recv_data_try, send, send_data, service_endpoint, tsc,
+    tsc_frequency, write, write_u64, yield_now,
 };
 
 #[cfg(target_os = "none")]
@@ -35,6 +35,8 @@ const HEAP_SIZE: usize = 768 * 1024;
 const TCP_PORT: u16 = 45678;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
+#[cfg(target_os = "none")]
+const POLL_WAIT_MS: u64 = 100;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -51,8 +53,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut info = [0_u8; NET_INFO_BYTES];
-    let _ = notify(driver, NET_NOTIFY_TX);
     let _ = send(driver, NET_INFO_REQUEST, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
     let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut info);
     if label != NET_INFO_RESPONSE || length < NET_INFO_BYTES {
         write("hk-server-net: 接口信息失败\n".as_bytes());
@@ -192,10 +194,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if label == NET_RX {
             let _ = stack.push_frame(&frame[..length.min(frame.len())]);
             stack.poll(now_ms());
-            let _ = notify(driver, NET_NOTIFY_TX);
             while let Some(packet) = stack.take_frame() {
                 let _ = send_data(driver, NET_TX, &packet);
             }
+            let _ = notify(driver, NET_NOTIFY_TX);
         }
     }
 }
@@ -292,25 +294,32 @@ fn write_hex(mut value: u16) {
 
 #[cfg(target_os = "none")]
 fn poll_once(driver: u64, endpoint: u64, stack: &mut Stack, frame: &mut [u8; NET_FRAME_MAX]) {
-    // 先唤醒驱动再投递请求：驱动可能正阻塞在通知等待上，若先发送，请求会在
-    // 驱动进入接收循环前阻塞发送方，形成互相等待。
-    let _ = notify(driver, NET_NOTIFY_TX);
+    // 先入队再通知：发送为异步，消息已在端点队列中，唤醒不会丢失。
     let _ = send(driver, NET_POLL, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
+    // 有界等待完成消息：即使偶发丢失 NET_POLL_DONE，也不会永久阻塞在接收上。
+    let deadline = now_ms().saturating_add(POLL_WAIT_MS);
     loop {
-        let (label, _word, _sender, length) = recv_data_from(endpoint, driver, frame);
+        let (label, _word, _sender, length) = recv_data_try(endpoint, frame);
         match label {
             NET_RX => {
                 let _ = stack.push_frame(&frame[..length.min(frame.len())]);
             }
             NET_POLL_DONE => break,
+            0 => {
+                if now_ms() >= deadline {
+                    break;
+                }
+                let _ = yield_now();
+            }
             _ => {}
         }
     }
     stack.poll(now_ms());
-    let _ = notify(driver, NET_NOTIFY_TX);
     while let Some(packet) = stack.take_frame() {
         let _ = send_data(driver, NET_TX, &packet);
     }
+    let _ = notify(driver, NET_NOTIFY_TX);
 }
 
 /// 以 TSC 换算单调毫秒时间；TSC 未知时退回累计 tick（约 10 ms）。

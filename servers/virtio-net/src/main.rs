@@ -192,9 +192,22 @@ fn write_hex(value: u8) {
 
 #[cfg(target_os = "none")]
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    write("hk-server-virtio-net: panic ".as_bytes());
+    let _ = core::fmt::Write::write_fmt(&mut Writer, format_args!("{info}\n"));
     loop {
         core::hint::spin_loop();
+    }
+}
+
+#[cfg(target_os = "none")]
+struct Writer;
+
+#[cfg(target_os = "none")]
+impl core::fmt::Write for Writer {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        write(text.as_bytes());
+        Ok(())
     }
 }
 
