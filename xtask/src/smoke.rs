@@ -139,8 +139,8 @@ impl SmokeMode {
             ],
             Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
             Self::Smp => &[
-                "本地 APIC：2 个",
-                "AP 在线：1 个（启动 1，IPI 1 次）",
+                "本地 APIC：4 个",
+                "AP 在线：3 个（启动 3，IPI 1 次）",
                 "CPU 调度：",
                 "CPU1=",
             ],
@@ -207,7 +207,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .arg(format!("file:{}", log.display()))
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
     if mode == SmokeMode::Smp {
-        command.args(["-smp", "2"]);
+        command.args(["-smp", "4"]);
     }
     if mode == SmokeMode::Input {
         command
@@ -243,7 +243,16 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     };
 
-    let text = fs::read_to_string(&log).unwrap_or_default();
+    let expected = mode.expected();
+    let read_deadline = Instant::now() + Duration::from_secs(1);
+    let text = loop {
+        let bytes = fs::read(&log).unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        if expected.iter().all(|item| text.contains(item)) || Instant::now() > read_deadline {
+            break text;
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
     let expected_code = mode.exit_code();
     match status {
         Some(status) if status.code() == Some(expected_code) => {}

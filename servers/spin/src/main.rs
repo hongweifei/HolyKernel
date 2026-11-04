@@ -15,7 +15,7 @@ use hk_server_api::{close_handle, exit, handle_count, ticks, write, write_u64};
 
 /// 忙等的调度 tick 数。
 #[cfg(target_os = "none")]
-const WAIT_TICKS: u64 = 3;
+const WAIT_TICKS: u64 = 10;
 
 /// 服务入口：忙等若干个 tick 后退出。
 #[cfg(target_os = "none")]
