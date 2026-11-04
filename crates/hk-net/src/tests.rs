@@ -1,11 +1,13 @@
 //! hk-net 主机侧测试。
 
-use core::net::Ipv4Addr;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 use smoltcp::phy::{Device, RxToken, TxToken};
 use smoltcp::time::Instant;
 
-use crate::{FrameQueue, Stack};
+use crate::{DnsQueryType, FrameQueue, IpAddress, NetError, Stack};
 
 const MAC_A: [u8; 6] = [0x02, 0, 0, 0, 0, 1];
 const MAC_B: [u8; 6] = [0x02, 0, 0, 0, 0, 2];
@@ -43,6 +45,144 @@ fn answers_arp_request() {
     assert_eq!(&reply[28..32], &[10, 0, 2, 15]);
     assert_eq!(&reply[32..38], &MAC_B);
     assert_eq!(&reply[38..42], &[10, 0, 2, 2]);
+}
+
+#[test]
+fn dns_a_query_between_two_stacks() {
+    let addresses = run_dns("holy.test", DnsQueryType::A, |query| {
+        dns_reply(query, 0x80, 1, &[10, 0, 2, 99])
+    })
+    .expect("查询结果")
+    .expect("已完成");
+    assert_eq!(
+        addresses.first(),
+        Some(&IpAddress::Ipv4(Ipv4Addr::new(10, 0, 2, 99)))
+    );
+}
+
+#[test]
+fn dns_aaaa_query_between_two_stacks() {
+    let address = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x99);
+    let addresses = run_dns("holy.test", DnsQueryType::Aaaa, |query| {
+        dns_reply(query, 0x80, 28, &address.octets())
+    })
+    .expect("查询结果")
+    .expect("已完成");
+    assert_eq!(addresses.first(), Some(&IpAddress::Ipv6(address)));
+}
+
+#[test]
+fn dns_failure_is_reported() {
+    let result = run_dns("missing.test", DnsQueryType::A, |query| {
+        dns_reply(query, 0x83, 1, &[])
+    });
+    assert_eq!(result, Err(NetError::Recv));
+}
+
+#[test]
+fn dns_query_times_out() {
+    let mut a = Stack::new(MAC_A, Ipv4Addr::new(10, 0, 2, 15), 24, None, 21).expect("A");
+    let mut b = Stack::new(MAC_B, Ipv4Addr::new(10, 0, 2, 16), 24, None, 22).expect("B");
+    let dns = a
+        .open_dns(&[Ipv4Addr::new(10, 0, 2, 16)])
+        .expect("DNS socket");
+    let query = a
+        .start_dns_query(dns, "holy.test", DnsQueryType::A)
+        .expect("查询");
+    let mut result = Ok(None);
+    for step in 0..80 {
+        let now = step * 200;
+        a.poll(now);
+        while let Some(frame) = a.take_frame() {
+            b.push_frame(&frame).expect("A→B");
+        }
+        b.poll(now);
+        while let Some(frame) = b.take_frame() {
+            a.push_frame(&frame).expect("B→A");
+        }
+        result = a.poll_dns(dns, query);
+        if !matches!(result, Ok(None)) {
+            break;
+        }
+    }
+    assert_eq!(result, Err(NetError::Recv));
+}
+
+#[test]
+fn dns_rejects_empty_server_list() {
+    let mut stack = Stack::new(MAC_A, Ipv4Addr::new(10, 0, 2, 15), 24, None, 21).expect("A");
+    assert_eq!(stack.open_dns(&[]), Err(NetError::Address));
+}
+
+/// 让 A 向 B 发起一次 DNS 查询，由 `respond` 构造应答，返回最终查询结果。
+fn run_dns(
+    name: &str,
+    query_type: DnsQueryType,
+    respond: impl Fn(&[u8]) -> Vec<u8>,
+) -> Result<Option<Vec<IpAddress>>, NetError> {
+    let mut a = Stack::new(MAC_A, Ipv4Addr::new(10, 0, 2, 15), 24, None, 21).expect("A");
+    let mut b = Stack::new(MAC_B, Ipv4Addr::new(10, 0, 2, 16), 24, None, 22).expect("B");
+    let server = b.open_udp(53).expect("DNS UDP");
+    let dns = a
+        .open_dns(&[Ipv4Addr::new(10, 0, 2, 16)])
+        .expect("DNS socket");
+    let query = a.start_dns_query(dns, name, query_type).expect("查询");
+    let mut request = [0_u8; 512];
+    let mut result = Ok(None);
+    for tick in 0..64 {
+        a.poll(tick);
+        while let Some(frame) = a.take_frame() {
+            b.push_frame(&frame).expect("A→B");
+        }
+        b.poll(tick);
+        if let Ok(Some((length, endpoint))) = b.recv_udp(server, &mut request)
+            && let IpAddress::Ipv4(remote) = endpoint.addr
+        {
+            let response = respond(&request[..length]);
+            b.send_udp(server, remote, endpoint.port, &response)
+                .expect("DNS 响应");
+        }
+        while let Some(frame) = b.take_frame() {
+            a.push_frame(&frame).expect("B→A");
+        }
+        a.poll(tick);
+        result = a.poll_dns(dns, query);
+        if !matches!(result, Ok(None)) {
+            break;
+        }
+    }
+    result
+}
+
+/// 构造 DNS 应答；`rcode` 为标志寄存器低字节，`rdata` 为空时不带应答记录。
+fn dns_reply(query: &[u8], rcode: u8, record_type: u16, rdata: &[u8]) -> Vec<u8> {
+    let mut offset = 12;
+    while query[offset] != 0 {
+        offset += 1 + usize::from(query[offset]);
+    }
+    offset += 5;
+    let question = &query[12..offset];
+    let answer_len = if rdata.is_empty() {
+        0
+    } else {
+        12 + rdata.len()
+    };
+    let mut response = vec![0_u8; 12 + question.len() + answer_len];
+    response[0..2].copy_from_slice(&query[0..2]);
+    response[2..4].copy_from_slice(&[0x81, rcode]);
+    response[4..6].copy_from_slice(&[0x00, 0x01]);
+    response[6..8].copy_from_slice(&(u16::from(!rdata.is_empty())).to_be_bytes());
+    response[12..12 + question.len()].copy_from_slice(question);
+    if !rdata.is_empty() {
+        let answer = 12 + question.len();
+        response[answer..answer + 2].copy_from_slice(&[0xC0, 0x0C]);
+        response[answer + 2..answer + 4].copy_from_slice(&record_type.to_be_bytes());
+        response[answer + 4..answer + 6].copy_from_slice(&[0x00, 0x01]);
+        response[answer + 6..answer + 10].copy_from_slice(&60_u32.to_be_bytes());
+        response[answer + 10..answer + 12].copy_from_slice(&(rdata.len() as u16).to_be_bytes());
+        response[answer + 12..].copy_from_slice(rdata);
+    }
+    response
 }
 
 #[test]

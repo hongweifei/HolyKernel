@@ -20,4 +20,5 @@ mod tests;
 
 pub use error::NetError;
 pub use phy::FrameQueue;
+pub use smoltcp::wire::{DnsQueryType, IpAddress};
 pub use stack::Stack;

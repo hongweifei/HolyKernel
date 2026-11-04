@@ -4,12 +4,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet, SocketStorage};
-use smoltcp::socket::{dhcpv4, icmp, tcp, udp};
+use smoltcp::socket::{dhcpv4, dns, icmp, tcp, udp};
 use smoltcp::storage::PacketMetadata;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    EthernetAddress, HardwareAddress, Icmpv4Message, Icmpv4Packet, IpAddress, IpCidr, IpEndpoint,
-    Ipv4Address,
+    DnsQueryType, EthernetAddress, HardwareAddress, Icmpv4Message, Icmpv4Packet, IpAddress, IpCidr,
+    IpEndpoint, Ipv4Address,
 };
 
 use crate::error::NetError;
@@ -171,6 +171,53 @@ impl Stack {
         let mut socket = udp::Socket::new(rx, tx);
         socket.bind(port).map_err(|_| NetError::Bind)?;
         Ok(self.sockets.add(socket))
+    }
+
+    /// 打开 DNS socket，配置服务器列表。
+    pub fn open_dns(&mut self, servers: &[Ipv4Address]) -> Result<SocketHandle, NetError> {
+        if servers.is_empty() {
+            return Err(NetError::Address);
+        }
+        let addresses: Vec<IpAddress> = servers.iter().copied().map(IpAddress::Ipv4).collect();
+        let socket = dns::Socket::new(&addresses, Vec::new());
+        Ok(self.sockets.add(socket))
+    }
+
+    /// 关闭 socket，释放查询槽与缓冲区。
+    pub fn close_socket(&mut self, handle: SocketHandle) {
+        self.sockets.remove(handle);
+    }
+
+    /// 启动一次 DNS 查询；`DnsQueryType::A` 查询 IPv4，`DnsQueryType::Aaaa` 查询 IPv6。
+    pub fn start_dns_query(
+        &mut self,
+        handle: SocketHandle,
+        name: &str,
+        query_type: DnsQueryType,
+    ) -> Result<dns::QueryHandle, NetError> {
+        self.sockets
+            .get_mut::<dns::Socket>(handle)
+            .start_query(self.interface.context(), name, query_type)
+            .map_err(|_| NetError::Send)
+    }
+
+    /// 读取 DNS 查询结果；未完成时返回 `None`，失败返回 [`NetError::Recv`]。
+    ///
+    /// 成功后查询槽会被 smoltcp 自动回收，返回的地址同时包含 A 与 AAAA 记录。
+    pub fn poll_dns(
+        &mut self,
+        handle: SocketHandle,
+        query: dns::QueryHandle,
+    ) -> Result<Option<Vec<IpAddress>>, NetError> {
+        match self
+            .sockets
+            .get_mut::<dns::Socket>(handle)
+            .get_query_result(query)
+        {
+            Ok(addresses) => Ok(Some(addresses.into_iter().collect())),
+            Err(dns::GetQueryResultError::Pending) => Ok(None),
+            Err(dns::GetQueryResultError::Failed) => Err(NetError::Recv),
+        }
     }
 
     /// 打开一个 TCP socket。
