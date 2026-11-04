@@ -146,7 +146,7 @@ flowchart LR
 - ext2、tmpfs、devfs、procfs 后端。
 - Block Driver 与 VFS 的 Endpoint 接口。
 
-已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`，写入并读回标记文件；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写。
+已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写。
 - VFS 重启与后端恢复。
 
 ### 退出标准
