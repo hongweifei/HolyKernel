@@ -8,6 +8,8 @@
 
 #[cfg(target_os = "none")]
 extern crate alloc;
+#[cfg(target_os = "none")]
+use alloc::boxed::Box;
 
 #[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
@@ -15,6 +17,9 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use core::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(target_os = "none")]
+mod virtio;
 
 #[cfg(target_os = "none")]
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
@@ -27,9 +32,16 @@ use hk_server_api::block::{
 use hk_server_api::{alloc, recv_data, send_data, write};
 
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
+#[used]
+#[unsafe(link_section = ".hk_service")]
+static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::device();
+
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 48 * 1024;
 #[cfg(target_os = "none")]
 const BLOCKS: u64 = 64;
+#[cfg(target_os = "none")]
+const ENABLE_VIRTIO: bool = false;
 
 #[cfg(target_os = "none")]
 struct BumpHeap;
@@ -78,8 +90,16 @@ static ALLOCATOR: BumpHeap = BumpHeap;
 /// 服务入口。
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut disk = MemoryDisk::new(BLOCKS, SECTOR_SIZE);
-    write("hk-server-block: ram disk ready\n".as_bytes());
+    write("hk-server-block: start\n".as_bytes());
+    let mut disk: Box<dyn BlockDevice> = if ENABLE_VIRTIO {
+        match virtio::VirtioBlock::new() {
+            Some(block) => Box::new(block),
+            None => Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE)),
+        }
+    } else {
+        write("hk-server-block: ram disk ready\n".as_bytes());
+        Box::new(MemoryDisk::new(BLOCKS, SECTOR_SIZE))
+    };
 
     let mut request = [0_u8; 4096];
     let mut body = [0_u8; 4096];
@@ -94,14 +114,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let (status, written) = handle(&mut disk, &request, &mut body);
+        let (status, written) = handle(disk.as_mut(), &request, &mut body);
         reply(sender, status, &body[..written], &mut response);
     }
 }
 
 #[cfg(target_os = "none")]
 fn handle(
-    disk: &mut MemoryDisk,
+    disk: &mut dyn BlockDevice,
     request: &hk_server_api::block::Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
