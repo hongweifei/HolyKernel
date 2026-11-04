@@ -103,6 +103,36 @@ impl Kernel {
         self.register(thread, Arc::new(KernelObject::new(payload)), rights)
     }
 
+    /// 在指定线程的句柄表中创建设备授权工厂。
+    pub fn create_device_grant_factory(
+        &self,
+        thread: TcbId,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        self.register(
+            thread,
+            Arc::new(KernelObject::new(ObjectPayload::DeviceGrantFactory)),
+            rights,
+        )
+    }
+
+    /// 通过设备授权工厂创建设备授权对象。
+    pub fn create_device_grant_authorized(
+        &self,
+        thread: TcbId,
+        factory: Handle,
+        grant: DeviceGrant,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        self.resolve(
+            thread,
+            factory,
+            Rights::READ,
+            ObjectKind::DeviceGrantFactory,
+        )?;
+        self.create_device_grant(thread, grant, rights)
+    }
+
     /// 在指定线程的句柄表中创建设备授权对象。
     pub fn create_device_grant(
         &self,

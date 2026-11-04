@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use hk_hal::Console;
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
-use hk_root_server::{RuntimeHost, ServiceTable, Switch, TaskInfo, UserPlatform};
+use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0100_0000;
@@ -148,8 +148,8 @@ pub fn arena(slot: usize) -> (u64, u64) {
 }
 
 /// 按服务清单装配用户态运行时。
-pub fn init(names: &[&'static str]) -> Result<(), String> {
-    RUNTIME.boot(names, X86Platform, |_index, endpoint| {
+pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
+    RUNTIME.boot(specs, X86Platform, |_index, endpoint| {
         cpu::user_frame(0, 0, endpoint)
     })?;
 

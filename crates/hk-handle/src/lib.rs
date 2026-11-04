@@ -59,6 +59,8 @@ pub enum ObjectKind {
     IrqHandler,
     /// 设备授权。
     DeviceGrant,
+    /// 设备授权工厂。
+    DeviceGrantFactory,
 }
 
 impl ObjectKind {
@@ -74,6 +76,7 @@ impl ObjectKind {
             Self::Notification => "notification",
             Self::IrqHandler => "irq-handler",
             Self::DeviceGrant => "device-grant",
+            Self::DeviceGrantFactory => "device-grant-factory",
         }
     }
 }

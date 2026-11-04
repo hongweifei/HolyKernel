@@ -7,6 +7,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub fn start(
         &mut self,
         name: &str,
+        device_authority: bool,
         mut context: C,
         parent: Option<u64>,
     ) -> Result<u64, KernelError> {
@@ -24,6 +25,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             kernel.create_notification(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_notification_id = kernel.handle_id(tcb, own_notification)?;
         self.notifications.push(Some(own_notification_id));
+        let device_factory = if device_authority {
+            Some(kernel.create_device_grant_factory(tcb, Rights::READ | Rights::TRANSFER)?)
+        } else {
+            None
+        };
 
         let mut handles = Vec::with_capacity(self.endpoints.len());
         for (slot, object) in self.endpoints.iter().enumerate() {
@@ -88,7 +94,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             arena_base,
             arena_size,
         );
-        task.device_authority = name == crate::DEVICE_MANAGER_SERVICE;
+        task.device_factory = device_factory;
         self.tasks.push(task);
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)

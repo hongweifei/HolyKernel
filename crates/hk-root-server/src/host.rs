@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
 
-use crate::ServiceTable;
 use crate::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
+use crate::{ServiceSpec, ServiceTable};
 
 /// 运行时宿主。
 pub struct RuntimeHost<C, P> {
@@ -34,16 +34,11 @@ impl<C, P> RuntimeHost<C, P> {
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     /// 按服务清单启动运行时。
-    pub fn boot<F>(
-        &self,
-        names: &[&'static str],
-        platform: P,
-        make_context: F,
-    ) -> Result<(), String>
+    pub fn boot<F>(&self, specs: &[ServiceSpec], platform: P, make_context: F) -> Result<(), String>
     where
         F: FnMut(usize, u64) -> C,
     {
-        let runtime = crate::boot::user_runtime(names, platform, make_context)
+        let runtime = crate::boot::user_runtime(specs, platform, make_context)
             .map_err(|error| format!("{error}"))?;
         *self.runtime.lock() = Some(runtime);
         Ok(())
@@ -79,14 +74,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     }
 
     /// 装载新任务，返回分配的端点编号。
-    pub fn start(&self, name: &str, context: C, parent: Option<u64>) -> Result<u64, String> {
+    pub fn start(
+        &self,
+        name: &str,
+        device_authority: bool,
+        context: C,
+        parent: Option<u64>,
+    ) -> Result<u64, String> {
         let result = {
             let mut guard = self.runtime.lock();
             let runtime = guard
                 .as_mut()
                 .ok_or_else(|| String::from("运行时未初始化"))?;
             runtime
-                .start(name, context, parent)
+                .start(name, device_authority, context, parent)
                 .map_err(|error| format!("{error}"))
         };
         self.wake_aps();

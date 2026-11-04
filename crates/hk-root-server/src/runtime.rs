@@ -221,8 +221,8 @@ pub struct UserTask<C> {
     pub reply: Option<ReplyToken>,
     /// 任务 Arena。
     pub arena: Arena,
-    /// 是否允许创建 DeviceGrant。
-    pub device_authority: bool,
+    /// 设备授权工厂句柄；存在时才允许创建 DeviceGrant。
+    pub device_factory: Option<Handle>,
     /// 是否已退出。
     pub exited: bool,
     /// 退出码。
@@ -256,7 +256,7 @@ impl<C> UserTask<C> {
             pending: Pending::None,
             reply: None,
             arena: Arena::new(arena_base, arena_size),
-            device_authority: false,
+            device_factory: None,
             exited: false,
             exit_code: 0,
         }

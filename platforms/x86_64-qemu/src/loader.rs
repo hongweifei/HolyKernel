@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 use hk_hal::{BootInfo, BootModule, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
-use hk_root_server::ServiceTable;
 use hk_root_server::loader::{self, ImageSpec};
+use hk_root_server::{DEVICE_MANAGER_SERVICE, ServiceSpec, ServiceTable};
 
 use crate::runtime;
 
@@ -41,7 +41,17 @@ pub fn run(
         .iter()
         .map(|module| loader::service_name(module.name))
         .collect();
-    runtime::init(&names)?;
+    let specs: Vec<ServiceSpec> = names
+        .iter()
+        .map(|name| {
+            if *name == DEVICE_MANAGER_SERVICE {
+                ServiceSpec::device(name)
+            } else {
+                ServiceSpec::new(name)
+            }
+        })
+        .collect();
+    runtime::init(&specs)?;
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
@@ -54,7 +64,7 @@ pub fn run(
             allocator,
             paging,
         )?;
-        services.register(names[index]);
+        services.register_with_authority(names[index], specs[index].device_authority);
         runtime::attach(index, context);
     }
 

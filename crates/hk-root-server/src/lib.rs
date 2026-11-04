@@ -32,16 +32,29 @@ use hk_kernel::{Kernel, KernelError, Priority, TcbId};
 pub struct ServiceSpec {
     /// 服务名称。
     pub name: &'static str,
+    /// 是否允许通过设备授权工厂创建 DeviceGrant。
+    pub device_authority: bool,
 }
 
 impl ServiceSpec {
-    /// 构造服务清单条目。
+    /// 构造普通服务清单条目。
     pub const fn new(name: &'static str) -> Self {
-        Self { name }
+        Self {
+            name,
+            device_authority: false,
+        }
+    }
+
+    /// 构造具有设备授权创建能力的服务清单条目。
+    pub const fn device(name: &'static str) -> Self {
+        Self {
+            name,
+            device_authority: true,
+        }
     }
 }
 
-/// 拥有设备授权创建能力的服务名。
+/// 设备管理服务的约定名称，仅用于模块清单装配。
 pub const DEVICE_MANAGER_SERVICE: &str = "hk-server-device";
 
 /// 已启动的服务。

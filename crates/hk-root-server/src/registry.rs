@@ -35,6 +35,8 @@ pub struct ServiceRecord {
     pub restarts: u32,
     /// 退出码。
     pub exit_code: Option<u64>,
+    /// 是否具有设备授权创建能力。
+    pub device_authority: bool,
 }
 
 /// 服务表。
@@ -49,14 +51,28 @@ impl ServiceTable {
         Self::default()
     }
 
-    /// 登记服务。
+    /// 登记普通服务。
     pub fn register(&mut self, name: &str) {
+        self.register_with_authority(name, false);
+    }
+
+    /// 登记服务并指定设备授权能力。
+    pub fn register_with_authority(&mut self, name: &str, device_authority: bool) {
         self.services.push(ServiceRecord {
             name: name.to_string(),
             state: ServiceState::Running,
             restarts: 0,
             exit_code: None,
+            device_authority,
         });
+    }
+
+    /// 返回服务是否具有设备授权创建能力。
+    pub fn device_authority(&self, name: &str) -> bool {
+        self.services
+            .iter()
+            .find(|service| service.name == name)
+            .is_some_and(|service| service.device_authority)
     }
 
     /// 标记服务运行；服务不在表中时登记。

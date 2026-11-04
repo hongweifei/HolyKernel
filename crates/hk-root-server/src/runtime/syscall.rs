@@ -459,10 +459,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
     fn create_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        if !self.tasks[index].device_authority {
+        let Some(factory) = self.tasks[index].device_factory else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
-        }
+        };
         let length = frame.arg1() as usize;
         if length == 0 || length > hk_hal::DEVICE_GRANT_BYTES {
             frame.set_result(u64::MAX);
@@ -478,8 +478,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         grant.dma = self.platform.dma_window(DMA_WINDOW_BYTES);
-        match self.kernel.create_device_grant(
+        match self.kernel.create_device_grant_authorized(
             tcb,
+            factory,
             grant,
             hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::TRANSFER,
         ) {

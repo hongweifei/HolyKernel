@@ -22,6 +22,8 @@ pub enum ObjectPayload {
     Untyped(Mutex<Untyped>),
     /// 设备授权。
     DeviceGrant(DeviceGrant),
+    /// 设备授权工厂。
+    DeviceGrantFactory,
 }
 
 impl ObjectPayload {
@@ -34,6 +36,7 @@ impl ObjectPayload {
             Self::Frame(_) => ObjectKind::Frame,
             Self::Untyped(_) => ObjectKind::Untyped,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
+            Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
         }
     }
 }

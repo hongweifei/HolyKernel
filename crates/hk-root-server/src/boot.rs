@@ -16,7 +16,7 @@ use crate::{RootServer, ServiceSpec};
 /// `make_context` 为每个服务生成初始用户现场；服务入口的首个参数是内核分配的
 /// 端点编号。
 pub fn user_runtime<C, P, F>(
-    names: &[&'static str],
+    specs: &[ServiceSpec],
     platform: P,
     mut make_context: F,
 ) -> Result<UserRuntime<C, P>, KernelError>
@@ -26,14 +26,13 @@ where
     F: FnMut(usize, u64) -> C,
 {
     let kernel = Kernel::new();
-    let specs: Vec<ServiceSpec> = names.iter().map(|name| ServiceSpec::new(name)).collect();
-    let server = RootServer::boot_parked(&kernel, &specs)?;
+    let server = RootServer::boot_parked(&kernel, specs)?;
     let root = server.root().get();
 
-    let mut endpoints = Vec::with_capacity(names.len());
-    let mut notifications = Vec::with_capacity(names.len());
-    let mut own_notifications = Vec::with_capacity(names.len());
-    let mut tasks = Vec::with_capacity(names.len());
+    let mut endpoints = Vec::with_capacity(specs.len());
+    let mut notifications = Vec::with_capacity(specs.len());
+    let mut own_notifications = Vec::with_capacity(specs.len());
+    let mut tasks = Vec::with_capacity(specs.len());
 
     for service in server.services() {
         let handle = kernel
@@ -44,7 +43,7 @@ where
 
     for (index, service) in server.services().iter().enumerate() {
         endpoints.push(Some(service.endpoint));
-        let mut handles = Vec::with_capacity(names.len());
+        let mut handles = Vec::with_capacity(specs.len());
         for (slot, endpoint) in server.services().iter().enumerate() {
             let handle = if slot == index {
                 service.handle
@@ -58,7 +57,7 @@ where
             handles.push(Some(handle));
         }
 
-        let mut notification_handles = Vec::with_capacity(names.len());
+        let mut notification_handles = Vec::with_capacity(specs.len());
         for (slot, notification) in notifications.iter().enumerate() {
             let handle = match notification {
                 Some(id) if slot != index => kernel.grant(
@@ -73,9 +72,14 @@ where
 
         let (arena_base, arena_size) = platform.arena_layout(index);
         let context = make_context(index, index as u64 + 1);
+        let factory = if specs[index].device_authority {
+            Some(kernel.create_device_grant_factory(service.tcb, Rights::READ | Rights::TRANSFER)?)
+        } else {
+            None
+        };
         let mut task = UserTask::new(
             service.tcb,
-            names[index],
+            specs[index].name,
             Some(root),
             handles,
             notification_handles,
@@ -83,7 +87,7 @@ where
             arena_base,
             arena_size,
         );
-        task.device_authority = names[index] == crate::DEVICE_MANAGER_SERVICE;
+        task.device_factory = factory;
         tasks.push(task);
     }
 

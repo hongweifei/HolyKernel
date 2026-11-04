@@ -83,7 +83,8 @@ where
         Err(error) => return format!("装载失败：{error}\n"),
     };
 
-    if let Err(error) = host.start(name, context, parent) {
+    let device_authority = services.device_authority(name);
+    if let Err(error) = host.start(name, device_authority, context, parent) {
         return format!("启动失败：{error}\n");
     }
 

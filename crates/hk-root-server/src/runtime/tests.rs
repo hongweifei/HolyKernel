@@ -85,12 +85,15 @@ impl UserPlatform for MockPlatform {
 }
 
 fn runtime() -> UserRuntime<MockContext, MockPlatform> {
-    let mut runtime =
-        crate::boot::user_runtime(&["a", "b"], MockPlatform, |_index, endpoint| MockContext {
+    let mut runtime = crate::boot::user_runtime(
+        &[crate::ServiceSpec::new("a"), crate::ServiceSpec::new("b")],
+        MockPlatform,
+        |_index, endpoint| MockContext {
             rdi: endpoint,
             ..MockContext::default()
-        })
-        .expect("装配运行时");
+        },
+    )
+    .expect("装配运行时");
     for index in 0..runtime.task_count() {
         runtime.attach(
             index,
@@ -359,7 +362,7 @@ fn exit_releases_peer_endpoint_handles() {
     assert_eq!(tasks[other].handles, before - 2);
 
     let endpoint = runtime
-        .start("c", MockContext::default(), None)
+        .start("c", false, MockContext::default(), None)
         .expect("启动任务");
     assert_eq!(endpoint, 3);
 
@@ -420,12 +423,15 @@ fn transports_byte_payloads() {
         }
     }
 
-    let mut runtime =
-        crate::boot::user_runtime(&["a", "b"], DataPlatform, |_, endpoint| MockContext {
+    let mut runtime = crate::boot::user_runtime(
+        &[crate::ServiceSpec::new("a"), crate::ServiceSpec::new("b")],
+        DataPlatform,
+        |_, endpoint| MockContext {
             rdi: endpoint,
             ..MockContext::default()
-        })
-        .expect("装配运行时");
+        },
+    )
+    .expect("装配运行时");
     for index in 0..runtime.task_count() {
         runtime.attach(
             index,
