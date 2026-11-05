@@ -1,0 +1,12 @@
+[package]
+name = "hk-base"
+description = "HolyKernel 基础类型：地址、架构标识与启动信息"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

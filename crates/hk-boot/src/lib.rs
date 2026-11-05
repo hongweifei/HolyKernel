@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use hk_hal::{
+use hk_base::{
     Arch, BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
     FramebufferInfo, MemoryRegion, PAGE_SIZE, PhysAddr, PixelFormat, RegionKind, VirtAddr,
 };

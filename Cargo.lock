@@ -206,6 +206,10 @@ name = "hk-acpi"
 version = "0.1.0"
 
 [[package]]
+name = "hk-base"
+version = "0.1.0"
+
+[[package]]
 name = "hk-block"
 version = "0.1.0"
 dependencies = [
@@ -216,7 +220,7 @@ dependencies = [
 name = "hk-boot"
 version = "0.1.0"
 dependencies = [
- "hk-hal",
+ "hk-base",
  "limine",
 ]
 
@@ -271,6 +275,7 @@ name = "hk-hal"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "hk-base",
 ]
 
 [[package]]
