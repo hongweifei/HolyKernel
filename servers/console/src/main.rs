@@ -8,8 +8,8 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::console::{
-    CONSOLE_CLEAR, CONSOLE_PING, CONSOLE_PONG, CONSOLE_READ_LINE, CONSOLE_READ_REQUEST,
-    CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
+    CONSOLE_CLEAR, CONSOLE_PING, CONSOLE_PONG, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN,
+    CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::display::{DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SERVICE, unpack_key};
@@ -21,58 +21,15 @@ use hk_server_api::{
     yield_now,
 };
 
-/// 输出到图形终端；没有终端时退回内核控制台。
 #[cfg(target_os = "none")]
-fn emit(terminal: &mut Option<Terminal>, text: &[u8]) {
-    match terminal {
-        Some(terminal) => terminal.emit(text),
-        None => write(text),
-    }
-}
-
-/// 处理一个输入字节：行编辑、回显与按行回复。
-#[cfg(target_os = "none")]
-fn handle_input(
-    terminal: &mut Option<Terminal>,
-    line: &mut [u8; 128],
-    length: &mut usize,
-    pending: &mut u64,
-    queued: &mut [u8; 128],
-    queued_length: &mut usize,
-    byte: u8,
-) {
-    match byte {
-        b'\n' | b'\r' => {
-            emit(terminal, b"\n");
-            if *pending != 0 {
-                let _ = send_data(*pending, CONSOLE_READ_LINE, &line[..*length]);
-                *pending = 0;
-            } else {
-                queued[..*length].copy_from_slice(&line[..*length]);
-                *queued_length = *length;
-            }
-            *length = 0;
-        }
-        0x08 | 0x7F => {
-            if *length > 0 {
-                *length -= 1;
-                emit(terminal, b"\x08 \x08");
-            }
-        }
-        byte if byte >= 0x20 && byte != 0x7F && *length < line.len() => {
-            line[*length] = byte;
-            *length += 1;
-            emit(terminal, &[byte]);
-        }
-        _ => {}
-    }
-}
-
+mod editor;
 #[cfg(target_os = "none")]
 mod terminal;
 
 #[cfg(target_os = "none")]
-use terminal::{Terminal, attach_terminal};
+use editor::{Editor, emit};
+#[cfg(target_os = "none")]
+use terminal::attach_terminal;
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -92,11 +49,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let restart_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("display-restart-test"));
     let mut buffer = [0_u8; 256];
-    let mut line = [0_u8; 128];
-    let mut length = 0_usize;
-    let mut pending = 0_u64;
-    let mut queued = [0_u8; 128];
-    let mut queued_length = 0_usize;
+    let mut editor = Editor::new();
     let mut keys = Decoder::new();
 
     loop {
@@ -139,14 +92,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         let _ = send(sender, CONSOLE_WRITE_ACK, 0);
                     }
                 }
-                CONSOLE_READ_REQUEST => {
-                    if queued_length > 0 {
-                        let _ = send_data(sender, CONSOLE_READ_LINE, &queued[..queued_length]);
-                        queued_length = 0;
-                    } else {
-                        pending = sender;
-                    }
-                }
+                CONSOLE_READ_REQUEST => editor.request(sender),
                 CONSOLE_PING => {
                     let _ = send_data(sender, CONSOLE_PONG, &[]);
                 }
@@ -159,15 +105,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 DISPLAY_KEY => {
                     let (_, byte) = unpack_key(word);
                     if let Some(Key::Byte(byte)) = keys.feed(byte) {
-                        handle_input(
-                            &mut terminal,
-                            &mut line,
-                            &mut length,
-                            &mut pending,
-                            &mut queued,
-                            &mut queued_length,
-                            byte,
-                        );
+                        editor.handle(&mut terminal, byte);
                     }
                 }
                 DISPLAY_FRAME_DONE => {}
@@ -178,15 +116,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         // 有 Display 时，键盘事件经焦点窗口路由到本服务；无 Display 时直接读内核输入。
         if terminal.is_none() {
             while let Some(byte) = console_read() {
-                handle_input(
-                    &mut terminal,
-                    &mut line,
-                    &mut length,
-                    &mut pending,
-                    &mut queued,
-                    &mut queued_length,
-                    byte,
-                );
+                editor.handle(&mut terminal, byte);
             }
         }
 

@@ -1,4 +1,8 @@
-//! 图形终端模型：字符网格、UTF-8 解码与共享表面渲染。
+//! 图形终端：带样式的字符网格、UTF-8 解码、ANSI 命令与窗口生命周期。
+
+mod ansi;
+mod render;
+mod style;
 
 use hk_server_api::display::{
     DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_SERVICE, DISPLAY_WINDOW_CREATED, pack_size,
@@ -9,46 +13,33 @@ use hk_server_api::{
 use lovyangfx_fonts::Font;
 use lovyangfx_fonts::fonts::efont_cn_16;
 
+use ansi::{Ansi, Command, Event};
+use style::{Cell, Style};
+
 /// 终端列数。
-#[cfg(target_os = "none")]
-const COLUMNS: usize = 80;
+pub(crate) const COLUMNS: usize = 80;
 /// 终端行数。
-#[cfg(target_os = "none")]
-const ROWS: usize = 24;
+pub(crate) const ROWS: usize = 24;
 /// 单元格宽度。
-#[cfg(target_os = "none")]
-const CELL_WIDTH: usize = 8;
+pub(crate) const CELL_WIDTH: usize = 8;
 /// 单元格高度。
-#[cfg(target_os = "none")]
-const CELL_HEIGHT: usize = 18;
+pub(crate) const CELL_HEIGHT: usize = 18;
 /// 表面宽度（像素）。
-#[cfg(target_os = "none")]
-const WIDTH: usize = COLUMNS * CELL_WIDTH;
+pub(crate) const WIDTH: usize = COLUMNS * CELL_WIDTH;
 /// 表面高度（像素）。
-#[cfg(target_os = "none")]
-const HEIGHT: usize = ROWS * CELL_HEIGHT;
+pub(crate) const HEIGHT: usize = ROWS * CELL_HEIGHT;
 /// 表面映射地址。
-#[cfg(target_os = "none")]
 const SURFACE: u64 = 0x5000_0000;
 
-/// 终端背景色。
-#[cfg(target_os = "none")]
-const BACKGROUND: u32 = 0x0010_1010;
-/// 终端前景色。
-#[cfg(target_os = "none")]
-const FOREGROUND: u32 = 0x00D0_D0D0;
-/// 光标颜色。
-#[cfg(target_os = "none")]
-const CURSOR: u32 = 0x0060_A0E0;
+/// 字符网格。
+pub(crate) type Grid = [[Cell; COLUMNS]; ROWS];
 
 /// 增量 UTF-8 解码器。
-#[cfg(target_os = "none")]
 struct Utf8 {
     pending: [u8; 4],
     length: usize,
 }
 
-#[cfg(target_os = "none")]
 impl Utf8 {
     const fn new() -> Self {
         Self {
@@ -93,21 +84,22 @@ impl Utf8 {
 }
 
 /// 图形终端状态。
-#[cfg(target_os = "none")]
 pub(crate) struct Terminal {
     display: u64,
     window: u64,
     pixels: *mut u32,
-    grid: [[char; COLUMNS]; ROWS],
+    grid: Grid,
     column: usize,
     row: usize,
     font: Font<'static>,
     decoder: Utf8,
+    style: Style,
+    ansi: Ansi,
+    sgr_seen: bool,
     utf8_seen: bool,
     cjk_seen: bool,
 }
 
-#[cfg(target_os = "none")]
 impl Terminal {
     /// 写入一段文本并提交合成。
     pub(crate) fn emit(&mut self, text: &[u8]) {
@@ -118,6 +110,14 @@ impl Terminal {
     }
 
     fn put_byte(&mut self, byte: u8) {
+        match self.ansi.feed(byte) {
+            Event::Byte(byte) => self.put_ground(byte),
+            Event::Command(command) => self.apply(command),
+            Event::Ignore => {}
+        }
+    }
+
+    fn put_ground(&mut self, byte: u8) {
         match byte {
             b'\n' => {
                 self.column = 0;
@@ -140,6 +140,83 @@ impl Terminal {
         self.wrap();
     }
 
+    fn apply(&mut self, command: Command) {
+        match command {
+            Command::Sgr { params, count } => {
+                if !self.sgr_seen {
+                    self.sgr_seen = true;
+                    write(b"hk-server-console: sgr ok\n");
+                }
+                self.style.apply(&params[..count]);
+            }
+            Command::CursorPosition { row, column } => {
+                self.row = usize::from(row.saturating_sub(1)).min(ROWS - 1);
+                self.column = usize::from(column.saturating_sub(1)).min(COLUMNS - 1);
+            }
+            Command::CursorUp(lines) => {
+                self.row = self.row.saturating_sub(usize::from(lines));
+            }
+            Command::CursorDown(lines) => {
+                self.row = (self.row + usize::from(lines)).min(ROWS - 1);
+            }
+            Command::CursorForward(columns) => {
+                self.column = (self.column + usize::from(columns)).min(COLUMNS - 1);
+            }
+            Command::CursorBack(columns) => {
+                self.column = self.column.saturating_sub(usize::from(columns));
+            }
+            Command::CursorColumn(column) => {
+                self.column = usize::from(column.saturating_sub(1)).min(COLUMNS - 1);
+            }
+            Command::CursorRow(row) => {
+                self.row = usize::from(row.saturating_sub(1)).min(ROWS - 1);
+            }
+            Command::EraseDisplay(mode) => self.erase_display(mode),
+            Command::EraseLine(mode) => self.erase_line(mode),
+        }
+        self.wrap();
+    }
+
+    fn erase_line(&mut self, mode: u16) {
+        let blank = self.blank();
+        match mode {
+            0 => {
+                for column in self.column..COLUMNS {
+                    self.grid[self.row][column] = blank;
+                }
+            }
+            1 => {
+                for column in 0..=self.column.min(COLUMNS - 1) {
+                    self.grid[self.row][column] = blank;
+                }
+            }
+            _ => self.grid[self.row] = [blank; COLUMNS],
+        }
+    }
+
+    fn erase_display(&mut self, mode: u16) {
+        let blank = self.blank();
+        match mode {
+            0 => {
+                for column in self.column..COLUMNS {
+                    self.grid[self.row][column] = blank;
+                }
+                for row in (self.row + 1)..ROWS {
+                    self.grid[row] = [blank; COLUMNS];
+                }
+            }
+            1 => {
+                for row in 0..self.row {
+                    self.grid[row] = [blank; COLUMNS];
+                }
+                for column in 0..=self.column.min(COLUMNS - 1) {
+                    self.grid[self.row][column] = blank;
+                }
+            }
+            _ => self.grid = [[blank; COLUMNS]; ROWS],
+        }
+    }
+
     fn put_char(&mut self, character: char) {
         let width = self.advance(character);
         if u32::from(character) > 0x7F && !self.utf8_seen {
@@ -155,9 +232,15 @@ impl Terminal {
             self.row += 1;
             self.wrap();
         }
-        self.grid[self.row][self.column] = character;
+        self.grid[self.row][self.column] = Cell {
+            character,
+            style: self.style,
+        };
         if width > 1 {
-            self.grid[self.row][self.column + 1] = '\0';
+            self.grid[self.row][self.column + 1] = Cell {
+                character: '\0',
+                style: self.style,
+            };
         }
         self.column += width;
     }
@@ -172,61 +255,36 @@ impl Terminal {
         })
     }
 
+    fn blank(&self) -> Cell {
+        Cell {
+            character: ' ',
+            style: self.style,
+        }
+    }
+
     fn backspace(&mut self) {
         if self.column == 0 {
             return;
         }
         self.column -= 1;
-        if self.grid[self.row][self.column] == '\0' && self.column > 0 {
-            self.grid[self.row][self.column] = ' ';
+        if self.grid[self.row][self.column].character == '\0' && self.column > 0 {
+            self.grid[self.row][self.column] = self.blank();
             self.column -= 1;
         }
-        self.grid[self.row][self.column] = ' ';
+        self.grid[self.row][self.column] = self.blank();
     }
 
     fn wrap(&mut self) {
         while self.row >= ROWS {
             self.grid[..].copy_within(1.., 0);
-            self.grid[ROWS - 1] = [' '; COLUMNS];
+            self.grid[ROWS - 1] = [self.blank(); COLUMNS];
             self.row = ROWS - 1;
         }
     }
 
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
-        for y in 0..HEIGHT {
-            // SAFETY: 共享表面按 WIDTH×HEIGHT 映射，行范围在表面内。
-            unsafe {
-                core::slice::from_raw_parts_mut(self.pixels.add(y * WIDTH), WIDTH).fill(BACKGROUND);
-            }
-        }
-        for row in 0..ROWS {
-            for column in 0..COLUMNS {
-                let character = self.grid[row][column];
-                if character == ' ' || character == '\0' {
-                    continue;
-                }
-                let Some(glyph) = self.font.glyph(character) else {
-                    continue;
-                };
-                let origin_x = (column * CELL_WIDTH) as i32;
-                let origin_y = (row * CELL_HEIGHT) as i32;
-                glyph.for_each_pixel(|x, y| {
-                    let pixel_x = origin_x + x;
-                    let pixel_y = origin_y + y;
-                    if pixel_x >= 0 && pixel_y >= 0 {
-                        self.put_pixel(pixel_x as usize, pixel_y as usize, FOREGROUND);
-                    }
-                });
-            }
-        }
-        let cursor_y = self.row * CELL_HEIGHT + CELL_HEIGHT - 2;
-        let cursor_x = self.column * CELL_WIDTH;
-        for y in 0..2 {
-            for x in 0..CELL_WIDTH {
-                self.put_pixel(cursor_x + x, cursor_y + y, CURSOR);
-            }
-        }
+        render::refresh(self.pixels, &self.grid, self.row, self.column, &self.font);
         let _ = send(self.display, DISPLAY_COMMIT, self.window);
     }
 
@@ -237,7 +295,10 @@ impl Terminal {
 
     /// 清空终端并重绘。
     pub(crate) fn clear(&mut self) {
-        self.grid = [[' '; COLUMNS]; ROWS];
+        self.grid = [[Cell::BLANK; COLUMNS]; ROWS];
+        self.style = Style::DEFAULT;
+        self.decoder = Utf8::new();
+        self.ansi = Ansi::new();
         self.column = 0;
         self.row = 0;
         self.refresh();
@@ -252,20 +313,9 @@ impl Terminal {
     pub(crate) fn display(&self) -> u64 {
         self.display
     }
-
-    fn put_pixel(&self, x: usize, y: usize, color: u32) {
-        if x >= WIDTH || y >= HEIGHT {
-            return;
-        }
-        // SAFETY: 共享表面已按 WIDTH×HEIGHT 映射，坐标已裁剪。
-        unsafe {
-            self.pixels.add(y * WIDTH + x).write_volatile(color);
-        }
-    }
 }
 
 /// 尝试连接 Display 并创建终端窗口。
-#[cfg(target_os = "none")]
 pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     let display = service_endpoint(DISPLAY_SERVICE);
     if display == 0 {
@@ -302,11 +352,14 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         display,
         window,
         pixels: SURFACE as *mut u32,
-        grid: [[' '; COLUMNS]; ROWS],
+        grid: [[Cell::BLANK; COLUMNS]; ROWS],
         column: 0,
         row: 0,
         font: efont_cn_16(),
         decoder: Utf8::new(),
+        style: Style::DEFAULT,
+        ansi: Ansi::new(),
+        sgr_seen: false,
         utf8_seen: false,
         cjk_seen: false,
     })

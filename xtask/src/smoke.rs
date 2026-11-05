@@ -331,6 +331,7 @@ impl SmokeMode {
                 "hk-server-console: window",
                 "hk-server-console: utf8 ok",
                 "hk-server-console: cjk ok",
+                "hk-server-console: sgr ok",
                 "hk-server-display: composite ok",
                 "hk-server-terminal-test: line hi",
                 "hk-server-terminal-test: done",

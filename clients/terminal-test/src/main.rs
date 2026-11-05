@@ -11,9 +11,6 @@ use hk_server_api::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, write, yield_now};
 
-/// 等待服务出现的重试次数。
-#[cfg(target_os = "none")]
-
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -32,8 +29,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     // Console 启动早期可能正在等待 Display 的窗口回复；重发直到收到确认。
     let mut payload = [0_u8; 8];
     let mut acknowledged = false;
+    let styled =
+        "你好 terminal\n\x1b[1;4;38;2;255;128;0mSGR 真彩色\x1b[0m \x1b[48;5;21m256 色\x1b[0m\n";
     for _ in 0..2048 {
-        let _ = send_data(console, CONSOLE_WRITE, "你好 terminal\n".as_bytes());
+        let _ = send_data(console, CONSOLE_WRITE, styled.as_bytes());
         for _ in 0..64 {
             let (label, _word, _sender, _size) = recv_data_try(endpoint, &mut payload);
             if label == CONSOLE_WRITE_ACK {
