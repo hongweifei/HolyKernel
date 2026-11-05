@@ -1,7 +1,8 @@
 //! input：用户态 virtio-input 驱动。
 //!
 //! 向 Device Manager 逐个申请输入设备授权（键盘、平板等），把按键事件解码为
-//! 字节、把绝对坐标转发给显示服务；显示服务按焦点路由到窗口客户端。
+//! 字节序列、把绝对坐标与滚轮增量转发给显示服务；显示服务按焦点路由到窗口
+//! 客户端。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -25,7 +26,9 @@ use hk_server_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, pack_pointer};
+use hk_server_api::input::{
+    INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, recv_handle, self_notification, send, service_endpoint,
@@ -37,8 +40,8 @@ mod keymap;
 
 #[cfg(target_os = "none")]
 use keymap::{
-    ABS_MAX, ABS_X, ABS_Y, BTN_LEFT, BTN_TOUCH, EV_ABS, EV_KEY, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
-    key_byte,
+    ABS_MAX, ABS_X, ABS_Y, BTN_LEFT, BTN_TOUCH, EV_ABS, EV_KEY, EV_REL, KEY_LEFTALT, KEY_LEFTCTRL,
+    KEY_LEFTSHIFT, KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_RIGHTSHIFT, REL_WHEEL, key_bytes,
 };
 
 /// 堆大小。
@@ -110,6 +113,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut shift = false;
+    let mut ctrl = false;
+    let mut alt = false;
     let mut abs_x = 0_u16;
     let mut abs_y = 0_u16;
     loop {
@@ -128,6 +133,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         }
                         _ => {}
                     },
+                    EV_REL => {
+                        if event.code == REL_WHEEL && event.value != 0 {
+                            let display = service_endpoint("hk-server-display");
+                            if display != 0 {
+                                let _ = send(display, INPUT_WHEEL, pack_wheel(event.value as i32));
+                            }
+                        }
+                    }
                     EV_KEY => {
                         if event.code == BTN_LEFT || event.code == BTN_TOUCH {
                             let display = service_endpoint("hk-server-display");
@@ -144,15 +157,25 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             shift = event.value != 0;
                             continue;
                         }
+                        if event.code == KEY_LEFTCTRL || event.code == KEY_RIGHTCTRL {
+                            ctrl = event.value != 0;
+                            continue;
+                        }
+                        if event.code == KEY_LEFTALT || event.code == KEY_RIGHTALT {
+                            alt = event.value != 0;
+                            continue;
+                        }
                         if event.value == 0 {
                             continue;
                         }
-                        let Some(byte) = key_byte(event.code, shift) else {
+                        let Some(keys) = key_bytes(event.code, shift, ctrl, alt) else {
                             continue;
                         };
                         let display = service_endpoint("hk-server-display");
                         if display != 0 {
-                            let _ = send(display, INPUT_KEY, u64::from(byte));
+                            for &byte in &keys.bytes[..keys.len] {
+                                let _ = send(display, INPUT_KEY, u64::from(byte));
+                            }
                         }
                     }
                     _ => {}
