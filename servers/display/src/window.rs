@@ -266,15 +266,13 @@ impl Screen {
         };
         let count = right - left;
         for row in top..bottom {
-            // SAFETY: 后备缓冲与帧缓冲均为 width×height，区域已裁剪；VGA 内存逐元素写。
+            // SAFETY: 后备缓冲与帧缓冲已分离，区域已裁剪。
             unsafe {
-                let source = self.base.add(row * self.stride + left);
-                let destination = self.fb.add(row * self.stride + left);
-                for index in 0..count {
-                    destination
-                        .add(index)
-                        .write_volatile(source.add(index).read());
-                }
+                core::ptr::copy_nonoverlapping(
+                    self.base.add(row * self.stride + left),
+                    self.fb.add(row * self.stride + left),
+                    count,
+                );
             }
         }
     }

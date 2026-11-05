@@ -426,7 +426,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 });
                 next_id += 1;
                 focus = id;
-                if let Some(window) = windows[slot] {
+                raise(&mut windows, id);
+                if let Some(window) = windows
+                    .iter()
+                    .flatten()
+                    .find(|window| window.id == id)
+                    .copied()
+                {
                     damage_window(&screen, &windows, focus, &font, pointer, &window);
                 }
                 damage_title(&screen, &windows, focus, &font, pointer, previous);

@@ -233,19 +233,21 @@ fn paint_window(
         }
     }
 
-    let right = window_x.saturating_add(window.width);
-    let bottom = window_y
-        .saturating_add(title_height())
-        .saturating_add(window.height);
-    for row in 0..resize_size() {
-        let y = bottom.saturating_sub(1 + row);
-        if y < top || y >= bottom {
-            continue;
-        }
-        for column in 0..resize_size() - row {
-            let x = right.saturating_sub(1 + column);
-            if x >= left && x < right {
-                screen.put(x, y, palette.resize_handle);
+    if window.id == focus {
+        let right = window_x.saturating_add(window.width);
+        let bottom = window_y
+            .saturating_add(title_height())
+            .saturating_add(window.height);
+        for row in 0..resize_size() {
+            let y = bottom.saturating_sub(1 + row);
+            if y < top || y >= bottom || y < window_y + title_height() {
+                continue;
+            }
+            for column in 0..resize_size() - row {
+                let x = right.saturating_sub(1 + column);
+                if x >= left && x < right && x >= window_x {
+                    screen.put(x, y, palette.resize_handle);
+                }
             }
         }
     }
