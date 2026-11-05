@@ -10,63 +10,29 @@
 
 ```text
 HolyKernel/
-├── Cargo.toml                 workspace
-├── rust-toolchain.toml        固定 stable 工具链
-├── scripts/                  随镜像打包的 HolyShell 启动脚本（`.hsh`）
-├── xtask/                     构建、镜像、QEMU、测试、文档
+├── Cargo.toml / rust-toolchain.toml
+├── xtask/                 构建、镜像、QEMU、smoke、文档、依赖检查
 ├── crates/
-│   ├── hk-hal/                CPU/MMU/IRQ/Timer/SMP/Console/DMA/PCI 契约与 ECAM、Port/MMIO Io；现场与页映射
-│   ├── hk-acpi/               ACPI RSDP/SDT 查找与表条目迭代（架构无关）
-│   ├── hk-drivers/            通用设备协议：桥感知 PCI、16550 UART、PS/2 键盘
-│   ├── hk-framebuffer/        通用帧缓冲文本控制台
-│   ├── hk-smp/                通用 SMP 状态机：AP 池、TLB shootdown、空闲唤醒
-│   ├── hk-kernel/             微内核：TCB/VSpace/HandleTable/Endpoint/Notification、trace；per-CPU 调度与线性堆
-│   ├── hk-handle/                Handle、HandleTable、duplicate/close
-│   ├── hk-ipc/                Endpoint、Notification、消息（含字节载荷）
-│   ├── hk-mem/                Untyped、Frame、VSpace、COW、DMA、线性帧分配器、用户地址空间登记表
-│   ├── hk-boot/               Limine/U-Boot/OpenSBI 适配与启动信息校验
-│   ├── hk-platform-*          平台实现：端口 I/O、legacy PCI、分页、每任务页表登记、MADT、per-CPU TSS 与 IPI、键盘、引导初始化
-│   ├── hk-root-server/        Root Server、服务清单、服务表、ELF 装载、用户运行时与运行时宿主
-│   ├── hk-device-manager/     设备枚举与 DeviceGrant（规划）
-│   ├── hk-driver-virtio/      virtio 驱动：DeviceGrant、MMIO/DMA/IRQ 与 virtio-drivers 适配
-│   ├── hk-block/              块设备契约、内存盘与块协议 IPC 适配（`ipc` feature）
-│   ├── hk-vfs/                VFS 核心与 Server：路径、挂载表、dentry/LRU 页缓存、句柄与偏移、tmpfs/devfs/procfs、字节 IPC 协议
-│   ├── hk-fs-ext4/            ext4 后端（rsext4）
-│   ├── hk-fs-holyfs/          HolyFS v1：Document/Revision/Collection、COW 元数据树、VFS 适配
-│   ├── hk-fs-tmpfs/           tmpfs 后端（规划）
-│   ├── hk-fs-devfs/           devfs 后端（规划）
-│   ├── hk-fs-procfs/          procfs 后端（规划）
-│   ├── hk-posix-server/       POSIX Server（规划）
-│   ├── hk-abi/                POSIX syscall shim 协议与头文件（规划）
-│   ├── hk-crt/                启动、TLS、signal trampoline、ELF 加载（规划）
-│   ├── hk-libc/               薄兼容层：HK 扩展与 ABI 胶水（规划）
-│   ├── hk-syscall/            系统调用编号与共享 ABI 常量
-│   ├── hk-server-api/         入口 ABI：调用约定、按架构的 int 0x80 / svc 入口与服务器线性堆
-│   ├── hk-shell/              HolyShell 命令解析、输出、ShellIo/ShellHost、执行循环与脚本求值
-│   ├── hk-server-build/       服务镜像链接配置（构建期生成链接脚本）
-│   ├── third_party/musl/      musl 移植（兼容环境主 C libc）（规划）
-│   ├── hk-net/                smoltcp 协议栈核心、Frame 队列 PHY、原生 UDP
-│   ├── hk-network/            Network Server（规划）
-│   ├── hk-display/            Display Server（规划）
-│   ├── hk-holydoc/            HolyDoc Server（规划）
-│   ├── hk-sim/                确定性模拟、故障注入
-│   └── hk-test/               测试支撑、QEMU 退出协议
-├── platforms/
-│   ├── x86_64-qemu/
-│   ├── aarch64-qemu/
-│   ├── riscv64-qemu/
-│   └── hosted/
-├── servers/                   服务清单与根文件系统镜像
-├── docs/
-└── tools/
+│   ├── 内核 ABI 与对象    hk-syscall hk-hal hk-handle hk-ipc hk-mem hk-kernel
+│   ├── 内核库             hk-boot hk-acpi hk-framebuffer hk-smp hk-test hk-drivers
+│   ├── 用户态库           hk-server-api hk-block hk-net hk-vfs hk-fs-ext4
+│   │                      hk-fs-holyfs hk-driver-virtio hk-server-build
+│   ├── 装配层             hk-root-server hk-platform-x86_64 hk-platform-hosted
+│   └── 独立/工具          hk-shell（零依赖） hk-sim
+├── platforms/             x86_64-qemu、hosted
+├── servers/               用户态服务与自检客户端
+├── scripts/               随镜像打包的 HolyShell 脚本
+└── docs/
 ```
+
+完整 crate 清单、分层与规则见 [Crate 分层](crates.md)。
 
 规则：
 
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
 - 内核与服务堆使用可回收分配器（`linked_list_allocator`）；服务堆按需从 Arena 初始化，内核堆使用静态区间。
 - 大块协议缓冲放在堆上，服务栈只保留小对象；IPC 单消息上限 64 KiB。
-- 内核 crate 只依赖 `hk-hal` 与内核对象 crate；服务器通过 IPC 与 Handle 交互。
+- 内核 crate 只依赖 `hk-hal` 与内核对象 crate；服务器通过 IPC 与 Handle 交互；规则由 `cargo xtask deps` 强制。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
 - 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。
 - libc 提供 C ABI；内核与服务器使用 Rust。
@@ -90,12 +56,13 @@ cargo xtask image --target x86_64-qemu
 cargo xtask run   --target x86_64-qemu
 cargo xtask smoke --target x86_64-qemu
 cargo xtask test  --target hosted
-cargo xtask test-posix --target x86_64-qemu
-cargo xtask bench --target hosted
 cargo xtask docs
+cargo xtask deps
 cargo xtask lint
 cargo xtask budget
 ```
+
+当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像。
 
@@ -109,6 +76,7 @@ cargo xtask budget
 | --- | --- |
 | `fmt` | `cargo fmt --check` |
 | `clippy` | `cargo clippy -- -D warnings` |
+| `deps` | `cargo xtask deps`：crate 依赖方向 |
 | `host-test` | Hosted 单元测试 + 属性测试 |
 | `build-matrix` | x86_64 / AArch64 / Hosted |
 | `qemu-smoke` | 启动到 HolyShell |

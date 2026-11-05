@@ -5,6 +5,8 @@ use crate::failure::Result;
 
 /// 运行 `rustfmt` 检查与 `clippy`。
 pub fn run() -> Result<()> {
+    crate::deps::run()?;
+
     let mut format = cargo::command();
     format.args(["fmt", "--all", "--check"]);
     cargo::run(format)?;

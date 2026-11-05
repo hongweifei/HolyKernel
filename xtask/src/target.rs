@@ -46,23 +46,6 @@ static KERNEL_PACKAGES: [&str; 7] = [
     "hk-root-server",
     "hk-test",
 ];
-static X86_64_PACKAGES: [&str; 15] = [
-    "hk-hal",
-    "hk-handle",
-    "hk-ipc",
-    "hk-mem",
-    "hk-kernel",
-    "hk-root-server",
-    "hk-server-api",
-    "hk-server-demo",
-    "hk-server-block",
-    "hk-server-netstat",
-    "hk-server-netsock",
-    "hk-server-console",
-    "hk-server-console-test",
-    "hk-test",
-    "hk-x86_64",
-];
 
 /// 单个构建目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,11 +69,15 @@ impl Target {
     }
 
     /// 返回该目标构建的包集合。
-    pub const fn packages(self) -> &'static [&'static str] {
+    pub fn packages(self) -> Vec<&'static str> {
         match self {
-            Self::Hosted => &HOSTED_PACKAGES,
-            Self::X86_64Qemu => &X86_64_PACKAGES,
-            Self::Aarch64Qemu => &KERNEL_PACKAGES,
+            Self::Hosted => HOSTED_PACKAGES.to_vec(),
+            Self::X86_64Qemu => {
+                let mut packages = vec!["hk-x86_64"];
+                packages.extend_from_slice(crate::catalog::SERVERS);
+                packages
+            }
+            Self::Aarch64Qemu => KERNEL_PACKAGES.to_vec(),
         }
     }
 

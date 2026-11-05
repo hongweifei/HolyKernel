@@ -10,9 +10,6 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-
-#[cfg(target_os = "none")]
 use hk_block::ipc::serve;
 #[cfg(target_os = "none")]
 use hk_block::{MemoryDisk, SECTOR_SIZE};
@@ -42,15 +39,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-block 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

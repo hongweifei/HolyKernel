@@ -19,9 +19,10 @@
 13. [HolyDoc 与 UI](ui.md) — 可选原生显示服务与真彩界面。
 14. [Holy 原生体验](experience.md) — Workbench、Toolchain、Checkpoint、符号化调试。
 15. [平台与启动](platforms.md) — HAL、BootInfo、多架构启动、用户态驱动。
-16. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
-17. [路线图](roadmap.md) — M0–M11 与退出标准。
-18. [术语表](glossary.md) — 微内核与 POSIX 术语。
+16. [Crate 分层](crates.md) — 工作区 crate 清单、依赖方向与新增服务清单。
+17. [工程策略](engineering.md) — 构建、CI、测试、可观测性、`unsafe`。
+18. [路线图](roadmap.md) — M0–M11 与退出标准。
+19. [术语表](glossary.md) — 微内核与 POSIX 术语。
 
 ## 文档地图
 
@@ -43,6 +44,7 @@ docs/
 ├── ui.md                HolyDoc 与真彩 Display Server
 ├── experience.md        Workbench、Toolchain、Checkpoint、符号化调试
 ├── platforms.md         HAL、BootInfo、多架构启动
+├── crates.md            工作区 crate 分层、依赖规则、服务清单
 ├── engineering.md       构建、CI、测试、可观测性、安全策略
 ├── roadmap.md           里程碑、退出标准、风险
 ├── glossary.md          微内核与 POSIX 术语
@@ -70,7 +72,7 @@ docs/
 - **待定**：待决策，以 `TBD` 标注，并链接到待写 ADR。
 - **架构边界**：章程明确的微内核构件集合。
 
-架构文档为**设计中**，代码随里程碑落地。`v0.1.0` 已交付 M0 脚手架与 M1 Hosted 微内核。
+架构文档为**设计中**，代码随里程碑落地。`v0.1.0` 已交付 M0–M5，M6 原生 UI 进行中。
 
 ## 约定
 

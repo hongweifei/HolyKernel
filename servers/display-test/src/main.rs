@@ -4,23 +4,18 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
     DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, unpack_key,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    exit, frame_alloc, recv, send, send_handle, service_endpoint, write, write_u64, yield_now,
-};
+use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
 
 /// 两个窗口表面的地址间隔。
 #[cfg(target_os = "none")]
 const SURFACE_STRIDE: u64 = 0x10_0000;
 /// 等待显示服务出现的重试次数。
 #[cfg(target_os = "none")]
-const WAIT_ATTEMPTS: usize = 4096;
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -135,25 +130,7 @@ fn create_window(
 
 #[cfg(target_os = "none")]
 fn wait_display() -> u64 {
-    for _ in 0..WAIT_ATTEMPTS {
-        let endpoint = service_endpoint(hk_server_api::DISPLAY_SERVICE);
-        if endpoint != 0 {
-            return endpoint;
-        }
-        let _ = yield_now();
-    }
-    0
+    hk_server_api::runtime::wait_service(hk_server_api::DISPLAY_SERVICE).unwrap_or(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-display-test 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

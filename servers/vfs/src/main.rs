@@ -12,8 +12,6 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
 use alloc::vec;
-#[cfg(target_os = "none")]
-use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
 use hk_block::ipc::{ClientDisk, register_client_frame, unregister_client_frame};
@@ -452,15 +450,4 @@ fn status(error: VfsError) -> u8 {
     }
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-vfs 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

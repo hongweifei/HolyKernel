@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
@@ -319,15 +317,4 @@ fn verify_arena() -> bool {
     buffer.iter().all(|&byte| byte == 0xA5)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-demo 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY,
     DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key, unpack_size,
@@ -734,15 +732,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-display 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

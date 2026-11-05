@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::{handle_count, notify, recv_handle, reply, send, write, write_u64};
 
 /// 通知请求标签。
@@ -68,15 +66,4 @@ fn write_request(word: u64) {
     write(&buffer[..=end]);
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-echo 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

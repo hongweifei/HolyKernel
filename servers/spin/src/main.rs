@@ -9,8 +9,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::{close_handle, exit, handle_count, ticks, write, write_u64};
 
 /// 忙等的调度 tick 数。
@@ -42,15 +40,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-spin 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

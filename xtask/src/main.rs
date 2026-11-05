@@ -13,6 +13,8 @@
 mod budget;
 mod build;
 mod cargo;
+mod catalog;
+mod deps;
 mod docs;
 mod failure;
 mod image;
@@ -52,6 +54,8 @@ enum Task {
     Smoke(SmokeArguments),
     /// 运行格式与静态检查
     Lint,
+    /// 检查 crate 依赖方向
+    Deps,
     /// 生成 rustdoc 并校验文档
     Docs,
     /// 统计内核代码行数
@@ -130,6 +134,7 @@ fn execute(task: Task) -> Result<()> {
         Task::Test(arguments) => test::run(arguments.target),
         Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
         Task::Lint => lint::run(),
+        Task::Deps => deps::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
     }

@@ -6,7 +6,7 @@
 
 pub use hk_syscall::{CONSOLE_NOTIFY_INPUT, CONSOLE_NOTIFY_MESSAGE};
 
-use crate::{notify, recv_data_from, send, send_data, service_endpoint, yield_now};
+use crate::{notify, recv_data_from, send, send_data};
 
 /// 写文本（UTF-8）；载荷为文本。
 pub const CONSOLE_WRITE: u64 = 0x900;
@@ -29,14 +29,8 @@ pub struct Client {
 impl Client {
     /// 等待 Console 服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        for _ in 0..4096 {
-            let console = service_endpoint("hk-server-console");
-            if console != 0 {
-                return Some(Self { endpoint, console });
-            }
-            let _ = yield_now();
-        }
-        None
+        let console = crate::runtime::wait_service("hk-server-console")?;
+        Some(Self { endpoint, console })
     }
 
     /// 写入文本。

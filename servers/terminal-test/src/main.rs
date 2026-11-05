@@ -3,21 +3,16 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::console::{
     CONSOLE_READ_LINE, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    exit, recv_data_from, recv_data_try, send, send_data, service_endpoint, write, yield_now,
-};
+use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, write, yield_now};
 
 /// 等待服务出现的重试次数。
 #[cfg(target_os = "none")]
-const WAIT_ATTEMPTS: usize = 4096;
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -76,25 +71,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn wait_for(name: &str) -> u64 {
-    for _ in 0..WAIT_ATTEMPTS {
-        let endpoint = service_endpoint(name);
-        if endpoint != 0 {
-            return endpoint;
-        }
-        let _ = yield_now();
-    }
-    0
+    hk_server_api::runtime::wait_service(name).unwrap_or(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-terminal-test 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

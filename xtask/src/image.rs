@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cargo;
+use crate::catalog::{SCRIPT_MODULES, SERVERS};
 use crate::failure::{Failure, Result};
 use crate::target::{Selection, Target};
 use crate::workspace;
@@ -12,13 +13,13 @@ use crate::workspace;
 /// Limine 安装目录的默认位置。
 const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
-const LIMINE_CONFIG: &str = "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n    module_path: boot():/boot/hk-server-demo\n    module_path: boot():/boot/hk-server-echo\n    module_path: boot():/boot/hk-server-device\n    module_path: boot():/boot/hk-server-spin\n    module_path: boot():/boot/hk-server-virtio\n    module_path: boot():/boot/hk-server-vfs\n    module_path: boot():/boot/hk-server-fault\n    module_path: boot():/boot/hk-server-fork\n    module_path: boot():/boot/hk-server-latency\n    module_path: boot():/boot/hk-server-block\n    module_path: boot():/boot/hk-server-virtio-net\n    module_path: boot():/boot/hk-server-net\n    module_path: boot():/boot/hk-server-netstat\n    module_path: boot():/boot/hk-server-netsock\n    module_path: boot():/boot/hk-server-console\n    module_path: boot():/boot/hk-server-console-test\n    module_path: boot():/boot/hk-server-display\n    module_path: boot():/boot/hk-server-display-test\n    module_path: boot():/boot/hk-server-terminal-test\n    module_path: boot():/boot/hk-server-input\n    module_path: boot():/boot/hk-server-pointer-test\n";
-
-/// 随镜像打包的 HolyShell 脚本。
-const SCRIPT_MODULES: &[&str] = &["boot.hsh", "services.hsh"];
-
 fn limine_config(cmdline: Option<&str>) -> String {
-    let mut config = String::from(LIMINE_CONFIG);
+    let mut config = String::from(
+        "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n",
+    );
+    for service in SERVERS {
+        config.push_str(&format!("    module_path: boot():/boot/{service}\n"));
+    }
     for script in SCRIPT_MODULES {
         config.push_str(&format!("    module_path: boot():/boot/scripts/{script}\n"));
     }
@@ -47,49 +48,10 @@ fn build_kernel(release: bool) -> Result<()> {
         "x86_64-unknown-none",
         "-p",
         "hk-x86_64",
-        "-p",
-        "hk-server-demo",
-        "-p",
-        "hk-server-echo",
-        "-p",
-        "hk-server-device",
-        "-p",
-        "hk-server-spin",
-        "-p",
-        "hk-server-virtio",
-        "-p",
-        "hk-server-vfs",
-        "-p",
-        "hk-server-fault",
-        "-p",
-        "hk-server-fork",
-        "-p",
-        "hk-server-latency",
-        "-p",
-        "hk-server-block",
-        "-p",
-        "hk-server-virtio-net",
-        "-p",
-        "hk-server-net",
-        "-p",
-        "hk-server-netstat",
-        "-p",
-        "hk-server-netsock",
-        "-p",
-        "hk-server-console",
-        "-p",
-        "hk-server-console-test",
-        "-p",
-        "hk-server-display",
-        "-p",
-        "hk-server-display-test",
-        "-p",
-        "hk-server-terminal-test",
-        "-p",
-        "hk-server-input",
-        "-p",
-        "hk-server-pointer-test",
     ]);
+    for service in SERVERS {
+        command.args(["-p", service]);
+    }
     if release {
         command.arg("--release");
     }
@@ -126,90 +88,9 @@ fn build_iso(release: bool, cmdline: Option<&str>) -> Result<PathBuf> {
 
     let limine = limine_dir();
     copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
-    copy(
-        &binary_path("hk-server-demo", release),
-        &boot.join("hk-server-demo"),
-    )?;
-    copy(
-        &binary_path("hk-server-echo", release),
-        &boot.join("hk-server-echo"),
-    )?;
-    copy(
-        &binary_path("hk-server-device", release),
-        &boot.join("hk-server-device"),
-    )?;
-    copy(
-        &binary_path("hk-server-spin", release),
-        &boot.join("hk-server-spin"),
-    )?;
-    copy(
-        &binary_path("hk-server-virtio", release),
-        &boot.join("hk-server-virtio"),
-    )?;
-    copy(
-        &binary_path("hk-server-vfs", release),
-        &boot.join("hk-server-vfs"),
-    )?;
-    copy(
-        &binary_path("hk-server-fault", release),
-        &boot.join("hk-server-fault"),
-    )?;
-    copy(
-        &binary_path("hk-server-fork", release),
-        &boot.join("hk-server-fork"),
-    )?;
-    copy(
-        &binary_path("hk-server-latency", release),
-        &boot.join("hk-server-latency"),
-    )?;
-    copy(
-        &binary_path("hk-server-block", release),
-        &boot.join("hk-server-block"),
-    )?;
-    copy(
-        &binary_path("hk-server-virtio-net", release),
-        &boot.join("hk-server-virtio-net"),
-    )?;
-    copy(
-        &binary_path("hk-server-net", release),
-        &boot.join("hk-server-net"),
-    )?;
-    copy(
-        &binary_path("hk-server-netstat", release),
-        &boot.join("hk-server-netstat"),
-    )?;
-    copy(
-        &binary_path("hk-server-netsock", release),
-        &boot.join("hk-server-netsock"),
-    )?;
-    copy(
-        &binary_path("hk-server-console", release),
-        &boot.join("hk-server-console"),
-    )?;
-    copy(
-        &binary_path("hk-server-console-test", release),
-        &boot.join("hk-server-console-test"),
-    )?;
-    copy(
-        &binary_path("hk-server-display", release),
-        &boot.join("hk-server-display"),
-    )?;
-    copy(
-        &binary_path("hk-server-display-test", release),
-        &boot.join("hk-server-display-test"),
-    )?;
-    copy(
-        &binary_path("hk-server-terminal-test", release),
-        &boot.join("hk-server-terminal-test"),
-    )?;
-    copy(
-        &binary_path("hk-server-input", release),
-        &boot.join("hk-server-input"),
-    )?;
-    copy(
-        &binary_path("hk-server-pointer-test", release),
-        &boot.join("hk-server-pointer-test"),
-    )?;
+    for service in SERVERS {
+        copy(&binary_path(service, release), &boot.join(service))?;
+    }
     for script in SCRIPT_MODULES {
         copy(&root.join("scripts").join(script), &scripts.join(script))?;
     }

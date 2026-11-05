@@ -1,0 +1,77 @@
+# Crate 分层与依赖规则
+
+状态：**现行** · 上级：[总体架构](architecture.md) · 相关：[工程策略](engineering.md)
+
+本文是工作区 crate 的权威清单与依赖规则。规则由 `cargo xtask deps` 自动检查，并接入 `cargo xtask lint` 与 CI。
+
+---
+
+## 1. 分层
+
+| 层 | crate | 职责 |
+| --- | --- | --- |
+| L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
+| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出 |
+| L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
+| L3 服务 | `servers/*` | 用户态驱动、文件系统、网络、Console、Display、Input 与自检客户端 |
+| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、用户运行时、平台实现、镜像与测试工具 |
+| 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
+
+`hk-shell` 必须保持零依赖；用户态命令通过 `ShellHost::extension` 交给宿主，不以任何形式引入内核或服务实现。
+
+---
+
+## 2. 依赖规则
+
+| crate 类别 | 允许 | 禁止 |
+| --- | --- | --- |
+| L0 内核 crate | `hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
+| L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
+| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-root-server`、`hk-platform-*`、其他服务 |
+| L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
+| L3 服务 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
+| `hk-shell` | 无 | 任何依赖 |
+
+服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
+
+---
+
+## 3. 单一事实来源
+
+| 内容 | 位置 |
+| --- | --- |
+| 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
+| 服务客户端与编解码 | `crates/hk-server-api/src/*` |
+| 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
+| 默认启动服务白名单 | `crates/hk-root-server/src/loader.rs` |
+| 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` |
+| 平台启动特性 | 启动命令行 token（见各平台 loader） |
+
+新增服务时只需要改 `catalog.rs`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
+
+---
+
+## 4. 新增服务清单
+
+1. `servers/<name>/Cargo.toml`：只依赖 `hk-server-api` 与所需 L2 库；`[build-dependencies] hk-server-build`。
+2. `build.rs`：`hk_server_build::configure(<独立链接基址>)`。
+3. `src/main.rs`：
+   - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
+   - 实现 `_start(endpoint)`；
+   - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
+   - 服务发现使用 `hk_server_api::runtime::wait_service`。
+4. 加入 `xtask/src/catalog.rs` 的 `SERVERS`。
+5. 如需默认启动，加入 `hk-root-server` 的 `BOOT_SERVICES`，并在平台 loader 的模式过滤中处理。
+6. 协议与常量放入 `hk-server-api`，不放入内核或 `hk-shell`。
+7. 为可自动验证的行为新增 `xtask smoke` 模式。
+
+---
+
+## 5. 检查
+
+```sh
+cargo xtask deps   # 依赖方向
+cargo xtask lint   # deps + fmt + clippy
+```
+
+CI 的 `deps` 任务与 `clippy` 并行执行；违反规则时列出 crate、依赖与清单路径。

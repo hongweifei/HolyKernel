@@ -8,8 +8,6 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 use alloc::string::ToString;
-#[cfg(target_os = "none")]
-use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
 use hk_driver_virtio::{Device, Network, probe, register_frame};
@@ -314,28 +312,4 @@ fn write_hex(value: u8) {
     write(&buffer);
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    write("hk-server-virtio-net: panic ".as_bytes());
-    let _ = core::fmt::Write::write_fmt(&mut Writer, format_args!("{info}\n"));
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(target_os = "none")]
-struct Writer;
-
-#[cfg(target_os = "none")]
-impl core::fmt::Write for Writer {
-    fn write_str(&mut self, text: &str) -> core::fmt::Result {
-        write(text.as_bytes());
-        Ok(())
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-virtio-net 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

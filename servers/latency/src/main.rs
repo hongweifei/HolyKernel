@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::{ENDPOINT_ECHO, call, exit, tsc, tsc_frequency, write, write_u64};
 
 /// 测量轮数。
@@ -53,15 +51,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(if failures == 0 { 0 } else { 1 })
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-latency 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

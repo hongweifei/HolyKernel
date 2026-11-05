@@ -6,8 +6,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::socket::{Client, SocketKind};
 #[cfg(target_os = "none")]
 use hk_server_api::{boot_cmdline, exit, tsc, tsc_frequency, write, yield_now};
@@ -136,15 +134,4 @@ fn now_ms() -> u64 {
     tsc().saturating_mul(1_000) / frequency
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-netsock 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

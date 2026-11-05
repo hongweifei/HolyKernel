@@ -1,6 +1,6 @@
 [package]
 name = "hk-server-api"
-description = "HolyKernel 服务器与内核之间的入口 ABI"
+description = "HolyKernel 服务协议、客户端与运行时辅助"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

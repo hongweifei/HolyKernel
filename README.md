@@ -6,7 +6,9 @@ HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程
 
 系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server 统一管理 POSIX 兼容环境的挂载表与文件句柄；HolyFS 是 HolyKernel 的原生文件系统，以卷与 `H:` 盘符提供文档；HolyDoc 与真彩 UI 作为可选原生服务。
 
-当前状态：**v0.1.0**。M0 脚手架与 M1 Hosted 微内核已落地：Cargo workspace、`xtask`、CI、HAL、句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真。x86_64 启动从 M2 开始。后续顺序调整为 **M5 网络 → M6 原生 UI → M7/M8 POSIX 兼容层**。
+当前状态：**v0.1.0**，按 M0→M6 推进。M0–M5 已交付：workspace/`xtask`/CI、Hosted 微内核、x86_64 启动、句柄与内存、驱动与 VFS（ext4/HolyFS）、DHCP/DNS/socket 网络。M6 原生 UI 进行中：Display 窗口与合成、Console 图形终端、用户态 virtio-input 与指针。后续为 **M7/M8 POSIX 兼容层**。
+
+代码组织与依赖方向见 [Crate 分层](docs/crates.md)；`cargo xtask deps`（已接入 `lint` 与 CI）自动校验。
 
 ---
 

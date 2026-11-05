@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::{exit, fork, write, write_u64};
 
 /// 服务入口：分叉后分别写入栈变量并输出。
@@ -36,15 +34,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-fork 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

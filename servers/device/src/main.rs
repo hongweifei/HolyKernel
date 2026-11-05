@@ -7,8 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_drivers::grant::{DEVICE_GRANT_BYTES, DeviceGrant, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
@@ -258,15 +256,4 @@ fn write_hex(value: u32, digits: usize) {
     write(&buffer[..digits]);
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-device 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

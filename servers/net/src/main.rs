@@ -11,8 +11,6 @@ use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
 use core::net::Ipv4Addr;
-#[cfg(target_os = "none")]
-use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
 use hk_net::{DnsQueryType, IpAddress, SocketId, Stack};
@@ -973,25 +971,7 @@ fn now_ms() -> u64 {
 
 #[cfg(target_os = "none")]
 fn wait_driver() -> u64 {
-    for _ in 0..4096 {
-        let endpoint = service_endpoint("hk-server-virtio-net");
-        if endpoint != 0 {
-            return endpoint;
-        }
-        let _ = yield_now();
-    }
-    0
+    hk_server_api::runtime::wait_service("hk-server-virtio-net").unwrap_or(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-net 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();

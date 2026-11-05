@@ -7,19 +7,16 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use core::panic::PanicInfo;
-#[cfg(target_os = "none")]
 use hk_server_api::net::{
     ArpTable, NET_ARP_BYTES, NET_ARP_REQUEST, NET_ARP_RESPONSE, NET_CONFIG_BYTES,
     NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_STATUS_BYTES, NET_STATUS_REQUEST,
     NET_STATUS_RESPONSE, NetConfig, NetStatus,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_from, send, service_endpoint, write, write_u64, yield_now};
+use hk_server_api::{exit, recv_data_from, send, write, write_u64};
 
 /// 等待 Network Server 出现的重试次数。
 #[cfg(target_os = "none")]
-const WAIT_ATTEMPTS: usize = 4096;
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -207,25 +204,7 @@ fn write_hex(byte: u8) {
 
 #[cfg(target_os = "none")]
 fn wait_net() -> u64 {
-    for _ in 0..WAIT_ATTEMPTS {
-        let endpoint = service_endpoint("hk-server-net");
-        if endpoint != 0 {
-            return endpoint;
-        }
-        let _ = yield_now();
-    }
-    0
+    hk_server_api::runtime::wait_service("hk-server-net").unwrap_or(0)
 }
 
-#[cfg(target_os = "none")]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-#[cfg(not(target_os = "none"))]
-fn main() {
-    eprintln!("hk-server-netstat 只在 x86_64-unknown-none 目标上构建");
-}
+hk_server_api::server_boilerplate!();
