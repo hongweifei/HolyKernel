@@ -43,6 +43,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 标题栏提供最小化、最大化/还原按钮：最小化保留任务栏按钮，点击任务栏恢复；最大化铺满任务栏上方区域并保存原几何。
 - 启动 token `ui.scale=2` 将标题栏/任务栏字体与控件布局放大 2 倍，窗口内容仍由合成器按尺寸采样。
 - HolyDoc：Markdown 子集解析（标题、段落、列表、代码块、链接、`@exec`）、自动换行布局、滚动与历史返回；内置首页/架构/Crate/路线图，链接可点击跳转；Display 通过 `DISPLAY_CLICK_AT` 提供窗口内点击坐标。`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
+- Debug Server：调试窗口展示内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`r` 刷新，`q` 或关闭退出。`smoke --mode debug` 验证统计读取与渲染。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。

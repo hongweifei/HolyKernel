@@ -192,7 +192,7 @@ flowchart LR
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：Markdown 子集解析、自动换行布局、内置文档与链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。
 - 原生欢迎页与文档浏览。
-- Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。
+- Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地最小窗口：内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`smoke --mode debug` 验证。
 - 服务器热重启与应用热替换原型。
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
