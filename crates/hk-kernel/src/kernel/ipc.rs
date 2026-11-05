@@ -97,10 +97,14 @@ impl Kernel {
             expected: ObjectKind::Endpoint,
         })?;
 
-        match endpoint.recv_from(
-            Waiter::new(thread.get()),
-            expected.map(|tcb| Waiter::new(tcb.get())),
-        ) {
+        let expected = expected.map(|tcb| Waiter::new(tcb.get()));
+        // 非阻塞路径不能登记等待者，否则会在端点里留下悬挂的接收者。
+        let received = if block_when_empty {
+            endpoint.recv_from(Waiter::new(thread.get()), expected)
+        } else {
+            endpoint.try_recv_from(expected)
+        };
+        match received {
             Some((sender, message)) => {
                 let sender = TcbId::new(sender.get());
                 let reply = self.reply_token(sender, endpoint_id);
@@ -116,13 +120,17 @@ impl Kernel {
                 }))
             }
             None => {
-                if block_when_empty {
-                    self.block(
+                if block_when_empty
+                    && let Err(error) = self.block(
                         thread,
                         BlockReason::Recv {
                             endpoint: endpoint_id,
                         },
-                    )?;
+                    )
+                {
+                    // 阻塞失败时撤销刚登记的接收者，避免悬挂等待。
+                    endpoint.cancel_receiver(Waiter::new(thread.get()));
+                    return Err(error);
                 }
                 self.record(thread.get(), Category::Ipc, TRACE_RECV, endpoint_id.get());
                 Ok(None)

@@ -132,8 +132,6 @@ core::arch::global_asm!(
     "    push r14",
     "    push r15",
     "    mov gs:[0], rsp",
-    "    lea rax, [rip + hk_user_return]",
-    "    mov gs:[8], rax",
     "    mov rbx, rdi",
     "    mov ax, 0x2b",
     "    mov ds, ax",
@@ -174,6 +172,7 @@ core::arch::global_asm!(
     ".global hk_leave_user",
     "hk_leave_user:",
     "    mov rsp, gs:[0]",
-    "    mov rax, gs:[8]",
+    // 返回标签是固定的，直接用 RIP 相对地址，避免依赖可能被清零的 gs:[8]。
+    "    lea rax, [rip + hk_user_return]",
     "    jmp rax",
 );

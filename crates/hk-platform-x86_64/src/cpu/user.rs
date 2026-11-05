@@ -1,6 +1,5 @@
 //! 用户态现场、异常处理与恢复。
 
-use alloc::string::String;
 use core::arch::asm;
 use core::fmt::Write;
 
@@ -155,9 +154,18 @@ unsafe extern "C" {
     fn hk_leave_user() -> !;
 }
 
+/// 直接写串口的格式化器：异常报告不依赖堆分配。
+struct DirectWriter(Serial);
+
+impl core::fmt::Write for DirectWriter {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        self.0.write_str(text);
+        Ok(())
+    }
+}
+
 pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
-    let console = Serial::new(COM1);
-    let mut report = String::new();
+    let mut report = DirectWriter(Serial::new(COM1));
 
     let _ = writeln!(
         report,
@@ -203,6 +211,5 @@ pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
         frame.r12, frame.r13, frame.r14, frame.r15
     );
 
-    console.write_str(&report);
     hk_test::exit(hk_test::ExitCode::Failure(70))
 }

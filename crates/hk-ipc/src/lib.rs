@@ -209,6 +209,20 @@ impl Endpoint {
         None
     }
 
+    /// 非阻塞接收：没有待取消息时直接返回 `None`，不登记等待者。
+    pub fn try_recv_from(&self, expected: Option<Waiter>) -> Option<(Waiter, Message)> {
+        let mut state = self.state.lock();
+        let index = match expected {
+            None => (!state.senders.is_empty()).then_some(0),
+            Some(expected) => state
+                .senders
+                .iter()
+                .position(|pending| pending.sender == expected),
+        }?;
+        let pending = state.senders.remove(index)?;
+        Some((pending.sender, pending.message))
+    }
+
     /// 撤销发送者的排队消息，用于超时与取消。
     pub fn cancel_sender(&self, sender: Waiter) -> bool {
         let mut state = self.state.lock();
@@ -444,6 +458,23 @@ mod tests {
 
         notification.clear(0b100);
         assert_eq!(notification.pending(), 0);
+    }
+
+    #[test]
+    fn try_receive_does_not_register_waiter() {
+        let endpoint = Endpoint::new();
+        assert!(endpoint.try_recv_from(Some(waiter(1))).is_none());
+        assert_eq!(endpoint.waiting_receivers(), 0);
+
+        assert!(endpoint.recv_from(waiter(1), None).is_none());
+        assert_eq!(endpoint.waiting_receivers(), 1);
+
+        // 反复非阻塞轮询不得累积等待者（否则会长期撑大内核堆）。
+        let endpoint = Endpoint::new();
+        for _ in 0..256 {
+            assert!(endpoint.try_recv_from(None).is_none());
+        }
+        assert_eq!(endpoint.waiting_receivers(), 0);
     }
 
     #[test]

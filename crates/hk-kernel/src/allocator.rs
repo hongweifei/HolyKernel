@@ -103,12 +103,30 @@ unsafe impl<const N: usize> GlobalAlloc for FreeHeap<N> {
                 heap.init(self.data.get() as *mut u8, N);
             }
         }
-        heap.allocate_first_fit(layout)
-            .map_or(core::ptr::null_mut(), |pointer| pointer.as_ptr())
+        let pointer = heap
+            .allocate_first_fit(layout)
+            .map_or(core::ptr::null_mut(), |pointer| pointer.as_ptr());
+        if !pointer.is_null() {
+            let base = self.data.get() as usize;
+            let start = pointer as usize;
+            let end = start.saturating_add(layout.size());
+            assert!(
+                start >= base && end <= base + N,
+                "内核堆越界分配：{start:#x}..{end:#x}"
+            );
+        }
+        pointer
     }
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         if let Some(pointer) = NonNull::new(pointer) {
+            let base = self.data.get() as usize;
+            let start = pointer.as_ptr() as usize;
+            let end = start.saturating_add(layout.size());
+            assert!(
+                start >= base && end <= base + N,
+                "内核堆越界释放：{start:#x}..{end:#x}"
+            );
             // SAFETY: 指针来自本分配器，layout 与分配时一致。
             unsafe {
                 self.heap.lock().deallocate(pointer, layout);
