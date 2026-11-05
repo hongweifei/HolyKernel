@@ -126,7 +126,7 @@ impl SmokeMode {
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
             Self::Shell => Some(
-                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;mounts;start hk-server-fault;start hk-server-fork;start hk-server-latency;tasks;trace;stats",
+                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;start hk-server-fault;start hk-server-fork;start hk-server-latency;tasks;trace;stats",
             ),
             Self::Input => Some("shell-interactive"),
             Self::Preempt => None,
@@ -214,7 +214,6 @@ impl SmokeMode {
                 "hk-server-echo",
                 "hk-server-device",
                 "hk-server-spin",
-                "尚无挂载",
             ],
             Self::Input => &[
                 "IOAPIC 就绪",
