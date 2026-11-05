@@ -3,9 +3,12 @@
 use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_frame, unregister_client_frame};
-use hk_fs::{DocId, HandleRights, RevisionId, Token, TokenTable};
+use hk_fs::{
+    DocId, Error, HandleRights, RevisionId, Token, TokenTable, VolumeId, VolumeTokenTable,
+};
 use hk_server_api::vfs::{
-    STATUS_NOT_FOUND, STATUS_STALE, VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE,
+    STATUS_ERROR, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE, VFS_SERVER_FRAME_BASE,
+    VFS_SERVER_FRAME_STRIDE,
 };
 use hk_server_api::{close_handle, frame_map, frame_unmap};
 use hk_vfs::{FileHandle, Vfs};
@@ -66,6 +69,76 @@ impl DocSession {
     }
 }
 
+/// 卷级令牌表。
+#[cfg(target_os = "none")]
+pub(crate) struct VolumeSession {
+    table: VolumeTokenTable,
+}
+
+#[cfg(target_os = "none")]
+impl VolumeSession {
+    const fn new() -> Self {
+        Self {
+            table: VolumeTokenTable::new(),
+        }
+    }
+
+    pub(crate) fn acquire(&mut self, volume: VolumeId, epoch: u64, rights: u32) -> u64 {
+        self.table
+            .acquire(volume, epoch, HandleRights::from_bits(rights))
+    }
+
+    pub(crate) fn check(
+        &self,
+        token: u64,
+        volume: VolumeId,
+        epoch: u64,
+        rights: u32,
+    ) -> Result<(), u8> {
+        let entry = self
+            .table
+            .get(token, volume, epoch)
+            .map_err(volume_status)?;
+        if !entry.rights.contains(HandleRights::from_bits(rights)) {
+            return Err(STATUS_PERMISSION);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn grant(
+        &mut self,
+        token: u64,
+        rights: u32,
+        volume: VolumeId,
+        epoch: u64,
+    ) -> Result<u64, u8> {
+        self.table
+            .grant(token, HandleRights::from_bits(rights), volume, epoch)
+            .map_err(volume_status)
+    }
+
+    pub(crate) fn release(&mut self, token: u64, volume: VolumeId, epoch: u64) -> Result<(), u8> {
+        self.table
+            .get(token, volume, epoch)
+            .map_err(volume_status)?;
+        if self.table.revoke(token) {
+            Ok(())
+        } else {
+            Err(STATUS_NOT_FOUND)
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
+fn volume_status(error: Error) -> u8 {
+    match error {
+        Error::NotFound => STATUS_NOT_FOUND,
+        Error::Stale => STATUS_STALE,
+        Error::Refused => STATUS_PERMISSION,
+        _ => STATUS_ERROR,
+    }
+}
+
 #[cfg(target_os = "none")]
 pub(crate) struct Session {
     handles: BTreeMap<u64, FileHandle>,
@@ -101,6 +174,7 @@ impl Session {
 pub(crate) struct Sessions {
     clients: BTreeMap<u64, Session>,
     documents: BTreeMap<u64, DocSession>,
+    volumes: BTreeMap<u64, VolumeSession>,
     frames: BTreeMap<u64, (u64, usize, u64)>,
     next_frame: usize,
 }
@@ -111,6 +185,7 @@ impl Sessions {
         Self {
             clients: BTreeMap::new(),
             documents: BTreeMap::new(),
+            volumes: BTreeMap::new(),
             frames: BTreeMap::new(),
             next_frame: 0,
         }
@@ -122,6 +197,12 @@ impl Sessions {
 
     pub(crate) fn doc(&mut self, sender: u64) -> &mut DocSession {
         self.documents.entry(sender).or_insert_with(DocSession::new)
+    }
+
+    pub(crate) fn volume(&mut self, sender: u64) -> &mut VolumeSession {
+        self.volumes
+            .entry(sender)
+            .or_insert_with(VolumeSession::new)
     }
 
     pub(crate) fn transfer(&mut self, from: u64, to: u64, token: u64) -> Result<u64, u8> {
@@ -174,6 +255,7 @@ impl Sessions {
             }
         }
         self.documents.remove(&sender);
+        self.volumes.remove(&sender);
     }
 
     pub(crate) fn invalidate_documents(&mut self) {

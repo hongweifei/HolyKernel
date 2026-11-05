@@ -6,17 +6,18 @@ use crate::vfs::{
 use crate::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
-    DocumentView, decode_doc_id, decode_document, decode_revision_id, decode_token, decode_u32,
-    decode_u64, kind_code,
+    DocumentView, VolumeView, decode_doc_id, decode_document, decode_revision_id, decode_token,
+    decode_u32, decode_u64, decode_volume, kind_code,
 };
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
-    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_CREATE, OP_CREATE_TAG,
-    OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
-    OP_FORGET, OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_RESTORE,
-    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
+    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_CREATE,
+    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE,
+    OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_TOKEN,
+    OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID,
+    OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
     OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -153,27 +154,58 @@ impl HolyClient {
         self.exchange(OP_SYNC, "", 0, 0, &[]).map(|_| ())
     }
 
+    /// 查询卷视图。
+    pub fn volume(&mut self) -> Result<VolumeView, u8> {
+        let length = self.exchange(OP_VOLUME, "", 0, 0, &[])?;
+        decode_volume(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 获取卷级令牌。
+    pub fn acquire_volume(&mut self, rights: u32) -> Result<u64, u8> {
+        let length = self.exchange(OP_ACQUIRE_VOLUME, "", u64::from(rights), 0, &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 释放卷级令牌。
+    pub fn release_volume(&mut self, token: u64) -> Result<(), u8> {
+        self.exchange(OP_RELEASE_VOLUME, "", token, 0, &[])
+            .map(|_| ())
+    }
+
+    /// 收窄卷级令牌权利，返回子令牌。
+    pub fn grant_volume(&mut self, token: u64, rights: u32) -> Result<u64, u8> {
+        let length = self.exchange(OP_GRANT_VOLUME, "", token, u64::from(rights), &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 撤销卷级令牌及其子令牌。
+    pub fn revoke_volume(&mut self, token: u64) -> Result<(), u8> {
+        self.exchange(OP_REVOKE_VOLUME, "", token, 0, &[])
+            .map(|_| ())
+    }
+
     /// 创建快照，返回快照编号。
-    pub fn snapshot(&mut self, name: &str) -> Result<u64, u8> {
-        let length = self.exchange(OP_SNAPSHOT, name, 0, 0, &[])?;
+    pub fn snapshot(&mut self, token: u64, name: &str) -> Result<u64, u8> {
+        let length = self.exchange(OP_SNAPSHOT, name, token, 0, &[])?;
         decode_u64(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
     }
 
     /// 枚举快照，返回编码后的快照字节数。
-    pub fn snapshots(&mut self) -> Result<&[u8], u8> {
-        let length = self.exchange(OP_SNAPSHOTS, "", 0, 0, &[])?;
+    pub fn snapshots(&mut self, token: u64) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_SNAPSHOTS, "", token, 0, &[])?;
         Ok(&self.response[3..3 + length])
     }
 
-    /// 恢复快照，返回新的卷代数。
-    pub fn restore(&mut self, snapshot: u64) -> Result<u64, u8> {
-        let length = self.exchange(OP_RESTORE, "", snapshot, 0, &[])?;
+    /// 恢复快照，返回新的提交代数。
+    pub fn restore(&mut self, token: u64, snapshot: u64) -> Result<u64, u8> {
+        let length = self.exchange(OP_RESTORE, "", token, snapshot, &[])?;
         decode_u64(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
     }
 
     /// 释放快照固定。
-    pub fn forget(&mut self, snapshot: u64) -> Result<(), u8> {
-        self.exchange(OP_FORGET, "", snapshot, 0, &[]).map(|_| ())
+    pub fn forget(&mut self, token: u64, snapshot: u64) -> Result<(), u8> {
+        self.exchange(OP_FORGET, "", token, snapshot, &[])
+            .map(|_| ())
     }
 
     /// 获取文档令牌。

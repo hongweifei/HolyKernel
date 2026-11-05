@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::error::Error;
-use crate::ids::{DocId, HandleRights, RevisionId};
+use crate::ids::{DocId, HandleRights, RevisionId, VolumeId};
 
 /// 文档令牌。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,6 +142,135 @@ impl Default for TokenTable {
     }
 }
 
+/// 卷级令牌：绑定卷身份、卷代与权利。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VolumeToken {
+    /// 目标卷。
+    pub volume: VolumeId,
+    /// 签发时的卷代；恢复会推进卷代。
+    pub generation: u64,
+    /// 权利。
+    pub rights: HandleRights,
+    parent: Option<u64>,
+}
+
+/// 按会话维护的卷级令牌表。
+pub struct VolumeTokenTable {
+    tokens: BTreeMap<u64, VolumeToken>,
+    next: u64,
+}
+
+impl VolumeTokenTable {
+    /// 构造空表。
+    pub const fn new() -> Self {
+        Self {
+            tokens: BTreeMap::new(),
+            next: 1,
+        }
+    }
+
+    /// 签发卷级令牌。
+    pub fn acquire(&mut self, volume: VolumeId, generation: u64, rights: HandleRights) -> u64 {
+        let token = self.next;
+        self.next = self.next.saturating_add(1);
+        self.tokens.insert(
+            token,
+            VolumeToken {
+                volume,
+                generation,
+                rights,
+                parent: None,
+            },
+        );
+        token
+    }
+
+    /// 查询令牌；卷或卷代不一致时返回 `Stale`。
+    pub fn get(&self, token: u64, volume: VolumeId, generation: u64) -> Result<VolumeToken, Error> {
+        let entry = self.tokens.get(&token).copied().ok_or(Error::NotFound)?;
+        if entry.volume != volume || entry.generation != generation {
+            return Err(Error::Stale);
+        }
+        Ok(entry)
+    }
+
+    /// 收窄权利，签发同一卷代下的子令牌。
+    pub fn grant(
+        &mut self,
+        token: u64,
+        rights: HandleRights,
+        volume: VolumeId,
+        generation: u64,
+    ) -> Result<u64, Error> {
+        let parent = self.get(token, volume, generation)?;
+        if !parent.rights.contains(rights) {
+            return Err(Error::Refused);
+        }
+        let child = self.next;
+        self.next = self.next.saturating_add(1);
+        self.tokens.insert(
+            child,
+            VolumeToken {
+                volume: parent.volume,
+                generation: parent.generation,
+                rights,
+                parent: Some(token),
+            },
+        );
+        Ok(child)
+    }
+
+    /// 撤销令牌及其全部子令牌。
+    pub fn revoke(&mut self, token: u64) -> bool {
+        if self.tokens.remove(&token).is_none() {
+            return false;
+        }
+        let mut removed = alloc::vec![token];
+        loop {
+            let children: Vec<u64> = self
+                .tokens
+                .iter()
+                .filter(|(_, entry)| entry.parent.is_some_and(|parent| removed.contains(&parent)))
+                .map(|(id, _)| *id)
+                .collect();
+            if children.is_empty() {
+                break;
+            }
+            for child in children {
+                self.tokens.remove(&child);
+                removed.push(child);
+            }
+        }
+        true
+    }
+
+    /// 清空全部令牌，但保留编号序列。
+    pub fn clear(&mut self) {
+        self.tokens.clear();
+    }
+
+    /// 返回下一个待签发编号。
+    pub fn next_id(&self) -> u64 {
+        self.next
+    }
+
+    /// 返回令牌数量。
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    /// 判断是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+}
+
+impl Default for VolumeTokenTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +317,32 @@ mod tests {
         assert!(table.get(token).is_none());
         let next = table.acquire(document(), RevisionId::ROOT, HandleRights::READ);
         assert_ne!(next, token);
+    }
+
+    #[test]
+    fn volume_tokens_expire_on_new_generation() {
+        let volume = VolumeId::new(11);
+        let mut table = VolumeTokenTable::new();
+        let token = table.acquire(volume, 3, HandleRights::ADMIN);
+        assert_eq!(table.get(token, volume, 3).expect("有效").generation, 3);
+        assert_eq!(table.get(token, volume, 4), Err(Error::Stale));
+        assert_eq!(table.get(token, VolumeId::new(12), 3), Err(Error::Stale));
+    }
+
+    #[test]
+    fn volume_tokens_grant_and_revoke_children() {
+        let volume = VolumeId::new(11);
+        let mut table = VolumeTokenTable::new();
+        let token = table.acquire(volume, 1, HandleRights::ADMIN | HandleRights::TRANSFER);
+        let child = table
+            .grant(token, HandleRights::ADMIN, volume, 1)
+            .expect("子令牌");
+        assert_eq!(
+            table.grant(token, HandleRights::WRITE, volume, 1),
+            Err(Error::Refused)
+        );
+        assert!(table.revoke(child));
+        assert_eq!(table.get(child, volume, 1), Err(Error::NotFound));
     }
 
     #[test]

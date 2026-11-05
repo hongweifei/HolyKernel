@@ -321,6 +321,18 @@ fn snapshots_survive_remount() {
 }
 
 #[test]
+fn restore_advances_epoch_only_on_restore() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let epoch = fs.epoch();
+    let snapshot = fs.snapshot("epoch").expect("快照");
+    assert_eq!(fs.epoch(), epoch);
+    fs.sync().expect("提交");
+    assert_eq!(fs.epoch(), epoch);
+    fs.restore(snapshot).expect("恢复");
+    assert!(fs.epoch() > epoch);
+}
+
+#[test]
 fn forget_releases_snapshot() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let snapshot = fs.snapshot("temporary").expect("快照");

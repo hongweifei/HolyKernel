@@ -18,7 +18,7 @@ pub use backend::Backend;
 pub use caps::Caps;
 pub use error::Error;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
-pub use token::{Token, TokenTable};
+pub use token::{Token, TokenTable, VolumeToken, VolumeTokenTable};
 pub use types::{
     DocumentInfo, DocumentKind, EntryInfo, RevisionFlags, RevisionInfo, SnapshotInfo, TagInfo,
 };

@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use hk_block::BlockDevice;
 
 use crate::error::{HolyError, map_io};
-use crate::ids::{DocId, RevisionId};
+use crate::ids::{DocId, RevisionId, VolumeId};
 use crate::store::Store;
 use crate::superblock::{BLOCK_SIZE, SUPERBLOCK_A, SUPERBLOCK_B, Superblock};
 use crate::tree::load_tree;
@@ -43,6 +43,7 @@ pub(crate) struct Volume<D: BlockDevice> {
     next_tag: u32,
     snapshots: BTreeMap<u64, snapshot::SnapshotRecord>,
     next_snapshot: u64,
+    epoch: u64,
     dirty: bool,
 }
 
@@ -79,6 +80,7 @@ impl<D: BlockDevice> Volume<D> {
             next_tag: 1,
             snapshots: BTreeMap::new(),
             next_snapshot: 1,
+            epoch: 1,
             dirty: true,
         };
         volume.documents.insert(
@@ -192,6 +194,7 @@ impl<D: BlockDevice> Volume<D> {
             next_tag: superblock.next_tag,
             snapshots,
             next_snapshot,
+            epoch: 1,
             dirty: false,
         })
     }
@@ -206,6 +209,14 @@ impl<D: BlockDevice> Volume<D> {
 
     pub(crate) fn root_document(&self) -> DocId {
         DocId::ROOT
+    }
+
+    pub(crate) fn volume_id(&self) -> VolumeId {
+        self.superblock.volume_id
+    }
+
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     fn head(&self, document: DocId) -> Result<&RevisionRecord, HolyError> {

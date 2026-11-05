@@ -9,7 +9,7 @@ use core::cell::RefCell;
 use hk_block::BlockDevice;
 
 use crate::error::HolyError;
-use crate::ids::{DocId, RevisionId};
+use crate::ids::{DocId, RevisionId, VolumeId};
 use crate::types::{DocumentInfo, DocumentKind, EntryInfo, RevisionInfo, SnapshotInfo};
 use crate::volume::Volume;
 
@@ -37,6 +37,16 @@ impl<D: BlockDevice> HolyFs<D> {
     /// 返回根集合文档。
     pub fn root(&self) -> DocId {
         self.state.borrow().root_document()
+    }
+
+    /// 返回卷身份。
+    pub fn volume_id(&self) -> VolumeId {
+        self.state.borrow().volume_id()
+    }
+
+    /// 返回卷代；恢复推进，普通提交不变。
+    pub fn epoch(&self) -> u64 {
+        self.state.borrow().epoch()
     }
 
     /// 按 DocPath 解析文档身份。

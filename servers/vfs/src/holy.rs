@@ -5,20 +5,21 @@
 use hk_block::ipc::ClientDisk;
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, HolyFs, RevisionId};
 use hk_server_api::holy::{
-    DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_CREATE,
-    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE,
-    OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE,
-    OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SNAPSHOT,
-    OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER,
-    OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_WRITE_ID, OP_WRITE_TOKEN,
-    RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, RevisionId as WireRevisionId, RevisionView,
-    SnapshotView, decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_entry,
-    encode_revision, encode_revision_id, encode_snapshot, encode_tag, encode_token, encode_u32,
-    encode_u64,
+    DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
+    OP_CREATE, OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG,
+    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID,
+    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
+    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC,
+    OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN,
+    OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT,
+    RIGHT_READ, RIGHT_WRITE, RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView,
+    decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_entry, encode_revision,
+    encode_revision_id, encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64,
+    encode_volume,
 };
 use hk_server_api::vfs::{
     Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
-    STATUS_PERMISSION,
+    STATUS_PERMISSION, STATUS_STALE,
 };
 
 use crate::sessions::Sessions;
@@ -34,14 +35,68 @@ pub(crate) fn handle(
     let Some(drive) = drive else {
         return (STATUS_IO, 0);
     };
+    if request.op == OP_VOLUME {
+        let view = VolumeView {
+            volume: drive.volume_id().get(),
+            generation: drive.generation(),
+            epoch: drive.epoch(),
+            root: WireDocId::new(drive.root().get()),
+        };
+        return encode_volume_response(body, view);
+    }
+    if request.op == OP_ACQUIRE_VOLUME {
+        let token =
+            sessions
+                .volume(sender)
+                .acquire(drive.volume_id(), drive.epoch(), request.arg0 as u32);
+        return encode_token_response(body, token);
+    }
+    if request.op == OP_RELEASE_VOLUME || request.op == OP_REVOKE_VOLUME {
+        return match sessions
+            .volume(sender)
+            .release(request.arg0, drive.volume_id(), drive.epoch())
+        {
+            Ok(()) => (STATUS_OK, 0),
+            Err(status) => (status, 0),
+        };
+    }
+    if request.op == OP_GRANT_VOLUME {
+        return match sessions.volume(sender).grant(
+            request.arg0,
+            request.arg1 as u32,
+            drive.volume_id(),
+            drive.epoch(),
+        ) {
+            Ok(token) => encode_token_response(body, token),
+            Err(status) => (status, 0),
+        };
+    }
     if request.op == OP_RESTORE {
-        return match drive.restore(request.arg0) {
+        if let Err(status) = sessions.volume(sender).check(
+            request.arg0,
+            drive.volume_id(),
+            drive.epoch(),
+            RIGHT_ADMIN,
+        ) {
+            return (status, 0);
+        }
+        return match drive.restore(request.arg1) {
             Ok(generation) => {
                 sessions.invalidate_documents();
                 encode_u64_response(body, generation)
             }
             Err(error) => (status(error), 0),
         };
+    }
+    if matches!(request.op, OP_SNAPSHOT | OP_SNAPSHOTS | OP_FORGET)
+        && let Err(status) = sessions.volume(sender).check(
+            request.arg0,
+            drive.volume_id(),
+            drive.epoch(),
+            RIGHT_ADMIN,
+        )
+    {
+        return (status, 0);
     }
     if request.op == OP_TRANSFER {
         return match sessions.transfer(sender, request.arg1, request.arg0) {
@@ -262,7 +317,7 @@ pub(crate) fn handle(
             Err(error) => (status(error), 0),
         },
         OP_SNAPSHOTS => encode_snapshots(body, drive.snapshots()),
-        OP_FORGET => match drive.forget(request.arg0) {
+        OP_FORGET => match drive.forget(request.arg1) {
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (status(error), 0),
         },
@@ -419,6 +474,13 @@ fn encode_snapshots(
     (STATUS_OK, length)
 }
 
+fn encode_volume_response(body: &mut [u8], view: VolumeView) -> (u8, usize) {
+    match encode_volume(body, view) {
+        Some(length) => (STATUS_OK, length),
+        None => (STATUS_ERROR, 0),
+    }
+}
+
 fn encode_u64_response(body: &mut [u8], value: u64) -> (u8, usize) {
     match encode_u64(body, value) {
         Some(length) => (STATUS_OK, length),
@@ -504,6 +566,7 @@ fn status(error: HolyError) -> u8 {
         HolyError::Invalid | HolyError::NotDirectory | HolyError::IsDirectory => STATUS_INVALID,
         HolyError::Io => STATUS_IO,
         HolyError::Refused => STATUS_PERMISSION,
+        HolyError::Stale => STATUS_STALE,
         _ => STATUS_ERROR,
     }
 }

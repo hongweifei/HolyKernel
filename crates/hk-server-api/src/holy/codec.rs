@@ -3,7 +3,7 @@
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
     DOC_LEN, DOCUMENT_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
-    REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN,
+    REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
 };
 
 /// 集合项视图。
@@ -30,6 +30,44 @@ pub struct DocumentView {
     pub size: u64,
     /// 民用时间。
     pub moment: u64,
+}
+
+/// 卷视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VolumeView {
+    /// 卷身份。
+    pub volume: u128,
+    /// 提交代数。
+    pub generation: u64,
+    /// 卷代；恢复推进。
+    pub epoch: u64,
+    /// 根文档。
+    pub root: DocId,
+}
+
+/// 编码卷视图。
+pub fn encode_volume(out: &mut [u8], view: VolumeView) -> Option<usize> {
+    if out.len() < VOLUME_LEN {
+        return None;
+    }
+    out[0..16].copy_from_slice(&view.volume.to_le_bytes());
+    out[16..24].copy_from_slice(&view.generation.to_le_bytes());
+    out[24..32].copy_from_slice(&view.epoch.to_le_bytes());
+    out[32..48].copy_from_slice(&view.root.to_le_bytes());
+    Some(VOLUME_LEN)
+}
+
+/// 解析卷视图。
+pub fn decode_volume(bytes: &[u8]) -> Option<VolumeView> {
+    if bytes.len() < VOLUME_LEN {
+        return None;
+    }
+    Some(VolumeView {
+        volume: u128::from_le_bytes(bytes[0..16].try_into().ok()?),
+        generation: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        epoch: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        root: DocId::from_le_bytes(bytes[32..48].try_into().ok()?),
+    })
 }
 
 /// 修订视图。

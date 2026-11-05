@@ -327,6 +327,7 @@ impl<D: BlockDevice> Volume<D> {
             self.next_tag = next_tag;
             return Err(error);
         }
+        self.epoch = self.epoch.saturating_add(1);
         Ok(self.superblock.generation)
     }
 

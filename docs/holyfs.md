@@ -6,7 +6,7 @@ HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空�
 
 Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷通过 `vfs.fs=holyfs` 挂载，QEMU `smoke --mode holyfs/holydoc` 校验落盘与 `H:` 文档浏览。标签、句柄令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化。分配组、修订保留/GC、流式写、压缩与配额在后续版本落地。
+已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷通过 `vfs.fs=holyfs` 挂载，QEMU `smoke --mode holyfs/holydoc` 校验落盘与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、修订保留/GC、流式写、压缩与配额在后续版本落地。
 
 ---
 
@@ -102,8 +102,10 @@ bitflags! {
 }
 ```
 
-- 句柄是服务端签发的 128 位随机令牌，带权利、卷代与过期代；令牌不可伪造，服务端在每次请求校验。
+- 句柄是服务端签发的令牌，带权利、卷身份与卷代；令牌不可伪造，服务端在每次请求校验。
 - 内核 Handle 承载 FS 服务 Endpoint；文档句柄令牌作为请求负载传递，转移由 `TRANSFER` 权利控制。
+- 卷级令牌绑定 `VolumeId` 与卷代；卷代只在 `Restore` 成功时推进，普通提交与 `Sync` 不改变卷代。旧卷代令牌返回 `Stale`。
+- 快照创建、枚举、恢复与释放要求 `ADMIN` 卷级令牌；文档令牌在恢复后同样失效。
 - `Grant` 收窄权利，`Revoke` 立即失效，`Restore` 使旧代令牌返回 `Stale`。
 
 ---
@@ -453,6 +455,7 @@ flowchart LR
 | 标签：创建/删除、加入/移除、成员枚举、COW 持久化 | 已实现 |
 | 快照：创建/枚举/恢复/释放，固定文档表、标签视图与根修订 | 已实现 |
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
+| 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组、修订保留/GC | 规划 |
 | 流式写、压缩、去重、配额、scrub            | 规划  |
 | ContentHash/民用时间写入、内容校验 | 字段保留，规划 |

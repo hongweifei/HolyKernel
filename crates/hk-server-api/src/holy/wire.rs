@@ -75,6 +75,16 @@ pub const OP_SNAPSHOTS: u8 = 33;
 pub const OP_RESTORE: u8 = 34;
 /// 释放快照。
 pub const OP_FORGET: u8 = 35;
+/// 查询卷身份、提交代数与卷代。
+pub const OP_VOLUME: u8 = 36;
+/// 获取卷级令牌。
+pub const OP_ACQUIRE_VOLUME: u8 = 37;
+/// 释放卷级令牌。
+pub const OP_RELEASE_VOLUME: u8 = 38;
+/// 收窄卷级令牌权利。
+pub const OP_GRANT_VOLUME: u8 = 39;
+/// 撤销卷级令牌。
+pub const OP_REVOKE_VOLUME: u8 = 40;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -117,3 +127,5 @@ pub(super) const TOKEN_LEN: usize = 8;
 pub(super) const TAG_HEADER: usize = 4 + 1;
 /// 快照头：编号、代数、时间、文档数与名字长度。
 pub(super) const SNAPSHOT_HEADER: usize = 8 + 8 + 8 + 4 + 1;
+/// 卷视图：卷身份、提交代数、卷代与根文档。
+pub(super) const VOLUME_LEN: usize = 16 + 8 + 8 + 16;
