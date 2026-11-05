@@ -10,6 +10,7 @@ pub mod block;
 pub mod console;
 pub mod device;
 pub mod display;
+pub mod format;
 pub mod framebuffer;
 pub mod heap;
 pub mod input;

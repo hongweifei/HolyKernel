@@ -305,11 +305,7 @@ fn drain_shared_rx(network: &hk_driver_virtio::Network, peer: u64) {
 
 #[cfg(target_os = "none")]
 fn write_hex(value: u8) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut buffer = [0_u8; 2];
-    buffer[0] = HEX[usize::from(value >> 4)];
-    buffer[1] = HEX[usize::from(value & 0xF)];
-    write(&buffer);
+    hk_server_api::format::write_hex(u64::from(value), 2);
 }
 
 hk_server_api::server_boilerplate!();

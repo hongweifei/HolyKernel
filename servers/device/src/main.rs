@@ -237,23 +237,12 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool, re
 
 #[cfg(target_os = "none")]
 fn write_hex64(value: u64) {
-    write_hex((value >> 32) as u32, 8);
-    write_hex(value as u32, 8);
+    hk_server_api::format::write_hex(value, 16);
 }
 
 #[cfg(target_os = "none")]
 fn write_hex(value: u32, digits: usize) {
-    let mut buffer = [0_u8; 8];
-    for (index, slot) in buffer.iter_mut().enumerate().take(digits) {
-        let shift = (digits - 1 - index) * 4;
-        let nibble = ((value >> shift) & 0xF) as u8;
-        *slot = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + nibble - 10
-        };
-    }
-    write(&buffer[..digits]);
+    hk_server_api::format::write_hex(u64::from(value), digits);
 }
 
 hk_server_api::server_boilerplate!();

@@ -494,14 +494,8 @@ fn write_address(address: &IpAddress) {
 
 /// 以十六进制输出 16 位整数。
 #[cfg(target_os = "none")]
-fn write_hex(mut value: u16) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut buffer = [0_u8; 4];
-    for index in (0..4).rev() {
-        buffer[index] = HEX[usize::from(value & 0xF)];
-        value >>= 4;
-    }
-    write(&buffer);
+fn write_hex(value: u16) {
+    hk_server_api::format::write_hex(u64::from(value), 4);
 }
 
 #[cfg(target_os = "none")]

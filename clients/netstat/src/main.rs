@@ -187,19 +187,12 @@ fn print_status(status: &NetStatus) {
 
 #[cfg(target_os = "none")]
 fn write_ipv4(address: &[u8; 4]) {
-    for (index, octet) in address.iter().enumerate() {
-        if index != 0 {
-            write(b".");
-        }
-        write_u64(u64::from(*octet));
-    }
+    hk_server_api::format::write_ipv4(address);
 }
 
 #[cfg(target_os = "none")]
 fn write_hex(byte: u8) {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let buffer = [HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 0xF)]];
-    write(&buffer);
+    hk_server_api::format::write_hex(u64::from(byte), 2);
 }
 
 #[cfg(target_os = "none")]
