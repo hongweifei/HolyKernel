@@ -4,7 +4,9 @@ use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_frame, unregister_client_frame};
 use hk_fs::{DocId, HandleRights, RevisionId, Token, TokenTable};
-use hk_server_api::vfs::{VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE};
+use hk_server_api::vfs::{
+    STATUS_NOT_FOUND, STATUS_STALE, VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE,
+};
 use hk_server_api::{close_handle, frame_map, frame_unmap};
 use hk_vfs::{FileHandle, Vfs};
 
@@ -12,6 +14,7 @@ use hk_vfs::{FileHandle, Vfs};
 #[cfg(target_os = "none")]
 pub(crate) struct DocSession {
     table: TokenTable,
+    stale_before: u64,
 }
 
 #[cfg(target_os = "none")]
@@ -19,6 +22,7 @@ impl DocSession {
     const fn new() -> Self {
         Self {
             table: TokenTable::new(),
+            stale_before: 0,
         }
     }
 
@@ -27,8 +31,12 @@ impl DocSession {
             .acquire(document, revision, HandleRights::from_bits(rights))
     }
 
-    pub(crate) fn get(&self, token: u64) -> Option<Token> {
-        self.table.get(token)
+    pub(crate) fn get(&self, token: u64) -> Result<Token, u8> {
+        match self.table.get(token) {
+            Some(entry) => Ok(entry),
+            None if token < self.stale_before => Err(STATUS_STALE),
+            None => Err(STATUS_NOT_FOUND),
+        }
     }
 
     pub(crate) fn set_revision(&mut self, token: u64, revision: RevisionId) {
@@ -50,6 +58,11 @@ impl DocSession {
     pub(crate) fn insert(&mut self, token: Token) -> u64 {
         self.table
             .insert(token.document, token.revision, token.rights)
+    }
+
+    pub(crate) fn invalidate(&mut self) {
+        self.stale_before = self.table.next_id();
+        self.table.clear();
     }
 }
 
@@ -119,7 +132,7 @@ impl Sessions {
         }
         let entry = {
             let source = self.documents.get_mut(&from).ok_or(STATUS_NOT_FOUND)?;
-            let entry = source.get(token).ok_or(STATUS_NOT_FOUND)?;
+            let entry = source.get(token)?;
             if !entry.rights.contains(HandleRights::TRANSFER) {
                 return Err(STATUS_PERMISSION);
             }
@@ -161,6 +174,12 @@ impl Sessions {
             }
         }
         self.documents.remove(&sender);
+    }
+
+    pub(crate) fn invalidate_documents(&mut self) {
+        for session in self.documents.values_mut() {
+            session.invalidate();
+        }
     }
 
     pub(crate) fn frame(&self, sender: u64) -> Option<(u64, usize)> {

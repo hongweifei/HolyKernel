@@ -3,7 +3,7 @@
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
     DOC_LEN, DOCUMENT_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
-    REVISION_LEN, TAG_HEADER, TOKEN_LEN,
+    REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN,
 };
 
 /// 集合项视图。
@@ -266,6 +266,91 @@ pub fn decode_tags(bytes: &[u8]) -> Tags<'_> {
     Tags { bytes, offset: 0 }
 }
 
+/// 快照视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SnapshotView<'a> {
+    /// 快照编号。
+    pub id: u64,
+    /// 创建时的卷代数。
+    pub generation: u64,
+    /// 创建时的民用时间。
+    pub moment: u64,
+    /// 固定的文档数量。
+    pub documents: u32,
+    /// 快照名字。
+    pub name: &'a str,
+}
+
+/// 编码一个快照，返回写入结束位置。
+pub fn encode_snapshot(
+    out: &mut [u8],
+    offset: usize,
+    id: u64,
+    generation: u64,
+    moment: u64,
+    documents: u32,
+    name: &str,
+) -> Option<usize> {
+    let bytes = name.as_bytes();
+    if bytes.len() > u8::MAX as usize {
+        return None;
+    }
+    let end = offset
+        .checked_add(SNAPSHOT_HEADER)?
+        .checked_add(bytes.len())?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset..offset + 8].copy_from_slice(&id.to_le_bytes());
+    out[offset + 8..offset + 16].copy_from_slice(&generation.to_le_bytes());
+    out[offset + 16..offset + 24].copy_from_slice(&moment.to_le_bytes());
+    out[offset + 24..offset + 28].copy_from_slice(&documents.to_le_bytes());
+    out[offset + 28] = bytes.len() as u8;
+    out[offset + SNAPSHOT_HEADER..end].copy_from_slice(bytes);
+    Some(end)
+}
+
+/// 快照迭代器。
+pub struct Snapshots<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for Snapshots<'a> {
+    type Item = SnapshotView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + SNAPSHOT_HEADER > self.bytes.len() {
+            return None;
+        }
+        let id = u64::from_le_bytes(self.bytes[start..start + 8].try_into().ok()?);
+        let generation = u64::from_le_bytes(self.bytes[start + 8..start + 16].try_into().ok()?);
+        let moment = u64::from_le_bytes(self.bytes[start + 16..start + 24].try_into().ok()?);
+        let documents = u32::from_le_bytes(self.bytes[start + 24..start + 28].try_into().ok()?);
+        let length = self.bytes[start + 28] as usize;
+        let name_start = start + SNAPSHOT_HEADER;
+        let end = name_start.checked_add(length)?;
+        if end > self.bytes.len() {
+            return None;
+        }
+        let name = core::str::from_utf8(&self.bytes[name_start..end]).ok()?;
+        self.offset = end;
+        Some(SnapshotView {
+            id,
+            generation,
+            moment,
+            documents,
+            name,
+        })
+    }
+}
+
+/// 解析快照序列。
+pub fn decode_snapshots(bytes: &[u8]) -> Snapshots<'_> {
+    Snapshots { bytes, offset: 0 }
+}
+
 /// 文档身份迭代器。
 pub struct DocIds<'a> {
     bytes: &'a [u8],
@@ -319,6 +404,15 @@ pub fn encode_token(out: &mut [u8], token: u64) -> Option<usize> {
 /// 解析 u64。
 pub fn decode_u64(bytes: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?))
+}
+
+/// 编码 u64。
+pub fn encode_u64(out: &mut [u8], value: u64) -> Option<usize> {
+    if out.len() < 8 {
+        return None;
+    }
+    out[..8].copy_from_slice(&value.to_le_bytes());
+    Some(8)
 }
 
 /// 文档类型编码。

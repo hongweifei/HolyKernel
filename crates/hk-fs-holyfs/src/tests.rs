@@ -259,6 +259,77 @@ fn tags_documents_and_persists() {
 }
 
 #[test]
+fn snapshots_restore_documents_and_tags() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+    fs.write_document("H:/Doc", b"before").expect("写一");
+    let tag = fs.create_tag("keep").expect("标签");
+    fs.tag(document, tag).expect("加入标签");
+    let snapshot = fs.snapshot("checkpoint").expect("快照");
+    assert_eq!(fs.snapshots().len(), 1);
+    assert_eq!(fs.snapshots()[0].name, "checkpoint");
+
+    fs.write_document("H:/Doc", b"after!").expect("写二");
+    let extra = fs
+        .create(root, "Extra", DocumentKind::Content)
+        .expect("新增");
+    let late = fs.create_tag("late").expect("新标签");
+    fs.tag(extra, late).expect("新标签成员");
+    let generation = fs.generation();
+
+    let restored = fs.restore(snapshot).expect("恢复");
+    assert!(restored > generation);
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+    assert_eq!(fs.lookup(root, "Extra"), Err(HolyError::NotFound));
+    assert_eq!(fs.document_info(extra), Err(HolyError::NotFound));
+    let tags = fs.tags();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "keep");
+    assert_eq!(fs.tag_members(tag).expect("成员"), vec![document]);
+    assert_eq!(fs.tag_members(late), Err(HolyError::NotFound));
+}
+
+#[test]
+fn snapshots_survive_remount() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    let snapshot;
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
+        let root = fs.root();
+        fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+        fs.write_document("H:/Doc", b"before").expect("写一");
+        snapshot = fs.snapshot("persisted").expect("快照");
+        fs.write_document("H:/Doc", b"after!").expect("写二");
+        fs.sync().expect("提交");
+    }
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("重新挂载");
+        let snapshots = fs.snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].id, snapshot);
+        assert_eq!(snapshots[0].name, "persisted");
+        assert_eq!(snapshots[0].documents, 2);
+        assert_eq!(fs.read_document("H:/Doc").expect("读"), b"after!");
+        fs.restore(snapshot).expect("恢复");
+        assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+        assert_eq!(fs.snapshots().len(), 1);
+    }
+    let fs = HolyFs::mount(Shared(disk)).expect("再次挂载");
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+    assert_eq!(fs.snapshots().len(), 1);
+}
+
+#[test]
+fn forget_releases_snapshot() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let snapshot = fs.snapshot("temporary").expect("快照");
+    fs.forget(snapshot).expect("释放");
+    assert!(fs.snapshots().is_empty());
+    assert_eq!(fs.restore(snapshot), Err(HolyError::NotFound));
+}
+
+#[test]
 fn native_paths_have_no_parent_traversal() {
     let fs = HolyFs::mount(formatted()).expect("挂载");
     assert!(fs.resolve("H:/..").is_err());

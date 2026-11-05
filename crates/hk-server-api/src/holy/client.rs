@@ -7,16 +7,16 @@ use crate::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
     DocumentView, decode_doc_id, decode_document, decode_revision_id, decode_token, decode_u32,
-    kind_code,
+    decode_u64, kind_code,
 };
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_CREATE, OP_CREATE_TAG,
     OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
-    OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS,
-    OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
-    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_WRITE_ID,
-    OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_FORGET, OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_RESTORE,
+    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
+    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
+    OP_UNTAG, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -151,6 +151,29 @@ impl HolyClient {
     /// 提交卷写入。
     pub fn sync(&mut self) -> Result<(), u8> {
         self.exchange(OP_SYNC, "", 0, 0, &[]).map(|_| ())
+    }
+
+    /// 创建快照，返回快照编号。
+    pub fn snapshot(&mut self, name: &str) -> Result<u64, u8> {
+        let length = self.exchange(OP_SNAPSHOT, name, 0, 0, &[])?;
+        decode_u64(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 枚举快照，返回编码后的快照字节数。
+    pub fn snapshots(&mut self) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_SNAPSHOTS, "", 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 恢复快照，返回新的卷代数。
+    pub fn restore(&mut self, snapshot: u64) -> Result<u64, u8> {
+        let length = self.exchange(OP_RESTORE, "", snapshot, 0, &[])?;
+        decode_u64(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 释放快照固定。
+    pub fn forget(&mut self, snapshot: u64) -> Result<(), u8> {
+        self.exchange(OP_FORGET, "", snapshot, 0, &[]).map(|_| ())
     }
 
     /// 获取文档令牌。

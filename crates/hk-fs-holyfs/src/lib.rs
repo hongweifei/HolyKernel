@@ -31,7 +31,7 @@ pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
 pub use superblock::BLOCK_SIZE;
 pub use types::{
     DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, PayloadKind,
-    RevisionFlags, RevisionInfo, RevisionRecord,
+    RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
 };
 
 /// 格式化块设备为 HolyFS。

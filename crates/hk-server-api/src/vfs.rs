@@ -75,6 +75,8 @@ pub const STATUS_IO: u8 = 4;
 pub const STATUS_PERMISSION: u8 = 5;
 /// 已存在。
 pub const STATUS_EXISTS: u8 = 6;
+/// 期望值或令牌代际已过期。
+pub const STATUS_STALE: u8 = 7;
 
 /// 请求头：op + path_len + arg0 + arg1。
 const REQUEST_HEADER: usize = 1 + 2 + 8 + 8;

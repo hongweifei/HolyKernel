@@ -71,6 +71,21 @@ pub struct EntryInfo {
     pub kind: DocumentKind,
 }
 
+/// 快照视图。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotInfo {
+    /// 快照编号。
+    pub id: u64,
+    /// 快照名字。
+    pub name: String,
+    /// 创建时的卷代数。
+    pub generation: u64,
+    /// 创建时的民用时间；0 表示未知。
+    pub moment: u64,
+    /// 固定的文档数量。
+    pub documents: u32,
+}
+
 /// 标签视图。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagInfo {

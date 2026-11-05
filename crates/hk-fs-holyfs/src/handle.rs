@@ -10,7 +10,7 @@ use hk_block::BlockDevice;
 
 use crate::error::HolyError;
 use crate::ids::{DocId, RevisionId};
-use crate::types::{DocumentInfo, DocumentKind, EntryInfo, RevisionInfo};
+use crate::types::{DocumentInfo, DocumentKind, EntryInfo, RevisionInfo, SnapshotInfo};
 use crate::volume::Volume;
 
 /// HolyFS 卷句柄。
@@ -194,6 +194,31 @@ impl<D: BlockDevice> HolyFs<D> {
     /// 枚举文档所属标签。
     pub fn tags_of(&self, document: DocId) -> Result<Vec<u32>, HolyError> {
         self.state.borrow().tags_of(document)
+    }
+
+    /// 创建快照并提交。
+    pub fn snapshot(&mut self, name: &str) -> Result<u64, HolyError> {
+        self.state.borrow_mut().snapshot(name)
+    }
+
+    /// 枚举快照。
+    pub fn snapshots(&self) -> Vec<SnapshotInfo> {
+        self.state.borrow().snapshots()
+    }
+
+    /// 把卷恢复到快照，返回新的卷代数。
+    pub fn restore(&mut self, snapshot: u64) -> Result<u64, HolyError> {
+        self.state.borrow_mut().restore(snapshot)
+    }
+
+    /// 释放快照固定。
+    pub fn forget(&mut self, snapshot: u64) -> Result<(), HolyError> {
+        self.state.borrow_mut().forget(snapshot)
+    }
+
+    /// 返回当前卷代数。
+    pub fn generation(&self) -> u64 {
+        self.state.borrow().generation()
     }
 
     /// 把挂起写入提交到稳定存储。

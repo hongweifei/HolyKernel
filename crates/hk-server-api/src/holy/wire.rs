@@ -67,6 +67,14 @@ pub const OP_TAG: u8 = 29;
 pub const OP_UNTAG: u8 = 30;
 /// 枚举文档所属标签。
 pub const OP_TAGS_OF: u8 = 31;
+/// 创建快照。
+pub const OP_SNAPSHOT: u8 = 32;
+/// 枚举快照。
+pub const OP_SNAPSHOTS: u8 = 33;
+/// 恢复快照。
+pub const OP_RESTORE: u8 = 34;
+/// 释放快照。
+pub const OP_FORGET: u8 = 35;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -107,3 +115,5 @@ pub(super) const REVISION_ID_LEN: usize = 8;
 pub(super) const TOKEN_LEN: usize = 8;
 /// 标签头：编号 + 名字长度。
 pub(super) const TAG_HEADER: usize = 4 + 1;
+/// 快照头：编号、代数、时间、文档数与名字长度。
+pub(super) const SNAPSHOT_HEADER: usize = 8 + 8 + 8 + 4 + 1;

@@ -105,6 +105,11 @@ impl TokenTable {
         true
     }
 
+    /// 清空全部令牌，但保留编号序列，避免旧编号被重新签发。
+    pub fn clear(&mut self) {
+        self.tokens.clear();
+    }
+
     /// 取出令牌；用于跨会话转移。
     pub fn take(&mut self, token: u64) -> Option<Token> {
         self.tokens.remove(&token)
@@ -113,6 +118,11 @@ impl TokenTable {
     /// 插入令牌并分配新编号；用于跨会话转移。
     pub fn insert(&mut self, document: DocId, revision: RevisionId, rights: HandleRights) -> u64 {
         self.acquire(document, revision, rights)
+    }
+
+    /// 返回下一个待签发编号。
+    pub fn next_id(&self) -> u64 {
+        self.next
     }
 
     /// 返回令牌数量。
@@ -168,6 +178,16 @@ mod tests {
         assert!(table.get(grandchild).is_none());
         assert!(table.get(token).is_some());
         assert!(!table.revoke(child));
+    }
+
+    #[test]
+    fn clear_keeps_token_sequence() {
+        let mut table = TokenTable::new();
+        let token = table.acquire(document(), RevisionId::ROOT, HandleRights::READ);
+        table.clear();
+        assert!(table.get(token).is_none());
+        let next = table.acquire(document(), RevisionId::ROOT, HandleRights::READ);
+        assert_ne!(next, token);
     }
 
     #[test]

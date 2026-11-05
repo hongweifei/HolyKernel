@@ -17,6 +17,9 @@ impl<D: BlockDevice> Volume<D> {
         if self.superblock.tag_tree != 0 {
             old_roots.push(self.superblock.tag_tree);
         }
+        if self.superblock.snapshot_tree != 0 {
+            old_roots.push(self.superblock.snapshot_tree);
+        }
         old_roots.extend(
             self.revisions
                 .values()
@@ -72,6 +75,7 @@ impl<D: BlockDevice> Volume<D> {
         let document_tree = store_tree(&mut self.store, &documents)?;
         let revision_tree = store_tree(&mut self.store, &revisions)?;
         let tag_tree = store_tree(&mut self.store, &tags)?;
+        let snapshot_tree = super::snapshot::store(&mut self.store, &self.snapshots)?;
         self.superblock.generation = self.superblock.generation.saturating_add(1);
         self.superblock.total_blocks = self.store.total_blocks();
         self.superblock.bitmap_start = crate::superblock::BITMAP_START;
@@ -79,6 +83,8 @@ impl<D: BlockDevice> Volume<D> {
         self.superblock.document_tree = document_tree;
         self.superblock.revision_tree = revision_tree;
         self.superblock.tag_tree = tag_tree;
+        self.superblock.snapshot_tree = snapshot_tree;
+        self.superblock.next_snapshot = self.next_snapshot;
         self.superblock.next_tag = self.next_tag;
         self.store.write_bitmap()?;
         let slot = if self.active_slot == SUPERBLOCK_A {

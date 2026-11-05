@@ -1,6 +1,6 @@
 //! HolyFS 对象记录与磁盘编码。
 
-pub use hk_fs::{DocumentInfo, DocumentKind, EntryInfo, RevisionFlags, RevisionInfo};
+pub use hk_fs::{DocumentInfo, DocumentKind, EntryInfo, RevisionFlags, RevisionInfo, SnapshotInfo};
 
 use crate::crc32c::crc32c;
 use crate::error::HolyError;

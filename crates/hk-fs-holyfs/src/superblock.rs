@@ -42,6 +42,10 @@ pub struct Superblock {
     pub revision_tree: u64,
     /// 标签表树根；0 表示旧卷没有标签。
     pub tag_tree: u64,
+    /// 快照表树根；0 表示旧卷没有快照。
+    pub snapshot_tree: u64,
+    /// 下一个快照编号。
+    pub next_snapshot: u64,
     /// 下一个标签编号。
     pub next_tag: u32,
     /// 下一个文档身份。
@@ -63,6 +67,8 @@ impl Superblock {
             document_tree: 0,
             revision_tree: 0,
             tag_tree: 0,
+            snapshot_tree: 0,
+            next_snapshot: 1,
             next_tag: 1,
             next_document: DocId::new(DocId::ROOT.get() + 1),
             next_revision: RevisionId::ROOT.get() + 1,
@@ -87,8 +93,12 @@ impl Superblock {
         bytes[96..104].copy_from_slice(&self.revision_tree.to_le_bytes());
         bytes[104..120].copy_from_slice(&self.next_document.to_le_bytes());
         bytes[120..128].copy_from_slice(&self.next_revision.to_le_bytes());
+        bytes[132..140].copy_from_slice(&self.snapshot_tree.to_le_bytes());
+        bytes[140..148].copy_from_slice(&self.next_snapshot.to_le_bytes());
         let checksum = crc32c(&bytes[..128]);
         bytes[128..132].copy_from_slice(&checksum.to_le_bytes());
+        let snapshot_checksum = crc32c(&bytes[132..148]);
+        bytes[148..152].copy_from_slice(&snapshot_checksum.to_le_bytes());
         bytes
     }
 
@@ -133,6 +143,17 @@ impl Superblock {
             DocId::from_le_bytes(bytes[104..120].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_revision =
             u64::from_le_bytes(bytes[120..128].try_into().map_err(|_| HolyError::Corrupt)?);
+        let snapshot_tree =
+            u64::from_le_bytes(bytes[132..140].try_into().map_err(|_| HolyError::Corrupt)?);
+        let next_snapshot =
+            u64::from_le_bytes(bytes[140..148].try_into().map_err(|_| HolyError::Corrupt)?).max(1);
+        let snapshot_checksum =
+            u32::from_le_bytes(bytes[148..152].try_into().map_err(|_| HolyError::Corrupt)?);
+        if (snapshot_tree != 0 || next_snapshot != 1)
+            && crc32c(&bytes[132..148]) != snapshot_checksum
+        {
+            return Err(HolyError::Corrupt);
+        }
         let bitmap_end = bitmap_start
             .checked_add(u64::from(bitmap_blocks))
             .ok_or(HolyError::Corrupt)?;
@@ -142,6 +163,7 @@ impl Superblock {
             || document_tree >= total_blocks
             || revision_tree >= total_blocks
             || (tag_tree != 0 && tag_tree >= total_blocks)
+            || (snapshot_tree != 0 && snapshot_tree >= total_blocks)
         {
             return Err(HolyError::Corrupt);
         }
@@ -155,6 +177,8 @@ impl Superblock {
             document_tree,
             revision_tree,
             tag_tree,
+            snapshot_tree,
+            next_snapshot,
             next_tag,
             next_document,
             next_revision,

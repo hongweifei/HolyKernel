@@ -5,6 +5,7 @@
 mod content;
 mod metadata;
 mod persist;
+mod snapshot;
 mod tags;
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -40,6 +41,8 @@ pub(crate) struct Volume<D: BlockDevice> {
     tags: BTreeMap<u32, String>,
     tag_members: BTreeMap<u32, BTreeSet<DocId>>,
     next_tag: u32,
+    snapshots: BTreeMap<u64, snapshot::SnapshotRecord>,
+    next_snapshot: u64,
     dirty: bool,
 }
 
@@ -74,6 +77,8 @@ impl<D: BlockDevice> Volume<D> {
             tags: BTreeMap::new(),
             tag_members: BTreeMap::new(),
             next_tag: 1,
+            snapshots: BTreeMap::new(),
+            next_snapshot: 1,
             dirty: true,
         };
         volume.documents.insert(
@@ -162,6 +167,19 @@ impl<D: BlockDevice> Volume<D> {
                 }
             }
         }
+        let snapshots = snapshot::load(&store, superblock.snapshot_tree)?;
+        for record in snapshots.values() {
+            for document in record.documents.values() {
+                if !revisions.contains_key(&document.head) {
+                    return Err(HolyError::Corrupt);
+                }
+            }
+        }
+        let next_snapshot = snapshots
+            .keys()
+            .next_back()
+            .map_or(1, |id| id.saturating_add(1))
+            .max(superblock.next_snapshot);
         Ok(Self {
             store,
             superblock,
@@ -172,6 +190,8 @@ impl<D: BlockDevice> Volume<D> {
             tags,
             tag_members,
             next_tag: superblock.next_tag,
+            snapshots,
+            next_snapshot,
             dirty: false,
         })
     }
