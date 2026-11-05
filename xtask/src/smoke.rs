@@ -109,9 +109,12 @@ pub enum SmokeMode {
     /// virtio-tablet 指针与点击焦点
     #[value(name = "pointer")]
     Pointer,
-    /// HolyDoc 最小文档窗口
+    /// HolyDoc 文档窗口
     #[value(name = "holydoc")]
     Holydoc,
+    /// Debug 内核统计窗口
+    #[value(name = "debug")]
+    Debug,
 }
 
 impl SmokeMode {
@@ -144,6 +147,7 @@ impl SmokeMode {
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
             Self::Holydoc => Some("holydoc-test"),
+            Self::Debug => Some("debug-test"),
         }
     }
 
@@ -350,6 +354,13 @@ impl SmokeMode {
                 "hk-server-holydoc: back index",
                 "hk-server-holydoc: done",
             ],
+            Self::Debug => &[
+                "hk-server-display: composite ok",
+                "hk-server-debug: ready 1",
+                "hk-server-debug: threads ",
+                "hk-server-debug: objects ",
+                "hk-server-debug: done",
+            ],
         }
     }
 
@@ -374,7 +385,8 @@ impl SmokeMode {
             | Self::Terminal
             | Self::InputDriver
             | Self::Pointer
-            | Self::Holydoc => QEMU_SUCCESS,
+            | Self::Holydoc
+            | Self::Debug => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -405,6 +417,7 @@ impl SmokeMode {
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
+            Self::Debug => "build/serial-debug.log",
         }
     }
 

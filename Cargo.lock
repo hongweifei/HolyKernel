@@ -426,6 +426,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-debug"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "lovyangfx-fonts",
+]
+
+[[package]]
 name = "hk-server-demo"
 version = "0.1.0"
 dependencies = [

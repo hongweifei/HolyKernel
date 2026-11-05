@@ -24,6 +24,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-input",
     "hk-server-pointer-test",
     "hk-server-holydoc",
+    "hk-server-debug",
 ];
 
 /// 随镜像打包的 HolyShell 脚本。
