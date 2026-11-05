@@ -5,11 +5,15 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::console::{CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK};
+use hk_server_api::console::{
+    CONSOLE_READ_LINE, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_try, send, send_data, service_endpoint, write, yield_now};
+use hk_server_api::{
+    exit, recv_data_from, recv_data_try, send, send_data, service_endpoint, write, yield_now,
+};
 
 /// 等待服务出现的重试次数。
 #[cfg(target_os = "none")]
@@ -51,6 +55,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-terminal-test: no ack\n");
         exit(2)
     }
+
+    // 请求一行输入；键盘事件应经 Display 焦点路由到 Console。
+    let _ = send(console, CONSOLE_READ_REQUEST, 0);
+    let mut line = [0_u8; 64];
+    let (label, _word, _sender, length) = recv_data_from(endpoint, console, &mut line);
+    if label != CONSOLE_READ_LINE {
+        write(b"hk-server-terminal-test: no line\n");
+        exit(3)
+    }
+    write(b"hk-server-terminal-test: line ");
+    write(&line[..length.min(line.len())]);
+    write(b"\n");
 
     write(b"hk-server-terminal-test: done\n");
     let _ = send(console, CONSOLE_SHUTDOWN, 0);

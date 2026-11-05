@@ -39,6 +39,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 多窗口按槽位维护 z 序；提交窗口或按 Tab 会提升并切换焦点，标题栏高亮。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
+- Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；无 Display 时回退内核控制台。`smoke --mode terminal` 验证。
 
 ---
 

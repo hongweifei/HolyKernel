@@ -14,8 +14,8 @@ use hk_server_api::console::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_SERVICE,
-    DISPLAY_WINDOW_CREATED, pack_size,
+    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SERVICE,
+    DISPLAY_WINDOW_CREATED, pack_size, unpack_key,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
@@ -203,6 +203,50 @@ fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     })
 }
 
+/// 输出到图形终端；没有终端时退回内核控制台。
+#[cfg(target_os = "none")]
+fn emit(terminal: &mut Option<Terminal>, text: &[u8]) {
+    match terminal {
+        Some(terminal) => terminal.emit(text),
+        None => write(text),
+    }
+}
+
+/// 处理一个输入字节：行编辑、回显与按行回复。
+#[cfg(target_os = "none")]
+fn handle_input(
+    terminal: &mut Option<Terminal>,
+    line: &mut [u8; 128],
+    length: &mut usize,
+    pending: &mut u64,
+    byte: u8,
+) {
+    match byte {
+        b'\n' | b'\r' => {
+            emit(terminal, b"\n");
+            if *pending != 0 {
+                let _ = send_data(*pending, CONSOLE_READ_LINE, &line[..*length]);
+                *pending = 0;
+            }
+            *length = 0;
+        }
+        0x08 | 0x7F => {
+            if *length > 0 {
+                *length -= 1;
+                emit(terminal, b"\x08 \x08");
+            }
+        }
+        byte if (0x20..0x7F).contains(&byte) => {
+            if *length < line.len() {
+                line[*length] = byte;
+                *length += 1;
+                emit(terminal, &[byte]);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -222,63 +266,33 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     loop {
         loop {
-            let (label, _word, sender, size) = recv_data_try(endpoint, &mut buffer);
+            let (label, word, sender, size) = recv_data_try(endpoint, &mut buffer);
             if label == 0 {
                 break;
             }
             match label {
                 CONSOLE_WRITE => {
                     let text = &buffer[..size.min(buffer.len())];
-                    if let Some(terminal) = &mut terminal {
-                        terminal.emit(text);
+                    emit(&mut terminal, text);
+                    if terminal.is_some() {
                         let _ = send(sender, CONSOLE_WRITE_ACK, 0);
-                    } else {
-                        write(text);
                     }
                 }
                 CONSOLE_READ_REQUEST => pending = sender,
                 CONSOLE_SHUTDOWN => exit(0),
+                DISPLAY_KEY => {
+                    let (_, byte) = unpack_key(word);
+                    handle_input(&mut terminal, &mut line, &mut length, &mut pending, byte);
+                }
                 DISPLAY_FRAME_DONE => {}
                 _ => {}
             }
         }
 
-        while let Some(byte) = console_read() {
-            match byte {
-                b'\n' | b'\r' => {
-                    if let Some(terminal) = &mut terminal {
-                        terminal.emit(b"\n");
-                    } else {
-                        write(b"\n");
-                    }
-                    if pending != 0 {
-                        let _ = send_data(pending, CONSOLE_READ_LINE, &line[..length]);
-                        pending = 0;
-                    }
-                    length = 0;
-                }
-                0x08 | 0x7F => {
-                    if length > 0 {
-                        length -= 1;
-                        if let Some(terminal) = &mut terminal {
-                            terminal.emit(b"\x08 \x08");
-                        } else {
-                            write(b"\x08 \x08");
-                        }
-                    }
-                }
-                byte if (0x20..0x7F).contains(&byte) => {
-                    if length < line.len() {
-                        line[length] = byte;
-                        length += 1;
-                        if let Some(terminal) = &mut terminal {
-                            terminal.emit(&[byte]);
-                        } else {
-                            write(&[byte]);
-                        }
-                    }
-                }
-                _ => {}
+        // 有 Display 时，键盘事件经焦点窗口路由到本服务；无 Display 时直接读内核输入。
+        if terminal.is_none() {
+            while let Some(byte) = console_read() {
+                handle_input(&mut terminal, &mut line, &mut length, &mut pending, byte);
             }
         }
 

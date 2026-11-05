@@ -300,6 +300,7 @@ impl SmokeMode {
             Self::Terminal => &[
                 "hk-server-console: window",
                 "hk-server-display: composite ok",
+                "hk-server-terminal-test: line hi",
                 "hk-server-terminal-test: done",
             ],
         }
@@ -432,7 +433,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
     if matches!(
         mode,
-        SmokeMode::Input | SmokeMode::Console | SmokeMode::Display
+        SmokeMode::Input | SmokeMode::Console | SmokeMode::Display | SmokeMode::Terminal
     ) {
         command
             .arg("-qmp")
@@ -462,6 +463,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject_key(&socket, "tab")?;
         thread::sleep(Duration::from_millis(300));
         inject(&socket, "a")?;
+    }
+    if mode == SmokeMode::Terminal {
+        thread::sleep(Duration::from_secs(5));
+        inject(&socket, "hi\n")?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {
