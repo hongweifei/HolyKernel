@@ -134,6 +134,17 @@ pub fn run(
                 "hk-server-virtio-net" | "hk-server-net" | "hk-server-netsock"
             )
     });
+    if desktop {
+        // 桌面启动顺序：Display/输入先就绪，Console 最后创建以获得初始焦点。
+        modules.sort_by_key(|module| match loader::service_name(module.name) {
+            "hk-server-display" => 0,
+            "hk-server-device" => 1,
+            "hk-server-input" => 2,
+            "hk-server-holydoc" => 3,
+            "hk-server-console" => 4,
+            _ => 5,
+        });
+    }
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));
     }

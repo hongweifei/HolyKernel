@@ -751,20 +751,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 else {
                     continue;
                 };
-                raise(&mut windows, word);
-                let previous = focus;
-                focus = window.id;
-                let Some(window) = windows
-                    .iter()
-                    .flatten()
-                    .find(|window| window.id == word)
-                    .copied()
-                else {
-                    continue;
-                };
                 damage_window(&screen, &windows, focus, &font, pointer, &window);
-                damage_title(&screen, &windows, focus, &font, pointer, previous);
-                damage_taskbar(&screen, &windows, focus, &font, pointer);
                 let expected = surface_pixel(&window, 0, 0);
                 let actual = screen.get(window.x, window.y + title_height());
                 if expected != actual {
