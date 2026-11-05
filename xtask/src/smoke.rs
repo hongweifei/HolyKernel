@@ -342,7 +342,12 @@ impl SmokeMode {
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
                 "hk-server-holydoc: ready 1",
-                "hk-server-holydoc: scroll 110",
+                "hk-server-holydoc: doc index",
+                "hk-server-holydoc: exec version",
+                "hk-server-holydoc: click architecture",
+                "hk-server-holydoc: open architecture",
+                "hk-server-holydoc: scroll ",
+                "hk-server-holydoc: back index",
                 "hk-server-holydoc: done",
             ],
         }
