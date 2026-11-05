@@ -18,6 +18,8 @@ mod pages;
 mod render;
 
 #[cfg(target_os = "none")]
+use hk_font::Font;
+#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
     DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, set_title,
@@ -30,10 +32,6 @@ use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, frame_alloc, kernel_stats, recv, send, send_handle, write, write_u64};
 #[cfg(target_os = "none")]
-use lovyangfx_fonts::Font;
-#[cfg(target_os = "none")]
-use lovyangfx_fonts::fonts::efont_cn_16;
-
 #[cfg(target_os = "none")]
 use pages::Page;
 #[cfg(target_os = "none")]
@@ -65,7 +63,7 @@ fn show(
     page: Page,
     text: &str,
     scroll: usize,
-    font: &Font<'static>,
+    font: &Font,
     pixels: *mut u32,
     endpoint: u64,
     display: u64,
@@ -108,7 +106,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(4)
     }
 
-    let font = efont_cn_16();
+    let font = Font::new(16);
+    write(b"hk-server-debug: font ");
+    write(if font.has_scalable() {
+        b"scalable ".as_slice()
+    } else {
+        b"bitmap ".as_slice()
+    });
+    write_u64(u64::from(font.size()));
+    write(b"\n");
     let pixels = SURFACE_VIRT as *mut u32;
     let mut page = Page::Overview;
     let mut text = page.fetch();
@@ -201,7 +207,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let Some(key) = keys.feed(byte) else {
                     continue;
                 };
-                let max = line_count(&text).saturating_sub(visible_lines());
+                let max = line_count(&text, &font).saturating_sub(visible_lines());
                 let visible = visible_lines();
                 let mut update = false;
                 match key {
@@ -245,7 +251,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                     Key::Byte(b'r') => {
                         text = page.fetch();
-                        let max = line_count(&text).saturating_sub(visible);
+                        let max = line_count(&text, &font).saturating_sub(visible);
                         scroll = scroll.min(max);
                         update = true;
                     }

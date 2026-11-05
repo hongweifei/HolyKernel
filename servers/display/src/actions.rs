@@ -1,8 +1,8 @@
 //! 窗口操作：最小化、最大化、关闭、焦点切换与按键路由。
 
+use hk_font::Font;
 use hk_server_api::display::{DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_WHEEL, pack_key, pack_wheel};
 use hk_server_api::{close_handle, frame_unmap, send, write, write_u64};
-use lovyangfx_fonts::Font;
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
 use crate::window::{MAX_WINDOWS, Screen, Window, raise, taskbar_height, title_height};
@@ -13,7 +13,7 @@ pub(crate) fn minimize_window(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     id: u64,
 ) {
@@ -55,7 +55,7 @@ pub(crate) fn toggle_maximize(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     id: u64,
 ) {
@@ -122,7 +122,7 @@ pub(crate) fn close_window(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     id: u64,
 ) {
@@ -190,7 +190,7 @@ pub(crate) fn cycle_focus(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
 ) {
     let count = windows

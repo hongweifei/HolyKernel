@@ -1,0 +1,15 @@
+[package]
+name = "hk-font"
+description = "HolyKernel 可缩放字体：TrueType 栅格化与 8×16 位图回退"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ttf-parser = { version = "0.25", default-features = false, features = ["no-std-float"] }
+lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
+spin = "0.9"
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 //! Display 合成：桌面、窗口、光标与 damage 区域重绘。
 
-use lovyangfx_fonts::Font;
+use hk_font::Font;
 
 use crate::theme::{scale, theme};
 use crate::window::{
@@ -215,7 +215,7 @@ fn paint_window(
     screen: &Screen,
     window: &Window,
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     left: usize,
     top: usize,
     right: usize,
@@ -251,31 +251,35 @@ fn paint_window(
             }
         }
         let font_scale = scale() as i32;
+        let origin_y = window_y as i32 + 4 * font_scale;
+        let text_end = (window_x + window.width) as i32;
         let mut pen_x = window_x as i32 + 4 * font_scale;
         for &byte in &window.title[..window.title_length] {
             if !(0x20..0x7F).contains(&byte) {
                 pen_x += 8 * font_scale;
                 continue;
             }
-            if pen_x + 8 * font_scale > (window_x + window.width) as i32 {
+            let Some(glyph) = font.glyph(byte as char) else {
+                pen_x += 8 * font_scale;
+                continue;
+            };
+            let advance = glyph.metric().xadvance;
+            if pen_x + advance > text_end {
                 break;
             }
-            if let Some(glyph) = font.glyph(byte as char) {
-                let origin_y = window_y as i32 + 4 * font_scale;
-                glyph.for_each_pixel(|x, y| {
-                    let pixel_x = pen_x + x * font_scale;
-                    let pixel_y = origin_y + y * font_scale;
-                    if pixel_x >= left as i32
-                        && pixel_x < right as i32
-                        && pixel_y >= top as i32
-                        && pixel_y < bottom as i32
-                        && pixel_y < (window_y + title_height()) as i32
-                    {
-                        screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
-                    }
-                });
-            }
-            pen_x += 8 * font_scale;
+            glyph.for_each_pixel(|x, y| {
+                let pixel_x = pen_x + x;
+                let pixel_y = origin_y + y;
+                if pixel_x >= left as i32
+                    && pixel_x < right as i32
+                    && pixel_y >= top as i32
+                    && pixel_y < bottom as i32
+                    && pixel_y < (window_y + title_height()) as i32
+                {
+                    screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
+                }
+            });
+            pen_x += advance;
         }
         let (close_x, close_y) = close_button_origin(window);
         for offset in 0..close_size() {
@@ -416,7 +420,7 @@ fn paint_taskbar(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     left: usize,
     top: usize,
     right: usize,
@@ -465,28 +469,33 @@ fn paint_taskbar(
             &window.title[..window.title_length]
         };
         for &byte in title {
-            if pen_x + 8 * font_scale > text_end {
+            if !(0x20..0x7F).contains(&byte) {
+                pen_x += 8 * font_scale;
+                continue;
+            }
+            let Some(glyph) = font.glyph(byte as char) else {
+                pen_x += 8 * font_scale;
+                continue;
+            };
+            let advance = glyph.metric().xadvance;
+            if pen_x + advance > text_end {
                 break;
             }
-            if (0x20..0x7F).contains(&byte)
-                && let Some(glyph) = font.glyph(byte as char)
-            {
-                let origin_y = button_top as i32 + 2 * font_scale;
-                glyph.for_each_pixel(|x, y| {
-                    let pixel_x = pen_x + x * font_scale;
-                    let pixel_y = origin_y + y * font_scale;
-                    if pixel_x >= left as i32
-                        && pixel_x < right as i32
-                        && pixel_y >= top as i32
-                        && pixel_y < bottom as i32
-                        && pixel_y >= bar_top as i32
-                        && pixel_y < screen.height as i32
-                    {
-                        screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
-                    }
-                });
-            }
-            pen_x += 8 * font_scale;
+            let origin_y = button_top as i32 + 2 * font_scale;
+            glyph.for_each_pixel(|x, y| {
+                let pixel_x = pen_x + x;
+                let pixel_y = origin_y + y;
+                if pixel_x >= left as i32
+                    && pixel_x < right as i32
+                    && pixel_y >= top as i32
+                    && pixel_y < bottom as i32
+                    && pixel_y >= bar_top as i32
+                    && pixel_y < screen.height as i32
+                {
+                    screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
+                }
+            });
+            pen_x += advance;
         }
     }
 }
@@ -498,7 +507,7 @@ pub(crate) fn compose_region(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     x: usize,
     y: usize,
@@ -538,7 +547,7 @@ pub(crate) fn compose_window_region(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     x: usize,
     y: usize,
@@ -575,7 +584,7 @@ pub(crate) fn damage_window(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     window: &Window,
 ) {
@@ -598,7 +607,7 @@ pub(crate) fn damage_taskbar(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
 ) {
     compose_region(
@@ -620,7 +629,7 @@ pub(crate) fn damage_title(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
     id: u64,
 ) {
@@ -654,7 +663,7 @@ pub(crate) fn move_window(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     old: Window,
     x: usize,
     y: usize,
@@ -700,7 +709,7 @@ pub(crate) fn resize_window(
     screen: &Screen,
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     old: Window,
     width: usize,
     height: usize,

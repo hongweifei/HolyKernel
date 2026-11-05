@@ -2,7 +2,7 @@
 
 use alloc::format;
 
-use lovyangfx_fonts::Font;
+use hk_font::Font;
 
 /// 窗口宽度。
 pub(crate) const WIDTH: usize = 640;
@@ -36,7 +36,7 @@ pub(crate) fn visible_lines() -> usize {
 }
 
 /// 统计换行后的可视行数。
-pub(crate) fn line_count(text: &str) -> usize {
+pub(crate) fn line_count(text: &str, font: &Font) -> usize {
     let mut lines = 1;
     let mut x = 0;
     for character in text.chars() {
@@ -45,7 +45,7 @@ pub(crate) fn line_count(text: &str) -> usize {
             x = 0;
             continue;
         }
-        let width = char_width(character);
+        let width = font.advance(character) as usize;
         if x + width > WIDTH - MARGIN * 2 {
             lines += 1;
             x = 0;
@@ -56,13 +56,7 @@ pub(crate) fn line_count(text: &str) -> usize {
 }
 
 /// 绘制页面。
-pub(crate) fn render(
-    text: &str,
-    title: &str,
-    scroll: usize,
-    font: &Font<'static>,
-    pixels: *mut u32,
-) {
+pub(crate) fn render(text: &str, title: &str, scroll: usize, font: &Font, pixels: *mut u32) {
     fill(pixels, 0, 0, WIDTH, HEIGHT, BACKGROUND);
     fill(
         pixels,
@@ -86,8 +80,8 @@ pub(crate) fn render(
             pen = MARGIN as i32;
             continue;
         }
-        let width = char_width(character);
-        if pen + width as i32 > (WIDTH - MARGIN) as i32 {
+        let advance = font.advance(character);
+        if pen + advance > (WIDTH - MARGIN) as i32 {
             line += 1;
             pen = MARGIN as i32;
         }
@@ -96,70 +90,63 @@ pub(crate) fn render(
         }
         if line >= scroll {
             let y = BODY_TOP + (line - scroll) * LINE_HEIGHT;
-            put_char(font, pixels, pen, y as i32, character, FOREGROUND);
+            if let Some(glyph) = font.glyph(character) {
+                glyph.for_each_pixel(|px, py| {
+                    let screen_x = pen + px;
+                    let screen_y = y as i32 + py;
+                    if screen_x >= MARGIN as i32
+                        && screen_y >= BODY_TOP as i32
+                        && (screen_x as usize) < WIDTH - MARGIN
+                        && (screen_y as usize) < HEIGHT - FOOTER_HEIGHT
+                    {
+                        // SAFETY: 坐标已裁剪到正文区。
+                        unsafe {
+                            pixels
+                                .add(screen_y as usize * WIDTH + screen_x as usize)
+                                .write_volatile(FOREGROUND);
+                        }
+                    }
+                });
+            }
         }
-        pen += width as i32;
+        pen += advance;
     }
 
     let mut x = MARGIN as i32;
     let y = (HEIGHT - FOOTER_HEIGHT + 4) as i32;
     draw_text(font, pixels, &mut x, y, HINT, FOOTER_INK);
-    let total = line_count(text);
+    let total = line_count(text, font);
     let position = format!("{}/{}", scroll + 1, total);
-    let width: usize = position.chars().map(char_width).sum();
+    let width: usize = position
+        .chars()
+        .map(|character| font.advance(character) as usize)
+        .sum();
     let mut x = (WIDTH - MARGIN - width) as i32;
     draw_text(font, pixels, &mut x, y, &position, FOOTER_INK);
 }
 
-fn char_width(character: char) -> usize {
-    if u32::from(character) > 0x7F { 16 } else { 8 }
-}
-
-fn put_char(font: &Font<'static>, pixels: *mut u32, x: i32, y: i32, character: char, color: u32) {
-    let Some(glyph) = font.glyph(character) else {
-        return;
-    };
-    glyph.for_each_pixel(|px, py| {
-        let screen_x = x + px;
-        let screen_y = y + py;
-        if screen_x >= MARGIN as i32
-            && screen_y >= BODY_TOP as i32
-            && (screen_x as usize) < WIDTH - MARGIN
-            && (screen_y as usize) < HEIGHT - FOOTER_HEIGHT
-        {
-            // SAFETY: 坐标已裁剪到正文区。
-            unsafe {
-                pixels
-                    .add(screen_y as usize * WIDTH + screen_x as usize)
-                    .write_volatile(color);
-            }
-        }
-    });
-}
-
-fn draw_text(font: &Font<'static>, pixels: *mut u32, x: &mut i32, y: i32, text: &str, color: u32) {
+fn draw_text(font: &Font, pixels: *mut u32, x: &mut i32, y: i32, text: &str, color: u32) {
     for character in text.chars() {
-        let Some(glyph) = font.glyph(character) else {
-            *x += char_width(character) as i32;
-            continue;
-        };
-        glyph.for_each_pixel(|px, py| {
-            let screen_x = *x + px;
-            let screen_y = y + py;
-            if screen_x >= 0
-                && screen_y >= 0
-                && (screen_x as usize) < WIDTH
-                && (screen_y as usize) < HEIGHT
-            {
-                // SAFETY: 坐标已裁剪。
-                unsafe {
-                    pixels
-                        .add(screen_y as usize * WIDTH + screen_x as usize)
-                        .write_volatile(color);
+        let advance = font.advance(character);
+        if let Some(glyph) = font.glyph(character) {
+            glyph.for_each_pixel(|px, py| {
+                let screen_x = *x + px;
+                let screen_y = y + py;
+                if screen_x >= 0
+                    && screen_y >= 0
+                    && (screen_x as usize) < WIDTH
+                    && (screen_y as usize) < HEIGHT
+                {
+                    // SAFETY: 坐标已裁剪。
+                    unsafe {
+                        pixels
+                            .add(screen_y as usize * WIDTH + screen_x as usize)
+                            .write_volatile(color);
+                    }
                 }
-            }
-        });
-        *x += char_width(character) as i32;
+            });
+        }
+        *x += advance;
     }
 }
 

@@ -7,6 +7,8 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
+use hk_font::Font;
+#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
     DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX,
@@ -24,10 +26,6 @@ use hk_server_api::{
     send, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
-use lovyangfx_fonts::Font;
-#[cfg(target_os = "none")]
-use lovyangfx_fonts::fonts::efont_cn_16;
-
 #[cfg(target_os = "none")]
 mod actions;
 #[cfg(target_os = "none")]
@@ -82,7 +80,7 @@ fn measure_full_redraw(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
-    font: &Font<'static>,
+    font: &Font,
     pointer: Option<(usize, usize)>,
 ) -> u64 {
     let start = tsc();
@@ -153,9 +151,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         height,
         framebuffer.stride as usize / 4,
     );
-    let font = efont_cn_16();
     let mut theme_buffer = [0_u8; 128];
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
+    let font = Font::new((16 * theme::scale()) as u32);
+    write(b"hk-server-display: font ");
+    write(if font.has_scalable() {
+        b"scalable ".as_slice()
+    } else {
+        b"bitmap ".as_slice()
+    });
+    write_u64(u64::from(font.size()));
+    write(b"\n");
     write(b"hk-server-display: theme ");
     write(theme_name.as_bytes());
     write(b"\n");
@@ -217,29 +223,39 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     if handle != 0 {
                         let _ = close_handle(handle);
                     }
+                    write(b"hk-server-display: create invalid\n");
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 }
                 let Some(slot) = windows.iter().position(Option::is_none) else {
                     let _ = close_handle(handle);
+                    write(b"hk-server-display: create full\n");
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 };
                 let bytes = width as u64 * height as u64 * 4;
                 let Some((_, frame_length)) = frame_info(handle) else {
                     let _ = close_handle(handle);
+                    write(b"hk-server-display: create no-frame\n");
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 };
                 if frame_length < bytes {
                     let _ = close_handle(handle);
+                    write(b"hk-server-display: create short-frame\n");
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 }
                 let id = next_id;
                 let virt = WINDOW_BASE + (slot as u64) * WINDOW_STRIDE;
-                if frame_map(handle, virt) < bytes {
+                let mapped = frame_map(handle, virt);
+                if mapped < bytes {
                     let _ = close_handle(handle);
+                    write(b"hk-server-display: create map-failed ");
+                    write_u64(mapped);
+                    write(b"/");
+                    write_u64(bytes);
+                    write(b"\n");
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 }

@@ -190,7 +190,7 @@ flowchart LR
 - Input Driver：用户态 virtio-input 驱动（DeviceGrant + IRQ 通知），把 evdev 键码解码为字节交给 Display 按焦点路由；支持 virtio-tablet 绝对指针与点击，Display 绘制光标、按 z 序命中窗口，并支持标题栏拖拽移动窗口；`smoke --mode inputdriver/pointer` 验证。
 - Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地：内核非阻塞控制台读与输入通知，用户态行编辑/回显；有 Display 时 Console 创建自己的终端窗口，用 8×16 字体渲染并提交合成；支持增量 UTF-8 与中文双宽字形、光标与提示符；SGR 支持 16/256/真彩色、粗体/暗淡/下划线/反显，以及光标定位与行列擦除；键盘事件由 Display 按焦点转发给 Console 做行编辑，无 Display 时回退内核控制台。`smoke --mode console/terminal` 验证。
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：HolyDoc 指令解析、自动换行布局、内置欢迎页与帮助页、链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；启动落在欢迎页，经 `H:` 卷原生文档协议枚举集合并整篇读取文档，集合页与 DocPath 链接可直接跳转；`smoke --mode holydoc` 验证解析、执行、跳转、返回、集合浏览与渲染。
-- sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏、8×16 位图字体回退；TrueType/OpenType 可缩放字体在后续版本接入。
+- sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏；`hk-font` 内置 TrueType 字体，支持轮廓栅格化、字形缓存与缺字形 8×16 位图回退；Display 标题/任务栏与 Debug 窗口使用可缩放字体，Console 固定网格与 HolyDoc 布局继续使用位图回退。
 - 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
 - Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；镜像构建生成内核与服务符号表，用户异常记录现场并经 Root 控制 `symbolize`/`fault` 输出符号化回溯；`smoke --mode debug` 验证各视图与符号解析。
 - 服务器热重启与应用热替换原型。

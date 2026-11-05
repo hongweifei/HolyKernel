@@ -317,6 +317,7 @@ impl SmokeMode {
             ],
             Self::Console => &["hk-server-console-test: got hello"],
             Self::Display => &[
+                "hk-server-display: font scalable 32",
                 "hk-server-display: theme light",
                 "hk-server-display: scale 2",
                 "hk-server-display: ready",
@@ -378,6 +379,7 @@ impl SmokeMode {
             ],
             Self::Debug => &[
                 "hk-server-display: composite ok",
+                "hk-server-debug: font scalable 16",
                 "hk-server-debug: ready 1",
                 "hk-server-debug: threads ",
                 "hk-server-debug: objects ",

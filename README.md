@@ -200,4 +200,6 @@ x86_64 QEMU 目标由 Limine 载入：内核初始化 COM1 串口、建立 GDT/T
 
 ## 许可
 
-`MIT OR Apache-2.0`。
+仓库代码：`MIT OR Apache-2.0`。
+
+内置 Adwaita Sans 字体按 SIL Open Font License 1.1 授权，见 `crates/hk-font/assets/LICENSE-OFL.txt`。
