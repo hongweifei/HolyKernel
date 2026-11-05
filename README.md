@@ -163,7 +163,7 @@ qemu-system-x86_64 -M q35 -m 256M \
   -device virtio-keyboard-pci -device virtio-tablet-pci
 ```
 
-`desktop` 模式下没有内核 HolyShell，交互由图形 Console/HolyDoc 窗口承担。
+`desktop` 模式下没有内核 HolyShell，交互由图形 Console/HolyDoc 窗口承担。对刷新性能敏感时加 `--release`：合成已改为按行批量填充/拷贝，release 下单窗口合成约几毫秒。
 
 Hosted 目标直接运行：打印启动信息、校验 BootInfo、运行微内核演示（Root Server 启动两个服务，客户端完成两轮 call/reply），再运行 COW fork 原型（父页只读共享、子页写时复制），最后按退出协议结束进程。
 

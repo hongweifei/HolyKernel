@@ -234,6 +234,42 @@ impl Screen {
         // SAFETY: 坐标已裁剪到帧缓冲范围内。
         unsafe { self.base.add(y * self.stride + x).read_volatile() }
     }
+
+    /// 用单色填充一行。
+    pub(crate) fn fill_row(&self, x: usize, y: usize, width: usize, color: u32) {
+        if y >= self.height || width == 0 {
+            return;
+        }
+        let left = x.min(self.width);
+        let right = x.saturating_add(width).min(self.width);
+        if left >= right {
+            return;
+        }
+        // SAFETY: 行范围已裁剪到帧缓冲内；批量写入避免逐像素 volatile。
+        unsafe {
+            let row = core::slice::from_raw_parts_mut(
+                self.base.add(y * self.stride + left),
+                right - left,
+            );
+            row.fill(color);
+        }
+    }
+
+    /// 从客户端表面整行拷贝到帧缓冲。
+    pub(crate) fn copy_row(&self, x: usize, y: usize, count: usize, source: *const u32) {
+        if y >= self.height || count == 0 {
+            return;
+        }
+        let left = x.min(self.width);
+        let count = count.min(self.width - left);
+        if count == 0 {
+            return;
+        }
+        // SAFETY: 源行由调用方按表面尺寸裁剪；目标行已裁剪到帧缓冲。
+        unsafe {
+            core::ptr::copy_nonoverlapping(source, self.base.add(y * self.stride + left), count);
+        }
+    }
 }
 
 /// 关闭按钮左上角。

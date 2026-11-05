@@ -194,13 +194,10 @@ impl Terminal {
 
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
-        for row in 0..ROWS {
-            for column in 0..COLUMNS {
-                for y in 0..CELL_HEIGHT {
-                    for x in 0..CELL_WIDTH {
-                        self.put_pixel(column * CELL_WIDTH + x, row * CELL_HEIGHT + y, BACKGROUND);
-                    }
-                }
+        for y in 0..HEIGHT {
+            // SAFETY: 共享表面按 WIDTH×HEIGHT 映射，行范围在表面内。
+            unsafe {
+                core::slice::from_raw_parts_mut(self.pixels.add(y * WIDTH), WIDTH).fill(BACKGROUND);
             }
         }
         for row in 0..ROWS {

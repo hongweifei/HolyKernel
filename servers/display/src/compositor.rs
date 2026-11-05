@@ -123,9 +123,7 @@ fn paint_window(
             palette.title_color
         };
         for row in title_top..title_bottom {
-            for column in title_left..title_right {
-                screen.put(column, row, color);
-            }
+            screen.fill_row(title_left, row, title_right - title_left, color);
         }
         let font_scale = scale() as i32;
         let mut pen_x = window_x as i32 + 4 * font_scale;
@@ -207,14 +205,31 @@ fn paint_window(
     let body_right = (window_x + window.width).min(right);
     let body_top = (window_y + title_height()).max(top);
     let body_bottom = (window_y + title_height() + window.height).min(bottom);
-    for row in body_top..body_bottom {
-        let source_row = row - (window_y + title_height());
-        for column in body_left..body_right {
-            screen.put(
-                column,
-                row,
-                surface_pixel(window, column - window_x, source_row),
-            );
+    if body_left < body_right
+        && body_top < body_bottom
+        && window.width == window.surface_width
+        && window.height == window.surface_height
+    {
+        let count = body_right - body_left;
+        let source_x = body_left - window_x;
+        for row in body_top..body_bottom {
+            let source_row = row - (window_y + title_height());
+            // SAFETY: 表面按 surface_width×surface_height 映射，坐标已裁剪到窗口内。
+            let source = unsafe {
+                (window.virt as *const u32).add(source_row * window.surface_width + source_x)
+            };
+            screen.copy_row(body_left, row, count, source);
+        }
+    } else {
+        for row in body_top..body_bottom {
+            let source_row = row - (window_y + title_height());
+            for column in body_left..body_right {
+                screen.put(
+                    column,
+                    row,
+                    surface_pixel(window, column - window_x, source_row),
+                );
+            }
         }
     }
 
@@ -257,9 +272,7 @@ fn paint_taskbar(
         return;
     }
     for row in top..bottom {
-        for column in left..right {
-            screen.put(column, row, palette.taskbar_bg);
-        }
+        screen.fill_row(left, row, right - left, palette.taskbar_bg);
     }
 
     let button_top = taskbar_button_top(screen.height);
@@ -279,10 +292,10 @@ fn paint_taskbar(
         };
         let fill_top = button_top.max(top);
         let fill_bottom = (button_top + taskbar_button_height()).min(bottom);
+        let fill_left = button_x.max(left);
+        let fill_right = (button_x + button_width).min(right);
         for row in fill_top..fill_bottom {
-            for column in button_x.max(left)..(button_x + button_width).min(right) {
-                screen.put(column, row, color);
-            }
+            screen.fill_row(fill_left, row, fill_right.saturating_sub(fill_left), color);
         }
 
         let font_scale = scale() as i32;
@@ -343,9 +356,7 @@ pub(crate) fn compose_region(
     }
     for row in top..bottom {
         let color = desktop_color(screen.height, row);
-        for column in left..right {
-            screen.put(column, row, color);
-        }
+        screen.fill_row(left, row, right - left, color);
     }
     for window in windows.iter().flatten() {
         paint_window(screen, window, focus, font, left, top, right, bottom);
@@ -366,9 +377,7 @@ pub(crate) fn compose_region(
 pub(crate) fn draw_desktop(screen: &Screen) {
     for row in 0..screen.height {
         let color = desktop_color(screen.height, row);
-        for column in 0..screen.width {
-            screen.put(column, row, color);
-        }
+        screen.fill_row(0, row, screen.width, color);
     }
 }
 

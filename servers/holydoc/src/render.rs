@@ -20,11 +20,9 @@ const CODE_INK: u32 = 0x0060_4030;
 /// 把文档绘制到共享表面。
 pub(crate) fn render(view: &DocView, font: &Font<'static>, pixels: *mut u32) {
     for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            // SAFETY: 共享表面已按 WIDTH×HEIGHT 映射，坐标在范围内。
-            unsafe {
-                pixels.add(y * WIDTH + x).write_volatile(PAPER);
-            }
+        // SAFETY: 共享表面已按 WIDTH×HEIGHT 映射，行范围在表面内。
+        unsafe {
+            core::slice::from_raw_parts_mut(pixels.add(y * WIDTH), WIDTH).fill(PAPER);
         }
     }
     for (index, line) in view.lines.iter().enumerate() {
@@ -36,11 +34,13 @@ pub(crate) fn render(view: &DocView, font: &Font<'static>, pixels: *mut u32) {
             let first = y.max(0) as usize;
             let last = (y + LINE_HEIGHT as isize).clamp(0, HEIGHT as isize) as usize;
             for row in first..last {
-                for x in MARGIN..WIDTH - MARGIN {
-                    // SAFETY: 坐标已裁剪。
-                    unsafe {
-                        pixels.add(row * WIDTH + x).write_volatile(CODE_BG);
-                    }
+                // SAFETY: 行已裁剪到表面内，代码区在左右留白之间。
+                unsafe {
+                    core::slice::from_raw_parts_mut(
+                        pixels.add(row * WIDTH + MARGIN),
+                        WIDTH - MARGIN * 2,
+                    )
+                    .fill(CODE_BG);
                 }
             }
         }

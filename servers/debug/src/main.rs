@@ -118,11 +118,9 @@ fn put_row(pixels: *mut u32, font: &Font<'static>, y: i32, label: &str, value: u
 #[cfg(target_os = "none")]
 fn render(pixels: *mut u32, font: &Font<'static>) {
     for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            // SAFETY: 共享表面已按 WIDTH×HEIGHT 映射。
-            unsafe {
-                pixels.add(y * WIDTH + x).write_volatile(BACKGROUND);
-            }
+        // SAFETY: 共享表面已按 WIDTH×HEIGHT 映射，行范围在表面内。
+        unsafe {
+            core::slice::from_raw_parts_mut(pixels.add(y * WIDTH), WIDTH).fill(BACKGROUND);
         }
     }
     let stats = kernel_stats();
