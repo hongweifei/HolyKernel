@@ -14,15 +14,26 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
+use hk_block::ipc::ClientDisk;
+#[cfg(target_os = "none")]
 use hk_fs::Backend;
+#[cfg(target_os = "none")]
+use hk_fs_ext4::{Ext4Backend, WallClock};
+#[cfg(target_os = "none")]
+use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{HOLY_REQUEST, HOLY_RESPONSE, HolyClient, decode_drives, decode_request};
+use hk_server_api::holy::{
+    DocId as WireDocId, HOLY_REQUEST, HOLY_RESPONSE, HolyClient, VolumeView, decode_drives,
+    decode_request,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::encode_response;
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, send_data, write, yield_now};
+#[cfg(target_os = "none")]
+use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
 
 #[cfg(target_os = "none")]
 mod drives;
@@ -78,9 +89,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if drives.is_empty() {
             write(b"hk-server-vfs: no drives\n");
         }
-    } else {
-        write(b"hk-server-vfs: disabled\n");
+    } else if let Some(ext4) = mount_ext4(endpoint) {
+        register(&mut drives, b'E', ext4);
     }
+    register(&mut drives, b'T', PathObject::new(Tmpfs::new()));
+    register(&mut drives, b'D', PathObject::new(Devfs::new()));
+    register(&mut drives, b'P', PathObject::new(Procfs::new()));
 
     let mut sessions = Sessions::new();
     let mut request = vec![0_u8; 64 * 1024];
@@ -105,6 +119,45 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let (status, written) =
             holy::handle(&mut drives, &mut sessions, sender, &request, &mut body);
         reply(sender, status, &body[..written], &mut response);
+    }
+}
+
+#[cfg(target_os = "none")]
+struct RealtimeClock;
+
+#[cfg(target_os = "none")]
+impl WallClock for RealtimeClock {
+    fn now(&self) -> Option<CivilTime> {
+        hk_server_api::civil_time()
+    }
+}
+
+#[cfg(target_os = "none")]
+fn mount_ext4(endpoint: u64) -> Option<PathObject<Ext4Backend<ClientDisk>>> {
+    for _ in 0..4096 {
+        let Ok(disk) = ClientDisk::open("hk-server-virtio", endpoint) else {
+            let _ = yield_now();
+            continue;
+        };
+        return Ext4Backend::mount_with_wall_clock(disk, RealtimeClock)
+            .ok()
+            .map(PathObject::new);
+    }
+    None
+}
+
+#[cfg(target_os = "none")]
+fn register<P: Backend + 'static>(drives: &mut Drives, letter: u8, backend: P) {
+    let root = backend.root();
+    let volume = VolumeView {
+        volume: 0x484F_4C59_4653_0200 + letter as u128,
+        generation: 0,
+        epoch: 0,
+        root: WireDocId::new(root.get()),
+    };
+    if drives.insert(letter, Box::new(backend), volume, root) {
+        write(b"hk-server-vfs: drive ");
+        write(&[letter, b':', b'\n']);
     }
 }
 

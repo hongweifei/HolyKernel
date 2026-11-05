@@ -2,11 +2,11 @@
 
 状态：**原生 VFS 已拆分，路径/fd 兼容服务独立运行** · 上级：[总体架构](architecture.md)
 
-已实现 `crates/hk-vfs`：核心后端契约为 `hk-fs::Backend`（`DocId`、集合、修订与能力），路径规范化、挂载表、dentry 缓存、文件句柄与页缓存作为兼容投影保留；外来文件系统实现 `PathBackend` 并由 `PathObject` 适配为 Holy 后端；页缓存按 `(实例, DocId, 修订)` 索引；tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；启动参数 `vfs.root=ext4` 选择 `/` 主根，`vfs.fs=holyfs` 由独立 `hk-server-holyfs` 挂载 HolyFS 数据盘，原生 VFS 通过远程后端提供 H:/I:，路径服务再投影到 `/disk`、`/disk-I`，默认挂载 ext4 到 `/disk`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
+已实现 `crates/hk-vfs`：核心后端契约为 `hk-fs::Backend`（`DocId`、集合、修订与能力），路径规范化、挂载表、dentry 缓存、文件句柄与页缓存作为兼容投影保留；外来文件系统实现 `PathBackend` 并由 `PathObject` 适配为 Holy 后端；页缓存按 `(实例, DocId, 修订)` 索引；tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；ext4、tmpfs、devfs、procfs 均由原生 VFS 注册为盘符后端（E:/T:/D:/P:），`vfs.fs=holyfs` 时由独立 `hk-server-holyfs` 挂载 HolyFS 数据盘，原生 VFS 通过远程后端提供 H:/I:。启动参数 `vfs.root=ext4` 决定路径服务是否把 E: 投到 `/`；默认把 E: 投到 `/disk`。路径服务自身不再挂载任何本地文件系统，只把盘符投影为 `/disk`、`/disk-I`、`/tmp`、`/dev`、`/proc`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
 
 现在分成两个用户态服务：`hk-server-vfs` 是 Holy 原生命名空间，只暴露 DocId、集合、修订、文档令牌和盘符；`hk-server-path` 是路径/fd 兼容服务，负责 `/disk`、`/tmp`、`/dev`、`/proc`、open/read/write 与 POSIX 风格投影。内核只提供 Frame、Endpoint 与 Handle。
 
-HolyFS 是 HolyKernel 的原生文件系统，以 `H:`、`I:` 等盘符与文档对象工作。它由独立 `hk-server-holyfs` 服务承载；原生 VFS 通过远程 Holy 后端连接该服务，路径服务再把 VFS 盘符投影到路径命名空间（`H:` → `/disk`，`I:` → `/disk-I`）。详见 [HolyFS](holyfs.md)。
+HolyFS 是 HolyKernel 的原生文件系统，以 `H:`、`I:` 等盘符与文档对象工作。它由独立 `hk-server-holyfs` 服务承载；原生 VFS 通过远程 Holy 后端连接该服务。ext4、tmpfs、devfs、procfs 同样由原生 VFS 以 E:/T:/D:/P: 盘符承载，路径服务只做盘符到路径的投影（`H:` → `/disk`，`I:` → `/disk-I`，`T:` → `/tmp`，`D:` → `/dev`，`P:` → `/proc`）。详见 [HolyFS](holyfs.md)。
 
 `H:` 的完整 Holy 能力仍由 `hk-server-holyfs` 承载：原生客户端可以按 DocPath 或 `DocId` 枚举集合、读取文档、查询修订视图、操作标签/快照，并通过 `ACQUIRE`/`RELEASE` 获取带权利与固定修订的文档令牌。原生 VFS 复用同一批后端，对外只提供文档身份、集合、修订、偏移读写与文档令牌；路径、fd 与目录挂载只存在于 `hk-server-path`。
 
@@ -18,7 +18,7 @@ HolyFS 是 HolyKernel 的原生文件系统，以 `H:`、`I:` 等盘符与文档
 
 1. **统一路径空间**：挂载表、路径解析、`.`/`..`、符号链接、相对路径。
 2. **文件抽象**：inode、dentry、open file description、文件句柄、目录项缓存。
-3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端统一到 `hk-fs::Backend`，HolyFS 直接实现，路径后端经 `PathObject` 适配并以能力位声明降级。
+3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端统一到 `hk-fs::Backend`，HolyFS 直接实现，ext4/tmpfs/devfs/procfs 经 `PathObject` 适配为原生 VFS 盘符，路径服务只做路径投影。
 4. **POSIX 语义**：`open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`/`fsync`/`truncate`。
 5. **页缓存**：文件数据以 Frame 共享；POSIX Server与用户进程零拷贝读取。
 6. **权限检查**：POSIX Server传入凭证；VFS 与文件系统后端执行属主/权限位检查。
@@ -74,7 +74,7 @@ pub struct Mount {
 
 - Root Server 或 POSIX Server 通过 VFS 的 `mount` 接口建立挂载。
 - 挂载表由 VFS 维护；POSIX Server的 `mount`/`umount` 转发到 VFS。
-- 初始挂载：`/`（ext2/ext4）、`/dev`（devfs）、`/proc`（procfs）、`/tmp`（tmpfs）。
+- 初始挂载：原生 VFS 注册 E:（ext4）、T:（tmpfs）、D:（devfs）、P:（procfs）；HolyFS 模式另注册 H:/I:。路径服务把它们投影到 `/` 或 `/disk`、`/tmp`、`/dev`、`/proc`。
 - 挂载点支持嵌套；路径解析跨越挂载边界。
 - 只读挂载拒绝写操作。
 

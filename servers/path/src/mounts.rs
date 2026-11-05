@@ -1,36 +1,18 @@
-//! 块设备挂载：HolyFS 与 ext4。
+//! 把原生 VFS 的盘符投影到路径命名空间。
 
 use alloc::boxed::Box;
-use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_block::ipc::ClientDisk;
-use hk_fs_ext4::mount_at_with_wall_clock;
-use hk_hal::CivilTime;
 use hk_server_api::holy::{HolyClient, decode_drives};
 use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 
 use crate::remote::RemoteHolyFs;
 
-/// 提供块设备的驱动服务。
+/// 等待原生 VFS 就绪，并按盘符建立路径挂载点。
 #[cfg(target_os = "none")]
-const BLOCK_SERVICE: &str = "hk-server-virtio";
-
-/// 平台民用时间来源。
-#[cfg(target_os = "none")]
-struct RealtimeClock;
-
-#[cfg(target_os = "none")]
-impl hk_fs_ext4::WallClock for RealtimeClock {
-    fn now(&self) -> Option<CivilTime> {
-        hk_server_api::civil_time()
-    }
-}
-
-/// 等待原生 VFS 服务就绪，并把每个注册盘符挂到路径命名空间。
-#[cfg(target_os = "none")]
-pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
+pub(crate) fn mount_drives(filesystem: &mut Vfs, endpoint: u64, ext4_root: bool) -> bool {
     for _ in 0..4096 {
         if service_endpoint("hk-server-vfs") == 0 {
             let _ = yield_now();
@@ -47,17 +29,25 @@ pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) ->
             continue;
         }
         let mut mounted = false;
+        if ext4_root && drives.contains(&b'E') && mount(filesystem, endpoint, b'E', "/").is_ok() {
+            mounted = true;
+        }
+        for path in ["/disk", "/tmp", "/dev", "/proc"] {
+            let _ = filesystem.create_dir(path);
+        }
         for drive in drives {
-            let path = if drive == b'H' {
-                alloc::string::String::from(target)
-            } else {
-                format!("{target}-{}", drive as char)
+            let path = match drive {
+                b'H' => String::from("/disk"),
+                b'I' => String::from("/disk-I"),
+                b'E' if !ext4_root => String::from("/disk"),
+                b'E' => continue,
+                b'T' => String::from("/tmp"),
+                b'D' => String::from("/dev"),
+                b'P' => String::from("/proc"),
+                _ => continue,
             };
             let _ = filesystem.create_dir(&path);
-            let Ok(backend) = RemoteHolyFs::new(endpoint, drive, "hk-server-vfs") else {
-                continue;
-            };
-            if filesystem.mount(&path, Box::new(backend)).is_ok() && drive == b'H' {
+            if mount(filesystem, endpoint, drive, &path).is_ok() {
                 mounted = true;
             }
         }
@@ -66,15 +56,8 @@ pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) ->
     false
 }
 
-/// 等待驱动就绪并在 `/disk` 挂载 ext4。
 #[cfg(target_os = "none")]
-pub(crate) fn mount_ext4(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
-    for _ in 0..4096 {
-        let Ok(disk) = ClientDisk::open(BLOCK_SERVICE, endpoint) else {
-            let _ = yield_now();
-            continue;
-        };
-        return mount_at_with_wall_clock(filesystem, target, disk, RealtimeClock).is_ok();
-    }
-    false
+fn mount(filesystem: &mut Vfs, endpoint: u64, drive: u8, target: &str) -> Result<(), ()> {
+    let backend = RemoteHolyFs::new(endpoint, drive, "hk-server-vfs").map_err(|_| ())?;
+    filesystem.mount(target, Box::new(backend)).map_err(|_| ())
 }

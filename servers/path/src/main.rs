@@ -21,11 +21,11 @@ use hk_server_api::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, de
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, write};
 #[cfg(target_os = "none")]
-use hk_vfs::{Devfs, Procfs, Tmpfs, Vfs};
+use hk_vfs::{Tmpfs, Vfs};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 768 * 1024;
+const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -41,7 +41,7 @@ mod remote;
 mod sessions;
 
 #[cfg(target_os = "none")]
-use mounts::{mount_ext4, mount_holyfs};
+use mounts::mount_drives;
 #[cfg(target_os = "none")]
 use protocol::{handle, reply};
 #[cfg(target_os = "none")]
@@ -60,31 +60,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         Some(time) if time.year >= 2000 => write("hk-server-path: rtc ok\n".as_bytes()),
         _ => write("hk-server-path: rtc 不可用\n".as_bytes()),
     }
-    let target = if ext4_root && !holyfs { "/" } else { "/disk" };
-    if target != "/" {
-        let _ = filesystem.create_dir("/disk");
-    }
-    let mounted = if holyfs {
-        mount_holyfs(&mut filesystem, endpoint, target)
-    } else {
-        mount_ext4(&mut filesystem, endpoint, target)
-    };
+    let mounted = mount_drives(&mut filesystem, endpoint, ext4_root && !holyfs);
     if mounted {
         if holyfs {
             write("hk-server-path: drives via hk-server-vfs\n".as_bytes());
         } else {
             write("hk-server-path: ext4 mounted\n".as_bytes());
         }
+        write("hk-server-path: tmpfs ready\n".as_bytes());
     } else {
         write("hk-server-path: 文件系统不可用\n".as_bytes());
     }
-    let _ = filesystem.create_dir("/tmp");
-    let _ = filesystem.mount_path("/tmp", Tmpfs::new());
-    let _ = filesystem.create_dir("/dev");
-    let _ = filesystem.mount_path("/dev", Devfs::new());
-    let _ = filesystem.create_dir("/proc");
-    let _ = filesystem.mount_path("/proc", Procfs::new());
-    write("hk-server-path: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();
     let mut request = vec![0_u8; 64 * 1024];

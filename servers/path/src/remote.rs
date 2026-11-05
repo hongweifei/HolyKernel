@@ -20,6 +20,7 @@ use hk_server_api::vfs::{
 /// 独立 HolyFS 服务的远程后端。
 pub(crate) struct RemoteHolyFs {
     root: DocId,
+    drive: u8,
     client: RefCell<Box<HolyClient>>,
 }
 
@@ -31,6 +32,7 @@ impl RemoteHolyFs {
         let root = client.root().map_err(map_status)?;
         Ok(Self {
             root: DocId::new(root.get()),
+            drive,
             client: RefCell::new(client),
         })
     }
@@ -163,6 +165,10 @@ impl Backend for RemoteHolyFs {
 
     fn sync(&mut self) -> Result<(), Error> {
         self.client.borrow_mut().sync().map_err(map_status)
+    }
+
+    fn cacheable(&self, _document: DocId) -> bool {
+        self.drive != b'D' && self.drive != b'P'
     }
 }
 
