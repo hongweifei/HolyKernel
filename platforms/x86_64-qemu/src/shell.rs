@@ -286,11 +286,14 @@ fn wait_byte(console: &Serial) -> u8 {
         if let Some(byte) = console.try_read_byte() {
             return byte;
         }
-        // SAFETY: STI 之后的指令才响应中断，`hlt` 在等待期间让出 CPU；
-        // 键盘中断或串口中断会唤醒等待。
+        // 串口接收中断未启用，空闲后定时器也可能停止；这里主动轮询，
+        // 避免 `hlt` 永久等待而无法读取 stdin。轮询期间保持中断开启，
+        // 让 PS/2 键盘与定时器仍能投递。
+        // SAFETY: 仅设置中断标志，不改变栈或寄存器状态。
         unsafe {
-            core::arch::asm!("sti; hlt; cli", options(nomem, nostack));
+            core::arch::asm!("sti", options(nomem, nostack));
         }
+        core::hint::spin_loop();
     }
 }
 
