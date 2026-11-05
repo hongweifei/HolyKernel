@@ -10,8 +10,9 @@
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
-    ArpTable, NET_ARP_BYTES, NET_ARP_REQUEST, NET_ARP_RESPONSE, NET_STATUS_BYTES,
-    NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NetStatus,
+    ArpTable, NET_ARP_BYTES, NET_ARP_REQUEST, NET_ARP_RESPONSE, NET_CONFIG_BYTES,
+    NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_STATUS_BYTES, NET_STATUS_REQUEST,
+    NET_STATUS_RESPONSE, NetConfig, NetStatus,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_from, send, service_endpoint, write, write_u64, yield_now};
@@ -46,7 +47,55 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     print_status(&status);
     print_routes(&status);
     print_arp(endpoint, net);
+    print_config(endpoint, net);
     exit(0)
+}
+
+/// 查询并打印原生网络配置。
+#[cfg(target_os = "none")]
+fn print_config(endpoint: u64, net: u64) {
+    if send(net, NET_CONFIG_REQUEST, 0) != 0 {
+        write(b"hk-server-netstat: config request failed\n");
+        return;
+    }
+    let mut buffer = [0_u8; NET_CONFIG_BYTES];
+    let (label, _word, sender, length) = recv_data_from(endpoint, net, &mut buffer);
+    if label != NET_CONFIG_RESPONSE || sender != net {
+        write(b"hk-server-netstat: config bad response\n");
+        return;
+    }
+    let Some(config) = NetConfig::decode(&buffer[..length]) else {
+        write(b"hk-server-netstat: config decode failed\n");
+        return;
+    };
+    write(b"hk-server-netstat: config dhcp=");
+    write(if config.dhcp { &b"on"[..] } else { &b"off"[..] });
+    write(b" ipv4=");
+    if config.has_ipv4 {
+        write_ipv4(&config.ipv4);
+        write(b"/");
+        write_u64(u64::from(config.prefix));
+    } else {
+        write(b"none");
+    }
+    write(b" gw=");
+    if config.has_gateway {
+        write_ipv4(&config.gateway);
+    } else {
+        write(b"none");
+    }
+    write(b" mtu=");
+    write_u64(u64::from(config.mtu));
+    write(b"\n");
+    if config.dns_count == 0 {
+        write(b"hk-server-netstat: config dns=none\n");
+    } else {
+        for server in &config.dns[..usize::from(config.dns_count)] {
+            write(b"hk-server-netstat: config dns=");
+            write_ipv4(server);
+            write(b"\n");
+        }
+    }
 }
 
 /// 打印由接口地址与默认网关合成的路由视图。

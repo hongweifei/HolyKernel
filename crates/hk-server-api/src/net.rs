@@ -22,6 +22,10 @@ pub const NET_STATUS_RESPONSE: u64 = 0x708;
 pub const NET_ARP_REQUEST: u64 = 0x709;
 /// ARP 邻居表响应。
 pub const NET_ARP_RESPONSE: u64 = 0x70a;
+/// 查询原生网络配置。
+pub const NET_CONFIG_REQUEST: u64 = 0x70b;
+/// 原生网络配置响应。
+pub const NET_CONFIG_RESPONSE: u64 = 0x70c;
 
 /// IRQ Notification 位：设备中断。
 pub const NET_NOTIFY_IRQ: u64 = 1 << 0;
@@ -212,6 +216,102 @@ impl ArpTable {
     }
 }
 
+/// 配置中最多携带的 DNS 服务器数量。
+pub const NET_CONFIG_MAX_DNS: usize = 4;
+/// 配置编码长度：标志 + 地址/网关 + MTU + DNS 列表。
+pub const NET_CONFIG_BYTES: usize = 13 + NET_CONFIG_MAX_DNS * 4;
+
+const CONFIG_FLAGS: usize = 0;
+const CONFIG_IPV4: usize = 1;
+const CONFIG_PREFIX: usize = 5;
+const CONFIG_GATEWAY: usize = 6;
+const CONFIG_MTU: usize = 10;
+const CONFIG_DNS_COUNT: usize = 12;
+const CONFIG_DNS: usize = 13;
+
+/// 原生网络配置快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NetConfig {
+    /// 是否通过 DHCP 获得配置。
+    pub dhcp: bool,
+    /// IPv4 地址。
+    pub ipv4: [u8; 4],
+    /// 是否配置了 IPv4 地址。
+    pub has_ipv4: bool,
+    /// 前缀长度。
+    pub prefix: u8,
+    /// 默认网关。
+    pub gateway: [u8; 4],
+    /// 是否存在默认网关。
+    pub has_gateway: bool,
+    /// MTU。
+    pub mtu: u16,
+    /// DNS 服务器数量。
+    pub dns_count: u8,
+    /// DNS 服务器。
+    pub dns: [[u8; 4]; NET_CONFIG_MAX_DNS],
+}
+
+impl NetConfig {
+    /// 编码为定长字节串，返回写入长度。
+    pub fn encode(&self, buffer: &mut [u8]) -> Option<usize> {
+        if buffer.len() < NET_CONFIG_BYTES {
+            return None;
+        }
+        buffer[..NET_CONFIG_BYTES].fill(0);
+        let mut flags = 0_u8;
+        if self.dhcp {
+            flags |= 1 << 0;
+        }
+        if self.has_ipv4 {
+            flags |= 1 << 1;
+        }
+        if self.has_gateway {
+            flags |= 1 << 2;
+        }
+        buffer[CONFIG_FLAGS] = flags;
+        buffer[CONFIG_IPV4..CONFIG_IPV4 + 4].copy_from_slice(&self.ipv4);
+        buffer[CONFIG_PREFIX] = self.prefix;
+        buffer[CONFIG_GATEWAY..CONFIG_GATEWAY + 4].copy_from_slice(&self.gateway);
+        buffer[CONFIG_MTU..CONFIG_MTU + 2].copy_from_slice(&self.mtu.to_le_bytes());
+        let count = usize::from(self.dns_count).min(NET_CONFIG_MAX_DNS);
+        buffer[CONFIG_DNS_COUNT] = count as u8;
+        for (index, server) in self.dns[..count].iter().enumerate() {
+            let offset = CONFIG_DNS + index * 4;
+            buffer[offset..offset + 4].copy_from_slice(server);
+        }
+        Some(NET_CONFIG_BYTES)
+    }
+
+    /// 从定长字节串解码。
+    pub fn decode(buffer: &[u8]) -> Option<Self> {
+        if buffer.len() < NET_CONFIG_BYTES {
+            return None;
+        }
+        let flags = buffer[CONFIG_FLAGS];
+        let count = usize::from(buffer[CONFIG_DNS_COUNT]);
+        if count > NET_CONFIG_MAX_DNS {
+            return None;
+        }
+        let mut dns = [[0_u8; 4]; NET_CONFIG_MAX_DNS];
+        for (index, server) in dns[..count].iter_mut().enumerate() {
+            let offset = CONFIG_DNS + index * 4;
+            server.copy_from_slice(&buffer[offset..offset + 4]);
+        }
+        Some(Self {
+            dhcp: flags & 1 != 0,
+            ipv4: buffer[CONFIG_IPV4..CONFIG_IPV4 + 4].try_into().ok()?,
+            has_ipv4: flags & 2 != 0,
+            prefix: buffer[CONFIG_PREFIX],
+            gateway: buffer[CONFIG_GATEWAY..CONFIG_GATEWAY + 4].try_into().ok()?,
+            has_gateway: flags & 4 != 0,
+            mtu: u16::from_le_bytes(buffer[CONFIG_MTU..CONFIG_MTU + 2].try_into().ok()?),
+            dns_count: count as u8,
+            dns,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +357,24 @@ mod tests {
             ArpTable::decode(&buffer[..1 + 2 * NET_ARP_ENTRY_BYTES - 1]),
             None
         );
+    }
+
+    #[test]
+    fn round_trips_config() {
+        let config = NetConfig {
+            dhcp: true,
+            ipv4: [10, 0, 2, 15],
+            has_ipv4: true,
+            prefix: 24,
+            gateway: [10, 0, 2, 2],
+            has_gateway: true,
+            mtu: 1500,
+            dns_count: 2,
+            dns: [[10, 0, 2, 3], [10, 0, 2, 4], [0; 4], [0; 4]],
+        };
+        let mut buffer = [0_u8; NET_CONFIG_BYTES];
+        assert_eq!(config.encode(&mut buffer), Some(NET_CONFIG_BYTES));
+        assert_eq!(NetConfig::decode(&buffer), Some(config));
+        assert_eq!(NetConfig::decode(&buffer[..NET_CONFIG_BYTES - 1]), None);
     }
 }

@@ -21,8 +21,9 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
     ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
-    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL,
-    NET_POLL_DONE, NET_RX, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX,
+    NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_FRAME_MAX,
+    NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE,
+    NET_RX, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX, NetConfig,
     NetStatus,
 };
 #[cfg(target_os = "none")]
@@ -41,6 +42,9 @@ const UDP_ECHO_PORT: u16 = 45679;
 /// UDP 自检使用的本地端口。
 #[cfg(target_os = "none")]
 const UDP_LOCAL_PORT: u16 = 40001;
+/// 对外报告的接口 MTU。
+#[cfg(target_os = "none")]
+const MTU: u16 = 1500;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
 #[cfg(target_os = "none")]
@@ -278,6 +282,31 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let mut encoded = [0_u8; NET_ARP_BYTES];
                 if let Some(length) = table.encode(&mut encoded) {
                     let _ = send_data(sender, NET_ARP_RESPONSE, &encoded[..length]);
+                }
+            }
+            NET_CONFIG_REQUEST => {
+                let mut config = NetConfig {
+                    dhcp: leased,
+                    mtu: MTU,
+                    ..NetConfig::default()
+                };
+                let status = stack.status();
+                if let Some(address) = status.ipv4 {
+                    config.ipv4 = address.octets();
+                    config.has_ipv4 = true;
+                    config.prefix = status.prefix;
+                }
+                if let Some(gateway) = status.gateway {
+                    config.gateway = gateway.octets();
+                    config.has_gateway = true;
+                }
+                for (index, server) in dns_servers.iter().take(NET_CONFIG_MAX_DNS).enumerate() {
+                    config.dns[index] = server.octets();
+                    config.dns_count += 1;
+                }
+                let mut encoded = [0_u8; NET_CONFIG_BYTES];
+                if let Some(length) = config.encode(&mut encoded) {
+                    let _ = send_data(sender, NET_CONFIG_RESPONSE, &encoded[..length]);
                 }
             }
             _ => {}

@@ -214,6 +214,7 @@ impl SmokeMode {
                 "hk-server-netstat: rx_frames=",
                 "hk-server-netstat: route=",
                 "hk-server-netstat: arp",
+                "hk-server-netstat: config dhcp=",
             ],
         }
     }

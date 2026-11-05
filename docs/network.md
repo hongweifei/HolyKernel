@@ -19,7 +19,7 @@ HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 
 - smoltcp 启用 Ethernet、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS；不启用 std/默认特性。
 - 详见 [ADR-0013](adr/0013-net-stack.md)。
 
-实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入按类授权、精确 BDF 探测、MAC 输出、`NET_INFO`/`NET_POLL`/`NET_TX`/`NET_RX` Endpoint 与非阻塞接收；驱动可绑定 IRQ Notification，并由 Network Server 的 TX Notification 唤醒。`hk-server-net` 已完成 Net Endpoint 握手、DHCP 租约、`ping` 与 TCP 回显；QEMU 中验证了真实 ARP/ICMP/DHCP/TCP 的 TX/RX 路径。`hk-net` 提供 TCP 与 DNS（A/AAAA）socket API，DNS 查询带 Pending/Failed/超时语义，socket 用后可回收；主机侧双栈测试覆盖 A、AAAA、失败与超时。协议栈时间源由 TSC 换算为单调毫秒；内核 `SYS_TICKS` 改为累计计数，调度 tick 首次启动后持续运行，避免预算切片反复重置 LAPIC 定时器导致抢占停摆。DNS 自检名称可用 `net.dns=<name>` 覆盖；默认 `smoke --mode net` 用 `net.dns=localhost` 覆盖 DHCP、ICMP ping、TCP 回显、UDP 回显与 DNS 解析（宿主同时提供 TCP/UDP echo）。内核 `send` 改为异步入队，发送方不再因等待接收方而阻塞，消除了 Network Server 与驱动互相发送时的双向死锁。启动参数 `watchdog` 开启活性看门狗，会周期性输出任务快照；据此定位到 QEMU 内 DNS 高频发送时，virtio-net 的阻塞式 `send` 偶发等待 TX used-ring 完成不返回。网络驱动已改为基于 `VirtIONetRaw` 的非阻塞收发：接收缓冲预投队列并回收，发送只入队并 kick、完成由轮询回收，另有有界待发队列；驱动不再在 TX 完成上自旋。Device Manager 改为启动时枚举并缓存 `DeviceGrant`，运行期不再重新 `bar_size`——此前每次授权申请都会临时关闭命令寄存器解码并改写 BAR，打断正在工作的 virtio 设备，导致 DNS 阶段 TX 停滞与 VFS 块 I/O 停顿。修复后默认 `smoke --mode net` 覆盖 DHCP、ICMP ping、TCP 回显与 DNS 解析（`net.dns=localhost`）。`net` 命令由独立用户态 `hk-server-netstat` 客户端实现：它向 Network Server 发送 `NET_STATUS_REQUEST`/`NET_ARP_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数、收发计数、路由视图与 ARP 邻居（smoltcp 邻居缓存不公开，`hk-net` 从入站 ARP 帧旁路观察）；内核态 shell 只负责按需启动该服务，不接触网络协议。更长期是原生 Socket Handle 与 POSIX socket 复用。
+实现状态：`hk-driver-virtio` 已提供 `Device::Network`；独立 `hk-server-virtio-net` 已接入按类授权、精确 BDF 探测、MAC 输出、`NET_INFO`/`NET_POLL`/`NET_TX`/`NET_RX` Endpoint 与非阻塞接收；驱动可绑定 IRQ Notification，并由 Network Server 的 TX Notification 唤醒。`hk-server-net` 已完成 Net Endpoint 握手、DHCP 租约、`ping` 与 TCP 回显；QEMU 中验证了真实 ARP/ICMP/DHCP/TCP 的 TX/RX 路径。`hk-net` 提供 TCP 与 DNS（A/AAAA）socket API，DNS 查询带 Pending/Failed/超时语义，socket 用后可回收；主机侧双栈测试覆盖 A、AAAA、失败与超时。协议栈时间源由 TSC 换算为单调毫秒；内核 `SYS_TICKS` 改为累计计数，调度 tick 首次启动后持续运行，避免预算切片反复重置 LAPIC 定时器导致抢占停摆。DNS 自检名称可用 `net.dns=<name>` 覆盖；默认 `smoke --mode net` 用 `net.dns=localhost` 覆盖 DHCP、ICMP ping、TCP 回显、UDP 回显与 DNS 解析（宿主同时提供 TCP/UDP echo）。内核 `send` 改为异步入队，发送方不再因等待接收方而阻塞，消除了 Network Server 与驱动互相发送时的双向死锁。启动参数 `watchdog` 开启活性看门狗，会周期性输出任务快照；据此定位到 QEMU 内 DNS 高频发送时，virtio-net 的阻塞式 `send` 偶发等待 TX used-ring 完成不返回。网络驱动已改为基于 `VirtIONetRaw` 的非阻塞收发：接收缓冲预投队列并回收，发送只入队并 kick、完成由轮询回收，另有有界待发队列；驱动不再在 TX 完成上自旋。Device Manager 改为启动时枚举并缓存 `DeviceGrant`，运行期不再重新 `bar_size`——此前每次授权申请都会临时关闭命令寄存器解码并改写 BAR，打断正在工作的 virtio 设备，导致 DNS 阶段 TX 停滞与 VFS 块 I/O 停顿。修复后默认 `smoke --mode net` 覆盖 DHCP、ICMP ping、TCP 回显与 DNS 解析（`net.dns=localhost`）。`net` 命令由独立用户态 `hk-server-netstat` 客户端实现：它向 Network Server 发送 `NET_STATUS_REQUEST`/`NET_ARP_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数、收发计数、路由视图、ARP 邻居（smoltcp 邻居缓存不公开，`hk-net` 从入站 ARP 帧旁路观察）与原生配置（DHCP/地址/网关/DNS/MTU）；内核态 shell 只负责按需启动该服务，不接触网络协议。更长期是原生 Socket Handle 与 POSIX socket 复用。
 
 ---
 
@@ -203,7 +203,7 @@ sequenceDiagram
 - 原生配置：`H:/Network/Config.hd`：
   - 接口、地址、网关、DNS、MTU、策略。
 - POSIX 兼容：`/etc/resolv.conf`、`/etc/hosts`、`/etc/network` 是 POSIX 桥从原生配置投影出的视图，仅供 Unix 程序读取；Network Server 只认原生配置对象，不回读 `/etc`。
-- 配置变更通过 `net` 命令或 Network Server Endpoint；审计记录。
+- 读取：`NET_CONFIG_REQUEST` 返回 DHCP/静态、地址、网关、DNS 与 MTU；配置变更通过 `net` 命令或 Network Server Endpoint；审计记录。`NET_CONFIG_SET` 与 `H:/Network/Config.hd` 持久化随后接入。
 - Network Server 自身管理接口状态。
 
 ---
