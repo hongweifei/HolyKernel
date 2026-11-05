@@ -33,11 +33,21 @@ pub fn run(
     services: &mut ServiceTable,
 ) -> Result<(), String> {
     let mut modules = loader::boot_modules(info.server_modules);
+    let dbg_test = hk_boot::cmdline().is_some_and(|line| line.contains("dbg-test"));
+    if dbg_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-dbg")
+    {
+        modules.push(module);
+    }
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
     let holydoc_test = hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-test"));
-    let debug_test = hk_boot::cmdline().is_some_and(|line| line.contains("debug-test"));
+    let debug_test = hk_boot::cmdline()
+        .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
     let display_restart_test =
         hk_boot::cmdline().is_some_and(|line| line.contains("display-restart-test"));
     let desktop = hk_boot::cmdline().is_some_and(|line| line.contains("desktop"));
@@ -45,6 +55,10 @@ pub fn run(
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
         let name = loader::service_name(module.name);
+        if dbg_test {
+            // 调试客户端自检只装载客户端本身，结果经 Root 控制读取。
+            return name == "hk-server-dbg";
+        }
         if console_test {
             // 控制台自检使用最小服务集，避免其他常驻服务让空闲判定永不成立。
             return matches!(name, "hk-server-console" | "hk-server-console-test");
@@ -185,6 +199,7 @@ pub fn run(
             }
         })
         .collect();
+    runtime::init_symbols(info);
     runtime::init(&specs)?;
 
     for (index, module) in modules.iter().enumerate() {
@@ -273,7 +288,6 @@ fn load(
         cpu::user_frame(entry, stack_top, endpoint)
     })
     .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
-    drop(memory);
     hk_platform_x86_64::USER_VSPACES.install(index, table);
     Ok(context)
 }

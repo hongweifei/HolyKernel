@@ -159,6 +159,10 @@ pub const ROOT_OP_RESTART: u64 = 6;
 pub const ROOT_OP_SCRIPT: u64 = 7;
 /// Root 控制：Handle 计数视图。
 pub const ROOT_OP_HANDLES: u64 = 8;
+/// Root 控制：符号化地址列表。
+pub const ROOT_OP_SYMBOLIZE: u64 = 9;
+/// Root 控制：最近一次用户异常与符号化回溯。
+pub const ROOT_OP_FAULT: u64 = 10;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

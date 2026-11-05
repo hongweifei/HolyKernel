@@ -15,6 +15,8 @@ use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 mod control;
+mod crash;
+mod symbols;
 use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_RESULT};
 
 /// 看门狗两次快照之间的墙钟间隔。
@@ -246,6 +248,11 @@ pub fn arena(slot: usize) -> (u64, u64) {
     X86Platform.arena_layout(slot)
 }
 
+/// 解析镜像符号表。
+pub fn init_symbols(info: &hk_hal::BootInfo) {
+    symbols::init(info);
+}
+
 /// 按服务清单装配用户态运行时。
 pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
     RUNTIME.boot(specs, X86Platform, |_index, endpoint| {
@@ -426,6 +433,10 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
         cpu::fault_address(),
         frame.rip
     ));
+    let task = RUNTIME
+        .current_task_name(cpu::cpu_index())
+        .unwrap_or_else(|| String::from("?"));
+    crash::record(frame, &task);
     RUNTIME.fault(cpu::cpu_index(), 0xE000 | frame.vector);
     FaultAction::Exit
 }

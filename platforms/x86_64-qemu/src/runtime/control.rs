@@ -10,11 +10,12 @@ use alloc::vec::Vec;
 use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
-    ROOT_OP_HANDLES, ROOT_OP_RESTART, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START,
-    ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_RESTART, ROOT_OP_SCRIPT, ROOT_OP_SERVICES,
+    ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
+use super::crash;
 use crate::runtime;
 use crate::shell::Loader;
 
@@ -101,6 +102,8 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
         ROOT_OP_SCRIPT => script(loader, &request.argument),
+        ROOT_OP_SYMBOLIZE => crash::symbolize_list(&request.argument),
+        ROOT_OP_FAULT => crash::format_last(),
         _ => String::from("未知控制操作\n"),
     }
 }

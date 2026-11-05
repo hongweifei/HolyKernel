@@ -62,6 +62,19 @@ pub fn resolve_cow(address: u64) -> bool {
     table.resolve_cow(address)
 }
 
+/// 判断当前页表中地址是否为用户可访问页。
+pub fn is_user_mapped(address: u64) -> bool {
+    let direct_map = DIRECT_MAP.load(Ordering::Acquire);
+    if direct_map == 0 {
+        return false;
+    }
+    let table = PageTable {
+        direct_map,
+        root: read_cr3(),
+    };
+    table.is_user_mapped(address)
+}
+
 /// 页表项属性。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageFlags(u64);
@@ -270,6 +283,27 @@ impl PageTable {
             asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
         }
         true
+    }
+
+    /// 判断地址是否映射为用户可访问页；大页直接视为已映射。
+    pub fn is_user_mapped(&self, address: u64) -> bool {
+        let mut table = self.root;
+        for level in [39_u32, 30, 21] {
+            let index = ((address >> level) & 0x1FF) as usize;
+            // SAFETY: 页表项经 HHDM 映射，索引在 0..512 范围内。
+            let value = unsafe { self.entry(table, index).read_volatile() };
+            if value & PRESENT == 0 || value & USER == 0 {
+                return false;
+            }
+            if value & HUGE != 0 {
+                return true;
+            }
+            table = PhysAddr::new(value & ADDRESS_MASK);
+        }
+        let index = ((address >> 12) & 0x1FF) as usize;
+        // SAFETY: 末级页表项经 HHDM 映射，索引在 0..512 范围内。
+        let value = unsafe { self.entry(table, index).read_volatile() };
+        value & PRESENT != 0 && value & USER != 0
     }
 
     /// 建立 4 KiB 映射。

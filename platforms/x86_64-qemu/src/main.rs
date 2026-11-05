@@ -296,31 +296,31 @@ extern "C" fn kmain() -> ! {
                         ExitCode::Failure(5),
                     );
                 }
-            } else if let Some(line) = hk_boot::cmdline() {
-                if line.contains("shell-test") {
-                    let script: alloc::vec::Vec<&str> = line
-                        .split_once("shell-test")
-                        .map(|(_, rest)| {
-                            rest.split(';')
-                                .map(str::trim)
-                                .filter(|segment| !segment.is_empty())
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    if let Err(error) = shell::run(
+            } else if let Some(line) = hk_boot::cmdline()
+                && line.contains("shell-test")
+            {
+                let script: alloc::vec::Vec<&str> = line
+                    .split_once("shell-test")
+                    .map(|(_, rest)| {
+                        rest.split(';')
+                            .map(str::trim)
+                            .filter(|segment| !segment.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if let Err(error) = shell::run(
+                    &console,
+                    screen.as_ref(),
+                    &mut services,
+                    &mut shell_loader,
+                    &script,
+                ) {
+                    fail(
                         &console,
                         screen.as_ref(),
-                        &mut services,
-                        &mut shell_loader,
-                        &script,
-                    ) {
-                        fail(
-                            &console,
-                            screen.as_ref(),
-                            &format!("shell 失败：{error}\n"),
-                            ExitCode::Failure(5),
-                        );
-                    }
+                        &format!("shell 失败：{error}\n"),
+                        ExitCode::Failure(5),
+                    );
                 }
             }
         }
