@@ -466,7 +466,12 @@ crates/hk-fs-holyfs/src/
 ├── superblock.rs   卷布局、双超级块、校验
 ├── store.rs        块设备、位图分配器、区间 I/O
 ├── tree.rs         持久化 COW 元数据树
-├── volume.rs       卷状态、文档/修订/集合操作、提交
+├── volume/         卷状态、内容、元数据、标签与提交
+│   ├── mod.rs      卷状态、挂载与提交入口
+│   ├── content.rs  内容读写与内容修订
+│   ├── metadata.rs 集合项、路径解析与文档视图
+│   ├── tags.rs     标签与成员关系
+│   └── persist.rs  元数据树与超级块提交
 ├── handle.rs       原生卷句柄（DocPath、整文档、修订链）
 └── tests.rs        单元、子集合、持久化测试
 
