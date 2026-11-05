@@ -6,7 +6,7 @@ HolyKernel（缩写 **HK**）是一个句柄型微内核，内核只提供线程
 
 系统提供 **HolyShell + Holy 命令**作为默认命令行；原生命令通过 Handle/Endpoint 与结构化输出工作。**POSIX.1 + musl** 作为兼容环境：C/C++/Rust 应用针对 musl 与 `hk-abi` 重新编译即可运行，`/bin/sh` 与 POSIX 工具通过 `posix` 入口使用。VFS Server 统一管理 POSIX 兼容环境的挂载表与文件句柄；HolyFS 是 HolyKernel 的原生文件系统，以卷与 `H:` 盘符提供文档；HolyDoc 与真彩 UI 作为可选原生服务。
 
-当前状态：**v0.1.0**，按 M0→M6 推进。M0–M5 已交付：workspace/`xtask`/CI、Hosted 微内核、x86_64 启动、句柄与内存、驱动与 VFS（ext4/HolyFS）、DHCP/DNS/socket 网络。M6 原生 UI 进行中：Display 窗口与合成、Console 图形终端、用户态 virtio-input 与指针、HolyDoc 欢迎页与磁盘文档浏览。后续为 **M7/M8 POSIX 兼容层**。
+当前状态：**v0.1.0**，按 M0→M6 推进。M0–M5 已交付：workspace/`xtask`/CI、Hosted 微内核、x86_64 启动、句柄与内存、驱动与 VFS（ext4/HolyFS）、DHCP/DNS/socket 网络。M6 原生 UI 进行中：Display 窗口与合成、Console 图形终端、用户态 virtio-input 与指针、HolyDoc 欢迎页与 `H:` 卷文档浏览。后续为 **M7/M8 POSIX 兼容层**。
 
 代码组织与依赖方向见 [Crate 分层](docs/crates.md)；`cargo xtask deps`（已接入 `lint` 与 CI）自动校验。
 
@@ -131,7 +131,7 @@ cargo xtask docs
 cargo xtask budget
 ```
 
-`cargo xtask run --target x86_64-qemu` 会自动创建 `build/run-disk.img` 并作为 virtio-blk 挂载；删除该文件可重建空 ext4 磁盘。
+`cargo xtask run --target x86_64-qemu` 会自动创建 `build/run-disk.img` 并作为 virtio-blk 挂载；删除该文件可重建空 ext4 磁盘。图形桌面使用 HolyFS 桌面卷，自动创建 `build/run-holy.img` 与其中的 `H:` 文档。
 
 手动启动 QEMU 时，先生成磁盘再附加 `virtio-blk-pci`：
 
@@ -152,13 +152,14 @@ qemu-system-x86_64 -M q35 -m 256M \
 cargo xtask run --target x86_64-qemu --ui
 ```
 
-`--ui` 会使用 `desktop` 启动模式，开启 QEMU 窗口，并附加 virtio 键盘/平板，启动 Display、Console、Input 与 HolyDoc。桌面同时装载 virtio-blk 驱动与 VFS，挂载 ext4 运行磁盘；`cargo xtask run` 会把仓库文档播种到磁盘的 `/docs`，HolyDoc 欢迎页的文档索引可直接打开这些文档。手动 QEMU 对应：
+`--ui` 会使用 `desktop vfs.fs=holyfs` 启动模式，开启 QEMU 窗口，并附加 virtio 键盘/平板，启动 Display、Console、Input 与 HolyDoc。桌面卷是 HolyFS：`cargo xtask run` 把 `docs/holy` 下的 HolyDoc 文档播种到 `H:`，欢迎页与文档索引直接按 DocPath 浏览。手动 QEMU 对应：
 
 ```sh
-cargo xtask image --target x86_64-qemu --cmdline desktop
+cargo xtask image --target x86_64-qemu --cmdline "desktop vfs.fs=holyfs"
+cargo xtask disk --holy
 qemu-system-x86_64 -M q35 -m 256M \
   -cdrom build/holy-x86_64.iso -boot d -serial stdio \
-  -drive file=build/run-disk.img,if=none,id=disk,format=raw \
+  -drive file=build/run-holy.img,if=none,id=disk,format=raw \
   -device virtio-blk-pci,drive=disk \
   -device virtio-keyboard-pci -device virtio-tablet-pci
 ```

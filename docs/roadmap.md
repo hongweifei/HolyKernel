@@ -189,15 +189,15 @@ flowchart LR
 - Display Server：帧缓冲、窗口、合成器、输入焦点。已落地：帧缓冲仅授权 `hk-server-display`；窗口表面使用共享 Frame 经句柄转移，合成器绘制桌面、标题栏与窗口并回读校验；多窗口按槽位维护 z 序，提交、Tab 或底部任务栏按钮切换时提升并高亮焦点；标题栏与任务栏均用 8×16 位图字体渲染窗口标题；任务栏始终置顶，窗口创建与拖动限制在其上方；标题栏关闭按钮回收表面、句柄并通知客户端；右下角把手可缩放窗口，合成器按比例采样客户端表面；标题栏支持最小化与最大化/还原，任务栏可恢复最小化窗口；窗口带圆角与柔和投影，damage 区域按投影边距扩展；启动后记录全屏重绘最小值（QEMU 1280×800 实测约 3.0–3.3 ms）；失败退出由 Root Server 重启，Console 检测端点变化重建窗口；`ui.scale=2` 放大标题栏/任务栏字体与布局；深/浅调色板由 `theme=light` 选择，窗口/任务栏/光标统一取色；合成按 damage 区域重绘，键盘事件经 IPC 路由到焦点客户端，`smoke --mode display/pointer` 注入 Tab、拖拽、任务栏、缩放与关闭点击验证。
 - Input Driver：用户态 virtio-input 驱动（DeviceGrant + IRQ 通知），把 evdev 键码解码为字节交给 Display 按焦点路由；支持 virtio-tablet 绝对指针与点击，Display 绘制光标、按 z 序命中窗口，并支持标题栏拖拽移动窗口；`smoke --mode inputdriver/pointer` 验证。
 - Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地：内核非阻塞控制台读与输入通知，用户态行编辑/回显；有 Display 时 Console 创建自己的终端窗口，用 8×16 字体渲染并提交合成；支持增量 UTF-8 与中文双宽字形、光标与提示符；键盘事件由 Display 按焦点转发给 Console 做行编辑，无 Display 时回退内核控制台。`smoke --mode console/terminal` 验证。
-- HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：Markdown 子集解析、自动换行布局、内置文档与链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；启动落在欢迎页，并经 VFS 读取 `/docs` 与 `/disk/docs` 的 `.md` 文档并入文档索引；`smoke --mode holydoc` 验证解析、执行、跳转、返回、磁盘文档加载与渲染。
+- HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：HolyDoc 指令解析、自动换行布局、内置欢迎页与帮助页、链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；启动落在欢迎页，经 `H:` 卷原生文档协议枚举集合并整篇读取文档，集合页与 DocPath 链接可直接跳转；`smoke --mode holydoc` 验证解析、执行、跳转、返回、集合浏览与渲染。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏、8×16 位图字体回退；TrueType/OpenType 可缩放字体在后续版本接入。
-- 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档索引合并内置页面与磁盘 `.md` 文档，链接可按文件名跳转。
+- 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
 - Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地最小窗口：内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`smoke --mode debug` 验证。
 - 服务器热重启与应用热替换原型。
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。
-- HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。
+- HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
 - Sprite/Font 编辑器、Home/Once 启动文档。
 
 ### 退出标准
@@ -342,7 +342,7 @@ flowchart LR
 - 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
 - 当前代码：crate 分层与完整清单见 [Crate 分层](crates.md)；常驻服务在 `servers/`，自检客户端在 `clients/`，演示服务在 `demos/`，平台在 `platforms/`，构建与镜像工具在 `xtask/`。
 - M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
-- 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与磁盘文档浏览）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
+- 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与 `H:` 卷文档浏览）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
 
 ---
 
