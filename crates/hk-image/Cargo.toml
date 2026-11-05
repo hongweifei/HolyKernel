@@ -1,0 +1,12 @@
+[package]
+name = "hk-image"
+description = "HolyKernel 原生可执行镜像格式：段表、入口与角色"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
