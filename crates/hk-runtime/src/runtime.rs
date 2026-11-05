@@ -174,6 +174,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.current[cpu].map(|index| self.tasks[index].name.as_str())
     }
 
+    /// 判断地址是否为当前任务可读用户页。
+    pub fn user_mapped(&self, address: u64) -> bool {
+        self.platform.user_mapped(address)
+    }
+
     /// 从当前任务用户内存读取字节。
     pub fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
         self.platform.read_user(address, buffer)

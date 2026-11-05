@@ -19,7 +19,7 @@
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
 | L4 运行时 | `hk-runtime` | 用户任务视图、系统调用分派、Arena、RootServer 启动原语 |
 | L4 内核 Shell | `hk-kernel-shell` | 内核态 Shell 宿主、运行时视图转换、服务启动/重启/脚本编排；只依赖 `hk-shell` 与 `hk-root-server` |
-| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督与运行时宿主、平台实现、镜像与测试工具 |
+| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督、运行时宿主、符号表与异常回溯、平台实现、镜像与测试工具 |
 | 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
 
 `hk-shell` 必须保持零依赖；用户态命令通过 `ShellHost::extension` 交给宿主，不以任何形式引入内核或服务实现。

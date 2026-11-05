@@ -13,6 +13,20 @@ use hk_runtime::ServiceSpec;
 use hk_runtime::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
 
 use crate::ServiceTable;
+use crate::debug::{self, FaultContext};
+
+/// 把用户运行时适配为调试内存访问。
+struct RuntimeMemory<'a, C, P>(&'a UserRuntime<C, P>);
+
+impl<C: UserContext + SyscallFrame, P: UserPlatform> debug::Memory for RuntimeMemory<'_, C, P> {
+    fn mapped(&self, address: u64) -> bool {
+        self.0.user_mapped(address)
+    }
+
+    fn read(&self, address: u64, buffer: &mut [u8]) -> bool {
+        self.0.read_user(address, buffer)
+    }
+}
 
 /// 运行时宿主。
 pub struct RuntimeHost<C, P> {
@@ -61,6 +75,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .as_ref()
             .and_then(|runtime| runtime.current_task_name(cpu))
             .map(String::from)
+    }
+
+    /// 安装镜像符号表。
+    pub fn install_symbols(&self, bytes: &[u8]) {
+        debug::install_symbols(bytes);
+    }
+
+    /// 记录一次用户异常并做符号化回溯。
+    pub fn record_fault(&self, cpu: usize, context: FaultContext) {
+        let task = self
+            .current_task_name(cpu)
+            .unwrap_or_else(|| String::from("?"));
+        let guard = self.runtime.lock();
+        if let Some(runtime) = guard.as_ref() {
+            debug::record(&task, context, &RuntimeMemory(runtime));
+        }
+    }
+
+    /// 返回最近一次异常的符号化回溯。
+    pub fn last_fault(&self) -> String {
+        debug::last_text()
+    }
+
+    /// 符号化地址列表。
+    pub fn symbolize_list(&self, argument: &str) -> String {
+        debug::symbolize_list(argument)
     }
 
     /// 从当前任务用户内存读取字节。

@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+pub mod debug;
 pub mod elf;
 pub mod host;
 pub mod loader;

@@ -15,7 +15,6 @@ use hk_syscall::{
 };
 use spin::Mutex;
 
-use super::crash;
 use crate::runtime;
 use crate::shell::Loader;
 
@@ -102,8 +101,8 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
         ROOT_OP_SCRIPT => script(loader, &request.argument),
-        ROOT_OP_SYMBOLIZE => crash::symbolize_list(&request.argument),
-        ROOT_OP_FAULT => crash::format_last(),
+        ROOT_OP_SYMBOLIZE => runtime::host().symbolize_list(&request.argument),
+        ROOT_OP_FAULT => runtime::host().last_fault(),
         _ => String::from("未知控制操作\n"),
     }
 }

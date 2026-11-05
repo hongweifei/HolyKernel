@@ -15,8 +15,6 @@ use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 mod control;
-mod crash;
-mod symbols;
 use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_RESULT};
 
 /// 看门狗两次快照之间的墙钟间隔。
@@ -156,6 +154,10 @@ impl UserPlatform for X86Platform {
         }
     }
 
+    fn user_mapped(&self, address: u64) -> bool {
+        user_range(address, 1) && hk_platform_x86_64::paging::is_user_mapped(address)
+    }
+
     fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
         if buffer.is_empty() {
             return true;
@@ -248,9 +250,19 @@ pub fn arena(slot: usize) -> (u64, u64) {
     X86Platform.arena_layout(slot)
 }
 
-/// 解析镜像符号表。
+/// 解析镜像符号表；平台只负责定位模块字节。
 pub fn init_symbols(info: &hk_hal::BootInfo) {
-    symbols::init(info);
+    let Some(module) = info
+        .server_modules
+        .iter()
+        .find(|module| hk_root_server::loader::module_name(module.name) == "kernel.sym")
+    else {
+        return;
+    };
+    let Some(bytes) = info.module_bytes(module) else {
+        return;
+    };
+    RUNTIME.install_symbols(bytes);
 }
 
 /// 按服务清单装配用户态运行时。
@@ -433,10 +445,18 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
         cpu::fault_address(),
         frame.rip
     ));
-    let task = RUNTIME
-        .current_task_name(cpu::cpu_index())
-        .unwrap_or_else(|| String::from("?"));
-    crash::record(frame, &task);
+    RUNTIME.record_fault(
+        cpu::cpu_index(),
+        hk_root_server::debug::FaultContext {
+            kind: cpu::exception_name(frame.vector),
+            vector: frame.vector,
+            error: frame.error,
+            address: cpu::fault_address(),
+            rip: frame.rip,
+            rsp: frame.rsp,
+            rbp: frame.rbp,
+        },
+    );
     RUNTIME.fault(cpu::cpu_index(), 0xE000 | frame.vector);
     FaultAction::Exit
 }

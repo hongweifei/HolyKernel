@@ -63,6 +63,10 @@ pub trait UserPlatform {
     fn take_console_input(&self) -> bool {
         false
     }
+    /// 判断地址是否为当前任务可读用户页。
+    fn user_mapped(&self, _address: u64) -> bool {
+        false
+    }
     /// 从当前任务用户内存读取字节；地址无效时返回 `false`。
     fn read_user(&self, _address: u64, _buffer: &mut [u8]) -> bool {
         false
