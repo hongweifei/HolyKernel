@@ -34,7 +34,9 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 ### 已落地
 
 - 帧缓冲访问通过 `SYS_FRAMEBUFFER_INFO` / `SYS_FRAMEBUFFER_MAP` 只授权给 `hk-server-display`。
-- 显示服务把帧缓冲映射到用户态，绘制八色测试图案并回读首尾像素；`smoke --mode display` 验证。
+- 窗口表面使用共享 Frame：客户端绘制后经句柄转移交给显示服务，由显示服务映射并合成，不复制整块表面。
+- 合成器绘制桌面渐变、标题栏与窗口，并回读窗口首像素校验；焦点窗口标题栏高亮。
+- 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入按键验证。
 
 ---
 

@@ -132,6 +132,9 @@ pub const SYS_FRAMEBUFFER_INFO: u64 = 42;
 /// 把帧缓冲映射到调用者地址空间；仅显示服务可用。
 pub const SYS_FRAMEBUFFER_MAP: u64 = 43;
 
+/// 非阻塞接收带字节载荷与句柄的消息；无消息时返回 0。
+pub const SYS_RECV_DATA_HANDLE_TRY: u64 = 44;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 

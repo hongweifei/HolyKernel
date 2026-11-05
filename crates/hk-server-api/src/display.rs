@@ -15,6 +15,8 @@ pub const DISPLAY_COMMIT: u64 = 0xA02;
 pub const DISPLAY_FRAME_DONE: u64 = 0xA03;
 /// 请求显示服务退出（用于自检收尾）。
 pub const DISPLAY_SHUTDOWN: u64 = 0xA04;
+/// 键盘事件；`word` 为字节值，发给焦点窗口的客户端。
+pub const DISPLAY_KEY: u64 = 0xA05;
 
 /// 客户端映射窗口表面使用的用户虚拟地址。
 pub const SURFACE_VIRT: u64 = 0x5000_0000;

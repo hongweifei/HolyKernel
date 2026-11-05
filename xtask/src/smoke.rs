@@ -288,6 +288,8 @@ impl SmokeMode {
             Self::Display => &[
                 "hk-server-display: ready",
                 "hk-server-display: composite ok",
+                "hk-server-display-test: ready",
+                "hk-server-display-test: key 97",
                 "hk-server-display-test: done",
             ],
         }
@@ -416,7 +418,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             .args(["-netdev", "user,id=net0"])
             .args(["-device", "virtio-net-pci,netdev=net0"]);
     }
-    if matches!(mode, SmokeMode::Input | SmokeMode::Console) {
+    if matches!(
+        mode,
+        SmokeMode::Input | SmokeMode::Console | SmokeMode::Display
+    ) {
         command
             .arg("-qmp")
             .arg(format!("unix:{},server=on,wait=off", socket.display()));
@@ -439,6 +444,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::Console {
         thread::sleep(Duration::from_secs(5));
         inject(&socket, "hello\n")?;
+    }
+    if mode == SmokeMode::Display {
+        thread::sleep(Duration::from_secs(5));
+        inject(&socket, "a")?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {

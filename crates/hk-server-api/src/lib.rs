@@ -199,6 +199,32 @@ pub fn recv_data_handle(
     )
 }
 
+/// 非阻塞接收带字节载荷与句柄的消息；无消息时标签为 0。
+pub fn recv_data_handle_try(
+    endpoint: u64,
+    buffer: &mut [u8],
+    expected: u64,
+) -> (u64, u64, u64, usize, u64) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_HANDLE_TRY,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            expected,
+        )
+    };
+    let packed = result.extra;
+    (
+        result.value,
+        result.word,
+        result.sender,
+        (packed & 0xFFFF_FFFF) as usize,
+        packed >> 32,
+    )
+}
+
 /// 让出 CPU。
 pub fn yield_now() -> u64 {
     // SAFETY: 让出不携带参数，内核对调用号做分派。

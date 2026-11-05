@@ -7,7 +7,7 @@
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_SHUTDOWN,
+    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
     DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size,
 };
 #[cfg(target_os = "none")]
@@ -87,6 +87,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-display-test: no frame\n");
         exit(5)
     }
+
+    write(b"hk-server-display-test: ready\n");
+    let (label, key, _sender) = recv(endpoint);
+    if label != DISPLAY_KEY {
+        write(b"hk-server-display-test: no key\n");
+        exit(6)
+    }
+    write(b"hk-server-display-test: key ");
+    write_u64(key);
+    write(b"\n");
 
     write(b"hk-server-display-test: done\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);

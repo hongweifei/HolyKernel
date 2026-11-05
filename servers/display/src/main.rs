@@ -10,14 +10,15 @@
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_SHUTDOWN,
+    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
     DISPLAY_WINDOW_CREATED, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, exit, frame_info, frame_map, recv_data_handle, send, write, write_u64,
+    close_handle, console_read, exit, frame_info, frame_map, recv_data_handle_try, send, write,
+    write_u64, yield_now,
 };
 
 /// 最多同时合成的窗口数。
@@ -45,6 +46,9 @@ const DESKTOP_BOTTOM: u32 = 0x0030_4860;
 /// 标题栏颜色。
 #[cfg(target_os = "none")]
 const TITLE_COLOR: u32 = 0x0020_60A0;
+/// 焦点窗口的标题栏颜色。
+#[cfg(target_os = "none")]
+const TITLE_FOCUS: u32 = 0x0040_A0E0;
 
 /// 已创建的窗口。
 #[cfg(target_os = "none")]
@@ -57,6 +61,7 @@ struct Window {
     height: usize,
     virt: u64,
     handle: u64,
+    client: u64,
 }
 
 #[cfg(target_os = "none")]
@@ -126,8 +131,9 @@ fn blend(from: u32, to: u32, ratio: u32) -> u32 {
 
 /// 绘制一个窗口：标题栏 + 客户端表面。
 #[cfg(target_os = "none")]
-fn draw_window(screen: &Screen, window: &Window) {
-    screen.fill(window.x, window.y, window.width, TITLE_HEIGHT, TITLE_COLOR);
+fn draw_window(screen: &Screen, window: &Window, focused: bool) {
+    let title = if focused { TITLE_FOCUS } else { TITLE_COLOR };
+    screen.fill(window.x, window.y, window.width, TITLE_HEIGHT, title);
     let surface = window.virt as *const u32;
     for row in 0..window.height {
         let target_y = window.y + TITLE_HEIGHT + row;
@@ -141,10 +147,18 @@ fn draw_window(screen: &Screen, window: &Window) {
 
 /// 合成桌面与全部窗口。
 #[cfg(target_os = "none")]
-fn compose(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS]) {
+fn compose(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus: u64) {
     draw_desktop(screen);
     for window in windows.iter().flatten() {
-        draw_window(screen, window);
+        draw_window(screen, window, window.id == focus);
+    }
+}
+
+/// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
+#[cfg(target_os = "none")]
+fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
+    if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
+        let _ = send(window.client, DISPLAY_KEY, u64::from(byte));
     }
 }
 
@@ -185,9 +199,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let mut windows: [Option<Window>; MAX_WINDOWS] = [None; MAX_WINDOWS];
     let mut next_id = 1_u64;
+    let mut focus = 0_u64;
     loop {
+        // 输入来自内核控制台（自检阶段）；后续由 Input Driver 取代。
+        while let Some(byte) = console_read() {
+            route_key(&windows, focus, byte);
+        }
         let mut payload = [0_u8; 8];
-        let (label, word, sender, _length, handle) = recv_data_handle(endpoint, &mut payload, 0);
+        let (label, word, sender, _length, handle) =
+            recv_data_handle_try(endpoint, &mut payload, 0);
+        if label == 0 {
+            let _ = yield_now();
+            continue;
+        }
         match label {
             DISPLAY_CREATE_WINDOW => {
                 let (width, height) = unpack_size(word);
@@ -244,8 +268,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     height,
                     virt,
                     handle,
+                    client: sender,
                 });
                 next_id += 1;
+                focus = id;
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
             }
             DISPLAY_COMMIT => {
@@ -257,7 +283,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 else {
                     continue;
                 };
-                compose(&screen, &windows);
+                focus = window.id;
+                compose(&screen, &windows, focus);
                 let surface = window.virt as *const u32;
                 // SAFETY: 表面长度已在创建时校验。
                 let expected = unsafe { surface.read_volatile() };
