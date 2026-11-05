@@ -8,6 +8,7 @@ mod arch;
 pub mod block;
 pub mod console;
 pub mod device;
+pub mod framebuffer;
 pub mod heap;
 pub mod net;
 pub mod socket;

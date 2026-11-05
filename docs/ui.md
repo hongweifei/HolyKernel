@@ -31,6 +31,11 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - **Input Driver**：virtio-input / PS/2。
 - **Framebuffer Driver**：BootInfo 帧缓冲或设备驱动。
 
+### 已落地
+
+- 帧缓冲访问通过 `SYS_FRAMEBUFFER_INFO` / `SYS_FRAMEBUFFER_MAP` 只授权给 `hk-server-display`。
+- 显示服务把帧缓冲映射到用户态，绘制八色测试图案并回读首尾像素；`smoke --mode display` 验证。
+
 ---
 
 ## 2. 架构

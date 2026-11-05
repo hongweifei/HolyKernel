@@ -91,6 +91,14 @@ pub trait UserPlatform {
     fn tsc_frequency(&self) -> u64 {
         0
     }
+    /// 返回平台帧缓冲描述。
+    fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
+        None
+    }
+    /// 把帧缓冲映射到任务地址空间，返回映射长度。
+    fn map_framebuffer(&self, _slot: usize, _virt: u64) -> Option<u64> {
+        None
+    }
     /// 唤醒空闲 CPU 重新检查调度队列。
     fn wake_aps(&self) {}
 }

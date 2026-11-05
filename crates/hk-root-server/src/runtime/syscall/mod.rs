@@ -4,6 +4,7 @@ use super::*;
 
 mod device;
 mod frame;
+mod framebuffer;
 mod ipc;
 mod task;
 
@@ -269,6 +270,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CONSOLE_SUBSCRIBE => {
                 self.console_subscriber = Some(index);
                 frame.set_result(0);
+                Switch::Continue
+            }
+            SYS_FRAMEBUFFER_INFO => {
+                frame.set_result(self.framebuffer_info(index, frame));
+                Switch::Continue
+            }
+            SYS_FRAMEBUFFER_MAP => {
+                frame.set_result(self.framebuffer_map(index, frame));
                 Switch::Continue
             }
             SYS_FRAME_ALLOC => self.frame_alloc(index, tcb, frame),

@@ -35,6 +35,7 @@ pub fn run(
     let mut modules = loader::boot_modules(info.server_modules);
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
+    let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
@@ -43,10 +44,17 @@ pub fn run(
             // 控制台自检使用最小服务集，避免其他常驻服务让空闲判定永不成立。
             return matches!(name, "hk-server-console" | "hk-server-console-test");
         }
+        if display_test {
+            // 显示自检只需要 Display 服务。
+            return name == "hk-server-display";
+        }
         if name == "hk-server-netstat" {
             return false;
         }
-        if matches!(name, "hk-server-console" | "hk-server-console-test") {
+        if matches!(
+            name,
+            "hk-server-console" | "hk-server-console-test" | "hk-server-display"
+        ) {
             return false;
         }
         network_enabled

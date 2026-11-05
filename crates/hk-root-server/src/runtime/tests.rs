@@ -82,6 +82,24 @@ impl UserPlatform for MockPlatform {
     fn fork(&self, _parent: usize, _child: usize) -> bool {
         true
     }
+
+    fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
+        true
+    }
+
+    fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
+        Some(hk_hal::FramebufferInfo {
+            phys: hk_hal::PhysAddr::new(0x8000_0000),
+            width: 2,
+            height: 2,
+            stride: 8,
+            format: hk_hal::PixelFormat::Rgb32,
+        })
+    }
+
+    fn map_framebuffer(&self, _slot: usize, virt: u64) -> Option<u64> {
+        (virt == 0x7800_0000).then_some(16)
+    }
 }
 
 fn runtime() -> UserRuntime<MockContext, MockPlatform> {
@@ -136,6 +154,69 @@ fn dispatches_alloc_and_exit() {
     context.rdi = 3;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
     assert_eq!(runtime.finish(0, index), Some((String::from("a"), 3)));
+}
+
+#[test]
+fn framebuffer_access_is_display_only() {
+    let mut runtime = crate::boot::user_runtime(
+        &[
+            crate::ServiceSpec::new("hk-server-display"),
+            crate::ServiceSpec::new("other"),
+        ],
+        MockPlatform,
+        |_index, endpoint| MockContext {
+            rdi: endpoint,
+            ..MockContext::default()
+        },
+    )
+    .expect("装配运行时");
+    for index in 0..runtime.task_count() {
+        runtime.attach(
+            index,
+            MockContext {
+                rdi: index as u64 + 1,
+                ..MockContext::default()
+            },
+        );
+    }
+
+    let Step::Resume { index: display, .. } = runtime.step(0) else {
+        panic!("显示服务应可运行");
+    };
+    let mut context = MockContext {
+        rax: SYS_FRAMEBUFFER_INFO,
+        rdi: 0x1000,
+        rsi: 64,
+        ..MockContext::default()
+    };
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_syscall::FRAMEBUFFER_DESCRIPTOR_BYTES as u64);
+
+    context.rax = SYS_FRAMEBUFFER_MAP;
+    context.rdi = 0x7800_0000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 16);
+
+    // 非显示服务不得访问帧缓冲。
+    context.rax = SYS_YIELD;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    runtime.finish(0, display);
+    let Step::Resume { index: other, .. } = runtime.step(0) else {
+        panic!("普通服务应可运行");
+    };
+    assert_ne!(other, display);
+    let mut context = MockContext {
+        rax: SYS_FRAMEBUFFER_INFO,
+        rdi: 0x1000,
+        rsi: 64,
+        ..MockContext::default()
+    };
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    context.rax = SYS_FRAMEBUFFER_MAP;
+    context.rdi = 0x7800_0000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
 }
 
 #[test]

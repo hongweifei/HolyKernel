@@ -97,6 +97,9 @@ pub enum SmokeMode {
     /// Console 服务与内核输入自检
     #[value(name = "console")]
     Console,
+    /// Display 服务帧缓冲映射与测试图案
+    #[value(name = "display")]
+    Display,
 }
 
 impl SmokeMode {
@@ -124,6 +127,7 @@ impl SmokeMode {
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
             Self::Console => Some("console-test"),
+            Self::Display => Some("display-test"),
         }
     }
 
@@ -281,6 +285,7 @@ impl SmokeMode {
                 "hk-server-netsock: dns ok",
             ],
             Self::Console => &["hk-server-console-test: got hello"],
+            Self::Display => &["hk-server-display: ok"],
         }
     }
 
@@ -300,7 +305,8 @@ impl SmokeMode {
             | Self::NetRestart
             | Self::NetZerocopy
             | Self::NetSocket
-            | Self::Console => QEMU_SUCCESS,
+            | Self::Console
+            | Self::Display => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -326,6 +332,7 @@ impl SmokeMode {
             Self::NetZerocopy => "build/serial-netzerocopy.log",
             Self::NetSocket => "build/serial-netsocket.log",
             Self::Console => "build/serial-console.log",
+            Self::Display => "build/serial-display.log",
         }
     }
 

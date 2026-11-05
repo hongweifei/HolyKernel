@@ -6,7 +6,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use hk_hal::Console;
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
@@ -18,6 +18,41 @@ use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, U
 const WATCHDOG_INTERVAL_MS: u64 = 3_000;
 
 static WATCHDOG_LAST_MS: AtomicU64 = AtomicU64::new(0);
+
+static FRAMEBUFFER_PRESENT: AtomicBool = AtomicBool::new(false);
+static FRAMEBUFFER_PHYS: AtomicU64 = AtomicU64::new(0);
+static FRAMEBUFFER_WIDTH: AtomicU32 = AtomicU32::new(0);
+static FRAMEBUFFER_HEIGHT: AtomicU32 = AtomicU32::new(0);
+static FRAMEBUFFER_STRIDE: AtomicU32 = AtomicU32::new(0);
+static FRAMEBUFFER_FORMAT: AtomicU32 = AtomicU32::new(0);
+
+/// 记录启动阶段的帧缓冲描述；无法提供帧缓冲时传入 `None`。
+pub fn set_framebuffer(info: Option<hk_hal::FramebufferInfo>) {
+    match info {
+        Some(framebuffer) => {
+            FRAMEBUFFER_PHYS.store(framebuffer.phys.get(), Ordering::Release);
+            FRAMEBUFFER_WIDTH.store(framebuffer.width, Ordering::Release);
+            FRAMEBUFFER_HEIGHT.store(framebuffer.height, Ordering::Release);
+            FRAMEBUFFER_STRIDE.store(framebuffer.stride, Ordering::Release);
+            FRAMEBUFFER_FORMAT.store(framebuffer.format.code(), Ordering::Release);
+            FRAMEBUFFER_PRESENT.store(true, Ordering::Release);
+        }
+        None => FRAMEBUFFER_PRESENT.store(false, Ordering::Release),
+    }
+}
+
+fn framebuffer_info() -> Option<hk_hal::FramebufferInfo> {
+    if !FRAMEBUFFER_PRESENT.load(Ordering::Acquire) {
+        return None;
+    }
+    Some(hk_hal::FramebufferInfo {
+        phys: hk_hal::PhysAddr::new(FRAMEBUFFER_PHYS.load(Ordering::Acquire)),
+        width: FRAMEBUFFER_WIDTH.load(Ordering::Acquire),
+        height: FRAMEBUFFER_HEIGHT.load(Ordering::Acquire),
+        stride: FRAMEBUFFER_STRIDE.load(Ordering::Acquire),
+        format: hk_hal::PixelFormat::from_code(FRAMEBUFFER_FORMAT.load(Ordering::Acquire))?,
+    })
+}
 
 /// Arena 虚拟基址。
 const ARENA_BASE: u64 = 0x0200_0000;
@@ -162,6 +197,32 @@ impl UserPlatform for X86Platform {
 
     fn tsc_frequency(&self) -> u64 {
         hk_platform_x86_64::timing::tsc_frequency()
+    }
+
+    fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
+        framebuffer_info()
+    }
+
+    fn map_framebuffer(&self, slot: usize, virt: u64) -> Option<u64> {
+        let framebuffer = framebuffer_info()?;
+        let length = u64::from(framebuffer.stride) * u64::from(framebuffer.height);
+        if length == 0
+            || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
+            || !framebuffer
+                .phys
+                .get()
+                .is_multiple_of(hk_hal::PAGE_SIZE as u64)
+        {
+            return None;
+        }
+        USER_VSPACES
+            .map_mmio(
+                slot,
+                virt,
+                framebuffer.phys.get(),
+                usize::try_from(length).ok()?,
+            )
+            .then_some(length)
     }
 
     fn wake_aps(&self) {

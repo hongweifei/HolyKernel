@@ -107,6 +107,7 @@ extern "C" fn kmain() -> ! {
     }
 
     announce(&console, screen.as_ref(), "启动信息校验通过\n");
+    runtime::set_framebuffer(info.framebuffer);
 
     let direct_map = match info.direct_map {
         Some(direct_map) => direct_map,

@@ -99,6 +99,23 @@ impl PixelFormat {
             Self::Rgb32 | Self::Bgr32 => 4,
         }
     }
+
+    /// 返回跨内核与服务共享的格式编码。
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Rgb32 => 0,
+            Self::Bgr32 => 1,
+        }
+    }
+
+    /// 由格式编码还原；未知编码返回 `None`。
+    pub const fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 => Some(Self::Rgb32),
+            1 => Some(Self::Bgr32),
+            _ => None,
+        }
+    }
 }
 
 /// 帧缓冲信息。

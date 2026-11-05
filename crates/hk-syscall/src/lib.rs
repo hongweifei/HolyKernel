@@ -126,6 +126,100 @@ pub const SYS_CONSOLE_READ: u64 = 40;
 /// 注册为控制台输入订阅者。
 pub const SYS_CONSOLE_SUBSCRIBE: u64 = 41;
 
+/// 查询帧缓冲描述；仅显示服务可用。
+pub const SYS_FRAMEBUFFER_INFO: u64 = 42;
+
+/// 把帧缓冲映射到调用者地址空间；仅显示服务可用。
+pub const SYS_FRAMEBUFFER_MAP: u64 = 43;
+
+/// 帧缓冲描述符编码长度。
+pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
+
+/// 帧缓冲描述符魔数。
+pub const FRAMEBUFFER_MAGIC: u32 = 0x484B_4642;
+
+/// 显示服务名称；只有该服务可以访问帧缓冲。
+pub const DISPLAY_SERVICE: &str = "hk-server-display";
+
+/// 像素格式编码：32 位 RGB。
+pub const PIXEL_FORMAT_RGB32: u32 = 0;
+/// 像素格式编码：32 位 BGR。
+pub const PIXEL_FORMAT_BGR32: u32 = 1;
+
+/// 帧缓冲描述符。
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FramebufferDescriptor {
+    /// 固定魔数。
+    pub magic: u32,
+    /// 像素格式编码。
+    pub format: u32,
+    /// 像素宽度。
+    pub width: u32,
+    /// 像素高度。
+    pub height: u32,
+    /// 每行字节数。
+    pub stride: u32,
+    /// 保留字段。
+    pub reserved: u32,
+    /// 起始物理地址。
+    pub phys: u64,
+    /// 总字节数。
+    pub length: u64,
+}
+
+impl FramebufferDescriptor {
+    /// 把描述符编码为固定长度字节串。
+    pub fn encode(&self, out: &mut [u8; FRAMEBUFFER_DESCRIPTOR_BYTES]) {
+        out[0..4].copy_from_slice(&self.magic.to_le_bytes());
+        out[4..8].copy_from_slice(&self.format.to_le_bytes());
+        out[8..12].copy_from_slice(&self.width.to_le_bytes());
+        out[12..16].copy_from_slice(&self.height.to_le_bytes());
+        out[16..20].copy_from_slice(&self.stride.to_le_bytes());
+        out[20..24].copy_from_slice(&self.reserved.to_le_bytes());
+        out[24..32].copy_from_slice(&self.phys.to_le_bytes());
+        out[32..40].copy_from_slice(&self.length.to_le_bytes());
+    }
+
+    /// 从字节串解码；魔数不符时返回 `None`。
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < FRAMEBUFFER_DESCRIPTOR_BYTES {
+            return None;
+        }
+        let word = |offset: usize| {
+            u32::from_le_bytes([
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+            ])
+        };
+        let wide = |offset: usize| {
+            u64::from_le_bytes([
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+                bytes[offset + 4],
+                bytes[offset + 5],
+                bytes[offset + 6],
+                bytes[offset + 7],
+            ])
+        };
+        let descriptor = Self {
+            magic: word(0),
+            format: word(4),
+            width: word(8),
+            height: word(12),
+            stride: word(16),
+            reserved: word(20),
+            phys: wide(24),
+            length: wide(32),
+        };
+        (descriptor.magic == FRAMEBUFFER_MAGIC).then_some(descriptor)
+    }
+}
+
 /// 通知位：有控制台输入。
 pub const CONSOLE_NOTIFY_INPUT: u64 = 1 << 0;
 /// 通知位：控制台收到消息。
@@ -169,5 +263,30 @@ impl ServiceRole {
             magic: Self::MAGIC,
             role: Self::DEVICE,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn framebuffer_descriptor_roundtrip() {
+        let descriptor = FramebufferDescriptor {
+            magic: FRAMEBUFFER_MAGIC,
+            format: PIXEL_FORMAT_RGB32,
+            width: 640,
+            height: 480,
+            stride: 2560,
+            reserved: 0,
+            phys: 0x8000_0000,
+            length: 1_228_800,
+        };
+        let mut bytes = [0_u8; FRAMEBUFFER_DESCRIPTOR_BYTES];
+        descriptor.encode(&mut bytes);
+        assert_eq!(FramebufferDescriptor::decode(&bytes), Some(descriptor));
+
+        bytes[0] ^= 0xFF;
+        assert_eq!(FramebufferDescriptor::decode(&bytes), None);
     }
 }
