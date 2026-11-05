@@ -2,7 +2,7 @@
 
 use lovyangfx_fonts::Font;
 
-use crate::{MAX_WINDOWS, Screen, TITLE_HEIGHT, Window};
+use crate::window::{MAX_WINDOWS, Screen, TITLE_HEIGHT, Window};
 
 /// 桌面背景顶部颜色。
 #[cfg(target_os = "none")]
