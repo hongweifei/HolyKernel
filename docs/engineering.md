@@ -22,6 +22,7 @@ HolyKernel/
 ├── platforms/             x86_64-qemu、hosted
 ├── servers/               常驻用户态服务
 ├── clients/               网络状态与 `*-test` 自检客户端
+├── demos/                 demo/echo/fault/fork/latency/spin 演示服务
 ├── scripts/               随镜像打包的 HolyShell 脚本
 └── docs/
 ```

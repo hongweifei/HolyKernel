@@ -15,6 +15,7 @@
 | L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock 与 `*-test` 自检客户端；只通过协议访问服务 |
+| L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
 | L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、用户运行时、平台实现、镜像与测试工具 |
 | 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
 
@@ -30,12 +31,12 @@
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
 | `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-root-server`、`hk-platform-*`、其他服务 |
 | L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
-| L3 服务/客户端 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
+| L3 服务/客户端/演示 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
 | `hk-shell` | 无 | 任何依赖 |
 
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
 
-目录约定：常驻服务放 `servers/`，只用于验证或展示的客户端放 `clients/`；两者的包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，协议与客户端在各子模块。
+目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
 
 ---
 
