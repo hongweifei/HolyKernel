@@ -169,6 +169,7 @@ sequenceDiagram
 - **Once**：首次启动执行一次，初始化 Home、字体、示例文档。
 - **MakeHome**：重新生成 Home 的脚本/文档。
 - 启动文档是可执行 HolyDoc；启动与配置集中在文档中。
+- 已落地：Shell 启动时读取 `H:/Home` 并执行其中的 `@exec` 行；`H:/Once` 仅在首次启动执行，完成后写入 `H:/Once.done`，后续启动跳过。`@exec` 行直接交给 Shell 命令解析，因此可以启动服务、创建标签或写配置。
 - POSIX 环境对应 `/etc/holy/`、`/home/<user>/`；原生环境对应 VFS 路径。
 
 ---

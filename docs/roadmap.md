@@ -198,7 +198,8 @@ flowchart LR
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
-- Sprite/Font 编辑器、Home/Once 启动文档。
+- Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
+- Sprite/Font 编辑器。
 
 ### 退出标准
 
