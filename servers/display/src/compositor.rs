@@ -4,8 +4,9 @@ use lovyangfx_fonts::Font;
 
 use crate::theme::theme;
 use crate::window::{
-    CLOSE_SIZE, MAX_WINDOWS, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT,
-    TITLE_HEIGHT, Window, close_button_origin, taskbar_button_top, taskbar_button_x, taskbar_top,
+    CLOSE_SIZE, MAX_WINDOWS, RESIZE_SIZE, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH,
+    TASKBAR_HEIGHT, TITLE_HEIGHT, Window, close_button_origin, taskbar_button_top,
+    taskbar_button_x, taskbar_top,
 };
 
 /// 光标宽度。
@@ -53,10 +54,20 @@ fn desktop_color(height: usize, row: usize) -> u32 {
 /// 读取窗口表面中的一个像素。
 #[cfg(target_os = "none")]
 pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
+    let source_x = if window.width == 0 {
+        0
+    } else {
+        (x * window.surface_width / window.width).min(window.surface_width.saturating_sub(1))
+    };
+    let source_y = if window.height == 0 {
+        0
+    } else {
+        (y * window.surface_height / window.height).min(window.surface_height.saturating_sub(1))
+    };
     // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
     unsafe {
         (window.virt as *const u32)
-            .add(y * window.width + x)
+            .add(source_y * window.surface_width + source_x)
             .read_volatile()
     }
 }
@@ -168,6 +179,23 @@ fn paint_window(
                 row,
                 surface_pixel(window, column - window_x, source_row),
             );
+        }
+    }
+
+    let right = window_x.saturating_add(window.width);
+    let bottom = window_y
+        .saturating_add(TITLE_HEIGHT)
+        .saturating_add(window.height);
+    for row in 0..RESIZE_SIZE {
+        let y = bottom.saturating_sub(1 + row);
+        if y < top || y >= bottom {
+            continue;
+        }
+        for column in 0..RESIZE_SIZE - row {
+            let x = right.saturating_sub(1 + column);
+            if x >= left && x < right {
+                screen.put(x, y, palette.resize_handle);
+            }
         }
     }
 }
@@ -427,5 +455,50 @@ pub(crate) fn move_window(
         y,
         old.width,
         old.height + TITLE_HEIGHT,
+    );
+}
+
+/// 把窗口缩放到新尺寸，并重绘旧、新两个区域。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resize_window(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    old: Window,
+    width: usize,
+    height: usize,
+) {
+    let Some(window) = windows
+        .iter_mut()
+        .flatten()
+        .find(|window| window.id == old.id)
+    else {
+        return;
+    };
+    window.width = width;
+    window.height = height;
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        None,
+        old.x,
+        old.y,
+        old.width,
+        old.height + TITLE_HEIGHT,
+    );
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        None,
+        old.x,
+        old.y,
+        width,
+        height + TITLE_HEIGHT,
     );
 }

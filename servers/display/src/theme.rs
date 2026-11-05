@@ -19,6 +19,7 @@ pub(crate) struct Theme {
     pub(crate) taskbar_text: u32,
     pub(crate) cursor: u32,
     pub(crate) cursor_shadow: u32,
+    pub(crate) resize_handle: u32,
 }
 
 /// 深色主题。
@@ -35,6 +36,7 @@ static DARK: Theme = Theme {
     taskbar_text: 0x00E8_F0FF,
     cursor: 0x00FF_FFFF,
     cursor_shadow: 0x0000_0000,
+    resize_handle: 0x0060_90C0,
 };
 
 /// 浅色主题。
@@ -51,6 +53,7 @@ static LIGHT: Theme = Theme {
     taskbar_text: 0x0020_2830,
     cursor: 0x0000_0000,
     cursor_shadow: 0x00FF_FFFF,
+    resize_handle: 0x0040_6090,
 };
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);

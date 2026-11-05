@@ -325,6 +325,7 @@ impl SmokeMode {
                 "hk-server-input: ready",
                 "hk-server-display: drag 1",
                 "hk-server-display: taskbar 1",
+                "hk-server-display: resize 1 464x348",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",
                 "hk-server-display: close 1",
@@ -522,10 +523,13 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         // 任务栏第一个按钮约在 (88,786)。
         inject_pointer(&socket, 0x08CC, 0x7DC1)?;
         thread::sleep(Duration::from_millis(300));
+        // 窗口右下角缩放把手约在 (899,542)，拖到 (963,590)。
+        inject_pointer_drag(&socket, 0x59E5, 0x56B6, 0x604C, 0x5E65)?;
+        thread::sleep(Duration::from_millis(300));
         inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
         thread::sleep(Duration::from_millis(300));
-        // 拖动后窗口右上方约在 (894,236) 的关闭按钮。
-        inject_pointer(&socket, 0x5964, 0x25C2)?;
+        // 缩放后窗口右上方约在 (958,236) 的关闭按钮。
+        inject_pointer(&socket, 0x5FCC, 0x25C2)?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {

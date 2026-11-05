@@ -31,7 +31,7 @@ mod compositor;
 #[cfg(target_os = "none")]
 use compositor::{
     CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, damage_taskbar, damage_title, damage_window,
-    draw_desktop, move_window, surface_pixel,
+    draw_desktop, move_window, resize_window, surface_pixel,
 };
 
 #[cfg(target_os = "none")]
@@ -40,8 +40,9 @@ mod theme;
 mod window;
 #[cfg(target_os = "none")]
 use window::{
-    Drag, MAX_WINDOWS, Screen, TASKBAR_HEIGHT, TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window,
-    close_at, raise, taskbar_at, taskbar_top, window_at,
+    Drag, MAX_WINDOWS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, Resize, Screen, TASKBAR_HEIGHT,
+    TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window, close_at, raise, resize_at, taskbar_at,
+    taskbar_top, window_at,
 };
 
 /// Tab 键字节：切换焦点。
@@ -69,7 +70,10 @@ fn close_window(
         return;
     };
     windows[slot] = None;
-    let bytes = window.width.saturating_mul(window.height).saturating_mul(4);
+    let bytes = window
+        .surface_width
+        .saturating_mul(window.surface_height)
+        .saturating_mul(4);
     let _ = frame_unmap(window.virt, bytes);
     let _ = close_handle(window.handle);
     let _ = send(window.client, DISPLAY_CLOSE, id);
@@ -196,6 +200,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut driver_input = false;
     let mut pointer: Option<(usize, usize)> = None;
     let mut drag: Option<Drag> = None;
+    let mut resize: Option<Resize> = None;
     damage_taskbar(&screen, &windows, focus, &font, pointer);
     loop {
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
@@ -269,6 +274,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     y,
                     width,
                     height,
+                    surface_width: width,
+                    surface_height: height,
                     virt,
                     handle,
                     client: sender,
@@ -303,7 +310,44 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         CURSOR_HEIGHT + 1,
                     );
                 }
-                if let Some(state) = drag
+                if let Some(state) = resize
+                    && let Some(window) = windows
+                        .iter()
+                        .flatten()
+                        .find(|window| window.id == state.id)
+                        .copied()
+                {
+                    let max_width = screen.width.saturating_sub(window.x).max(MIN_WINDOW_WIDTH);
+                    let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
+                    let max_height = desktop_height
+                        .saturating_sub(window.y + TITLE_HEIGHT)
+                        .max(MIN_WINDOW_HEIGHT);
+                    let delta_x = next.0 as isize - state.start_x as isize;
+                    let delta_y = next.1 as isize - state.start_y as isize;
+                    let new_width = (state.width as isize + delta_x)
+                        .clamp(MIN_WINDOW_WIDTH as isize, max_width as isize)
+                        as usize;
+                    let new_height = (state.height as isize + delta_y)
+                        .clamp(MIN_WINDOW_HEIGHT as isize, max_height as isize)
+                        as usize;
+                    if (new_width, new_height) != (window.width, window.height) {
+                        resize_window(
+                            &screen,
+                            &mut windows,
+                            focus,
+                            &font,
+                            window,
+                            new_width,
+                            new_height,
+                        );
+                        if !state.resized {
+                            resize = Some(Resize {
+                                resized: true,
+                                ..state
+                            });
+                        }
+                    }
+                } else if let Some(state) = drag
                     && let Some(window) = windows
                         .iter()
                         .flatten()
@@ -347,10 +391,27 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             INPUT_BUTTON => {
                 if word == 0 {
+                    if let Some(state) = resize
+                        && state.resized
+                        && let Some(window) = windows
+                            .iter()
+                            .flatten()
+                            .find(|window| window.id == state.id)
+                    {
+                        write(b"hk-server-display: resize ");
+                        write_u64(window.id);
+                        write(b" ");
+                        write_u64(window.width as u64);
+                        write(b"x");
+                        write_u64(window.height as u64);
+                        write(b"\n");
+                    }
                     drag = None;
+                    resize = None;
                     continue;
                 }
                 drag = None;
+                resize = None;
                 if let Some((x, y)) = pointer {
                     if y >= taskbar_top(screen.height) {
                         if let Some(id) = taskbar_at(&windows, x, y, screen.width, screen.height) {
@@ -428,6 +489,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 offset_x: x - window.x,
                                 offset_y: y - window.y,
                                 moved: false,
+                            });
+                        } else if resize_at(&window, x, y) {
+                            resize = Some(Resize {
+                                id,
+                                start_x: x,
+                                start_y: y,
+                                width: window.width,
+                                height: window.height,
+                                resized: false,
                             });
                         } else {
                             write(b"hk-server-display: pointer click ");

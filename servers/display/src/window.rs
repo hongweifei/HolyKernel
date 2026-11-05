@@ -18,6 +18,18 @@ pub(crate) const WINDOW_STRIDE: u64 = 0x20_0000;
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_HEIGHT: usize = 24;
 
+/// 窗口最小宽度。
+#[cfg(target_os = "none")]
+pub(crate) const MIN_WINDOW_WIDTH: usize = 120;
+
+/// 窗口最小高度。
+#[cfg(target_os = "none")]
+pub(crate) const MIN_WINDOW_HEIGHT: usize = 80;
+
+/// 缩放把手尺寸。
+#[cfg(target_os = "none")]
+pub(crate) const RESIZE_SIZE: usize = 12;
+
 /// 标题栏关闭按钮尺寸。
 #[cfg(target_os = "none")]
 pub(crate) const CLOSE_SIZE: usize = 10;
@@ -96,11 +108,25 @@ pub(crate) struct Window {
     pub(crate) y: usize,
     pub(crate) width: usize,
     pub(crate) height: usize,
+    pub(crate) surface_width: usize,
+    pub(crate) surface_height: usize,
     pub(crate) virt: u64,
     pub(crate) handle: u64,
     pub(crate) client: u64,
     pub(crate) title: [u8; TITLE_MAX],
     pub(crate) title_length: usize,
+}
+
+/// 正在缩放的窗口。
+#[cfg(target_os = "none")]
+#[derive(Clone, Copy)]
+pub(crate) struct Resize {
+    pub(crate) id: u64,
+    pub(crate) start_x: usize,
+    pub(crate) start_y: usize,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) resized: bool,
 }
 
 /// 正在拖动的窗口。
@@ -160,6 +186,20 @@ pub(crate) fn close_button_origin(window: &Window) -> (usize, usize) {
 pub(crate) fn close_at(window: &Window, x: usize, y: usize) -> bool {
     let (left, top) = close_button_origin(window);
     x >= left && x < left + CLOSE_SIZE && y >= top && y < top + CLOSE_SIZE
+}
+
+/// 指定点是否命中窗口右下角的缩放把手。
+#[cfg(target_os = "none")]
+pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> bool {
+    let right = window.x.saturating_add(window.width);
+    let bottom = window
+        .y
+        .saturating_add(TITLE_HEIGHT)
+        .saturating_add(window.height);
+    x >= right.saturating_sub(RESIZE_SIZE)
+        && x < right
+        && y >= bottom.saturating_sub(RESIZE_SIZE)
+        && y < bottom
 }
 
 /// 返回指定点最上层窗口。
