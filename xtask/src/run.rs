@@ -8,7 +8,7 @@ use crate::target::{Selection, Target};
 ///
 /// Hosted 直接启动进程；x86_64 QEMU 先构建镜像再启动虚拟机；AArch64 的启动镜像
 /// 在 M8 提供。
-pub fn run(selection: Selection, release: bool, arguments: &[String]) -> Result<()> {
+pub fn run(selection: Selection, release: bool, arguments: &[String], ui: bool) -> Result<()> {
     let targets = selection.targets();
     if targets.len() != 1 {
         return Err(Failure::new("run 只接受单个目标"));
@@ -20,10 +20,11 @@ pub fn run(selection: Selection, release: bool, arguments: &[String]) -> Result<
             if !arguments.is_empty() {
                 return Err(Failure::new("x86_64-qemu 不接受额外参数"));
             }
-            let iso = crate::image::run(selection, release, Some("shell-interactive"))?;
+            let cmdline = if ui { "desktop" } else { "shell-interactive" };
+            let iso = crate::image::run(selection, release, Some(cmdline))?;
             let disk = crate::workspace::root().join("build/run-disk.img");
             crate::disk::ensure_ext4(&disk)?;
-            crate::qemu::run(&iso, &disk)
+            crate::qemu::run(&iso, &disk, ui)
         }
         Target::Aarch64Qemu => Err(Failure::new(
             "aarch64-qemu 的启动镜像在 M8 提供；当前使用 cargo xtask build --target aarch64-qemu 校验构建",

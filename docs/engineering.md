@@ -74,6 +74,8 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
   -device virtio-blk-pci,drive=disk
 ```
 
+图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。
+
 当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像。

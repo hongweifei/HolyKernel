@@ -83,6 +83,9 @@ struct ImageArguments {
     /// 使用 release 配置
     #[arg(long)]
     release: bool,
+    /// 内核启动命令行；默认 shell-interactive
+    #[arg(long)]
+    cmdline: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -93,6 +96,9 @@ struct RunArguments {
     /// 使用 release 配置
     #[arg(long)]
     release: bool,
+    /// 启动图形桌面（Display/Console/Input/HolyDoc）
+    #[arg(long)]
+    ui: bool,
     /// 传给目标程序的参数
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     arguments: Vec<String>,
@@ -132,13 +138,16 @@ fn main() -> ExitCode {
 fn execute(task: Task) -> Result<()> {
     match task {
         Task::Build(arguments) => build::run(arguments.target, arguments.release),
-        Task::Image(arguments) => image::run(
+        Task::Image(arguments) => {
+            let cmdline = arguments.cmdline.as_deref().unwrap_or("shell-interactive");
+            image::run(arguments.target, arguments.release, Some(cmdline)).map(|_| ())
+        }
+        Task::Run(arguments) => run::run(
             arguments.target,
             arguments.release,
-            Some("shell-interactive"),
-        )
-        .map(|_| ()),
-        Task::Run(arguments) => run::run(arguments.target, arguments.release, &arguments.arguments),
+            &arguments.arguments,
+            arguments.ui,
+        ),
         Task::Test(arguments) => test::run(arguments.target),
         Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
         Task::Lint => lint::run(),
