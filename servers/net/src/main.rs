@@ -95,33 +95,53 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     };
     let mut frame = [0_u8; NET_FRAME_MAX];
     let mut stats = Stats::default();
-    let deadline = now_ms().saturating_add(WAIT_MS);
     let mut gateway = Ipv4Addr::new(10, 0, 2, 2);
-    let mut dns_servers: Vec<Ipv4Addr> = Vec::new();
     let mut leased = false;
-    while now_ms() < deadline {
-        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
-        if let Some(lease) = stack.poll_dhcp(dhcp) {
-            gateway = lease.gateway.unwrap_or(gateway);
-            dns_servers = lease.dns;
-            write("hk-server-net: dhcp ok\n".as_bytes());
-            leased = true;
-            break;
-        }
-    }
-    if !leased {
-        if stack
-            .set_ipv4(
-                Ipv4Addr::new(10, 0, 2, 15),
-                24,
-                Some(Ipv4Addr::new(10, 0, 2, 2)),
-            )
-            .is_err()
-        {
+
+    // 原生启动期配置：`net.dhcp=off`/`net.ip=`/`net.prefix=`/`net.gw=`/
+    // `net.resolver=`。这是 Holy 的引导配置，不读取任何 Unix 文件。
+    let mut cmdline_buffer = [0_u8; 256];
+    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let resolvers = cmdline.map(parse_resolvers).unwrap_or_default();
+    let static_config = cmdline.and_then(parse_static);
+    let mut dns_servers = resolvers;
+    if let Some((address, prefix, route)) = static_config {
+        if stack.set_ipv4(address, prefix, route).is_err() {
             write("hk-server-net: 静态地址失败\n".as_bytes());
             exit(4)
         }
-        write("hk-server-net: dhcp timeout, static\n".as_bytes());
+        if let Some(route) = route {
+            gateway = route;
+        }
+        write("hk-server-net: static ok\n".as_bytes());
+    } else {
+        let deadline = now_ms().saturating_add(WAIT_MS);
+        while now_ms() < deadline {
+            poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+            if let Some(lease) = stack.poll_dhcp(dhcp) {
+                gateway = lease.gateway.unwrap_or(gateway);
+                if !lease.dns.is_empty() {
+                    dns_servers = lease.dns;
+                }
+                write("hk-server-net: dhcp ok\n".as_bytes());
+                leased = true;
+                break;
+            }
+        }
+        if !leased {
+            if stack
+                .set_ipv4(
+                    Ipv4Addr::new(10, 0, 2, 15),
+                    24,
+                    Some(Ipv4Addr::new(10, 0, 2, 2)),
+                )
+                .is_err()
+            {
+                write("hk-server-net: 静态地址失败\n".as_bytes());
+                exit(4)
+            }
+            write("hk-server-net: dhcp timeout, static\n".as_bytes());
+        }
     }
     write("hk-server-net: ready\n".as_bytes());
     let icmp = match stack.open_icmp(0x1234) {
@@ -464,6 +484,70 @@ fn poll_once(
         let _ = send_data(driver, NET_TX, &packet);
     }
     let _ = notify(driver, NET_NOTIFY_TX);
+}
+
+/// 解析原生启动期网络配置；`net.dhcp=off` 或 `net.ip=` 存在时返回静态配置。
+#[cfg(target_os = "none")]
+fn parse_static(line: &str) -> Option<(Ipv4Addr, u8, Option<Ipv4Addr>)> {
+    let mut address = None;
+    let mut prefix = 24_u8;
+    let mut gateway = None;
+    let mut dhcp_off = false;
+    for part in line.split_whitespace() {
+        if let Some(value) = part.strip_prefix("net.ip=") {
+            address = parse_ipv4(value);
+        } else if let Some(value) = part.strip_prefix("net.prefix=") {
+            if let Ok(value) = value.parse() {
+                prefix = value;
+            }
+        } else if let Some(value) = part.strip_prefix("net.gw=") {
+            gateway = parse_ipv4(value);
+        } else if part == "net.dhcp=off" {
+            dhcp_off = true;
+        }
+    }
+    if address.is_none() && !dhcp_off {
+        return None;
+    }
+    Some((
+        address.unwrap_or(Ipv4Addr::new(10, 0, 2, 15)),
+        prefix,
+        gateway.or(Some(Ipv4Addr::new(10, 0, 2, 2))),
+    ))
+}
+
+/// 解析 `net.resolver=` 列表（逗号分隔，最多 4 个）。
+#[cfg(target_os = "none")]
+fn parse_resolvers(line: &str) -> Vec<Ipv4Addr> {
+    let mut servers = Vec::new();
+    for part in line.split_whitespace() {
+        let Some(value) = part.strip_prefix("net.resolver=") else {
+            continue;
+        };
+        for item in value.split(',') {
+            if servers.len() >= NET_CONFIG_MAX_DNS {
+                return servers;
+            }
+            if let Some(address) = parse_ipv4(item) {
+                servers.push(address);
+            }
+        }
+    }
+    servers
+}
+
+#[cfg(target_os = "none")]
+fn parse_ipv4(text: &str) -> Option<Ipv4Addr> {
+    let mut octets = [0_u8; 4];
+    let mut index = 0;
+    for part in text.split('.') {
+        if index == 4 {
+            return None;
+        }
+        octets[index] = part.parse().ok()?;
+        index += 1;
+    }
+    (index == 4).then(|| Ipv4Addr::from(octets))
 }
 
 /// 以 TSC 换算单调毫秒时间；TSC 未知时退回累计 tick（约 10 ms）。

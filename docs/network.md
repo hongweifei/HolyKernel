@@ -204,6 +204,7 @@ sequenceDiagram
   - 接口、地址、网关、DNS、MTU、策略。
 - POSIX 兼容：`/etc/resolv.conf`、`/etc/hosts`、`/etc/network` 是 POSIX 桥从原生配置投影出的视图，仅供 Unix 程序读取；Network Server 只认原生配置对象，不回读 `/etc`。
 - 读取：`NET_CONFIG_REQUEST` 返回 DHCP/静态、地址、网关、DNS 与 MTU；配置变更通过 `net` 命令或 Network Server Endpoint；审计记录。`NET_CONFIG_SET` 与 `H:/Network/Config.hd` 持久化随后接入。
+- 引导配置：`net.dhcp=off`、`net.ip=`、`net.prefix=`、`net.gw=`、`net.resolver=` 是 Holy 启动参数，不读取任何 Unix 文件；`smoke --mode netstatic` 验证静态路径。
 - Network Server 自身管理接口状态。
 
 ---

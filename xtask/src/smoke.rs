@@ -82,6 +82,9 @@ pub enum SmokeMode {
     /// virtio-net 驱动探测与 MAC 输出
     #[value(name = "net")]
     Net,
+    /// 原生静态网络配置（关闭 DHCP）
+    #[value(name = "netstatic")]
+    NetStatic,
 }
 
 impl SmokeMode {
@@ -102,6 +105,9 @@ impl SmokeMode {
             Self::Ext4Root => Some("vfs.root=ext4"),
             Self::HolyFs => Some("vfs.fs=holyfs"),
             Self::Net => Some("net-test net.dns=localhost shell-test net"),
+            Self::NetStatic => Some(
+                "net-test net.dhcp=off net.ip=10.0.2.15 net.prefix=24 net.gw=10.0.2.2 net.resolver=10.0.2.3 net.dns=localhost shell-test net",
+            ),
         }
     }
 
@@ -216,6 +222,18 @@ impl SmokeMode {
                 "hk-server-netstat: arp",
                 "hk-server-netstat: config dhcp=",
             ],
+            Self::NetStatic => &[
+                "hk-server-virtio-net: mac=",
+                "hk-server-net: static ok",
+                "hk-server-net: ping ok",
+                "hk-server-net: tcp ok",
+                "hk-server-net: udp ok",
+                "hk-server-net: dns ok 127.0.0.1",
+                "hk-server-netstat: config dhcp=off",
+                "hk-server-netstat: config dns=10.0.2.3",
+                "hk-server-netstat: route=",
+                "hk-server-netstat: arp",
+            ],
         }
     }
 
@@ -230,7 +248,8 @@ impl SmokeMode {
             | Self::Restart
             | Self::Ext4Root
             | Self::HolyFs
-            | Self::Net => QEMU_SUCCESS,
+            | Self::Net
+            | Self::NetStatic => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -251,7 +270,13 @@ impl SmokeMode {
             Self::Ext4Root => "build/serial-ext4root.log",
             Self::HolyFs => "build/serial-holyfs.log",
             Self::Net => "build/serial-net.log",
+            Self::NetStatic => "build/serial-netstatic.log",
         }
+    }
+
+    /// 是否为网络模式（需要宿主 echo 与 QEMU 网卡）。
+    fn is_network(self) -> bool {
+        matches!(self, Self::Net | Self::NetStatic)
     }
 
     /// 需要断言先后的输出片段。
@@ -280,7 +305,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         let _ = fs::remove_file(&socket);
     }
 
-    let echo = if mode == SmokeMode::Net {
+    let echo = if mode.is_network() {
         let listener = TcpListener::bind(("0.0.0.0", NET_TCP_PORT))
             .map_err(|error| Failure::new(format!("绑定 TCP echo 失败：{error}")))?;
         listener
@@ -290,7 +315,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     } else {
         None
     };
-    let udp = if mode == SmokeMode::Net {
+    let udp = if mode.is_network() {
         let socket = UdpSocket::bind(("0.0.0.0", NET_UDP_PORT))
             .map_err(|error| Failure::new(format!("绑定 UDP echo 失败：{error}")))?;
         socket
@@ -317,7 +342,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::Smp {
         command.args(["-smp", "4"]);
     }
-    if mode == SmokeMode::Net {
+    if mode.is_network() {
         command
             .args(["-netdev", "user,id=net0"])
             .args(["-device", "virtio-net-pci,netdev=net0"]);
