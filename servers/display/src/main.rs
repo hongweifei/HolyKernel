@@ -30,8 +30,8 @@ use lovyangfx_fonts::fonts::efont_cn_16;
 mod compositor;
 #[cfg(target_os = "none")]
 use compositor::{
-    CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, damage_taskbar, damage_title, damage_window,
-    draw_desktop, move_window, resize_window, surface_pixel,
+    CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, compose_window_region, damage_taskbar,
+    damage_title, damage_window, draw_desktop, move_window, resize_window, surface_pixel,
 };
 
 #[cfg(target_os = "none")]
@@ -79,7 +79,7 @@ fn minimize_window(
             .map(|window| window.id)
             .unwrap_or(0);
     }
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         *focus,
@@ -128,7 +128,7 @@ fn toggle_maximize(
         true
     };
     let new = *window;
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -139,7 +139,7 @@ fn toggle_maximize(
         old.width,
         old.height + title_height(),
     );
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -203,7 +203,7 @@ fn close_window(
             .map(|window| window.id)
             .unwrap_or(0);
     }
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         *focus,

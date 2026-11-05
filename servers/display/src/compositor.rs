@@ -43,6 +43,49 @@ fn blend(from: u32, to: u32, ratio: u32) -> u32 {
     (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
+/// 窗口投影边距（随界面缩放）。
+#[cfg(target_os = "none")]
+fn shadow_margin() -> usize {
+    4 * scale()
+}
+
+/// 窗口圆角半径（随界面缩放）。
+#[cfg(target_os = "none")]
+fn corner_radius() -> usize {
+    6 * scale()
+}
+
+/// 整数平方根；半径很小，线性探测足够。
+#[cfg(target_os = "none")]
+fn sqrt_floor(value: usize) -> usize {
+    let mut root = 0;
+    while (root + 1) * (root + 1) <= value {
+        root += 1;
+    }
+    root
+}
+
+/// 距离窗口边缘 `distance` 行/列处的圆角内缩量。
+#[cfg(target_os = "none")]
+fn corner_inset(distance: usize, radius: usize) -> usize {
+    if distance >= radius || radius == 0 {
+        return 0;
+    }
+    let radius = radius as u32;
+    let dy = radius - distance as u32;
+    (radius - sqrt_floor((radius * radius - dy * dy) as usize) as u32) as usize
+}
+
+/// 窗口在屏幕上是否需要圆角；最大化窗口铺满宽度，不剪角。
+#[cfg(target_os = "none")]
+fn window_radius(screen: &Screen, window: &Window) -> usize {
+    if window.width >= screen.width {
+        0
+    } else {
+        corner_radius()
+    }
+}
+
 /// 返回桌面在指定行的颜色。
 #[cfg(target_os = "none")]
 fn desktop_color(height: usize, row: usize) -> u32 {
@@ -92,6 +135,64 @@ fn draw_cursor(screen: &Screen, x: usize, y: usize) {
     }
 }
 
+/// 绘制窗口外沿的柔和投影。
+#[cfg(target_os = "none")]
+fn paint_shadow(
+    screen: &Screen,
+    window: &Window,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+) {
+    if window.minimized || window.width >= screen.width {
+        return;
+    }
+    let margin = shadow_margin();
+    if margin == 0 {
+        return;
+    }
+    let palette = theme();
+    let window_right = window.x.saturating_add(window.width);
+    let window_bottom = window
+        .y
+        .saturating_add(title_height())
+        .saturating_add(window.height);
+    let shadow_left = window.x.saturating_sub(margin).max(left);
+    let shadow_top = window.y.saturating_sub(margin).max(top);
+    let shadow_right = window_right.saturating_add(margin).min(right);
+    let shadow_bottom = window_bottom.saturating_add(margin).min(bottom);
+    if shadow_left >= shadow_right || shadow_top >= shadow_bottom {
+        return;
+    }
+
+    for row in shadow_top..shadow_bottom {
+        let dy = if row < window.y {
+            window.y - row
+        } else if row >= window_bottom {
+            row - window_bottom + 1
+        } else {
+            0
+        };
+        for column in shadow_left..shadow_right {
+            let dx = if column < window.x {
+                window.x - column
+            } else if column >= window_right {
+                column - window_right + 1
+            } else {
+                0
+            };
+            let distance = dx.max(dy);
+            if distance == 0 || distance > margin {
+                continue;
+            }
+            let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
+            let base = screen.get(column, row);
+            screen.put(column, row, blend(base, palette.shadow, ratio));
+        }
+    }
+}
+
 /// 在给定矩形内绘制一个窗口：标题栏、标题文字与表面。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
@@ -108,9 +209,11 @@ fn paint_window(
     if window.minimized {
         return;
     }
+    paint_shadow(screen, window, left, top, right, bottom);
     let palette = theme();
     let window_x = window.x;
     let window_y = window.y;
+    let radius = window_radius(screen, window);
 
     let title_left = window_x.max(left);
     let title_right = (window_x + window.width).min(right);
@@ -123,7 +226,14 @@ fn paint_window(
             palette.title_color
         };
         for row in title_top..title_bottom {
-            screen.fill_row(title_left, row, title_right - title_left, color);
+            let inset = corner_inset(row.saturating_sub(window_y), radius);
+            let row_left = window_x.saturating_add(inset).max(title_left);
+            let row_right = (window_x + window.width)
+                .saturating_sub(inset)
+                .min(title_right);
+            if row_left < row_right {
+                screen.fill_row(row_left, row, row_right - row_left, color);
+            }
         }
         let font_scale = scale() as i32;
         let mut pen_x = window_x as i32 + 4 * font_scale;
@@ -210,32 +320,51 @@ fn paint_window(
         && window.width == window.surface_width
         && window.height == window.surface_height
     {
-        let count = body_right - body_left;
-        let source_x = body_left - window_x;
+        let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
+            let distance = window_bottom.saturating_sub(1).saturating_sub(row);
+            let inset = corner_inset(distance, radius);
+            let row_left = window_x.saturating_add(inset).max(body_left);
+            let row_right = (window_x + window.width)
+                .saturating_sub(inset)
+                .min(body_right);
+            if row_left >= row_right {
+                continue;
+            }
+            let count = row_right - row_left;
+            let source_x = row_left - window_x;
             let source_row = row - (window_y + title_height());
             // SAFETY: 表面按 surface_width×surface_height 映射，坐标已裁剪到窗口内。
             let source = unsafe {
                 (window.virt as *const u32).add(source_row * window.surface_width + source_x)
             };
-            screen.copy_row(body_left, row, count, source);
+            screen.copy_row(row_left, row, count, source);
         }
     } else {
         let width = window.width.max(1);
         let height = window.height.max(1);
-        let start_x = body_left - window_x;
-        let source_x =
-            ((start_x as u64 * window.surface_width as u64 * 65536) / width as u64) as usize;
         let x_step = (window.surface_width as u64 * 65536 / width as u64) as usize;
+        let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
+            let distance = window_bottom.saturating_sub(1).saturating_sub(row);
+            let inset = corner_inset(distance, radius);
+            let row_left = window_x.saturating_add(inset).max(body_left);
+            let row_right = (window_x + window.width)
+                .saturating_sub(inset)
+                .min(body_right);
+            if row_left >= row_right {
+                continue;
+            }
             let source_row = row - (window_y + title_height());
             let source_y =
                 (source_row as u64 * window.surface_height as u64 / height as u64) as usize;
             // SAFETY: 采样坐标已按表面尺寸缩放。
             let source =
                 unsafe { (window.virt as *const u32).add(source_y * window.surface_width) };
-            let mut column_source = source_x;
-            for column in body_left..body_right {
+            let start_x = row_left - window_x;
+            let mut column_source =
+                ((start_x as u64 * window.surface_width as u64 * 65536) / width as u64) as usize;
+            for column in row_left..row_right {
                 let sample = (column_source >> 16).min(window.surface_width - 1);
                 // SAFETY: sample < surface_width。
                 let color = unsafe { source.add(sample).read() };
@@ -387,6 +516,34 @@ pub(crate) fn compose_region(
     }
 }
 
+/// 重绘窗口及其投影覆盖的区域。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compose_window_region(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) {
+    let margin = shadow_margin();
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        pointer,
+        x.saturating_sub(margin),
+        y.saturating_sub(margin),
+        width.saturating_add(margin * 2),
+        height.saturating_add(margin * 2),
+    );
+}
+
 /// 重绘整个桌面。
 #[cfg(target_os = "none")]
 pub(crate) fn draw_desktop(screen: &Screen) {
@@ -407,7 +564,7 @@ pub(crate) fn damage_window(
     pointer: Option<(usize, usize)>,
     window: &Window,
 ) {
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -461,7 +618,7 @@ pub(crate) fn damage_title(
         .find(|window| window.id == id)
         .copied()
     {
-        compose_region(
+        compose_window_region(
             screen,
             windows,
             focus,
@@ -497,7 +654,7 @@ pub(crate) fn move_window(
     window.x = x;
     window.y = y;
     window.restore = None;
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -508,7 +665,7 @@ pub(crate) fn move_window(
         old.width,
         old.height + title_height(),
     );
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -543,7 +700,7 @@ pub(crate) fn resize_window(
     window.width = width;
     window.height = height;
     window.restore = None;
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,
@@ -554,7 +711,7 @@ pub(crate) fn resize_window(
         old.width,
         old.height + title_height(),
     );
-    compose_region(
+    compose_window_region(
         screen,
         windows,
         focus,

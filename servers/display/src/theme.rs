@@ -20,6 +20,7 @@ pub(crate) struct Theme {
     pub(crate) cursor: u32,
     pub(crate) cursor_shadow: u32,
     pub(crate) resize_handle: u32,
+    pub(crate) shadow: u32,
 }
 
 /// 深色主题。
@@ -37,6 +38,7 @@ static DARK: Theme = Theme {
     cursor: 0x00FF_FFFF,
     cursor_shadow: 0x0000_0000,
     resize_handle: 0x0060_90C0,
+    shadow: 0x0000_0000,
 };
 
 /// 浅色主题。
@@ -54,6 +56,7 @@ static LIGHT: Theme = Theme {
     cursor: 0x0000_0000,
     cursor_shadow: 0x00FF_FFFF,
     resize_handle: 0x0040_6090,
+    shadow: 0x0030_4050,
 };
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
