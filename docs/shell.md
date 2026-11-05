@@ -145,6 +145,7 @@ holy> debug app
 | `build` | 调用 Toolchain Server 构建 |
 | `run` | 运行原生应用或指定 POSIX 程序 |
 | `debug` | 连接 Debug Server；栈回溯、符号、checkpoint |
+| `replace` | 用另一原生镜像热替换服务（`replace <服务> <镜像>`） |
 | `snapshot` / `restore` | Checkpoint Server 快照/恢复 |
 | `trace` | 打开/关闭 trace，查看事件 |
 | `theme` | 切换显示主题 |

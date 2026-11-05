@@ -83,6 +83,7 @@ pub struct ServiceManifest {
 - 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。
 - 监督循环按有界步进调度，避免持续 yield 的服务阻塞重启时机。
 - 提供管理接口：`start`、`stop`、`restart`、`status`、`list`。
+- 热替换：`replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生镜像启动同名服务；服务表与设备授权保留，端点和句柄重新分配，客户端按端点变化重连。
 - Root Server 自身崩溃时，内核按配置停机或重启。
 
 ---

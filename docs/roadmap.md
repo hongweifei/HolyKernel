@@ -193,7 +193,7 @@ flowchart LR
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏；`hk-font` 内置 TrueType 字体，支持轮廓栅格化、字形缓存与缺字形 8×16 位图回退；Display 标题/任务栏与 Debug 窗口使用可缩放字体，Console 固定网格与 HolyDoc 布局继续使用位图回退。
 - 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
 - Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；镜像构建生成内核与服务符号表，用户异常记录现场并经 Root 控制 `symbolize`/`fault` 输出符号化回溯；`smoke --mode debug` 验证各视图与符号解析。
-- 服务器热重启与应用热替换原型。
+- 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。
