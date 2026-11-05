@@ -76,6 +76,35 @@ pub fn install_symbols(bytes: &[u8]) {
     *SYMBOLS.lock() = symbols;
 }
 
+/// 追加原生镜像携带的符号；同名地址保留已有条目。
+pub fn add_symbols<I>(symbols: I)
+where
+    I: IntoIterator<Item = (u64, String)>,
+{
+    let mut cache = SYMBOLS.lock();
+    let mut added: Vec<Symbol> = symbols
+        .into_iter()
+        .filter_map(|(address, name)| {
+            if cache
+                .binary_search_by_key(&address, |symbol| symbol.address)
+                .is_ok()
+            {
+                return None;
+            }
+            Some(Symbol {
+                address,
+                name: Box::leak(name.into_boxed_str()),
+            })
+        })
+        .collect();
+    if added.is_empty() {
+        return;
+    }
+    cache.append(&mut added);
+    cache.sort_by_key(|symbol| symbol.address);
+    cache.dedup_by(|left, right| left.address == right.address);
+}
+
 /// 把地址解析为 `名字+偏移`。
 pub fn lookup(address: u64) -> Option<(&'static str, u64)> {
     let symbols = SYMBOLS.lock();

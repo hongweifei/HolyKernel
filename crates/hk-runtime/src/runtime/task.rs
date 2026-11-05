@@ -8,6 +8,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         name: &str,
         device_authority: bool,
+        priority: u8,
         mut context: C,
         parent: Option<u64>,
     ) -> Result<u64, KernelError> {
@@ -16,7 +17,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context.set_start_argument(endpoint);
 
         let kernel = &self.kernel;
-        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::new(priority));
         let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
         self.endpoints.push(Some(own_id));

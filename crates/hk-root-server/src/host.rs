@@ -145,6 +145,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         &self,
         name: &str,
         device_authority: bool,
+        priority: u8,
         context: C,
         parent: Option<u64>,
     ) -> Result<u64, String> {
@@ -154,7 +155,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                 .as_mut()
                 .ok_or_else(|| String::from("运行时未初始化"))?;
             runtime
-                .start(name, device_authority, context, parent)
+                .start(name, device_authority, priority, context, parent)
                 .map_err(|error| format!("{error}"))
         };
         self.wake_aps();

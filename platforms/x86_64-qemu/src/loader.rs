@@ -11,7 +11,7 @@ use hk_hal::{BootInfo, BootModule, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
-use hk_root_server::{ServiceRole, ServiceSpec, ServiceTable};
+use hk_root_server::{ServiceSpec, ServiceTable};
 
 use crate::runtime;
 
@@ -191,15 +191,15 @@ pub fn run(
         .iter()
         .zip(names.iter())
         .map(|(module, name)| {
-            let role = info
-                .module_bytes(module)
-                .map(loader::service_role)
-                .unwrap_or(0);
-            if role & ServiceRole::DEVICE != 0 {
+            let bytes = info.module_bytes(module);
+            let device = bytes.is_some_and(loader::service_has_device_authority);
+            let priority = bytes.map(loader::service_priority).unwrap_or(16);
+            let spec = if device {
                 ServiceSpec::device(name)
             } else {
                 ServiceSpec::new(name)
-            }
+            };
+            spec.with_priority(priority)
         })
         .collect();
     runtime::init_symbols(info);

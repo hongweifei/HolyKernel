@@ -43,6 +43,11 @@ pub trait ServiceLoader<C> {
     fn role(&self, _name: &str) -> u32 {
         0
     }
+
+    /// 返回服务镜像声明的调度优先级；未知时使用默认值。
+    fn priority(&self, _name: &str) -> u8 {
+        16
+    }
 }
 
 /// 启动服务；已在运行时直接返回提示。
@@ -121,7 +126,8 @@ where
     let role = loader.role(name);
     let device_authority =
         services.device_authority(name) || role & hk_syscall::ServiceRole::DEVICE != 0;
-    if let Err(error) = host.start(name, device_authority, context, parent) {
+    let priority = loader.priority(name);
+    if let Err(error) = host.start(name, device_authority, priority, context, parent) {
         return format!("启动失败：{error}\n");
     }
 

@@ -7,14 +7,12 @@ use std::process::Command;
 use crate::cargo;
 use crate::catalog::{SCRIPT_MODULES, SERVERS};
 use crate::failure::{Failure, Result};
+use crate::native::{SYMBOL_MODULE, generate_symbols, native_image};
 use crate::target::{Selection, Target};
 use crate::workspace;
 
 /// Limine 安装目录的默认位置。
 const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
-
-/// 镜像内的符号表模块名。
-const SYMBOL_MODULE: &str = "kernel.sym";
 
 fn limine_config(cmdline: Option<&str>) -> String {
     let mut config = String::from(
@@ -63,73 +61,11 @@ fn build_kernel(release: bool) -> Result<()> {
     cargo::run(command)
 }
 
-fn binary_path(name: &str, release: bool) -> PathBuf {
+pub(crate) fn binary_path(name: &str, release: bool) -> PathBuf {
     workspace::root()
         .join("target/x86_64-unknown-none")
         .join(if release { "release" } else { "debug" })
         .join(name)
-}
-
-/// 生成内核与服务的符号表，地址与镜像链接地址一致。
-fn generate_symbols(release: bool) -> Result<PathBuf> {
-    let mut symbols = Vec::new();
-    collect_symbols(
-        &binary_path("hk-x86_64", release),
-        "[kernel] ",
-        &mut symbols,
-    )?;
-    for service in SERVERS {
-        collect_symbols(
-            &binary_path(service, release),
-            &format!("[{service}] "),
-            &mut symbols,
-        )?;
-    }
-    symbols.sort_by_key(|(address, _)| *address);
-    let mut text = String::new();
-    for (address, name) in symbols {
-        text.push_str(&format!("{address:016x} {name}\n"));
-    }
-    let path = workspace::root().join("build").join(SYMBOL_MODULE);
-    fs::write(&path, text)
-        .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
-    Ok(path)
-}
-
-fn collect_symbols(binary: &Path, prefix: &str, out: &mut Vec<(u64, String)>) -> Result<()> {
-    let output = Command::new("nm")
-        .args(["-n", "-C", "--defined-only"])
-        .arg(binary)
-        .output()
-        .map_err(|error| Failure::new(format!("执行 nm 失败：{error}")))?;
-    if !output.status.success() {
-        return Err(Failure::new(format!(
-            "nm 失败：{}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    for line in text.lines() {
-        let Some((address, kind, name)) = parse_symbol_line(line) else {
-            continue;
-        };
-        if !matches!(kind, "t" | "T" | "w" | "W") {
-            continue;
-        }
-        out.push((address, format!("{prefix}{name}")));
-    }
-    Ok(())
-}
-
-fn parse_symbol_line(line: &str) -> Option<(u64, &str, &str)> {
-    let line = line.trim();
-    let address_end = line.find(char::is_whitespace)?;
-    let address = u64::from_str_radix(&line[..address_end], 16).ok()?;
-    let rest = line[address_end..].trim_start();
-    let kind_end = rest.find(char::is_whitespace)?;
-    let kind = &rest[..kind_end];
-    let name = rest[kind_end..].trim();
-    (!name.is_empty()).then_some((address, kind, name))
 }
 
 fn limine_dir() -> PathBuf {
@@ -156,7 +92,10 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     let limine = limine_dir();
     copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
     for service in SERVERS {
-        copy(&binary_path(service, release), &boot.join(service))?;
+        let image = native_image(&binary_path(service, release))?;
+        let target = boot.join(service);
+        fs::write(&target, image)
+            .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", target.display())))?;
     }
     for script in SCRIPT_MODULES {
         copy(&root.join("scripts").join(script), &scripts.join(script))?;

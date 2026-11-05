@@ -20,6 +20,7 @@ mod docs;
 mod failure;
 mod image;
 mod lint;
+mod native;
 mod qemu;
 mod run;
 mod smoke;

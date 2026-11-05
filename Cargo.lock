@@ -333,6 +333,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-image"
+version = "0.1.0"
+
+[[package]]
 name = "hk-ipc"
 version = "0.1.0"
 dependencies = [
@@ -406,11 +410,11 @@ name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
+ "hk-image",
  "hk-kernel",
  "hk-runtime",
  "hk-syscall",
  "spin",
- "xmas-elf",
 ]
 
 [[package]]
@@ -1113,8 +1117,10 @@ dependencies = [
  "hk-fs-ext4",
  "hk-fs-holyfs",
  "hk-hal",
+ "hk-image",
  "hk-vfs",
  "toml",
+ "xmas-elf",
 ]
 
 [[package]]

@@ -1,14 +1,13 @@
-//! 用户镜像装载：ELF 段、用户栈与 Arena。
+//! 用户镜像装载：原生 HKX 段、用户栈与 Arena。
 //!
 //! 页的分配与映射由平台的 [`UserMemory`] 提供；本模块只负责布局与镜像解析。
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::elf::{ElfError, load_into};
+use crate::image::{ImageError, load_into};
 use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
-use hk_syscall::ServiceRole;
-use xmas_elf::ElfFile;
 
 /// 启动时默认装载的服务；其余模块按需启动。
 pub const BOOT_SERVICES: &[&str] = &[
@@ -47,35 +46,30 @@ pub fn boot_modules(modules: &[BootModule]) -> Vec<&BootModule> {
         .collect()
 }
 
-/// 读取镜像的 `.hk_service` 角色元数据；缺失或无效时返回 0。
+/// 读取原生镜像的服务角色；缺失或无效时返回 0。
 pub fn service_role(bytes: &[u8]) -> u32 {
-    let Ok(file) = ElfFile::new(bytes) else {
-        return 0;
-    };
-    for section in file.section_iter() {
-        if section.get_name(&file).ok() != Some(".hk_service") {
-            continue;
-        }
-        let data = section.raw_data(&file);
-        let (magic, role) = match data {
-            [a, b, c, d, e, f, g, h, ..] => (
-                u32::from_le_bytes([*a, *b, *c, *d]),
-                u32::from_le_bytes([*e, *f, *g, *h]),
-            ),
-            _ => return 0,
-        };
-        if magic == ServiceRole::MAGIC {
-            return role;
-        }
-    }
-    0
+    hk_image::Image::parse(bytes)
+        .and_then(|image| image.task())
+        .map_or(0, |task| task.role)
+}
+
+/// 判断原生镜像是否声明设备授权能力。
+pub fn service_has_device_authority(bytes: &[u8]) -> bool {
+    hk_image::Image::parse(bytes).is_some_and(|image| image.has_capability(hk_image::CAP_DEVICE))
+}
+
+/// 读取原生镜像声明的调度优先级；缺失或无效时返回默认值。
+pub fn service_priority(bytes: &[u8]) -> u8 {
+    hk_image::Image::parse(bytes)
+        .and_then(|image| image.task())
+        .map_or(16, |task| task.priority)
 }
 
 /// 镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadError {
-    /// ELF 结构或段映射失败。
-    Elf(ElfError),
+    /// 镜像结构或段映射失败。
+    Image(ImageError),
     /// 物理帧耗尽或页映射失败。
     OutOfMemory,
 }
@@ -83,8 +77,8 @@ pub enum LoadError {
 impl fmt::Display for LoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Elf(ElfError::Parse) => formatter.write_str("ELF 结构无效"),
-            Self::Elf(ElfError::Map) => formatter.write_str("ELF 段映射失败"),
+            Self::Image(ImageError::Parse) => formatter.write_str("镜像结构无效"),
+            Self::Image(ImageError::Map) => formatter.write_str("镜像段映射失败"),
             Self::OutOfMemory => formatter.write_str("物理帧耗尽或页映射失败"),
         }
     }
@@ -93,17 +87,17 @@ impl fmt::Display for LoadError {
 /// 镜像布局。
 #[derive(Clone, Copy, Debug)]
 pub struct ImageSpec<'a> {
-    /// ELF 文件内容。
+    /// 原生镜像内容。
     pub bytes: &'a [u8],
     /// 入口首个参数：内核分配的端点编号。
     pub endpoint: u64,
     /// 用户栈基址。
     pub stack_base: u64,
-    /// 用户栈大小。
+    /// 用户栈大小；镜像 Task 未声明时使用。
     pub stack_size: u64,
     /// Arena 基址。
     pub arena_base: u64,
-    /// Arena 大小。
+    /// Arena 大小；镜像 Task 未声明时使用。
     pub arena_size: u64,
 }
 
@@ -113,12 +107,29 @@ where
     M: UserMemory,
     F: FnOnce(u64, u64, u64) -> C,
 {
-    let entry = load_into(spec.bytes, memory).map_err(LoadError::Elf)?;
-    map_region(memory, spec.stack_base, spec.stack_size)?;
-    map_region(memory, spec.arena_base, spec.arena_size)?;
+    let image = hk_image::Image::parse(spec.bytes).ok_or(LoadError::Image(ImageError::Parse))?;
+    let task = image.task().ok_or(LoadError::Image(ImageError::Parse))?;
+    let entry = load_into(spec.bytes, memory).map_err(LoadError::Image)?;
+    crate::debug::add_symbols(
+        image
+            .symbols()
+            .map(|symbol| (symbol.address, String::from(symbol.name))),
+    );
+    let stack_size = if task.stack_size == 0 {
+        spec.stack_size
+    } else {
+        u64::from(task.stack_size)
+    };
+    let arena_size = if task.arena_size == 0 {
+        spec.arena_size
+    } else {
+        u64::from(task.arena_size)
+    };
+    map_region(memory, spec.stack_base, stack_size)?;
+    map_region(memory, spec.arena_base, arena_size)?;
     Ok(make_context(
         entry,
-        spec.stack_base + spec.stack_size - 8,
+        spec.stack_base + stack_size - 8,
         spec.endpoint,
     ))
 }

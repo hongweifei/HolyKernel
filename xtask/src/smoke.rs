@@ -385,6 +385,7 @@ impl SmokeMode {
                 "hk-server-debug: threads ",
                 "hk-server-debug: objects ",
                 "hk-server-debug: symbol 0xffffffff80000000 [kernel] _start",
+                "hk-server-debug: service symbol 0x0000000001b00000 [hk-server-debug]",
                 "hk-server-debug: done",
             ],
             Self::DebugFault => &[

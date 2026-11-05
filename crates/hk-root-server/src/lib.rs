@@ -8,8 +8,8 @@
 extern crate alloc;
 
 pub mod debug;
-pub mod elf;
 pub mod host;
+pub mod image;
 pub mod loader;
 mod registry;
 pub mod service;

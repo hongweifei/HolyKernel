@@ -473,7 +473,7 @@ fn exit_releases_peer_endpoint_handles() {
     assert_eq!(tasks[other].handles, before - 2);
 
     let endpoint = runtime
-        .start("c", false, MockContext::default(), None)
+        .start("c", false, 16, MockContext::default(), None)
         .expect("启动任务");
     assert_eq!(endpoint, 3);
 

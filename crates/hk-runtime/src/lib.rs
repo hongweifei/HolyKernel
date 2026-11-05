@@ -26,6 +26,8 @@ pub struct ServiceSpec {
     pub name: &'static str,
     /// 是否允许通过设备授权工厂创建 DeviceGrant。
     pub device_authority: bool,
+    /// 调度优先级。
+    pub priority: u8,
 }
 
 impl ServiceSpec {
@@ -34,6 +36,7 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: false,
+            priority: 16,
         }
     }
 
@@ -42,7 +45,14 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: true,
+            priority: 16,
         }
+    }
+
+    /// 指定调度优先级。
+    pub const fn with_priority(mut self, priority: u8) -> Self {
+        self.priority = priority;
+        self
     }
 }
 
@@ -96,7 +106,10 @@ impl RootServer {
         let mut services = Vec::with_capacity(specs.len());
 
         for spec in specs {
-            let tcb = spawn(HandleTable::with_default_quota(), Priority::NORMAL);
+            let tcb = spawn(
+                HandleTable::with_default_quota(),
+                Priority::new(spec.priority),
+            );
             let endpoint =
                 kernel.create_endpoint(root, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
             let endpoint_id = kernel.handle_id(root, endpoint)?;

@@ -193,6 +193,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             );
             write(b"\n");
         }
+        if let Ok(length) = hk_server_api::root::call(
+            hk_server_api::root::ROOT_OP_SYMBOLIZE,
+            "0x1b00000",
+            &mut symbol,
+        ) {
+            write(b"hk-server-debug: service symbol ");
+            write(
+                core::str::from_utf8(&symbol[..length])
+                    .unwrap_or("?")
+                    .trim_end()
+                    .as_bytes(),
+            );
+            write(b"\n");
+        }
         write(b"hk-server-debug: done\n");
         let _ = send(display, DISPLAY_SHUTDOWN, 0);
         exit(0)

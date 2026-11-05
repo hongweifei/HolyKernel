@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-xmas-elf = "0.10"
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-image = { version = "0.1.0", path = "../hk-image" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 hk-runtime = { version = "0.1.0", path = "../hk-runtime" }
 hk-syscall = { version = "0.1.0", path = "../hk-syscall" }
