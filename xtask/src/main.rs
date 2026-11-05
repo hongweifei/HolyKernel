@@ -8,22 +8,28 @@
 //! cargo xtask lint
 //! cargo xtask docs
 //! cargo xtask budget
+//! cargo xtask inspect --service hk-server-demo --symbols
+//! cargo xtask symbolize 0xffffffff80018bc4
+//! cargo xtask debug
 //! ```
 
 mod budget;
 mod build;
 mod cargo;
 mod catalog;
+mod debug;
 mod deps;
 mod disk;
 mod docs;
 mod failure;
 mod image;
+mod inspect;
 mod lint;
 mod native;
 mod qemu;
 mod run;
 mod smoke;
+mod symbolize;
 mod target;
 mod test;
 mod workspace;
@@ -54,6 +60,12 @@ enum Task {
     Test(TestArguments),
     /// 启动 QEMU 并校验串口输出
     Smoke(SmokeArguments),
+    /// 查看原生镜像的 Task、Region、能力与符号
+    Inspect(inspect::InspectArguments),
+    /// 用内核与服务符号离线解析地址
+    Symbolize(symbolize::SymbolizeArguments),
+    /// 带 GDB 存根启动 QEMU
+    Debug(debug::DebugArguments),
     /// 运行格式与静态检查
     Lint,
     /// 检查 crate 依赖方向
@@ -158,6 +170,9 @@ fn execute(task: Task) -> Result<()> {
         ),
         Task::Test(arguments) => test::run(arguments.target),
         Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
+        Task::Inspect(arguments) => inspect::run(arguments),
+        Task::Symbolize(arguments) => symbolize::run(arguments),
+        Task::Debug(arguments) => debug::run(arguments),
         Task::Lint => lint::run(),
         Task::Deps => deps::run(),
         Task::Docs => docs::run(),

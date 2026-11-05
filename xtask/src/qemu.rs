@@ -10,6 +10,11 @@ const QEMU_SUCCESS: i32 = 1;
 
 /// 启动 QEMU 并等待内核退出。
 pub fn run(iso: &Path, disk: &Path, ui: bool) -> Result<()> {
+    run_with(iso, disk, ui, None)
+}
+
+/// 启动 QEMU；`gdb` 为 GDB 远程端口时以 `-S` 暂停等待连接。
+pub fn run_with(iso: &Path, disk: &Path, ui: bool, gdb: Option<u16>) -> Result<()> {
     let mut command = Command::new("qemu-system-x86_64");
     command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
@@ -20,6 +25,9 @@ pub fn run(iso: &Path, disk: &Path, ui: bool) -> Result<()> {
     }
     if !ui {
         command.args(["-display", "none"]);
+    }
+    if let Some(port) = gdb {
+        command.arg("-gdb").arg(format!("tcp::{port}")).arg("-S");
     }
     command
         .arg("-drive")
