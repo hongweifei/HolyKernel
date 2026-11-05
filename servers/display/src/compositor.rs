@@ -221,14 +221,26 @@ fn paint_window(
             screen.copy_row(body_left, row, count, source);
         }
     } else {
+        let width = window.width.max(1);
+        let height = window.height.max(1);
+        let start_x = body_left - window_x;
+        let source_x =
+            ((start_x as u64 * window.surface_width as u64 * 65536) / width as u64) as usize;
+        let x_step = (window.surface_width as u64 * 65536 / width as u64) as usize;
         for row in body_top..body_bottom {
             let source_row = row - (window_y + title_height());
+            let source_y =
+                (source_row as u64 * window.surface_height as u64 / height as u64) as usize;
+            // SAFETY: 采样坐标已按表面尺寸缩放。
+            let source =
+                unsafe { (window.virt as *const u32).add(source_y * window.surface_width) };
+            let mut column_source = source_x;
             for column in body_left..body_right {
-                screen.put(
-                    column,
-                    row,
-                    surface_pixel(window, column - window_x, source_row),
-                );
+                let sample = (column_source >> 16).min(window.surface_width - 1);
+                // SAFETY: sample < surface_width。
+                let color = unsafe { source.add(sample).read() };
+                screen.put(column, row, color);
+                column_source += x_step;
             }
         }
     }

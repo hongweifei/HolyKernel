@@ -281,9 +281,9 @@ impl Screen {
         if x >= self.width || y >= self.height {
             return;
         }
-        // SAFETY: 坐标已裁剪到帧缓冲范围内。
+        // SAFETY: 坐标已裁剪到后备缓冲范围内。
         unsafe {
-            self.base.add(y * self.stride + x).write_volatile(color);
+            self.base.add(y * self.stride + x).write(color);
         }
     }
 
@@ -291,8 +291,8 @@ impl Screen {
         if x >= self.width || y >= self.height {
             return 0;
         }
-        // SAFETY: 坐标已裁剪到帧缓冲范围内。
-        unsafe { self.base.add(y * self.stride + x).read_volatile() }
+        // SAFETY: 坐标已裁剪到后备缓冲范围内。
+        unsafe { self.base.add(y * self.stride + x).read() }
     }
 
     /// 用单色填充一行。
