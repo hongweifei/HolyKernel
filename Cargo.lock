@@ -361,12 +361,23 @@ name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
+ "hk-kernel",
+ "hk-runtime",
+ "hk-syscall",
+ "spin",
+ "xmas-elf",
+]
+
+[[package]]
+name = "hk-runtime"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
  "hk-handle",
  "hk-ipc",
  "hk-kernel",
  "hk-syscall",
  "spin",
- "xmas-elf",
 ]
 
 [[package]]

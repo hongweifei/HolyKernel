@@ -1,6 +1,6 @@
 [package]
 name = "hk-root-server"
-description = "HolyKernel Root Server stub：服务清单、启动与句柄分配"
+description = "HolyKernel Root Server：服务表、装载、监督与运行时宿主"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,10 +8,9 @@ repository.workspace = true
 
 [dependencies]
 xmas-elf = "0.10"
-hk-handle = { version = "0.1.0", path = "../hk-handle" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
+hk-runtime = { version = "0.1.0", path = "../hk-runtime" }
 hk-syscall = { version = "0.1.0", path = "../hk-syscall" }
 spin = "0.9"
 

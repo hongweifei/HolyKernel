@@ -9,7 +9,9 @@ use alloc::vec::Vec;
 
 use hk_hal::{SyscallFrame, UserContext};
 
-use crate::{RuntimeHost, ServiceTable, UserPlatform};
+use hk_runtime::UserPlatform;
+
+use crate::{RuntimeHost, ServiceTable};
 
 /// 服务退出后的重启策略。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

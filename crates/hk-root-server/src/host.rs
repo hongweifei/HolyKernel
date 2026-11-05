@@ -9,8 +9,10 @@ use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
 
-use crate::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
-use crate::{ServiceSpec, ServiceTable};
+use hk_runtime::ServiceSpec;
+use hk_runtime::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
+
+use crate::ServiceTable;
 
 /// 运行时宿主。
 pub struct RuntimeHost<C, P> {
@@ -38,7 +40,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     where
         F: FnMut(usize, u64) -> C,
     {
-        let runtime = crate::boot::user_runtime(specs, platform, make_context)
+        let runtime = hk_runtime::boot::user_runtime(specs, platform, make_context)
             .map_err(|error| format!("{error}"))?;
         *self.runtime.lock() = Some(runtime);
         Ok(())
