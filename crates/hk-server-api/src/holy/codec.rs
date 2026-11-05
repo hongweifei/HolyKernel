@@ -2,8 +2,8 @@
 
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
-    DOC_LEN, DOCUMENT_LEN, DRIVE_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
-    REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
+    DOC_LEN, DOCUMENT_LEN, DRIVE_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, MAINTENANCE_LEN,
+    REVISION_ID_LEN, REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
 };
 
 /// 集合项视图。
@@ -55,6 +55,98 @@ pub fn encode_volume(out: &mut [u8], view: VolumeView) -> Option<usize> {
     out[24..32].copy_from_slice(&view.epoch.to_le_bytes());
     out[32..48].copy_from_slice(&view.root.to_le_bytes());
     Some(VOLUME_LEN)
+}
+
+/// 维护报告。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MaintenanceView {
+    /// 文档数。
+    pub documents: u64,
+    /// 修订数。
+    pub revisions: u64,
+    /// 集合修订数。
+    pub collections: u64,
+    /// 集合项数。
+    pub entries: u64,
+    /// 标签数。
+    pub tags: u64,
+    /// 快照数。
+    pub snapshots: u64,
+    /// 内容总字节数。
+    pub content_bytes: u64,
+    /// 泄漏块数。
+    pub leaked_blocks: u64,
+    /// 修复块数。
+    pub repaired_blocks: u64,
+}
+
+/// 编码维护报告。
+pub fn encode_maintenance(out: &mut [u8], view: MaintenanceView) -> Option<usize> {
+    if out.len() < MAINTENANCE_LEN {
+        return None;
+    }
+    let values = [
+        view.documents,
+        view.revisions,
+        view.collections,
+        view.entries,
+        view.tags,
+        view.snapshots,
+        view.content_bytes,
+        view.leaked_blocks,
+        view.repaired_blocks,
+    ];
+    for (index, value) in values.iter().enumerate() {
+        let offset = index * 8;
+        out[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+    Some(MAINTENANCE_LEN)
+}
+
+/// 解码维护报告。
+pub fn decode_maintenance(bytes: &[u8]) -> Option<MaintenanceView> {
+    if bytes.len() != MAINTENANCE_LEN {
+        return None;
+    }
+    let mut values = [0_u64; 9];
+    for (index, value) in values.iter_mut().enumerate() {
+        let offset = index * 8;
+        *value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().ok()?);
+    }
+    Some(MaintenanceView {
+        documents: values[0],
+        revisions: values[1],
+        collections: values[2],
+        entries: values[3],
+        tags: values[4],
+        snapshots: values[5],
+        content_bytes: values[6],
+        leaked_blocks: values[7],
+        repaired_blocks: values[8],
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MaintenanceView, decode_maintenance, encode_maintenance};
+
+    #[test]
+    fn round_trips_maintenance_report() {
+        let view = MaintenanceView {
+            documents: 2,
+            revisions: 3,
+            collections: 1,
+            entries: 4,
+            tags: 5,
+            snapshots: 6,
+            content_bytes: 7,
+            leaked_blocks: 8,
+            repaired_blocks: 9,
+        };
+        let mut bytes = [0_u8; 72];
+        assert_eq!(encode_maintenance(&mut bytes, view), Some(72));
+        assert_eq!(decode_maintenance(&bytes), Some(view));
+    }
 }
 
 /// 盘符视图。

@@ -13,6 +13,7 @@ extern crate alloc;
 mod crc32c;
 mod error;
 mod handle;
+mod hash;
 pub mod ids;
 mod store;
 mod superblock;
@@ -30,8 +31,8 @@ pub use handle::HolyFs;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
 pub use superblock::{BLOCK_SIZE, VOLUME_H, VOLUME_I, volume_id_for_drive};
 pub use types::{
-    DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, PayloadKind,
-    RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
+    DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, MaintenanceReport,
+    PayloadKind, RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
 };
 
 /// 格式化块设备为 HolyFS。

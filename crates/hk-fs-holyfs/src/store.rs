@@ -93,6 +93,10 @@ impl<D: BlockDevice> Store<D> {
         self.total_blocks
     }
 
+    pub(crate) fn data_start(&self) -> u64 {
+        self.data_start
+    }
+
     pub(crate) fn bitmap_blocks(&self) -> Result<u32, HolyError> {
         bitmap_blocks_for(self.total_blocks)
     }
@@ -241,6 +245,10 @@ impl<D: BlockDevice> Store<D> {
         }
         let index = block as usize;
         self.bitmap[index / 8] & (1 << (index % 8)) != 0
+    }
+
+    pub(crate) fn set_allocated(&mut self, block: u64, allocated: bool) {
+        self.mark(block, allocated);
     }
 
     fn mark(&mut self, block: u64, allocated: bool) {

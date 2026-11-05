@@ -3,6 +3,7 @@
 //! 文档内容、集合/元数据、标签与持久化分别位于子模块。
 
 mod content;
+mod maintenance;
 mod metadata;
 mod persist;
 mod snapshot;

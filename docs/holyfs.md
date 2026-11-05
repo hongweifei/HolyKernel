@@ -219,9 +219,10 @@ flowchart LR
 ### 完整性与修复
 
 - Superblock、Document Table、Revision Table、Tag Table、Snapshot Table、Allocation Group Table、集合项带 CRC32C。
-- 修订内容带 ContentHash；读取时按策略校验。
-- `Check` 只读校验；`Repair` 显式修复；`Scrub` 后台扫描并回收泄漏 extent。
-- 校验失败或 I/O 错误时，卷进入只读并返回 `Damaged`。
+- 修订内容带 ContentHash；写入时计算，整文档读取与 `Check` 时校验；旧卷 hash 为 0 时跳过校验。
+- `Check` 只读校验文档/修订/集合项/标签/快照引用、extent 范围、元数据树 CRC 与内容哈希，并统计泄漏块。
+- `Scrub` 校验后回收已分配但不可达的 extent；`Repair` 额外补记可达但位图未标记的块。两者需要 ADMIN 卷令牌。
+- 校验失败或 I/O 错误时返回 `Damaged` 或 `Corrupt`，不自动修改内容。
 
 ### 状态
 
@@ -258,7 +259,7 @@ flowchart LR
 | `Restore(volume, snapshot, expected)` | 把卷根切到快照，推进代数并使旧句柄失效        |
 | `Snapshots(volume)`                   | 枚举快照                       |
 | `Forget(volume, snapshot)`            | 释放快照固定                     |
-| `Check` / `Repair` / `Scrub`          | 在线校验、修复与回收                 |
+| `Check` / `Repair` / `Scrub`          | 在线校验、修复与回收；需要卷 ADMIN 令牌 |
 
 ### Collection
 
@@ -459,8 +460,9 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组、修订保留/GC | 规划 |
-| 流式写、压缩、去重、配额、scrub            | 规划  |
-| ContentHash/民用时间写入、内容校验 | 字段保留，规划 |
+| 流式写、压缩、去重、配额 | 规划 |
+| Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
+| ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |
 
 ### 代码组织
 
@@ -471,11 +473,13 @@ crates/hk-fs-holyfs/src/
 ├── types.rs        Document/Revision/Entry 记录与编码
 ├── error.rs        HolyError
 ├── crc32c.rs       CRC32C
+├── hash.rs         内容哈希
 ├── superblock.rs   卷布局、双超级块、校验
 ├── store.rs        块设备、位图分配器、区间 I/O
 ├── tree.rs         持久化 COW 元数据树
 ├── volume/         卷状态、内容、元数据、标签与提交
 │   ├── mod.rs      卷状态、挂载与提交入口
+│   ├── maintenance.rs Check/Scrub/Repair
 │   ├── content.rs  内容读写与内容修订
 │   ├── metadata.rs 集合项、路径解析与文档视图
 │   ├── tags.rs     标签与成员关系

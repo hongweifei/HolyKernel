@@ -93,6 +93,12 @@ pub const OP_DRIVES: u8 = 42;
 pub const OP_ATTACH_DRIVE: u8 = 43;
 /// 刷写并移除盘符。
 pub const OP_DETACH_DRIVE: u8 = 44;
+/// 只读校验卷完整性。
+pub const OP_CHECK: u8 = 45;
+/// 校验并修复卷分配位图。
+pub const OP_REPAIR: u8 = 46;
+/// 校验并回收泄漏块。
+pub const OP_SCRUB: u8 = 47;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -211,3 +217,5 @@ pub(super) const SNAPSHOT_HEADER: usize = 8 + 8 + 8 + 4 + 1;
 pub(super) const VOLUME_LEN: usize = 16 + 8 + 8 + 16;
 /// 盘符视图：盘符 + 卷视图。
 pub(super) const DRIVE_LEN: usize = 1 + VOLUME_LEN;
+/// 维护报告：9 个 u64 统计字段。
+pub(super) const MAINTENANCE_LEN: usize = 9 * 8;

@@ -229,6 +229,23 @@ pub(crate) fn verify_tags(endpoint: u64, docs: &mut DocSet) -> bool {
     contains_document && contains_tag && listed && page_ok && dropped && gone
 }
 
+/// 验证在线完整性检查、泄漏回收与位图修复。
+pub(crate) fn verify_maintenance(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+        return false;
+    };
+    let check = client.check(admin);
+    let scrub = client.scrub(admin);
+    let repair = client.repair(admin);
+    let released = client.release_volume(admin).is_ok();
+    check
+        .is_ok_and(|report| report.documents > 0 && report.entries > 0 && report.leaked_blocks == 0)
+        && scrub.is_ok_and(|report| report.repaired_blocks == 0)
+        && repair.is_ok_and(|report| report.repaired_blocks == 0)
+        && released
+}
+
 /// 执行脚本化的导航、滚动与退出。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -260,6 +277,11 @@ pub(crate) fn run(
         write(b"hk-server-holydoc: tag ok\n");
     } else {
         write(b"hk-server-holydoc: tag failed\n");
+    }
+    if verify_maintenance(endpoint) {
+        write(b"hk-server-holydoc: maintenance ok\n");
+    } else {
+        write(b"hk-server-holydoc: maintenance failed\n");
     }
     if let Some((x, y, target)) = view.first_link() {
         write(b"hk-server-holydoc: click ");

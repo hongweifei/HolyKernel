@@ -171,6 +171,62 @@ fn reclaims_old_metadata_trees() {
 }
 
 #[test]
+fn check_and_scrub_clean_volume() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    fs.write_range(document, 0, b"integrity").expect("写");
+    fs.sync().expect("提交");
+    let report = fs.check().expect("校验");
+    assert_eq!(report.documents, 2);
+    assert_eq!(report.entries, 1);
+    assert_eq!(report.leaked_blocks, 0);
+    let report = fs.scrub().expect("清理");
+    assert_eq!(report.leaked_blocks, 0);
+    assert_eq!(report.repaired_blocks, 0);
+}
+
+#[test]
+fn scrub_reclaims_leaked_blocks() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let block = fs.allocate_leak(2).expect("泄漏块");
+    assert!(block > 0);
+    let report = fs.check().expect("校验");
+    assert_eq!(report.leaked_blocks, 2);
+    let report = fs.scrub().expect("清理");
+    assert_eq!(report.repaired_blocks, 2);
+    assert_eq!(fs.check().expect("复检").leaked_blocks, 0);
+}
+
+#[test]
+fn detects_content_hash_damage() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("挂载");
+        let root = fs.root();
+        let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+        fs.write_range(document, 0, b"integrity-check-payload")
+            .expect("写");
+        fs.sync().expect("提交");
+    }
+    {
+        let mut raw = disk.borrow_mut();
+        let sectors = raw.capacity_blocks();
+        let mut buffer = [0_u8; SECTOR_SIZE];
+        for sector in 0..sectors {
+            raw.read_blocks(sector, &mut buffer).expect("读盘");
+            if let Some(position) = buffer.windows(7).position(|window| window == b"check-p") {
+                buffer[position] ^= 0x40;
+                raw.write_blocks(sector, &buffer).expect("写盘");
+                break;
+            }
+        }
+    }
+    let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    assert_eq!(fs.check(), Err(HolyError::Damaged));
+}
+
+#[test]
 fn revision_head_moves_on_write() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();

@@ -17,6 +17,29 @@ pub const REVISION_RECORD_SIZE: usize = 272;
 /// 集合项编码长度。
 pub const ENTRY_RECORD_SIZE: usize = 24;
 
+/// 维护扫描结果。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MaintenanceReport {
+    /// 文档数。
+    pub documents: u64,
+    /// 修订数。
+    pub revisions: u64,
+    /// 集合修订数。
+    pub collections: u64,
+    /// 集合项数。
+    pub entries: u64,
+    /// 标签数。
+    pub tags: u64,
+    /// 快照数。
+    pub snapshots: u64,
+    /// 内容总字节数。
+    pub content_bytes: u64,
+    /// 已分配但不可达的块数。
+    pub leaked_blocks: u64,
+    /// 本次修复的块数。
+    pub repaired_blocks: u64,
+}
+
 /// 修订 payload 类型。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PayloadKind {

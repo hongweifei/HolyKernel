@@ -4,20 +4,21 @@ use crate::vfs::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_resp
 use crate::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
-    DocumentView, VolumeView, decode_doc_id, decode_document, decode_revision_id, decode_token,
-    decode_u32, decode_u64, decode_volume, kind_code,
+    DocumentView, MaintenanceView, VolumeView, decode_doc_id, decode_document, decode_maintenance,
+    decode_revision_id, decode_token, decode_u32, decode_u64, decode_volume, kind_code,
 };
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::encode_request;
 use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
-    OP_ATTACH_DRIVE, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID,
-    OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
-    OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE,
-    OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE,
-    OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
-    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
-    OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT,
+    OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
+    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN,
+    OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
+    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SNAPSHOT, OP_SNAPSHOTS,
+    OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
+    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST,
+    RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -271,6 +272,24 @@ impl HolyClient {
     pub fn forget(&mut self, token: u64, snapshot: u64) -> Result<(), u8> {
         self.exchange(OP_FORGET, "", token, snapshot, &[])
             .map(|_| ())
+    }
+
+    /// 只读校验卷完整性。
+    pub fn check(&mut self, token: u64) -> Result<MaintenanceView, u8> {
+        let length = self.exchange(OP_CHECK, "", token, 0, &[])?;
+        decode_maintenance(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 校验并修复分配位图。
+    pub fn repair(&mut self, token: u64) -> Result<MaintenanceView, u8> {
+        let length = self.exchange(OP_REPAIR, "", token, 0, &[])?;
+        decode_maintenance(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 校验并回收泄漏块。
+    pub fn scrub(&mut self, token: u64) -> Result<MaintenanceView, u8> {
+        let length = self.exchange(OP_SCRUB, "", token, 0, &[])?;
+        decode_maintenance(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
     }
 
     /// 获取文档令牌。

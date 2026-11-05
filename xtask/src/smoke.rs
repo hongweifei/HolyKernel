@@ -374,6 +374,7 @@ impl SmokeMode {
                 "hk-server-holydoc: snapshot ok",
                 "hk-server-holydoc: token ok",
                 "hk-server-holydoc: tag ok",
+                "hk-server-holydoc: maintenance ok",
                 "hk-server-holydoc: click H:/System",
                 "hk-server-holydoc: open H:/System",
                 "hk-server-holydoc: open H:/System/Overview",

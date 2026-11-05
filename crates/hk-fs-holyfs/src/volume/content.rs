@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use hk_block::BlockDevice;
 
 use crate::error::HolyError;
+use crate::hash::content_hash;
 use crate::ids::{DocId, RevisionId};
 use crate::superblock::BLOCK_SIZE;
 use crate::types::{DocumentKind, Extent, MAX_EXTENTS, RevisionRecord};
@@ -112,6 +113,9 @@ impl<D: BlockDevice> Volume<D> {
         if size > 0 {
             self.read_extents(revision, 0, &mut buffer)?;
         }
+        if revision.content_hash != 0 && content_hash(&buffer) != revision.content_hash {
+            return Err(HolyError::Damaged);
+        }
         Ok(buffer)
     }
 
@@ -164,6 +168,25 @@ impl<D: BlockDevice> Volume<D> {
         Ok(())
     }
 
+    /// 读取指定修订的完整内容，不校验哈希；供维护扫描使用。
+    pub(super) fn revision_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
+        let mut content = vec![0_u8; revision.size as usize];
+        if revision.size > 0 {
+            self.read_extents(revision, 0, &mut content)?;
+        }
+        Ok(content)
+    }
+
+    fn append_hash(&self, head: &RevisionRecord, data: &[u8]) -> Result<u64, HolyError> {
+        if head.size == 0 {
+            return Ok(content_hash(data));
+        }
+        let mut content = vec![0_u8; head.size as usize];
+        self.read_extents(head, 0, &mut content)?;
+        content.extend_from_slice(data);
+        Ok(content_hash(&content))
+    }
+
     fn append_content(
         &mut self,
         document: DocId,
@@ -171,6 +194,7 @@ impl<D: BlockDevice> Volume<D> {
         offset: u64,
         data: &[u8],
     ) -> Result<(), HolyError> {
+        let hash = self.append_hash(head, data)?;
         let blocks = data.len().div_ceil(BLOCK_SIZE) as u64;
         let start = self.store.allocate_blocks(blocks)?;
         self.store.write_bytes(start * BLOCK_SIZE as u64, data)?;
@@ -191,7 +215,7 @@ impl<D: BlockDevice> Volume<D> {
             self.store.free_blocks(start, blocks);
             return self.rewrite_content(document, head, offset, data);
         }
-        self.insert_content_revision(document, head, extents, offset + data.len() as u64)
+        self.insert_content_revision(document, head, extents, offset + data.len() as u64, hash)
     }
 
     fn rewrite_content(
@@ -219,6 +243,7 @@ impl<D: BlockDevice> Volume<D> {
         head: &RevisionRecord,
         content: &[u8],
     ) -> Result<(), HolyError> {
+        let hash = content_hash(content);
         let blocks = content.len().div_ceil(BLOCK_SIZE) as u64;
         let extents = if blocks == 0 {
             Vec::new()
@@ -230,7 +255,7 @@ impl<D: BlockDevice> Volume<D> {
                 blocks: blocks as u32,
             }]
         };
-        self.insert_content_revision(document, head, extents, content.len() as u64)
+        self.insert_content_revision(document, head, extents, content.len() as u64, hash)
     }
 
     fn insert_content_revision(
@@ -239,6 +264,7 @@ impl<D: BlockDevice> Volume<D> {
         head: &RevisionRecord,
         extents: Vec<Extent>,
         size: u64,
+        content_hash: u64,
     ) -> Result<(), HolyError> {
         let revision = self.allocate_revision();
         let mut record = RevisionRecord::empty(revision, document, Some(head.id));
@@ -247,6 +273,7 @@ impl<D: BlockDevice> Volume<D> {
             *slot = extent;
         }
         record.size = size;
+        record.content_hash = content_hash;
         self.revisions.insert(revision, record);
         if let Some(document) = self.documents.get_mut(&document) {
             document.head = revision;

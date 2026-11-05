@@ -235,4 +235,24 @@ impl<D: BlockDevice> HolyFs<D> {
     pub fn sync(&mut self) -> Result<(), HolyError> {
         self.state.borrow_mut().sync()
     }
+
+    /// 只读校验对象图、引用与内容哈希。
+    pub fn check(&self) -> Result<crate::MaintenanceReport, HolyError> {
+        self.state.borrow().check()
+    }
+
+    /// 校验并回收泄漏块。
+    pub fn scrub(&mut self) -> Result<crate::MaintenanceReport, HolyError> {
+        self.state.borrow_mut().scrub()
+    }
+
+    /// 校验并修复分配位图。
+    pub fn repair(&mut self) -> Result<crate::MaintenanceReport, HolyError> {
+        self.state.borrow_mut().repair()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn allocate_leak(&mut self, count: u64) -> Result<u64, HolyError> {
+        self.state.borrow_mut().allocate_leak(count)
+    }
 }
