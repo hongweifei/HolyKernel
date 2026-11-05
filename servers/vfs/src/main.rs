@@ -1,4 +1,4 @@
-//! VFS Server：tmpfs 根、请求协议与文件操作。
+//! VFS Server：DocId、集合、修订与文档令牌的原生命名空间。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -7,84 +7,80 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+use alloc::boxed::Box;
 #[cfg(target_os = "none")]
 use alloc::vec;
+#[cfg(target_os = "none")]
+use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
+use hk_fs::Backend;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
+use hk_server_api::holy::{HOLY_REQUEST, HOLY_RESPONSE, HolyClient, decode_drives, decode_request};
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, write};
+use hk_server_api::vfs::encode_response;
 #[cfg(target_os = "none")]
-use hk_vfs::{Devfs, Procfs, Tmpfs, Vfs};
-
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 768 * 1024;
+use hk_server_api::{recv_data_handle, send_data, write, yield_now};
 
 #[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
-
+mod drives;
 #[cfg(target_os = "none")]
-mod mounts;
-#[cfg(target_os = "none")]
-mod protocol;
+mod holy;
 #[cfg(target_os = "none")]
 mod remote;
 #[cfg(target_os = "none")]
 mod sessions;
 
 #[cfg(target_os = "none")]
-use mounts::{mount_ext4, mount_holyfs};
+use drives::Drives;
 #[cfg(target_os = "none")]
-use protocol::{handle, reply};
+use remote::RemoteHolyFs;
 #[cfg(target_os = "none")]
 use sessions::Sessions;
+
+/// 服务堆大小。
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 2 * 1024 * 1024;
+
+#[cfg(target_os = "none")]
+#[global_allocator]
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+
+#[cfg(target_os = "none")]
+fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
+    if let Some(length) = encode_response(response, status, data) {
+        let _ = send_data(sender, HOLY_RESPONSE, &response[..length]);
+    }
+}
 
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut filesystem = Vfs::new_path(Tmpfs::new());
     let mut cmdline_buffer = [0_u8; 128];
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
-    let ext4_root = cmdline.contains("vfs.root=ext4");
-    let holyfs = cmdline.contains("vfs.fs=holyfs");
-    match hk_server_api::civil_time() {
-        Some(time) if time.year >= 2000 => write("hk-server-vfs: rtc ok\n".as_bytes()),
-        _ => write("hk-server-vfs: rtc 不可用\n".as_bytes()),
-    }
-    let target = if ext4_root && !holyfs { "/" } else { "/disk" };
-    if target != "/" {
-        let _ = filesystem.create_dir("/disk");
-    }
-    let mounted = if holyfs {
-        mount_holyfs(&mut filesystem, endpoint, target)
-    } else {
-        mount_ext4(&mut filesystem, endpoint, target)
-    };
-    if mounted {
-        if holyfs {
-            write("hk-server-vfs: H: via hk-server-holyfs\n".as_bytes());
-        } else {
-            write("hk-server-vfs: ext4 mounted\n".as_bytes());
+    let enabled = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+        .is_some_and(|line| line.contains("vfs.fs=holyfs"));
+    let mut drives = Drives::new();
+    if enabled {
+        let letters = discover(endpoint);
+        for letter in letters {
+            if let Some(backend) = remote(endpoint, letter) {
+                let volume = backend.volume();
+                let root = backend.root();
+                if drives.insert(letter, Box::new(backend), volume, root) {
+                    write(b"hk-server-vfs: drive ");
+                    write(&[letter, b':', b'\n']);
+                }
+            }
+        }
+        if drives.is_empty() {
+            write(b"hk-server-vfs: no drives\n");
         }
     } else {
-        write("hk-server-vfs: 文件系统不可用\n".as_bytes());
+        write(b"hk-server-vfs: disabled\n");
     }
-    let _ = filesystem.create_dir("/tmp");
-    let _ = filesystem.mount_path("/tmp", Tmpfs::new());
-    let _ = filesystem.create_dir("/dev");
-    let _ = filesystem.mount_path("/dev", Devfs::new());
-    let _ = filesystem.create_dir("/proc");
-    let _ = filesystem.mount_path("/proc", Procfs::new());
-    write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();
     let mut request = vec![0_u8; 64 * 1024];
@@ -92,37 +88,51 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut response = vec![0_u8; 64 * 1024];
 
     loop {
-        let (label, word, sender, length, frame_handle) =
+        let (label, _word, sender, length, frame_handle) =
             recv_data_handle(endpoint, &mut request, 0);
-        if frame_handle != 0 && label == VFS_ATTACH {
-            let _ = sessions.attach_frame(sender, frame_handle, word as usize);
+        if label != HOLY_REQUEST || frame_handle != 0 {
             continue;
         }
-        if label == VFS_DETACH {
-            sessions.detach(sender, &mut filesystem);
-            continue;
-        }
-        if label != VFS_REQUEST {
-            continue;
-        }
-
         let Some(request) = decode_request(&request[..length.min(request.len())]) else {
-            reply(sender, STATUS_INVALID, &[], &mut response);
+            reply(
+                sender,
+                hk_server_api::vfs::STATUS_INVALID,
+                &[],
+                &mut response,
+            );
             continue;
         };
-        let mapped = sessions.frame(sender).map(|(virt, length)| {
-            // SAFETY: VFS_ATTACH 已把该客户端的共享帧映射到此地址。
-            unsafe { core::slice::from_raw_parts_mut(virt as *mut u8, length) }
-        });
-        let (status, written) = handle(
-            &mut filesystem,
-            sessions.get(sender),
-            &request,
-            &mut body,
-            mapped,
-        );
+        let (status, written) =
+            holy::handle(&mut drives, &mut sessions, sender, &request, &mut body);
         reply(sender, status, &body[..written], &mut response);
     }
+}
+
+#[cfg(target_os = "none")]
+fn discover(endpoint: u64) -> Vec<u8> {
+    for _ in 0..4096 {
+        if hk_server_api::service_endpoint("hk-server-holyfs") == 0 {
+            let _ = yield_now();
+            continue;
+        }
+        let mut probe = Box::new(HolyClient::new_with_service(endpoint, "hk-server-holyfs"));
+        if let Ok(bytes) = probe.drives() {
+            return decode_drives(bytes).map(|drive| drive.letter).collect();
+        }
+        let _ = yield_now();
+    }
+    Vec::new()
+}
+
+#[cfg(target_os = "none")]
+fn remote(endpoint: u64, letter: u8) -> Option<RemoteHolyFs> {
+    for _ in 0..4096 {
+        if let Ok(backend) = RemoteHolyFs::new(endpoint, letter, "hk-server-holyfs") {
+            return Some(backend);
+        }
+        let _ = yield_now();
+    }
+    None
 }
 
 hk_server_api::server_boilerplate!();

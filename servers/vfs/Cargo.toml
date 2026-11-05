@@ -1,6 +1,6 @@
 [package]
 name = "hk-server-vfs"
-description = "HolyKernel VFS Server：tmpfs 根与文件操作协议"
+description = "HolyKernel VFS Server：DocId、集合、修订与文档令牌命名空间"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,12 +11,8 @@ name = "hk-server-vfs"
 path = "src/main.rs"
 
 [dependencies]
-hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
 hk-fs = { version = "0.1.0", path = "../../crates/hk-fs" }
-hk-fs-ext4 = { version = "0.1.0", path = "../../crates/hk-fs-ext4" }
-hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
-hk-vfs = { version = "0.1.0", path = "../../crates/hk-vfs" }
 
 [build-dependencies]
 hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }

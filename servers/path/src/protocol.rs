@@ -1,4 +1,4 @@
-//! VFS 请求处理与回复编码。
+//! Path 请求处理与回复编码。
 
 use hk_server_api::send_data;
 use hk_server_api::vfs::{

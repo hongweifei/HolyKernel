@@ -9,6 +9,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-virtio",
     "hk-server-holyfs",
     "hk-server-vfs",
+    "hk-server-path",
     "hk-server-fault",
     "hk-server-fork",
     "hk-server-latency",

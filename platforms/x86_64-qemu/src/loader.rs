@@ -102,6 +102,7 @@ pub fn run(
                     | "hk-server-virtio"
                     | "hk-server-holyfs"
                     | "hk-server-vfs"
+                    | "hk-server-path"
                     | "hk-server-holydoc"
                     | "hk-server-shell"
             );
@@ -171,10 +172,11 @@ pub fn run(
             "hk-server-virtio" => 3,
             "hk-server-holyfs" => 4,
             "hk-server-vfs" => 5,
-            "hk-server-holydoc" => 6,
-            "hk-server-console" => 7,
-            "hk-server-shell" => 8,
-            _ => 8,
+            "hk-server-path" => 6,
+            "hk-server-holydoc" => 7,
+            "hk-server-console" => 8,
+            "hk-server-shell" => 9,
+            _ => 9,
         });
     }
     if modules.is_empty() {

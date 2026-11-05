@@ -108,7 +108,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn verify_vfs(endpoint: u64) -> bool {
-    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let mut client = VfsClient::new("hk-server-path", endpoint);
     let Ok(handle) = client.open("/tmp/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
         return false;
     };
@@ -202,7 +202,7 @@ fn ext4_paths(client: &mut VfsClient) -> (&'static str, &'static str) {
 #[cfg(target_os = "none")]
 fn verify_ext4(endpoint: u64) -> bool {
     const CONTENT: &[u8] = b"HolyKernel ext4 ok\n";
-    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let mut client = VfsClient::new("hk-server-path", endpoint);
     let (marker, _) = ext4_paths(&mut client);
     let Ok(handle) = client.open(marker, OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
         return false;
@@ -247,7 +247,7 @@ fn verify_driver_restart(endpoint: u64) -> bool {
         return false;
     }
 
-    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let mut client = VfsClient::new("hk-server-path", endpoint);
     let (marker, _) = ext4_paths(&mut client);
     for _ in 0..1_000 {
         if let Ok(handle) = client.open(marker, OPEN_READ) {
@@ -270,7 +270,7 @@ fn verify_driver_restart(endpoint: u64) -> bool {
 fn benchmark_ext4(endpoint: u64) -> Option<u64> {
     const CHUNK: usize = 60 * 1024;
     const CHUNKS: usize = 17;
-    let mut client = VfsClient::new("hk-server-vfs", endpoint);
+    let mut client = VfsClient::new("hk-server-path", endpoint);
     let (_, path) = ext4_paths(&mut client);
     let handle = client
         .open(path, OPEN_READ | OPEN_WRITE | OPEN_CREATE)

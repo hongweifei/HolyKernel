@@ -28,15 +28,15 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
     }
 }
 
-/// 等待独立 HolyFS 服务就绪，并把每个注册盘符挂到路径命名空间。
+/// 等待原生 VFS 服务就绪，并把每个注册盘符挂到路径命名空间。
 #[cfg(target_os = "none")]
 pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
     for _ in 0..4096 {
-        if service_endpoint("hk-server-holyfs") == 0 {
+        if service_endpoint("hk-server-vfs") == 0 {
             let _ = yield_now();
             continue;
         }
-        let mut probe = Box::new(HolyClient::new(endpoint));
+        let mut probe = Box::new(HolyClient::new_with_service(endpoint, "hk-server-vfs"));
         let Ok(bytes) = probe.drives() else {
             let _ = yield_now();
             continue;
@@ -54,7 +54,7 @@ pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) ->
                 format!("{target}-{}", drive as char)
             };
             let _ = filesystem.create_dir(&path);
-            let Ok(backend) = RemoteHolyFs::new(endpoint, drive) else {
+            let Ok(backend) = RemoteHolyFs::new(endpoint, drive, "hk-server-vfs") else {
                 continue;
             };
             if filesystem.mount(&path, Box::new(backend)).is_ok() && drive == b'H' {

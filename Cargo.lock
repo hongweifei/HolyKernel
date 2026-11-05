@@ -612,6 +612,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-path"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-fs",
+ "hk-fs-ext4",
+ "hk-hal",
+ "hk-server-api",
+ "hk-server-build",
+ "hk-vfs",
+]
+
+[[package]]
 name = "hk-server-pointer-test"
 version = "0.1.0"
 dependencies = [
@@ -648,13 +661,9 @@ dependencies = [
 name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
- "hk-block",
  "hk-fs",
- "hk-fs-ext4",
- "hk-hal",
  "hk-server-api",
  "hk-server-build",
- "hk-vfs",
 ]
 
 [[package]]

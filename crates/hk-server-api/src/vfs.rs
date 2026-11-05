@@ -218,7 +218,7 @@ impl Drop for VfsClient {
 /// 这是轻量只读查询，不建立共享 Frame；返回完整数据长度，调用方可用
 /// `min(length, out.len())` 判断是否截断。
 pub fn list_mounts(own_endpoint: u64, out: &mut [u8]) -> Result<usize, u8> {
-    let endpoint = service_endpoint("hk-server-vfs");
+    let endpoint = service_endpoint("hk-server-path");
     if endpoint == 0 {
         return Err(STATUS_IO);
     }

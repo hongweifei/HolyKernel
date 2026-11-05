@@ -23,6 +23,7 @@ use super::wire::{
 /// 固定缓冲 Holy 文档客户端。
 pub struct HolyClient {
     own_endpoint: u64,
+    service: &'static str,
     endpoint: u64,
     drive: u8,
     request: [u8; REQUEST],
@@ -32,8 +33,14 @@ pub struct HolyClient {
 impl HolyClient {
     /// 构造客户端；`own_endpoint` 是本任务端点。
     pub const fn new(own_endpoint: u64) -> Self {
+        Self::new_with_service(own_endpoint, DRIVE_SERVICE)
+    }
+
+    /// 构造指向指定服务的客户端。
+    pub const fn new_with_service(own_endpoint: u64, service: &'static str) -> Self {
         Self {
             own_endpoint,
+            service,
             endpoint: 0,
             drive: b'H',
             request: [0; REQUEST],
@@ -414,7 +421,7 @@ impl HolyClient {
     }
 
     fn submit(&mut self, length: usize) -> Result<usize, u8> {
-        let endpoint = service_endpoint(DRIVE_SERVICE);
+        let endpoint = service_endpoint(self.service);
         if endpoint == 0 {
             return Err(STATUS_IO);
         }

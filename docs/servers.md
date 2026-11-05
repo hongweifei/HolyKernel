@@ -15,7 +15,8 @@ flowchart TB
     Blk["Block Driver<br/>virtio-blk / AHCI"]
     Net["Network Driver<br/>virtio-net"]
     Input["Input Driver<br/>virtio / PS2"]
-    VFS["VFS Server<br/>挂载表 · 路径 · 页缓存"]
+    VFS["VFS Server<br/>DocId · 集合 · 修订 · 令牌"]
+    Path["Path Server<br/>路径 · fd · 页缓存"]
     Ext2["ext2/ext4 Server"]
     Tmpfs["tmpfs Server"]
     Devfs["devfs Server"]
@@ -35,13 +36,14 @@ flowchart TB
     DM --> Blk
     DM --> Net
     DM --> Input
-    VFS --> Ext2
-    VFS --> Tmpfs
-    VFS --> Devfs
-    VFS --> Procfs
+    Path --> Ext2
+    Path --> Tmpfs
+    Path --> Devfs
+    Path --> Procfs
+    Path --> VFS
     VFS --> HolyFS
     HolyFS --> Blk
-    POSIX --> VFS
+    POSIX --> Path
     POSIX --> NetSrv
     POSIX --> Root
     Display --> Input
@@ -75,7 +77,7 @@ pub struct ServiceManifest {
 ## 3. Root Server
 
 - 启动时获得初始 Untyped、HandleTable、Endpoint 与设备句柄。
-- 解析服务清单，创建服务器 VSpace/TCB，加载 ELF，分配 Handle。
+- 解析服务清单，创建服务器 VSpace/TCB，加载原生 HKX 镜像，分配 Handle。
 - 维护服务表：PID、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
 - 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。
@@ -117,14 +119,15 @@ pub struct ServiceManifest {
 
 ## 6. VFS 与文件系统
 
-- **VFS Server**：挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存。
+- **VFS Server**：Holy 原生命名空间；盘符、DocId、集合、修订、文档令牌；不维护路径或 fd。
+- **Path Server**：路径、目录、dentry、文件句柄与页缓存；为 POSIX 客户端提供 `/disk`、`/tmp`、`/dev`、`/proc` 投影，是原生 VFS 与路径后端之间的兼容层。
 - **ext2/ext4 Server**：POSIX 根文件系统；目录、inode、权限位。
 - **HolyFS Server**：HolyKernel 原生文件系统；`H:` 盘符与文档对象。
 - **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
-- VFS 与后端通过 Endpoint RPC 通信；数据使用共享 Frame；客户端按服务名查询当前端点，服务重启后可重新连接。客户端用 `VFS_ATTACH` 移交帧句柄，之后用 `OP_READ_FRAME`/`OP_WRITE_FRAME` 直接读写该帧；重连时 VFS 解除旧映射并关闭旧句柄，`VFS_DETACH` 清理帧与会话。
-- VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）到 `/disk`，写入经页缓存与 ext4 日志落盘；宿主侧重新挂载镜像可读回同一文件。块客户端以 `BLOCK_ATTACH` 移交共享帧，驱动把帧物理地址用于 virtio DMA，块请求只传控制信息；`BLOCK_DETACH` 解除映射。块客户端识别 VFS 客户端帧后可让驱动直接 DMA 到该帧，HolyFS 文档路径因此零拷贝。
+- VFS 与 HolyFS 通过 Holy 协议通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享 Frame 服务 POSIX 客户端。
+- Path Server 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）到 `/disk`，写入经页缓存与 ext4 日志落盘；HolyFS 文档路径由 Path Server 的远程 Holy 后端转接到原生 VFS。
 
 详见 [VFS](vfs.md)。
 
@@ -157,7 +160,7 @@ pub struct ServiceManifest {
 ## 9. HolyFS Server
 
 - 独立用户态服务 `hk-server-holyfs`；直接通过 Block Endpoint 挂载 Holy 卷，以 `H:`、`I:` 盘符提供原生文档命名空间。
-- VFS 通过远程 Holy 后端连接该服务，把 `H:`、`I:` 分别投影到 `/disk`、`/disk-I`；盘符与 VFS 挂载点共享同一份卷状态，VFS 不再内嵌 HolyFS。
+- 原生 VFS 通过远程 Holy 后端连接该服务；Path Server 再把 VFS 的 `H:`、`I:` 投影到 `/disk`、`/disk-I`。VFS 不再内嵌 HolyFS。
 - 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
 - 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
 - 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求，并可按块服务动态 `Attach`/`Detach` 盘符。
@@ -195,7 +198,7 @@ sequenceDiagram
     Root->>K: 关闭旧 Handle / Endpoint
     Root->>Svc: 终止旧实例
     Root->>K: 创建新 VSpace / TCB
-    Root->>Svc: 加载 ELF、分配 Handle
+    Root->>Svc: 加载 HKX 镜像、分配 Handle
     Svc->>Root: 注册 Endpoint
     Root->>Root: 更新服务表
 ```

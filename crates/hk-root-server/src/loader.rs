@@ -19,6 +19,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-virtio",
     "hk-server-holyfs",
     "hk-server-vfs",
+    "hk-server-path",
     "hk-server-block",
     "hk-server-virtio-net",
     "hk-server-net",

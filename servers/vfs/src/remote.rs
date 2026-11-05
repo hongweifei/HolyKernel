@@ -11,7 +11,7 @@ use hk_fs::{
 };
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentKind as WireKind, HolyClient, KIND_COLLECTION,
-    RevisionId as WireRevisionId, decode_entries, decode_revisions,
+    RevisionId as WireRevisionId, VolumeView, decode_entries, decode_revisions,
 };
 use hk_server_api::vfs::{
     STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE,
@@ -20,19 +20,26 @@ use hk_server_api::vfs::{
 /// 独立 HolyFS 服务的远程后端。
 pub(crate) struct RemoteHolyFs {
     root: DocId,
+    volume: VolumeView,
     client: RefCell<Box<HolyClient>>,
 }
 
 impl RemoteHolyFs {
     /// 连接独立服务并读取指定盘符的根文档。
-    pub(crate) fn new(own_endpoint: u64, drive: u8) -> Result<Self, Error> {
-        let mut client = Box::new(HolyClient::new(own_endpoint));
+    pub(crate) fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
+        let mut client = Box::new(HolyClient::new_with_service(own_endpoint, service));
         client.set_drive(drive);
         let root = client.root().map_err(map_status)?;
+        let volume = client.volume().map_err(map_status)?;
         Ok(Self {
             root: DocId::new(root.get()),
+            volume,
             client: RefCell::new(client),
         })
+    }
+
+    pub(crate) fn volume(&self) -> VolumeView {
+        self.volume
     }
 }
 
