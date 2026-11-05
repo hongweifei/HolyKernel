@@ -130,7 +130,12 @@ fn main() -> ExitCode {
 fn execute(task: Task) -> Result<()> {
     match task {
         Task::Build(arguments) => build::run(arguments.target, arguments.release),
-        Task::Image(arguments) => image::run(arguments.target, arguments.release, None).map(|_| ()),
+        Task::Image(arguments) => image::run(
+            arguments.target,
+            arguments.release,
+            Some("shell-interactive"),
+        )
+        .map(|_| ()),
         Task::Run(arguments) => run::run(arguments.target, arguments.release, &arguments.arguments),
         Task::Test(arguments) => test::run(arguments.target),
         Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
