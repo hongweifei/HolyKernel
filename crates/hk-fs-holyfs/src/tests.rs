@@ -166,3 +166,51 @@ fn revision_head_moves_on_write() {
     assert_eq!(fs.read(node, 0, &mut buffer).expect("读"), 3);
     assert_eq!(&buffer[..3], b"two");
 }
+
+#[test]
+fn native_document_api_reads_whole_documents() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let system = fs
+        .create(root, "System", FileType::Directory)
+        .expect("集合");
+    let doc = fs.create(system, "Welcome", FileType::File).expect("文档");
+    fs.write(doc, 0, b"@title(\"Welcome\")").expect("写");
+    fs.sync().expect("提交");
+
+    assert_eq!(
+        fs.resolve("H:/System/Welcome").expect("解析"),
+        fs.resolve("/System/Welcome").expect("无盘符")
+    );
+    assert_eq!(
+        fs.read_document("H:/System/Welcome").expect("整文档"),
+        b"@title(\"Welcome\")"
+    );
+    let info = fs.document("H:/System/Welcome").expect("文档视图");
+    assert_eq!(info.size, 17);
+    assert_eq!(fs.revisions("H:/System/Welcome").expect("修订").len(), 2);
+    let entries = fs.enumerate("H:/System").expect("集合");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "Welcome");
+}
+
+#[test]
+fn native_document_write_moves_head() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let doc = fs.create(root, "Doc", FileType::File).expect("文档");
+    fs.write(doc, 0, b"first").expect("写一");
+    fs.sync().expect("提交");
+    let head = fs.document("H:/Doc").expect("视图").head;
+    let next = fs.write_document("H:/Doc", b"second").expect("整文档写");
+    assert_ne!(next, head);
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"second");
+    assert_eq!(fs.revisions("H:/Doc").expect("修订").len(), 3);
+}
+
+#[test]
+fn native_paths_have_no_parent_traversal() {
+    let fs = HolyFs::mount(formatted()).expect("挂载");
+    assert!(fs.resolve("H:/..").is_err());
+    assert!(fs.resolve("H:/Missing").is_err());
+}

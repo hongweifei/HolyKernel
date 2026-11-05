@@ -13,6 +13,7 @@ pub mod display;
 pub mod format;
 pub mod framebuffer;
 pub mod heap;
+pub mod holy;
 pub mod input;
 pub mod net;
 pub mod root;

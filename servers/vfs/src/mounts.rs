@@ -24,20 +24,30 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
     }
 }
 
-/// 等待驱动就绪并挂载 HolyFS。
+/// 等待驱动就绪并挂载 HolyFS，返回原生卷句柄。
+///
+/// 卷句柄与 VFS 适配层共享同一个 Volume：`H:` 文档与 `/disk` 路径看到同一份数据。
 #[cfg(target_os = "none")]
-pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
+pub(crate) fn mount_holyfs(
+    filesystem: &mut Vfs,
+    endpoint: u64,
+    target: &str,
+) -> Option<HolyFs<ClientDisk>> {
     for _ in 0..4096 {
         let Ok(disk) = ClientDisk::open(BLOCK_SERVICE, endpoint) else {
             let _ = yield_now();
             continue;
         };
         let Ok(backend) = HolyFs::mount(disk) else {
-            return false;
+            return None;
         };
-        return filesystem.mount(target, Box::new(backend)).is_ok();
+        let drive = backend.clone();
+        return filesystem
+            .mount(target, Box::new(backend))
+            .ok()
+            .map(|()| drive);
     }
-    false
+    None
 }
 
 /// 等待驱动就绪并在 `/disk` 挂载 ext4。

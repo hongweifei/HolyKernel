@@ -29,7 +29,8 @@ pub use error::HolyError;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
 pub use superblock::BLOCK_SIZE;
 pub use types::{
-    DocumentKind, DocumentRecord, EntryRecord, Extent, PayloadKind, RevisionFlags, RevisionRecord,
+    DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, PayloadKind,
+    RevisionFlags, RevisionInfo, RevisionRecord,
 };
 pub use vfs::HolyFs;
 

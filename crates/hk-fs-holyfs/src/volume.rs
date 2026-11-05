@@ -14,13 +14,16 @@ use crate::store::Store;
 use crate::superblock::{BLOCK_SIZE, SUPERBLOCK_A, SUPERBLOCK_B, SUPERBLOCK_SIZE, Superblock};
 use crate::tree::{TreeMap, collect_blocks, load_tree, store_tree};
 use crate::types::{
-    DocumentKind, DocumentRecord, EntryRecord, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags,
-    RevisionRecord, validate_name,
+    DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, MAX_EXTENTS,
+    PayloadKind, RevisionFlags, RevisionInfo, RevisionRecord, validate_name,
 };
 
 type Entries = BTreeMap<Vec<u8>, EntryRecord>;
 
 const MAX_CONTENT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 修订链枚举上限。
+const MAX_REVISIONS: usize = 4096;
 
 pub(crate) struct Volume<D: BlockDevice> {
     store: Store<D>,
@@ -361,6 +364,126 @@ impl<D: BlockDevice> Volume<D> {
         }
         self.dirty = true;
         self.node_for(entry.document)
+    }
+
+    /// 按 DocPath 解析文档；驱动号 `H:` 与 `.` 被忽略，`..` 不属于 Holy 命名。
+    pub(crate) fn resolve(&self, path: &str) -> Result<DocId, HolyError> {
+        let mut document = DocId::ROOT;
+        for (index, component) in path.split('/').enumerate() {
+            if component.is_empty() || component == "." {
+                continue;
+            }
+            if index == 0 && component.ends_with(':') {
+                continue;
+            }
+            if component == ".." {
+                return Err(HolyError::Invalid);
+            }
+            let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+            let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+            if !revision.payload_has_collection() {
+                return Err(HolyError::NotDirectory);
+            }
+            let entries = self
+                .collections
+                .get(&revision.id)
+                .ok_or(HolyError::Corrupt)?;
+            let entry = entries
+                .get(component.as_bytes())
+                .ok_or(HolyError::NotFound)?;
+            document = entry.document;
+        }
+        Ok(document)
+    }
+
+    /// 枚举集合文档的名字、身份与类型。
+    pub(crate) fn enumerate(&self, document: DocId) -> Result<Vec<EntryInfo>, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        let entries = self
+            .collections
+            .get(&revision.id)
+            .ok_or(HolyError::NotDirectory)?;
+        let mut result = Vec::with_capacity(entries.len());
+        for (name, entry) in entries {
+            let name = core::str::from_utf8(name).map_err(|_| HolyError::Corrupt)?;
+            result.push(EntryInfo {
+                name: String::from(name),
+                document: entry.document,
+                kind: entry.kind,
+            });
+        }
+        Ok(result)
+    }
+
+    /// 返回文档身份、类型与当前修订。
+    pub(crate) fn document_info(&self, document: DocId) -> Result<DocumentInfo, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        Ok(DocumentInfo {
+            id: document,
+            kind: record.kind,
+            head: revision.id,
+            parent: revision.parent,
+            size: revision.size,
+            moment: revision.moment,
+        })
+    }
+
+    /// 整文档读取。
+    pub(crate) fn read_document(&self, document: DocId) -> Result<Vec<u8>, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        if record.kind == DocumentKind::Collection {
+            return Err(HolyError::IsDirectory);
+        }
+        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        let size = revision.size as usize;
+        let mut buffer = vec![0_u8; size];
+        if size > 0 {
+            self.read_extents(revision, 0, &mut buffer)?;
+        }
+        Ok(buffer)
+    }
+
+    /// 从 head 出发枚举修订链。
+    pub(crate) fn revisions(&self, document: DocId) -> Result<Vec<RevisionInfo>, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        let mut result = Vec::new();
+        let mut current = Some(record.head);
+        while let Some(id) = current {
+            if result.len() > MAX_REVISIONS {
+                return Err(HolyError::Corrupt);
+            }
+            let revision = self.revisions.get(&id).ok_or(HolyError::Corrupt)?;
+            result.push(RevisionInfo {
+                id: revision.id,
+                parent: revision.parent,
+                size: revision.size,
+                moment: revision.moment,
+                flags: revision.flags,
+            });
+            current = revision.parent;
+        }
+        Ok(result)
+    }
+
+    /// 整文档写入，生成新的内容修订并返回其身份。
+    pub(crate) fn write_document(
+        &mut self,
+        document: DocId,
+        content: &[u8],
+    ) -> Result<RevisionId, HolyError> {
+        if content.len() as u64 > MAX_CONTENT_BYTES {
+            return Err(HolyError::NoSpace);
+        }
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        if record.kind == DocumentKind::Collection {
+            return Err(HolyError::IsDirectory);
+        }
+        let head = *self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        self.replace_content(document, &head, content)?;
+        let record = self.documents.get(&document).ok_or(HolyError::Corrupt)?;
+        Ok(record.head)
     }
 
     fn head(&self, document: DocId) -> Result<&RevisionRecord, HolyError> {

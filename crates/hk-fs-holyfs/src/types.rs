@@ -1,5 +1,7 @@
 //! HolyFS 对象记录与磁盘编码。
 
+use alloc::string::String;
+
 use hk_vfs::FileType;
 
 use crate::crc32c::crc32c;
@@ -313,6 +315,49 @@ pub struct EntryRecord {
     pub kind: DocumentKind,
     /// 集合项标志；保留给可见性与封存。
     pub flags: u8,
+}
+
+/// 文档视图：身份、类型与当前修订。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DocumentInfo {
+    /// 文档身份。
+    pub id: DocId,
+    /// 文档类型。
+    pub kind: DocumentKind,
+    /// 当前 head 修订。
+    pub head: RevisionId,
+    /// head 修订的父修订。
+    pub parent: Option<RevisionId>,
+    /// 内容字节数。
+    pub size: u64,
+    /// 民用时间；0 表示时钟尚未写入。
+    pub moment: u64,
+}
+
+/// 集合视图：名字、文档身份与类型。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntryInfo {
+    /// 集合内名字。
+    pub name: String,
+    /// 目标文档。
+    pub document: DocId,
+    /// 文档类型。
+    pub kind: DocumentKind,
+}
+
+/// 修订视图：身份、历史与内容度量。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevisionInfo {
+    /// 修订身份。
+    pub id: RevisionId,
+    /// 父修订。
+    pub parent: Option<RevisionId>,
+    /// 内容字节数。
+    pub size: u64,
+    /// 民用时间。
+    pub moment: u64,
+    /// 修订标志。
+    pub flags: RevisionFlags,
 }
 
 impl EntryRecord {

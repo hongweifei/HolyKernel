@@ -19,6 +19,8 @@ use alloc::vec;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
+use hk_server_api::holy::HOLY_REQUEST;
+#[cfg(target_os = "none")]
 use hk_server_api::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, write};
@@ -34,6 +36,8 @@ const HEAP_SIZE: usize = 768 * 1024;
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
+mod holy;
+#[cfg(target_os = "none")]
 mod mounts;
 #[cfg(target_os = "none")]
 mod protocol;
@@ -43,7 +47,7 @@ mod sessions;
 #[cfg(target_os = "none")]
 use mounts::{mount_ext4, mount_holyfs};
 #[cfg(target_os = "none")]
-use protocol::{handle, reply};
+use protocol::{handle, reply, reply_holy};
 #[cfg(target_os = "none")]
 use sessions::Sessions;
 
@@ -64,14 +68,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if target != "/" {
         let _ = filesystem.create_dir("/disk");
     }
+    let mut drive = None;
     let mounted = if holyfs {
-        mount_holyfs(&mut filesystem, endpoint, target)
+        drive = mount_holyfs(&mut filesystem, endpoint, target);
+        drive.is_some()
     } else {
         mount_ext4(&mut filesystem, endpoint, target)
     };
     if mounted {
         if holyfs {
-            write("hk-server-vfs: holyfs mounted\n".as_bytes());
+            write("hk-server-vfs: holyfs mounted H:\n".as_bytes());
+            write("hk-server-vfs: drive H:\n".as_bytes());
         } else {
             write("hk-server-vfs: ext4 mounted\n".as_bytes());
         }
@@ -100,6 +107,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
         if label == VFS_DETACH {
             sessions.detach(sender, &mut filesystem);
+            continue;
+        }
+        if label == HOLY_REQUEST {
+            let Some(request) = decode_request(&request[..length.min(request.len())]) else {
+                reply_holy(sender, STATUS_INVALID, &[], &mut response);
+                continue;
+            };
+            let (status, written) = holy::handle(drive.as_ref(), &request, &mut body);
+            reply_holy(sender, status, &body[..written], &mut response);
             continue;
         }
         if label != VFS_REQUEST {
