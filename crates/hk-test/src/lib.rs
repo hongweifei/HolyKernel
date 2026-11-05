@@ -53,10 +53,15 @@ pub fn exit(code: ExitCode) -> ! {
     {
         // SAFETY: 0xF4 是 QEMU isa-debug-exit 设备端口；写入后 QEMU 立即终止，
         // 控制流不再返回。QEMU 以 `(value << 1) | 1` 作为自身退出码，因此这里
-        // 只写诊断码本身，成功为 0、宿主侧退出码 1。
+        // 只写诊断码本身，成功为 0、宿主侧退出码 1。没有该设备时写入被忽略，
+        // 回退到停机循环，避免落入编译器生成的 `ud2` 触发内核异常。
         unsafe {
             core::arch::asm!(
                 "out dx, al",
+                "2:",
+                "cli",
+                "hlt",
+                "jmp 2b",
                 in("dx") 0xf4u16,
                 in("al") code.value(),
                 options(noreturn, nomem, nostack),

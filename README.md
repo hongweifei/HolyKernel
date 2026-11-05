@@ -141,10 +141,11 @@ cargo xtask disk
 qemu-system-x86_64 -M q35 -m 256M \
   -cdrom build/holy-x86_64.iso -boot d -serial stdio \
   -drive file=build/run-disk.img,if=none,id=disk,format=raw \
-  -device virtio-blk-pci,drive=disk
+  -device virtio-blk-pci,drive=disk \
+  -device isa-debug-exit,iobase=0xf4,iosize=0x04
 ```
 
-不挂磁盘时 VFS 只有 tmpfs，`/disk` 不可用；挂载成功后启动日志会出现 `virtio-blk sectors=` 与 `ext4 mounted`。
+不挂磁盘时 VFS 只有 tmpfs，`/disk` 不可用；挂载成功后启动日志会出现 `virtio-blk sectors=` 与 `ext4 mounted`。`exit` 命令通过 `isa-debug-exit` 退出 QEMU，手动启动时请保留该设备。
 
 图形桌面：
 
@@ -161,7 +162,8 @@ qemu-system-x86_64 -M q35 -m 256M \
   -cdrom build/holy-x86_64.iso -boot d -serial stdio \
   -drive file=build/run-holy.img,if=none,id=disk,format=raw \
   -device virtio-blk-pci,drive=disk \
-  -device virtio-keyboard-pci -device virtio-tablet-pci
+  -device virtio-keyboard-pci -device virtio-tablet-pci \
+  -device isa-debug-exit,iobase=0xf4,iosize=0x04
 ```
 
 `desktop` 模式下没有内核 HolyShell，交互由图形 Console/HolyDoc 窗口承担。`xtask run` 检测到 `/dev/kvm` 会自动加 `-accel kvm -cpu host`；手动 QEMU 也建议加上。对刷新性能敏感时再加 `--release`。

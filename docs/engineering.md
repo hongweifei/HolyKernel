@@ -72,8 +72,11 @@ x86_64 QEMU 的 `run` 会自动创建 `build/run-disk.img` 并挂载为 virtio-b
 ```sh
 qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
   -drive file=build/run-disk.img,if=none,id=disk,format=raw \
-  -device virtio-blk-pci,drive=disk
+  -device virtio-blk-pci,drive=disk \
+  -device isa-debug-exit,iobase=0xf4,iosize=0x04
 ```
+
+`exit` 与冒烟测试通过 `isa-debug-exit` 退出 QEMU；缺少该设备时内核会安全停机而不是触发异常。
 
 图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`xtask run` 在存在 `/dev/kvm` 时自动启用 `-accel kvm -cpu host`，手动 QEMU 可同样加速。
 
