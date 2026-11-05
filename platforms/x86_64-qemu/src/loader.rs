@@ -54,8 +54,15 @@ pub fn run(
             return matches!(name, "hk-server-display" | "hk-server-display-test");
         }
         if holydoc_test {
-            // HolyDoc 自检只需要 Display 与文档服务。
-            return matches!(name, "hk-server-display" | "hk-server-holydoc");
+            // HolyDoc 自检需要 Display、文档服务与提供磁盘文档的 VFS 链。
+            return matches!(
+                name,
+                "hk-server-display"
+                    | "hk-server-holydoc"
+                    | "hk-server-vfs"
+                    | "hk-server-virtio"
+                    | "hk-server-device"
+            );
         }
         if debug_test {
             // Debug 自检只需要 Display 与调试服务。
@@ -69,13 +76,14 @@ pub fn run(
             );
         }
         if desktop {
-            // 图形桌面：Display + Console + Input/Device + VFS + HolyDoc 欢迎页。
+            // 图形桌面：Display + Console + Input/Device + 块驱动 + VFS 文档 + HolyDoc 欢迎页。
             return matches!(
                 name,
                 "hk-server-display"
                     | "hk-server-console"
                     | "hk-server-device"
                     | "hk-server-input"
+                    | "hk-server-virtio"
                     | "hk-server-vfs"
                     | "hk-server-holydoc"
                     | "hk-server-shell"
@@ -143,11 +151,12 @@ pub fn run(
             "hk-server-display" => 0,
             "hk-server-device" => 1,
             "hk-server-input" => 2,
-            "hk-server-vfs" => 3,
-            "hk-server-holydoc" => 4,
-            "hk-server-console" => 5,
-            "hk-server-shell" => 6,
-            _ => 7,
+            "hk-server-virtio" => 3,
+            "hk-server-vfs" => 4,
+            "hk-server-holydoc" => 5,
+            "hk-server-console" => 6,
+            "hk-server-shell" => 7,
+            _ => 8,
         });
     }
     if modules.is_empty() {

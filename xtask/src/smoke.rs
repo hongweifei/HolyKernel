@@ -346,10 +346,13 @@ impl SmokeMode {
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
                 "hk-server-holydoc: ready 1",
-                "hk-server-holydoc: doc index",
+                "hk-server-holydoc: disk architecture.md",
+                "hk-server-holydoc: doc welcome",
+                "hk-server-holydoc: docs 5",
                 "hk-server-holydoc: exec version",
-                "hk-server-holydoc: click architecture",
-                "hk-server-holydoc: open architecture",
+                "hk-server-holydoc: click index",
+                "hk-server-holydoc: open index",
+                "hk-server-holydoc: open disk:architecture",
                 "hk-server-holydoc: scroll ",
                 "hk-server-holydoc: back index",
                 "hk-server-holydoc: done",
@@ -734,8 +737,9 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
         hk_fs_holyfs::format(disk)
             .map_err(|error| Failure::new(format!("格式化 HolyFS 测试磁盘失败：{error}")))?
     } else {
-        hk_fs_ext4::format_with_wall_clock(disk, HostClock)
-            .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?
+        let disk = hk_fs_ext4::format_with_wall_clock(disk, HostClock)
+            .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?;
+        crate::disk::seed_docs(disk)?
     };
     fs::write(&path, disk.into_data())
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
