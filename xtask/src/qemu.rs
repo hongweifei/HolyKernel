@@ -15,6 +15,9 @@ pub fn run(iso: &Path, disk: &Path, ui: bool) -> Result<()> {
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
         .arg(iso)
         .args(["-boot", "d", "-serial", "stdio", "-no-reboot"]);
+    if Path::new("/dev/kvm").exists() {
+        command.args(["-accel", "kvm", "-cpu", "host"]);
+    }
     if !ui {
         command.args(["-display", "none"]);
     }
