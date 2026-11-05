@@ -27,6 +27,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-display",
     "hk-server-display-test",
     "hk-server-terminal-test",
+    "hk-server-input",
 ];
 
 /// 从启动模块中选出默认启动的服务。

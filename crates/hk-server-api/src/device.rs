@@ -13,3 +13,5 @@ pub const DEVICE_CLASS_ANY: u64 = 0;
 pub const DEVICE_CLASS_BLOCK: u64 = 1;
 /// 网络设备。
 pub const DEVICE_CLASS_NETWORK: u64 = 2;
+/// 输入设备。
+pub const DEVICE_CLASS_INPUT: u64 = 3;

@@ -37,9 +37,11 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 窗口表面使用共享 Frame：客户端绘制后经句柄转移交给显示服务，由显示服务映射并合成，不复制整块表面。
 - 合成器绘制桌面渐变、标题栏与窗口，并回读窗口首像素校验；焦点窗口标题栏高亮。
 - 多窗口按槽位维护 z 序；提交窗口或按 Tab 会提升并切换焦点，标题栏高亮。
+- 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
 - Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；无 Display 时回退内核控制台。
+- 用户态 `hk-server-input` 通过 DeviceGrant 接管 virtio-input：绑定 IRQ 通知、解码 evdev 键码，把字节发给 Display；输入驱动模式下内核控制台输入关闭。`smoke --mode inputdriver` 验证。
 - 终端模式下键盘事件由 Display 按焦点转发给 Console，Console 完成行编辑、回显与按行回复。`smoke --mode terminal` 注入输入验证。
 - 终端使用增量 UTF-8 解码与 `char` 网格，中文按双宽字形占两格；渲染先清背景再画字形，末尾绘制光标，并提供 `> ` 提示符。
 

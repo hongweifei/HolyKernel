@@ -16,6 +16,8 @@ use hk_server_api::display::{
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
+use hk_server_api::input::INPUT_KEY;
+#[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, console_read, exit, frame_info, frame_map, recv_data_handle_try, send, write,
     write_u64, yield_now,
@@ -406,13 +408,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut windows: [Option<Window>; MAX_WINDOWS] = [None; MAX_WINDOWS];
     let mut next_id = 1_u64;
     let mut focus = 0_u64;
+    let mut driver_input = false;
     loop {
-        // 输入来自内核控制台（自检阶段）；后续由 Input Driver 取代。
-        while let Some(byte) = console_read() {
-            if byte == TAB {
-                cycle_focus(&screen, &mut windows, &mut focus, &font);
-            } else {
-                route_key(&windows, focus, byte);
+        // 输入驱动接入后不再读内核控制台，避免两路输入重复。
+        if !driver_input {
+            while let Some(byte) = console_read() {
+                if byte == TAB {
+                    cycle_focus(&screen, &mut windows, &mut focus, &font);
+                } else {
+                    route_key(&windows, focus, byte);
+                }
             }
         }
         let mut payload = [0_u8; 8 + TITLE_MAX];
@@ -489,6 +494,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 damage_title(&screen, &windows, focus, &font, previous);
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
+            }
+            INPUT_KEY => {
+                driver_input = true;
+                let byte = word as u8;
+                if byte == TAB {
+                    cycle_focus(&screen, &mut windows, &mut focus, &font);
+                } else {
+                    route_key(&windows, focus, byte);
+                }
             }
             DISPLAY_SET_TITLE => {
                 if length >= 8 {

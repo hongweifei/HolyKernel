@@ -48,6 +48,17 @@ pub fn run(
             // 显示自检只需要 Display 服务与客户端。
             return matches!(name, "hk-server-display" | "hk-server-display-test");
         }
+        if hk_boot::cmdline().is_some_and(|line| line.contains("input-test")) {
+            // 输入驱动自检：Display + Console + 终端客户端 + Input。
+            return matches!(
+                name,
+                "hk-server-display"
+                    | "hk-server-device"
+                    | "hk-server-console"
+                    | "hk-server-terminal-test"
+                    | "hk-server-input"
+            );
+        }
         if hk_boot::cmdline().is_some_and(|line| line.contains("terminal-test")) {
             // 图形终端自检需要 Console、Display 与客户端。
             return matches!(
@@ -65,6 +76,7 @@ pub fn run(
                 | "hk-server-display"
                 | "hk-server-display-test"
                 | "hk-server-terminal-test"
+                | "hk-server-input"
         ) {
             return false;
         }

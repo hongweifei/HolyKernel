@@ -10,6 +10,7 @@ extern crate alloc;
 
 mod blk;
 mod hal;
+mod input;
 mod net;
 
 use core::fmt;
@@ -23,6 +24,7 @@ use virtio_drivers::transport::pci::virtio_device_type;
 
 pub use blk::Block;
 pub use hal::register_frame;
+pub use input::Input;
 pub use net::Network;
 pub use virtio_drivers::transport::DeviceType as VirtioDeviceType;
 
@@ -32,6 +34,8 @@ pub enum Device {
     Block(alloc::boxed::Box<Block>),
     /// 网络设备。
     Network(alloc::boxed::Box<Network>),
+    /// 输入设备。
+    Input(alloc::boxed::Box<Input>),
     /// `virtio-drivers` 支持、当前驱动服务尚未接入的设备类别。
     Unsupported(VirtioDeviceType),
 }
@@ -91,6 +95,10 @@ pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> 
             .map_err(|_| ProbeError::Device)?;
             let network = Network::new(raw).map_err(|_| ProbeError::Device)?;
             Ok(Device::Network(alloc::boxed::Box::new(network)))
+        }
+        DeviceType::Input => {
+            let input = Input::new(transport).map_err(|_| ProbeError::Device)?;
+            Ok(Device::Input(alloc::boxed::Box::new(input)))
         }
         other => Ok(Device::Unsupported(other)),
     }

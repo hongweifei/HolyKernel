@@ -1,0 +1,22 @@
+[package]
+name = "hk-server-input"
+description = "HolyKernel 用户态 virtio-input 驱动"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-input"
+path = "src/main.rs"
+
+[dependencies]
+hk-driver-virtio = { version = "0.1.0", path = "../../crates/hk-driver-virtio" }
+hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

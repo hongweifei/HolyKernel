@@ -20,8 +20,8 @@ static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::de
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
-    DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE,
-    DEVICE_REQUEST,
+    DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_GRANT,
+    DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
@@ -110,6 +110,8 @@ fn send_cached_grant(
         DEVICE_CLASS_ANY => true,
         DEVICE_CLASS_BLOCK => device.class == 0x01,
         DEVICE_CLASS_NETWORK => device.class == 0x02,
+        // virtio-input：现代设备号 0x1052，过渡设备号 0x1012。
+        DEVICE_CLASS_INPUT => device.vendor == 0x1AF4 && matches!(device.device, 0x1052 | 0x1012),
         _ => false,
     };
     if !class_matches {

@@ -113,6 +113,10 @@ impl UserPlatform for X86Platform {
     }
 
     fn console_read(&self) -> Option<u8> {
+        // 用户态输入驱动接管键盘后，内核不再提供控制台输入。
+        if hk_boot::cmdline().is_some_and(|line| line.contains("input-driver")) {
+            return None;
+        }
         hk_platform_x86_64::keyboard::read().or_else(|| Serial::new(COM1).try_read_byte())
     }
 

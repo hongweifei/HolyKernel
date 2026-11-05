@@ -103,6 +103,9 @@ pub enum SmokeMode {
     /// Console 服务的图形终端窗口
     #[value(name = "terminal")]
     Terminal,
+    /// 用户态 virtio-input 驱动
+    #[value(name = "inputdriver")]
+    InputDriver,
 }
 
 impl SmokeMode {
@@ -132,6 +135,7 @@ impl SmokeMode {
             Self::Console => Some("console-test"),
             Self::Display => Some("display-test"),
             Self::Terminal => Some("terminal-test"),
+            Self::InputDriver => Some("input-test input-driver terminal-test"),
         }
     }
 
@@ -306,6 +310,12 @@ impl SmokeMode {
                 "hk-server-terminal-test: line hi",
                 "hk-server-terminal-test: done",
             ],
+            Self::InputDriver => &[
+                "hk-server-input: ready",
+                "hk-server-display: composite ok",
+                "hk-server-terminal-test: line hi",
+                "hk-server-terminal-test: done",
+            ],
         }
     }
 
@@ -327,7 +337,8 @@ impl SmokeMode {
             | Self::NetSocket
             | Self::Console
             | Self::Display
-            | Self::Terminal => QEMU_SUCCESS,
+            | Self::Terminal
+            | Self::InputDriver => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -355,6 +366,7 @@ impl SmokeMode {
             Self::Console => "build/serial-console.log",
             Self::Display => "build/serial-display.log",
             Self::Terminal => "build/serial-terminal.log",
+            Self::InputDriver => "build/serial-inputdriver.log",
         }
     }
 
@@ -434,9 +446,16 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             .args(["-netdev", "user,id=net0"])
             .args(["-device", "virtio-net-pci,netdev=net0"]);
     }
+    if mode == SmokeMode::InputDriver {
+        command.args(["-device", "virtio-keyboard-pci"]);
+    }
     if matches!(
         mode,
-        SmokeMode::Input | SmokeMode::Console | SmokeMode::Display | SmokeMode::Terminal
+        SmokeMode::Input
+            | SmokeMode::Console
+            | SmokeMode::Display
+            | SmokeMode::Terminal
+            | SmokeMode::InputDriver
     ) {
         command
             .arg("-qmp")
@@ -468,6 +487,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "a")?;
     }
     if mode == SmokeMode::Terminal {
+        thread::sleep(Duration::from_secs(5));
+        inject(&socket, "hi\n")?;
+    }
+    if mode == SmokeMode::InputDriver {
         thread::sleep(Duration::from_secs(5));
         inject(&socket, "hi\n")?;
     }

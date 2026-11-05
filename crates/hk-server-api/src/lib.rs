@@ -11,6 +11,7 @@ pub mod device;
 pub mod display;
 pub mod framebuffer;
 pub mod heap;
+pub mod input;
 pub mod net;
 pub mod socket;
 pub mod vfs;
