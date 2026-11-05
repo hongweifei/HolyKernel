@@ -23,6 +23,8 @@ pub const DISPLAY_SET_TITLE: u64 = 0xA06;
 pub const DISPLAY_CLICK: u64 = 0xA07;
 /// 窗口被关闭；`word` 为窗口编号。
 pub const DISPLAY_CLOSE: u64 = 0xA08;
+/// 窗口正文点击位置；`word` 打包窗口编号与窗口内坐标。
+pub const DISPLAY_CLICK_AT: u64 = 0xA09;
 
 /// 窗口标题最大字节数。
 pub const TITLE_MAX: usize = 32;
@@ -57,4 +59,18 @@ pub const fn pack_key(window: u64, byte: u8) -> u64 {
 /// 从消息字解包窗口编号与按键字节。
 pub const fn unpack_key(word: u64) -> (u64, u8) {
     (word >> 32, word as u8)
+}
+
+/// 把窗口编号与窗口内坐标打包进一个消息字。
+pub const fn pack_click_at(window: u64, x: u32, y: u32) -> u64 {
+    (window << 32) | ((x as u64 & 0xFFFF) << 16) | (y as u64 & 0xFFFF)
+}
+
+/// 从消息字解包窗口编号与窗口内坐标。
+pub const fn unpack_click_at(word: u64) -> (u64, u32, u32) {
+    (
+        word >> 32,
+        ((word >> 16) & 0xFFFF) as u32,
+        (word & 0xFFFF) as u32,
+    )
 }

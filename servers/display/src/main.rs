@@ -8,9 +8,9 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
-    DISPLAY_KEY, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key,
-    unpack_size,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW,
+    DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED,
+    TITLE_MAX, pack_click_at, pack_key, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -662,6 +662,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 windows.iter().flatten().find(|window| window.id == id)
                             {
                                 let _ = send(window.client, DISPLAY_CLICK, id);
+                                let body_x = x.saturating_sub(window.x) as u32;
+                                let body_y = y.saturating_sub(window.y + title_height()) as u32;
+                                let _ = send(
+                                    window.client,
+                                    DISPLAY_CLICK_AT,
+                                    pack_click_at(id, body_x, body_y),
+                                );
                             }
                         }
                     }
