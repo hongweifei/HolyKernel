@@ -50,6 +50,7 @@ pub fn run(
         .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
     let display_restart_test =
         hk_boot::cmdline().is_some_and(|line| line.contains("display-restart-test"));
+    let hotswap_test = hk_boot::cmdline().is_some_and(|line| line.contains("hotswap-test"));
     let desktop = hk_boot::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
@@ -89,6 +90,13 @@ pub fn run(
             return matches!(
                 name,
                 "hk-server-display" | "hk-server-console" | "hk-server-display-restart-test"
+            );
+        }
+        if hotswap_test {
+            // 热替换自检：只装载被替换服务与替换镜像。
+            return matches!(
+                name,
+                "hk-server-echo" | "hk-server-spin" | "hk-server-fault"
             );
         }
         if desktop {
@@ -324,8 +332,20 @@ impl UserMemory for UserPages<'_> {
     }
 }
 
-/// 按名称装载服务模块，用于按需启动。
+/// 按名称装载服务模块，用于按需启动或热替换。
 pub fn load_service(
+    info: &BootInfo,
+    name: &str,
+    slot: usize,
+    direct_map_base: u64,
+    allocator: &mut FrameAllocator,
+    paging: &PageTable,
+) -> Result<cpu::InterruptFrame, String> {
+    load_module(info, name, slot, direct_map_base, allocator, paging)
+}
+
+/// 按模块名装载原生镜像；模块名是去掉 `.hkx` 的服务名。
+pub fn load_module(
     info: &BootInfo,
     name: &str,
     slot: usize,
@@ -337,6 +357,6 @@ pub fn load_service(
         .server_modules
         .iter()
         .find(|module| !loader::is_script(module.name) && loader::service_name(module.name) == name)
-        .ok_or_else(|| format!("未知服务：{name}"))?;
+        .ok_or_else(|| format!("未知镜像：{name}"))?;
     load(info, module, slot, 0, direct_map_base, allocator, paging)
 }

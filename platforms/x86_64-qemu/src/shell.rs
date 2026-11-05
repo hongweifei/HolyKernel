@@ -64,6 +64,24 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
         )
     }
 
+    fn load_module(&mut self, module: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
+        loader::load_module(
+            self.info,
+            module,
+            slot,
+            self.direct_map_base,
+            self.allocator,
+            self.paging,
+        )
+    }
+
+    fn has_module(&self, module: &str) -> bool {
+        self.info.server_modules.iter().any(|candidate| {
+            !hk_root_server::loader::is_script(candidate.name)
+                && hk_root_server::loader::service_name(candidate.name) == module
+        })
+    }
+
     fn role(&self, name: &str) -> u32 {
         let Some(module) = self
             .info

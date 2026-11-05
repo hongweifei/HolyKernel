@@ -10,8 +10,9 @@ use alloc::vec::Vec;
 use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
-    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_RESTART, ROOT_OP_SCRIPT, ROOT_OP_SERVICES,
-    ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_SCRIPT,
+    ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS,
+    ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
@@ -45,7 +46,11 @@ pub fn request(op: u64, argument: &str, caller: &str) -> u64 {
     state.next = state.next.wrapping_add(1);
     let id = state.next;
 
-    if matches!(op, ROOT_OP_START | ROOT_OP_RESTART | ROOT_OP_SCRIPT) && caller != CONTROL_SHELL {
+    if matches!(
+        op,
+        ROOT_OP_START | ROOT_OP_RESTART | ROOT_OP_REPLACE | ROOT_OP_SCRIPT
+    ) && caller != CONTROL_SHELL
+    {
         push_result(state, id, b"permission denied\n".to_vec());
         return id;
     }
@@ -100,6 +105,7 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
         ROOT_OP_STATS => hk_shell::format::format_stats(&stats()),
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
+        ROOT_OP_REPLACE => runtime::replace_service(loader, services, &request.argument),
         ROOT_OP_SCRIPT => script(loader, &request.argument),
         ROOT_OP_SYMBOLIZE => runtime::host().symbolize_list(&request.argument),
         ROOT_OP_FAULT => runtime::host().last_fault(),

@@ -140,6 +140,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         self.runtime.lock().as_ref().map_or(0, UserRuntime::root)
     }
 
+    /// 终止一个未在 CPU 上执行的任务。
+    pub fn terminate(&self, name: &str) -> bool {
+        self.runtime
+            .lock()
+            .as_mut()
+            .is_some_and(|runtime| runtime.terminate(name, 1))
+    }
+
     /// 装载新任务，返回分配的端点编号。
     pub fn start(
         &self,

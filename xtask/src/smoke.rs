@@ -124,6 +124,9 @@ pub enum SmokeMode {
     /// Display 热重启与 Console 重连
     #[value(name = "displayrestart")]
     DisplayRestart,
+    /// 运行中应用热替换
+    #[value(name = "hotswap")]
+    Hotswap,
 }
 
 impl SmokeMode {
@@ -135,7 +138,7 @@ impl SmokeMode {
             Self::Timer => Some("timer-test"),
             Self::Framebuffer => Some("fb-test"),
             Self::Shell => Some(
-                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;start hk-server-fault;start hk-server-fork;start hk-server-latency;tasks;trace;stats",
+                "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;start hk-server-fault;start hk-server-fork;start hk-server-latency;replace hk-server-echo hk-server-spin;tasks;trace;stats",
             ),
             Self::Input => Some("shell-interactive"),
             Self::Preempt => None,
@@ -160,6 +163,9 @@ impl SmokeMode {
             Self::DebugFault => Some("debug-crash"),
             Self::Dbg => Some("dbg-test"),
             Self::DisplayRestart => Some("display-restart-test"),
+            Self::Hotswap => {
+                Some("hotswap-test shell-test help;replace hk-server-echo hk-server-fault;tasks")
+            }
         }
     }
 
@@ -214,6 +220,7 @@ impl SmokeMode {
                 "hk-server-demo 通知等待 ok",
                 "用户异常：页错误",
                 "hk-server-fault",
+                "已替换：hk-server-echo",
                 "hk-server-fork: child 22",
                 "hk-server-fork: parent 33",
                 "hk-server-latency: avg",
@@ -410,6 +417,7 @@ impl SmokeMode {
                 "hk-server-display-restart-test: restarted",
                 "hk-server-console: done",
             ],
+            Self::Hotswap => &["已替换：hk-server-echo", "hk-server-fault: 触发用户页错误"],
         }
     }
 
@@ -438,6 +446,7 @@ impl SmokeMode {
             | Self::Debug
             | Self::DebugFault
             | Self::Dbg
+            | Self::Hotswap
             | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -473,6 +482,7 @@ impl SmokeMode {
             Self::DebugFault => "build/serial-debugfault.log",
             Self::Dbg => "build/serial-dbg.log",
             Self::DisplayRestart => "build/serial-displayrestart.log",
+            Self::Hotswap => "build/serial-hotswap.log",
         }
     }
 

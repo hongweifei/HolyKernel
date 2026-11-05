@@ -104,15 +104,16 @@ where
         }
     }
 
-    fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
+    fn extension(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
             "net" => Some(self.client_status("hk-server-netstat")),
+            "replace" => Some(self.replace(args)),
             _ => None,
         }
     }
 
     fn help_extra(&self) -> String {
-        String::from("扩展：net\n")
+        String::from("扩展：net、replace <服务> <镜像>\n")
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
@@ -135,6 +136,18 @@ where
     L: ServiceLoader<C> + ScriptSource,
     S: Scheduling,
 {
+    /// 用另一镜像热替换服务。
+    fn replace(&mut self, arguments: &str) -> String {
+        let mut parts = arguments.split_whitespace();
+        let Some(name) = parts.next() else {
+            return String::from("用法：replace <服务> <镜像>\n");
+        };
+        let Some(module) = parts.next() else {
+            return String::from("用法：replace <服务> <镜像>\n");
+        };
+        service::replace(self.runtime, self.services, self.loader, name, module, None)
+    }
+
     /// 启动用户态客户端并驱动调度，等待它输出结果。
     fn client_status(&mut self, name: &str) -> String {
         let message = service::start(self.runtime, self.services, self.loader, name, None);

@@ -390,6 +390,22 @@ pub fn restart_service(
     hk_root_server::service::restart(&RUNTIME, services, loader, name, parent)
 }
 
+/// 用另一原生镜像热替换服务。
+pub fn replace_service(
+    loader: &mut crate::shell::Loader<'_>,
+    services: &mut ServiceTable,
+    argument: &str,
+) -> String {
+    let mut parts = argument.split_whitespace();
+    let Some(name) = parts.next() else {
+        return String::from("用法：replace <服务> <镜像>\n");
+    };
+    let Some(module) = parts.next() else {
+        return String::from("用法：replace <服务> <镜像>\n");
+    };
+    hk_root_server::service::replace(&RUNTIME, services, loader, name, module, None)
+}
+
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
     if frame.number() == SYS_ROOT_CONTROL {
         let length = frame.arg2() as usize;

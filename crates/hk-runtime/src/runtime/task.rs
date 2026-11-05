@@ -399,6 +399,33 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
+    /// 终止一个未在任何 CPU 上执行的任务；成功返回 `true`。
+    pub fn terminate(&mut self, name: &str, code: u64) -> bool {
+        let Some(index) = self
+            .tasks
+            .iter()
+            .position(|task| task.name == name && !task.exited)
+        else {
+            return false;
+        };
+        if self
+            .current
+            .iter()
+            .flatten()
+            .any(|current| *current == index)
+        {
+            return false;
+        }
+
+        let tcb = self.tasks[index].tcb;
+        self.release_grants(index);
+        let _ = self.kernel.exit(tcb);
+        self.tasks[index].exited = true;
+        self.tasks[index].exit_code = code;
+        self.tasks[index].pending = Pending::None;
+        true
+    }
+
     /// 标记当前任务因用户态异常退出；成功返回 `true`。
     pub fn fault(&mut self, cpu: usize, code: u64) -> bool {
         let Some(index) = self.current[cpu] else {

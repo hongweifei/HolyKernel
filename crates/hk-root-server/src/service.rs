@@ -39,6 +39,16 @@ pub trait ServiceLoader<C> {
     /// 把服务装载为初始用户现场；`slot` 是运行时任务槽位。
     fn load(&mut self, name: &str, slot: usize) -> Result<C, String>;
 
+    /// 按模块名装载镜像；用于热替换。
+    fn load_module(&mut self, module: &str, slot: usize) -> Result<C, String> {
+        self.load(module, slot)
+    }
+
+    /// 指定模块是否存在。
+    fn has_module(&self, _module: &str) -> bool {
+        true
+    }
+
     /// 返回服务镜像声明的角色；未知时返回 0。
     fn role(&self, _name: &str) -> u32 {
         0
@@ -70,7 +80,7 @@ where
     if running {
         return format!("已在运行：{name}\n");
     }
-    launch(host, services, loader, name, parent, "已启动", true)
+    launch(host, services, loader, name, None, parent, "已启动", true)
 }
 
 /// 重启已退出的服务。
@@ -97,14 +107,62 @@ where
     if task.state != "exited" {
         return format!("仍在运行：{name}\n");
     }
-    launch(host, services, loader, name, parent, "已重启", true)
+    launch(host, services, loader, name, None, parent, "已重启", true)
 }
 
+/// 用另一原生镜像热替换服务；目标不能正在 CPU 上执行。
+pub fn replace<C, P, L>(
+    host: &RuntimeHost<C, P>,
+    services: &mut ServiceTable,
+    loader: &mut L,
+    name: &str,
+    module: &str,
+    parent: Option<&str>,
+) -> String
+where
+    C: UserContext + SyscallFrame,
+    P: UserPlatform,
+    L: ServiceLoader<C>,
+{
+    let Some(task) = host
+        .tasks()
+        .into_iter()
+        .rev()
+        .find(|task| task.name == name)
+    else {
+        return format!("未知服务：{name}\n");
+    };
+    if task.state == "running" {
+        return format!("仍在运行：{name}\n");
+    }
+    if !loader.has_module(module) {
+        return format!("未知镜像：{module}\n");
+    }
+    if task.state != "exited" {
+        if !host.terminate(name) {
+            return format!("无法停止：{name}\n");
+        }
+        services.mark_exited(name, 1);
+    }
+    launch(
+        host,
+        services,
+        loader,
+        name,
+        Some(module),
+        parent,
+        "已替换",
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn launch<C, P, L>(
     host: &RuntimeHost<C, P>,
     services: &mut ServiceTable,
     loader: &mut L,
     name: &str,
+    module: Option<&str>,
     parent: Option<&str>,
     verb: &str,
     run: bool,
@@ -118,15 +176,20 @@ where
         .and_then(|name| host.tcb_of(name))
         .or(Some(host.root()));
     let slot = host.task_count();
-    let context = match loader.load(name, slot) {
+    let context = match module {
+        Some(module) => loader.load_module(module, slot),
+        None => loader.load(name, slot),
+    };
+    let context = match context {
         Ok(context) => context,
         Err(error) => return format!("装载失败：{error}\n"),
     };
 
-    let role = loader.role(name);
+    let source = module.unwrap_or(name);
+    let role = loader.role(source);
     let device_authority =
         services.device_authority(name) || role & hk_syscall::ServiceRole::DEVICE != 0;
-    let priority = loader.priority(name);
+    let priority = loader.priority(source);
     if let Err(error) = host.start(name, device_authority, priority, context, parent) {
         return format!("启动失败：{error}\n");
     }
@@ -171,8 +234,17 @@ where
             RestartPolicy::Always => true,
         };
         if should
-            && launch(host, services, loader, &task.name, None, "已重启", false)
-                .starts_with("已重启")
+            && launch(
+                host,
+                services,
+                loader,
+                &task.name,
+                None,
+                None,
+                "已重启",
+                false,
+            )
+            .starts_with("已重启")
         {
             restarted += 1;
         }

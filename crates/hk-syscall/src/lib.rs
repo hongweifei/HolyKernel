@@ -163,6 +163,8 @@ pub const ROOT_OP_HANDLES: u64 = 8;
 pub const ROOT_OP_SYMBOLIZE: u64 = 9;
 /// Root 控制：最近一次用户异常与符号化回溯。
 pub const ROOT_OP_FAULT: u64 = 10;
+/// Root 控制：用另一原生镜像热替换服务。
+pub const ROOT_OP_REPLACE: u64 = 11;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
