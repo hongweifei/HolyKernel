@@ -174,21 +174,36 @@ fn paint_shadow(
         } else {
             0
         };
-        for column in shadow_left..shadow_right {
-            let dx = if column < window.x {
-                window.x - column
-            } else if column >= window_right {
-                column - window_right + 1
-            } else {
-                0
-            };
-            let distance = dx.max(dy);
-            if distance == 0 || distance > margin {
-                continue;
+        if dy == 0 && row >= window.y && row < window_bottom {
+            // 与窗口同高的行只扫描左右两条边带，不遍历窗口内部。
+            for column in shadow_left..window.x.min(shadow_right) {
+                let dx = window.x - column;
+                let distance = dx.max(dy);
+                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
+                screen.blend(column, row, palette.shadow, ratio);
             }
-            let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
-            let base = screen.get(column, row);
-            screen.put(column, row, blend(base, palette.shadow, ratio));
+            for column in window_right.max(shadow_left)..shadow_right {
+                let dx = column - window_right + 1;
+                let distance = dx.max(dy);
+                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
+                screen.blend(column, row, palette.shadow, ratio);
+            }
+        } else {
+            for column in shadow_left..shadow_right {
+                let dx = if column < window.x {
+                    window.x - column
+                } else if column >= window_right {
+                    column - window_right + 1
+                } else {
+                    0
+                };
+                let distance = dx.max(dy);
+                if distance == 0 || distance > margin {
+                    continue;
+                }
+                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
+                screen.blend(column, row, palette.shadow, ratio);
+            }
         }
     }
 }

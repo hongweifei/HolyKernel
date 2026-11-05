@@ -295,6 +295,22 @@ impl Screen {
         unsafe { self.base.add(y * self.stride + x).read() }
     }
 
+    /// 把指定颜色按比例混入后备缓冲。
+    pub(crate) fn blend(&self, x: usize, y: usize, color: u32, ratio: u32) {
+        if x >= self.width || y >= self.height || ratio > 255 {
+            return;
+        }
+        // SAFETY: 坐标已裁剪到后备缓冲范围内。
+        let pixel = unsafe { self.base.add(y * self.stride + x) };
+        let from = unsafe { pixel.read() };
+        let inverse = 255 - ratio;
+        let red = (((from >> 16) & 0xFF) * inverse + ((color >> 16) & 0xFF) * ratio) / 255;
+        let green = (((from >> 8) & 0xFF) * inverse + ((color >> 8) & 0xFF) * ratio) / 255;
+        let blue = ((from & 0xFF) * inverse + (color & 0xFF) * ratio) / 255;
+        // SAFETY: 同一后备缓冲像素，坐标有效。
+        unsafe { pixel.write((red << 16) | (green << 8) | blue) };
+    }
+
     /// 用单色填充一行。
     pub(crate) fn fill_row(&self, x: usize, y: usize, width: usize, color: u32) {
         if y >= self.height || width == 0 {

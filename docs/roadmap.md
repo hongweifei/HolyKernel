@@ -186,7 +186,7 @@ flowchart LR
 
 ### 交付
 
-- Display Server：帧缓冲、窗口、合成器、输入焦点。已落地：帧缓冲仅授权 `hk-server-display`；窗口表面使用共享 Frame 经句柄转移，合成器绘制桌面、标题栏与窗口并回读校验；多窗口按槽位维护 z 序，提交、Tab 或底部任务栏按钮切换时提升并高亮焦点；标题栏与任务栏均用 8×16 位图字体渲染窗口标题；任务栏始终置顶，窗口创建与拖动限制在其上方；标题栏关闭按钮回收表面、句柄并通知客户端；右下角把手可缩放窗口，合成器按比例采样客户端表面；标题栏支持最小化与最大化/还原，任务栏可恢复最小化窗口；窗口带圆角与柔和投影，damage 区域按投影边距扩展；失败退出由 Root Server 重启，Console 检测端点变化重建窗口；`ui.scale=2` 放大标题栏/任务栏字体与布局；深/浅调色板由 `theme=light` 选择，窗口/任务栏/光标统一取色；合成按 damage 区域重绘，键盘事件经 IPC 路由到焦点客户端，`smoke --mode display/pointer` 注入 Tab、拖拽、任务栏、缩放与关闭点击验证。
+- Display Server：帧缓冲、窗口、合成器、输入焦点。已落地：帧缓冲仅授权 `hk-server-display`；窗口表面使用共享 Frame 经句柄转移，合成器绘制桌面、标题栏与窗口并回读校验；多窗口按槽位维护 z 序，提交、Tab 或底部任务栏按钮切换时提升并高亮焦点；标题栏与任务栏均用 8×16 位图字体渲染窗口标题；任务栏始终置顶，窗口创建与拖动限制在其上方；标题栏关闭按钮回收表面、句柄并通知客户端；右下角把手可缩放窗口，合成器按比例采样客户端表面；标题栏支持最小化与最大化/还原，任务栏可恢复最小化窗口；窗口带圆角与柔和投影，damage 区域按投影边距扩展；启动后记录全屏重绘最小值（QEMU 1280×800 实测约 3.0–3.3 ms）；失败退出由 Root Server 重启，Console 检测端点变化重建窗口；`ui.scale=2` 放大标题栏/任务栏字体与布局；深/浅调色板由 `theme=light` 选择，窗口/任务栏/光标统一取色；合成按 damage 区域重绘，键盘事件经 IPC 路由到焦点客户端，`smoke --mode display/pointer` 注入 Tab、拖拽、任务栏、缩放与关闭点击验证。
 - Input Driver：用户态 virtio-input 驱动（DeviceGrant + IRQ 通知），把 evdev 键码解码为字节交给 Display 按焦点路由；支持 virtio-tablet 绝对指针与点击，Display 绘制光标、按 z 序命中窗口，并支持标题栏拖拽移动窗口；`smoke --mode inputdriver/pointer` 验证。
 - Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地：内核非阻塞控制台读与输入通知，用户态行编辑/回显；有 Display 时 Console 创建自己的终端窗口，用 8×16 字体渲染并提交合成；支持增量 UTF-8 与中文双宽字形、光标与提示符；键盘事件由 Display 按焦点转发给 Console 做行编辑，无 Display 时回退内核控制台。`smoke --mode console/terminal` 验证。
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：Markdown 子集解析、自动换行布局、内置文档与链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。

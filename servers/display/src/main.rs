@@ -19,7 +19,7 @@ use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, unpack_pointe
 #[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
-    recv_data_handle_try, send, write, write_u64, yield_now,
+    recv_data_handle_try, send, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::Font;
@@ -294,6 +294,49 @@ fn pointer_position(x: u16, y: u16, width: usize, height: usize) -> (usize, usiz
     )
 }
 
+/// 全屏合成并提交，返回耗时 cycles。
+#[cfg(target_os = "none")]
+fn measure_full_redraw(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+) -> u64 {
+    let start = tsc();
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        pointer,
+        0,
+        0,
+        screen.width,
+        screen.height,
+    );
+    screen.present();
+    tsc().saturating_sub(start)
+}
+
+/// 输出全屏重绘耗时。
+#[cfg(target_os = "none")]
+fn report_full_redraw(label: &[u8], cycles: u64) {
+    let frequency = tsc_frequency();
+    write(b"hk-server-display: ");
+    write(label);
+    write_u64(if frequency == 0 {
+        cycles
+    } else {
+        cycles.saturating_mul(1_000_000) / frequency
+    });
+    if frequency == 0 {
+        write(b" cycles\n");
+    } else {
+        write(b" us\n");
+    }
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -355,8 +398,23 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut drag: Option<Drag> = None;
     let mut resize: Option<Resize> = None;
     damage_taskbar(&screen, &windows, focus, &font, pointer);
+
+    let mut benchmarked = false;
+    let benchmark_at = tsc().saturating_add(tsc_frequency().saturating_mul(2));
+
     loop {
         screen.present();
+        if !benchmarked && tsc() >= benchmark_at {
+            benchmarked = true;
+            // 空闲后连续测量，取最小值，排除启动期抢占等待带来的抖动。
+            let mut best = u64::MAX;
+            for _ in 0..3 {
+                best = best.min(measure_full_redraw(
+                    &screen, &windows, focus, &font, pointer,
+                ));
+            }
+            report_full_redraw(b"full redraw min ", best);
+        }
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
         if !driver_input {
             while let Some(byte) = console_read() {
