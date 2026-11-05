@@ -15,7 +15,7 @@
 | L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出 |
 | L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
-| L3 客户端 | `clients/*` | netstat/netsock 与 `*-test` 自检客户端；只通过协议访问服务 |
+| L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
 | L4 运行时 | `hk-runtime` | 用户任务视图、系统调用分派、Arena、RootServer 启动原语 |
 | L4 内核 Shell | `hk-kernel-shell` | 内核态 Shell 宿主、运行时视图转换、服务启动/重启/脚本编排；只依赖 `hk-shell` 与 `hk-root-server` |

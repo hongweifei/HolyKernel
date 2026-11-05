@@ -173,7 +173,7 @@ pub struct ServiceManifest {
 - **Workbench**：编辑、浏览、构建、运行、调试一体化应用。
 - **Toolchain Server**：系统内编译/链接/打包/缓存。
 - **Checkpoint Server**：Native Task/Server 快照与恢复。
-- **Debug Server**：符号化栈回溯、Task/资源视图、`hk-dbg`。
+- **Debug Server**：分页 Task/资源/trace 视图与最近异常符号化回溯；`hk-server-dbg` 客户端输出同样的视图。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
 - **Console Service**：纯终端数据面，只做行编辑、回显、UTF-8/宽字符与按行交付；不解析命令。用户态 Shell 未启动时保留输入行，收到读行请求后再交付。
 - **Shell 分层**：`hk-shell` 只提供命令解析、格式化与 `ShellHost`/`ShellIo` 契约，保持零依赖。内核态 shell 直接使用平台 runtime/loader，负责文本模式与恢复；用户态 `hk-server-shell` 通过 `ShellIo` 访问 Console，通过 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`）执行 `tasks`、`services`、`start`、`restart` 与脚本读取，`mounts` 作为用户态宿主扩展通过 VFS 只读查询挂载表，不进入 `hk-shell` 核心命令表，也不链接 `hk-runtime`/`hk-root-server`。两类 Shell 共享解析/格式化，但能力与权限边界独立；Console 不承担第三套命令。

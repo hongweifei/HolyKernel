@@ -49,7 +49,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - HolyDoc 文档由文本与内联指令组成：`@title`、`@heading`、`@link`、`@bullet`、`@code` 与 `@exec`；正文按 8×16 位图字体排版，ASCII 半宽、汉字全宽。
 - HolyDoc 标签：启动时读取 H: 卷标签表，文档页追加所属标签；`H:/Tags` 按标签分组列出成员，按 `t` 打开，`@exec tags` 输出标签列表。
 - `desktop` 启动模式装载 virtio-blk 驱动与 VFS，并以 `vfs.fs=holyfs` 挂载 `H:` 卷；`cargo xtask run --target x86_64-qemu --ui` 会把 `docs/holy` 的文档播种到 `build/run-holy.img`。
-- Debug Server：调试窗口展示内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`r` 刷新，`q` 或关闭退出。`smoke --mode debug` 验证统计读取与渲染。
+- Debug Server：调试窗口分页展示概览、任务、服务、trace、统计与最近一次用户异常回溯；`1`-`6` 切换视图，`j`/`k`、`u`/`d`、方向键与 PageUp/PageDown 滚动，`r` 刷新，`q` 或关闭退出。异常页显示故障现场与符号化栈帧。`smoke --mode debug` 验证分页读取、渲染与符号解析。
 - Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏；所有绘制先写入离屏后备缓冲，damage 合并后一次性提交帧缓冲，避免中间状态闪烁。

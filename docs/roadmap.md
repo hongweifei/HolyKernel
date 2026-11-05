@@ -192,7 +192,7 @@ flowchart LR
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：HolyDoc 指令解析、自动换行布局、内置欢迎页与帮助页、链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；启动落在欢迎页，经 `H:` 卷原生文档协议枚举集合并整篇读取文档，集合页与 DocPath 链接可直接跳转；`smoke --mode holydoc` 验证解析、执行、跳转、返回、集合浏览与渲染。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏、8×16 位图字体回退；TrueType/OpenType 可缩放字体在后续版本接入。
 - 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
-- Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地最小窗口：内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`smoke --mode debug` 验证。
+- Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；镜像构建生成内核与服务符号表，用户异常记录现场并经 Root 控制 `symbolize`/`fault` 输出符号化回溯；`smoke --mode debug` 验证各视图与符号解析。
 - 服务器热重启与应用热替换原型。
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
