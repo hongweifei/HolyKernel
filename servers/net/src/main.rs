@@ -34,6 +34,12 @@ use hk_server_api::{
 const HEAP_SIZE: usize = 768 * 1024;
 #[cfg(target_os = "none")]
 const TCP_PORT: u16 = 45678;
+/// 宿主 UDP echo 端口。
+#[cfg(target_os = "none")]
+const UDP_ECHO_PORT: u16 = 45679;
+/// UDP 自检使用的本地端口。
+#[cfg(target_os = "none")]
+const UDP_LOCAL_PORT: u16 = 40001;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
 #[cfg(target_os = "none")]
@@ -182,7 +188,40 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     write("hk-server-net: tcp ok\n".as_bytes());
 
-    // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP。
+    let udp = match stack.open_udp(UDP_LOCAL_PORT) {
+        Ok(handle) => handle,
+        Err(_) => {
+            write("hk-server-net: UDP 初始化失败\n".as_bytes());
+            exit(8)
+        }
+    };
+    if stack
+        .send_udp(udp, gateway, UDP_ECHO_PORT, b"holy")
+        .is_err()
+    {
+        write("hk-server-net: UDP 发送失败\n".as_bytes());
+        exit(8)
+    }
+    let mut udp_reply = [0_u8; 16];
+    let mut udp_ok = false;
+    let udp_deadline = now_ms().saturating_add(WAIT_MS);
+    while now_ms() < udp_deadline {
+        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+        if let Ok(Some((length, _))) = stack.recv_udp(udp, &mut udp_reply)
+            && length >= 4
+        {
+            udp_ok = true;
+            break;
+        }
+    }
+    stack.close_socket(udp);
+    if !udp_ok {
+        write("hk-server-net: UDP 回显失败\n".as_bytes());
+        exit(8)
+    }
+    write("hk-server-net: udp ok\n".as_bytes());
+
+    // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP/UDP。
     let mut name_buffer = [0_u8; 128];
     if let Some(name) = hk_server_api::boot_cmdline(&mut name_buffer).and_then(|line| {
         line.split_whitespace()

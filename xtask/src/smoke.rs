@@ -4,7 +4,7 @@ mod qmp;
 
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -30,6 +30,9 @@ const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
 
 /// QEMU 用户网络中的宿主 TCP echo 端口。
 const NET_TCP_PORT: u16 = 45678;
+
+/// QEMU 用户网络中的宿主 UDP echo 端口。
+const NET_UDP_PORT: u16 = 45679;
 
 /// `isa-debug-exit` 的成功退出码：`(0 << 1) | 1`。
 const QEMU_SUCCESS: i32 = 1;
@@ -205,6 +208,7 @@ impl SmokeMode {
                 "hk-server-net: ready",
                 "hk-server-net: ping ok",
                 "hk-server-net: tcp ok",
+                "hk-server-net: udp ok",
                 "hk-server-net: dns ok 127.0.0.1",
                 "hk-server-netstat: mac=",
                 "hk-server-netstat: rx_frames=",
@@ -283,6 +287,16 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     } else {
         None
     };
+    let udp = if mode == SmokeMode::Net {
+        let socket = UdpSocket::bind(("0.0.0.0", NET_UDP_PORT))
+            .map_err(|error| Failure::new(format!("绑定 UDP echo 失败：{error}")))?;
+        socket
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .map_err(|error| Failure::new(format!("设置 UDP echo 超时失败：{error}")))?;
+        Some(socket)
+    } else {
+        None
+    };
 
     let mut command = Command::new("qemu-system-x86_64");
     command
@@ -325,6 +339,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         thread::sleep(Duration::from_millis(500));
         inject(&socket, "exit\n")?;
     }
+    let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {
         serve_tcp_echo(listener)?;
     }
@@ -341,6 +356,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             Err(error) => return Err(Failure::new(format!("等待 QEMU 失败：{error}"))),
         }
     };
+
+    if let Some(handle) = udp_echo {
+        let _ = handle.join();
+    }
 
     let expected = mode.expected();
     let read_deadline = Instant::now() + Duration::from_secs(1);
@@ -448,6 +467,35 @@ fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
             }
             Err(error) => {
                 return Err(Failure::new(format!("TCP echo accept 失败：{error}")));
+            }
+        }
+    }
+}
+
+/// 回显一次 UDP 数据报，供 QEMU 内 UDP 自检使用。
+fn serve_udp_echo(socket: UdpSocket) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut buffer = [0_u8; 64];
+    loop {
+        match socket.recv_from(&mut buffer) {
+            Ok((length, peer)) => {
+                socket
+                    .send_to(&buffer[..length], peer)
+                    .map_err(|error| Failure::new(format!("UDP echo 写回失败：{error}")))?;
+                return Ok(());
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if Instant::now() > deadline {
+                    return Err(Failure::new("QEMU UDP 未发送到宿主 echo"));
+                }
+            }
+            Err(error) => {
+                return Err(Failure::new(format!("UDP echo 接收失败：{error}")));
             }
         }
     }
