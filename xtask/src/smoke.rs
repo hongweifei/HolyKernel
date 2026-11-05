@@ -136,7 +136,7 @@ impl SmokeMode {
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
             Self::Console => Some("console-test"),
-            Self::Display => Some("display-test"),
+            Self::Display => Some("theme=light display-test"),
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
@@ -298,6 +298,7 @@ impl SmokeMode {
             ],
             Self::Console => &["hk-server-console-test: got hello"],
             Self::Display => &[
+                "hk-server-display: theme light",
                 "hk-server-display: ready",
                 "hk-server-display: title ok",
                 "hk-server-display: composite ok",

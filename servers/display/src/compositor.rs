@@ -2,41 +2,11 @@
 
 use lovyangfx_fonts::Font;
 
+use crate::theme::theme;
 use crate::window::{
     CLOSE_SIZE, MAX_WINDOWS, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT,
     TITLE_HEIGHT, Window, close_button_origin, taskbar_button_top, taskbar_button_x, taskbar_top,
 };
-
-/// 桌面背景顶部颜色。
-#[cfg(target_os = "none")]
-const DESKTOP_TOP: u32 = 0x0010_1820;
-/// 桌面背景底部颜色。
-#[cfg(target_os = "none")]
-const DESKTOP_BOTTOM: u32 = 0x0030_4860;
-/// 标题栏颜色。
-#[cfg(target_os = "none")]
-pub(crate) const TITLE_COLOR: u32 = 0x0020_60A0;
-/// 焦点窗口的标题栏颜色。
-#[cfg(target_os = "none")]
-pub(crate) const TITLE_FOCUS: u32 = 0x0040_A0E0;
-/// 标题文字颜色。
-#[cfg(target_os = "none")]
-pub(crate) const TITLE_TEXT: u32 = 0x00E0_F0FF;
-/// 标题栏关闭按钮颜色。
-#[cfg(target_os = "none")]
-const TITLE_CLOSE: u32 = 0x00E8_6868;
-/// 任务栏背景色。
-#[cfg(target_os = "none")]
-const TASKBAR_BG: u32 = 0x0018_1E28;
-/// 任务栏按钮颜色。
-#[cfg(target_os = "none")]
-const TASKBAR_BUTTON: u32 = 0x0028_3240;
-/// 焦点窗口的任务栏按钮颜色。
-#[cfg(target_os = "none")]
-const TASKBAR_ACTIVE: u32 = 0x0038_6A98;
-/// 任务栏文字颜色。
-#[cfg(target_os = "none")]
-const TASKBAR_TEXT: u32 = 0x00E8_F0FF;
 
 /// 光标宽度。
 #[cfg(target_os = "none")]
@@ -75,8 +45,9 @@ fn blend(from: u32, to: u32, ratio: u32) -> u32 {
 /// 返回桌面在指定行的颜色。
 #[cfg(target_os = "none")]
 fn desktop_color(height: usize, row: usize) -> u32 {
+    let palette = theme();
     let ratio = (row * 255 / height.max(1)) as u32;
-    blend(DESKTOP_TOP, DESKTOP_BOTTOM, ratio)
+    blend(palette.desktop_top, palette.desktop_bottom, ratio)
 }
 
 /// 读取窗口表面中的一个像素。
@@ -93,17 +64,18 @@ pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
 /// 绘制鼠标箭头（带 1 像素阴影）。
 #[cfg(target_os = "none")]
 fn draw_cursor(screen: &Screen, x: usize, y: usize) {
+    let palette = theme();
     for (row, bits) in CURSOR_BITS.iter().enumerate() {
         for column in 0..CURSOR_WIDTH {
             if bits & (0x80 >> column) != 0 {
-                screen.put(x + column + 1, y + row + 1, 0x0000_0000);
+                screen.put(x + column + 1, y + row + 1, palette.cursor_shadow);
             }
         }
     }
     for (row, bits) in CURSOR_BITS.iter().enumerate() {
         for column in 0..CURSOR_WIDTH {
             if bits & (0x80 >> column) != 0 {
-                screen.put(x + column, y + row, 0x00FF_FFFF);
+                screen.put(x + column, y + row, palette.cursor);
             }
         }
     }
@@ -122,6 +94,7 @@ fn paint_window(
     right: usize,
     bottom: usize,
 ) {
+    let palette = theme();
     let window_x = window.x;
     let window_y = window.y;
 
@@ -131,9 +104,9 @@ fn paint_window(
     let title_bottom = (window_y + TITLE_HEIGHT).min(bottom);
     if title_left < title_right && title_top < title_bottom {
         let color = if window.id == focus {
-            TITLE_FOCUS
+            palette.title_focus
         } else {
-            TITLE_COLOR
+            palette.title_color
         };
         for row in title_top..title_bottom {
             for column in title_left..title_right {
@@ -160,7 +133,7 @@ fn paint_window(
                         && pixel_y < bottom as i32
                         && pixel_y < (window_y + TITLE_HEIGHT) as i32
                     {
-                        screen.put(pixel_x as usize, pixel_y as usize, TITLE_TEXT);
+                        screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
                     }
                 });
             }
@@ -175,10 +148,10 @@ fn paint_window(
             let left_pixel = close_x + offset;
             let right_pixel = close_x + (CLOSE_SIZE - 1 - offset);
             if left_pixel >= left && left_pixel < right {
-                screen.put(left_pixel, row, TITLE_CLOSE);
+                screen.put(left_pixel, row, palette.title_close);
             }
             if right_pixel >= left && right_pixel < right {
-                screen.put(right_pixel, row, TITLE_CLOSE);
+                screen.put(right_pixel, row, palette.title_close);
             }
         }
     }
@@ -212,6 +185,7 @@ fn paint_taskbar(
     right: usize,
     bottom: usize,
 ) {
+    let palette = theme();
     let bar_top = taskbar_top(screen.height);
     let top = top.max(bar_top);
     let bottom = bottom.min(screen.height);
@@ -220,7 +194,7 @@ fn paint_taskbar(
     }
     for row in top..bottom {
         for column in left..right {
-            screen.put(column, row, TASKBAR_BG);
+            screen.put(column, row, palette.taskbar_bg);
         }
     }
 
@@ -235,9 +209,9 @@ fn paint_taskbar(
         }
         let button_width = TASKBAR_BUTTON_WIDTH.min(screen.width - button_x);
         let color = if window.id == focus {
-            TASKBAR_ACTIVE
+            palette.taskbar_active
         } else {
-            TASKBAR_BUTTON
+            palette.taskbar_button
         };
         let fill_top = button_top.max(top);
         let fill_bottom = (button_top + TASKBAR_BUTTON_HEIGHT).min(bottom);
@@ -271,7 +245,7 @@ fn paint_taskbar(
                             && pixel_y >= bar_top as i32
                             && pixel_y < screen.height as i32
                         {
-                            screen.put(pixel_x as usize, pixel_y as usize, TASKBAR_TEXT);
+                            screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
                         }
                     });
                 }

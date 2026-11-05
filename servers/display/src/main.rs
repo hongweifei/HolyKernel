@@ -30,10 +30,12 @@ use lovyangfx_fonts::fonts::efont_cn_16;
 mod compositor;
 #[cfg(target_os = "none")]
 use compositor::{
-    CURSOR_HEIGHT, CURSOR_WIDTH, TITLE_COLOR, TITLE_FOCUS, compose_region, damage_taskbar,
-    damage_title, damage_window, draw_desktop, move_window, surface_pixel,
+    CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, damage_taskbar, damage_title, damage_window,
+    draw_desktop, move_window, surface_pixel,
 };
 
+#[cfg(target_os = "none")]
+mod theme;
 #[cfg(target_os = "none")]
 mod window;
 #[cfg(target_os = "none")]
@@ -176,6 +178,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         stride: framebuffer.stride as usize / 4,
     };
     let font = efont_cn_16();
+    let mut theme_buffer = [0_u8; 128];
+    let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
+    write(b"hk-server-display: theme ");
+    write(theme_name.as_bytes());
+    write(b"\n");
     draw_desktop(&screen);
     write(b"hk-server-display: ready ");
     write_u64(u64::from(framebuffer.width));
@@ -465,10 +472,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .flatten()
                         .find(|window| window.id == id)
                         .is_some_and(|window| {
+                            let palette = theme::theme();
                             let color = if window.id == focus {
-                                TITLE_FOCUS
+                                palette.title_focus
                             } else {
-                                TITLE_COLOR
+                                palette.title_color
                             };
                             (window.y + 4..(window.y + TITLE_HEIGHT).min(screen.height)).any(
                                 |row| {
