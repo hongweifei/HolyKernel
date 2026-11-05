@@ -1,5 +1,8 @@
 [advisories]
 yanked = "deny"
+# RUSTSEC-2026-0192：ttf-parser 已停止维护。hk-font 只解析编译期由
+# include_bytes! 嵌入的字体，不接触外部输入；迁移到 skrifa 前暂时保留。
+ignore = ["RUSTSEC-2026-0192"]
 
 [licenses]
 version = 2
