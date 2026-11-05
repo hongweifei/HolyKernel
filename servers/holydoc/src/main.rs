@@ -36,7 +36,10 @@ use hk_server_api::display::{
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, decode_entries};
+use hk_server_api::holy::{
+    DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
+    STATUS_PERMISSION, decode_entries,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     exit, frame_alloc, recv, send, send_handle, service_endpoint, write, write_u64,
@@ -178,6 +181,36 @@ fn load_collection(
     members
 }
 
+/// 验证令牌收窄、撤销与固定修订读取。
+#[cfg(target_os = "none")]
+fn verify_tokens(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.resolve(root, "Welcome") else {
+        return false;
+    };
+    let Ok(token) = client.acquire(document, RIGHT_READ) else {
+        return false;
+    };
+    let Ok(child) = client.grant(token, RIGHT_READ) else {
+        let _ = client.release(token);
+        return false;
+    };
+    let mut buffer = [0_u8; 256];
+    let Ok(length) = client.read_token(child, 0, &mut buffer) else {
+        let _ = client.release(token);
+        return false;
+    };
+    let read_ok = buffer[..length].starts_with(b"@title");
+    let grant_rejected = client.grant(token, RIGHT_WRITE) == Err(STATUS_PERMISSION);
+    let revoked = client.revoke(child).is_ok();
+    let read_rejected = client.read_token(child, 0, &mut buffer) == Err(STATUS_NOT_FOUND);
+    let _ = client.release(token);
+    read_ok && grant_rejected && revoked && read_rejected
+}
+
 /// 提交并等待显示服务完成合成。
 #[cfg(target_os = "none")]
 fn commit(endpoint: u64, display: u64, window: u64) {
@@ -264,6 +297,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("holydoc-test"));
     if test {
+        if verify_tokens(endpoint) {
+            write(b"hk-server-holydoc: token ok\n");
+        } else {
+            write(b"hk-server-holydoc: token failed\n");
+        }
         if let Some((x, y, target)) = view.first_link() {
             write(b"hk-server-holydoc: click ");
             write(target.as_bytes());

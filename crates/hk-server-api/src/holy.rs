@@ -8,6 +8,7 @@ use core::fmt;
 use crate::vfs::{
     STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response, encode_request,
 };
+pub use crate::vfs::{STATUS_NOT_FOUND, STATUS_PERMISSION};
 use crate::{recv_data_from, send_data, service_endpoint};
 
 /// 线上文档身份；与原生 `DocId` 同构，不依赖分配。
@@ -136,6 +137,12 @@ pub const OP_WRITE_TOKEN: u8 = 19;
 pub const OP_TRUNCATE_TOKEN: u8 = 20;
 /// 通过令牌查询视图。
 pub const OP_DOCUMENT_TOKEN: u8 = 21;
+/// 收窄令牌权利。
+pub const OP_GRANT: u8 = 22;
+/// 撤销令牌。
+pub const OP_REVOKE: u8 = 23;
+/// 把令牌转移到另一个端点。
+pub const OP_TRANSFER: u8 = 24;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -554,6 +561,23 @@ impl HolyClient {
     /// 释放令牌。
     pub fn release(&mut self, token: u64) -> Result<(), u8> {
         self.exchange(OP_RELEASE, "", token, 0, &[]).map(|_| ())
+    }
+
+    /// 收窄令牌权利，返回子令牌。
+    pub fn grant(&mut self, token: u64, rights: u32) -> Result<u64, u8> {
+        let length = self.exchange(OP_GRANT, "", token, u64::from(rights), &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 撤销令牌及其子令牌。
+    pub fn revoke(&mut self, token: u64) -> Result<(), u8> {
+        self.exchange(OP_REVOKE, "", token, 0, &[]).map(|_| ())
+    }
+
+    /// 把令牌转移到目标端点。
+    pub fn transfer(&mut self, token: u64, target: u64) -> Result<u64, u8> {
+        let length = self.exchange(OP_TRANSFER, "", token, target, &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
     }
 
     /// 通过令牌读取。

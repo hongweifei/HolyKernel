@@ -3,62 +3,53 @@
 use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_frame, unregister_client_frame};
-use hk_fs_holyfs::{DocId, RevisionId};
+use hk_fs::{DocId, HandleRights, RevisionId, Token, TokenTable};
 use hk_server_api::vfs::{VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE};
 use hk_server_api::{close_handle, frame_map, frame_unmap};
 use hk_vfs::{FileHandle, Vfs};
 
-/// 文档令牌。
-#[cfg(target_os = "none")]
-#[derive(Clone, Copy)]
-pub(crate) struct Token {
-    pub(crate) document: DocId,
-    pub(crate) revision: RevisionId,
-    pub(crate) rights: u32,
-}
-
 /// 文档令牌表。
 #[cfg(target_os = "none")]
 pub(crate) struct DocSession {
-    tokens: BTreeMap<u64, Token>,
-    next: u64,
+    table: TokenTable,
 }
 
 #[cfg(target_os = "none")]
 impl DocSession {
     const fn new() -> Self {
         Self {
-            tokens: BTreeMap::new(),
-            next: 1,
+            table: TokenTable::new(),
         }
     }
 
     pub(crate) fn acquire(&mut self, document: DocId, revision: RevisionId, rights: u32) -> u64 {
-        let token = self.next;
-        self.next = self.next.saturating_add(1);
-        self.tokens.insert(
-            token,
-            Token {
-                document,
-                revision,
-                rights,
-            },
-        );
-        token
+        self.table
+            .acquire(document, revision, HandleRights::from_bits(rights))
     }
 
     pub(crate) fn get(&self, token: u64) -> Option<Token> {
-        self.tokens.get(&token).copied()
+        self.table.get(token)
     }
 
     pub(crate) fn set_revision(&mut self, token: u64, revision: RevisionId) {
-        if let Some(entry) = self.tokens.get_mut(&token) {
-            entry.revision = revision;
-        }
+        self.table.set_revision(token, revision);
     }
 
     pub(crate) fn release(&mut self, token: u64) -> bool {
-        self.tokens.remove(&token).is_some()
+        self.table.revoke(token)
+    }
+
+    pub(crate) fn grant(&mut self, token: u64, rights: u32) -> Result<u64, hk_fs::Error> {
+        self.table.grant(token, HandleRights::from_bits(rights))
+    }
+
+    pub(crate) fn take(&mut self, token: u64) -> Option<Token> {
+        self.table.take(token)
+    }
+
+    pub(crate) fn insert(&mut self, token: Token) -> u64 {
+        self.table
+            .insert(token.document, token.revision, token.rights)
     }
 }
 
@@ -118,6 +109,24 @@ impl Sessions {
 
     pub(crate) fn doc(&mut self, sender: u64) -> &mut DocSession {
         self.documents.entry(sender).or_insert_with(DocSession::new)
+    }
+
+    pub(crate) fn transfer(&mut self, from: u64, to: u64, token: u64) -> Result<u64, u8> {
+        use hk_server_api::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_PERMISSION};
+
+        if from == to {
+            return Err(STATUS_INVALID);
+        }
+        let entry = {
+            let source = self.documents.get_mut(&from).ok_or(STATUS_NOT_FOUND)?;
+            let entry = source.get(token).ok_or(STATUS_NOT_FOUND)?;
+            if !entry.rights.contains(HandleRights::TRANSFER) {
+                return Err(STATUS_PERMISSION);
+            }
+            source.take(token).ok_or(STATUS_NOT_FOUND)?
+        };
+        let target = self.documents.entry(to).or_insert_with(DocSession::new);
+        Ok(target.insert(entry))
     }
 
     pub(crate) fn attach_frame(&mut self, sender: u64, handle: u64, length: usize) -> bool {

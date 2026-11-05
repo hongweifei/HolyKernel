@@ -352,6 +352,7 @@ impl SmokeMode {
                 "hk-server-holydoc: doc H:/Welcome",
                 "hk-server-holydoc: drive docs 5",
                 "hk-server-holydoc: exec version",
+                "hk-server-holydoc: token ok",
                 "hk-server-holydoc: click H:/System",
                 "hk-server-holydoc: open H:/System",
                 "hk-server-holydoc: open H:/System/Overview",

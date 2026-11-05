@@ -6,30 +6,38 @@ use hk_block::ipc::ClientDisk;
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, HolyFs, RevisionId};
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_CREATE,
-    OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_ENUMERATE, OP_ENUMERATE_ID, OP_READ,
-    OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS, OP_REVISIONS_ID, OP_ROOT,
-    OP_SYNC, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_WRITE_ID, OP_WRITE_TOKEN,
-    RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, RevisionId as WireRevisionId, RevisionView,
-    decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_entry, encode_revision,
-    encode_revision_id, encode_token,
+    OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_ENUMERATE, OP_ENUMERATE_ID, OP_GRANT,
+    OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS, OP_REVISIONS_ID,
+    OP_REVOKE, OP_ROOT, OP_SYNC, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
+    OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE,
+    RevisionId as WireRevisionId, RevisionView, decode_doc_id, decode_u64, encode_doc_id,
+    encode_document, encode_entry, encode_revision, encode_revision_id, encode_token,
 };
 use hk_server_api::vfs::{
     Request, STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
     STATUS_PERMISSION,
 };
 
-use crate::sessions::DocSession;
+use crate::sessions::Sessions;
 
 /// 处理原生文档请求，返回状态与响应字节数。
 pub(crate) fn handle(
     drive: Option<&mut HolyFs<ClientDisk>>,
-    session: &mut DocSession,
+    sessions: &mut Sessions,
+    sender: u64,
     request: &Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
     let Some(drive) = drive else {
         return (STATUS_IO, 0);
     };
+    if request.op == OP_TRANSFER {
+        return match sessions.transfer(sender, request.arg1, request.arg0) {
+            Ok(token) => encode_token_response(body, token),
+            Err(status) => (status, 0),
+        };
+    }
+    let session = sessions.doc(sender);
     match request.op {
         OP_ENUMERATE => match drive.enumerate(request.path) {
             Ok(entries) => encode_entries(body, entries),
@@ -153,18 +161,22 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
-        OP_RELEASE => {
+        OP_RELEASE | OP_REVOKE => {
             if session.release(request.arg0) {
                 (STATUS_OK, 0)
             } else {
                 (STATUS_NOT_FOUND, 0)
             }
         }
+        OP_GRANT => match session.grant(request.arg0, request.arg1 as u32) {
+            Ok(token) => encode_token_response(body, token),
+            Err(error) => (status(error), 0),
+        },
         OP_READ_TOKEN => {
             let Some(token) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            if token.rights & RIGHT_READ == 0 {
+            if token.rights.bits() & RIGHT_READ == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             let Some(length) = decode_u64(request.data) else {
@@ -185,7 +197,7 @@ pub(crate) fn handle(
             let Some(token) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            if token.rights & RIGHT_WRITE == 0 {
+            if token.rights.bits() & RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.write_range(token.document, request.arg1, request.data) {
@@ -203,7 +215,7 @@ pub(crate) fn handle(
             let Some(token) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            if token.rights & RIGHT_WRITE == 0 {
+            if token.rights.bits() & RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.truncate(token.document, request.arg1) {
@@ -221,7 +233,7 @@ pub(crate) fn handle(
             let Some(token) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            if token.rights & RIGHT_INSPECT == 0 {
+            if token.rights.bits() & RIGHT_INSPECT == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.document_info(token.document) {

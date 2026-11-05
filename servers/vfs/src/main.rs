@@ -113,7 +113,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 continue;
             };
             let (status, written) =
-                holy::handle(drive.as_mut(), sessions.doc(sender), &request, &mut body);
+                holy::handle(drive.as_mut(), &mut sessions, sender, &request, &mut body);
             reply_holy(sender, status, &body[..written], &mut response);
             continue;
         }

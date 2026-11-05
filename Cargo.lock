@@ -612,6 +612,7 @@ name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+ "hk-fs",
  "hk-fs-ext4",
  "hk-fs-holyfs",
  "hk-fs-holyfs-vfs",
