@@ -16,7 +16,8 @@
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
-| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、用户运行时、平台实现、镜像与测试工具 |
+| L4 运行时 | `hk-runtime` | 用户任务视图、系统调用分派、Arena、RootServer 启动原语 |
+| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督与运行时宿主、平台实现、镜像与测试工具 |
 | 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
 
 `hk-shell` 必须保持零依赖；用户态命令通过 `ShellHost::extension` 交给宿主，不以任何形式引入内核或服务实现。
@@ -29,7 +30,9 @@
 | --- | --- | --- |
 | L0 内核 crate | `hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
-| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-root-server`、`hk-platform-*`、其他服务 |
+| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
+| `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
+| `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、平台二进制 |
 | L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
 | L3 服务/客户端/演示 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
 | `hk-shell` | 无 | 任何依赖 |
@@ -37,6 +40,8 @@
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
 
 目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
+
+运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 
 ---
 
