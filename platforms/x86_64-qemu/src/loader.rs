@@ -19,7 +19,7 @@ use crate::runtime;
 const USER_STACK_BASE: u64 = 0x0400_0000;
 
 /// 用户栈大小。
-const USER_STACK_SIZE: u64 = 2 * 1024 * 1024;
+const USER_STACK_SIZE: u64 = 512 * 1024;
 
 /// 各服务用户栈之间的间隔。
 const USER_STACK_STRIDE: u64 = 2 * 1024 * 1024;
