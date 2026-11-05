@@ -170,6 +170,29 @@ impl<D: BlockDevice> Volume<D> {
         Ok(length)
     }
 
+    pub(crate) fn read_range_at(
+        &self,
+        document: DocId,
+        revision: RevisionId,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        if record.kind == DocumentKind::Collection {
+            return Err(HolyError::IsDirectory);
+        }
+        let revision = self.revisions.get(&revision).ok_or(HolyError::NotFound)?;
+        if revision.document != document {
+            return Err(HolyError::NotFound);
+        }
+        if offset >= revision.size || buffer.is_empty() {
+            return Ok(0);
+        }
+        let length = buffer.len().min((revision.size - offset) as usize);
+        self.read_extents(revision, offset, &mut buffer[..length])?;
+        Ok(length)
+    }
+
     pub(crate) fn write_range(
         &mut self,
         document: DocId,

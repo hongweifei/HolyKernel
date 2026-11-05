@@ -81,13 +81,12 @@ impl<D: BlockDevice> Backend for HolyFsVfs<D> {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if let Some(revision) = revision {
-            let head = self.volume.document_info(document)?.head;
-            if revision != head {
-                return Err(Error::Unsupported);
-            }
+        match revision {
+            Some(revision) => self
+                .volume
+                .read_range_at(document, revision, offset, buffer),
+            None => self.volume.read_range(document, offset, buffer),
         }
-        self.volume.read_range(document, offset, buffer)
     }
 
     fn write(&mut self, document: DocId, offset: u64, data: &[u8]) -> Result<usize, Error> {
@@ -159,8 +158,8 @@ mod tests {
         let mut buffer = [0_u8; 8];
         assert_eq!(backend.read(document, Some(head), 0, &mut buffer), Ok(5));
         assert_eq!(
-            backend.read(document, Some(RevisionId::ROOT), 0, &mut buffer),
-            Err(Error::Unsupported)
+            backend.read(document, Some(RevisionId::new(9999)), 0, &mut buffer),
+            Err(Error::NotFound)
         );
     }
 }

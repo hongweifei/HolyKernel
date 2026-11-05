@@ -107,6 +107,19 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().read_range(document, offset, buffer)
     }
 
+    /// 从指定修订的偏移读取。
+    pub fn read_range_at(
+        &self,
+        document: DocId,
+        revision: RevisionId,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, HolyError> {
+        self.state
+            .borrow()
+            .read_range_at(document, revision, offset, buffer)
+    }
+
     /// 整文档写入，返回新的 head 修订。
     pub fn write_document(&mut self, path: &str, content: &[u8]) -> Result<RevisionId, HolyError> {
         let document = self.resolve(path)?;

@@ -36,7 +36,7 @@ use hk_server_api::display::{
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{HolyClient, KIND_COLLECTION, decode_entries};
+use hk_server_api::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, decode_entries};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     exit, frame_alloc, recv, send, send_handle, service_endpoint, write, write_u64,
@@ -89,8 +89,12 @@ fn load_drive_docs(set: &mut DocSet, endpoint: u64) -> usize {
         return 0;
     }
     let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(root) = client.root() else {
+        write(b"hk-server-holydoc: no root\n");
+        return 0;
+    };
     let mut count = 0;
-    load_collection(&mut client, DRIVE_ROOT, 0, set, &mut count);
+    load_collection(&mut client, root, DRIVE_ROOT, 0, set, &mut count);
     count
 }
 
@@ -98,6 +102,7 @@ fn load_drive_docs(set: &mut DocSet, endpoint: u64) -> usize {
 #[cfg(target_os = "none")]
 fn load_collection(
     client: &mut HolyClient,
+    collection: DocId,
     path: &str,
     depth: usize,
     set: &mut DocSet,
@@ -106,9 +111,9 @@ fn load_collection(
     if depth > MAX_DEPTH {
         return Vec::new();
     }
-    let entries: Vec<(u8, String)> = match client.enumerate(path) {
+    let entries: Vec<(u8, u128, String)> = match client.enumerate_id(collection) {
         Ok(bytes) => decode_entries(bytes)
-            .map(|entry| (entry.kind, String::from(entry.name)))
+            .map(|entry| (entry.kind, entry.document, String::from(entry.name)))
             .collect(),
         Err(status) => {
             write(b"hk-server-holydoc: drive ");
@@ -120,11 +125,12 @@ fn load_collection(
         }
     };
     let mut members = Vec::new();
-    for (kind, name) in entries {
+    for (kind, document, name) in entries {
         let child = join(path, &name);
         members.push((kind, name.clone(), child.clone()));
+        let document = DocId::new(document);
         if kind == KIND_COLLECTION {
-            let children = load_collection(client, &child, depth + 1, set, count);
+            let children = load_collection(client, document, &child, depth + 1, set, count);
             let mut body =
                 format!("@title(\"{name}\")\n这是 H: 卷中的一个集合。\n\n@heading(2, \"成员\")\n");
             for (kind, label, path) in &children {
@@ -141,7 +147,15 @@ fn load_collection(
             continue;
         }
         let mut buffer = vec![0_u8; DOC_MAX];
-        match client.read(&child, &mut buffer) {
+        let result = match client.acquire(document, RIGHT_READ) {
+            Ok(token) => {
+                let result = client.read_token(token, 0, &mut buffer);
+                let _ = client.release(token);
+                result
+            }
+            Err(status) => Err(status),
+        };
+        match result {
             Ok(length) => {
                 let body = String::from_utf8_lossy(&buffer[..length]).into_owned();
                 let title = title_of(&body).unwrap_or_else(|| doc_name(&child));

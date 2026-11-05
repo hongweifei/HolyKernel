@@ -8,7 +8,7 @@ VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中
 
 HolyFS 是 HolyKernel 的原生文件系统，以 `H:` 盘符与文档对象工作；POSIX 兼容环境通过 VFS 适配层访问卷中的文档。详见 [HolyFS](holyfs.md)。
 
-VFS Server 同时承载 `H:` 卷的原生文档协议：适配层与原生接口共享同一个 Volume，原生客户端按 DocPath 枚举集合、整篇读取文档并查询修订视图；POSIX 路径、偏移与 fd 语义只存在于 VFS 适配层。
+VFS Server 同时承载 `H:` 卷的原生文档协议：适配层与原生接口共享同一个 Volume，原生客户端可以按 DocPath 或 `DocId` 枚举集合、读取文档、查询修订视图，并通过 `ACQUIRE`/`RELEASE` 获取带权利与固定修订的文档令牌；路径、偏移与 fd 语义只作为兼容投影存在。当前原生操作包括 `ROOT`、`RESOLVE`、`CREATE`、`UNBIND`、`ENUMERATE_ID`、`DOCUMENT_ID`、`READ_ID`、`WRITE_ID`、`TRUNCATE_ID`、`REVISIONS_ID`、`SYNC` 以及令牌读写。
 
 ---
 

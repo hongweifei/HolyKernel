@@ -112,7 +112,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 reply_holy(sender, STATUS_INVALID, &[], &mut response);
                 continue;
             };
-            let (status, written) = holy::handle(drive.as_ref(), &request, &mut body);
+            let (status, written) =
+                holy::handle(drive.as_mut(), sessions.doc(sender), &request, &mut body);
             reply_holy(sender, status, &body[..written], &mut response);
             continue;
         }
