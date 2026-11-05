@@ -8,6 +8,9 @@ pub use hk_syscall::{CONSOLE_NOTIFY_INPUT, CONSOLE_NOTIFY_MESSAGE};
 
 use crate::{notify, recv_data_from, send, send_data};
 
+/// Console 服务名。
+pub const CONSOLE_SERVICE: &str = "hk-server-console";
+
 /// 写文本（UTF-8）；载荷为文本。
 pub const CONSOLE_WRITE: u64 = 0x900;
 /// 请求读取一行。
@@ -18,6 +21,12 @@ pub const CONSOLE_READ_LINE: u64 = 0x902;
 pub const CONSOLE_SHUTDOWN: u64 = 0x903;
 /// 图形终端完成一次提交（仅终端模式发送）。
 pub const CONSOLE_WRITE_ACK: u64 = 0x904;
+/// 清空终端。
+pub const CONSOLE_CLEAR: u64 = 0x905;
+/// 客户端握手。
+pub const CONSOLE_PING: u64 = 0x906;
+/// 终端已进入接收循环。
+pub const CONSOLE_PONG: u64 = 0x907;
 
 /// 控制台客户端。
 #[derive(Clone, Copy)]
@@ -29,18 +38,34 @@ pub struct Client {
 impl Client {
     /// 等待 Console 服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let console = crate::runtime::wait_service("hk-server-console")?;
+        let console = crate::runtime::wait_service(CONSOLE_SERVICE)?;
         Some(Self { endpoint, console })
+    }
+
+    /// 返回 Console 服务端点。
+    pub fn console_endpoint(&self) -> u64 {
+        self.console
     }
 
     /// 写入文本。
     pub fn write(&self, text: &[u8]) {
-        let _ = send_data(self.console, CONSOLE_WRITE, text);
+        let result = send_data(self.console, CONSOLE_WRITE, text);
+        crate::write(b"console client write ep=");
+        crate::write_u64(self.console);
+        crate::write(b" result=");
+        crate::write_u64(result);
+        crate::write(b"\n");
         let _ = notify(self.console, CONSOLE_NOTIFY_MESSAGE);
     }
 
     /// 请求并读取一行，返回字节数。
     pub fn read_line(&self, buffer: &mut [u8]) -> usize {
+        let sent = send(self.console, CONSOLE_READ_REQUEST, 0);
+        crate::write(b"console client read ep=");
+        crate::write_u64(self.console);
+        crate::write(b" result=");
+        crate::write_u64(sent);
+        crate::write(b"\n");
         let _ = send(self.console, CONSOLE_READ_REQUEST, 0);
         let _ = notify(self.console, CONSOLE_NOTIFY_MESSAGE);
         let (label, _word, sender, length) = recv_data_from(self.endpoint, self.console, buffer);
@@ -49,6 +74,12 @@ impl Client {
         } else {
             0
         }
+    }
+
+    /// 清空终端。
+    pub fn clear(&self) {
+        let _ = send(self.console, CONSOLE_CLEAR, 0);
+        let _ = notify(self.console, CONSOLE_NOTIFY_MESSAGE);
     }
 
     /// 请求 Console 服务退出。

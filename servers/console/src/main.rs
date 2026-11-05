@@ -8,7 +8,8 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::console::{
-    CONSOLE_READ_LINE, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
+    CONSOLE_CLEAR, CONSOLE_PING, CONSOLE_PONG, CONSOLE_READ_LINE, CONSOLE_READ_REQUEST,
+    CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::display::{DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SERVICE, unpack_key};
@@ -30,68 +31,13 @@ fn emit(terminal: &mut Option<Terminal>, text: &[u8]) {
 
 /// 处理一个输入字节：行编辑、回显与按行回复。
 #[cfg(target_os = "none")]
-fn process_command(terminal: &mut Option<Terminal>, command: &str) {
-    let command = command.trim();
-    if command.is_empty() {
-        return;
-    }
-    if command == "help" {
-        emit(
-            terminal,
-            "命令：help, echo <text>, clear, version, services\n".as_bytes(),
-        );
-    } else if command == "clear" {
-        if let Some(terminal) = terminal {
-            terminal.clear();
-        }
-    } else if command == "version" {
-        emit(terminal, "HolyKernel M6 · Console\n".as_bytes());
-    } else if let Some(text) = command.strip_prefix("echo ") {
-        emit(terminal, text.as_bytes());
-        emit(terminal, b"\n");
-    } else if command == "services" {
-        for name in [
-            "hk-server-display",
-            "hk-server-console",
-            "hk-server-input",
-            "hk-server-device",
-            "hk-server-holydoc",
-            "hk-server-net",
-            "hk-server-vfs",
-        ] {
-            emit(terminal, name.as_bytes());
-            emit(
-                terminal,
-                if service_endpoint(name) == 0 {
-                    b": offline\n".as_slice()
-                } else {
-                    b": online\n".as_slice()
-                },
-            );
-        }
-    } else if command == "exit" {
-        emit(
-            terminal,
-            "桌面 Console 常驻；请使用标题栏关闭窗口\n".as_bytes(),
-        );
-    } else if command == "tasks" || command == "mounts" || command == "handles" {
-        emit(
-            terminal,
-            "桌面 Console 暂不支持该命令；请使用文本模式\n".as_bytes(),
-        );
-    } else {
-        emit(terminal, "未知命令：".as_bytes());
-        emit(terminal, command.as_bytes());
-        emit(terminal, "（help 查看）\n".as_bytes());
-    }
-}
-
-#[cfg(target_os = "none")]
 fn handle_input(
     terminal: &mut Option<Terminal>,
     line: &mut [u8; 128],
     length: &mut usize,
     pending: &mut u64,
+    queued: &mut [u8; 128],
+    queued_length: &mut usize,
     byte: u8,
 ) {
     match byte {
@@ -100,12 +46,10 @@ fn handle_input(
             if *pending != 0 {
                 let _ = send_data(*pending, CONSOLE_READ_LINE, &line[..*length]);
                 *pending = 0;
-                *length = 0;
-                return;
+            } else {
+                queued[..*length].copy_from_slice(&line[..*length]);
+                *queued_length = *length;
             }
-            let command = core::str::from_utf8(&line[..*length]).unwrap_or("");
-            process_command(terminal, command);
-            emit(terminal, b"> ");
             *length = 0;
         }
         0x08 | 0x7F => {
@@ -141,7 +85,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write_u64(terminal.window());
         write(b"\n");
         hk_server_api::display::set_title(terminal.display(), terminal.window(), "Console");
-        terminal.emit(b"> ");
     }
 
     let mut ever_attached = terminal.is_some();
@@ -153,6 +96,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut line = [0_u8; 128];
     let mut length = 0_usize;
     let mut pending = 0_u64;
+    let mut queued = [0_u8; 128];
+    let mut queued_length = 0_usize;
 
     loop {
         let current_display = service_endpoint(DISPLAY_SERVICE);
@@ -174,7 +119,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 write_u64(terminal.window());
                 write(b"\n");
                 hk_server_api::display::set_title(terminal.display(), terminal.window(), "Console");
-                terminal.emit(b"> ");
                 ever_attached = true;
             }
         }
@@ -195,11 +139,34 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         let _ = send(sender, CONSOLE_WRITE_ACK, 0);
                     }
                 }
-                CONSOLE_READ_REQUEST => pending = sender,
+                CONSOLE_READ_REQUEST => {
+                    if queued_length > 0 {
+                        let _ = send_data(sender, CONSOLE_READ_LINE, &queued[..queued_length]);
+                        queued_length = 0;
+                    } else {
+                        pending = sender;
+                    }
+                }
+                CONSOLE_PING => {
+                    let _ = send_data(sender, CONSOLE_PONG, &[]);
+                }
+                CONSOLE_CLEAR => {
+                    if let Some(terminal) = &mut terminal {
+                        terminal.clear();
+                    }
+                }
                 CONSOLE_SHUTDOWN => exit(0),
                 DISPLAY_KEY => {
                     let (_, byte) = unpack_key(word);
-                    handle_input(&mut terminal, &mut line, &mut length, &mut pending, byte);
+                    handle_input(
+                        &mut terminal,
+                        &mut line,
+                        &mut length,
+                        &mut pending,
+                        &mut queued,
+                        &mut queued_length,
+                        byte,
+                    );
                 }
                 DISPLAY_FRAME_DONE => {}
                 _ => {}
@@ -209,7 +176,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         // 有 Display 时，键盘事件经焦点窗口路由到本服务；无 Display 时直接读内核输入。
         if terminal.is_none() {
             while let Some(byte) = console_read() {
-                handle_input(&mut terminal, &mut line, &mut length, &mut pending, byte);
+                handle_input(
+                    &mut terminal,
+                    &mut line,
+                    &mut length,
+                    &mut pending,
+                    &mut queued,
+                    &mut queued_length,
+                    byte,
+                );
             }
         }
 
