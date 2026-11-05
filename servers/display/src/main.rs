@@ -29,15 +29,16 @@ use lovyangfx_fonts::fonts::efont_cn_16;
 mod compositor;
 #[cfg(target_os = "none")]
 use compositor::{
-    CURSOR_HEIGHT, CURSOR_WIDTH, TITLE_COLOR, TITLE_FOCUS, compose_region, damage_title,
-    damage_window, draw_desktop, move_window, surface_pixel,
+    CURSOR_HEIGHT, CURSOR_WIDTH, TITLE_COLOR, TITLE_FOCUS, compose_region, damage_taskbar,
+    damage_title, damage_window, draw_desktop, move_window, surface_pixel,
 };
 
 #[cfg(target_os = "none")]
 mod window;
 #[cfg(target_os = "none")]
 use window::{
-    Drag, MAX_WINDOWS, Screen, TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window, raise, window_at,
+    Drag, MAX_WINDOWS, Screen, TASKBAR_HEIGHT, TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window,
+    raise, taskbar_at, taskbar_top, window_at,
 };
 
 /// Tab 键字节：切换焦点。
@@ -86,6 +87,7 @@ fn cycle_focus(
         damage_window(screen, windows, *focus, font, pointer, &window);
     }
     damage_title(screen, windows, *focus, font, pointer, previous);
+    damage_taskbar(screen, windows, *focus, font, pointer);
     write(b"hk-server-display: focus ");
     write_u64(id);
     write(b"\n");
@@ -133,6 +135,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut driver_input = false;
     let mut pointer: Option<(usize, usize)> = None;
     let mut drag: Option<Drag> = None;
+    damage_taskbar(&screen, &windows, focus, &font, pointer);
     loop {
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
         if !driver_input {
@@ -192,12 +195,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     .saturating_div(2)
                     .saturating_add(offset)
                     .min(screen.width.saturating_sub(width));
-                let y = screen
-                    .height
+                let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
+                let y = desktop_height
                     .saturating_sub(height + TITLE_HEIGHT)
                     .saturating_div(2)
                     .saturating_add(offset)
-                    .min(screen.height.saturating_sub(height + TITLE_HEIGHT));
+                    .min(desktop_height.saturating_sub(height + TITLE_HEIGHT));
                 let previous = focus;
                 windows[slot] = Some(Window {
                     id,
@@ -217,6 +220,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     damage_window(&screen, &windows, focus, &font, pointer, &window);
                 }
                 damage_title(&screen, &windows, focus, &font, pointer, previous);
+                damage_taskbar(&screen, &windows, focus, &font, pointer);
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
             }
             INPUT_POINTER => {
@@ -246,7 +250,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .copied()
                 {
                     let max_x = screen.width.saturating_sub(window.width);
-                    let max_y = screen.height.saturating_sub(window.height + TITLE_HEIGHT);
+                    let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
+                    let max_y = desktop_height.saturating_sub(window.height + TITLE_HEIGHT);
                     let new_x = next.0.saturating_sub(state.offset_x).min(max_x);
                     let new_y = next.1.saturating_sub(state.offset_y).min(max_y);
                     if (new_x, new_y) != (window.x, window.y) {
@@ -286,6 +291,38 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 drag = None;
                 if let Some((x, y)) = pointer {
+                    if y >= taskbar_top(screen.height) {
+                        if let Some(id) = taskbar_at(&windows, x, y, screen.width, screen.height) {
+                            let old_focus = focus;
+                            raise(&mut windows, id);
+                            focus = id;
+                            if let Some(window) = windows
+                                .iter()
+                                .flatten()
+                                .find(|window| window.id == id)
+                                .copied()
+                            {
+                                damage_window(&screen, &windows, focus, &font, pointer, &window);
+                            }
+                            damage_title(&screen, &windows, focus, &font, pointer, old_focus);
+                            damage_taskbar(&screen, &windows, focus, &font, pointer);
+                            compose_region(
+                                &screen,
+                                &windows,
+                                focus,
+                                &font,
+                                pointer,
+                                x,
+                                y,
+                                CURSOR_WIDTH + 1,
+                                CURSOR_HEIGHT + 1,
+                            );
+                            write(b"hk-server-display: taskbar ");
+                            write_u64(id);
+                            write(b"\n");
+                        }
+                        continue;
+                    }
                     let old_focus = focus;
                     if let Some(window) = window_at(&windows, x, y) {
                         let id = window.id;
@@ -300,6 +337,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             damage_window(&screen, &windows, focus, &font, pointer, &window);
                         }
                         damage_title(&screen, &windows, focus, &font, pointer, old_focus);
+                        damage_taskbar(&screen, &windows, focus, &font, pointer);
                         compose_region(
                             &screen,
                             &windows,
@@ -356,6 +394,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         window.title_length = count;
                     }
                     damage_title(&screen, &windows, focus, &font, pointer, id);
+                    damage_taskbar(&screen, &windows, focus, &font, pointer);
                     let titled = windows
                         .iter()
                         .flatten()
@@ -400,6 +439,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 };
                 damage_window(&screen, &windows, focus, &font, pointer, &window);
                 damage_title(&screen, &windows, focus, &font, pointer, previous);
+                damage_taskbar(&screen, &windows, focus, &font, pointer);
                 let expected = surface_pixel(&window, 0, 0);
                 let actual = screen.get(window.x, window.y + TITLE_HEIGHT);
                 if expected != actual {

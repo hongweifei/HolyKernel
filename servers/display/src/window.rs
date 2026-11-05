@@ -18,6 +18,67 @@ pub(crate) const WINDOW_STRIDE: u64 = 0x20_0000;
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_HEIGHT: usize = 24;
 
+/// 底部任务栏高度。
+#[cfg(target_os = "none")]
+pub(crate) const TASKBAR_HEIGHT: usize = 28;
+
+/// 任务栏左右留白。
+#[cfg(target_os = "none")]
+pub(crate) const TASKBAR_MARGIN: usize = 8;
+
+/// 任务栏按钮宽度。
+#[cfg(target_os = "none")]
+pub(crate) const TASKBAR_BUTTON_WIDTH: usize = 160;
+
+/// 任务栏按钮高度。
+#[cfg(target_os = "none")]
+pub(crate) const TASKBAR_BUTTON_HEIGHT: usize = 20;
+
+/// 任务栏按钮间距。
+#[cfg(target_os = "none")]
+pub(crate) const TASKBAR_GAP: usize = 6;
+
+/// 任务栏顶边。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_top(height: usize) -> usize {
+    height.saturating_sub(TASKBAR_HEIGHT)
+}
+
+/// 任务栏按钮左边界。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_button_x(index: usize) -> usize {
+    TASKBAR_MARGIN + index * (TASKBAR_BUTTON_WIDTH + TASKBAR_GAP)
+}
+
+/// 任务栏按钮上边界。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_button_top(height: usize) -> usize {
+    taskbar_top(height) + (TASKBAR_HEIGHT - TASKBAR_BUTTON_HEIGHT) / 2
+}
+
+/// 返回任务栏按钮对应的窗口编号。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_at(
+    windows: &[Option<Window>; MAX_WINDOWS],
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> Option<u64> {
+    let top = taskbar_button_top(height);
+    if y < top || y >= top + TASKBAR_BUTTON_HEIGHT {
+        return None;
+    }
+    windows
+        .iter()
+        .flatten()
+        .enumerate()
+        .find_map(|(index, window)| {
+            let left = taskbar_button_x(index);
+            (left < width && x >= left && x < left + TASKBAR_BUTTON_WIDTH).then_some(window.id)
+        })
+}
+
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
 #[derive(Clone, Copy)]

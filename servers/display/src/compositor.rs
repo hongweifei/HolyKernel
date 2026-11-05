@@ -2,7 +2,10 @@
 
 use lovyangfx_fonts::Font;
 
-use crate::window::{MAX_WINDOWS, Screen, TITLE_HEIGHT, Window};
+use crate::window::{
+    MAX_WINDOWS, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT, TITLE_HEIGHT,
+    Window, taskbar_button_top, taskbar_button_x, taskbar_top,
+};
 
 /// 桌面背景顶部颜色。
 #[cfg(target_os = "none")]
@@ -19,6 +22,19 @@ pub(crate) const TITLE_FOCUS: u32 = 0x0040_A0E0;
 /// 标题文字颜色。
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_TEXT: u32 = 0x00E0_F0FF;
+/// 任务栏背景色。
+#[cfg(target_os = "none")]
+const TASKBAR_BG: u32 = 0x0018_1E28;
+/// 任务栏按钮颜色。
+#[cfg(target_os = "none")]
+const TASKBAR_BUTTON: u32 = 0x0028_3240;
+/// 焦点窗口的任务栏按钮颜色。
+#[cfg(target_os = "none")]
+const TASKBAR_ACTIVE: u32 = 0x0038_6A98;
+/// 任务栏文字颜色。
+#[cfg(target_os = "none")]
+const TASKBAR_TEXT: u32 = 0x00E8_F0FF;
+
 /// 光标宽度。
 #[cfg(target_os = "none")]
 pub(crate) const CURSOR_WIDTH: usize = 8;
@@ -165,6 +181,88 @@ fn paint_window(
     }
 }
 
+/// 绘制任务栏及其窗口按钮。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn paint_taskbar(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+) {
+    let bar_top = taskbar_top(screen.height);
+    let top = top.max(bar_top);
+    let bottom = bottom.min(screen.height);
+    if left >= right || top >= bottom {
+        return;
+    }
+    for row in top..bottom {
+        for column in left..right {
+            screen.put(column, row, TASKBAR_BG);
+        }
+    }
+
+    let button_top = taskbar_button_top(screen.height);
+    if button_top >= bottom || button_top + TASKBAR_BUTTON_HEIGHT <= top {
+        return;
+    }
+    for (index, window) in windows.iter().flatten().enumerate() {
+        let button_x = taskbar_button_x(index);
+        if button_x >= screen.width {
+            break;
+        }
+        let button_width = TASKBAR_BUTTON_WIDTH.min(screen.width - button_x);
+        let color = if window.id == focus {
+            TASKBAR_ACTIVE
+        } else {
+            TASKBAR_BUTTON
+        };
+        let fill_top = button_top.max(top);
+        let fill_bottom = (button_top + TASKBAR_BUTTON_HEIGHT).min(bottom);
+        for row in fill_top..fill_bottom {
+            for column in button_x.max(left)..(button_x + button_width).min(right) {
+                screen.put(column, row, color);
+            }
+        }
+
+        let mut pen_x = button_x as i32 + 6;
+        let text_end = (button_x + button_width) as i32 - 6;
+        let title: &[u8] = if window.title_length == 0 {
+            b"window"
+        } else {
+            &window.title[..window.title_length]
+        };
+        for &byte in title {
+            if pen_x + 8 > text_end {
+                break;
+            }
+            if (0x20..0x7F).contains(&byte) {
+                if let Some(glyph) = font.glyph(byte as char) {
+                    let origin_y = button_top as i32 + 2;
+                    glyph.for_each_pixel(|x, y| {
+                        let pixel_x = pen_x + x;
+                        let pixel_y = origin_y + y;
+                        if pixel_x >= left as i32
+                            && pixel_x < right as i32
+                            && pixel_y >= top as i32
+                            && pixel_y < bottom as i32
+                            && pixel_y >= bar_top as i32
+                            && pixel_y < screen.height as i32
+                        {
+                            screen.put(pixel_x as usize, pixel_y as usize, TASKBAR_TEXT);
+                        }
+                    });
+                }
+            }
+            pen_x += 8;
+        }
+    }
+}
+
 /// 重绘一个矩形区域：背景 + 自下而上的窗口。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
@@ -195,6 +293,7 @@ pub(crate) fn compose_region(
     for window in windows.iter().flatten() {
         paint_window(screen, window, focus, font, left, top, right, bottom);
     }
+    paint_taskbar(screen, windows, focus, font, left, top, right, bottom);
     if let Some((cursor_x, cursor_y)) = pointer
         && cursor_x >= left
         && cursor_x < right
@@ -236,6 +335,28 @@ pub(crate) fn damage_window(
         window.y,
         window.width,
         window.height + TITLE_HEIGHT,
+    );
+}
+
+/// 重绘任务栏。
+#[cfg(target_os = "none")]
+pub(crate) fn damage_taskbar(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+) {
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        pointer,
+        0,
+        taskbar_top(screen.height),
+        screen.width,
+        TASKBAR_HEIGHT,
     );
 }
 

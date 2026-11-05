@@ -323,6 +323,7 @@ impl SmokeMode {
             Self::Pointer => &[
                 "hk-server-input: ready",
                 "hk-server-display: drag 1",
+                "hk-server-display: taskbar 1",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",
             ],
@@ -512,8 +513,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
     if mode == SmokeMode::Pointer {
         thread::sleep(Duration::from_secs(5));
-        // 1280x800 下窗口位于 440,240（400x300），标题栏中心约 640,250。
-        inject_pointer_drag(&socket, 0x3FFF, 0x27FF, 0x4666, 0x27FF)?;
+        // 任务栏占 28px：1280x800 下窗口位于 440,224（400x300），标题栏中心约 640,236。
+        inject_pointer_drag(&socket, 0x3FFF, 0x25C2, 0x4666, 0x25C2)?;
+        thread::sleep(Duration::from_millis(300));
+        // 任务栏第一个按钮约在 (88,786)。
+        inject_pointer(&socket, 0x08CC, 0x7DC1)?;
         thread::sleep(Duration::from_millis(300));
         inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
     }
