@@ -2,6 +2,8 @@
 
 /// 镜像魔数。
 pub const MAGIC: [u8; 4] = *b"HKXI";
+/// 原生服务镜像的约定后缀。
+pub const FILE_SUFFIX: &str = ".hkx";
 /// 格式版本。
 pub const VERSION: u16 = 1;
 /// 设备授权能力。

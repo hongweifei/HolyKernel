@@ -16,7 +16,7 @@ mod tests;
 mod types;
 
 pub use builder::build;
-pub use format::{CAP_DEVICE, CAP_ENDPOINT, CAP_NOTIFICATION, MAGIC, VERSION};
+pub use format::{CAP_DEVICE, CAP_ENDPOINT, CAP_NOTIFICATION, FILE_SUFFIX, MAGIC, VERSION};
 pub use image::Image;
 pub use types::{
     Capability, CapabilityData, Dependency, DependencyData, Region, RegionData, Symbol, SymbolData,

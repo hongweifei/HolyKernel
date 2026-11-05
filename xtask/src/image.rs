@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use hk_image::FILE_SUFFIX;
+
 use crate::cargo;
 use crate::catalog::{SCRIPT_MODULES, SERVERS};
 use crate::failure::{Failure, Result};
@@ -19,7 +21,9 @@ fn limine_config(cmdline: Option<&str>) -> String {
         "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n",
     );
     for service in SERVERS {
-        config.push_str(&format!("    module_path: boot():/boot/{service}\n"));
+        config.push_str(&format!(
+            "    module_path: boot():/boot/{service}{FILE_SUFFIX}\n"
+        ));
     }
     for script in SCRIPT_MODULES {
         config.push_str(&format!("    module_path: boot():/boot/scripts/{script}\n"));
@@ -93,7 +97,7 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
     for service in SERVERS {
         let image = native_image(&binary_path(service, release))?;
-        let target = boot.join(service);
+        let target = boot.join(format!("{service}{FILE_SUFFIX}"));
         fs::write(&target, image)
             .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", target.display())))?;
     }

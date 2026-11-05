@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
-use hk_image::{CAP_DEVICE, CAP_ENDPOINT, CAP_NOTIFICATION, Image};
+use hk_image::{CAP_DEVICE, CAP_ENDPOINT, CAP_NOTIFICATION, FILE_SUFFIX, Image};
 
 use crate::catalog::SERVERS;
 use crate::failure::{Failure, Result};
@@ -131,7 +131,7 @@ fn summary() -> Result<()> {
         "服务", "Region", "Symbol", "优先级"
     );
     for service in SERVERS {
-        let path = directory.join(service);
+        let path = directory.join(format!("{service}{FILE_SUFFIX}"));
         if !path.is_file() {
             continue;
         }

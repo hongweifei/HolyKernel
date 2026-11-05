@@ -150,9 +150,10 @@ pub fn module_name(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
-/// 取模块路径的最后一段作为服务名。
+/// 取模块路径的最后一段并去掉原生镜像后缀，作为服务名。
 pub fn service_name(name: &'static str) -> &'static str {
-    module_name(name)
+    let name = module_name(name);
+    name.strip_suffix(hk_image::FILE_SUFFIX).unwrap_or(name)
 }
 
 /// 判断模块是否为 HolyShell 脚本。
@@ -169,18 +170,18 @@ mod tests {
     fn extracts_module_names() {
         assert_eq!(module_name("boot():/boot/scripts/boot.hsh"), "boot.hsh");
         assert_eq!(
-            service_name("boot():/boot/hk-server-demo"),
+            service_name("boot():/boot/hk-server-demo.hkx"),
             "hk-server-demo"
         );
         assert!(is_script("boot():/boot/scripts/boot.hsh"));
-        assert!(!is_script("boot():/boot/hk-server-demo"));
+        assert!(!is_script("boot():/boot/hk-server-demo.hkx"));
     }
 
     #[test]
     fn selects_boot_services_only() {
         static MODULES: [BootModule; 3] = [
             BootModule {
-                name: "boot():/boot/hk-server-demo",
+                name: "boot():/boot/hk-server-demo.hkx",
                 region: MemoryRegion::new(PhysAddr::new(0x1000), 0x1000, RegionKind::Module),
             },
             BootModule {
@@ -195,6 +196,6 @@ mod tests {
 
         let selected = boot_modules(&MODULES);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].name, "boot():/boot/hk-server-demo");
+        assert_eq!(selected[0].name, "boot():/boot/hk-server-demo.hkx");
     }
 }

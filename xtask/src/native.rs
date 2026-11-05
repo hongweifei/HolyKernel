@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hk_image::{CAP_DEVICE, CapabilityData, RegionData, SymbolData, TaskData, build};
+use hk_image::{CAP_DEVICE, CapabilityData, FILE_SUFFIX, RegionData, SymbolData, TaskData, build};
 use xmas_elf::ElfFile;
 use xmas_elf::program::Type as ProgramType;
 
@@ -14,7 +14,9 @@ use crate::workspace;
 
 /// 读取服务原生镜像；优先使用 build/iso，缺失时从目标 ELF 现场转换。
 pub(crate) fn service_image(service: &str, release: bool) -> Result<(String, Vec<u8>)> {
-    let iso = workspace::root().join("build/iso/boot").join(service);
+    let iso = workspace::root()
+        .join("build/iso/boot")
+        .join(format!("{service}{FILE_SUFFIX}"));
     if iso.is_file() {
         return Ok((iso.display().to_string(), read_image(&iso)?));
     }
@@ -92,7 +94,7 @@ pub(crate) fn native_image(path: &Path) -> Result<Vec<u8>> {
     let entry = file.header.pt2.entry_point();
     let role = service_role(&file);
     let name = path
-        .file_name()
+        .file_stem()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Failure::new("服务镜像文件名无效"))?;
     let mut regions = Vec::new();
