@@ -9,8 +9,8 @@
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW,
-    DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED,
-    TITLE_MAX, pack_click_at, pack_key, unpack_size,
+    DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN,
+    DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_click_at, pack_key, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -767,6 +767,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 write(b"hk-server-display: bye\n");
                 exit(0)
+            }
+            DISPLAY_RESTART => {
+                write(b"hk-server-display: restart requested\n");
+                exit(1)
             }
             _ => {}
         }

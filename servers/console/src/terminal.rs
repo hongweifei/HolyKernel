@@ -233,6 +233,11 @@ impl Terminal {
         let _ = send(self.display, DISPLAY_COMMIT, self.window);
     }
 
+    /// 解除共享表面映射，准备重建窗口。
+    pub(crate) fn detach(&self) {
+        let _ = hk_server_api::frame_unmap(SURFACE, WIDTH * HEIGHT * 4);
+    }
+
     /// 返回窗口编号。
     pub(crate) fn window(&self) -> u64 {
         self.window

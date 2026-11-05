@@ -31,6 +31,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-pointer-test",
     "hk-server-holydoc",
     "hk-server-debug",
+    "hk-server-display-restart-test",
 ];
 
 /// 从启动模块中选出默认启动的服务。

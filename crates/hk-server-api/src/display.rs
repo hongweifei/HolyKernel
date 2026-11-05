@@ -25,6 +25,8 @@ pub const DISPLAY_CLICK: u64 = 0xA07;
 pub const DISPLAY_CLOSE: u64 = 0xA08;
 /// 窗口正文点击位置；`word` 打包窗口编号与窗口内坐标。
 pub const DISPLAY_CLICK_AT: u64 = 0xA09;
+/// 请求 Display 以失败码退出，供热重启自检使用。
+pub const DISPLAY_RESTART: u64 = 0xA0A;
 
 /// 窗口标题最大字节数。
 pub const TITLE_MAX: usize = 32;

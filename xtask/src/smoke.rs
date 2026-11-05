@@ -115,6 +115,9 @@ pub enum SmokeMode {
     /// Debug 内核统计窗口
     #[value(name = "debug")]
     Debug,
+    /// Display 热重启与 Console 重连
+    #[value(name = "displayrestart")]
+    DisplayRestart,
 }
 
 impl SmokeMode {
@@ -148,6 +151,7 @@ impl SmokeMode {
             Self::Pointer => Some("pointer-test input-driver"),
             Self::Holydoc => Some("holydoc-test"),
             Self::Debug => Some("debug-test"),
+            Self::DisplayRestart => Some("display-restart-test"),
         }
     }
 
@@ -361,6 +365,13 @@ impl SmokeMode {
                 "hk-server-debug: objects ",
                 "hk-server-debug: done",
             ],
+            Self::DisplayRestart => &[
+                "hk-server-console: window 1",
+                "hk-server-display: restart requested",
+                "hk-server-console: reconnected",
+                "hk-server-display-restart-test: restarted",
+                "hk-server-console: done",
+            ],
         }
     }
 
@@ -386,7 +397,8 @@ impl SmokeMode {
             | Self::InputDriver
             | Self::Pointer
             | Self::Holydoc
-            | Self::Debug => QEMU_SUCCESS,
+            | Self::Debug
+            | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -418,6 +430,7 @@ impl SmokeMode {
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
             Self::Debug => "build/serial-debug.log",
+            Self::DisplayRestart => "build/serial-displayrestart.log",
         }
     }
 

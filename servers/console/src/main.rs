@@ -11,10 +11,11 @@ use hk_server_api::console::{
     CONSOLE_READ_LINE, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::display::{DISPLAY_FRAME_DONE, DISPLAY_KEY, unpack_key};
+use hk_server_api::display::{DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SERVICE, unpack_key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    console_read, exit, recv_data_try, send, send_data, write, write_u64, yield_now,
+    console_read, exit, recv_data_try, send, send_data, service_endpoint, write, write_u64,
+    yield_now,
 };
 #[cfg(target_os = "none")]
 
@@ -85,12 +86,44 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         terminal.emit(b"> ");
     }
 
+    let mut ever_attached = terminal.is_some();
+    let mut reconnected = false;
+    let mut cmdline_buffer = [0_u8; 128];
+    let restart_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+        .is_some_and(|line| line.contains("display-restart-test"));
     let mut buffer = [0_u8; 256];
     let mut line = [0_u8; 128];
     let mut length = 0_usize;
     let mut pending = 0_u64;
 
     loop {
+        let current_display = service_endpoint(DISPLAY_SERVICE);
+        let needs_attach = match terminal.as_ref() {
+            Some(terminal) => terminal.display() != current_display,
+            None => current_display != 0,
+        };
+        if needs_attach {
+            if let Some(terminal) = &terminal {
+                terminal.detach();
+            }
+            terminal = attach_terminal(endpoint);
+            if let Some(terminal) = &mut terminal {
+                if ever_attached && !reconnected {
+                    write(b"hk-server-console: reconnected\n");
+                    reconnected = true;
+                }
+                write(b"hk-server-console: window ");
+                write_u64(terminal.window());
+                write(b"\n");
+                hk_server_api::display::set_title(terminal.display(), terminal.window(), "Console");
+                terminal.emit(b"> ");
+                ever_attached = true;
+            }
+        }
+        if restart_test && reconnected && current_display == 0 {
+            write(b"hk-server-console: done\n");
+            exit(0)
+        }
         loop {
             let (label, word, sender, size) = recv_data_try(endpoint, &mut buffer);
             if label == 0 {

@@ -25,6 +25,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-pointer-test",
     "hk-server-holydoc",
     "hk-server-debug",
+    "hk-server-display-restart-test",
 ];
 
 /// 随镜像打包的 HolyShell 脚本。
