@@ -601,7 +601,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "hi\n")?;
     }
     if mode == SmokeMode::Pointer {
-        thread::sleep(Duration::from_secs(5));
+        wait_for(
+            &log,
+            "hk-server-pointer-test: ready",
+            Duration::from_secs(15),
+        )?;
         // 任务栏占 28px：1280x800 下窗口位于 440,224（400x300），标题栏中心约 640,236。
         inject_pointer_drag(&socket, 0x3FFF, 0x25C2, 0x4666, 0x25C2)?;
         thread::sleep(Duration::from_millis(300));
@@ -760,6 +764,21 @@ fn serve_udp_echo(socket: UdpSocket) -> Result<()> {
                 return Err(Failure::new(format!("UDP echo 接收失败：{error}")));
             }
         }
+    }
+}
+
+/// 等待串口日志出现指定输出。
+fn wait_for(log: &Path, token: &str, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let text = fs::read(log).unwrap_or_default();
+        if String::from_utf8_lossy(&text).contains(token) {
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            return Err(Failure::new(format!("等待串口输出超时：{token}")));
+        }
+        thread::sleep(Duration::from_millis(20));
     }
 }
 
