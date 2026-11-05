@@ -20,6 +20,7 @@ use hk_net::{DnsQueryType, IpAddress, Stack};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
+    ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
     NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL,
     NET_POLL_DONE, NET_RX, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX,
     NetStatus,
@@ -263,6 +264,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let mut encoded = [0_u8; NET_STATUS_BYTES];
                 if let Some(length) = status_blob(&stack, &stats, &mut encoded) {
                     let _ = send_data(sender, NET_STATUS_RESPONSE, &encoded[..length]);
+                }
+            }
+            NET_ARP_REQUEST => {
+                let mut table = ArpTable::EMPTY;
+                for (index, entry) in stack.arp_entries().iter().take(NET_ARP_MAX).enumerate() {
+                    table.entries[index] = ArpRecord {
+                        ip: entry.ip.octets(),
+                        mac: entry.mac.0,
+                    };
+                    table.count += 1;
+                }
+                let mut encoded = [0_u8; NET_ARP_BYTES];
+                if let Some(length) = table.encode(&mut encoded) {
+                    let _ = send_data(sender, NET_ARP_RESPONSE, &encoded[..length]);
                 }
             }
             _ => {}

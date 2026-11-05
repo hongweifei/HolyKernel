@@ -18,6 +18,10 @@ use crate::phy::FrameQueue;
 const UDP_RX_SLOTS: usize = 8;
 const UDP_TX_SLOTS: usize = 8;
 const UDP_BUFFER: usize = 2048;
+/// ARP 邻居缓存容量。
+const ARP_CACHE_SIZE: usize = 8;
+/// ARP 帧的以太网类型。
+const ETHERTYPE_ARP: [u8; 2] = [0x08, 0x06];
 
 /// DHCP 租约。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,11 +51,30 @@ pub struct StackStatus {
     pub sockets: usize,
 }
 
+/// 观察到的 ARP 邻居。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArpEntry {
+    /// IPv4 地址。
+    pub ip: Ipv4Address,
+    /// 对应的以太网地址。
+    pub mac: EthernetAddress,
+}
+
+impl ArpEntry {
+    const EMPTY: Self = Self {
+        ip: Ipv4Address::new(0, 0, 0, 0),
+        mac: EthernetAddress([0; 6]),
+    };
+}
+
 /// 一个以太网接口上的 smoltcp 协议栈。
 pub struct Stack {
     device: FrameQueue,
     interface: Interface,
     sockets: SocketSet<'static>,
+    arp: [ArpEntry; ARP_CACHE_SIZE],
+    arp_len: usize,
+    arp_next: usize,
 }
 
 impl Stack {
@@ -84,6 +107,9 @@ impl Stack {
             device,
             interface,
             sockets,
+            arp: [ArpEntry::EMPTY; ARP_CACHE_SIZE],
+            arp_len: 0,
+            arp_next: 0,
         })
     }
 
@@ -100,6 +126,9 @@ impl Stack {
                 device,
                 interface,
                 sockets,
+                arp: [ArpEntry::EMPTY; ARP_CACHE_SIZE],
+                arp_len: 0,
+                arp_next: 0,
             },
             handle,
         ))
@@ -180,12 +209,60 @@ impl Stack {
         }
     }
 
+    /// 返回观察到的 ARP 邻居。
+    pub fn arp_entries(&self) -> &[ArpEntry] {
+        &self.arp[..self.arp_len]
+    }
+
     /// 注入一帧接收数据。
     pub fn push_frame(&mut self, frame: &[u8]) -> Result<(), NetError> {
+        self.observe_arp(frame);
         if self.device.push_rx(frame) {
             Ok(())
         } else {
             Err(NetError::Queue)
+        }
+    }
+
+    /// 从入站 ARP 帧记录邻居。smoltcp 的邻居缓存不对外公开，这里旁路观察。
+    fn observe_arp(&mut self, frame: &[u8]) {
+        const ARP_LEN: usize = 28;
+        if frame.len() < 14 + ARP_LEN || frame[12..14] != ETHERTYPE_ARP {
+            return;
+        }
+        let arp = &frame[14..14 + ARP_LEN];
+        if arp[0..2] != [0, 1] || arp[2..4] != [0x08, 0x00] || arp[4] != 6 || arp[5] != 4 {
+            return;
+        }
+        let operation = u16::from_be_bytes([arp[6], arp[7]]);
+        if operation != 1 && operation != 2 {
+            return;
+        }
+        let mut mac = [0_u8; 6];
+        mac.copy_from_slice(&arp[8..14]);
+        let mut ip = [0_u8; 4];
+        ip.copy_from_slice(&arp[14..18]);
+        if ip == [0; 4] || mac == [0; 6] {
+            return;
+        }
+        self.remember_arp(Ipv4Address::from(ip), EthernetAddress(mac));
+    }
+
+    fn remember_arp(&mut self, ip: Ipv4Address, mac: EthernetAddress) {
+        if let Some(entry) = self.arp[..self.arp_len]
+            .iter_mut()
+            .find(|entry| entry.ip == ip)
+        {
+            entry.mac = mac;
+            return;
+        }
+        let entry = ArpEntry { ip, mac };
+        if self.arp_len < ARP_CACHE_SIZE {
+            self.arp[self.arp_len] = entry;
+            self.arp_len += 1;
+        } else {
+            self.arp[self.arp_next] = entry;
+            self.arp_next = (self.arp_next + 1) % ARP_CACHE_SIZE;
         }
     }
 

@@ -18,6 +18,10 @@ pub const NET_POLL_DONE: u64 = 0x706;
 pub const NET_STATUS_REQUEST: u64 = 0x707;
 /// 状态响应。
 pub const NET_STATUS_RESPONSE: u64 = 0x708;
+/// 查询 ARP 邻居表。
+pub const NET_ARP_REQUEST: u64 = 0x709;
+/// ARP 邻居表响应。
+pub const NET_ARP_RESPONSE: u64 = 0x70a;
 
 /// IRQ Notification 位：设备中断。
 pub const NET_NOTIFY_IRQ: u64 = 1 << 0;
@@ -138,6 +142,76 @@ impl NetStatus {
     }
 }
 
+/// ARP 表最大条目数。
+pub const NET_ARP_MAX: usize = 8;
+/// 单条 ARP 记录编码长度：IPv4 + MAC。
+pub const NET_ARP_ENTRY_BYTES: usize = 10;
+/// ARP 表编码长度：计数 + 定长条目。
+pub const NET_ARP_BYTES: usize = 1 + NET_ARP_MAX * NET_ARP_ENTRY_BYTES;
+
+/// 一条 ARP 邻居记录。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ArpRecord {
+    /// IPv4 地址。
+    pub ip: [u8; 4],
+    /// 以太网地址。
+    pub mac: [u8; 6],
+}
+
+/// ARP 邻居表快照。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArpTable {
+    /// 有效条目数。
+    pub count: u8,
+    /// 条目。
+    pub entries: [ArpRecord; NET_ARP_MAX],
+}
+
+impl ArpTable {
+    /// 空表。
+    pub const EMPTY: Self = Self {
+        count: 0,
+        entries: [ArpRecord {
+            ip: [0; 4],
+            mac: [0; 6],
+        }; NET_ARP_MAX],
+    };
+
+    /// 编码为定长字节串，返回写入长度。
+    pub fn encode(&self, buffer: &mut [u8]) -> Option<usize> {
+        if buffer.len() < NET_ARP_BYTES {
+            return None;
+        }
+        buffer[..NET_ARP_BYTES].fill(0);
+        let count = usize::from(self.count).min(NET_ARP_MAX);
+        buffer[0] = count as u8;
+        for (index, entry) in self.entries[..count].iter().enumerate() {
+            let offset = 1 + index * NET_ARP_ENTRY_BYTES;
+            buffer[offset..offset + 4].copy_from_slice(&entry.ip);
+            buffer[offset + 4..offset + NET_ARP_ENTRY_BYTES].copy_from_slice(&entry.mac);
+        }
+        Some(NET_ARP_BYTES)
+    }
+
+    /// 从定长字节串解码。
+    pub fn decode(buffer: &[u8]) -> Option<Self> {
+        let count = usize::from(*buffer.first()?);
+        if count > NET_ARP_MAX || buffer.len() < 1 + count * NET_ARP_ENTRY_BYTES {
+            return None;
+        }
+        let mut table = Self::EMPTY;
+        table.count = count as u8;
+        for (index, entry) in table.entries[..count].iter_mut().enumerate() {
+            let offset = 1 + index * NET_ARP_ENTRY_BYTES;
+            entry.ip.copy_from_slice(&buffer[offset..offset + 4]);
+            entry
+                .mac
+                .copy_from_slice(&buffer[offset + 4..offset + NET_ARP_ENTRY_BYTES]);
+        }
+        Some(table)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +235,27 @@ mod tests {
         assert_eq!(status.encode(&mut buffer), Some(NET_STATUS_BYTES));
         assert_eq!(NetStatus::decode(&buffer), Some(status));
         assert_eq!(NetStatus::decode(&buffer[..NET_STATUS_BYTES - 1]), None);
+    }
+
+    #[test]
+    fn round_trips_arp_table() {
+        let mut table = ArpTable::EMPTY;
+        table.count = 2;
+        table.entries[0] = ArpRecord {
+            ip: [10, 0, 2, 2],
+            mac: [0x52, 0x55, 0x0a, 0x00, 0x02, 0x02],
+        };
+        table.entries[1] = ArpRecord {
+            ip: [10, 0, 2, 3],
+            mac: [0x52, 0x55, 0x0a, 0x00, 0x02, 0x03],
+        };
+        let mut buffer = [0_u8; NET_ARP_BYTES];
+        assert_eq!(table.encode(&mut buffer), Some(NET_ARP_BYTES));
+        assert_eq!(ArpTable::decode(&buffer), Some(table));
+        assert_eq!(ArpTable::decode(&[0_u8]), Some(ArpTable::EMPTY));
+        assert_eq!(
+            ArpTable::decode(&buffer[..1 + 2 * NET_ARP_ENTRY_BYTES - 1]),
+            None
+        );
     }
 }

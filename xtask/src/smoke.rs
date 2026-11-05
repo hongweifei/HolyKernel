@@ -212,6 +212,8 @@ impl SmokeMode {
                 "hk-server-net: dns ok 127.0.0.1",
                 "hk-server-netstat: mac=",
                 "hk-server-netstat: rx_frames=",
+                "hk-server-netstat: route=",
+                "hk-server-netstat: arp",
             ],
         }
     }

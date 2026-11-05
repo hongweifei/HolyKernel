@@ -45,6 +45,11 @@ fn answers_arp_request() {
     assert_eq!(&reply[28..32], &[10, 0, 2, 15]);
     assert_eq!(&reply[32..38], &MAC_B);
     assert_eq!(&reply[38..42], &[10, 0, 2, 2]);
+
+    let entries = stack.arp_entries();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].ip, Ipv4Addr::new(10, 0, 2, 2));
+    assert_eq!(entries[0].mac.0, MAC_B);
 }
 
 #[test]

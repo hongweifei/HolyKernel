@@ -9,7 +9,10 @@
 #[cfg(target_os = "none")]
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
-use hk_server_api::net::{NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NetStatus};
+use hk_server_api::net::{
+    ArpTable, NET_ARP_BYTES, NET_ARP_REQUEST, NET_ARP_RESPONSE, NET_STATUS_BYTES,
+    NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NetStatus,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_from, send, service_endpoint, write, write_u64, yield_now};
 
@@ -41,7 +44,61 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(3)
     };
     print_status(&status);
+    print_routes(&status);
+    print_arp(endpoint, net);
     exit(0)
+}
+
+/// 打印由接口地址与默认网关合成的路由视图。
+#[cfg(target_os = "none")]
+fn print_routes(status: &NetStatus) {
+    if status.has_ipv4 {
+        write(b"hk-server-netstat: route=");
+        write_ipv4(&status.ipv4);
+        write(b"/");
+        write_u64(u64::from(status.prefix));
+        write(b" dev=eth0\n");
+    }
+    if status.has_gateway {
+        write(b"hk-server-netstat: route=0.0.0.0/0 via=");
+        write_ipv4(&status.gateway);
+        write(b"\n");
+    }
+}
+
+/// 查询并打印 ARP 邻居表。
+#[cfg(target_os = "none")]
+fn print_arp(endpoint: u64, net: u64) {
+    if send(net, NET_ARP_REQUEST, 0) != 0 {
+        write(b"hk-server-netstat: arp request failed\n");
+        return;
+    }
+    let mut buffer = [0_u8; NET_ARP_BYTES];
+    let (label, _word, sender, length) = recv_data_from(endpoint, net, &mut buffer);
+    if label != NET_ARP_RESPONSE || sender != net {
+        write(b"hk-server-netstat: arp bad response\n");
+        return;
+    }
+    let Some(table) = ArpTable::decode(&buffer[..length]) else {
+        write(b"hk-server-netstat: arp decode failed\n");
+        return;
+    };
+    if table.count == 0 {
+        write(b"hk-server-netstat: arp=none\n");
+        return;
+    }
+    for entry in &table.entries[..usize::from(table.count)] {
+        write(b"hk-server-netstat: arp=");
+        write_ipv4(&entry.ip);
+        write(b" mac=");
+        for (index, byte) in entry.mac.iter().enumerate() {
+            if index != 0 {
+                write(b":");
+            }
+            write_hex(*byte);
+        }
+        write(b"\n");
+    }
 }
 
 #[cfg(target_os = "none")]
