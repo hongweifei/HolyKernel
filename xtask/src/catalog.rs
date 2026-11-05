@@ -7,6 +7,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-device",
     "hk-server-spin",
     "hk-server-virtio",
+    "hk-server-holyfs",
     "hk-server-vfs",
     "hk-server-fault",
     "hk-server-fork",
@@ -26,6 +27,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-pointer-test",
     "hk-server-holydoc",
     "hk-server-debug",
+    "hk-server-dbg",
     "hk-server-display-restart-test",
 ];
 

@@ -85,6 +85,8 @@ pub const OP_RELEASE_VOLUME: u8 = 38;
 pub const OP_GRANT_VOLUME: u8 = 39;
 /// 撤销卷级令牌。
 pub const OP_REVOKE_VOLUME: u8 = 40;
+/// 按 DocId 与固定修订读取。
+pub const OP_READ_REVISION: u8 = 41;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -105,7 +107,7 @@ pub const RIGHT_ADMIN: u32 = 1 << 4;
 pub const RIGHT_TRANSFER: u32 = 1 << 5;
 
 /// 当前承载卷的服务名。
-pub const DRIVE_SERVICE: &str = "hk-server-vfs";
+pub const DRIVE_SERVICE: &str = "hk-server-holyfs";
 
 /// 请求缓冲上限。
 pub(super) const REQUEST: usize = 64 * 1024;

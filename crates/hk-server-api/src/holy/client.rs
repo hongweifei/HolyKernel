@@ -13,11 +13,11 @@ use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_CREATE,
     OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE,
-    OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_TOKEN,
-    OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID,
-    OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
-    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION,
+    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
+    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC,
+    OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN,
+    OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -121,6 +121,23 @@ impl HolyClient {
             out.len() as u64,
             &document.to_le_bytes(),
         )?;
+        let copy = length.min(out.len());
+        out[..copy].copy_from_slice(&self.response[3..3 + copy]);
+        Ok(length)
+    }
+
+    /// 按文档身份与固定修订读取。
+    pub fn read_revision(
+        &mut self,
+        document: DocId,
+        revision: RevisionId,
+        offset: u64,
+        out: &mut [u8],
+    ) -> Result<usize, u8> {
+        let mut payload = [0_u8; DOC_LEN + 8];
+        payload[..DOC_LEN].copy_from_slice(&document.to_le_bytes());
+        payload[DOC_LEN..].copy_from_slice(&revision.to_le_bytes());
+        let length = self.exchange(OP_READ_REVISION, "", offset, out.len() as u64, &payload)?;
         let copy = length.min(out.len());
         out[..copy].copy_from_slice(&self.response[3..3 + copy]);
         Ok(length)

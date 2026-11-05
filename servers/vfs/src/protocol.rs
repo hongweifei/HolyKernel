@@ -1,6 +1,5 @@
 //! VFS 请求处理与回复编码。
 
-use hk_server_api::holy::HOLY_RESPONSE;
 use hk_server_api::send_data;
 use hk_server_api::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME,
@@ -21,13 +20,6 @@ fn frame_length(data: &[u8]) -> Option<usize> {
 pub(crate) fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
     if let Some(length) = encode_response(response, status, data) {
         let _ = send_data(sender, VFS_RESPONSE, &response[..length]);
-    }
-}
-
-#[cfg(target_os = "none")]
-pub(crate) fn reply_holy(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
-    if let Some(length) = encode_response(response, status, data) {
-        let _ = send_data(sender, HOLY_RESPONSE, &response[..length]);
     }
 }
 

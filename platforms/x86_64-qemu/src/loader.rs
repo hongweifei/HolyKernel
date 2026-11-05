@@ -54,11 +54,12 @@ pub fn run(
             return matches!(name, "hk-server-display" | "hk-server-display-test");
         }
         if holydoc_test {
-            // HolyDoc 自检需要 Display、文档服务与提供磁盘文档的 VFS 链。
+            // HolyDoc 自检需要 Display、文档服务与提供磁盘文档的 HolyFS 链。
             return matches!(
                 name,
                 "hk-server-display"
                     | "hk-server-holydoc"
+                    | "hk-server-holyfs"
                     | "hk-server-vfs"
                     | "hk-server-virtio"
                     | "hk-server-device"
@@ -84,6 +85,7 @@ pub fn run(
                     | "hk-server-device"
                     | "hk-server-input"
                     | "hk-server-virtio"
+                    | "hk-server-holyfs"
                     | "hk-server-vfs"
                     | "hk-server-holydoc"
                     | "hk-server-shell"
@@ -152,10 +154,11 @@ pub fn run(
             "hk-server-device" => 1,
             "hk-server-input" => 2,
             "hk-server-virtio" => 3,
-            "hk-server-vfs" => 4,
-            "hk-server-holydoc" => 5,
-            "hk-server-console" => 6,
-            "hk-server-shell" => 7,
+            "hk-server-holyfs" => 4,
+            "hk-server-vfs" => 5,
+            "hk-server-holydoc" => 6,
+            "hk-server-console" => 7,
+            "hk-server-shell" => 8,
             _ => 8,
         });
     }
@@ -269,7 +272,7 @@ fn load(
     let context = loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
         cpu::user_frame(entry, stack_top, endpoint)
     })
-    .map_err(|error| format!("装载服务失败：{error}"))?;
+    .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
     drop(memory);
     hk_platform_x86_64::USER_VSPACES.install(index, table);
     Ok(context)

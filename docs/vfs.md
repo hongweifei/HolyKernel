@@ -2,13 +2,13 @@
 
 状态：**VFS Server 原型已运行，缓存与客户端接口已接入** · 上级：[总体架构](architecture.md)
 
-已实现 `crates/hk-vfs`：核心后端契约为 `hk-fs::Backend`（`DocId`、集合、修订与能力），路径规范化、挂载表、dentry 缓存、文件句柄与页缓存作为兼容投影保留；外来文件系统实现 `PathBackend` 并由 `PathObject` 适配为 Holy 后端；页缓存按 `(实例, DocId, 修订)` 索引；tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；启动参数 `vfs.root=ext4` 选择 `/` 主根，`vfs.fs=holyfs` 挂载 HolyFS 数据盘，默认挂载 ext4 到 `/disk`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
+已实现 `crates/hk-vfs`：核心后端契约为 `hk-fs::Backend`（`DocId`、集合、修订与能力），路径规范化、挂载表、dentry 缓存、文件句柄与页缓存作为兼容投影保留；外来文件系统实现 `PathBackend` 并由 `PathObject` 适配为 Holy 后端；页缓存按 `(实例, DocId, 修订)` 索引；tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；启动参数 `vfs.root=ext4` 选择 `/` 主根，`vfs.fs=holyfs` 由独立 `hk-server-holyfs` 挂载 HolyFS 数据盘，VFS 通过远程后端投影 `H:`，默认挂载 ext4 到 `/disk`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 
-HolyFS 是 HolyKernel 的原生文件系统，以 `H:` 盘符与文档对象工作；POSIX 兼容环境通过 VFS 适配层访问卷中的文档。详见 [HolyFS](holyfs.md)。
+HolyFS 是 HolyKernel 的原生文件系统，以 `H:` 盘符与文档对象工作。它由独立 `hk-server-holyfs` 服务承载；VFS 通过远程 Holy 后端把卷投影到路径命名空间，POSIX 兼容环境因此可以通过 VFS 访问同一批文档。详见 [HolyFS](holyfs.md)。
 
-VFS Server 同时承载 `H:` 卷的原生文档协议：适配层与原生接口共享同一个 Volume，原生客户端可以按 DocPath 或 `DocId` 枚举集合、读取文档、查询修订视图，并通过 `ACQUIRE`/`RELEASE` 获取带权利与固定修订的文档令牌；路径、偏移与 fd 语义只作为兼容投影存在。当前原生操作包括 `ROOT`、`RESOLVE`、`CREATE`、`UNBIND`、`ENUMERATE_ID`、`DOCUMENT_ID`、`READ_ID`、`WRITE_ID`、`TRUNCATE_ID`、`REVISIONS_ID`、`SYNC`，标签操作 `TAGS`/`TAG_MEMBERS`/`CREATE_TAG`/`DROP_TAG`/`TAG`/`UNTAG`/`TAGS_OF`，以及 `ACQUIRE`/`RELEASE`/`GRANT`/`REVOKE`/`TRANSFER` 与令牌读写。`GRANT` 只能收窄权利，`REVOKE` 递归撤销子令牌，`TRANSFER` 把令牌迁移到目标端点且要求 `TRANSFER` 权利。
+`H:` 的原生文档协议由 `hk-server-holyfs` 承载：原生客户端可以按 DocPath 或 `DocId` 枚举集合、读取文档、查询修订视图，并通过 `ACQUIRE`/`RELEASE` 获取带权利与固定修订的文档令牌；路径、偏移与 fd 语义只作为 VFS 兼容投影存在。VFS 的远程后端只实现 `hk-fs::Backend` 所需的文档身份、集合、修订与偏移读写，不复制卷状态。
 
 ---
 

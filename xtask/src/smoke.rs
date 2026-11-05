@@ -245,7 +245,8 @@ impl SmokeMode {
                 "fs 1 MiB 读：",
             ],
             Self::HolyFs => &[
-                "hk-server-vfs: holyfs mounted",
+                "hk-server-holyfs: mounted H:",
+                "hk-server-holyfs: drive H:",
                 "hk-server-demo fs ok",
                 "fs 1 MiB 读：",
             ],
@@ -345,7 +346,7 @@ impl SmokeMode {
             ],
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
-                "hk-server-vfs: drive H:",
+                "hk-server-holyfs: drive H:",
                 "hk-server-holydoc: document H:/Welcome",
                 "hk-server-holydoc: document H:/System/Overview",
                 "hk-server-holydoc: ready 1",

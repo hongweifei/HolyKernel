@@ -33,7 +33,7 @@ pub(crate) struct Loaded {
 
 /// 从 H: 卷递归加载集合、文档与标签。
 pub(crate) fn load(set: &mut DocSet, endpoint: u64) -> Loaded {
-    if service_endpoint("hk-server-vfs") == 0 {
+    if service_endpoint("hk-server-holyfs") == 0 {
         write(b"hk-server-holydoc: no drive\n");
         return Loaded {
             documents: 0,

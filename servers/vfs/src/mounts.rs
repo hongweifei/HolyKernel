@@ -4,11 +4,11 @@ use alloc::boxed::Box;
 
 use hk_block::ipc::ClientDisk;
 use hk_fs_ext4::mount_at_with_wall_clock;
-use hk_fs_holyfs::HolyFs;
-use hk_fs_holyfs_vfs::HolyFsVfs;
 use hk_hal::CivilTime;
-use hk_server_api::yield_now;
+use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
+
+use crate::remote::RemoteHolyFs;
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]
@@ -25,30 +25,21 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
     }
 }
 
-/// 等待驱动就绪并挂载 HolyFS，返回原生卷句柄。
-///
-/// 卷句柄与 VFS 适配层共享同一个 Volume：`H:` 文档与 `/disk` 路径看到同一份数据。
+/// 等待独立 HolyFS 服务就绪并在路径命名空间挂载其远程后端。
 #[cfg(target_os = "none")]
-pub(crate) fn mount_holyfs(
-    filesystem: &mut Vfs,
-    endpoint: u64,
-    target: &str,
-) -> Option<HolyFs<ClientDisk>> {
+pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
     for _ in 0..4096 {
-        let Ok(disk) = ClientDisk::open(BLOCK_SERVICE, endpoint) else {
+        if service_endpoint("hk-server-holyfs") == 0 {
+            let _ = yield_now();
+            continue;
+        }
+        let Ok(backend) = RemoteHolyFs::new(endpoint) else {
             let _ = yield_now();
             continue;
         };
-        let Ok(volume) = HolyFs::mount(disk) else {
-            return None;
-        };
-        let backend = HolyFsVfs::new(volume.clone());
-        return filesystem
-            .mount(target, Box::new(backend))
-            .ok()
-            .map(|()| volume);
+        return filesystem.mount(target, Box::new(backend)).is_ok();
     }
-    None
+    false
 }
 
 /// 等待驱动就绪并在 `/disk` 挂载 ext4。

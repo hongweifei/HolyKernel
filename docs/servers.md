@@ -156,11 +156,11 @@ pub struct ServiceManifest {
 
 ## 9. HolyFS Server
 
-- 用户态文件系统；以 `H:` 盘符提供 Holy 卷，经 VFS 适配层接入兼容环境的挂载点。
-- 原生命名空间通过 `H:` 盘符访问同一 Volume；`H:` 与 VFS 挂载点共享数据。
+- 独立用户态服务 `hk-server-holyfs`；直接通过 Block Endpoint 挂载 Holy 卷，以 `H:` 盘符提供原生文档命名空间。
+- VFS 通过远程 Holy 后端连接该服务，把 `H:` 投影到路径命名空间；`H:` 与 VFS 挂载点共享同一份卷状态，VFS 不再内嵌 HolyFS。
 - 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
 - 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
-- 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。
+- 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求。
 - POSIX 兼容环境的根文件系统为 ext4/ext2；HolyFS 作为 Holy 卷服务。
 - 详见 [HolyFS](holyfs.md)。
 
