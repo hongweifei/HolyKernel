@@ -43,7 +43,10 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 窗口右下角提供缩放把手（仅焦点窗口显示）：拖动改变窗口显示尺寸，合成器按比例采样客户端共享表面；最小尺寸与任务栏上方区域受限。
 - 标题栏提供最小化、最大化/还原按钮：最小化保留任务栏按钮，点击任务栏恢复；最大化铺满任务栏上方区域并保存原几何。
 - 启动 token `ui.scale=2` 将标题栏/任务栏字体与控件布局放大 2 倍，窗口内容仍由合成器按尺寸采样。
-- HolyDoc：Markdown 子集解析（标题、段落、列表、代码块、链接、`@exec`）、自动换行布局、滚动与历史返回；内置首页/架构/Crate/路线图，链接可点击跳转；Display 通过 `DISPLAY_CLICK_AT` 提供窗口内点击坐标。`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
+- HolyDoc：Markdown 子集解析（标题、段落、列表、代码块、链接、`@exec`）、自动换行布局、滚动与历史返回；内置欢迎页、帮助页与文档索引，链接可点击跳转；Display 通过 `DISPLAY_CLICK_AT` 提供窗口内点击坐标。`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
+- HolyDoc 启动落在欢迎页：欢迎页展示版本、民用时间、系统 tick 与文档清单，并提供文档索引与帮助页；`d` 打开索引，`w`/`h` 回到欢迎页，`Backspace` 返回上一页。
+- 文档浏览：HolyDoc 启动时经 VFS 读取 `/docs` 与 `/disk/docs` 下的 `.md` 文件，把每个文件作为一页加入文档集；页面标题取自首个一级标题，正文里的相对链接按文件名解析到同一文档集并可直接跳转。没有 VFS 或磁盘时使用内置页面。
+- `desktop` 启动模式装载 virtio-blk 驱动与 VFS，桌面与命令行模式一样挂载 ext4；`cargo xtask run --target x86_64-qemu --ui` 会把仓库文档播种到运行磁盘的 `/docs`。
 - Debug Server：调试窗口展示内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`r` 刷新，`q` 或关闭退出。`smoke --mode debug` 验证统计读取与渲染。
 - Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
