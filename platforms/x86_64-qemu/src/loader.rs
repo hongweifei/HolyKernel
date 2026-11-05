@@ -48,6 +48,13 @@ pub fn run(
             // 显示自检只需要 Display 服务与客户端。
             return matches!(name, "hk-server-display" | "hk-server-display-test");
         }
+        if hk_boot::cmdline().is_some_and(|line| line.contains("terminal-test")) {
+            // 图形终端自检需要 Console、Display 与客户端。
+            return matches!(
+                name,
+                "hk-server-display" | "hk-server-console" | "hk-server-terminal-test"
+            );
+        }
         if name == "hk-server-netstat" {
             return false;
         }
@@ -57,6 +64,7 @@ pub fn run(
                 | "hk-server-console-test"
                 | "hk-server-display"
                 | "hk-server-display-test"
+                | "hk-server-terminal-test"
         ) {
             return false;
         }

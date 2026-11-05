@@ -100,6 +100,9 @@ pub enum SmokeMode {
     /// Display 服务帧缓冲映射与测试图案
     #[value(name = "display")]
     Display,
+    /// Console 服务的图形终端窗口
+    #[value(name = "terminal")]
+    Terminal,
 }
 
 impl SmokeMode {
@@ -128,6 +131,7 @@ impl SmokeMode {
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
             Self::Console => Some("console-test"),
             Self::Display => Some("display-test"),
+            Self::Terminal => Some("terminal-test"),
         }
     }
 
@@ -293,6 +297,11 @@ impl SmokeMode {
                 "hk-server-display-test: key 97 win 1",
                 "hk-server-display-test: done",
             ],
+            Self::Terminal => &[
+                "hk-server-console: window",
+                "hk-server-display: composite ok",
+                "hk-server-terminal-test: done",
+            ],
         }
     }
 
@@ -313,7 +322,8 @@ impl SmokeMode {
             | Self::NetZerocopy
             | Self::NetSocket
             | Self::Console
-            | Self::Display => QEMU_SUCCESS,
+            | Self::Display
+            | Self::Terminal => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -340,6 +350,7 @@ impl SmokeMode {
             Self::NetSocket => "build/serial-netsocket.log",
             Self::Console => "build/serial-console.log",
             Self::Display => "build/serial-display.log",
+            Self::Terminal => "build/serial-terminal.log",
         }
     }
 

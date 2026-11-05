@@ -16,6 +16,8 @@ pub const CONSOLE_READ_REQUEST: u64 = 0x901;
 pub const CONSOLE_READ_LINE: u64 = 0x902;
 /// 请求 Console 服务退出。
 pub const CONSOLE_SHUTDOWN: u64 = 0x903;
+/// 图形终端完成一次提交（仅终端模式发送）。
+pub const CONSOLE_WRITE_ACK: u64 = 0x904;
 
 /// 控制台客户端。
 #[derive(Clone, Copy)]

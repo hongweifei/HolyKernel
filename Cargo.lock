@@ -386,6 +386,7 @@ version = "0.1.0"
 dependencies = [
  "hk-server-api",
  "hk-server-build",
+ "lovyangfx-fonts",
 ]
 
 [[package]]
@@ -488,6 +489,14 @@ dependencies = [
 
 [[package]]
 name = "hk-server-spin"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-server-terminal-test"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
