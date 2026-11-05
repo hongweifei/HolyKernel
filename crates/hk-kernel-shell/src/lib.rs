@@ -106,7 +106,7 @@ where
 
     fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
         match name {
-            "net" => Some(self.net_status()),
+            "net" => Some(self.client_status("hk-server-netstat")),
             _ => None,
         }
     }
@@ -135,15 +135,9 @@ where
     L: ServiceLoader<C> + ScriptSource,
     S: Scheduling,
 {
-    /// 启动用户态 `netstat` 客户端并驱动调度，按需查询网络状态。
-    fn net_status(&mut self) -> String {
-        let message = service::start(
-            self.runtime,
-            self.services,
-            self.loader,
-            "hk-server-netstat",
-            None,
-        );
+    /// 启动用户态客户端并驱动调度，等待它输出结果。
+    fn client_status(&mut self, name: &str) -> String {
+        let message = service::start(self.runtime, self.services, self.loader, name, None);
         if message.contains("失败") || message.contains("未知") {
             return message;
         }

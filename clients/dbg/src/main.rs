@@ -1,0 +1,53 @@
+//! hk-dbg：打印任务/服务/trace/统计与最近一次异常回溯。
+//!
+//! 作为独立用户态服务运行，只通过 Root Server 控制协议读取视图；结果输出到
+//! 串口，便于无图形环境观察。模块名为 `hk-server-dbg`。
+
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
+
+#[cfg(target_os = "none")]
+use hk_server_api::root::{
+    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    call,
+};
+#[cfg(target_os = "none")]
+use hk_server_api::{exit, write};
+
+/// Root 控制结果缓冲长度。
+#[cfg(target_os = "none")]
+const BUFFER: usize = 32 * 1024;
+
+/// 输出一个视图。
+#[cfg(target_os = "none")]
+fn print(title: &str, op: u64) {
+    write(b"hk-server-dbg: ");
+    write(title.as_bytes());
+    write(b"\n");
+    let mut buffer = [0_u8; BUFFER];
+    match call(op, "", &mut buffer) {
+        Ok(length) => write(&buffer[..length.min(buffer.len())]),
+        Err(code) => {
+            write(b"hk-server-dbg: control failed ");
+            hk_server_api::write_u64(code);
+            write(b"\n");
+        }
+    }
+}
+
+/// 服务入口。
+#[cfg(target_os = "none")]
+#[unsafe(no_mangle)]
+pub extern "C" fn _start(_endpoint: u64) -> ! {
+    write(b"hk-server-dbg: ready\n");
+    print("tasks", ROOT_OP_TASKS);
+    print("handles", ROOT_OP_HANDLES);
+    print("services", ROOT_OP_SERVICES);
+    print("trace", ROOT_OP_TRACE);
+    print("stats", ROOT_OP_STATS);
+    print("fault", ROOT_OP_FAULT);
+    write(b"hk-server-dbg: done\n");
+    exit(0)
+}
+
+hk_server_api::server_boilerplate!();

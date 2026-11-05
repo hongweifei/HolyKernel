@@ -448,6 +448,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-dbg"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-debug"
 version = "0.1.0"
 dependencies = [

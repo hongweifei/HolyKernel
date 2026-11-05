@@ -112,6 +112,12 @@ pub enum SmokeMode {
     /// Debug 内核统计窗口
     #[value(name = "debug")]
     Debug,
+    /// Debug 异常与符号化回溯
+    #[value(name = "debugfault")]
+    DebugFault,
+    /// 调试视图客户端
+    #[value(name = "dbg")]
+    Dbg,
     /// Display 热重启与 Console 重连
     #[value(name = "displayrestart")]
     DisplayRestart,
@@ -148,6 +154,8 @@ impl SmokeMode {
             Self::Pointer => Some("pointer-test input-driver"),
             Self::Holydoc => Some("vfs.fs=holyfs holydoc-test"),
             Self::Debug => Some("debug-test"),
+            Self::DebugFault => Some("debug-crash"),
+            Self::Dbg => Some("dbg-test"),
             Self::DisplayRestart => Some("display-restart-test"),
         }
     }
@@ -368,7 +376,19 @@ impl SmokeMode {
                 "hk-server-debug: ready 1",
                 "hk-server-debug: threads ",
                 "hk-server-debug: objects ",
+                "hk-server-debug: symbol 0xffffffff80000000 [kernel] _start",
                 "hk-server-debug: done",
+            ],
+            Self::DebugFault => &[
+                "hk-server-display: composite ok",
+                "hk-server-debug: ready 1",
+                "hk-server-debug: fault symbolized",
+                "hk-server-debug: done",
+            ],
+            Self::Dbg => &[
+                "hk-server-dbg: ready",
+                "hk-server-dbg: tasks",
+                "hk-server-dbg: done",
             ],
             Self::DisplayRestart => &[
                 "hk-server-console: window 1",
@@ -403,6 +423,8 @@ impl SmokeMode {
             | Self::Pointer
             | Self::Holydoc
             | Self::Debug
+            | Self::DebugFault
+            | Self::Dbg
             | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -435,6 +457,8 @@ impl SmokeMode {
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
             Self::Debug => "build/serial-debug.log",
+            Self::DebugFault => "build/serial-debugfault.log",
+            Self::Dbg => "build/serial-dbg.log",
             Self::DisplayRestart => "build/serial-displayrestart.log",
         }
     }
