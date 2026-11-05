@@ -156,8 +156,8 @@ pub struct ServiceManifest {
 
 ## 9. HolyFS Server
 
-- 独立用户态服务 `hk-server-holyfs`；直接通过 Block Endpoint 挂载 Holy 卷，以 `H:` 盘符提供原生文档命名空间。
-- VFS 通过远程 Holy 后端连接该服务，把 `H:` 投影到路径命名空间；`H:` 与 VFS 挂载点共享同一份卷状态，VFS 不再内嵌 HolyFS。
+- 独立用户态服务 `hk-server-holyfs`；直接通过 Block Endpoint 挂载 Holy 卷，以 `H:`、`I:` 盘符提供原生文档命名空间。
+- VFS 通过远程 Holy 后端连接该服务，把 `H:`、`I:` 分别投影到 `/disk`、`/disk-I`；盘符与 VFS 挂载点共享同一份卷状态，VFS 不再内嵌 HolyFS。
 - 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
 - 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
 - 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求。

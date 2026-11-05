@@ -64,6 +64,100 @@ pub trait BlockDevice {
     }
 }
 
+impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
+    fn block_size(&self) -> usize {
+        (**self).block_size()
+    }
+
+    fn capacity_blocks(&self) -> u64 {
+        (**self).capacity_blocks()
+    }
+
+    fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        (**self).read_blocks(block, buffer)
+    }
+
+    fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        (**self).write_blocks(block, data)
+    }
+
+    fn flush(&mut self) -> Result<(), BlockError> {
+        (**self).flush()
+    }
+}
+
+/// 块设备切片：把底层设备的连续块区间暴露为独立设备。
+pub struct DiskSlice<D> {
+    inner: D,
+    start: u64,
+    blocks: u64,
+}
+
+impl<D> DiskSlice<D> {
+    /// 构造切片；`start` 与 `blocks` 以底层设备的块为单位。
+    pub const fn new(inner: D, start: u64, blocks: u64) -> Self {
+        Self {
+            inner,
+            start,
+            blocks,
+        }
+    }
+
+    /// 返回底层设备。
+    pub fn into_inner(self) -> D {
+        self.inner
+    }
+
+    /// 返回切片在底层设备中的起始块。
+    pub const fn start(&self) -> u64 {
+        self.start
+    }
+
+    /// 返回切片块数。
+    pub const fn blocks(&self) -> u64 {
+        self.blocks
+    }
+}
+
+impl<D: BlockDevice> BlockDevice for DiskSlice<D> {
+    fn block_size(&self) -> usize {
+        self.inner.block_size()
+    }
+
+    fn capacity_blocks(&self) -> u64 {
+        self.blocks
+    }
+
+    fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        self.check(block, buffer.len())?;
+        self.inner.read_blocks(self.start + block, buffer)
+    }
+
+    fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        self.check(block, data.len())?;
+        self.inner.write_blocks(self.start + block, data)
+    }
+
+    fn flush(&mut self) -> Result<(), BlockError> {
+        self.inner.flush()
+    }
+}
+
+impl<D: BlockDevice> DiskSlice<D> {
+    fn check(&self, block: u64, length: usize) -> Result<(), BlockError> {
+        let block_size = self.inner.block_size();
+        if length == 0 || !length.is_multiple_of(block_size) {
+            return Err(BlockError::InvalidLength);
+        }
+        let count = (length / block_size) as u64;
+        let end = block.checked_add(count).ok_or(BlockError::OutOfRange)?;
+        if end > self.blocks {
+            return Err(BlockError::OutOfRange);
+        }
+        Ok(())
+    }
+}
+
 /// 内存块设备。
 pub struct MemoryDisk {
     data: Vec<u8>,
@@ -146,6 +240,25 @@ mod tests {
         disk.read_blocks(1, &mut buffer).expect("读");
         assert_eq!(buffer, [0xAA; SECTOR_SIZE]);
         assert_eq!(disk.capacity_bytes(), 4 * SECTOR_SIZE as u64);
+    }
+
+    #[test]
+    fn exposes_disjoint_slices() {
+        let mut disk = MemoryDisk::new(8, SECTOR_SIZE);
+        {
+            let mut slice = DiskSlice::new(&mut disk, 2, 4);
+            slice.write_blocks(0, &[0x11; SECTOR_SIZE]).expect("切片写");
+            let mut buffer = [0_u8; SECTOR_SIZE];
+            slice.read_blocks(0, &mut buffer).expect("切片读");
+            assert_eq!(buffer, [0x11; SECTOR_SIZE]);
+            assert_eq!(
+                slice.read_blocks(4, &mut buffer),
+                Err(BlockError::OutOfRange)
+            );
+        }
+        let mut buffer = [0_u8; SECTOR_SIZE];
+        disk.read_blocks(2, &mut buffer).expect("底层读");
+        assert_eq!(buffer, [0x11; SECTOR_SIZE]);
     }
 
     #[test]

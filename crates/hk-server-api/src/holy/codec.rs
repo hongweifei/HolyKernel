@@ -2,7 +2,7 @@
 
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
-    DOC_LEN, DOCUMENT_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
+    DOC_LEN, DOCUMENT_LEN, DRIVE_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
     REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
 };
 
@@ -55,6 +55,52 @@ pub fn encode_volume(out: &mut [u8], view: VolumeView) -> Option<usize> {
     out[24..32].copy_from_slice(&view.epoch.to_le_bytes());
     out[32..48].copy_from_slice(&view.root.to_le_bytes());
     Some(VOLUME_LEN)
+}
+
+/// 盘符视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DriveView {
+    /// 盘符。
+    pub letter: u8,
+    /// 卷视图。
+    pub volume: VolumeView,
+}
+
+/// 编码盘符视图。
+pub fn encode_drive(out: &mut [u8], offset: usize, view: DriveView) -> Option<usize> {
+    let end = offset.checked_add(DRIVE_LEN)?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset] = view.letter;
+    encode_volume(&mut out[offset + 1..end], view.volume)?;
+    Some(end)
+}
+
+/// 盘符视图迭代器。
+pub struct Drives<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl Iterator for Drives<'_> {
+    type Item = DriveView;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + DRIVE_LEN > self.bytes.len() {
+            return None;
+        }
+        let letter = self.bytes[start];
+        let volume = decode_volume(&self.bytes[start + 1..start + DRIVE_LEN])?;
+        self.offset = start + DRIVE_LEN;
+        Some(DriveView { letter, volume })
+    }
+}
+
+/// 解析盘符序列。
+pub fn decode_drives(bytes: &[u8]) -> Drives<'_> {
+    Drives { bytes, offset: 0 }
 }
 
 /// 解析卷视图。

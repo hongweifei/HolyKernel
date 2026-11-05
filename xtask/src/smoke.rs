@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use hk_block::{MemoryDisk, SECTOR_SIZE};
+use hk_block::{BlockDevice, DiskSlice, MemoryDisk, SECTOR_SIZE};
 use hk_vfs::PathBackend;
 use qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
 
@@ -255,6 +255,8 @@ impl SmokeMode {
             Self::HolyFs => &[
                 "hk-server-holyfs: mounted H:",
                 "hk-server-holyfs: drive H:",
+                "hk-server-holyfs: mounted I:",
+                "hk-server-holyfs: drive I:",
                 "hk-server-demo fs ok",
                 "fs 1 MiB 读：",
             ],
@@ -355,6 +357,8 @@ impl SmokeMode {
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
                 "hk-server-holyfs: drive H:",
+                "hk-server-holyfs: drive I:",
+                "hk-server-holydoc: drives ok",
                 "hk-server-holydoc: document H:/Welcome",
                 "hk-server-holydoc: document H:/System/Overview",
                 "hk-server-holydoc: ready 1",
@@ -764,8 +768,6 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
     let blocks = crate::disk::DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
     let disk = if matches!(mode, SmokeMode::HolyFs | SmokeMode::Holydoc) {
-        let disk = hk_fs_holyfs::format(disk)
-            .map_err(|error| Failure::new(format!("格式化 HolyFS 测试磁盘失败：{error}")))?;
         crate::disk::seed_holy_docs(disk)?
     } else {
         hk_fs_ext4::format_with_wall_clock(disk, HostClock)
@@ -782,7 +784,8 @@ fn verify_holyfs(path: &Path) -> Result<()> {
         .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
     let disk = MemoryDisk::from_data(bytes, SECTOR_SIZE)
         .ok_or_else(|| Failure::new("测试磁盘长度不是扇区整数倍"))?;
-    let volume = hk_fs_holyfs::HolyFs::mount(disk)
+    let half = disk.capacity_blocks() / 2;
+    let volume = hk_fs_holyfs::HolyFs::mount(DiskSlice::new(disk, 0, half))
         .map_err(|error| Failure::new(format!("重新挂载 HolyFS 失败：{error}")))?;
     let document = volume
         .resolve("/hello")

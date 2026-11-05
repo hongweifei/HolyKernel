@@ -87,6 +87,8 @@ pub const OP_GRANT_VOLUME: u8 = 39;
 pub const OP_REVOKE_VOLUME: u8 = 40;
 /// 按 DocId 与固定修订读取。
 pub const OP_READ_REVISION: u8 = 41;
+/// 枚举已注册盘符。
+pub const OP_DRIVES: u8 = 42;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -108,6 +110,78 @@ pub const RIGHT_TRANSFER: u32 = 1 << 5;
 
 /// 当前承载卷的服务名。
 pub const DRIVE_SERVICE: &str = "hk-server-holyfs";
+
+/// Holy 请求头：op + 盘符 + 路径长度 + arg0 + arg1。
+pub(super) const REQUEST_HEADER: usize = 1 + 1 + 2 + 8 + 8;
+
+/// 解码后的 Holy 请求。
+pub struct Request<'a> {
+    /// 操作码。
+    pub op: u8,
+    /// 盘符；0 表示不指定。
+    pub drive: u8,
+    /// 操作文本：名字或 DocPath，由操作决定。
+    pub path: &'a str,
+    /// 第一个参数。
+    pub arg0: u64,
+    /// 第二个参数。
+    pub arg1: u64,
+    /// 附加数据。
+    pub data: &'a [u8],
+}
+
+/// 编码 Holy 请求。
+pub fn encode_request(
+    buffer: &mut [u8],
+    op: u8,
+    drive: u8,
+    path: &str,
+    arg0: u64,
+    arg1: u64,
+    data: &[u8],
+) -> Option<usize> {
+    let path = path.as_bytes();
+    if path.len() > u16::MAX as usize {
+        return None;
+    }
+    let end = REQUEST_HEADER
+        .checked_add(path.len())?
+        .checked_add(data.len())?;
+    if end > buffer.len() {
+        return None;
+    }
+    buffer[0] = op;
+    buffer[1] = drive;
+    buffer[2..4].copy_from_slice(&(path.len() as u16).to_le_bytes());
+    buffer[4..12].copy_from_slice(&arg0.to_le_bytes());
+    buffer[12..20].copy_from_slice(&arg1.to_le_bytes());
+    buffer[20..20 + path.len()].copy_from_slice(path);
+    buffer[20 + path.len()..end].copy_from_slice(data);
+    Some(end)
+}
+
+/// 解码 Holy 请求。
+pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
+    if bytes.len() < REQUEST_HEADER {
+        return None;
+    }
+    let length = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
+    let path_end = REQUEST_HEADER.checked_add(length)?;
+    if path_end > bytes.len() {
+        return None;
+    }
+    let path = core::str::from_utf8(&bytes[REQUEST_HEADER..path_end]).ok()?;
+    let arg0 = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+    let arg1 = u64::from_le_bytes(bytes[12..20].try_into().ok()?);
+    Some(Request {
+        op: bytes[0],
+        drive: bytes[1],
+        path,
+        arg0,
+        arg1,
+        data: &bytes[path_end..],
+    })
+}
 
 /// 请求缓冲上限。
 pub(super) const REQUEST: usize = 64 * 1024;
@@ -131,3 +205,5 @@ pub(super) const TAG_HEADER: usize = 4 + 1;
 pub(super) const SNAPSHOT_HEADER: usize = 8 + 8 + 8 + 4 + 1;
 /// 卷视图：卷身份、提交代数、卷代与根文档。
 pub(super) const VOLUME_LEN: usize = 16 + 8 + 8 + 16;
+/// 盘符视图：盘符 + 卷视图。
+pub(super) const DRIVE_LEN: usize = 1 + VOLUME_LEN;

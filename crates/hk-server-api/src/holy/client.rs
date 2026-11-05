@@ -1,8 +1,6 @@
 //! 固定缓冲 Holy 文档客户端。
 
-use crate::vfs::{
-    STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response, encode_request,
-};
+use crate::vfs::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
 use crate::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
@@ -10,20 +8,23 @@ use super::codec::{
     decode_u32, decode_u64, decode_volume, kind_code,
 };
 use super::ids::{DocId, DocumentKind, RevisionId};
+use super::wire::encode_request;
 use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_CREATE,
-    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE,
-    OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION,
-    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
-    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC,
-    OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN,
-    OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
+    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID,
+    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE,
+    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS,
+    OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
+    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST,
+    RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
 pub struct HolyClient {
     own_endpoint: u64,
     endpoint: u64,
+    drive: u8,
     request: [u8; REQUEST],
     response: [u8; RESPONSE],
 }
@@ -34,9 +35,37 @@ impl HolyClient {
         Self {
             own_endpoint,
             endpoint: 0,
+            drive: b'H',
             request: [0; REQUEST],
             response: [0; RESPONSE],
         }
+    }
+
+    /// 选择后续请求使用的盘符。
+    pub fn select_drive(&mut self, drive: &str) -> Result<(), u8> {
+        let letter = drive.as_bytes().first().copied().ok_or(STATUS_INVALID)?;
+        let letter = letter.to_ascii_uppercase();
+        if !letter.is_ascii_alphabetic() {
+            return Err(STATUS_INVALID);
+        }
+        self.drive = letter;
+        Ok(())
+    }
+
+    /// 返回当前盘符。
+    pub const fn drive(&self) -> u8 {
+        self.drive
+    }
+
+    /// 直接设置盘符；调用方保证是 A-Z。
+    pub fn set_drive(&mut self, drive: u8) {
+        self.drive = drive.to_ascii_uppercase();
+    }
+
+    /// 枚举已注册盘符，返回编码后的盘符字节数。
+    pub fn drives(&mut self) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_DRIVES, "", 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
     }
 
     /// 枚举集合文档，返回编码后的集合项字节数。
@@ -341,7 +370,9 @@ impl HolyClient {
         arg1: u64,
         data: &[u8],
     ) -> Result<usize, u8> {
-        let Some(length) = encode_request(&mut self.request, op, path, arg0, arg1, data) else {
+        let Some(length) =
+            encode_request(&mut self.request, op, self.drive, path, arg0, arg1, data)
+        else {
             return Err(STATUS_INVALID);
         };
         self.submit(length)
@@ -355,17 +386,18 @@ impl HolyClient {
         document: DocId,
         payload: &[u8],
     ) -> Result<usize, u8> {
-        let header = 1 + 2 + 8 + 8;
+        let header = 1 + 1 + 2 + 8 + 8;
         let end = header + DOC_LEN + payload.len();
         if end > self.request.len() {
             return Err(STATUS_INVALID);
         }
         self.request[0] = op;
-        self.request[1..3].copy_from_slice(&0_u16.to_le_bytes());
-        self.request[3..11].copy_from_slice(&arg0.to_le_bytes());
-        self.request[11..19].copy_from_slice(&arg1.to_le_bytes());
-        self.request[19..19 + DOC_LEN].copy_from_slice(&document.to_le_bytes());
-        self.request[19 + DOC_LEN..end].copy_from_slice(payload);
+        self.request[1] = self.drive;
+        self.request[2..4].copy_from_slice(&0_u16.to_le_bytes());
+        self.request[4..12].copy_from_slice(&arg0.to_le_bytes());
+        self.request[12..20].copy_from_slice(&arg1.to_le_bytes());
+        self.request[20..20 + DOC_LEN].copy_from_slice(&document.to_le_bytes());
+        self.request[20 + DOC_LEN..end].copy_from_slice(payload);
         self.submit(end)
     }
 

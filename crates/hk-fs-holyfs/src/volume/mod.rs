@@ -49,9 +49,14 @@ pub(crate) struct Volume<D: BlockDevice> {
 
 impl<D: BlockDevice> Volume<D> {
     pub(crate) fn format(device: D) -> Result<D, HolyError> {
+        Self::format_with_volume_id(device, crate::superblock::DEFAULT_VOLUME_ID)
+    }
+
+    pub(crate) fn format_with_volume_id(device: D, volume_id: VolumeId) -> Result<D, HolyError> {
         let store = Store::format(device)?;
         let bitmap_blocks = store.bitmap_blocks()?;
-        let superblock = Superblock::empty(store.total_blocks(), bitmap_blocks);
+        let mut superblock = Superblock::empty(store.total_blocks(), bitmap_blocks);
+        superblock.volume_id = volume_id;
         let root = RevisionRecord {
             id: RevisionId::ROOT,
             document: DocId::ROOT,
@@ -95,6 +100,18 @@ impl<D: BlockDevice> Volume<D> {
         volume.collections.insert(RevisionId::ROOT, BTreeMap::new());
         volume.persist()?;
         Ok(volume.store.into_device())
+    }
+
+    pub(crate) fn is_formatted(device: &D) -> bool {
+        let Ok((_, superblock)) = read_superblock(device) else {
+            return false;
+        };
+        let block_size = device.block_size();
+        if block_size == 0 || !BLOCK_SIZE.is_multiple_of(block_size) {
+            return false;
+        }
+        let sectors = (BLOCK_SIZE / block_size) as u64;
+        device.capacity_blocks() / sectors >= superblock.total_blocks
     }
 
     pub(crate) fn mount(device: D) -> Result<Self, HolyError> {

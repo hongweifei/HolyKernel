@@ -2,38 +2,46 @@
 
 #![cfg(target_os = "none")]
 
-use hk_block::ipc::ClientDisk;
-use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, HolyFs, RevisionId};
+use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, RevisionId};
 use hk_server_api::holy::{
-    DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
-    OP_CREATE, OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG,
-    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID,
-    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE,
-    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS,
-    OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
-    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN,
-    RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, RevisionId as WireRevisionId, RevisionView,
-    SnapshotView, VolumeView, decode_doc_id, decode_u64, encode_doc_id, encode_document,
-    encode_entry, encode_revision, encode_revision_id, encode_snapshot, encode_tag, encode_token,
-    encode_u32, encode_u64, encode_volume,
+    DocId as WireDocId, DocumentView, DriveView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE,
+    OP_ACQUIRE_VOLUME, OP_CREATE, OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN,
+    OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME,
+    OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
+    OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT,
+    OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER,
+    OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN,
+    RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, Request, RevisionId as WireRevisionId,
+    RevisionView, SnapshotView, VolumeView, decode_doc_id, decode_u64, encode_doc_id,
+    encode_document, encode_drive, encode_entry, encode_revision, encode_revision_id,
+    encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
 use hk_server_api::vfs::{
-    Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
+    STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
     STATUS_PERMISSION, STATUS_STALE,
 };
 
 use crate::sessions::Sessions;
+use crate::volumes::{VolumeInfo, Volumes};
 
 /// 处理原生文档请求，返回状态与响应字节数。
 pub(crate) fn handle(
-    drive: Option<&mut HolyFs<ClientDisk>>,
+    volumes: &mut Volumes,
     sessions: &mut Sessions,
     sender: u64,
     request: &Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
-    let Some(drive) = drive else {
-        return (STATUS_IO, 0);
+    if request.op == OP_DRIVES {
+        return encode_drives(body, volumes.list());
+    }
+    let letter = if request.drive == 0 {
+        b'H'
+    } else {
+        request.drive
+    };
+    let Some(drive) = volumes.get_mut(letter) else {
+        return (STATUS_NOT_FOUND, 0);
     };
     if request.op == OP_VOLUME {
         let view = VolumeView {
@@ -45,23 +53,25 @@ pub(crate) fn handle(
         return encode_volume_response(body, view);
     }
     if request.op == OP_ACQUIRE_VOLUME {
-        let token =
-            sessions
-                .volume(sender)
-                .acquire(drive.volume_id(), drive.epoch(), request.arg0 as u32);
+        let token = sessions.volume(sender, letter).acquire(
+            drive.volume_id(),
+            drive.epoch(),
+            request.arg0 as u32,
+        );
         return encode_token_response(body, token);
     }
     if request.op == OP_RELEASE_VOLUME || request.op == OP_REVOKE_VOLUME {
-        return match sessions
-            .volume(sender)
-            .release(request.arg0, drive.volume_id(), drive.epoch())
-        {
+        return match sessions.volume(sender, letter).release(
+            request.arg0,
+            drive.volume_id(),
+            drive.epoch(),
+        ) {
             Ok(()) => (STATUS_OK, 0),
             Err(status) => (status, 0),
         };
     }
     if request.op == OP_GRANT_VOLUME {
-        return match sessions.volume(sender).grant(
+        return match sessions.volume(sender, letter).grant(
             request.arg0,
             request.arg1 as u32,
             drive.volume_id(),
@@ -72,7 +82,7 @@ pub(crate) fn handle(
         };
     }
     if request.op == OP_RESTORE {
-        if let Err(status) = sessions.volume(sender).check(
+        if let Err(status) = sessions.volume(sender, letter).check(
             request.arg0,
             drive.volume_id(),
             drive.epoch(),
@@ -82,14 +92,14 @@ pub(crate) fn handle(
         }
         return match drive.restore(request.arg1) {
             Ok(generation) => {
-                sessions.invalidate_documents();
+                sessions.invalidate_documents(letter);
                 encode_u64_response(body, generation)
             }
             Err(error) => (status(error), 0),
         };
     }
     if matches!(request.op, OP_SNAPSHOT | OP_SNAPSHOTS | OP_FORGET)
-        && let Err(status) = sessions.volume(sender).check(
+        && let Err(status) = sessions.volume(sender, letter).check(
             request.arg0,
             drive.volume_id(),
             drive.epoch(),
@@ -99,12 +109,12 @@ pub(crate) fn handle(
         return (status, 0);
     }
     if request.op == OP_TRANSFER {
-        return match sessions.transfer(sender, request.arg1, request.arg0) {
+        return match sessions.transfer(sender, request.arg1, request.arg0, letter) {
             Ok(token) => encode_token_response(body, token),
             Err(status) => (status, 0),
         };
     }
-    let session = sessions.doc(sender);
+    let session = sessions.doc(sender, letter);
     match request.op {
         OP_ENUMERATE => match drive.enumerate(request.path) {
             Ok(entries) => encode_entries(body, entries),
@@ -490,6 +500,26 @@ fn encode_snapshots(
             view.documents,
             view.name,
         ) else {
+            return (STATUS_ERROR, 0);
+        };
+        length = end;
+    }
+    (STATUS_OK, length)
+}
+
+fn encode_drives(body: &mut [u8], drives: alloc::vec::Vec<VolumeInfo>) -> (u8, usize) {
+    let mut length = 0;
+    for info in drives {
+        let view = DriveView {
+            letter: info.letter,
+            volume: VolumeView {
+                volume: info.volume.get(),
+                generation: info.generation,
+                epoch: info.epoch,
+                root: WireDocId::new(info.root.get()),
+            },
+        };
+        let Some(end) = encode_drive(body, length, view) else {
             return (STATUS_ERROR, 0);
         };
         length = end;

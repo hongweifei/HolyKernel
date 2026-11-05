@@ -1,11 +1,12 @@
 //! HolyDoc 自检：令牌、标签、标签页与脚本化导航。
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 use hk_server_api::display::DISPLAY_SHUTDOWN;
 use hk_server_api::holy::{
     DocumentKind, HolyClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
-    STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_snapshots, decode_tags,
+    STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_drives, decode_snapshots, decode_tags,
 };
 use hk_server_api::{exit, send, write, write_u64};
 use lovyangfx_fonts::Font;
@@ -13,6 +14,38 @@ use lovyangfx_fonts::Font;
 use crate::document::{DocSet, DocView, TAGS};
 use crate::drive;
 use crate::window::apply;
+
+/// 验证盘符注册、卷身份隔离与切盘读写。
+pub(crate) fn verify_drives(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(bytes) = client.drives() else {
+        return false;
+    };
+    let drives: Vec<_> = decode_drives(bytes).collect();
+    let Some(h) = drives.iter().find(|drive| drive.letter == b'H') else {
+        return false;
+    };
+    let Some(i) = drives.iter().find(|drive| drive.letter == b'I') else {
+        return false;
+    };
+    if h.volume.volume == i.volume.volume || client.select_drive("I").is_err() {
+        return false;
+    }
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.create(root, "DriveProbe", DocumentKind::Content) else {
+        return false;
+    };
+    if client.write_id(document, 0, b"volume-i").is_err() {
+        return false;
+    }
+    let mut buffer = [0_u8; 16];
+    let content_ok = client
+        .read_id(document, 0, &mut buffer)
+        .is_ok_and(|length| &buffer[..length] == b"volume-i");
+    client.select_drive("H").is_ok() && content_ok
+}
 
 /// 验证快照固定、恢复与释放。
 pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
@@ -159,6 +192,11 @@ pub(crate) fn run(
     window: u64,
     loaded: usize,
 ) -> ! {
+    if verify_drives(endpoint) {
+        write(b"hk-server-holydoc: drives ok\n");
+    } else {
+        write(b"hk-server-holydoc: drives failed\n");
+    }
     if verify_snapshot(endpoint) {
         write(b"hk-server-holydoc: snapshot ok\n");
     } else {

@@ -24,9 +24,10 @@ pub(crate) struct RemoteHolyFs {
 }
 
 impl RemoteHolyFs {
-    /// 连接独立服务并读取根文档。
-    pub(crate) fn new(own_endpoint: u64) -> Result<Self, Error> {
+    /// 连接独立服务并读取指定盘符的根文档。
+    pub(crate) fn new(own_endpoint: u64, drive: u8) -> Result<Self, Error> {
         let mut client = Box::new(HolyClient::new(own_endpoint));
+        client.set_drive(drive);
         let root = client.root().map_err(map_status)?;
         Ok(Self {
             root: DocId::new(root.get()),

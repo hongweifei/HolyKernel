@@ -135,8 +135,8 @@ fn volume_status(error: Error) -> u8 {
 
 #[cfg(target_os = "none")]
 pub(crate) struct Sessions {
-    documents: BTreeMap<u64, DocSession>,
-    volumes: BTreeMap<u64, VolumeSession>,
+    documents: BTreeMap<(u64, u8), DocSession>,
+    volumes: BTreeMap<(u64, u8), VolumeSession>,
 }
 
 #[cfg(target_os = "none")]
@@ -148,37 +148,53 @@ impl Sessions {
         }
     }
 
-    pub(crate) fn doc(&mut self, sender: u64) -> &mut DocSession {
-        self.documents.entry(sender).or_insert_with(DocSession::new)
+    pub(crate) fn doc(&mut self, sender: u64, drive: u8) -> &mut DocSession {
+        self.documents
+            .entry((sender, drive))
+            .or_insert_with(DocSession::new)
     }
 
-    pub(crate) fn volume(&mut self, sender: u64) -> &mut VolumeSession {
+    pub(crate) fn volume(&mut self, sender: u64, drive: u8) -> &mut VolumeSession {
         self.volumes
-            .entry(sender)
+            .entry((sender, drive))
             .or_insert_with(VolumeSession::new)
     }
 
-    pub(crate) fn transfer(&mut self, from: u64, to: u64, token: u64) -> Result<u64, u8> {
+    pub(crate) fn transfer(
+        &mut self,
+        from: u64,
+        to: u64,
+        token: u64,
+        drive: u8,
+    ) -> Result<u64, u8> {
         use hk_server_api::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_PERMISSION};
 
         if from == to {
             return Err(STATUS_INVALID);
         }
         let entry = {
-            let source = self.documents.get_mut(&from).ok_or(STATUS_NOT_FOUND)?;
+            let source = self
+                .documents
+                .get_mut(&(from, drive))
+                .ok_or(STATUS_NOT_FOUND)?;
             let entry = source.get(token)?;
             if !entry.rights.contains(HandleRights::TRANSFER) {
                 return Err(STATUS_PERMISSION);
             }
             source.take(token).ok_or(STATUS_NOT_FOUND)?
         };
-        let target = self.documents.entry(to).or_insert_with(DocSession::new);
+        let target = self
+            .documents
+            .entry((to, drive))
+            .or_insert_with(DocSession::new);
         Ok(target.insert(entry))
     }
 
-    pub(crate) fn invalidate_documents(&mut self) {
-        for session in self.documents.values_mut() {
-            session.invalidate();
+    pub(crate) fn invalidate_documents(&mut self, drive: u8) {
+        for ((_, session_drive), session) in self.documents.iter_mut() {
+            if *session_drive == drive {
+                session.invalidate();
+            }
         }
     }
 }

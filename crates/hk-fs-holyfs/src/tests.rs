@@ -8,7 +8,7 @@ use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
 
 use crate::error::HolyError;
 use crate::types::DocumentKind;
-use crate::{HolyFs, format};
+use crate::{HolyFs, VOLUME_H, VOLUME_I, format, format_with_volume_id};
 
 const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
 
@@ -318,6 +318,20 @@ fn snapshots_survive_remount() {
     let fs = HolyFs::mount(Shared(disk)).expect("再次挂载");
     assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
     assert_eq!(fs.snapshots().len(), 1);
+}
+
+#[test]
+fn formats_distinct_volume_ids() {
+    let blocks = (8 * 1024 * 1024) / SECTOR_SIZE as u64;
+    let h =
+        format_with_volume_id(MemoryDisk::new(blocks, SECTOR_SIZE), VOLUME_H).expect("格式化 H");
+    let h = HolyFs::mount(h).expect("挂载 H");
+    assert_eq!(h.volume_id(), VOLUME_H);
+    let i =
+        format_with_volume_id(MemoryDisk::new(blocks, SECTOR_SIZE), VOLUME_I).expect("格式化 I");
+    let i = HolyFs::mount(i).expect("挂载 I");
+    assert_eq!(i.volume_id(), VOLUME_I);
+    assert_ne!(h.volume_id(), i.volume_id());
 }
 
 #[test]

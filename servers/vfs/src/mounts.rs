@@ -1,10 +1,13 @@
 //! 块设备挂载：HolyFS 与 ext4。
 
 use alloc::boxed::Box;
+use alloc::format;
+use alloc::vec::Vec;
 
 use hk_block::ipc::ClientDisk;
 use hk_fs_ext4::mount_at_with_wall_clock;
 use hk_hal::CivilTime;
+use hk_server_api::holy::{HolyClient, decode_drives};
 use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 
@@ -25,7 +28,7 @@ impl hk_fs_ext4::WallClock for RealtimeClock {
     }
 }
 
-/// 等待独立 HolyFS 服务就绪并在路径命名空间挂载其远程后端。
+/// 等待独立 HolyFS 服务就绪，并把每个注册盘符挂到路径命名空间。
 #[cfg(target_os = "none")]
 pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) -> bool {
     for _ in 0..4096 {
@@ -33,11 +36,32 @@ pub(crate) fn mount_holyfs(filesystem: &mut Vfs, endpoint: u64, target: &str) ->
             let _ = yield_now();
             continue;
         }
-        let Ok(backend) = RemoteHolyFs::new(endpoint) else {
+        let mut probe = Box::new(HolyClient::new(endpoint));
+        let Ok(bytes) = probe.drives() else {
             let _ = yield_now();
             continue;
         };
-        return filesystem.mount(target, Box::new(backend)).is_ok();
+        let drives: Vec<u8> = decode_drives(bytes).map(|drive| drive.letter).collect();
+        if drives.is_empty() {
+            let _ = yield_now();
+            continue;
+        }
+        let mut mounted = false;
+        for drive in drives {
+            let path = if drive == b'H' {
+                alloc::string::String::from(target)
+            } else {
+                format!("{target}-{}", drive as char)
+            };
+            let _ = filesystem.create_dir(&path);
+            let Ok(backend) = RemoteHolyFs::new(endpoint, drive) else {
+                continue;
+            };
+            if filesystem.mount(&path, Box::new(backend)).is_ok() && drive == b'H' {
+                mounted = true;
+            }
+        }
+        return mounted;
     }
     false
 }

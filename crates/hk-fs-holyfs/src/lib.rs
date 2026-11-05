@@ -28,7 +28,7 @@ use hk_block::BlockDevice;
 pub use error::HolyError;
 pub use handle::HolyFs;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
-pub use superblock::BLOCK_SIZE;
+pub use superblock::{BLOCK_SIZE, VOLUME_H, VOLUME_I};
 pub use types::{
     DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, PayloadKind,
     RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
@@ -37,4 +37,17 @@ pub use types::{
 /// 格式化块设备为 HolyFS。
 pub fn format<D: BlockDevice>(device: D) -> Result<D, HolyError> {
     volume::Volume::format(device)
+}
+
+/// 格式化块设备为指定卷身份的 HolyFS。
+pub fn format_with_volume_id<D: BlockDevice>(
+    device: D,
+    volume_id: hk_fs::VolumeId,
+) -> Result<D, HolyError> {
+    volume::Volume::format_with_volume_id(device, volume_id)
+}
+
+/// 判断块设备是否包含可挂载的 HolyFS 超级块。
+pub fn is_formatted<D: BlockDevice>(device: &D) -> bool {
+    volume::Volume::is_formatted(device)
 }

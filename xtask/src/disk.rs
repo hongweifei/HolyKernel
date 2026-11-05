@@ -7,7 +7,10 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
-use hk_fs_holyfs::{DocumentKind, HolyError, HolyFs};
+use hk_fs_holyfs::{
+    DocumentKind, HolyError, HolyFs, VOLUME_H, VOLUME_I, VolumeId, format_with_volume_id,
+    is_formatted,
+};
 use hk_hal::CivilTime;
 
 use crate::failure::{Failure, Result};
@@ -73,29 +76,50 @@ pub(crate) fn ensure_holyfs(path: &Path) -> Result<()> {
     } else {
         ensure_parent(path)?;
         let blocks = DISK_BYTES / SECTOR_SIZE as u64;
-        let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
-        hk_fs_holyfs::format(disk)
-            .map_err(|error| Failure::new(format!("格式化 HolyFS 运行磁盘失败：{error}")))?
+        MemoryDisk::new(blocks, SECTOR_SIZE)
     };
     let disk = seed_holy_docs(disk)?;
     write_image(path, disk)
 }
 
-/// 把 H: 卷文档写入 HolyFS 镜像。
+/// 把 H: 文档写入镜像，并把 I: 初始化为第二个卷。
 pub(crate) fn seed_holy_docs(disk: MemoryDisk) -> Result<MemoryDisk> {
     let shared = Rc::new(RefCell::new(disk));
+    let total = shared.borrow().capacity_blocks();
+    let half = total / 2;
+    if half == 0 {
+        return Err(Failure::new("HolyFS 镜像容量不足以划分两个卷"));
+    }
     {
-        let mut filesystem = HolyFs::mount(SharedDisk(shared.clone()))
-            .map_err(|error| Failure::new(format!("挂载 HolyFS 以播种文档失败：{error}")))?;
+        let mut filesystem = mount_or_format(SharedDisk::new(shared.clone(), 0, half), VOLUME_H)?;
         write_holy_docs(&mut filesystem)?;
         filesystem
             .sync()
             .map_err(|error| Failure::new(format!("提交 H: 文档失败：{error:?}")))?;
     }
+    {
+        let mut filesystem = mount_or_format(
+            SharedDisk::new(shared.clone(), half, total - half),
+            VOLUME_I,
+        )?;
+        filesystem
+            .sync()
+            .map_err(|error| Failure::new(format!("提交 I: 卷失败：{error:?}")))?;
+    }
     let disk = Rc::try_unwrap(shared)
         .map_err(|_| Failure::new("文档播种后仍持有镜像引用"))?
         .into_inner();
     Ok(disk)
+}
+
+fn mount_or_format(disk: SharedDisk, volume: VolumeId) -> Result<HolyFs<SharedDisk>> {
+    let disk = if is_formatted(&disk) {
+        disk
+    } else {
+        format_with_volume_id(disk, volume)
+            .map_err(|error| Failure::new(format!("格式化 HolyFS 卷失败：{error}")))?
+    };
+    HolyFs::mount(disk).map_err(|error| Failure::new(format!("挂载 HolyFS 卷失败：{error}")))
 }
 
 /// 写入 H: 卷文档；集合按需创建，文档按名字覆盖。
@@ -154,8 +178,35 @@ fn read_source(source: &str) -> Result<Vec<u8>> {
     fs::read(&path).map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))
 }
 
-/// 与挂载中的后端共享同一个内存盘，便于写回镜像文件。
-struct SharedDisk(Rc<RefCell<MemoryDisk>>);
+/// 与挂载中的后端共享同一个内存盘，并暴露其中一个卷区间。
+struct SharedDisk {
+    disk: Rc<RefCell<MemoryDisk>>,
+    start: u64,
+    blocks: u64,
+}
+
+impl SharedDisk {
+    fn new(disk: Rc<RefCell<MemoryDisk>>, start: u64, blocks: u64) -> Self {
+        Self {
+            disk,
+            start,
+            blocks,
+        }
+    }
+
+    fn check(&self, block: u64, length: usize) -> core::result::Result<(), BlockError> {
+        if length == 0 || !length.is_multiple_of(SECTOR_SIZE) {
+            return Err(BlockError::InvalidLength);
+        }
+        let end = block
+            .checked_add((length / SECTOR_SIZE) as u64)
+            .ok_or(BlockError::OutOfRange)?;
+        if end > self.blocks {
+            return Err(BlockError::OutOfRange);
+        }
+        Ok(())
+    }
+}
 
 impl BlockDevice for SharedDisk {
     fn block_size(&self) -> usize {
@@ -163,7 +214,7 @@ impl BlockDevice for SharedDisk {
     }
 
     fn capacity_blocks(&self) -> u64 {
-        self.0.borrow().capacity_blocks()
+        self.blocks
     }
 
     fn read_blocks(
@@ -171,11 +222,15 @@ impl BlockDevice for SharedDisk {
         block: u64,
         buffer: &mut [u8],
     ) -> core::result::Result<usize, BlockError> {
-        self.0.borrow().read_blocks(block, buffer)
+        self.check(block, buffer.len())?;
+        self.disk.borrow().read_blocks(self.start + block, buffer)
     }
 
     fn write_blocks(&mut self, block: u64, data: &[u8]) -> core::result::Result<usize, BlockError> {
-        self.0.borrow_mut().write_blocks(block, data)
+        self.check(block, data.len())?;
+        self.disk
+            .borrow_mut()
+            .write_blocks(self.start + block, data)
     }
 
     fn flush(&mut self) -> core::result::Result<(), BlockError> {

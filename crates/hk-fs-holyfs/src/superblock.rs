@@ -20,6 +20,10 @@ pub const MAGIC: u64 = 0x484F_4C59_4653_3031;
 pub const VERSION: u32 = 1;
 /// 默认卷身份。
 pub const DEFAULT_VOLUME_ID: VolumeId = VolumeId::new(0x484F_4C59_4653_0001);
+/// H: 盘卷身份。
+pub const VOLUME_H: VolumeId = DEFAULT_VOLUME_ID;
+/// I: 盘卷身份。
+pub const VOLUME_I: VolumeId = VolumeId::new(0x484F_4C59_4653_0002);
 
 /// 卷提交超级块。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

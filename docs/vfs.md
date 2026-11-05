@@ -6,7 +6,7 @@
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 
-HolyFS 是 HolyKernel 的原生文件系统，以 `H:` 盘符与文档对象工作。它由独立 `hk-server-holyfs` 服务承载；VFS 通过远程 Holy 后端把卷投影到路径命名空间，POSIX 兼容环境因此可以通过 VFS 访问同一批文档。详见 [HolyFS](holyfs.md)。
+HolyFS 是 HolyKernel 的原生文件系统，以 `H:`、`I:` 等盘符与文档对象工作。它由独立 `hk-server-holyfs` 服务承载；VFS 通过远程 Holy 后端把每个卷投影到路径命名空间（`H:` → `/disk`，`I:` → `/disk-I`），POSIX 兼容环境因此可以通过 VFS 访问同一批文档。详见 [HolyFS](holyfs.md)。
 
 `H:` 的原生文档协议由 `hk-server-holyfs` 承载：原生客户端可以按 DocPath 或 `DocId` 枚举集合、读取文档、查询修订视图，并通过 `ACQUIRE`/`RELEASE` 获取带权利与固定修订的文档令牌；路径、偏移与 fd 语义只作为 VFS 兼容投影存在。VFS 的远程后端只实现 `hk-fs::Backend` 所需的文档身份、集合、修订与偏移读写，不复制卷状态。
 
