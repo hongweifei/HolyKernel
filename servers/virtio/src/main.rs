@@ -85,7 +85,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                 },
             );
-            exit(0)
+            // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
+            exit(1)
         }
         Ok(Device::Network(_)) => {
             write("hk-server-virtio: 网络设备需要 hk-server-virtio-net\n".as_bytes());
