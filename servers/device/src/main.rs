@@ -79,12 +79,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if label != DEVICE_REQUEST {
             continue;
         }
+        let class = requested & 0xFFFF_FFFF;
+        let wanted = (requested >> 32) as usize;
+        let mut matched = 0;
         let mut sent_grant = false;
         for entry in devices.iter().flatten() {
             let (device, grant) = entry;
-            if send_cached_grant(*device, grant, requested, sender, &mut sent_grant) {
+            if !grant.is_virtio() || !class_matches(*device, class) {
+                continue;
+            }
+            if matched == wanted {
+                sent_grant = send_grant(grant, sender);
                 break;
             }
+            matched += 1;
         }
         if !sent_grant {
             let _ = send(sender, DEVICE_NONE, 0);
@@ -92,38 +100,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-/// 用缓存的授权响应一次设备申请；成功交出授权时返回 `true`。
+/// 判断缓存的设备是否匹配请求类别。
 #[cfg(target_os = "none")]
-fn send_cached_grant(
-    device: Device,
-    grant: &DeviceGrant,
-    requested: u64,
-    sender: u64,
-    sent_grant: &mut bool,
-) -> bool {
-    if *sent_grant || !grant.is_virtio() {
-        return false;
-    }
-    let class_matches = match requested {
+fn class_matches(device: Device, requested: u64) -> bool {
+    match requested {
         DEVICE_CLASS_ANY => true,
         DEVICE_CLASS_BLOCK => device.class == 0x01,
         DEVICE_CLASS_NETWORK => device.class == 0x02,
         // virtio-input：现代设备号 0x1052，过渡设备号 0x1012。
         DEVICE_CLASS_INPUT => device.vendor == 0x1AF4 && matches!(device.device, 0x1052 | 0x1012),
         _ => false,
-    };
-    if !class_matches {
-        return false;
     }
+}
+
+/// 把缓存授权编码并交给申请者。
+#[cfg(target_os = "none")]
+fn send_grant(grant: &DeviceGrant, sender: u64) -> bool {
     let mut encoded = [0_u8; DEVICE_GRANT_BYTES];
     let Some(length) = grant.encode(&mut encoded) else {
         return false;
     };
     let handle = device_grant_create(&encoded[..length]);
-    if send_handle(sender, DEVICE_GRANT, 0, handle) == 0 {
-        *sent_grant = true;
-    }
-    true
+    send_handle(sender, DEVICE_GRANT, 0, handle) == 0
 }
 
 #[cfg(target_os = "none")]

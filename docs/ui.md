@@ -49,7 +49,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
 - Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；无 Display 时回退内核控制台。
-- 用户态 `hk-server-input` 通过 DeviceGrant 接管 virtio-input：绑定 IRQ 通知、解码 evdev 键码，把字节发给 Display；输入驱动模式下内核控制台输入关闭。`smoke --mode inputdriver` 验证。
+- 用户态 `hk-server-input` 通过带索引的 DeviceGrant 申请接管多个 virtio-input 设备（键盘 + 平板），分别绑定 IRQ 通知、解码 evdev 键码与绝对坐标，把按键/指针事件发给 Display。`smoke --mode inputdriver/pointer` 验证。
 - 底部任务栏显示各窗口标题按钮；按钮按焦点高亮，点击即提升并聚焦对应窗口。窗口创建与拖动均限制在任务栏上方，任务栏始终合成在最上层。
 - 指针使用 virtio-tablet 绝对坐标：Display 归一化到屏幕、绘制带阴影的光标；点击按 z 序命中窗口并置顶，任务栏区域单独命中。标题栏按下即开始拖动，移动时按旧/新矩形重绘并限制在任务栏上方；正文点击才向客户端发送 `DISPLAY_CLICK`。`smoke --mode pointer` 验证拖拽、任务栏切换与点击。
 - 终端模式下键盘事件由 Display 按焦点转发给 Console，Console 完成行编辑、回显与按行回复。`smoke --mode terminal` 注入输入验证。
