@@ -8,6 +8,7 @@ use crate::workspace;
 
 /// 实现层 crate 禁止依赖的类别。
 const IMPL_FORBIDDEN: &[&str] = &[
+    "hk-runtime",
     "hk-root-server",
     "hk-platform-",
     "hk-server-",
@@ -25,6 +26,7 @@ const IMPL_FORBIDDEN: &[&str] = &[
 /// 核内库禁止依赖的类别。
 const LIB_FORBIDDEN: &[&str] = &[
     "hk-kernel",
+    "hk-runtime",
     "hk-root-server",
     "hk-platform-",
     "hk-server-",
@@ -35,6 +37,7 @@ const LIB_FORBIDDEN: &[&str] = &[
 /// 用户态库禁止依赖的类别（允许使用 `hk-server-api`）。
 const USERSPACE_LIB_FORBIDDEN: &[&str] = &[
     "hk-kernel",
+    "hk-runtime",
     "hk-root-server",
     "hk-platform-",
     "hk-x86_64",
@@ -42,7 +45,7 @@ const USERSPACE_LIB_FORBIDDEN: &[&str] = &[
 ];
 
 /// 服务禁止依赖的类别。
-const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-root-server", "hk-platform-"];
+const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server", "hk-platform-"];
 
 /// 检查所有工作区 crate 的常规依赖方向。
 pub fn run() -> Result<()> {
@@ -129,12 +132,21 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-hal" | "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => IMPL_FORBIDDEN,
         "hk-server-api" => &[
             "hk-kernel",
+            "hk-runtime",
             "hk-root-server",
             "hk-platform-",
             "hk-server-",
             "hk-x86_64",
             "hk-hosted",
         ],
+        "hk-runtime" => &[
+            "hk-root-server",
+            "hk-server-",
+            "hk-platform-",
+            "hk-x86_64",
+            "hk-hosted",
+        ],
+        "hk-root-server" => &["hk-server-", "hk-platform-", "hk-x86_64", "hk-hosted"],
         "hk-driver-virtio" | "hk-drivers" | "hk-net" | "hk-vfs" | "hk-block" | "hk-fs-ext4"
         | "hk-fs-holyfs" => USERSPACE_LIB_FORBIDDEN,
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" => LIB_FORBIDDEN,
