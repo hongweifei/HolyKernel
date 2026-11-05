@@ -175,6 +175,7 @@ pub struct ServiceManifest {
 - **Checkpoint Server**：Native Task/Server 快照与恢复。
 - **Debug Server**：符号化栈回溯、Task/资源视图、`hk-dbg`。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
+- **Console Service**：用户态行编辑与回显；内核通过 `SYS_CONSOLE_READ` 与输入通知转发键盘/串口字节，服务经由 `hk-server-api::console` 提供写文本与读一行。
 - **Shell 分层**：`hk-shell` 只提供命令解析、格式化与 `ShellHost`/`ShellIo` 契约，保持零依赖。内核态 shell 只实现内核可见命令，并通过通用扩展点把 `net` 等富命令转交用户态服务（例如启动 `netstat`）；用户态 shell 作为普通服务客户端，用 `hk-server-api` 直接查询。用户态能力不得进入 `hk-shell` 核心命令集。
 - **POSIX Bridge**：`posix` 入口；连接 POSIX Server 与兼容工具。
 - POSIX 应用通过终端/控制台接口使用文本界面；原生应用通过 Display Endpoint 使用窗口。

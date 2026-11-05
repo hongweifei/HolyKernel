@@ -6,6 +6,7 @@
 
 mod arch;
 pub mod block;
+pub mod console;
 pub mod device;
 pub mod heap;
 pub mod net;
@@ -15,6 +16,19 @@ pub mod vfs;
 pub use hk_syscall::*;
 
 use arch::call as syscall_call;
+
+/// 非阻塞读取一个控制台字节；无输入时返回 `None`。
+pub fn console_read() -> Option<u8> {
+    // SAFETY: 只读内核输入缓冲，不涉及用户指针。
+    let value = unsafe { syscall_call(SYS_CONSOLE_READ, 0, 0, 0, 0).value };
+    (value != u64::MAX).then_some(value as u8)
+}
+
+/// 注册为控制台输入订阅者；输入到达时会收到 `CONSOLE_NOTIFY_INPUT`。
+pub fn console_subscribe() -> u64 {
+    // SAFETY: 只登记当前任务，不涉及用户指针。
+    unsafe { syscall_call(SYS_CONSOLE_SUBSCRIBE, 0, 0, 0, 0).value }
+}
 
 /// 把文本写入内核控制台。
 pub fn write(bytes: &[u8]) {

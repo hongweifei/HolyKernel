@@ -121,6 +121,16 @@ pub const SYS_DMA_MAP_FRAME: u64 = 38;
 /// 非阻塞接收带字节载荷的消息；无消息时返回 0。
 pub const SYS_RECV_DATA_TRY: u64 = 39;
 
+/// 非阻塞读取一个控制台字节；无输入时返回 `u64::MAX`。
+pub const SYS_CONSOLE_READ: u64 = 40;
+/// 注册为控制台输入订阅者。
+pub const SYS_CONSOLE_SUBSCRIBE: u64 = 41;
+
+/// 通知位：有控制台输入。
+pub const CONSOLE_NOTIFY_INPUT: u64 = 1 << 0;
+/// 通知位：控制台收到消息。
+pub const CONSOLE_NOTIFY_MESSAGE: u64 = 1 << 1;
+
 /// 句柄权限位：读取。
 pub const RIGHT_READ: u64 = 1;
 /// 句柄权限位：写入。

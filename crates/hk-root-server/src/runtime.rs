@@ -11,14 +11,16 @@ use alloc::vec::Vec;
 use hk_hal::{CivilTime, DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
+use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_DEVICE_GRANT_CREATE,
-    SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT,
-    SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_UNMAP, SYS_HANDLE_CLOSE,
-    SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
-    SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_TRY,
-    SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_SERVICE_ENDPOINT, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE,
+    SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME,
+    SYS_DMA_SYNC, SYS_EXIT, SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO, SYS_FRAME_MAP,
+    SYS_FRAME_UNMAP, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND,
+    SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM,
+    SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_TRY, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
+    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
+    SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -66,6 +68,7 @@ pub struct UserRuntime<C, P> {
     call_max: u64,
     resumes: [u64; MAX_CPUS],
     irq_routes: [u16; 256],
+    console_subscriber: Option<usize>,
     platform: P,
 }
 
@@ -96,6 +99,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             call_max: 0,
             resumes: [0; MAX_CPUS],
             irq_routes: [0; 256],
+            console_subscriber: None,
             platform,
         }
     }

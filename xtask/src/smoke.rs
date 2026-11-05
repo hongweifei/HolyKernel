@@ -94,6 +94,9 @@ pub enum SmokeMode {
     /// 原生 Socket Handle 客户端自检
     #[value(name = "netsocket")]
     NetSocket,
+    /// Console 服务与内核输入自检
+    #[value(name = "console")]
+    Console,
 }
 
 impl SmokeMode {
@@ -120,6 +123,7 @@ impl SmokeMode {
             Self::NetRestart => Some("net-test net.restart net.dns=localhost shell-test net"),
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
+            Self::Console => Some("console-test"),
         }
     }
 
@@ -276,6 +280,7 @@ impl SmokeMode {
                 "hk-server-netsock: udp ok",
                 "hk-server-netsock: dns ok",
             ],
+            Self::Console => &["hk-server-console-test: got hello"],
         }
     }
 
@@ -294,7 +299,8 @@ impl SmokeMode {
             | Self::NetStatic
             | Self::NetRestart
             | Self::NetZerocopy
-            | Self::NetSocket => QEMU_SUCCESS,
+            | Self::NetSocket
+            | Self::Console => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -319,6 +325,7 @@ impl SmokeMode {
             Self::NetRestart => "build/serial-netrestart.log",
             Self::NetZerocopy => "build/serial-netzerocopy.log",
             Self::NetSocket => "build/serial-netsocket.log",
+            Self::Console => "build/serial-console.log",
         }
     }
 
@@ -398,7 +405,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             .args(["-netdev", "user,id=net0"])
             .args(["-device", "virtio-net-pci,netdev=net0"]);
     }
-    if mode == SmokeMode::Input {
+    if matches!(mode, SmokeMode::Input | SmokeMode::Console) {
         command
             .arg("-qmp")
             .arg(format!("unix:{},server=on,wait=off", socket.display()));
@@ -417,6 +424,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "use boot.hsh\n")?;
         thread::sleep(Duration::from_millis(500));
         inject(&socket, "exit\n")?;
+    }
+    if mode == SmokeMode::Console {
+        thread::sleep(Duration::from_secs(5));
+        inject(&socket, "hello\n")?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {

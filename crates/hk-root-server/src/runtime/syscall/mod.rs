@@ -259,6 +259,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.platform.timer_ticks());
                 Switch::Continue
             }
+            SYS_CONSOLE_READ => {
+                frame.set_result(match self.platform.console_read() {
+                    Some(byte) => u64::from(byte),
+                    None => u64::MAX,
+                });
+                Switch::Continue
+            }
+            SYS_CONSOLE_SUBSCRIBE => {
+                self.console_subscriber = Some(index);
+                frame.set_result(0);
+                Switch::Continue
+            }
             SYS_FRAME_ALLOC => self.frame_alloc(index, tcb, frame),
             SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
             SYS_FRAME_UNMAP => self.frame_unmap(index, frame),

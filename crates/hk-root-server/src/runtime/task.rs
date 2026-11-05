@@ -288,6 +288,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
         self.drain_irqs();
+        if self.platform.take_console_input()
+            && let Some(index) = self.console_subscriber
+            && let Some(task) = self.tasks.get(index)
+            && !task.exited
+            && let Some(handle) = task.notifications.get(index).copied().flatten()
+        {
+            let _ = self.kernel.signal(task.tcb, handle, CONSOLE_NOTIFY_INPUT);
+        }
         let Some(index) = self.next_task(cpu) else {
             self.last_finish = None;
             return Step::Done;

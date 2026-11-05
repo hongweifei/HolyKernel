@@ -187,7 +187,7 @@ flowchart LR
 ### 交付
 
 - Display Server：帧缓冲、窗口、合成器、输入焦点。
-- Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。
+- Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地第一片：内核非阻塞控制台读与输入通知，用户态 `hk-server-console` 行编辑/回显，`smoke --mode console` 验证。
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。
 - 原生欢迎页与文档浏览。

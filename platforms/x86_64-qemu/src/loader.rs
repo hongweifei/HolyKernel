@@ -34,11 +34,19 @@ pub fn run(
 ) -> Result<(), String> {
     let mut modules = loader::boot_modules(info.server_modules);
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
+    let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
         let name = loader::service_name(module.name);
+        if console_test {
+            // 控制台自检使用最小服务集，避免其他常驻服务让空闲判定永不成立。
+            return matches!(name, "hk-server-console" | "hk-server-console-test");
+        }
         if name == "hk-server-netstat" {
+            return false;
+        }
+        if matches!(name, "hk-server-console" | "hk-server-console-test") {
             return false;
         }
         network_enabled
@@ -105,6 +113,16 @@ pub fn run(
             continue;
         }
         if idle {
+            // 控制台自检需要等待外部键盘输入：任务全部阻塞时不要直接退出，
+            // 而是进入可被中断唤醒的空闲等待，直到所有任务真正退出。
+            if console_test && !runtime::tasks().iter().all(|task| task.state == "exited") {
+                // SAFETY: 等待外部中断（键盘）唤醒；`sti` 延迟到下一条指令，
+                // `hlt` 不会丢失已挂起的中断。
+                unsafe {
+                    core::arch::asm!("sti; hlt; cli", options(nomem, nostack));
+                }
+                continue;
+            }
             break;
         }
     }

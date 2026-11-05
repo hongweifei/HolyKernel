@@ -77,6 +77,14 @@ impl UserPlatform for X86Platform {
         *pending = hk_platform_x86_64::irq::take_pending();
     }
 
+    fn console_read(&self) -> Option<u8> {
+        hk_platform_x86_64::keyboard::read().or_else(|| Serial::new(COM1).try_read_byte())
+    }
+
+    fn take_console_input(&self) -> bool {
+        hk_platform_x86_64::keyboard::take_input()
+    }
+
     fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
         Some(&hk_platform_x86_64::bootstrap::CONTROLLER)
     }

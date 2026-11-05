@@ -55,6 +55,14 @@ pub trait UserPlatform {
     }
     /// 把用户地址区间清零。
     fn zero(&self, address: u64, length: usize);
+    /// 非阻塞读取一个控制台字节。
+    fn console_read(&self) -> Option<u8> {
+        None
+    }
+    /// 取出并清除“有控制台输入”标志。
+    fn take_console_input(&self) -> bool {
+        false
+    }
     /// 从当前任务用户内存读取字节；地址无效时返回 `false`。
     fn read_user(&self, _address: u64, _buffer: &mut [u8]) -> bool {
         false
