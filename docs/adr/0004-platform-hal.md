@@ -43,7 +43,7 @@
 ## 架构一致性检查
 
 - HAL 使用微内核类型与语义。
-- BootInfo 包含服务器模块，Root Server 从模块加载 ELF。
+- BootInfo 包含服务器模块，Root Server 从模块加载原生 HKX 镜像（见 [ADR-0014](0014-native-image.md)）。
 - 平台层保持硬件相关的最小实现。
 
 ## 相关

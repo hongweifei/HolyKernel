@@ -155,7 +155,7 @@ sequenceDiagram
 
 ## 9. 符号化调试
 
-- Debug Server 读取 ELF 调试信息与 Task 符号表。
+- Debug Server 读取构建期符号表与 Task 符号。
 - 地址 → 函数/行号 → 源码文档/HolyDoc 链接。
 - 栈回溯显示 Task、TCB、HolyDoc 链接。
 - 支持 `hk-dbg` 协议与 Workbench 面板。

@@ -293,7 +293,7 @@ sequenceDiagram
 - POSIX 兼容环境的根文件系统为 ext2/ext4；HolyFS 卷作为数据卷接入。
 - HolyShell 是默认命令行；POSIX Server 是可选兼容环境。
 - 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2/ext4 根文件系统并启动 `/sbin/init`。
-- 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载 ELF。
+- 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载原生任务镜像（HKX），Task/Capability/Symbol 记录分别驱动入口与栈、设备授权和调试符号。内核镜像本身仍以 ELF 交给 Limine，这是引导器边界。
 - 服务器崩溃时，Root Server 按服务清单重启并重新分配句柄。
 
 ---

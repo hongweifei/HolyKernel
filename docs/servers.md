@@ -77,7 +77,7 @@ pub struct ServiceManifest {
 ## 3. Root Server
 
 - 启动时获得初始 Untyped、HandleTable、Endpoint 与设备句柄。
-- 解析服务清单，创建服务器 VSpace/TCB，加载原生 HKX 镜像，分配 Handle。
+- 解析服务清单，创建服务器 VSpace/TCB，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
 - 维护服务表：PID、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
 - 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。

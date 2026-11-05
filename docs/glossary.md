@@ -61,7 +61,7 @@
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
 | **Console Service** | POSIX 终端/控制台接口 |
 | **HolyDoc Server** | 活文档解析、布局、渲染、链接 |
-| **Service Manifest** | 服务名、ELF、Handle、依赖、重启策略 |
+| **Service Manifest** | 服务名、原生镜像、Handle、依赖、重启策略 |
 
 ## 3. POSIX 与 libc
 
@@ -85,7 +85,7 @@
 | **OpenFile** | 打开文件描述；偏移、flags、引用计数 |
 | **FileHandle** | VFS 维护的文件句柄；POSIX fd 表引用它 |
 | **COW** | 写时复制；`fork` 与页错误处理 |
-| **ELF Loader** | 加载可执行文件与动态链接器 |
+| **ELF Loader** | 兼容环境的 ELF 加载器；原生服务使用 HKX 镜像 |
 | **pthread** | POSIX 线程；映射到 TCB |
 | **signal trampoline** | libc 中恢复上下文并调用信号处理器的代码 |
 | **futex** | 用户态快速锁；共享 Frame + Notification |
@@ -110,7 +110,7 @@
 | --- | --- |
 | **HAL** | 硬件抽象层 trait 集合 |
 | **BootInfo** | 内存 map、内核镜像、帧缓冲、DTB/RSDP、服务器模块 |
-| **BootModule** | bootloader 提供的服务器 ELF 或根镜像 |
+| **BootModule** | bootloader 提供的服务器原生镜像或根镜像 |
 | **Hosted** | 在普通进程中运行的确定性模拟器 |
 | **Conformance** | 所有平台通过的测试套件 |
 | **Deterministic Sim** | 固定种子、虚拟时钟、可回放模拟 |

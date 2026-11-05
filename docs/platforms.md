@@ -101,7 +101,7 @@ pub struct BootInfo {
 }
 ```
 
-- `server_modules` 包含 Root Server、Device Manager、VFS、Network Server、HolyFS Server、HolyShell、POSIX Server 等 ELF 镜像。
+- `server_modules` 包含 Root Server、Device Manager、VFS、Network Server、HolyFS Server、HolyShell、POSIX Server 等原生 HKX 镜像。
 - 内核校验 memory map 非空且不重叠、内核镜像非空且被内存描述、帧缓冲整段落在内存、direct map 覆盖内核/帧缓冲/模块且地址不溢出、模块非空、不重名、互不重叠且不与内核重叠。
 - BootInfo 在启动后映射为只读，供诊断使用。
 
@@ -136,7 +136,7 @@ sequenceDiagram
 - 内核只创建 Root Task，并把初始 Untyped/HandleTable/Endpoint 交给它。
 - Root Server 按服务清单启动服务器，分配最小 Handle；HolyShell 是默认命令行。
 - POSIX Server 是可选兼容环境，启用时启动 `/sbin/init`。
-- 服务器镜像由 bootloader 作为模块提供；Root Server 加载 ELF。
+- 服务器镜像由 bootloader 作为模块提供；Root Server 加载原生任务镜像（HKX）。
 
 ---
 

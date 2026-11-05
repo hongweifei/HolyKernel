@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
 | L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
-| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出 |
+| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像、测试退出 |
 | L2 用户态库 | `hk-server-api`、`hk-block`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、可缩放字体、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
