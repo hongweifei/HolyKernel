@@ -15,8 +15,22 @@ pub const DISPLAY_COMMIT: u64 = 0xA02;
 pub const DISPLAY_FRAME_DONE: u64 = 0xA03;
 /// 请求显示服务退出（用于自检收尾）。
 pub const DISPLAY_SHUTDOWN: u64 = 0xA04;
-/// 键盘事件；`word` 为字节值，发给焦点窗口的客户端。
+/// 键盘事件；`word` 为打包的窗口编号与字节，发给焦点窗口的客户端。
 pub const DISPLAY_KEY: u64 = 0xA05;
+/// 设置窗口标题；载荷为 8 字节窗口编号 + UTF-8 标题。
+pub const DISPLAY_SET_TITLE: u64 = 0xA06;
+
+/// 窗口标题最大字节数。
+pub const TITLE_MAX: usize = 32;
+
+/// 设置窗口标题（非阻塞，显示服务下一轮处理）。
+pub fn set_title(display: u64, window: u64, title: &str) {
+    let mut buffer = [0_u8; 8 + TITLE_MAX];
+    buffer[..8].copy_from_slice(&window.to_le_bytes());
+    let length = title.len().min(TITLE_MAX);
+    buffer[8..8 + length].copy_from_slice(&title.as_bytes()[..length]);
+    let _ = crate::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
+}
 
 /// 客户端映射窗口表面使用的用户虚拟地址。
 pub const SURFACE_VIRT: u64 = 0x5000_0000;

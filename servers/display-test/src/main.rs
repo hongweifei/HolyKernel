@@ -33,6 +33,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let first = create_window(display, endpoint, 320, 200, 0, 0x0033_99FF, 0x0008_1018);
+    hk_server_api::display::set_title(display, first, "Window 1");
     let second = create_window(
         display,
         endpoint,
@@ -42,6 +43,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         0x00FF_9933,
         0x0020_1008,
     );
+    hk_server_api::display::set_title(display, second, "Window 2");
 
     let _ = send(display, DISPLAY_COMMIT, first);
     let _ = send(display, DISPLAY_COMMIT, second);

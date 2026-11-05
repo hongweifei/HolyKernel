@@ -367,6 +367,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-console: window ");
         write_u64(terminal.window);
         write(b"\n");
+        hk_server_api::display::set_title(terminal.display, terminal.window, "Console");
         terminal.emit(b"> ");
     }
 

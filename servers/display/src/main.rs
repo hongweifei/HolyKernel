@@ -10,8 +10,8 @@
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
-    DISPLAY_WINDOW_CREATED, pack_key, unpack_size,
+    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SET_TITLE,
+    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -20,6 +20,10 @@ use hk_server_api::{
     close_handle, console_read, exit, frame_info, frame_map, recv_data_handle_try, send, write,
     write_u64, yield_now,
 };
+#[cfg(target_os = "none")]
+use lovyangfx_fonts::Font;
+#[cfg(target_os = "none")]
+use lovyangfx_fonts::fonts::efont_cn_16;
 
 /// 最多同时合成的窗口数。
 #[cfg(target_os = "none")]
@@ -53,6 +57,9 @@ const TITLE_COLOR: u32 = 0x0020_60A0;
 /// 焦点窗口的标题栏颜色。
 #[cfg(target_os = "none")]
 const TITLE_FOCUS: u32 = 0x0040_A0E0;
+/// 标题文字颜色。
+#[cfg(target_os = "none")]
+const TITLE_TEXT: u32 = 0x00E0_F0FF;
 
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
@@ -66,6 +73,8 @@ struct Window {
     virt: u64,
     handle: u64,
     client: u64,
+    title: [u8; TITLE_MAX],
+    title_length: usize,
 }
 
 #[cfg(target_os = "none")]
@@ -126,12 +135,89 @@ fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
     }
 }
 
-/// 重绘一个矩形区域：背景 + 自顶向下的窗口。
+/// 在给定矩形内绘制一个窗口：标题栏、标题文字与表面。
 #[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn paint_window(
+    screen: &Screen,
+    window: &Window,
+    focus: u64,
+    font: &Font<'static>,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+) {
+    let window_x = window.x;
+    let window_y = window.y;
+
+    let title_left = window_x.max(left);
+    let title_right = (window_x + window.width).min(right);
+    let title_top = window_y.max(top);
+    let title_bottom = (window_y + TITLE_HEIGHT).min(bottom);
+    if title_left < title_right && title_top < title_bottom {
+        let color = if window.id == focus {
+            TITLE_FOCUS
+        } else {
+            TITLE_COLOR
+        };
+        for row in title_top..title_bottom {
+            for column in title_left..title_right {
+                screen.put(column, row, color);
+            }
+        }
+        let mut pen_x = window_x as i32 + 4;
+        for &byte in &window.title[..window.title_length] {
+            if !(0x20..0x7F).contains(&byte) {
+                pen_x += 8;
+                continue;
+            }
+            if pen_x + 8 > (window_x + window.width) as i32 {
+                break;
+            }
+            if let Some(glyph) = font.glyph(byte as char) {
+                let origin_y = window_y as i32 + 4;
+                glyph.for_each_pixel(|x, y| {
+                    let pixel_x = pen_x + x;
+                    let pixel_y = origin_y + y;
+                    if pixel_x >= left as i32
+                        && pixel_x < right as i32
+                        && pixel_y >= top as i32
+                        && pixel_y < bottom as i32
+                        && pixel_y < (window_y + TITLE_HEIGHT) as i32
+                    {
+                        screen.put(pixel_x as usize, pixel_y as usize, TITLE_TEXT);
+                    }
+                });
+            }
+            pen_x += 8;
+        }
+    }
+
+    let body_left = window_x.max(left);
+    let body_right = (window_x + window.width).min(right);
+    let body_top = (window_y + TITLE_HEIGHT).max(top);
+    let body_bottom = (window_y + TITLE_HEIGHT + window.height).min(bottom);
+    for row in body_top..body_bottom {
+        let source_row = row - (window_y + TITLE_HEIGHT);
+        for column in body_left..body_right {
+            screen.put(
+                column,
+                row,
+                surface_pixel(window, column - window_x, source_row),
+            );
+        }
+    }
+}
+
+/// 重绘一个矩形区域：背景 + 自下而上的窗口。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
 fn compose_region(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
+    font: &Font<'static>,
     x: usize,
     y: usize,
     width: usize,
@@ -141,31 +227,17 @@ fn compose_region(
     let top = y.min(screen.height);
     let right = x.saturating_add(width).min(screen.width);
     let bottom = y.saturating_add(height).min(screen.height);
+    if left >= right || top >= bottom {
+        return;
+    }
     for row in top..bottom {
+        let color = desktop_color(screen.height, row);
         for column in left..right {
-            let mut color = desktop_color(screen.height, row);
-            for window in windows.iter().rev().flatten() {
-                if column < window.x
-                    || column >= window.x + window.width
-                    || row < window.y
-                    || row >= window.y + window.height + TITLE_HEIGHT
-                {
-                    continue;
-                }
-                if row < window.y + TITLE_HEIGHT {
-                    color = if window.id == focus {
-                        TITLE_FOCUS
-                    } else {
-                        TITLE_COLOR
-                    };
-                } else {
-                    color =
-                        surface_pixel(window, column - window.x, row - (window.y + TITLE_HEIGHT));
-                }
-                break;
-            }
             screen.put(column, row, color);
         }
+    }
+    for window in windows.iter().flatten() {
+        paint_window(screen, window, focus, font, left, top, right, bottom);
     }
 }
 
@@ -203,12 +275,14 @@ fn damage_window(
     screen: &Screen,
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
+    font: &Font<'static>,
     window: &Window,
 ) {
     compose_region(
         screen,
         windows,
         focus,
+        font,
         window.x,
         window.y,
         window.width,
@@ -216,10 +290,16 @@ fn damage_window(
     );
 }
 
-/// 焦点切换后重绘旧焦点窗口的标题栏。
+/// 重绘指定窗口的标题栏。
 #[cfg(target_os = "none")]
-fn damage_title(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus: u64, id: u64) {
-    if id == 0 || id == focus {
+fn damage_title(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    id: u64,
+) {
+    if id == 0 {
         return;
     }
     if let Some(window) = windows
@@ -232,6 +312,7 @@ fn damage_title(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus:
             screen,
             windows,
             focus,
+            font,
             window.x,
             window.y,
             window.width,
@@ -250,7 +331,12 @@ fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
 
 /// Tab：把焦点移到下一个窗口并提升它。
 #[cfg(target_os = "none")]
-fn cycle_focus(screen: &Screen, windows: &mut [Option<Window>; MAX_WINDOWS], focus: &mut u64) {
+fn cycle_focus(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: &mut u64,
+    font: &Font<'static>,
+) {
     let count = windows.iter().flatten().count();
     if count == 0 {
         return;
@@ -273,9 +359,9 @@ fn cycle_focus(screen: &Screen, windows: &mut [Option<Window>; MAX_WINDOWS], foc
         .find(|window| window.id == id)
         .copied()
     {
-        damage_window(screen, windows, *focus, &window);
+        damage_window(screen, windows, *focus, font, &window);
     }
-    damage_title(screen, windows, *focus, previous);
+    damage_title(screen, windows, *focus, font, previous);
     write(b"hk-server-display: focus ");
     write_u64(id);
     write(b"\n");
@@ -309,6 +395,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         height: framebuffer.height as usize,
         stride: framebuffer.stride as usize / 4,
     };
+    let font = efont_cn_16();
     draw_desktop(&screen);
     write(b"hk-server-display: ready ");
     write_u64(u64::from(framebuffer.width));
@@ -323,14 +410,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         // 输入来自内核控制台（自检阶段）；后续由 Input Driver 取代。
         while let Some(byte) = console_read() {
             if byte == TAB {
-                cycle_focus(&screen, &mut windows, &mut focus);
+                cycle_focus(&screen, &mut windows, &mut focus, &font);
             } else {
                 route_key(&windows, focus, byte);
             }
         }
-        let mut payload = [0_u8; 8];
-        let (label, word, sender, _length, handle) =
-            recv_data_handle_try(endpoint, &mut payload, 0);
+        let mut payload = [0_u8; 8 + TITLE_MAX];
+        let (label, word, sender, length, handle) = recv_data_handle_try(endpoint, &mut payload, 0);
         if label == 0 {
             let _ = yield_now();
             continue;
@@ -351,12 +437,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     continue;
                 };
                 let bytes = width as u64 * height as u64 * 4;
-                let Some((_, length)) = frame_info(handle) else {
+                let Some((_, frame_length)) = frame_info(handle) else {
                     let _ = close_handle(handle);
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
                 };
-                if length < bytes {
+                if frame_length < bytes {
                     let _ = close_handle(handle);
                     let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
                     continue;
@@ -393,14 +479,53 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     virt,
                     handle,
                     client: sender,
+                    title: [0; TITLE_MAX],
+                    title_length: 0,
                 });
                 next_id += 1;
                 focus = id;
                 if let Some(window) = windows[slot] {
-                    damage_window(&screen, &windows, focus, &window);
+                    damage_window(&screen, &windows, focus, &font, &window);
                 }
-                damage_title(&screen, &windows, focus, previous);
+                damage_title(&screen, &windows, focus, &font, previous);
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
+            }
+            DISPLAY_SET_TITLE => {
+                if length >= 8 {
+                    let id = u64::from_le_bytes([
+                        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
+                        payload[6], payload[7],
+                    ]);
+                    let text = &payload[8..length];
+                    if let Some(window) =
+                        windows.iter_mut().flatten().find(|window| window.id == id)
+                    {
+                        let count = text.len().min(TITLE_MAX);
+                        window.title[..count].copy_from_slice(&text[..count]);
+                        window.title_length = count;
+                    }
+                    damage_title(&screen, &windows, focus, &font, id);
+                    let titled = windows
+                        .iter()
+                        .flatten()
+                        .find(|window| window.id == id)
+                        .is_some_and(|window| {
+                            let color = if window.id == focus {
+                                TITLE_FOCUS
+                            } else {
+                                TITLE_COLOR
+                            };
+                            (window.y + 4..(window.y + TITLE_HEIGHT).min(screen.height)).any(
+                                |row| {
+                                    (window.x + 4..(window.x + window.width).min(screen.width))
+                                        .any(|column| screen.get(column, row) != color)
+                                },
+                            )
+                        });
+                    if titled {
+                        write(b"hk-server-display: title ok\n");
+                    }
+                }
             }
             DISPLAY_COMMIT => {
                 let Some(window) = windows
@@ -422,8 +547,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 else {
                     continue;
                 };
-                damage_window(&screen, &windows, focus, &window);
-                damage_title(&screen, &windows, focus, previous);
+                damage_window(&screen, &windows, focus, &font, &window);
+                damage_title(&screen, &windows, focus, &font, previous);
                 let expected = surface_pixel(&window, 0, 0);
                 let actual = screen.get(window.x, window.y + TITLE_HEIGHT);
                 if expected != actual {

@@ -291,6 +291,7 @@ impl SmokeMode {
             Self::Console => &["hk-server-console-test: got hello"],
             Self::Display => &[
                 "hk-server-display: ready",
+                "hk-server-display: title ok",
                 "hk-server-display: composite ok",
                 "hk-server-display: focus 1",
                 "hk-server-display-test: ready",
