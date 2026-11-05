@@ -280,6 +280,20 @@ fn cycle_focus(
     write(b"\n");
 }
 
+/// 把输入的 0..=0x7FFF 绝对坐标映射到屏幕像素范围。
+///
+/// 最大值映射到 `width - 1` / `height - 1`，避免指针落在屏幕外一像素；空屏幕
+/// 时退化为 (0, 0)。
+#[cfg(target_os = "none")]
+fn pointer_position(x: u16, y: u16, width: usize, height: usize) -> (usize, usize) {
+    let limit_x = width.saturating_sub(1) as u64;
+    let limit_y = height.saturating_sub(1) as u64;
+    (
+        (u64::from(x) * width as u64 / 0x7FFF).min(limit_x) as usize,
+        (u64::from(y) * height as u64 / 0x7FFF).min(limit_y) as usize,
+    )
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -441,10 +455,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             INPUT_POINTER => {
                 let (x, y) = unpack_pointer(word);
-                let next = (
-                    (u64::from(x) * screen.width as u64 / 0x7FFF) as usize,
-                    (u64::from(y) * screen.height as u64 / 0x7FFF) as usize,
-                );
+                let next = pointer_position(x, y, screen.width, screen.height);
                 if let Some(previous) = pointer {
                     compose_region(
                         &screen,
