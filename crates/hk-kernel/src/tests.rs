@@ -101,6 +101,31 @@ fn send_delivers_to_waiting_receiver() {
 }
 
 #[test]
+fn try_recv_does_not_block_receiver() {
+    let kernel = kernel();
+    let owner = thread(&kernel);
+    let receiver = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(owner, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(owner, endpoint).expect("端点标识");
+    let handle = kernel
+        .grant(receiver, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予接收方句柄");
+
+    assert_eq!(kernel.state_of(receiver), Some(ThreadState::Runnable));
+    assert!(
+        kernel
+            .try_recv_from(receiver, handle, None)
+            .expect("非阻塞接收")
+            .is_none()
+    );
+    // 非阻塞接收在没有消息时不得把线程置为阻塞，否则调度器不会再重排它。
+    assert_eq!(kernel.state_of(receiver), Some(ThreadState::Runnable));
+}
+
+#[test]
 fn queues_message_without_blocking_sender() {
     let kernel = kernel();
     let sender = thread(&kernel);

@@ -58,6 +58,26 @@ impl Kernel {
         endpoint_handle: Handle,
         expected: Option<TcbId>,
     ) -> Result<Option<Received>, KernelError> {
+        self.recv_from_inner(thread, endpoint_handle, expected, true)
+    }
+
+    /// 非阻塞接收；没有消息时返回 `None`，且不会阻塞调用线程。
+    pub fn try_recv_from(
+        &self,
+        thread: TcbId,
+        endpoint_handle: Handle,
+        expected: Option<TcbId>,
+    ) -> Result<Option<Received>, KernelError> {
+        self.recv_from_inner(thread, endpoint_handle, expected, false)
+    }
+
+    fn recv_from_inner(
+        &self,
+        thread: TcbId,
+        endpoint_handle: Handle,
+        expected: Option<TcbId>,
+        block_when_empty: bool,
+    ) -> Result<Option<Received>, KernelError> {
         if let Some(delivery) = self
             .threads
             .lock()
@@ -96,12 +116,14 @@ impl Kernel {
                 }))
             }
             None => {
-                self.block(
-                    thread,
-                    BlockReason::Recv {
-                        endpoint: endpoint_id,
-                    },
-                )?;
+                if block_when_empty {
+                    self.block(
+                        thread,
+                        BlockReason::Recv {
+                            endpoint: endpoint_id,
+                        },
+                    )?;
+                }
                 self.record(thread.get(), Category::Ipc, TRACE_RECV, endpoint_id.get());
                 Ok(None)
             }

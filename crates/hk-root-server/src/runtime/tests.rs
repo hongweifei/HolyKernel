@@ -139,6 +139,36 @@ fn dispatches_alloc_and_exit() {
 }
 
 #[test]
+fn yielded_task_is_rescheduled_after_finish() {
+    let mut runtime = runtime();
+    let Step::Resume {
+        index: first,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_YIELD;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    assert_eq!(runtime.finish(0, first), None);
+
+    // yield 不是永久阻塞：后续调度不能返回空闲，且原任务会再次被选中。
+    let mut resumed = false;
+    for _ in 0..4 {
+        let Step::Resume { index, mut context } = runtime.step(0) else {
+            panic!("yield 后不应判定空闲");
+        };
+        if index == first {
+            resumed = true;
+        }
+        context.rax = SYS_YIELD;
+        assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+        runtime.finish(0, index);
+    }
+    assert!(resumed, "yield 的任务应被重新调度");
+}
+
+#[test]
 fn transfers_handle_over_ipc() {
     let mut runtime = runtime();
 

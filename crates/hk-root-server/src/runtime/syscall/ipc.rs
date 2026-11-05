@@ -241,7 +241,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        match self.kernel.recv_from(tcb, handle, None) {
+        match self.kernel.try_recv_from(tcb, handle, None) {
             Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
             Ok(None) => {
                 frame.set_result(0);
