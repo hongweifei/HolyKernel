@@ -36,6 +36,7 @@ HolyShell 是原生命令行与脚本环境。**Holy 命令是主路径**；POSI
 - **用户态 Shell**：独立服务 `hk-server-shell`，通过 Console 协议读写行；`tasks`/`services`/`handles`/`trace`/`stats`/`start`/`restart`/脚本读取走 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`），由 Root Server 校验调用者并执行；`mounts` 直接查询 VFS 服务的只读挂载表，不建立共享 Frame。Shell 服务不链接 `hk-runtime`、`hk-root-server` 或平台代码。
 - **Console 不是 Shell**：Console 只做终端行编辑、回显与按行交付；命令处理只存在于上述两类 Shell。
 - **共享边界**：`hk-shell` 仅保留中立解析、格式化与 `ShellHost`/`ShellIo` 契约；内核态与用户态各自实现宿主，互不注入对方能力。
+- **宿主扩展命令**：只在某一端存在的功能（如用户态 `mounts`、内核态 `net`）不进入 `hk-shell` 核心命令表，由对应宿主实现 `ShellHost::extension`，并通过 `help_extra` 追加帮助。核心 `help` 只列出跨宿主命令。
 - **启动握手**：用户态 Shell 发送 `CONSOLE_PING`，收到 `CONSOLE_PONG` 后才写提示符，避免 Console 接收循环尚未就绪时丢消息。
 
 ---
@@ -98,7 +99,7 @@ HolyShell 会话是一个 **Native Task**：
 - 会话创建时从父 Task 继承基础命名空间；Root Server/Command Registry 提供系统命令。
 - 多个会话 = 多个 Native Task；Workbench 可打开多个终端面板。
 - 会话结束回收命名空间、历史与临时资源；系统服务保持运行。
-- 恢复模式启动一个最小会话，只加载 `tasks`、`services`、`mounts`、`restore`、`help`。
+- 恢复模式启动一个最小会话，只加载 `tasks`、`services`、`restore`、`help`。
 
 ### 3.2 即时执行
 
@@ -130,7 +131,7 @@ holy> debug app
 | `services` | 列出服务器、Endpoint、健康与重启次数 |
 | `handles` | 列出当前 Task 的 Handle |
 | `endpoints` | 列出 Endpoint/Notification |
-| `mounts` | 查看 VFS 挂载表 |
+| `mounts` | 查看 VFS 挂载表（用户态 Shell 扩展） |
 | `trace` | 查看最近的内核 trace 事件（含句柄审计） |
 | `stats` | 查看上下文切换与 IPC call/reply 时延统计 |
 | `docs` | 列出/搜索 HolyDoc |
@@ -203,7 +204,7 @@ holy> run /usr/bin/ls -l /home
 - 原生模式：真彩色、主题、结构化表格/树、可点击文档链接。
 - POSIX 模式：Terminal 语义、`termios`、256/真彩色 SGR。
 - 两种模式共享输入/输出通道；模式切换由 `posix`/`exit` 完成。
-- 恢复模式：初始化失败时启动 HolyShell，提供 `tasks`、`services`、`mounts`、`restore`。
+- 恢复模式：初始化失败时启动 HolyShell，提供 `tasks`、`services`、`restore`。
 
 ---
 

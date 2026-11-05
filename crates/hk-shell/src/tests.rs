@@ -58,7 +58,7 @@ fn parses_known_commands() {
     assert_eq!(parse("tasks"), Command::Tasks);
     assert_eq!(parse("handles"), Command::Handles);
     assert_eq!(parse("services"), Command::Services);
-    assert_eq!(parse("mounts"), Command::Mounts);
+    assert_eq!(parse("mounts"), Command::Unknown("mounts"));
     assert_eq!(parse("trace"), Command::Trace);
     assert_eq!(parse("stats"), Command::Stats);
     assert_eq!(parse("focus"), Command::Focus(""));

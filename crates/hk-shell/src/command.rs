@@ -13,8 +13,6 @@ pub enum Command<'a> {
     Handles,
     /// 列出服务。
     Services,
-    /// 列出挂载点。
-    Mounts,
     /// 列出最近的内核 trace 事件。
     Trace,
     /// 显示运行时统计。
@@ -52,7 +50,6 @@ pub fn parse(line: &str) -> Command<'_> {
         "tasks" => Command::Tasks,
         "handles" => Command::Handles,
         "services" => Command::Services,
-        "mounts" => Command::Mounts,
         "trace" => Command::Trace,
         "stats" => Command::Stats,
         "focus" => Command::Focus(arguments),

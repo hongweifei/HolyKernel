@@ -17,12 +17,11 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
     match command {
         Command::Empty => Response::empty(),
         Command::Help => Response::output(String::from(
-            "命令：help、tasks、handles、services、mounts、trace、stats、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
+            "命令：help、tasks、handles、services、trace、stats、focus [任务]、start <服务>、restart <服务>、use <脚本>、load <脚本>、clear、echo <文本>、exit\n",
         )),
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
         Command::Services => Response::output(format_services(state.services)),
-        Command::Mounts => Response::output(String::from("当前宿主不提供挂载表\n")),
         Command::Trace => Response {
             trace: true,
             ..Response::empty()

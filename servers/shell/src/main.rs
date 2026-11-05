@@ -108,6 +108,17 @@ impl ShellHost for UserHost {
         root_text(ROOT_OP_RESTART, name)
     }
 
+    fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
+        match name {
+            "mounts" => Some(mount_text(self.endpoint)),
+            _ => None,
+        }
+    }
+
+    fn help_extra(&self) -> String {
+        String::from("扩展：mounts\n")
+    }
+
     fn script(&self, name: &str) -> Result<String, String> {
         let text = root_text(ROOT_OP_SCRIPT, name);
         if text.starts_with("未找到脚本")
@@ -172,7 +183,6 @@ fn run_command(io: &ConsoleIo, host: &mut UserHost, session: &mut Session, line:
         Command::Tasks => io.write(&root_text(ROOT_OP_TASKS, "")),
         Command::Handles => io.write(&root_text(ROOT_OP_HANDLES, "")),
         Command::Services => io.write(&root_text(ROOT_OP_SERVICES, "")),
-        Command::Mounts => io.write(&mount_text(host.endpoint)),
         Command::Trace => io.write(&root_text(ROOT_OP_TRACE, "")),
         Command::Stats => io.write(&root_text(ROOT_OP_STATS, "")),
         Command::Start(name) if !name.is_empty() => io.write(&root_text(ROOT_OP_START, name)),
