@@ -22,7 +22,7 @@ pub fn execute(command: Command<'_>, state: &ShellState<'_>, session: &mut Sessi
         Command::Tasks => Response::output(format_tasks(state.tasks, session.current())),
         Command::Handles => Response::output(format_handles(state.tasks)),
         Command::Services => Response::output(format_services(state.services)),
-        Command::Mounts => Response::output(String::from("尚无挂载（VFS 在 M4 接入）\n")),
+        Command::Mounts => Response::output(String::from("当前宿主不提供挂载表\n")),
         Command::Trace => Response {
             trace: true,
             ..Response::empty()

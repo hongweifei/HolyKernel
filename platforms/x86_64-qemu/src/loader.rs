@@ -69,13 +69,14 @@ pub fn run(
             );
         }
         if desktop {
-            // 图形桌面：Display + Console + Input/Device + HolyDoc 欢迎页。
+            // 图形桌面：Display + Console + Input/Device + VFS + HolyDoc 欢迎页。
             return matches!(
                 name,
                 "hk-server-display"
                     | "hk-server-console"
                     | "hk-server-device"
                     | "hk-server-input"
+                    | "hk-server-vfs"
                     | "hk-server-holydoc"
                     | "hk-server-shell"
             );
@@ -142,10 +143,11 @@ pub fn run(
             "hk-server-display" => 0,
             "hk-server-device" => 1,
             "hk-server-input" => 2,
-            "hk-server-holydoc" => 3,
-            "hk-server-console" => 4,
-            "hk-server-shell" => 5,
-            _ => 6,
+            "hk-server-vfs" => 3,
+            "hk-server-holydoc" => 4,
+            "hk-server-console" => 5,
+            "hk-server-shell" => 6,
+            _ => 7,
         });
     }
     if modules.is_empty() {

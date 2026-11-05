@@ -33,7 +33,7 @@ HolyShell 是原生命令行与脚本环境。**Holy 命令是主路径**；POSI
 ## 1.1 内核态与用户态 Shell
 
 - **内核态 Shell**：宿主与命令编排位于内核侧 `hk-kernel-shell`，直接使用 loader、服务表与运行时视图；用于文本模式、早期启动与恢复。平台只提供串口/帧缓冲 I/O、服务装载与调度回调，不实现 Shell 命令宿主。它不依赖 Console 服务，也不包含用户态服务管理逻辑。
-- **用户态 Shell**：独立服务 `hk-server-shell`，通过 Console 协议读写行；`tasks`/`services`/`handles`/`trace`/`stats`/`start`/`restart`/脚本读取走 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`），由 Root Server 校验调用者并执行。Shell 服务不链接 `hk-runtime`、`hk-root-server` 或平台代码。
+- **用户态 Shell**：独立服务 `hk-server-shell`，通过 Console 协议读写行；`tasks`/`services`/`handles`/`trace`/`stats`/`start`/`restart`/脚本读取走 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`），由 Root Server 校验调用者并执行；`mounts` 直接查询 VFS 服务的只读挂载表，不建立共享 Frame。Shell 服务不链接 `hk-runtime`、`hk-root-server` 或平台代码。
 - **Console 不是 Shell**：Console 只做终端行编辑、回显与按行交付；命令处理只存在于上述两类 Shell。
 - **共享边界**：`hk-shell` 仅保留中立解析、格式化与 `ShellHost`/`ShellIo` 契约；内核态与用户态各自实现宿主，互不注入对方能力。
 - **启动握手**：用户态 Shell 发送 `CONSOLE_PING`，收到 `CONSOLE_PONG` 后才写提示符，避免 Console 接收循环尚未就绪时丢消息。

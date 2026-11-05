@@ -26,6 +26,8 @@ use hk_server_api::root::{
     ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
 #[cfg(target_os = "none")]
+use hk_server_api::vfs::list_mounts;
+#[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_try, send_data, write, yield_now};
 #[cfg(target_os = "none")]
 use hk_shell::{
@@ -76,8 +78,9 @@ impl ShellIo for ConsoleIo {
 }
 
 #[cfg(target_os = "none")]
-#[derive(Default)]
-struct UserHost;
+struct UserHost {
+    endpoint: u64,
+}
 
 #[cfg(target_os = "none")]
 impl ShellHost for UserHost {
@@ -120,6 +123,22 @@ impl ShellHost for UserHost {
 }
 
 #[cfg(target_os = "none")]
+fn mount_text(endpoint: u64) -> String {
+    let mut buffer = [0_u8; 4096];
+    match list_mounts(endpoint, &mut buffer) {
+        Ok(length) => {
+            let length = length.min(buffer.len());
+            if length == 0 {
+                String::from("无挂载\n")
+            } else {
+                String::from_utf8_lossy(&buffer[..length]).into_owned()
+            }
+        }
+        Err(code) => format!("VFS 不可用：{code}\n"),
+    }
+}
+
+#[cfg(target_os = "none")]
 fn root_text(op: u64, argument: &str) -> String {
     let mut buffer = [0_u8; ROOT_BUFFER];
     match hk_server_api::root::call(op, argument, &mut buffer) {
@@ -153,6 +172,7 @@ fn run_command(io: &ConsoleIo, host: &mut UserHost, session: &mut Session, line:
         Command::Tasks => io.write(&root_text(ROOT_OP_TASKS, "")),
         Command::Handles => io.write(&root_text(ROOT_OP_HANDLES, "")),
         Command::Services => io.write(&root_text(ROOT_OP_SERVICES, "")),
+        Command::Mounts => io.write(&mount_text(host.endpoint)),
         Command::Trace => io.write(&root_text(ROOT_OP_TRACE, "")),
         Command::Stats => io.write(&root_text(ROOT_OP_STATS, "")),
         Command::Start(name) if !name.is_empty() => io.write(&root_text(ROOT_OP_START, name)),
@@ -176,7 +196,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let io = ConsoleIo { console };
-    let mut host = UserHost;
+    let mut host = UserHost { endpoint };
     let mut session = Session::new();
 
     write(b"hk-server-shell: ready\n");

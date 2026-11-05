@@ -211,6 +211,38 @@ impl Drop for VfsClient {
     }
 }
 
+/// 查询 VFS 挂载表，把挂载点逐行写入 `out`。
+///
+/// 这是轻量只读查询，不建立共享 Frame；返回完整数据长度，调用方可用
+/// `min(length, out.len())` 判断是否截断。
+pub fn list_mounts(own_endpoint: u64, out: &mut [u8]) -> Result<usize, u8> {
+    let endpoint = service_endpoint("hk-server-vfs");
+    if endpoint == 0 {
+        return Err(STATUS_IO);
+    }
+
+    let mut request = [0_u8; REQUEST_HEADER];
+    let Some(length) = encode_request(&mut request, OP_MOUNTS, "", 0, 0, &[]) else {
+        return Err(STATUS_INVALID);
+    };
+    if send_data(endpoint, VFS_REQUEST, &request[..length]) == u64::MAX {
+        return Err(STATUS_IO);
+    }
+
+    let mut response = [0_u8; 4096];
+    let (label, _word, _sender, length) = recv_data_from(own_endpoint, endpoint, &mut response);
+    if label != VFS_RESPONSE {
+        return Err(STATUS_IO);
+    }
+    let response = decode_response(&response[..length]).ok_or(STATUS_INVALID)?;
+    if response.status != STATUS_OK {
+        return Err(response.status);
+    }
+    let copy = response.data.len().min(out.len());
+    out[..copy].copy_from_slice(&response.data[..copy]);
+    Ok(response.data.len())
+}
+
 impl VfsClient {
     /// 构造客户端；`service` 是 VFS 服务名，`own_endpoint` 是本任务端点。
     pub const fn new(service: &'static str, own_endpoint: u64) -> Self {
