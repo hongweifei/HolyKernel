@@ -1,31 +1,39 @@
 use super::*;
 
 impl Vfs {
-    /// 打开文件，返回句柄。
+    /// 打开文档，返回句柄。
     pub fn open(&mut self, path: &str, flags: OpenFlags) -> Result<FileHandle, VfsError> {
         let path = normalize(path);
-        let (instance, node) = match self.resolve(&path) {
-            Ok((instance, node)) => {
-                let metadata = self.instances[instance]
+        let (instance, document) = match self.resolve(&path) {
+            Ok((instance, document)) => {
+                let info = self.instances[instance]
                     .backend
-                    .metadata(node)
-                    .map_err(|_| VfsError::Backend)?;
-                if metadata.kind == FileType::Directory && flags.write {
+                    .document(document)
+                    .map_err(map_fs_error)?;
+                if info.kind == hk_fs::DocumentKind::Collection && flags.write {
                     return Err(VfsError::IsDirectory);
                 }
-                (instance, node)
+                (instance, document)
             }
-            Err(VfsError::NotFound) if flags.create => self.create_node(&path, FileType::File)?,
+            Err(VfsError::NotFound) if flags.create => {
+                self.create_node(&path, hk_fs::DocumentKind::Content)?
+            }
             Err(error) => return Err(error),
         };
 
+        let revision = self.instances[instance]
+            .backend
+            .document(document)
+            .map_err(map_fs_error)?
+            .head;
         let handle = self.next_handle;
         self.next_handle = self.next_handle.checked_add(1).ok_or(VfsError::Backend)?;
         self.handles.insert(
             handle,
             OpenFile {
                 instance,
-                node,
+                document,
+                revision,
                 offset: 0,
                 flags,
             },
@@ -48,19 +56,32 @@ impl Vfs {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, VfsError> {
-        let (instance, node) = {
+        let (instance, document, flags) = {
             let open = self.handles.get(&handle.0).ok_or(VfsError::NotFound)?;
             if !open.flags.read {
                 return Err(VfsError::PermissionDenied);
             }
-            (open.instance, open.node)
+            (open.instance, open.document, open.flags)
         };
-        let backend = &*self.instances[instance].backend;
-        if backend.cacheable(node) {
-            self.cache.read(backend, instance, node, offset, buffer)
-        } else {
-            backend.read(node, offset, buffer)
+        let revision = self.instances[instance]
+            .backend
+            .document(document)
+            .map_err(map_fs_error)?
+            .head;
+        if let Some(open) = self.handles.get_mut(&handle.0) {
+            open.revision = revision;
         }
+        let backend = &*self.instances[instance].backend;
+        let read = if backend.cacheable(document) {
+            self.cache
+                .read(backend, instance, document, revision, offset, buffer)?
+        } else {
+            backend
+                .read(document, Some(revision), offset, buffer)
+                .map_err(map_fs_error)?
+        };
+        let _ = flags;
+        Ok(read)
     }
 
     /// 从文件句柄读取，并推进偏移。
@@ -87,19 +108,27 @@ impl Vfs {
         offset: u64,
         data: &[u8],
     ) -> Result<usize, VfsError> {
-        let (instance, node) = {
+        let (instance, document) = {
             let open = self.handles.get(&handle.0).ok_or(VfsError::NotFound)?;
             if !open.flags.write {
                 return Err(VfsError::PermissionDenied);
             }
-            (open.instance, open.node)
+            (open.instance, open.document)
         };
         let backend = &mut *self.instances[instance].backend;
-        if backend.cacheable(node) {
-            self.cache.write(backend, instance, node, offset, data)
+        let written = if backend.cacheable(document) {
+            self.cache
+                .write(backend, instance, document, offset, data)?
         } else {
-            backend.write(node, offset, data)
+            backend
+                .write(document, offset, data)
+                .map_err(map_fs_error)?
+        };
+        let revision = backend.document(document).map_err(map_fs_error)?.head;
+        if let Some(open) = self.handles.get_mut(&handle.0) {
+            open.revision = revision;
         }
+        Ok(written)
     }
 
     /// 向文件句柄写入，并推进偏移。
@@ -121,45 +150,67 @@ impl Vfs {
 
     /// 读取元数据。
     pub fn metadata(&mut self, path: &str) -> Result<Metadata, VfsError> {
-        let (instance, node) = self.resolve(path)?;
-        self.instances[instance].backend.metadata(node)
+        let (instance, document) = self.resolve(path)?;
+        let info = self.instances[instance]
+            .backend
+            .document(document)
+            .map_err(map_fs_error)?;
+        Ok(Metadata {
+            kind: file_type(info.kind),
+            size: info.size,
+        })
     }
 
     /// 读取目录项。
     pub fn readdir(&mut self, path: &str) -> Result<Vec<DirEntry>, VfsError> {
-        let (instance, node) = self.resolve(path)?;
-        self.instances[instance].backend.readdir(node)
+        let (instance, document) = self.resolve(path)?;
+        let entries = self.instances[instance]
+            .backend
+            .enumerate(document)
+            .map_err(map_fs_error)?;
+        Ok(entries
+            .into_iter()
+            .map(|entry| DirEntry {
+                name: entry.name,
+                kind: file_type(entry.kind),
+            })
+            .collect())
     }
 
     /// 创建目录。
     pub fn create_dir(&mut self, path: &str) -> Result<(), VfsError> {
-        self.create_node(path, FileType::Directory).map(|_| ())
+        self.create_node(path, hk_fs::DocumentKind::Collection)
+            .map(|_| ())
     }
 
     /// 调整文件大小。
     pub fn truncate(&mut self, path: &str, size: u64) -> Result<(), VfsError> {
-        let (instance, node) = self.resolve(path)?;
-        self.instances[instance].backend.truncate(node, size)?;
-        self.cache.invalidate(instance, node);
+        let (instance, document) = self.resolve(path)?;
+        self.instances[instance]
+            .backend
+            .truncate(document, size)
+            .map_err(map_fs_error)?;
+        self.cache.invalidate(instance, document);
         Ok(())
     }
 
     /// 删除文件或空目录。
     pub fn unlink(&mut self, path: &str) -> Result<(), VfsError> {
         let (parent, name) = split_parent(path)?;
-        let (instance, parent_node) = self.resolve(&parent)?;
-        let node = self.instances[instance]
+        let (instance, parent_document) = self.resolve(&parent)?;
+        let document = self.instances[instance]
             .backend
-            .unlink(parent_node, &name)?;
-        self.dentries.remove(&(instance, parent_node, name));
-        self.cache.invalidate(instance, node);
+            .unbind(parent_document, &name)
+            .map_err(map_fs_error)?;
+        self.dentries.remove(&(instance, parent_document, name));
+        self.cache.invalidate(instance, document);
         Ok(())
     }
 
     /// 刷写全部后端的挂起写入。
     pub fn sync_all(&mut self) -> Result<(), VfsError> {
         for instance in &mut self.instances {
-            instance.backend.sync()?;
+            instance.backend.sync().map_err(map_fs_error)?;
         }
         Ok(())
     }
@@ -167,19 +218,24 @@ impl Vfs {
     pub(crate) fn create_node(
         &mut self,
         path: &str,
-        kind: FileType,
-    ) -> Result<(usize, NodeId), VfsError> {
+        kind: hk_fs::DocumentKind,
+    ) -> Result<(usize, DocId), VfsError> {
         let (parent, name) = split_parent(path)?;
-        let (instance, parent_node) = self.resolve(&parent)?;
-        let metadata = self.instances[instance].backend.metadata(parent_node)?;
-        if metadata.kind != FileType::Directory {
+        let (instance, parent_document) = self.resolve(&parent)?;
+        let info = self.instances[instance]
+            .backend
+            .document(parent_document)
+            .map_err(map_fs_error)?;
+        if info.kind != hk_fs::DocumentKind::Collection {
             return Err(VfsError::NotDirectory);
         }
-        let node = self.instances[instance]
+        let document = self.instances[instance]
             .backend
-            .create(parent_node, &name, kind)?;
-        self.dentries.insert((instance, parent_node, name), node);
-        Ok((instance, node))
+            .create(parent_document, &name, kind)
+            .map_err(map_fs_error)?;
+        self.dentries
+            .insert((instance, parent_document, name), document);
+        Ok((instance, document))
     }
 }
 
@@ -195,4 +251,11 @@ pub(crate) fn split_parent(path: &str) -> Result<(String, String), VfsError> {
         parent.to_string()
     };
     Ok((parent, name.to_string()))
+}
+
+fn file_type(kind: hk_fs::DocumentKind) -> FileType {
+    match kind {
+        hk_fs::DocumentKind::Content => FileType::File,
+        hk_fs::DocumentKind::Collection => FileType::Directory,
+    }
 }

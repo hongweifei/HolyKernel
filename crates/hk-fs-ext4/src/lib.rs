@@ -10,7 +10,6 @@ extern crate std;
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -18,7 +17,7 @@ use core::fmt;
 
 use hk_block::BlockDevice;
 use hk_hal::CivilTime;
-use hk_vfs::{Backend, DirEntry, FileType, Metadata, NodeId, Vfs, VfsError};
+use hk_vfs::{DirEntry, FileType, Metadata, NodeId, PathBackend, Vfs, VfsError};
 use rsext4::{
     BlockIo, Clock, DeviceCapabilities, DeviceGeometry, DirectoryCursor, DirectoryEntryType,
     EntropySource, Ext4, Ext4Error, Ext4ErrorKind, Ext4Result, Ext4Timestamp, FileName,
@@ -236,7 +235,7 @@ pub fn mount_at<D: BlockDevice + 'static>(
 ) -> Result<(), MountError> {
     let backend = Ext4Backend::mount(device).map_err(MountError::Ext4)?;
     filesystem
-        .mount(target, Box::new(backend))
+        .mount_path(target, backend)
         .map_err(MountError::Vfs)
 }
 
@@ -253,7 +252,7 @@ where
 {
     let backend = Ext4Backend::mount_with_wall_clock(device, clock).map_err(MountError::Ext4)?;
     filesystem
-        .mount(target, Box::new(backend))
+        .mount_path(target, backend)
         .map_err(MountError::Vfs)
 }
 
@@ -321,7 +320,7 @@ fn map_entry_type(kind: DirectoryEntryType) -> FileType {
     }
 }
 
-impl<D: BlockDevice> Backend for Ext4Backend<D> {
+impl<D: BlockDevice> PathBackend for Ext4Backend<D> {
     fn root(&self) -> NodeId {
         self.filesystem.borrow().root_inode().raw() as u64
     }
@@ -465,7 +464,7 @@ mod tests {
     use super::*;
     use alloc::rc::Rc;
     use hk_block::{MemoryDisk, SECTOR_SIZE};
-    use hk_vfs::{OpenFlags, Tmpfs, Vfs};
+    use hk_vfs::{OpenFlags, PathBackend, Tmpfs, Vfs};
 
     const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
 
@@ -559,7 +558,7 @@ mod tests {
 
     #[test]
     fn mounts_ext4_through_vfs() {
-        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let mut vfs = Vfs::new_path(Tmpfs::new());
         vfs.create_dir("/disk").expect("目录");
         let clock = FakeClock(CivilTime {
             year: 2026,
@@ -603,7 +602,7 @@ mod tests {
         };
         let disk = format_with_wall_clock(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE), clock())
             .expect("格式化");
-        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let mut vfs = Vfs::new_path(Tmpfs::new());
         vfs.create_dir("/disk").expect("目录");
         mount_at_with_wall_clock(&mut vfs, "/disk", disk, clock()).expect("挂载");
         for name in ["one", "two"] {

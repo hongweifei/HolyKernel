@@ -6,7 +6,7 @@ use crate::Tmpfs;
 
 #[test]
 fn creates_writes_and_reads_files() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+    let mut vfs = Vfs::new_path(Tmpfs::new());
     vfs.create_dir("/tmp").expect("创建目录");
     let handle = vfs.open("/tmp/hello", OpenFlags::CREATE).expect("打开文件");
     assert_eq!(vfs.write(handle, b"hello").expect("写入"), 5);
@@ -24,9 +24,9 @@ fn creates_writes_and_reads_files() {
 
 #[test]
 fn mounts_cross_path_boundaries() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+    let mut vfs = Vfs::new_path(Tmpfs::new());
     vfs.create_dir("/mnt").expect("创建挂载点");
-    vfs.mount("/mnt", Box::new(Tmpfs::new())).expect("挂载");
+    vfs.mount_path("/mnt", Tmpfs::new()).expect("挂载");
 
     let handle = vfs.open("/mnt/file", OpenFlags::CREATE).expect("打开");
     vfs.write(handle, b"mounted").expect("写入");
@@ -49,7 +49,7 @@ fn mounts_cross_path_boundaries() {
 
 #[test]
 fn rejects_invalid_parents() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+    let mut vfs = Vfs::new_path(Tmpfs::new());
     assert!(matches!(
         vfs.open("/missing/file", OpenFlags::CREATE),
         Err(VfsError::NotFound)
@@ -63,7 +63,7 @@ fn rejects_invalid_parents() {
 }
 #[test]
 fn truncates_unlinks_and_reads_at_offsets() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+    let mut vfs = Vfs::new_path(Tmpfs::new());
     let handle = vfs.open("/file", OpenFlags::CREATE).expect("创建");
     vfs.write(handle, b"hello").expect("写入");
     let mut buffer = [0_u8; 8];
@@ -78,8 +78,8 @@ fn truncates_unlinks_and_reads_at_offsets() {
 
 #[test]
 fn device_backends_bypass_page_cache() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
-    vfs.mount("/dev", Box::new(crate::Devfs::new()))
+    let mut vfs = Vfs::new_path(Tmpfs::new());
+    vfs.mount_path("/dev", crate::Devfs::new())
         .expect("挂载 devfs");
     let handle = vfs
         .open("/dev/zero", OpenFlags::READ_ONLY)
@@ -92,7 +92,7 @@ fn device_backends_bypass_page_cache() {
 
 #[test]
 fn sequential_read_1mib() {
-    let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+    let mut vfs = Vfs::new_path(Tmpfs::new());
     let handle = vfs.open("/large", OpenFlags::CREATE).expect("创建");
     let chunk = [0x5A_u8; 4096];
     for _ in 0..256 {

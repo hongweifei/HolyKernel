@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use hk_block::{MemoryDisk, SECTOR_SIZE};
-use hk_vfs::Backend;
+use hk_vfs::PathBackend;
 use qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
 
 use crate::disk::HostClock;

@@ -1,7 +1,7 @@
-//! VFS 核心：路径规范化、挂载表、文件句柄与后端接口。
+//! VFS 核心：Holy 后端契约、路径投影、挂载表与文件句柄。
 //!
-//! 本 crate 不依赖平台；具体文件系统实现 [`Backend`]，VFS Server 在用户态
-//! 持有 `Vfs` 并通过 IPC 暴露操作。
+//! 命名空间以 `DocId`、集合与修订为核心；路径后端通过 [`PathObject`]
+//! 适配，路径与偏移只作为兼容投影。
 
 #![no_std]
 
@@ -14,6 +14,7 @@ mod block;
 mod cache;
 mod devfs;
 mod path;
+mod path_object;
 mod procfs;
 mod tmpfs;
 mod vfs;
@@ -21,9 +22,11 @@ mod vfs;
 pub use block::BlockBackend;
 pub use cache::{PAGE_SIZE, PageCache};
 pub use devfs::Devfs;
+pub use hk_fs::{DocId, RevisionId};
 pub use path::normalize;
+pub use path_object::PathObject;
 pub use procfs::Procfs;
 pub use tmpfs::Tmpfs;
 pub use vfs::{
-    Backend, DirEntry, FileHandle, FileType, Metadata, NodeId, OpenFlags, Vfs, VfsError,
+    DirEntry, FileHandle, FileType, Metadata, NodeId, OpenFlags, PathBackend, Vfs, VfsError,
 };

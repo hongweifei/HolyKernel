@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
+use crate::vfs::{DirEntry, FileType, Metadata, NodeId, PathBackend, VfsError};
 
 /// 内存文件系统。
 pub struct Tmpfs {
@@ -51,7 +51,7 @@ impl Default for Tmpfs {
     }
 }
 
-impl Backend for Tmpfs {
+impl PathBackend for Tmpfs {
     fn root(&self) -> NodeId {
         0
     }

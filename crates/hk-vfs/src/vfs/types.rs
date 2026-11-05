@@ -132,8 +132,11 @@ impl fmt::Display for VfsError {
 
 impl core::error::Error for VfsError {}
 
-/// 文件系统后端。
-pub trait Backend {
+/// 路径形状的文件系统后端。
+///
+/// 外来文件系统（ext4、tmpfs、devfs、procfs）实现本契约，再由
+/// [`crate::PathObject`] 适配为 Holy 后端。
+pub trait PathBackend {
     /// 返回根节点。
     fn root(&self) -> NodeId;
     /// 在目录中查找名称。

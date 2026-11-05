@@ -44,6 +44,19 @@ const USERSPACE_LIB_FORBIDDEN: &[&str] = &[
     "hk-hosted",
 ];
 
+/// 文件系统契约禁止依赖的类别。
+const CONTRACT_FORBIDDEN: &[&str] = &[
+    "hk-kernel",
+    "hk-runtime",
+    "hk-root-server",
+    "hk-platform-",
+    "hk-x86_64",
+    "hk-hosted",
+    "hk-vfs",
+    "hk-fs-",
+    "hk-server-",
+];
+
 /// HolyFS 原生实现禁止依赖的类别：不得依赖 VFS 或其适配器。
 const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
     "hk-kernel",
@@ -161,6 +174,7 @@ fn rules(name: &str) -> &'static [&'static str] {
             "hk-hosted",
         ],
         "hk-root-server" => &["hk-server-", "hk-platform-", "hk-x86_64", "hk-hosted"],
+        "hk-fs" => CONTRACT_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-driver-virtio" | "hk-drivers" | "hk-net" | "hk-vfs" | "hk-block" | "hk-fs-ext4"
         | "hk-fs-holyfs-vfs" => USERSPACE_LIB_FORBIDDEN,

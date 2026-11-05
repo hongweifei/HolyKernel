@@ -1,13 +1,13 @@
 use super::*;
 
 impl Vfs {
-    /// 在挂载点安装后端。
+    /// 在挂载点安装 Holy 后端。
     pub fn mount(&mut self, target: &str, backend: Box<dyn Backend>) -> Result<(), VfsError> {
         let target = normalize(target);
+        let root = backend.root();
         if target == "/" {
             self.dentries.clear();
             self.cache.clear();
-            let root = backend.root();
             self.instances[0] = Instance { backend, root };
             return Ok(());
         }
@@ -16,12 +16,20 @@ impl Vfs {
         }
 
         let instance = self.instances.len();
-        let root = backend.root();
         self.dentries.clear();
         self.cache.clear();
         self.instances.push(Instance { backend, root });
         self.mounts.push(Mount { target, instance });
         Ok(())
+    }
+
+    /// 在挂载点安装路径后端；由 [`PathObject`] 适配。
+    pub fn mount_path<P: PathBackend + 'static>(
+        &mut self,
+        target: &str,
+        backend: P,
+    ) -> Result<(), VfsError> {
+        self.mount(target, Box::new(PathObject::new(backend)))
     }
 
     /// 卸载挂载点。
@@ -50,13 +58,13 @@ impl Vfs {
         mounts
     }
 
-    pub(crate) fn resolve(&mut self, path: &str) -> Result<(usize, NodeId), VfsError> {
+    pub(crate) fn resolve(&mut self, path: &str) -> Result<(usize, DocId), VfsError> {
         let path = normalize(path);
         let mut instance = 0;
-        let mut node = self.instances[0].root;
+        let mut document = self.instances[0].root;
         if let Some((mounted, root)) = self.mount_exact("/") {
             instance = mounted;
-            node = root;
+            document = root;
         }
 
         let mut prefix = String::new();
@@ -65,25 +73,28 @@ impl Vfs {
             prefix.push_str(component);
             if let Some((mounted, root)) = self.mount_exact(&prefix) {
                 instance = mounted;
-                node = root;
+                document = root;
                 continue;
             }
-            let key = (instance, node, component.to_string());
+            let key = (instance, document, component.to_string());
             if let Some(cached) = self.dentries.get(&key).copied() {
-                node = cached;
+                document = cached;
                 continue;
             }
-            let found = self.instances[instance].backend.lookup(node, component)?;
+            let found = self.instances[instance]
+                .backend
+                .resolve(document, component)
+                .map_err(map_fs_error)?;
             if self.dentries.len() >= DENTRY_LIMIT {
                 self.dentries.clear();
             }
             self.dentries.insert(key, found);
-            node = found;
+            document = found;
         }
-        Ok((instance, node))
+        Ok((instance, document))
     }
 
-    pub(crate) fn mount_exact(&self, target: &str) -> Option<(usize, NodeId)> {
+    pub(crate) fn mount_exact(&self, target: &str) -> Option<(usize, DocId)> {
         if target == "/" {
             return Some((0, self.instances[0].root));
         }

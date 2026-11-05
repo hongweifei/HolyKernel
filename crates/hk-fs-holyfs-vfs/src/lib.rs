@@ -1,7 +1,7 @@
 //! HolyFS 的 VFS 后端适配。
 //!
-//! 原生实现只暴露 `DocId` 与文档操作；本 crate 把 `NodeId`、路径无关的
-//! 文件句柄契约映射到原生接口，是 HolyFS 唯一的 VFS 感知层。
+//! 原生实现已经以 `DocId` 暴露文档操作；本 crate 只把 [`hk_fs::Backend`]
+//! 契约接到 [`HolyFs`] 上，不引入路径或偏移语义。
 
 #![no_std]
 
@@ -10,54 +10,17 @@ extern crate std;
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use core::cell::RefCell;
 
 use hk_block::BlockDevice;
-use hk_fs_holyfs::{DocId, DocumentInfo, DocumentKind, HolyError, HolyFs};
-use hk_vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
-
-struct Nodes {
-    nodes: BTreeMap<DocId, NodeId>,
-    documents: BTreeMap<NodeId, DocId>,
-    next: NodeId,
-}
-
-impl Nodes {
-    fn new(root: DocId) -> Self {
-        let mut nodes = BTreeMap::new();
-        nodes.insert(root, 1);
-        let mut documents = BTreeMap::new();
-        documents.insert(1, root);
-        Self {
-            nodes,
-            documents,
-            next: 2,
-        }
-    }
-
-    fn node_for(&mut self, document: DocId) -> NodeId {
-        if let Some(node) = self.nodes.get(&document) {
-            return *node;
-        }
-        let node = self.next;
-        self.next = self.next.saturating_add(1);
-        self.nodes.insert(document, node);
-        self.documents.insert(node, document);
-        node
-    }
-
-    fn document_for(&self, node: NodeId) -> Result<DocId, VfsError> {
-        self.documents.get(&node).copied().ok_or(VfsError::NotFound)
-    }
-}
+use hk_fs::{
+    Backend, Caps, DocId, DocumentInfo, DocumentKind, EntryInfo, Error, RevisionId, RevisionInfo,
+};
+use hk_fs_holyfs::{HolyError, HolyFs};
 
 /// HolyFS 卷的 VFS 后端。
 pub struct HolyFsVfs<D: BlockDevice> {
     volume: HolyFs<D>,
-    root: NodeId,
-    nodes: RefCell<Nodes>,
 }
 
 impl<D: BlockDevice> HolyFsVfs<D> {
@@ -68,211 +31,136 @@ impl<D: BlockDevice> HolyFsVfs<D> {
 
     /// 以已挂载的卷构造后端。
     pub fn new(volume: HolyFs<D>) -> Self {
-        let root_document = volume.root();
-        Self {
-            volume,
-            root: 1,
-            nodes: RefCell::new(Nodes::new(root_document)),
-        }
+        Self { volume }
     }
 
     /// 返回共享同一份 Volume 的原生句柄。
     pub fn volume(&self) -> HolyFs<D> {
         self.volume.clone()
     }
-
-    fn node_for(&self, document: DocId) -> NodeId {
-        self.nodes.borrow_mut().node_for(document)
-    }
-
-    fn document_for(&self, node: NodeId) -> Result<DocId, VfsError> {
-        self.nodes.borrow().document_for(node)
-    }
 }
 
 impl<D: BlockDevice> Backend for HolyFsVfs<D> {
-    fn root(&self) -> NodeId {
-        self.root
+    fn root(&self) -> DocId {
+        self.volume.root()
     }
 
-    fn lookup(&self, parent: NodeId, name: &str) -> Result<NodeId, VfsError> {
-        let parent = self.document_for(parent)?;
-        let document = self.volume.lookup(parent, name).map_err(map_error)?;
-        Ok(self.node_for(document))
+    fn caps(&self) -> Caps {
+        Caps::NATIVE
     }
 
-    fn metadata(&self, node: NodeId) -> Result<Metadata, VfsError> {
-        let document = self.document_for(node)?;
-        let info = self.volume.document_info(document).map_err(map_error)?;
-        Ok(metadata(info))
+    fn document(&self, document: DocId) -> Result<DocumentInfo, Error> {
+        self.volume.document_info(document)
     }
 
-    fn read(&self, node: NodeId, offset: u64, buffer: &mut [u8]) -> Result<usize, VfsError> {
-        let document = self.document_for(node)?;
-        self.volume
-            .read_range(document, offset, buffer)
-            .map_err(map_error)
+    fn resolve(&self, collection: DocId, name: &str) -> Result<DocId, Error> {
+        self.volume.lookup(collection, name)
     }
 
-    fn write(&mut self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, VfsError> {
-        let document = self.document_for(node)?;
-        self.volume
-            .write_range(document, offset, data)
-            .map_err(map_error)
+    fn enumerate(&self, collection: DocId) -> Result<Vec<EntryInfo>, Error> {
+        self.volume.enumerate_document(collection)
     }
 
-    fn create(&mut self, parent: NodeId, name: &str, kind: FileType) -> Result<NodeId, VfsError> {
-        let parent = self.document_for(parent)?;
-        let document = self
-            .volume
-            .create(parent, name, document_kind(kind))
-            .map_err(map_error)?;
-        Ok(self.node_for(document))
+    fn create(
+        &mut self,
+        collection: DocId,
+        name: &str,
+        kind: DocumentKind,
+    ) -> Result<DocId, Error> {
+        self.volume.create(collection, name, kind)
     }
 
-    fn readdir(&self, node: NodeId) -> Result<Vec<DirEntry>, VfsError> {
-        let document = self.document_for(node)?;
-        let entries = self
-            .volume
-            .enumerate_document(document)
-            .map_err(map_error)?;
-        Ok(entries
-            .into_iter()
-            .map(|entry| DirEntry {
-                name: entry.name,
-                kind: file_type(entry.kind),
-            })
-            .collect())
+    fn unbind(&mut self, collection: DocId, name: &str) -> Result<DocId, Error> {
+        self.volume.unlink(collection, name)
     }
 
-    fn truncate(&mut self, node: NodeId, size: u64) -> Result<(), VfsError> {
-        let document = self.document_for(node)?;
-        self.volume.truncate(document, size).map_err(map_error)
+    fn read(
+        &self,
+        document: DocId,
+        revision: Option<RevisionId>,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if let Some(revision) = revision {
+            let head = self.volume.document_info(document)?.head;
+            if revision != head {
+                return Err(Error::Unsupported);
+            }
+        }
+        self.volume.read_range(document, offset, buffer)
     }
 
-    fn unlink(&mut self, parent: NodeId, name: &str) -> Result<NodeId, VfsError> {
-        let parent = self.document_for(parent)?;
-        let document = self.volume.unlink(parent, name).map_err(map_error)?;
-        Ok(self.node_for(document))
+    fn write(&mut self, document: DocId, offset: u64, data: &[u8]) -> Result<usize, Error> {
+        self.volume.write_range(document, offset, data)
     }
 
-    fn sync(&mut self) -> Result<(), VfsError> {
-        self.volume.sync().map_err(map_error)
+    fn truncate(&mut self, document: DocId, size: u64) -> Result<(), Error> {
+        self.volume.truncate(document, size)
     }
-}
 
-fn metadata(info: DocumentInfo) -> Metadata {
-    Metadata {
-        kind: file_type(info.kind),
-        size: if info.kind == DocumentKind::Content {
-            info.size
-        } else {
-            0
-        },
+    fn revisions(&self, document: DocId) -> Result<Vec<RevisionInfo>, Error> {
+        self.volume.revisions_of(document)
     }
-}
 
-const fn file_type(kind: DocumentKind) -> FileType {
-    match kind {
-        DocumentKind::Content => FileType::File,
-        DocumentKind::Collection => FileType::Directory,
-    }
-}
-
-const fn document_kind(kind: FileType) -> DocumentKind {
-    match kind {
-        FileType::File => DocumentKind::Content,
-        FileType::Directory => DocumentKind::Collection,
-    }
-}
-
-fn map_error(error: HolyError) -> VfsError {
-    match error {
-        HolyError::NotFound => VfsError::NotFound,
-        HolyError::NotDirectory => VfsError::NotDirectory,
-        HolyError::IsDirectory => VfsError::IsDirectory,
-        HolyError::Exists => VfsError::AlreadyExists,
-        HolyError::ReadOnly | HolyError::Refused => VfsError::PermissionDenied,
-        HolyError::Invalid | HolyError::Stale => VfsError::InvalidOffset,
-        HolyError::Io
-        | HolyError::Corrupt
-        | HolyError::NoSpace
-        | HolyError::Unsupported
-        | HolyError::Damaged
-        | HolyError::Busy
-        | HolyError::Pinned
-        | HolyError::Quota => VfsError::Backend,
+    fn sync(&mut self) -> Result<(), Error> {
+        self.volume.sync()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::boxed::Box;
     use hk_block::{MemoryDisk, SECTOR_SIZE};
+    use hk_fs::DocumentKind;
     use hk_fs_holyfs::format;
-    use hk_vfs::{OpenFlags, Vfs};
 
     const IMAGE_BLOCKS: u64 = (8 * 1024 * 1024) / SECTOR_SIZE as u64;
 
     #[test]
-    fn maps_documents_to_vfs_nodes() {
+    fn exposes_documents_through_the_contract() {
         let disk = format(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE)).expect("格式化");
-        let backend = HolyFsVfs::mount(disk).expect("挂载");
-        let mut vfs = Vfs::new(Box::new(backend));
+        let mut backend = HolyFsVfs::mount(disk).expect("挂载");
+        assert!(backend.caps().contains(Caps::REVISIONS));
 
-        let handle = vfs.open("/hello", OpenFlags::CREATE).expect("创建");
-        vfs.write(handle, b"holyfs").expect("写");
-        vfs.close(handle).expect("关闭");
-        vfs.sync_all().expect("提交");
+        let root = backend.root();
+        let document = backend
+            .create(root, "hello", DocumentKind::Content)
+            .expect("创建");
+        backend.write(document, 0, b"holyfs").expect("写");
+        assert_eq!(backend.document(document).expect("视图").size, 6);
+        assert_eq!(backend.resolve(root, "hello").expect("查找"), document);
 
-        let handle = vfs.open("/hello", OpenFlags::READ_ONLY).expect("打开");
         let mut buffer = [0_u8; 16];
-        let read = vfs.read(handle, &mut buffer).expect("读");
+        let read = backend.read(document, None, 0, &mut buffer).expect("读");
         assert_eq!(&buffer[..read], b"holyfs");
-        vfs.close(handle).expect("关闭");
+        assert_eq!(backend.revisions(document).expect("修订").len(), 2);
 
-        let entries = vfs.readdir("/").expect("枚举");
-        assert!(entries.iter().any(|entry| entry.name == "hello"));
-        let metadata = vfs.metadata("/hello").expect("元数据");
-        assert_eq!(metadata.kind, FileType::File);
-        assert_eq!(metadata.size, 6);
-    }
-
-    #[test]
-    fn maps_collections_to_directories() {
-        let disk = format(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE)).expect("格式化");
-        let backend = HolyFsVfs::mount(disk).expect("挂载");
-        let mut vfs = Vfs::new(Box::new(backend));
-
-        vfs.create_dir("/docs").expect("集合");
-        let handle = vfs.open("/docs/readme", OpenFlags::CREATE).expect("文档");
-        vfs.write(handle, b"nested").expect("写");
-        vfs.close(handle).expect("关闭");
-
-        let entries = vfs.readdir("/docs").expect("枚举");
+        let entries = backend.enumerate(root).expect("枚举");
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "readme");
+        assert_eq!(entries[0].name, "hello");
+
+        assert_eq!(backend.unbind(root, "hello").expect("删除"), document);
         assert_eq!(
-            vfs.metadata("/docs").expect("集合元数据").kind,
-            FileType::Directory
+            backend.resolve(root, "hello").expect_err("已删除"),
+            Error::NotFound
         );
     }
 
     #[test]
-    fn propagates_holy_errors() {
+    fn rejects_unknown_revisions() {
         let disk = format(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE)).expect("格式化");
-        let backend = HolyFsVfs::mount(disk).expect("挂载");
-        let mut vfs = Vfs::new(Box::new(backend));
-
+        let mut backend = HolyFsVfs::mount(disk).expect("挂载");
+        let root = backend.root();
+        let document = backend
+            .create(root, "doc", DocumentKind::Content)
+            .expect("创建");
+        backend.write(document, 0, b"first").expect("写");
+        let head = backend.document(document).expect("视图").head;
+        let mut buffer = [0_u8; 8];
+        assert_eq!(backend.read(document, Some(head), 0, &mut buffer), Ok(5));
         assert_eq!(
-            vfs.metadata("/missing").expect_err("缺失"),
-            VfsError::NotFound
-        );
-        vfs.create_dir("/docs").expect("集合");
-        assert_eq!(
-            vfs.create_dir("/docs").expect_err("重复"),
-            VfsError::AlreadyExists
+            backend.read(document, Some(RevisionId::ROOT), 0, &mut buffer),
+            Err(Error::Unsupported)
         );
     }
 }

@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
+use crate::vfs::{DirEntry, FileType, Metadata, NodeId, PathBackend, VfsError};
 
 /// 进程文件系统。
 pub struct Procfs {
@@ -45,7 +45,7 @@ impl Default for Procfs {
     }
 }
 
-impl Backend for Procfs {
+impl PathBackend for Procfs {
     fn root(&self) -> NodeId {
         0
     }

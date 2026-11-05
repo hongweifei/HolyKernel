@@ -1,14 +1,16 @@
-//! 文件页缓存：按 4 KiB 页缓存后端数据。
+//! 文档页缓存：按 `(实例, DocId, 修订)` 缓存内容页。
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
-use crate::vfs::{Backend, NodeId, VfsError};
+use hk_fs::{Backend, DocId, Error as FsError, RevisionId};
+
+use crate::vfs::VfsError;
 
 /// 页大小。
 pub const PAGE_SIZE: usize = 4096;
 
-type PageKey = (usize, NodeId, u64);
+type PageKey = (usize, DocId, RevisionId, u64);
 type Page = Box<[u8; PAGE_SIZE]>;
 
 /// 默认缓存容量（页）。
@@ -46,11 +48,12 @@ impl PageCache {
         self.pages.clear();
     }
 
-    /// 使某节点的全部页失效。
-    pub fn invalidate(&mut self, instance: usize, node: NodeId) {
-        self.pages.retain(|(cached_instance, cached_node, _), _| {
-            *cached_instance != instance || *cached_node != node
-        });
+    /// 使某文档的全部修订页失效。
+    pub fn invalidate(&mut self, instance: usize, document: DocId) {
+        self.pages
+            .retain(|(cached_instance, cached_document, _, _), _| {
+                *cached_instance != instance || *cached_document != document
+            });
     }
 
     /// 返回缓存页数。
@@ -63,19 +66,20 @@ impl PageCache {
         self.pages.is_empty()
     }
 
-    /// 从文件读取，未命中时从后端加载整页。
+    /// 从文档读取，未命中时从后端加载整页。
     pub fn read<B: Backend + ?Sized>(
         &mut self,
         backend: &B,
         instance: usize,
-        node: NodeId,
+        document: DocId,
+        revision: RevisionId,
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, VfsError> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        let size = backend.metadata(node)?.size;
+        let size = backend.document(document).map_err(map_error)?.size;
         if offset >= size {
             return Ok(0);
         }
@@ -83,7 +87,9 @@ impl PageCache {
         let limit = buffer.len().min(available);
         // 大块顺序读直接走后端，避免逐页 IPC；代价是不填充页缓存。
         if limit >= PAGE_SIZE * 4 && offset.is_multiple_of(PAGE_SIZE as u64) {
-            return backend.read(node, offset, &mut buffer[..limit]);
+            return backend
+                .read(document, Some(revision), offset, &mut buffer[..limit])
+                .map_err(map_error);
         }
         let mut done = 0;
 
@@ -91,7 +97,7 @@ impl PageCache {
             let position = offset + done as u64;
             let index = position / PAGE_SIZE as u64;
             let within = (position % PAGE_SIZE as u64) as usize;
-            let page = self.load(backend, instance, node, index)?;
+            let page = self.load(backend, instance, document, revision, index)?;
             let length = (PAGE_SIZE - within).min(limit - done);
             buffer[done..done + length].copy_from_slice(&page[within..within + length]);
             done += length;
@@ -99,46 +105,32 @@ impl PageCache {
         Ok(done)
     }
 
-    /// 写入文件；写穿透后端并更新缓存页。
+    /// 写入文档；写穿透后端并使该文档的缓存失效。
     pub fn write<B: Backend + ?Sized>(
         &mut self,
         backend: &mut B,
         instance: usize,
-        node: NodeId,
+        document: DocId,
         offset: u64,
         data: &[u8],
     ) -> Result<usize, VfsError> {
         if data.is_empty() {
             return Ok(0);
         }
-        // 大块顺序写直接走后端；随后使该节点缓存失效，避免读到旧页。
-        if data.len() >= PAGE_SIZE * 4 && offset.is_multiple_of(PAGE_SIZE as u64) {
-            backend.write(node, offset, data)?;
-            self.invalidate(instance, node);
-            return Ok(data.len());
-        }
-        let mut done = 0;
-        while done < data.len() {
-            let position = offset + done as u64;
-            let index = position / PAGE_SIZE as u64;
-            let within = (position % PAGE_SIZE as u64) as usize;
-            let length = (PAGE_SIZE - within).min(data.len() - done);
-            let page = self.load(backend, instance, node, index)?;
-            page[within..within + length].copy_from_slice(&data[done..done + length]);
-            backend.write(node, position, &page[within..within + length])?;
-            done += length;
-        }
-        Ok(done)
+        let written = backend.write(document, offset, data).map_err(map_error)?;
+        self.invalidate(instance, document);
+        Ok(written)
     }
 
     fn load<B: Backend + ?Sized>(
         &mut self,
         backend: &B,
         instance: usize,
-        node: NodeId,
+        document: DocId,
+        revision: RevisionId,
         index: u64,
     ) -> Result<&mut Page, VfsError> {
-        let key = (instance, node, index);
+        let key = (instance, document, revision, index);
         self.clock = self.clock.wrapping_add(1);
         let clock = self.clock;
 
@@ -156,7 +148,14 @@ impl PageCache {
             }
 
             let mut page = Box::new([0_u8; PAGE_SIZE]);
-            backend.read(node, index * PAGE_SIZE as u64, &mut page[..])?;
+            backend
+                .read(
+                    document,
+                    Some(revision),
+                    index * PAGE_SIZE as u64,
+                    &mut page[..],
+                )
+                .map_err(map_error)?;
             self.pages.insert(
                 key,
                 Entry {
@@ -178,54 +177,96 @@ impl Default for PageCache {
     }
 }
 
+fn map_error(error: FsError) -> VfsError {
+    match error {
+        FsError::NotFound => VfsError::NotFound,
+        FsError::NotDirectory => VfsError::NotDirectory,
+        FsError::IsDirectory => VfsError::IsDirectory,
+        FsError::Exists => VfsError::AlreadyExists,
+        FsError::ReadOnly | FsError::Refused => VfsError::PermissionDenied,
+        FsError::Invalid | FsError::Stale => VfsError::InvalidOffset,
+        _ => VfsError::Backend,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PathObject;
     use crate::Tmpfs;
-    use crate::vfs::{FileType, OpenFlags, Vfs};
+    use crate::vfs::{OpenFlags, Vfs};
+    use hk_fs::{Backend, DocumentKind};
+
+    fn writable() -> (PathObject<Tmpfs>, DocId) {
+        let mut fs = PathObject::new(Tmpfs::new());
+        let root = fs.root();
+        let document = fs
+            .create(root, "file", DocumentKind::Content)
+            .expect("创建");
+        (fs, document)
+    }
 
     #[test]
     fn caches_pages_across_reads() {
-        let mut fs = Tmpfs::new();
-        let file = fs.create(0, "file", FileType::File).expect("创建");
-        fs.write(file, 0, b"hello").expect("写入");
+        let (mut fs, document) = writable();
+        fs.write(document, 0, b"hello").expect("写入");
+        let revision = fs.document(document).expect("视图").head;
 
         let mut cache = PageCache::new();
         let mut buffer = [0_u8; 5];
-        assert_eq!(cache.read(&fs, 0, file, 0, &mut buffer).expect("读"), 5);
+        assert_eq!(
+            cache
+                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .expect("读"),
+            5
+        );
         assert_eq!(&buffer, b"hello");
         assert_eq!(cache.len(), 1);
 
         let mut tail = [0_u8; 3];
-        assert_eq!(cache.read(&fs, 0, file, 2, &mut tail).expect("读"), 3);
+        assert_eq!(
+            cache
+                .read(&fs, 0, document, revision, 2, &mut tail)
+                .expect("读"),
+            3
+        );
         assert_eq!(&tail, b"llo");
         assert_eq!(cache.len(), 1);
     }
 
     #[test]
-    fn writes_through_and_updates_cache() {
-        let mut fs = Tmpfs::new();
-        let file = fs.create(0, "file", FileType::File).expect("创建");
+    fn writes_through_and_invalidates_cache() {
+        let (mut fs, document) = writable();
         let mut cache = PageCache::new();
-        cache.write(&mut fs, 0, file, 0, b"abc").expect("写");
-        assert_eq!(fs.metadata(file).expect("元数据").size, 3);
+        cache.write(&mut fs, 0, document, 0, b"abc").expect("写");
+        assert_eq!(fs.document(document).expect("元数据").size, 3);
 
+        let revision = fs.document(document).expect("视图").head;
         let mut buffer = [0_u8; 3];
-        assert_eq!(cache.read(&fs, 0, file, 0, &mut buffer).expect("读"), 3);
+        assert_eq!(
+            cache
+                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .expect("读"),
+            3
+        );
         assert_eq!(&buffer, b"abc");
     }
 
     #[test]
     fn bulk_reads_and_writes_bypass_cache() {
-        let mut fs = Tmpfs::new();
-        let file = fs.create(0, "bulk", FileType::File).expect("创建");
+        let (mut fs, document) = writable();
         let chunk = [0x5A_u8; PAGE_SIZE * 8];
         let mut cache = PageCache::new();
-        cache.write(&mut fs, 0, file, 0, &chunk).expect("批量写");
+        cache
+            .write(&mut fs, 0, document, 0, &chunk)
+            .expect("批量写");
         assert!(cache.is_empty());
+        let revision = fs.document(document).expect("视图").head;
         let mut buffer = [0_u8; PAGE_SIZE * 8];
         assert_eq!(
-            cache.read(&fs, 0, file, 0, &mut buffer).expect("批量读"),
+            cache
+                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .expect("批量读"),
             chunk.len()
         );
         assert_eq!(buffer, chunk);
@@ -234,7 +275,7 @@ mod tests {
 
     #[test]
     fn vfs_reads_use_cache() {
-        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let mut vfs = Vfs::new_path(Tmpfs::new());
         let handle = vfs.open("/file", OpenFlags::CREATE).expect("打开");
         vfs.write(handle, b"cached").expect("写");
         vfs.close(handle).expect("关闭");
@@ -244,24 +285,28 @@ mod tests {
         assert_eq!(vfs.read(handle, &mut buffer).expect("读"), 6);
         assert_eq!(&buffer, b"cached");
     }
+
     #[test]
     fn evicts_least_recently_used_pages() {
-        let mut fs = Tmpfs::new();
-        let file = fs.create(0, "file", FileType::File).expect("创建");
+        let (mut fs, document) = writable();
         let first = [1_u8; PAGE_SIZE];
         let second = [2_u8; PAGE_SIZE];
-        fs.write(file, 0, &first).expect("写第一页");
-        fs.write(file, PAGE_SIZE as u64, &second).expect("写第二页");
+        fs.write(document, 0, &first).expect("写第一页");
+        fs.write(document, PAGE_SIZE as u64, &second)
+            .expect("写第二页");
+        let revision = fs.document(document).expect("视图").head;
 
         let mut cache = PageCache::with_capacity(1);
         let mut buffer = [0_u8; 4];
-        cache.read(&fs, 0, file, 0, &mut buffer).expect("读第一页");
         cache
-            .read(&fs, 0, file, PAGE_SIZE as u64, &mut buffer)
+            .read(&fs, 0, document, revision, 0, &mut buffer)
+            .expect("读第一页");
+        cache
+            .read(&fs, 0, document, revision, PAGE_SIZE as u64, &mut buffer)
             .expect("读第二页");
         assert_eq!(cache.len(), 1);
         cache
-            .read(&fs, 0, file, 0, &mut buffer)
+            .read(&fs, 0, document, revision, 0, &mut buffer)
             .expect("再读第一页");
         assert_eq!(cache.len(), 1);
         assert_eq!(&buffer, &[1; 4]);

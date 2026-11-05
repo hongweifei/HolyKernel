@@ -2,7 +2,7 @@
 
 状态：**VFS Server 原型已运行，缓存与客户端接口已接入** · 上级：[总体架构](architecture.md)
 
-已实现 `crates/hk-vfs`：路径规范化、挂载表、dentry 缓存、4 KiB 页缓存、文件句柄、`Backend` 契约与 tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；启动参数 `vfs.root=ext4` 选择 `/` 主根，`vfs.fs=holyfs` 挂载 HolyFS 数据盘，默认挂载 ext4 到 `/disk`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
+已实现 `crates/hk-vfs`：核心后端契约为 `hk-fs::Backend`（`DocId`、集合、修订与能力），路径规范化、挂载表、dentry 缓存、文件句柄与页缓存作为兼容投影保留；外来文件系统实现 `PathBackend` 并由 `PathObject` 适配为 Holy 后端；页缓存按 `(实例, DocId, 修订)` 索引；tmpfs 后端；IPC 已具备 `SYS_SEND_DATA`/`SYS_RECV_DATA` 字节载荷；VFS 协议支持 open/close、按偏移读写、truncate、unlink、mkdir、mount/umount 与分块传输，客户端使用固定缓冲 `VfsClient`；VFS Server 按发送者端点隔离文件句柄表；页缓存为有界 LRU，动态设备节点绕过页缓存；已挂载 tmpfs、devfs（null/zero/console）、procfs；1 MiB 顺序读测试在宿主约 725 MiB/s。VFS/Block 客户端通过 `SYS_SERVICE_ENDPOINT` 按服务名解析当前端点，服务重启后新请求自动重连；在途请求用 `SYS_RECV_DATA_FROM` 绑定旧端点，服务退出时返回空响应并映射为 `EIO`。新增 `hk-block` 契约与 RAM disk Block Server；`hk-vfs::BlockBackend` 可把原始块设备挂载为 `/disk/disk`。`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端并经独立 virtio 驱动服务的 Block Endpoint 挂载；启动参数 `vfs.root=ext4` 选择 `/` 主根，`vfs.fs=holyfs` 挂载 HolyFS 数据盘，默认挂载 ext4 到 `/disk`。demo 服务经 VFS 写入标记文件后调用 `OP_SYNC` 刷写；宿主侧重新挂载镜像读回同一文件。`SYS_RECV_DATA_FROM` 按发送者过滤，VFS 等待块回复时不会误收客户端请求；IPC 单条消息上限为 64 KiB；页缓存对大块顺序读写直接走后端，块与 VFS 客户端缓冲位于堆上。
 
 VFS 运行在用户态，是 POSIX 文件语义与具体文件系统之间的中间层。POSIX Server通过 VFS 访问 ext2/ext4、HolyFS、tmpfs、devfs 与 procfs；内核只提供 Frame、Endpoint 与 Handle。
 
@@ -18,7 +18,7 @@ VFS Server 同时承载 `H:` 卷的原生文档协议：适配层与原生接口
 
 1. **统一路径空间**：挂载表、路径解析、`.`/`..`、符号链接、相对路径。
 2. **文件抽象**：inode、dentry、open file description、文件句柄、目录项缓存。
-3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端以服务器形式接入，HolyFS 经适配层提供 Holy 文档。
+3. **多文件系统后端**：ext2/ext4、HolyFS、tmpfs、devfs、procfs；后端统一到 `hk-fs::Backend`，HolyFS 直接实现，路径后端经 `PathObject` 适配并以能力位声明降级。
 4. **POSIX 语义**：`open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`/`fsync`/`truncate`。
 5. **页缓存**：文件数据以 Frame 共享；POSIX Server与用户进程零拷贝读取。
 6. **权限检查**：POSIX Server传入凭证；VFS 与文件系统后端执行属主/权限位检查。

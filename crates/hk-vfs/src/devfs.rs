@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::vfs::{Backend, DirEntry, FileType, Metadata, NodeId, VfsError};
+use crate::vfs::{DirEntry, FileType, Metadata, NodeId, PathBackend, VfsError};
 
 const ROOT: NodeId = 0;
 const NULL: NodeId = 1;
@@ -33,7 +33,7 @@ impl Default for Devfs {
     }
 }
 
-impl Backend for Devfs {
+impl PathBackend for Devfs {
     fn root(&self) -> NodeId {
         ROOT
     }

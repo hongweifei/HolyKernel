@@ -7,8 +7,6 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use alloc::boxed::Box;
-#[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use alloc::vec;
 
@@ -55,7 +53,7 @@ use sessions::Sessions;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut filesystem = Vfs::new(Box::new(Tmpfs::new()));
+    let mut filesystem = Vfs::new_path(Tmpfs::new());
     let mut cmdline_buffer = [0_u8; 128];
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     let ext4_root = cmdline.contains("vfs.root=ext4");
@@ -86,11 +84,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-vfs: 文件系统不可用\n".as_bytes());
     }
     let _ = filesystem.create_dir("/tmp");
-    let _ = filesystem.mount("/tmp", Box::new(Tmpfs::new()));
+    let _ = filesystem.mount_path("/tmp", Tmpfs::new());
     let _ = filesystem.create_dir("/dev");
-    let _ = filesystem.mount("/dev", Box::new(Devfs::new()));
+    let _ = filesystem.mount_path("/dev", Devfs::new());
     let _ = filesystem.create_dir("/proc");
-    let _ = filesystem.mount("/proc", Box::new(Procfs::new()));
+    let _ = filesystem.mount_path("/proc", Procfs::new());
     write("hk-server-vfs: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use hk_block::{BlockDevice, BlockError};
 
 use crate::vfs::NodeId;
-use crate::{Backend, DirEntry, FileType, Metadata, VfsError};
+use crate::{DirEntry, FileType, Metadata, PathBackend, VfsError};
 
 const ROOT: NodeId = 0;
 const DISK: NodeId = 1;
@@ -34,7 +34,7 @@ impl<D: BlockDevice> BlockBackend<D> {
     }
 }
 
-impl<D: BlockDevice> Backend for BlockBackend<D> {
+impl<D: BlockDevice> PathBackend for BlockBackend<D> {
     fn root(&self) -> NodeId {
         ROOT
     }
@@ -164,12 +164,11 @@ mod tests {
     #[test]
     fn mounts_as_vfs_backend() {
         use crate::{OpenFlags, Tmpfs, Vfs};
-        use alloc::boxed::Box;
 
         let disk = MemoryDisk::new(4, SECTOR_SIZE);
-        let mut vfs = Vfs::new(Box::new(Tmpfs::new()));
+        let mut vfs = Vfs::new_path(Tmpfs::new());
         vfs.create_dir("/disk").expect("目录");
-        vfs.mount("/disk", Box::new(BlockBackend::new(disk)))
+        vfs.mount_path("/disk", BlockBackend::new(disk))
             .expect("挂载");
         let handle = vfs.open("/disk/disk", OpenFlags::READ_WRITE).expect("打开");
         vfs.write_at(handle, 0, &[0x33; 16]).expect("写");

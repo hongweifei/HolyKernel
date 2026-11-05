@@ -1,7 +1,5 @@
 //! VFS 请求处理与回复编码。
 
-use alloc::boxed::Box;
-
 use hk_server_api::holy::HOLY_RESPONSE;
 use hk_server_api::send_data;
 use hk_server_api::vfs::{
@@ -170,7 +168,7 @@ pub(crate) fn handle(
         },
         OP_MOUNT_TMPFS => {
             let _ = filesystem.create_dir(request.path);
-            match filesystem.mount(request.path, Box::new(Tmpfs::new())) {
+            match filesystem.mount_path(request.path, Tmpfs::new()) {
                 Ok(()) => (STATUS_OK, 0),
                 Err(error) => (status(error), 0),
             }
