@@ -23,6 +23,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-terminal-test",
     "hk-server-input",
     "hk-server-pointer-test",
+    "hk-server-holydoc",
 ];
 
 /// 随镜像打包的 HolyShell 脚本。

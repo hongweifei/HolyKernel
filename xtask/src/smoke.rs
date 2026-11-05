@@ -109,6 +109,9 @@ pub enum SmokeMode {
     /// virtio-tablet 指针与点击焦点
     #[value(name = "pointer")]
     Pointer,
+    /// HolyDoc 最小文档窗口
+    #[value(name = "holydoc")]
+    Holydoc,
 }
 
 impl SmokeMode {
@@ -140,6 +143,7 @@ impl SmokeMode {
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
+            Self::Holydoc => Some("holydoc-test"),
         }
     }
 
@@ -335,6 +339,12 @@ impl SmokeMode {
                 "hk-server-display: close 1",
                 "hk-server-pointer-test: closed 1",
             ],
+            Self::Holydoc => &[
+                "hk-server-display: composite ok",
+                "hk-server-holydoc: ready 1",
+                "hk-server-holydoc: scroll 110",
+                "hk-server-holydoc: done",
+            ],
         }
     }
 
@@ -358,7 +368,8 @@ impl SmokeMode {
             | Self::Display
             | Self::Terminal
             | Self::InputDriver
-            | Self::Pointer => QEMU_SUCCESS,
+            | Self::Pointer
+            | Self::Holydoc => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -388,6 +399,7 @@ impl SmokeMode {
             Self::Terminal => "build/serial-terminal.log",
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
+            Self::Holydoc => "build/serial-holydoc.log",
         }
     }
 

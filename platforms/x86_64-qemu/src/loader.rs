@@ -36,6 +36,7 @@ pub fn run(
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
+    let holydoc_test = hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-test"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
@@ -47,6 +48,10 @@ pub fn run(
         if display_test {
             // 显示自检只需要 Display 服务与客户端。
             return matches!(name, "hk-server-display" | "hk-server-display-test");
+        }
+        if holydoc_test {
+            // HolyDoc 自检只需要 Display 与文档服务。
+            return matches!(name, "hk-server-display" | "hk-server-holydoc");
         }
         if hk_boot::cmdline().is_some_and(|line| line.contains("pointer-test")) {
             // 指针自检：Display + Device + Input + 指针客户端。
@@ -76,7 +81,7 @@ pub fn run(
                 "hk-server-display" | "hk-server-console" | "hk-server-terminal-test"
             );
         }
-        if name == "hk-server-netstat" {
+        if name == "hk-server-netstat" || name == "hk-server-holydoc" {
             return false;
         }
         if matches!(

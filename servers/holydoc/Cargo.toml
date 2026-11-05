@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-holydoc"
+description = "HolyKernel 最小活文档窗口服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-holydoc"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

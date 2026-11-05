@@ -484,6 +484,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-holydoc"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "lovyangfx-fonts",
+]
+
+[[package]]
 name = "hk-server-input"
 version = "0.1.0"
 dependencies = [
