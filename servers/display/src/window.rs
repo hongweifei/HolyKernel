@@ -18,6 +18,14 @@ pub(crate) const WINDOW_STRIDE: u64 = 0x20_0000;
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_HEIGHT: usize = 24;
 
+/// 标题栏关闭按钮尺寸。
+#[cfg(target_os = "none")]
+pub(crate) const CLOSE_SIZE: usize = 10;
+
+/// 标题栏关闭按钮右边距。
+#[cfg(target_os = "none")]
+pub(crate) const CLOSE_MARGIN: usize = 4;
+
 /// 底部任务栏高度。
 #[cfg(target_os = "none")]
 pub(crate) const TASKBAR_HEIGHT: usize = 28;
@@ -132,6 +140,26 @@ impl Screen {
         // SAFETY: 坐标已裁剪到帧缓冲范围内。
         unsafe { self.base.add(y * self.stride + x).read_volatile() }
     }
+}
+
+/// 关闭按钮左上角。
+#[cfg(target_os = "none")]
+pub(crate) fn close_button_origin(window: &Window) -> (usize, usize) {
+    let left = window
+        .x
+        .saturating_add(window.width)
+        .saturating_sub(CLOSE_SIZE + CLOSE_MARGIN + 2);
+    let top = window
+        .y
+        .saturating_add(TITLE_HEIGHT.saturating_sub(CLOSE_SIZE) / 2);
+    (left, top)
+}
+
+/// 指定点是否命中窗口的关闭按钮。
+#[cfg(target_os = "none")]
+pub(crate) fn close_at(window: &Window, x: usize, y: usize) -> bool {
+    let (left, top) = close_button_origin(window);
+    x >= left && x < left + CLOSE_SIZE && y >= top && y < top + CLOSE_SIZE
 }
 
 /// 返回指定点最上层窗口。

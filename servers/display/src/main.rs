@@ -8,8 +8,9 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY,
-    DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key, unpack_size,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
+    DISPLAY_KEY, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key,
+    unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -17,8 +18,8 @@ use hk_server_api::framebuffer;
 use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, unpack_pointer};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_info, frame_map, recv_data_handle_try, send, write,
-    write_u64, yield_now,
+    close_handle, console_read, exit, frame_info, frame_map, frame_unmap, recv_data_handle_try,
+    send, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::Font;
@@ -38,12 +39,65 @@ mod window;
 #[cfg(target_os = "none")]
 use window::{
     Drag, MAX_WINDOWS, Screen, TASKBAR_HEIGHT, TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window,
-    raise, taskbar_at, taskbar_top, window_at,
+    close_at, raise, taskbar_at, taskbar_top, window_at,
 };
 
 /// Tab 键字节：切换焦点。
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
+
+/// 关闭窗口：回收共享表面、通知客户端并更新焦点与任务栏。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn close_window(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: &mut u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+    id: u64,
+) {
+    let Some(slot) = windows
+        .iter()
+        .position(|window| window.as_ref().is_some_and(|window| window.id == id))
+    else {
+        return;
+    };
+    let Some(window) = windows[slot] else {
+        return;
+    };
+    windows[slot] = None;
+    let bytes = window.width.saturating_mul(window.height).saturating_mul(4);
+    let _ = frame_unmap(window.virt, bytes);
+    let _ = close_handle(window.handle);
+    let _ = send(window.client, DISPLAY_CLOSE, id);
+
+    let previous = *focus;
+    if previous == id {
+        *focus = windows
+            .iter()
+            .flatten()
+            .last()
+            .map(|window| window.id)
+            .unwrap_or(0);
+    }
+    compose_region(
+        screen,
+        windows,
+        *focus,
+        font,
+        pointer,
+        window.x,
+        window.y,
+        window.width,
+        window.height + TITLE_HEIGHT,
+    );
+    damage_title(screen, windows, *focus, font, pointer, previous);
+    damage_taskbar(screen, windows, *focus, font, pointer);
+    write(b"hk-server-display: close ");
+    write_u64(id);
+    write(b"\n");
+}
 
 /// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
 #[cfg(target_os = "none")]
@@ -325,6 +379,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                     let old_focus = focus;
                     if let Some(window) = window_at(&windows, x, y) {
+                        if close_at(&window, x, y) {
+                            close_window(
+                                &screen,
+                                &mut windows,
+                                &mut focus,
+                                &font,
+                                pointer,
+                                window.id,
+                            );
+                            continue;
+                        }
                         let id = window.id;
                         raise(&mut windows, id);
                         focus = id;

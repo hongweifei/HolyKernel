@@ -3,8 +3,8 @@
 use lovyangfx_fonts::Font;
 
 use crate::window::{
-    MAX_WINDOWS, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT, TITLE_HEIGHT,
-    Window, taskbar_button_top, taskbar_button_x, taskbar_top,
+    CLOSE_SIZE, MAX_WINDOWS, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT,
+    TITLE_HEIGHT, Window, close_button_origin, taskbar_button_top, taskbar_button_x, taskbar_top,
 };
 
 /// 桌面背景顶部颜色。
@@ -22,6 +22,9 @@ pub(crate) const TITLE_FOCUS: u32 = 0x0040_A0E0;
 /// 标题文字颜色。
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_TEXT: u32 = 0x00E0_F0FF;
+/// 标题栏关闭按钮颜色。
+#[cfg(target_os = "none")]
+const TITLE_CLOSE: u32 = 0x00E8_6868;
 /// 任务栏背景色。
 #[cfg(target_os = "none")]
 const TASKBAR_BG: u32 = 0x0018_1E28;
@@ -162,6 +165,21 @@ fn paint_window(
                 });
             }
             pen_x += 8;
+        }
+        let (close_x, close_y) = close_button_origin(window);
+        for offset in 0..CLOSE_SIZE {
+            let row = close_y + offset;
+            if row < top || row >= bottom || row >= window_y + TITLE_HEIGHT {
+                continue;
+            }
+            let left_pixel = close_x + offset;
+            let right_pixel = close_x + (CLOSE_SIZE - 1 - offset);
+            if left_pixel >= left && left_pixel < right {
+                screen.put(left_pixel, row, TITLE_CLOSE);
+            }
+            if right_pixel >= left && right_pixel < right {
+                screen.put(right_pixel, row, TITLE_CLOSE);
+            }
         }
     }
 

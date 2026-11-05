@@ -5,8 +5,8 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_SHUTDOWN,
-    DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, set_title,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
+    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, set_title,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
@@ -86,6 +86,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     write(b"hk-server-pointer-test: clicked ");
     write_u64(word);
+    write(b"\n");
+    loop {
+        let (label, word, _sender) = recv(endpoint);
+        if label == DISPLAY_CLOSE && word == window {
+            break;
+        }
+    }
+    write(b"hk-server-pointer-test: closed ");
+    write_u64(window);
     write(b"\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);
     exit(0)

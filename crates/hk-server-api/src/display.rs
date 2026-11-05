@@ -21,6 +21,8 @@ pub const DISPLAY_KEY: u64 = 0xA05;
 pub const DISPLAY_SET_TITLE: u64 = 0xA06;
 /// 窗口被鼠标点击；`word` 为窗口编号。
 pub const DISPLAY_CLICK: u64 = 0xA07;
+/// 窗口被关闭；`word` 为窗口编号。
+pub const DISPLAY_CLOSE: u64 = 0xA08;
 
 /// 窗口标题最大字节数。
 pub const TITLE_MAX: usize = 32;
