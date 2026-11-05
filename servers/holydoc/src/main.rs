@@ -38,7 +38,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::holy::{
     DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
-    STATUS_PERMISSION, decode_entries,
+    STATUS_PERMISSION, decode_doc_ids, decode_entries, decode_tags,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
@@ -211,6 +211,44 @@ fn verify_tokens(endpoint: u64) -> bool {
     read_ok && grant_rejected && revoked && read_rejected
 }
 
+/// 验证标签创建、成员关系与删除。
+#[cfg(target_os = "none")]
+fn verify_tags(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.resolve(root, "Welcome") else {
+        return false;
+    };
+    let Ok(tag) = client.create_tag("smoke") else {
+        return false;
+    };
+    if client.tag(document, tag).is_err() {
+        return false;
+    }
+    let contains_document = match client.tag_members(tag) {
+        Ok(bytes) => decode_doc_ids(bytes).any(|entry| entry == document),
+        Err(_) => false,
+    };
+    let contains_tag = match client.tags_of(document) {
+        Ok(bytes) => bytes.chunks_exact(4).any(|chunk| {
+            let Ok(bytes) = chunk.try_into() else {
+                return false;
+            };
+            u32::from_le_bytes(bytes) == tag
+        }),
+        Err(_) => false,
+    };
+    let listed = match client.tags() {
+        Ok(bytes) => decode_tags(bytes).any(|entry| entry.id == tag && entry.name == "smoke"),
+        Err(_) => false,
+    };
+    let dropped = client.drop_tag(tag).is_ok();
+    let gone = client.tag_members(tag) == Err(STATUS_NOT_FOUND);
+    contains_document && contains_tag && listed && dropped && gone
+}
+
 /// 提交并等待显示服务完成合成。
 #[cfg(target_os = "none")]
 fn commit(endpoint: u64, display: u64, window: u64) {
@@ -301,6 +339,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-holydoc: token ok\n");
         } else {
             write(b"hk-server-holydoc: token failed\n");
+        }
+        if verify_tags(endpoint) {
+            write(b"hk-server-holydoc: tag ok\n");
+        } else {
+            write(b"hk-server-holydoc: tag failed\n");
         }
         if let Some((x, y, target)) = view.first_link() {
             write(b"hk-server-holydoc: click ");

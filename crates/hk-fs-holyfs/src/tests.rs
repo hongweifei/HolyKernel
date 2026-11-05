@@ -1,6 +1,7 @@
 //! HolyFS 单元与持久化测试。
 
 use alloc::rc::Rc;
+use alloc::vec;
 use core::cell::RefCell;
 
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
@@ -225,6 +226,36 @@ fn native_document_write_moves_head() {
     assert_ne!(next, head);
     assert_eq!(fs.read_document("H:/Doc").expect("读"), b"second");
     assert_eq!(fs.revisions("H:/Doc").expect("修订").len(), 3);
+}
+
+#[test]
+fn tags_documents_and_persists() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    let tag;
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
+        let root = fs.root();
+        let document = fs.create(root, "Doc", DocumentKind::Content).expect("创建");
+        tag = fs.create_tag("work").expect("标签");
+        assert_eq!(fs.create_tag("work"), Err(HolyError::Exists));
+        fs.tag(document, tag).expect("加入标签");
+        assert_eq!(fs.tags_of(document).expect("所属标签"), vec![tag]);
+        assert_eq!(fs.tag_members(tag).expect("成员"), vec![document]);
+        assert_eq!(fs.tags().len(), 1);
+        fs.sync().expect("提交");
+    }
+    let mut fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    let root = fs.root();
+    let document = fs.lookup(root, "Doc").expect("查找");
+    let tags = fs.tags();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "work");
+    assert_eq!(fs.tag_members(tags[0].id).expect("成员"), vec![document]);
+    assert_eq!(fs.tags_of(document).expect("所属标签"), vec![tags[0].id]);
+    fs.drop_tag(tags[0].id).expect("删除标签");
+    assert!(fs.tags().is_empty());
+    assert_eq!(fs.tag_members(tag), Err(HolyError::NotFound));
+    fs.sync().expect("提交删除");
 }
 
 #[test]

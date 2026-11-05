@@ -40,6 +40,10 @@ pub struct Superblock {
     pub document_tree: u64,
     /// 修订表树根。
     pub revision_tree: u64,
+    /// 标签表树根；0 表示旧卷没有标签。
+    pub tag_tree: u64,
+    /// 下一个标签编号。
+    pub next_tag: u32,
     /// 下一个文档身份。
     pub next_document: DocId,
     /// 下一个修订身份。
@@ -58,6 +62,8 @@ impl Superblock {
             root_document: DocId::ROOT,
             document_tree: 0,
             revision_tree: 0,
+            tag_tree: 0,
+            next_tag: 1,
             next_document: DocId::new(DocId::ROOT.get() + 1),
             next_revision: RevisionId::ROOT.get() + 1,
         }
@@ -69,10 +75,12 @@ impl Superblock {
         bytes[0..8].copy_from_slice(&MAGIC.to_le_bytes());
         bytes[8..12].copy_from_slice(&VERSION.to_le_bytes());
         bytes[12..16].copy_from_slice(&(BLOCK_SIZE as u32).to_le_bytes());
+        bytes[16..24].copy_from_slice(&self.tag_tree.to_le_bytes());
         bytes[24..32].copy_from_slice(&self.generation.to_le_bytes());
         bytes[32..40].copy_from_slice(&self.total_blocks.to_le_bytes());
         bytes[40..48].copy_from_slice(&self.bitmap_start.to_le_bytes());
         bytes[48..52].copy_from_slice(&self.bitmap_blocks.to_le_bytes());
+        bytes[52..56].copy_from_slice(&self.next_tag.to_le_bytes());
         bytes[56..72].copy_from_slice(&self.volume_id.to_le_bytes());
         bytes[72..88].copy_from_slice(&self.root_document.to_le_bytes());
         bytes[88..96].copy_from_slice(&self.document_tree.to_le_bytes());
@@ -101,6 +109,8 @@ impl Superblock {
         if crc32c(&bytes[..128]) != stored {
             return Err(HolyError::Corrupt);
         }
+        let tag_tree =
+            u64::from_le_bytes(bytes[16..24].try_into().map_err(|_| HolyError::Corrupt)?);
         let generation =
             u64::from_le_bytes(bytes[24..32].try_into().map_err(|_| HolyError::Corrupt)?);
         let total_blocks =
@@ -117,6 +127,8 @@ impl Superblock {
             u64::from_le_bytes(bytes[88..96].try_into().map_err(|_| HolyError::Corrupt)?);
         let revision_tree =
             u64::from_le_bytes(bytes[96..104].try_into().map_err(|_| HolyError::Corrupt)?);
+        let next_tag =
+            u32::from_le_bytes(bytes[52..56].try_into().map_err(|_| HolyError::Corrupt)?).max(1);
         let next_document =
             DocId::from_le_bytes(bytes[104..120].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_revision =
@@ -129,6 +141,7 @@ impl Superblock {
             || bitmap_end > total_blocks
             || document_tree >= total_blocks
             || revision_tree >= total_blocks
+            || (tag_tree != 0 && tag_tree >= total_blocks)
         {
             return Err(HolyError::Corrupt);
         }
@@ -141,6 +154,8 @@ impl Superblock {
             root_document,
             document_tree,
             revision_tree,
+            tag_tree,
+            next_tag,
             next_document,
             next_revision,
         })

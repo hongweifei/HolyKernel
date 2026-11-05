@@ -6,15 +6,16 @@ use hk_block::ipc::ClientDisk;
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, HolyFs, RevisionId};
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_CREATE,
-    OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_ENUMERATE, OP_ENUMERATE_ID, OP_GRANT,
-    OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS, OP_REVISIONS_ID,
-    OP_REVOKE, OP_ROOT, OP_SYNC, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE,
-    RevisionId as WireRevisionId, RevisionView, decode_doc_id, decode_u64, encode_doc_id,
-    encode_document, encode_entry, encode_revision, encode_revision_id, encode_token,
+    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE,
+    OP_ENUMERATE_ID, OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE,
+    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_WRITE_ID,
+    OP_WRITE_TOKEN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, RevisionId as WireRevisionId,
+    RevisionView, decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_entry,
+    encode_revision, encode_revision_id, encode_tag, encode_token, encode_u32,
 };
 use hk_server_api::vfs::{
-    Request, STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
+    Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
     STATUS_PERMISSION,
 };
 
@@ -241,6 +242,46 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
+        OP_TAGS => encode_tags(body, drive.tags()),
+        OP_TAG_MEMBERS => match drive.tag_members(request.arg0 as u32) {
+            Ok(documents) => encode_doc_id_list(body, &documents),
+            Err(error) => (status(error), 0),
+        },
+        OP_CREATE_TAG => match drive.create_tag(request.path) {
+            Ok(tag) => encode_u32_response(body, tag),
+            Err(error) => (status(error), 0),
+        },
+        OP_DROP_TAG => match drive.drop_tag(request.arg0 as u32) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
+        OP_TAG => {
+            let Some(document) = doc_from(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            match drive.tag(document, request.arg0 as u32) {
+                Ok(()) => (STATUS_OK, 0),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_UNTAG => {
+            let Some(document) = doc_from(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            match drive.untag(document, request.arg0 as u32) {
+                Ok(()) => (STATUS_OK, 0),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_TAGS_OF => {
+            let Some(document) = doc_from(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            match drive.tags_of(document) {
+                Ok(tags) => encode_u32_list(body, &tags),
+                Err(error) => (status(error), 0),
+            }
+        }
         _ => (STATUS_INVALID, 0),
     }
 }
@@ -325,6 +366,54 @@ fn encode_token_response(body: &mut [u8], token: u64) -> (u8, usize) {
     }
 }
 
+fn encode_tags(body: &mut [u8], tags: alloc::vec::Vec<hk_fs::TagInfo>) -> (u8, usize) {
+    let mut length = 0;
+    for tag in tags {
+        let Some(end) = encode_tag(body, length, tag.id, &tag.name) else {
+            return (STATUS_ERROR, 0);
+        };
+        length = end;
+    }
+    (STATUS_OK, length)
+}
+
+fn encode_doc_id_list(body: &mut [u8], documents: &[hk_fs_holyfs::DocId]) -> (u8, usize) {
+    let mut length: usize = 0;
+    for document in documents {
+        let Some(end) = length.checked_add(16) else {
+            return (STATUS_ERROR, 0);
+        };
+        if end > body.len() {
+            return (STATUS_ERROR, 0);
+        }
+        body[length..end].copy_from_slice(&document.to_le_bytes());
+        length = end;
+    }
+    (STATUS_OK, length)
+}
+
+fn encode_u32_response(body: &mut [u8], value: u32) -> (u8, usize) {
+    match encode_u32(body, value) {
+        Some(length) => (STATUS_OK, length),
+        None => (STATUS_ERROR, 0),
+    }
+}
+
+fn encode_u32_list(body: &mut [u8], values: &[u32]) -> (u8, usize) {
+    let mut length: usize = 0;
+    for value in values {
+        let Some(end) = length.checked_add(4) else {
+            return (STATUS_ERROR, 0);
+        };
+        if end > body.len() {
+            return (STATUS_ERROR, 0);
+        }
+        body[length..end].copy_from_slice(&value.to_le_bytes());
+        length = end;
+    }
+    (STATUS_OK, length)
+}
+
 fn copy(body: &mut [u8], content: &[u8]) -> (u8, usize) {
     if content.len() > body.len() {
         return (STATUS_ERROR, 0);
@@ -351,6 +440,7 @@ fn document_kind(code: u64) -> Option<DocumentKind> {
 fn status(error: HolyError) -> u8 {
     match error {
         HolyError::NotFound => STATUS_NOT_FOUND,
+        HolyError::Exists => STATUS_EXISTS,
         HolyError::Invalid | HolyError::NotDirectory | HolyError::IsDirectory => STATUS_INVALID,
         HolyError::Io => STATUS_IO,
         HolyError::Refused => STATUS_PERMISSION,

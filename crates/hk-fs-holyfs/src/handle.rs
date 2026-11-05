@@ -161,6 +161,41 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().revisions(document)
     }
 
+    /// 创建标签。
+    pub fn create_tag(&mut self, name: &str) -> Result<u32, HolyError> {
+        self.state.borrow_mut().create_tag(name)
+    }
+
+    /// 删除标签及其成员关系。
+    pub fn drop_tag(&mut self, tag: u32) -> Result<(), HolyError> {
+        self.state.borrow_mut().drop_tag(tag)
+    }
+
+    /// 把文档加入标签。
+    pub fn tag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        self.state.borrow_mut().tag(document, tag)
+    }
+
+    /// 把文档从标签移除。
+    pub fn untag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        self.state.borrow_mut().untag(document, tag)
+    }
+
+    /// 枚举标签。
+    pub fn tags(&self) -> Vec<hk_fs::TagInfo> {
+        self.state.borrow().tags()
+    }
+
+    /// 枚举标签成员。
+    pub fn tag_members(&self, tag: u32) -> Result<Vec<DocId>, HolyError> {
+        self.state.borrow().tag_members(tag)
+    }
+
+    /// 枚举文档所属标签。
+    pub fn tags_of(&self, document: DocId) -> Result<Vec<u32>, HolyError> {
+        self.state.borrow().tags_of(document)
+    }
+
     /// 把挂起写入提交到稳定存储。
     pub fn sync(&mut self) -> Result<(), HolyError> {
         self.state.borrow_mut().sync()

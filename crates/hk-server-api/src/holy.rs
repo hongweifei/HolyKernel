@@ -143,6 +143,20 @@ pub const OP_GRANT: u8 = 22;
 pub const OP_REVOKE: u8 = 23;
 /// 把令牌转移到另一个端点。
 pub const OP_TRANSFER: u8 = 24;
+/// 枚举标签。
+pub const OP_TAGS: u8 = 25;
+/// 枚举标签成员。
+pub const OP_TAG_MEMBERS: u8 = 26;
+/// 创建标签。
+pub const OP_CREATE_TAG: u8 = 27;
+/// 删除标签。
+pub const OP_DROP_TAG: u8 = 28;
+/// 把文档加入标签。
+pub const OP_TAG: u8 = 29;
+/// 把文档从标签移除。
+pub const OP_UNTAG: u8 = 30;
+/// 枚举文档所属标签。
+pub const OP_TAGS_OF: u8 = 31;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -181,6 +195,8 @@ const DOC_LEN: usize = 16;
 const REVISION_ID_LEN: usize = 8;
 /// 令牌编码长度。
 const TOKEN_LEN: usize = 8;
+/// 标签头：编号 + 名字长度。
+const TAG_HEADER: usize = 4 + 1;
 
 /// 集合项视图。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -385,6 +401,99 @@ pub fn encode_revision_id(out: &mut [u8], revision: RevisionId) -> Option<usize>
     Some(REVISION_ID_LEN)
 }
 
+/// 标签视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TagView<'a> {
+    /// 标签编号。
+    pub id: u32,
+    /// 标签名字。
+    pub name: &'a str,
+}
+
+/// 编码一个标签，返回写入结束位置。
+pub fn encode_tag(out: &mut [u8], offset: usize, id: u32, name: &str) -> Option<usize> {
+    let bytes = name.as_bytes();
+    if bytes.len() > u8::MAX as usize {
+        return None;
+    }
+    let end = offset.checked_add(TAG_HEADER)?.checked_add(bytes.len())?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset..offset + 4].copy_from_slice(&id.to_le_bytes());
+    out[offset + 4] = bytes.len() as u8;
+    out[offset + TAG_HEADER..end].copy_from_slice(bytes);
+    Some(end)
+}
+
+/// 标签迭代器。
+pub struct Tags<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for Tags<'a> {
+    type Item = TagView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + TAG_HEADER > self.bytes.len() {
+            return None;
+        }
+        let id = u32::from_le_bytes(self.bytes[start..start + 4].try_into().ok()?);
+        let length = self.bytes[start + 4] as usize;
+        let name_start = start + TAG_HEADER;
+        let end = name_start.checked_add(length)?;
+        if end > self.bytes.len() {
+            return None;
+        }
+        let name = core::str::from_utf8(&self.bytes[name_start..end]).ok()?;
+        self.offset = end;
+        Some(TagView { id, name })
+    }
+}
+
+/// 解析标签序列。
+pub fn decode_tags(bytes: &[u8]) -> Tags<'_> {
+    Tags { bytes, offset: 0 }
+}
+
+/// 文档身份迭代器。
+pub struct DocIds<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl Iterator for DocIds<'_> {
+    type Item = DocId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        let document = decode_doc_id(self.bytes.get(start..)?)?;
+        self.offset = start + DOC_LEN;
+        Some(document)
+    }
+}
+
+/// 解析文档身份序列。
+pub fn decode_doc_ids(bytes: &[u8]) -> DocIds<'_> {
+    DocIds { bytes, offset: 0 }
+}
+
+/// 解析 u32。
+pub fn decode_u32(bytes: &[u8]) -> Option<u32> {
+    Some(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?))
+}
+
+/// 编码 u32。
+pub fn encode_u32(out: &mut [u8], value: u32) -> Option<usize> {
+    if out.len() < 4 {
+        return None;
+    }
+    out[..4].copy_from_slice(&value.to_le_bytes());
+    Some(4)
+}
+
 /// 解析令牌。
 pub fn decode_token(bytes: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(bytes.get(..TOKEN_LEN)?.try_into().ok()?))
@@ -578,6 +687,48 @@ impl HolyClient {
     pub fn transfer(&mut self, token: u64, target: u64) -> Result<u64, u8> {
         let length = self.exchange(OP_TRANSFER, "", token, target, &[])?;
         decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 枚举标签，返回编码后的标签字节数。
+    pub fn tags(&mut self) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAGS, "", 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 枚举标签成员，返回编码后的文档身份字节数。
+    pub fn tag_members(&mut self, tag: u32) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAG_MEMBERS, "", u64::from(tag), 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 创建标签，返回标签编号。
+    pub fn create_tag(&mut self, name: &str) -> Result<u32, u8> {
+        let length = self.exchange(OP_CREATE_TAG, name, 0, 0, &[])?;
+        decode_u32(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 删除标签。
+    pub fn drop_tag(&mut self, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_DROP_TAG, "", u64::from(tag), 0, &[])
+            .map(|_| ())
+    }
+
+    /// 把文档加入标签。
+    pub fn tag(&mut self, document: DocId, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_TAG, "", u64::from(tag), 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 把文档从标签移除。
+    pub fn untag(&mut self, document: DocId, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_UNTAG, "", u64::from(tag), 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 枚举文档所属标签，返回编码后的标签编号字节数。
+    pub fn tags_of(&mut self, document: DocId) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAGS_OF, "", 0, 0, &document.to_le_bytes())?;
+        Ok(&self.response[3..3 + length])
     }
 
     /// 通过令牌读取。

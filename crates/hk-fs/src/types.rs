@@ -71,6 +71,15 @@ pub struct EntryInfo {
     pub kind: DocumentKind,
 }
 
+/// 标签视图。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagInfo {
+    /// 标签编号。
+    pub id: u32,
+    /// 标签名字。
+    pub name: String,
+}
+
 /// 修订视图：身份、历史与内容度量。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RevisionInfo {

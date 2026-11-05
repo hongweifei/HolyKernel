@@ -1,6 +1,6 @@
 //! 卷状态、文档/修订/集合操作与提交。
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -31,6 +31,9 @@ pub(crate) struct Volume<D: BlockDevice> {
     documents: BTreeMap<DocId, DocumentRecord>,
     revisions: BTreeMap<RevisionId, RevisionRecord>,
     collections: BTreeMap<RevisionId, Entries>,
+    tags: BTreeMap<u32, String>,
+    tag_members: BTreeMap<u32, BTreeSet<DocId>>,
+    next_tag: u32,
     dirty: bool,
 }
 
@@ -62,6 +65,9 @@ impl<D: BlockDevice> Volume<D> {
             documents: BTreeMap::new(),
             revisions: BTreeMap::new(),
             collections: BTreeMap::new(),
+            tags: BTreeMap::new(),
+            tag_members: BTreeMap::new(),
+            next_tag: 1,
             dirty: true,
         };
         volume.documents.insert(
@@ -118,6 +124,38 @@ impl<D: BlockDevice> Volume<D> {
         if !revisions.contains_key(&root.head) {
             return Err(HolyError::Corrupt);
         }
+        let mut tags = BTreeMap::new();
+        let mut tag_members: BTreeMap<u32, BTreeSet<DocId>> = BTreeMap::new();
+        if superblock.tag_tree != 0 {
+            let tree = load_tree(&store, superblock.tag_tree)?;
+            for (key, value) in tree {
+                if key.len() == 5 && key[0] == 0 {
+                    let id =
+                        u32::from_le_bytes(key[1..5].try_into().map_err(|_| HolyError::Corrupt)?);
+                    let name = core::str::from_utf8(&value).map_err(|_| HolyError::Corrupt)?;
+                    tags.insert(id, String::from(name));
+                } else if key.len() == 21 && key[0] == 1 {
+                    let id =
+                        u32::from_le_bytes(key[1..5].try_into().map_err(|_| HolyError::Corrupt)?);
+                    let document = DocId::from_le_bytes(
+                        key[5..21].try_into().map_err(|_| HolyError::Corrupt)?,
+                    );
+                    tag_members.entry(id).or_default().insert(document);
+                } else {
+                    return Err(HolyError::Corrupt);
+                }
+            }
+        }
+        for (tag, members) in &tag_members {
+            if !tags.contains_key(tag) {
+                return Err(HolyError::Corrupt);
+            }
+            for document in members {
+                if !documents.contains_key(document) {
+                    return Err(HolyError::Corrupt);
+                }
+            }
+        }
         Ok(Self {
             store,
             superblock,
@@ -125,6 +163,9 @@ impl<D: BlockDevice> Volume<D> {
             documents,
             revisions,
             collections,
+            tags,
+            tag_members,
+            next_tag: superblock.next_tag,
             dirty: false,
         })
     }
@@ -431,6 +472,90 @@ impl<D: BlockDevice> Volume<D> {
         Ok(result)
     }
 
+    /// 创建标签。
+    pub(crate) fn create_tag(&mut self, name: &str) -> Result<u32, HolyError> {
+        validate_name(name)?;
+        if self.tags.values().any(|existing| existing == name) {
+            return Err(HolyError::Exists);
+        }
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.saturating_add(1);
+        self.tags.insert(tag, String::from(name));
+        self.dirty = true;
+        Ok(tag)
+    }
+
+    /// 删除标签及其成员关系。
+    pub(crate) fn drop_tag(&mut self, tag: u32) -> Result<(), HolyError> {
+        if self.tags.remove(&tag).is_none() {
+            return Err(HolyError::NotFound);
+        }
+        self.tag_members.remove(&tag);
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// 把文档加入标签。
+    pub(crate) fn tag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        if !self.documents.contains_key(&document) {
+            return Err(HolyError::NotFound);
+        }
+        if !self.tags.contains_key(&tag) {
+            return Err(HolyError::NotFound);
+        }
+        self.tag_members.entry(tag).or_default().insert(document);
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// 把文档从标签移除。
+    pub(crate) fn untag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        if !self.tags.contains_key(&tag) {
+            return Err(HolyError::NotFound);
+        }
+        if let Some(members) = self.tag_members.get_mut(&tag) {
+            members.remove(&document);
+        }
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// 枚举标签。
+    pub(crate) fn tags(&self) -> Vec<hk_fs::TagInfo> {
+        self.tags
+            .iter()
+            .map(|(id, name)| hk_fs::TagInfo {
+                id: *id,
+                name: name.clone(),
+            })
+            .collect()
+    }
+
+    /// 枚举标签成员。
+    pub(crate) fn tag_members(&self, tag: u32) -> Result<Vec<DocId>, HolyError> {
+        if !self.tags.contains_key(&tag) {
+            return Err(HolyError::NotFound);
+        }
+        Ok(self
+            .tag_members
+            .get(&tag)
+            .map(|members| members.iter().copied().collect())
+            .unwrap_or_default())
+    }
+
+    /// 枚举文档所属标签。
+    pub(crate) fn tags_of(&self, document: DocId) -> Result<Vec<u32>, HolyError> {
+        if !self.documents.contains_key(&document) {
+            return Err(HolyError::NotFound);
+        }
+        Ok(self
+            .tag_members
+            .iter()
+            .filter(|(_, members)| members.contains(&document))
+            .map(|(tag, _)| *tag)
+            .collect())
+    }
+
     /// 整文档写入，生成新的内容修订并返回其身份。
     pub(crate) fn write_document(
         &mut self,
@@ -590,6 +715,9 @@ impl<D: BlockDevice> Volume<D> {
 
     fn persist(&mut self) -> Result<(), HolyError> {
         let mut old_roots = vec![self.superblock.document_tree, self.superblock.revision_tree];
+        if self.superblock.tag_tree != 0 {
+            old_roots.push(self.superblock.tag_tree);
+        }
         old_roots.extend(
             self.revisions
                 .values()
@@ -628,14 +756,31 @@ impl<D: BlockDevice> Volume<D> {
         for record in self.revisions.values() {
             revisions.insert(record.id.to_le_bytes().to_vec(), record.encode().to_vec());
         }
+        let mut tags = TreeMap::new();
+        for (tag, name) in &self.tags {
+            let mut key = vec![0_u8];
+            key.extend_from_slice(&tag.to_le_bytes());
+            tags.insert(key, name.as_bytes().to_vec());
+        }
+        for (tag, members) in &self.tag_members {
+            for document in members {
+                let mut key = vec![1_u8];
+                key.extend_from_slice(&tag.to_le_bytes());
+                key.extend_from_slice(&document.to_le_bytes());
+                tags.insert(key, Vec::new());
+            }
+        }
         let document_tree = store_tree(&mut self.store, &documents)?;
         let revision_tree = store_tree(&mut self.store, &revisions)?;
+        let tag_tree = store_tree(&mut self.store, &tags)?;
         self.superblock.generation = self.superblock.generation.saturating_add(1);
         self.superblock.total_blocks = self.store.total_blocks();
         self.superblock.bitmap_start = crate::superblock::BITMAP_START;
         self.superblock.bitmap_blocks = self.store.bitmap_blocks()?;
         self.superblock.document_tree = document_tree;
         self.superblock.revision_tree = revision_tree;
+        self.superblock.tag_tree = tag_tree;
+        self.superblock.next_tag = self.next_tag;
         self.store.write_bitmap()?;
         let slot = if self.active_slot == SUPERBLOCK_A {
             SUPERBLOCK_B
