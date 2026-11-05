@@ -38,7 +38,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut payload = [0_u8; 8];
     let mut acknowledged = false;
     for _ in 0..2048 {
-        let _ = send_data(console, CONSOLE_WRITE, b"hello terminal\n");
+        let _ = send_data(console, CONSOLE_WRITE, "你好 terminal\n".as_bytes());
         for _ in 0..64 {
             let (label, _word, _sender, _size) = recv_data_try(endpoint, &mut payload);
             if label == CONSOLE_WRITE_ACK {

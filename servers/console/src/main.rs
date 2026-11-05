@@ -55,6 +55,60 @@ const BACKGROUND: u32 = 0x0010_1010;
 /// 终端前景色。
 #[cfg(target_os = "none")]
 const FOREGROUND: u32 = 0x00D0_D0D0;
+/// 光标颜色。
+#[cfg(target_os = "none")]
+const CURSOR: u32 = 0x0060_A0E0;
+
+/// 增量 UTF-8 解码器。
+#[cfg(target_os = "none")]
+struct Utf8 {
+    pending: [u8; 4],
+    length: usize,
+}
+
+#[cfg(target_os = "none")]
+impl Utf8 {
+    const fn new() -> Self {
+        Self {
+            pending: [0; 4],
+            length: 0,
+        }
+    }
+
+    /// 推入一个字节；序列完整时返回字符。
+    fn push(&mut self, byte: u8) -> Option<char> {
+        if self.length == 0 {
+            if byte < 0x80 {
+                return Some(byte as char);
+            }
+            if byte & 0xC0 == 0x80 {
+                return Some('?');
+            }
+            self.pending[0] = byte;
+            self.length = 1;
+            return None;
+        }
+        self.pending[self.length] = byte;
+        self.length += 1;
+        let needed = match self.pending[0] {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => {
+                self.length = 0;
+                return Some('?');
+            }
+        };
+        if self.length < needed {
+            return None;
+        }
+        let value = core::str::from_utf8(&self.pending[..needed])
+            .ok()
+            .and_then(|text| text.chars().next());
+        self.length = 0;
+        Some(value.unwrap_or('?'))
+    }
+}
 
 /// 图形终端状态。
 #[cfg(target_os = "none")]
@@ -62,10 +116,13 @@ struct Terminal {
     display: u64,
     window: u64,
     pixels: *mut u32,
-    grid: [[u8; COLUMNS]; ROWS],
+    grid: [[char; COLUMNS]; ROWS],
     column: usize,
     row: usize,
     font: Font<'static>,
+    decoder: Utf8,
+    utf8_seen: bool,
+    cjk_seen: bool,
 }
 
 #[cfg(target_os = "none")]
@@ -73,12 +130,12 @@ impl Terminal {
     /// 写入一段文本并提交合成。
     fn emit(&mut self, text: &[u8]) {
         for byte in text {
-            self.put(*byte);
+            self.put_byte(*byte);
         }
         self.refresh();
     }
 
-    fn put(&mut self, byte: u8) {
+    fn put_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => {
                 self.column = 0;
@@ -87,64 +144,111 @@ impl Terminal {
             b'\r' => self.column = 0,
             b'\t' => {
                 for _ in 0..4 {
-                    self.put(b' ');
+                    self.put_char(' ');
                 }
             }
-            0x08 => {
-                if self.column > 0 {
-                    self.column -= 1;
-                    self.grid[self.row][self.column] = b' ';
+            0x08 | 0x7F => self.backspace(),
+            byte if byte >= 0x20 => {
+                if let Some(character) = self.decoder.push(byte) {
+                    self.put_char(character);
                 }
-            }
-            0x20..=0x7E => {
-                if self.column >= COLUMNS {
-                    self.column = 0;
-                    self.row += 1;
-                }
-                self.grid[self.row][self.column] = byte;
-                self.column += 1;
             }
             _ => {}
         }
+        self.wrap();
+    }
+
+    fn put_char(&mut self, character: char) {
+        let width = self.advance(character);
+        if u32::from(character) > 0x7F && !self.utf8_seen {
+            self.utf8_seen = true;
+            write(b"hk-server-console: utf8 ok\n");
+        }
+        if width > 1 && !self.cjk_seen {
+            self.cjk_seen = true;
+            write(b"hk-server-console: cjk ok\n");
+        }
+        if self.column + width > COLUMNS {
+            self.column = 0;
+            self.row += 1;
+            self.wrap();
+        }
+        self.grid[self.row][self.column] = character;
+        if width > 1 {
+            self.grid[self.row][self.column + 1] = '\0';
+        }
+        self.column += width;
+    }
+
+    fn advance(&self, character: char) -> usize {
+        self.font.glyph(character).map_or(1, |glyph| {
+            if glyph.metric().xadvance.max(0) as usize > CELL_WIDTH {
+                2
+            } else {
+                1
+            }
+        })
+    }
+
+    fn backspace(&mut self) {
+        if self.column == 0 {
+            return;
+        }
+        self.column -= 1;
+        if self.grid[self.row][self.column] == '\0' && self.column > 0 {
+            self.grid[self.row][self.column] = ' ';
+            self.column -= 1;
+        }
+        self.grid[self.row][self.column] = ' ';
+    }
+
+    fn wrap(&mut self) {
         while self.row >= ROWS {
             self.grid[..].copy_within(1.., 0);
-            self.grid[ROWS - 1] = [b' '; COLUMNS];
+            self.grid[ROWS - 1] = [' '; COLUMNS];
             self.row = ROWS - 1;
         }
     }
 
-    /// 重绘整个网格并提交。
+    /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
         for row in 0..ROWS {
             for column in 0..COLUMNS {
-                self.draw_cell(row, column);
+                for y in 0..CELL_HEIGHT {
+                    for x in 0..CELL_WIDTH {
+                        self.put_pixel(column * CELL_WIDTH + x, row * CELL_HEIGHT + y, BACKGROUND);
+                    }
+                }
+            }
+        }
+        for row in 0..ROWS {
+            for column in 0..COLUMNS {
+                let character = self.grid[row][column];
+                if character == ' ' || character == '\0' {
+                    continue;
+                }
+                let Some(glyph) = self.font.glyph(character) else {
+                    continue;
+                };
+                let origin_x = (column * CELL_WIDTH) as i32;
+                let origin_y = (row * CELL_HEIGHT) as i32;
+                glyph.for_each_pixel(|x, y| {
+                    let pixel_x = origin_x + x;
+                    let pixel_y = origin_y + y;
+                    if pixel_x >= 0 && pixel_y >= 0 {
+                        self.put_pixel(pixel_x as usize, pixel_y as usize, FOREGROUND);
+                    }
+                });
+            }
+        }
+        let cursor_y = self.row * CELL_HEIGHT + CELL_HEIGHT - 2;
+        let cursor_x = self.column * CELL_WIDTH;
+        for y in 0..2 {
+            for x in 0..CELL_WIDTH {
+                self.put_pixel(cursor_x + x, cursor_y + y, CURSOR);
             }
         }
         let _ = send(self.display, DISPLAY_COMMIT, self.window);
-    }
-
-    fn draw_cell(&self, row: usize, column: usize) {
-        let origin_x = column * CELL_WIDTH;
-        let origin_y = row * CELL_HEIGHT;
-        for y in 0..CELL_HEIGHT {
-            for x in 0..CELL_WIDTH {
-                self.put_pixel(origin_x + x, origin_y + y, BACKGROUND);
-            }
-        }
-        let byte = self.grid[row][column];
-        if byte == b' ' {
-            return;
-        }
-        let Some(glyph) = self.font.glyph(byte as char) else {
-            return;
-        };
-        glyph.for_each_pixel(|x, y| {
-            let pixel_x = origin_x as i32 + x;
-            let pixel_y = origin_y as i32 + y;
-            if pixel_x >= 0 && pixel_y >= 0 {
-                self.put_pixel(pixel_x as usize, pixel_y as usize, FOREGROUND);
-            }
-        });
     }
 
     fn put_pixel(&self, x: usize, y: usize, color: u32) {
@@ -196,10 +300,13 @@ fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         display,
         window,
         pixels: SURFACE as *mut u32,
-        grid: [[b' '; COLUMNS]; ROWS],
+        grid: [[' '; COLUMNS]; ROWS],
         column: 0,
         row: 0,
         font: efont_cn_16(),
+        decoder: Utf8::new(),
+        utf8_seen: false,
+        cjk_seen: false,
     })
 }
 
@@ -223,7 +330,11 @@ fn handle_input(
 ) {
     match byte {
         b'\n' | b'\r' => {
-            emit(terminal, b"\n");
+            if terminal.is_some() {
+                emit(terminal, b"\n> ");
+            } else {
+                emit(terminal, b"\n");
+            }
             if *pending != 0 {
                 let _ = send_data(*pending, CONSOLE_READ_LINE, &line[..*length]);
                 *pending = 0;
@@ -236,7 +347,7 @@ fn handle_input(
                 emit(terminal, b"\x08 \x08");
             }
         }
-        byte if (0x20..0x7F).contains(&byte) => {
+        byte if byte >= 0x20 && byte != 0x7F => {
             if *length < line.len() {
                 line[*length] = byte;
                 *length += 1;
@@ -256,7 +367,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-console: window ");
         write_u64(terminal.window);
         write(b"\n");
-        terminal.refresh();
+        terminal.emit(b"> ");
     }
 
     let mut buffer = [0_u8; 256];
