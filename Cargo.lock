@@ -422,6 +422,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-display-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [

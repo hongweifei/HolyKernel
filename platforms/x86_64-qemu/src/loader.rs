@@ -45,15 +45,18 @@ pub fn run(
             return matches!(name, "hk-server-console" | "hk-server-console-test");
         }
         if display_test {
-            // 显示自检只需要 Display 服务。
-            return name == "hk-server-display";
+            // 显示自检只需要 Display 服务与客户端。
+            return matches!(name, "hk-server-display" | "hk-server-display-test");
         }
         if name == "hk-server-netstat" {
             return false;
         }
         if matches!(
             name,
-            "hk-server-console" | "hk-server-console-test" | "hk-server-display"
+            "hk-server-console"
+                | "hk-server-console-test"
+                | "hk-server-display"
+                | "hk-server-display-test"
         ) {
             return false;
         }

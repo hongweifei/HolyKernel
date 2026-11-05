@@ -285,7 +285,11 @@ impl SmokeMode {
                 "hk-server-netsock: dns ok",
             ],
             Self::Console => &["hk-server-console-test: got hello"],
-            Self::Display => &["hk-server-display: ok"],
+            Self::Display => &[
+                "hk-server-display: ready",
+                "hk-server-display: composite ok",
+                "hk-server-display-test: done",
+            ],
         }
     }
 
