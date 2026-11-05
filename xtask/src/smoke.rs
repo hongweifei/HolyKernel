@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 use hk_hal::CivilTime;
 use hk_vfs::Backend;
-use qmp::{inject, inject_key};
+use qmp::{inject, inject_key, inject_pointer};
 
 use crate::failure::{Failure, Result};
 use crate::target::{Selection, Target};
@@ -106,6 +106,9 @@ pub enum SmokeMode {
     /// 用户态 virtio-input 驱动
     #[value(name = "inputdriver")]
     InputDriver,
+    /// virtio-tablet 指针与点击焦点
+    #[value(name = "pointer")]
+    Pointer,
 }
 
 impl SmokeMode {
@@ -136,6 +139,7 @@ impl SmokeMode {
             Self::Display => Some("display-test"),
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
+            Self::Pointer => Some("pointer-test input-driver"),
         }
     }
 
@@ -316,6 +320,11 @@ impl SmokeMode {
                 "hk-server-terminal-test: line hi",
                 "hk-server-terminal-test: done",
             ],
+            Self::Pointer => &[
+                "hk-server-input: ready",
+                "hk-server-display: pointer click 1",
+                "hk-server-pointer-test: clicked",
+            ],
         }
     }
 
@@ -338,7 +347,8 @@ impl SmokeMode {
             | Self::Console
             | Self::Display
             | Self::Terminal
-            | Self::InputDriver => QEMU_SUCCESS,
+            | Self::InputDriver
+            | Self::Pointer => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -367,6 +377,7 @@ impl SmokeMode {
             Self::Display => "build/serial-display.log",
             Self::Terminal => "build/serial-terminal.log",
             Self::InputDriver => "build/serial-inputdriver.log",
+            Self::Pointer => "build/serial-pointer.log",
         }
     }
 
@@ -449,6 +460,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::InputDriver {
         command.args(["-device", "virtio-keyboard-pci"]);
     }
+    if mode == SmokeMode::Pointer {
+        command.args(["-device", "virtio-tablet-pci"]);
+    }
     if matches!(
         mode,
         SmokeMode::Input
@@ -456,6 +470,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             | SmokeMode::Display
             | SmokeMode::Terminal
             | SmokeMode::InputDriver
+            | SmokeMode::Pointer
     ) {
         command
             .arg("-qmp")
@@ -493,6 +508,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::InputDriver {
         thread::sleep(Duration::from_secs(5));
         inject(&socket, "hi\n")?;
+    }
+    if mode == SmokeMode::Pointer {
+        thread::sleep(Duration::from_secs(5));
+        inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {

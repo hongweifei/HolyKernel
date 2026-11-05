@@ -10,13 +10,13 @@
 use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SET_TITLE,
-    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key, unpack_size,
+    DISPLAY_CLICK, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY,
+    DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX, pack_key, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
-use hk_server_api::input::INPUT_KEY;
+use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, unpack_pointer};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, console_read, exit, frame_info, frame_map, recv_data_handle_try, send, write,
@@ -62,6 +62,28 @@ const TITLE_FOCUS: u32 = 0x0040_A0E0;
 /// 标题文字颜色。
 #[cfg(target_os = "none")]
 const TITLE_TEXT: u32 = 0x00E0_F0FF;
+/// 光标宽度。
+#[cfg(target_os = "none")]
+const CURSOR_WIDTH: usize = 8;
+/// 光标高度。
+#[cfg(target_os = "none")]
+const CURSOR_HEIGHT: usize = 12;
+/// 光标位图（每行 8 位）。
+#[cfg(target_os = "none")]
+const CURSOR_BITS: [u8; CURSOR_HEIGHT] = [
+    0b1000_0000,
+    0b1100_0000,
+    0b1110_0000,
+    0b1111_0000,
+    0b1111_1000,
+    0b1111_1100,
+    0b1111_1110,
+    0b1111_1111,
+    0b1111_0000,
+    0b1100_1000,
+    0b1000_1100,
+    0b0000_0110,
+];
 
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
@@ -135,6 +157,41 @@ fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
             .add(y * window.width + x)
             .read_volatile()
     }
+}
+
+/// 绘制鼠标箭头（带 1 像素阴影）。
+#[cfg(target_os = "none")]
+fn draw_cursor(screen: &Screen, x: usize, y: usize) {
+    for (row, bits) in CURSOR_BITS.iter().enumerate() {
+        for column in 0..CURSOR_WIDTH {
+            if bits & (0x80 >> column) != 0 {
+                screen.put(x + column + 1, y + row + 1, 0x0000_0000);
+            }
+        }
+    }
+    for (row, bits) in CURSOR_BITS.iter().enumerate() {
+        for column in 0..CURSOR_WIDTH {
+            if bits & (0x80 >> column) != 0 {
+                screen.put(x + column, y + row, 0x00FF_FFFF);
+            }
+        }
+    }
+}
+
+/// 返回指定点最上层窗口的编号。
+#[cfg(target_os = "none")]
+fn hit_test(windows: &[Option<Window>; MAX_WINDOWS], x: usize, y: usize) -> Option<u64> {
+    windows
+        .iter()
+        .rev()
+        .flatten()
+        .find(|window| {
+            x >= window.x
+                && x < window.x + window.width
+                && y >= window.y
+                && y < window.y + window.height + TITLE_HEIGHT
+        })
+        .map(|window| window.id)
 }
 
 /// 在给定矩形内绘制一个窗口：标题栏、标题文字与表面。
@@ -220,6 +277,7 @@ fn compose_region(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
     x: usize,
     y: usize,
     width: usize,
@@ -240,6 +298,14 @@ fn compose_region(
     }
     for window in windows.iter().flatten() {
         paint_window(screen, window, focus, font, left, top, right, bottom);
+    }
+    if let Some((cursor_x, cursor_y)) = pointer
+        && cursor_x >= left
+        && cursor_x < right
+        && cursor_y >= top
+        && cursor_y < bottom
+    {
+        draw_cursor(screen, cursor_x, cursor_y);
     }
 }
 
@@ -278,6 +344,7 @@ fn damage_window(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
     window: &Window,
 ) {
     compose_region(
@@ -285,6 +352,7 @@ fn damage_window(
         windows,
         focus,
         font,
+        pointer,
         window.x,
         window.y,
         window.width,
@@ -299,6 +367,7 @@ fn damage_title(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
     id: u64,
 ) {
     if id == 0 {
@@ -315,6 +384,7 @@ fn damage_title(
             windows,
             focus,
             font,
+            pointer,
             window.x,
             window.y,
             window.width,
@@ -338,6 +408,7 @@ fn cycle_focus(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
     font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
 ) {
     let count = windows.iter().flatten().count();
     if count == 0 {
@@ -361,9 +432,9 @@ fn cycle_focus(
         .find(|window| window.id == id)
         .copied()
     {
-        damage_window(screen, windows, *focus, font, &window);
+        damage_window(screen, windows, *focus, font, pointer, &window);
     }
-    damage_title(screen, windows, *focus, font, previous);
+    damage_title(screen, windows, *focus, font, pointer, previous);
     write(b"hk-server-display: focus ");
     write_u64(id);
     write(b"\n");
@@ -409,12 +480,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut next_id = 1_u64;
     let mut focus = 0_u64;
     let mut driver_input = false;
+    let mut pointer: Option<(usize, usize)> = None;
     loop {
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
         if !driver_input {
             while let Some(byte) = console_read() {
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font);
+                    cycle_focus(&screen, &mut windows, &mut focus, &font, pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -490,16 +562,87 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 next_id += 1;
                 focus = id;
                 if let Some(window) = windows[slot] {
-                    damage_window(&screen, &windows, focus, &font, &window);
+                    damage_window(&screen, &windows, focus, &font, pointer, &window);
                 }
-                damage_title(&screen, &windows, focus, &font, previous);
+                damage_title(&screen, &windows, focus, &font, pointer, previous);
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
+            }
+            INPUT_POINTER => {
+                let (x, y) = unpack_pointer(word);
+                let next = (
+                    (u64::from(x) * screen.width as u64 / 0x7FFF) as usize,
+                    (u64::from(y) * screen.height as u64 / 0x7FFF) as usize,
+                );
+                if let Some(previous) = pointer {
+                    compose_region(
+                        &screen,
+                        &windows,
+                        focus,
+                        &font,
+                        None,
+                        previous.0,
+                        previous.1,
+                        CURSOR_WIDTH + 1,
+                        CURSOR_HEIGHT + 1,
+                    );
+                }
+                pointer = Some(next);
+                compose_region(
+                    &screen,
+                    &windows,
+                    focus,
+                    &font,
+                    pointer,
+                    next.0,
+                    next.1,
+                    CURSOR_WIDTH + 1,
+                    CURSOR_HEIGHT + 1,
+                );
+            }
+            INPUT_BUTTON => {
+                if word != 0
+                    && let Some((x, y)) = pointer
+                {
+                    let old_focus = focus;
+                    if let Some(id) = hit_test(&windows, x, y) {
+                        raise(&mut windows, id);
+                        focus = id;
+                        if let Some(window) = windows
+                            .iter()
+                            .flatten()
+                            .find(|window| window.id == id)
+                            .copied()
+                        {
+                            damage_window(&screen, &windows, focus, &font, pointer, &window);
+                        }
+                        damage_title(&screen, &windows, focus, &font, pointer, old_focus);
+                        compose_region(
+                            &screen,
+                            &windows,
+                            focus,
+                            &font,
+                            pointer,
+                            x,
+                            y,
+                            CURSOR_WIDTH + 1,
+                            CURSOR_HEIGHT + 1,
+                        );
+                        write(b"hk-server-display: pointer click ");
+                        write_u64(id);
+                        write(b"\n");
+                        if let Some(window) =
+                            windows.iter().flatten().find(|window| window.id == id)
+                        {
+                            let _ = send(window.client, DISPLAY_CLICK, id);
+                        }
+                    }
+                }
             }
             INPUT_KEY => {
                 driver_input = true;
                 let byte = word as u8;
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font);
+                    cycle_focus(&screen, &mut windows, &mut focus, &font, pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -518,7 +661,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         window.title[..count].copy_from_slice(&text[..count]);
                         window.title_length = count;
                     }
-                    damage_title(&screen, &windows, focus, &font, id);
+                    damage_title(&screen, &windows, focus, &font, pointer, id);
                     let titled = windows
                         .iter()
                         .flatten()
@@ -561,8 +704,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 else {
                     continue;
                 };
-                damage_window(&screen, &windows, focus, &font, &window);
-                damage_title(&screen, &windows, focus, &font, previous);
+                damage_window(&screen, &windows, focus, &font, pointer, &window);
+                damage_title(&screen, &windows, focus, &font, pointer, previous);
                 let expected = surface_pixel(&window, 0, 0);
                 let actual = screen.get(window.x, window.y + TITLE_HEIGHT);
                 if expected != actual {

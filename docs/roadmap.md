@@ -187,6 +187,7 @@ flowchart LR
 ### 交付
 
 - Display Server：帧缓冲、窗口、合成器、输入焦点。已落地：帧缓冲仅授权 `hk-server-display`；窗口表面使用共享 Frame 经句柄转移，合成器绘制桌面、标题栏与窗口并回读校验；多窗口按槽位维护 z 序，提交或 Tab 切换时提升并高亮焦点；标题栏用 8×16 位图字体渲染窗口标题；合成按 damage 区域重绘，键盘事件经 IPC 路由到焦点客户端，`smoke --mode display` 注入 Tab 与按键验证。
+- Input Driver：用户态 virtio-input 驱动（DeviceGrant + IRQ 通知），把 evdev 键码解码为字节交给 Display 按焦点路由；`smoke --mode inputdriver` 验证。
 - Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地：内核非阻塞控制台读与输入通知，用户态行编辑/回显；有 Display 时 Console 创建自己的终端窗口，用 8×16 字体渲染并提交合成；支持增量 UTF-8 与中文双宽字形、光标与提示符；键盘事件由 Display 按焦点转发给 Console 做行编辑，无 Display 时回退内核控制台。`smoke --mode console/terminal` 验证。
 - HolyDoc Server：解析、布局、渲染、链接、`@exec`。
 - sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。

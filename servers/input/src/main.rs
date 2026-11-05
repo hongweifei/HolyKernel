@@ -23,22 +23,40 @@ use hk_server_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::input::INPUT_KEY;
+use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, pack_pointer};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, recv_handle, self_notification, send, service_endpoint,
     wait_notify, write,
 };
 
-/// Linux evdev 按键事件类型。
+/// Linux evdev 事件类型：按键。
 #[cfg(target_os = "none")]
 const EV_KEY: u16 = 1;
+/// Linux evdev 事件类型：绝对坐标。
+#[cfg(target_os = "none")]
+const EV_ABS: u16 = 3;
+/// 绝对 X 轴。
+#[cfg(target_os = "none")]
+const ABS_X: u16 = 0;
+/// 绝对 Y 轴。
+#[cfg(target_os = "none")]
+const ABS_Y: u16 = 1;
 /// 左 Shift。
 #[cfg(target_os = "none")]
 const KEY_LEFTSHIFT: u16 = 42;
 /// 右 Shift。
 #[cfg(target_os = "none")]
 const KEY_RIGHTSHIFT: u16 = 54;
+/// 鼠标左键。
+#[cfg(target_os = "none")]
+const BTN_LEFT: u16 = 0x110;
+/// 触摸/笔接触按钮。
+#[cfg(target_os = "none")]
+const BTN_TOUCH: u16 = 0x14A;
+/// 绝对坐标最大值。
+#[cfg(target_os = "none")]
+const ABS_MAX: u32 = 0x7FFF;
 
 /// 堆大小。
 #[cfg(target_os = "none")]
@@ -96,28 +114,60 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-input: ready\n");
 
     let mut shift = false;
+    let mut abs_x = 0_u16;
+    let mut abs_y = 0_u16;
     loop {
         input.ack_interrupt();
         while let Some(event) = input.pop_event() {
-            if event.event_type != EV_KEY {
-                continue;
-            }
-            if event.code == KEY_LEFTSHIFT || event.code == KEY_RIGHTSHIFT {
-                shift = event.value != 0;
-                continue;
-            }
-            if event.value == 0 {
-                continue;
-            }
-            let Some(byte) = key_byte(event.code, shift) else {
-                continue;
-            };
-            let display = service_endpoint("hk-server-display");
-            if display != 0 {
-                let _ = send(display, INPUT_KEY, u64::from(byte));
+            match event.event_type {
+                EV_ABS => match event.code {
+                    ABS_X => {
+                        abs_x = event.value.min(ABS_MAX) as u16;
+                        forward_pointer(abs_x, abs_y);
+                    }
+                    ABS_Y => {
+                        abs_y = event.value.min(ABS_MAX) as u16;
+                        forward_pointer(abs_x, abs_y);
+                    }
+                    _ => {}
+                },
+                EV_KEY => {
+                    if event.code == BTN_LEFT || event.code == BTN_TOUCH {
+                        let display = service_endpoint("hk-server-display");
+                        if display != 0 {
+                            let _ =
+                                send(display, INPUT_BUTTON, if event.value != 0 { 1 } else { 0 });
+                        }
+                        continue;
+                    }
+                    if event.code == KEY_LEFTSHIFT || event.code == KEY_RIGHTSHIFT {
+                        shift = event.value != 0;
+                        continue;
+                    }
+                    if event.value == 0 {
+                        continue;
+                    }
+                    let Some(byte) = key_byte(event.code, shift) else {
+                        continue;
+                    };
+                    let display = service_endpoint("hk-server-display");
+                    if display != 0 {
+                        let _ = send(display, INPUT_KEY, u64::from(byte));
+                    }
+                }
+                _ => {}
             }
         }
         let _ = wait_notify(notification, 1);
+    }
+}
+
+/// 转发绝对指针位置。
+#[cfg(target_os = "none")]
+fn forward_pointer(x: u16, y: u16) {
+    let display = service_endpoint("hk-server-display");
+    if display != 0 {
+        let _ = send(display, INPUT_POINTER, pack_pointer(x, y));
     }
 }
 
