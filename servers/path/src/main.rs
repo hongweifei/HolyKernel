@@ -20,8 +20,6 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, write};
-#[cfg(target_os = "none")]
-use hk_vfs::{Tmpfs, Vfs};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -51,7 +49,6 @@ use sessions::Sessions;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut filesystem = Vfs::new_path(Tmpfs::new());
     let mut cmdline_buffer = [0_u8; 128];
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     let ext4_root = cmdline.contains("vfs.root=ext4");
@@ -60,17 +57,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         Some(time) if time.year >= 2000 => write("hk-server-path: rtc ok\n".as_bytes()),
         _ => write("hk-server-path: rtc 不可用\n".as_bytes()),
     }
-    let mounted = mount_drives(&mut filesystem, endpoint, ext4_root && !holyfs);
-    if mounted {
-        if holyfs {
-            write("hk-server-path: drives via hk-server-vfs\n".as_bytes());
-        } else {
-            write("hk-server-path: ext4 mounted\n".as_bytes());
-        }
-        write("hk-server-path: tmpfs ready\n".as_bytes());
-    } else {
+    let Some(mut filesystem) = mount_drives(endpoint, ext4_root && !holyfs) else {
         write("hk-server-path: 文件系统不可用\n".as_bytes());
+        hk_server_api::exit(1)
+    };
+    if holyfs {
+        write("hk-server-path: drives via hk-server-vfs\n".as_bytes());
+    } else {
+        write("hk-server-path: ext4 mounted\n".as_bytes());
     }
+    write("hk-server-path: tmpfs ready\n".as_bytes());
 
     let mut sessions = Sessions::new();
     let mut request = vec![0_u8; 64 * 1024];

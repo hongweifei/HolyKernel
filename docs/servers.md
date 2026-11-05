@@ -127,7 +127,7 @@ pub struct ServiceManifest {
 - **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
 - **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
 - VFS 与 HolyFS 通过 Holy 协议通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享 Frame 服务 POSIX 客户端。
-- Native VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）为 E:，并注册 tmpfs/devfs/procfs 为 T:/D:/P:；Path Server 不直接访问块设备，只把这些盘符投影到 `/disk`、`/tmp`、`/dev`、`/proc`。HolyFS 由独立服务提供 H:/I:，Path Server 通过原生 VFS 的远程后端访问。
+- Native VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）为 E:，并注册 tmpfs/devfs/procfs 为 T:/D:/P:；Path Server 不直接访问块设备，也没有本地 tmpfs 挂载入口，只把这些盘符投影到 `/` 或 `/disk`、`/tmp`、`/dev`、`/proc`。HolyFS 由独立服务提供 H:/I:，Path Server 通过原生 VFS 的远程后端访问。
 
 详见 [VFS](vfs.md)。
 

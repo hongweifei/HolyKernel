@@ -2,12 +2,12 @@
 
 use hk_server_api::send_data;
 use hk_server_api::vfs::{
-    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNT_TMPFS, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME,
-    OP_STAT, OP_SYNC, OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_FRAME, OPEN_CREATE,
-    OPEN_READ, OPEN_WRITE, Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND,
-    STATUS_OK, STATUS_PERMISSION, VFS_RESPONSE, encode_response,
+    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME, OP_STAT, OP_SYNC,
+    OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_FRAME, OPEN_CREATE, OPEN_READ,
+    OPEN_WRITE, Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK,
+    STATUS_PERMISSION, VFS_RESPONSE, encode_response,
 };
-use hk_vfs::{FileType, OpenFlags, Tmpfs, Vfs, VfsError};
+use hk_vfs::{FileType, OpenFlags, Vfs, VfsError};
 
 use crate::sessions::Session;
 
@@ -158,13 +158,6 @@ pub(crate) fn handle(
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (status(error), 0),
         },
-        OP_MOUNT_TMPFS => {
-            let _ = filesystem.create_dir(request.path);
-            match filesystem.mount_path(request.path, Tmpfs::new()) {
-                Ok(()) => (STATUS_OK, 0),
-                Err(error) => (status(error), 0),
-            }
-        }
         OP_UMOUNT => match filesystem.umount(request.path) {
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (status(error), 0),

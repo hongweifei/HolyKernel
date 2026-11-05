@@ -10,9 +10,9 @@ use hk_vfs::Vfs;
 
 use crate::remote::RemoteHolyFs;
 
-/// 等待原生 VFS 就绪，并按盘符建立路径挂载点。
+/// 等待原生 VFS 就绪，并以原生盘符构造路径命名空间。
 #[cfg(target_os = "none")]
-pub(crate) fn mount_drives(filesystem: &mut Vfs, endpoint: u64, ext4_root: bool) -> bool {
+pub(crate) fn mount_drives(endpoint: u64, ext4_root: bool) -> Option<Vfs> {
     for _ in 0..4096 {
         if service_endpoint("hk-server-vfs") == 0 {
             let _ = yield_now();
@@ -28,36 +28,41 @@ pub(crate) fn mount_drives(filesystem: &mut Vfs, endpoint: u64, ext4_root: bool)
             let _ = yield_now();
             continue;
         }
-        let mut mounted = false;
-        if ext4_root && drives.contains(&b'E') && mount(filesystem, endpoint, b'E', "/").is_ok() {
-            mounted = true;
-        }
+        let root = if ext4_root && drives.contains(&b'E') {
+            b'E'
+        } else if drives.contains(&b'T') {
+            b'T'
+        } else {
+            drives[0]
+        };
+        let Ok(backend) = RemoteHolyFs::new(endpoint, root, "hk-server-vfs") else {
+            let _ = yield_now();
+            continue;
+        };
+        let mut filesystem = Vfs::new(Box::new(backend));
         for path in ["/disk", "/tmp", "/dev", "/proc"] {
             let _ = filesystem.create_dir(path);
         }
         for drive in drives {
+            if drive == root && drive != b'T' {
+                continue;
+            }
             let path = match drive {
                 b'H' => String::from("/disk"),
                 b'I' => String::from("/disk-I"),
-                b'E' if !ext4_root => String::from("/disk"),
-                b'E' => continue,
+                b'E' => String::from("/disk"),
                 b'T' => String::from("/tmp"),
                 b'D' => String::from("/dev"),
                 b'P' => String::from("/proc"),
                 _ => continue,
             };
             let _ = filesystem.create_dir(&path);
-            if mount(filesystem, endpoint, drive, &path).is_ok() {
-                mounted = true;
-            }
+            let Ok(backend) = RemoteHolyFs::new(endpoint, drive, "hk-server-vfs") else {
+                continue;
+            };
+            let _ = filesystem.mount(&path, Box::new(backend));
         }
-        return mounted;
+        return Some(filesystem);
     }
-    false
-}
-
-#[cfg(target_os = "none")]
-fn mount(filesystem: &mut Vfs, endpoint: u64, drive: u8, target: &str) -> Result<(), ()> {
-    let backend = RemoteHolyFs::new(endpoint, drive, "hk-server-vfs").map_err(|_| ())?;
-    filesystem.mount(target, Box::new(backend)).map_err(|_| ())
+    None
 }

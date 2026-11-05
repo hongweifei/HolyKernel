@@ -32,8 +32,6 @@ pub const OP_UNLINK: u8 = 7;
 pub const OP_LIST: u8 = 8;
 /// 创建目录。
 pub const OP_MKDIR: u8 = 9;
-/// 在路径上挂载新的 tmpfs。
-pub const OP_MOUNT_TMPFS: u8 = 10;
 /// 列出挂载点。
 pub const OP_MOUNTS: u8 = 11;
 /// 卸载挂载点。
@@ -392,11 +390,6 @@ impl VfsClient {
     /// 创建目录。
     pub fn mkdir(&mut self, path: &str) -> Result<(), u8> {
         self.exchange(OP_MKDIR, path, 0, 0, &[]).map(|_| ())
-    }
-
-    /// 在路径上挂载新的 tmpfs。
-    pub fn mount_tmpfs(&mut self, path: &str) -> Result<(), u8> {
-        self.exchange(OP_MOUNT_TMPFS, path, 0, 0, &[]).map(|_| ())
     }
 
     /// 卸载挂载点。
