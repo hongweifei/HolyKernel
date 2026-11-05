@@ -134,6 +134,8 @@ pub const SYS_FRAMEBUFFER_MAP: u64 = 43;
 
 /// 非阻塞接收带字节载荷与句柄的消息；无消息时返回 0。
 pub const SYS_RECV_DATA_HANDLE_TRY: u64 = 44;
+/// 只读内核运行统计：线程/对象/就绪线程/trace 事件计数。
+pub const SYS_KERNEL_STATS: u64 = 45;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

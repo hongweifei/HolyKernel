@@ -456,6 +456,31 @@ pub fn handle_count() -> u64 {
     unsafe { syscall_call(SYS_HANDLE_COUNT, 0, 0, 0, 0).value }
 }
 
+/// 内核运行统计。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KernelStats {
+    /// 内核线程数。
+    pub threads: u16,
+    /// 存活内核对象数。
+    pub objects: u16,
+    /// 就绪线程数。
+    pub runnable: u16,
+    /// trace 事件数。
+    pub trace_events: u16,
+}
+
+/// 读取内核运行统计。
+pub fn kernel_stats() -> KernelStats {
+    // SAFETY: 只读计数，不携带指针或可变状态。
+    let packed = unsafe { syscall_call(SYS_KERNEL_STATS, 0, 0, 0, 0).value };
+    KernelStats {
+        threads: (packed >> 48) as u16,
+        objects: (packed >> 32) as u16,
+        runnable: (packed >> 16) as u16,
+        trace_events: packed as u16,
+    }
+}
+
 /// 结束服务，不返回。
 pub fn exit(code: u64) -> ! {
     // SAFETY: 退出调用不返回；内核据此标记任务退出并切换调度。

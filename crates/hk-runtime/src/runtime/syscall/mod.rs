@@ -342,6 +342,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.kernel.handles_live(tcb).unwrap_or(0) as u64);
                 Switch::Continue
             }
+            SYS_KERNEL_STATS => {
+                let threads = self.kernel.thread_count() as u64 & 0xFFFF;
+                let objects = self.kernel.live_objects() as u64 & 0xFFFF;
+                let runnable = self.kernel.runnable() as u64 & 0xFFFF;
+                let traces = self.kernel.trace_len() as u64 & 0xFFFF;
+                frame.set_result((threads << 48) | (objects << 32) | (runnable << 16) | traces);
+                Switch::Continue
+            }
             SYS_HANDLE_CLOSE => {
                 let number = frame.arg0() as usize;
                 let result = if number >= GRANT_HANDLE_BASE {
