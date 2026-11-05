@@ -30,6 +30,63 @@ fn emit(terminal: &mut Option<Terminal>, text: &[u8]) {
 
 /// 处理一个输入字节：行编辑、回显与按行回复。
 #[cfg(target_os = "none")]
+fn process_command(terminal: &mut Option<Terminal>, command: &str) {
+    let command = command.trim();
+    if command.is_empty() {
+        return;
+    }
+    if command == "help" {
+        emit(
+            terminal,
+            "命令：help, echo <text>, clear, version, services\n".as_bytes(),
+        );
+    } else if command == "clear" {
+        if let Some(terminal) = terminal {
+            terminal.clear();
+        }
+    } else if command == "version" {
+        emit(terminal, "HolyKernel M6 · Console\n".as_bytes());
+    } else if let Some(text) = command.strip_prefix("echo ") {
+        emit(terminal, text.as_bytes());
+        emit(terminal, b"\n");
+    } else if command == "services" {
+        for name in [
+            "hk-server-display",
+            "hk-server-console",
+            "hk-server-input",
+            "hk-server-device",
+            "hk-server-holydoc",
+            "hk-server-net",
+            "hk-server-vfs",
+        ] {
+            emit(terminal, name.as_bytes());
+            emit(
+                terminal,
+                if service_endpoint(name) == 0 {
+                    b": offline\n".as_slice()
+                } else {
+                    b": online\n".as_slice()
+                },
+            );
+        }
+    } else if command == "exit" {
+        emit(
+            terminal,
+            "桌面 Console 常驻；请使用标题栏关闭窗口\n".as_bytes(),
+        );
+    } else if command == "tasks" || command == "mounts" || command == "handles" {
+        emit(
+            terminal,
+            "桌面 Console 暂不支持该命令；请使用文本模式\n".as_bytes(),
+        );
+    } else {
+        emit(terminal, "未知命令：".as_bytes());
+        emit(terminal, command.as_bytes());
+        emit(terminal, "（help 查看）\n".as_bytes());
+    }
+}
+
+#[cfg(target_os = "none")]
 fn handle_input(
     terminal: &mut Option<Terminal>,
     line: &mut [u8; 128],
@@ -39,15 +96,16 @@ fn handle_input(
 ) {
     match byte {
         b'\n' | b'\r' => {
-            if terminal.is_some() {
-                emit(terminal, b"\n> ");
-            } else {
-                emit(terminal, b"\n");
-            }
+            emit(terminal, b"\n");
             if *pending != 0 {
                 let _ = send_data(*pending, CONSOLE_READ_LINE, &line[..*length]);
                 *pending = 0;
+                *length = 0;
+                return;
             }
+            let command = core::str::from_utf8(&line[..*length]).unwrap_or("");
+            process_command(terminal, command);
+            emit(terminal, b"> ");
             *length = 0;
         }
         0x08 | 0x7F => {

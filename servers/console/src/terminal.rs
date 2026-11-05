@@ -235,6 +235,14 @@ impl Terminal {
         let _ = hk_server_api::frame_unmap(SURFACE, WIDTH * HEIGHT * 4);
     }
 
+    /// 清空终端并重绘。
+    pub(crate) fn clear(&mut self) {
+        self.grid = [[' '; COLUMNS]; ROWS];
+        self.column = 0;
+        self.row = 0;
+        self.refresh();
+    }
+
     /// 返回窗口编号。
     pub(crate) fn window(&self) -> u64 {
         self.window
