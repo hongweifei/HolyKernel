@@ -1,0 +1,29 @@
+//! Holy 卷原生文档协议：DocPath、DocId、偏移读写与句柄令牌。
+//!
+//! DocPath 是集合项名字的查找视图，DocId 承载文档身份；内容按偏移读写，
+//! 句柄令牌按身份携带权利。
+
+mod client;
+mod codec;
+mod ids;
+mod wire;
+
+pub use crate::vfs::{STATUS_NOT_FOUND, STATUS_PERMISSION};
+pub use client::HolyClient;
+pub use codec::{
+    DocIds, DocumentView, Entries, Entry, RevisionView, Revisions, TagView, Tags, decode_doc_id,
+    decode_doc_ids, decode_document, decode_entries, decode_revision_id, decode_revisions,
+    decode_tags, decode_token, decode_u32, decode_u64, encode_doc_id, encode_document,
+    encode_entry, encode_revision, encode_revision_id, encode_tag, encode_token, encode_u32,
+    kind_code,
+};
+pub use ids::{DocId, DocumentKind, RevisionId};
+pub use wire::{
+    DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE,
+    OP_CREATE, OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG,
+    OP_ENUMERATE, OP_ENUMERATE_ID, OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE,
+    OP_RESOLVE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SYNC, OP_TAG, OP_TAG_MEMBERS,
+    OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG,
+    OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_BIND, RIGHT_INSPECT, RIGHT_READ,
+    RIGHT_TRANSFER, RIGHT_WRITE,
+};

@@ -1,0 +1,330 @@
+//! 集合项、文档视图、修订、标签与标量的编解码。
+
+use super::ids::{DocId, DocumentKind, RevisionId};
+use super::wire::{
+    DOC_LEN, DOCUMENT_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, REVISION_ID_LEN,
+    REVISION_LEN, TAG_HEADER, TOKEN_LEN,
+};
+
+/// 集合项视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entry<'a> {
+    /// 文档类型。
+    pub kind: u8,
+    /// 文档身份。
+    pub document: u128,
+    /// 集合内名字。
+    pub name: &'a str,
+}
+
+/// 文档视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DocumentView {
+    /// 文档类型。
+    pub kind: u8,
+    /// head 修订。
+    pub head: u64,
+    /// head 的父修订；0 表示根。
+    pub parent: u64,
+    /// 内容字节数。
+    pub size: u64,
+    /// 民用时间。
+    pub moment: u64,
+}
+
+/// 修订视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevisionView {
+    /// 修订身份。
+    pub id: u64,
+    /// 父修订；0 表示根。
+    pub parent: u64,
+    /// 内容字节数。
+    pub size: u64,
+    /// 民用时间。
+    pub moment: u64,
+    /// 修订标志。
+    pub flags: u32,
+}
+
+/// 编码一个集合项，返回写入结束位置。
+pub fn encode_entry(
+    out: &mut [u8],
+    offset: usize,
+    kind: u8,
+    document: u128,
+    name: &str,
+) -> Option<usize> {
+    let bytes = name.as_bytes();
+    if bytes.len() > u8::MAX as usize {
+        return None;
+    }
+    let end = offset.checked_add(ENTRY_HEADER)?.checked_add(bytes.len())?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset] = kind;
+    out[offset + 1..offset + 17].copy_from_slice(&document.to_le_bytes());
+    out[offset + 17] = bytes.len() as u8;
+    out[offset + 18..end].copy_from_slice(bytes);
+    Some(end)
+}
+
+/// 集合项迭代器。
+pub struct Entries<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for Entries<'a> {
+    type Item = Entry<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + ENTRY_HEADER > self.bytes.len() {
+            return None;
+        }
+        let kind = self.bytes[start];
+        let document = u128::from_le_bytes(self.bytes[start + 1..start + 17].try_into().ok()?);
+        let length = self.bytes[start + 17] as usize;
+        let name_start = start + ENTRY_HEADER;
+        let end = name_start.checked_add(length)?;
+        if end > self.bytes.len() {
+            return None;
+        }
+        let name = core::str::from_utf8(&self.bytes[name_start..end]).ok()?;
+        self.offset = end;
+        Some(Entry {
+            kind,
+            document,
+            name,
+        })
+    }
+}
+
+/// 解析集合项序列。
+pub fn decode_entries(bytes: &[u8]) -> Entries<'_> {
+    Entries { bytes, offset: 0 }
+}
+
+/// 解析文档视图。
+pub fn decode_document(bytes: &[u8]) -> Option<DocumentView> {
+    if bytes.len() < DOCUMENT_LEN {
+        return None;
+    }
+    Some(DocumentView {
+        kind: bytes[0],
+        head: u64::from_le_bytes(bytes[1..9].try_into().ok()?),
+        parent: u64::from_le_bytes(bytes[9..17].try_into().ok()?),
+        size: u64::from_le_bytes(bytes[17..25].try_into().ok()?),
+        moment: u64::from_le_bytes(bytes[25..33].try_into().ok()?),
+    })
+}
+
+/// 编码文档视图。
+pub fn encode_document(out: &mut [u8], view: DocumentView) -> Option<usize> {
+    if out.len() < DOCUMENT_LEN {
+        return None;
+    }
+    out[0] = view.kind;
+    out[1..9].copy_from_slice(&view.head.to_le_bytes());
+    out[9..17].copy_from_slice(&view.parent.to_le_bytes());
+    out[17..25].copy_from_slice(&view.size.to_le_bytes());
+    out[25..33].copy_from_slice(&view.moment.to_le_bytes());
+    Some(DOCUMENT_LEN)
+}
+
+/// 在 `offset` 处编码一条修订视图，返回写入结束位置。
+pub fn encode_revision(out: &mut [u8], offset: usize, view: RevisionView) -> Option<usize> {
+    let end = offset.checked_add(REVISION_LEN)?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset..offset + 8].copy_from_slice(&view.id.to_le_bytes());
+    out[offset + 8..offset + 16].copy_from_slice(&view.parent.to_le_bytes());
+    out[offset + 16..offset + 24].copy_from_slice(&view.size.to_le_bytes());
+    out[offset + 24..offset + 32].copy_from_slice(&view.moment.to_le_bytes());
+    out[offset + 32..offset + 36].copy_from_slice(&view.flags.to_le_bytes());
+    Some(end)
+}
+
+/// 修订视图迭代器。
+pub struct Revisions<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl Iterator for Revisions<'_> {
+    type Item = RevisionView;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + REVISION_LEN > self.bytes.len() {
+            return None;
+        }
+        let view = RevisionView {
+            id: u64::from_le_bytes(self.bytes[start..start + 8].try_into().ok()?),
+            parent: u64::from_le_bytes(self.bytes[start + 8..start + 16].try_into().ok()?),
+            size: u64::from_le_bytes(self.bytes[start + 16..start + 24].try_into().ok()?),
+            moment: u64::from_le_bytes(self.bytes[start + 24..start + 32].try_into().ok()?),
+            flags: u32::from_le_bytes(self.bytes[start + 32..start + 36].try_into().ok()?),
+        };
+        self.offset = start + REVISION_LEN;
+        Some(view)
+    }
+}
+
+/// 解析修订序列。
+pub fn decode_revisions(bytes: &[u8]) -> Revisions<'_> {
+    Revisions { bytes, offset: 0 }
+}
+
+/// 解析文档身份。
+pub fn decode_doc_id(bytes: &[u8]) -> Option<DocId> {
+    Some(DocId::from_le_bytes(bytes.get(..DOC_LEN)?.try_into().ok()?))
+}
+
+/// 编码文档身份。
+pub fn encode_doc_id(out: &mut [u8], document: DocId) -> Option<usize> {
+    if out.len() < DOC_LEN {
+        return None;
+    }
+    out[..DOC_LEN].copy_from_slice(&document.to_le_bytes());
+    Some(DOC_LEN)
+}
+
+/// 解析修订身份。
+pub fn decode_revision_id(bytes: &[u8]) -> Option<RevisionId> {
+    Some(RevisionId::from_le_bytes(
+        bytes.get(..REVISION_ID_LEN)?.try_into().ok()?,
+    ))
+}
+
+/// 编码修订身份。
+pub fn encode_revision_id(out: &mut [u8], revision: RevisionId) -> Option<usize> {
+    if out.len() < REVISION_ID_LEN {
+        return None;
+    }
+    out[..REVISION_ID_LEN].copy_from_slice(&revision.to_le_bytes());
+    Some(REVISION_ID_LEN)
+}
+
+/// 标签视图。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TagView<'a> {
+    /// 标签编号。
+    pub id: u32,
+    /// 标签名字。
+    pub name: &'a str,
+}
+
+/// 编码一个标签，返回写入结束位置。
+pub fn encode_tag(out: &mut [u8], offset: usize, id: u32, name: &str) -> Option<usize> {
+    let bytes = name.as_bytes();
+    if bytes.len() > u8::MAX as usize {
+        return None;
+    }
+    let end = offset.checked_add(TAG_HEADER)?.checked_add(bytes.len())?;
+    if end > out.len() {
+        return None;
+    }
+    out[offset..offset + 4].copy_from_slice(&id.to_le_bytes());
+    out[offset + 4] = bytes.len() as u8;
+    out[offset + TAG_HEADER..end].copy_from_slice(bytes);
+    Some(end)
+}
+
+/// 标签迭代器。
+pub struct Tags<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for Tags<'a> {
+    type Item = TagView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        if start + TAG_HEADER > self.bytes.len() {
+            return None;
+        }
+        let id = u32::from_le_bytes(self.bytes[start..start + 4].try_into().ok()?);
+        let length = self.bytes[start + 4] as usize;
+        let name_start = start + TAG_HEADER;
+        let end = name_start.checked_add(length)?;
+        if end > self.bytes.len() {
+            return None;
+        }
+        let name = core::str::from_utf8(&self.bytes[name_start..end]).ok()?;
+        self.offset = end;
+        Some(TagView { id, name })
+    }
+}
+
+/// 解析标签序列。
+pub fn decode_tags(bytes: &[u8]) -> Tags<'_> {
+    Tags { bytes, offset: 0 }
+}
+
+/// 文档身份迭代器。
+pub struct DocIds<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl Iterator for DocIds<'_> {
+    type Item = DocId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset;
+        let document = decode_doc_id(self.bytes.get(start..)?)?;
+        self.offset = start + DOC_LEN;
+        Some(document)
+    }
+}
+
+/// 解析文档身份序列。
+pub fn decode_doc_ids(bytes: &[u8]) -> DocIds<'_> {
+    DocIds { bytes, offset: 0 }
+}
+
+/// 解析 u32。
+pub fn decode_u32(bytes: &[u8]) -> Option<u32> {
+    Some(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?))
+}
+
+/// 编码 u32。
+pub fn encode_u32(out: &mut [u8], value: u32) -> Option<usize> {
+    if out.len() < 4 {
+        return None;
+    }
+    out[..4].copy_from_slice(&value.to_le_bytes());
+    Some(4)
+}
+
+/// 解析令牌。
+pub fn decode_token(bytes: &[u8]) -> Option<u64> {
+    Some(u64::from_le_bytes(bytes.get(..TOKEN_LEN)?.try_into().ok()?))
+}
+
+/// 编码令牌。
+pub fn encode_token(out: &mut [u8], token: u64) -> Option<usize> {
+    if out.len() < TOKEN_LEN {
+        return None;
+    }
+    out[..TOKEN_LEN].copy_from_slice(&token.to_le_bytes());
+    Some(TOKEN_LEN)
+}
+
+/// 解析 u64。
+pub fn decode_u64(bytes: &[u8]) -> Option<u64> {
+    Some(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?))
+}
+
+/// 文档类型编码。
+pub const fn kind_code(kind: DocumentKind) -> u8 {
+    match kind {
+        DocumentKind::Content => KIND_CONTENT,
+        DocumentKind::Collection => KIND_COLLECTION,
+    }
+}

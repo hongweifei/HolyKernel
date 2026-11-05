@@ -1,0 +1,323 @@
+//! 固定缓冲 Holy 文档客户端。
+
+use crate::vfs::{
+    STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response, encode_request,
+};
+use crate::{recv_data_from, send_data, service_endpoint};
+
+use super::codec::{
+    DocumentView, decode_doc_id, decode_document, decode_revision_id, decode_token, decode_u32,
+    kind_code,
+};
+use super::ids::{DocId, DocumentKind, RevisionId};
+use super::wire::{
+    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_CREATE, OP_CREATE_TAG,
+    OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
+    OP_GRANT, OP_READ, OP_READ_ID, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS,
+    OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
+    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_WRITE_ID,
+    OP_WRITE_TOKEN, REQUEST, RESPONSE,
+};
+
+/// 固定缓冲 Holy 文档客户端。
+pub struct HolyClient {
+    own_endpoint: u64,
+    endpoint: u64,
+    request: [u8; REQUEST],
+    response: [u8; RESPONSE],
+}
+
+impl HolyClient {
+    /// 构造客户端；`own_endpoint` 是本任务端点。
+    pub const fn new(own_endpoint: u64) -> Self {
+        Self {
+            own_endpoint,
+            endpoint: 0,
+            request: [0; REQUEST],
+            response: [0; RESPONSE],
+        }
+    }
+
+    /// 枚举集合文档，返回编码后的集合项字节数。
+    pub fn enumerate(&mut self, path: &str) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_ENUMERATE, path, 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 整文档读取，返回内容字节数。
+    pub fn read(&mut self, path: &str, out: &mut [u8]) -> Result<usize, u8> {
+        let length = self.exchange(OP_READ, path, 0, 0, &[])?;
+        let copy = length.min(out.len());
+        out[..copy].copy_from_slice(&self.response[3..3 + copy]);
+        Ok(length)
+    }
+
+    /// 查询文档视图。
+    pub fn document(&mut self, path: &str) -> Result<DocumentView, u8> {
+        let length = self.exchange(OP_DOCUMENT, path, 0, 0, &[])?;
+        decode_document(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 枚举修订链，返回编码后的修订字节数。
+    pub fn revisions(&mut self, path: &str) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_REVISIONS, path, 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 读取根集合文档身份。
+    pub fn root(&mut self) -> Result<DocId, u8> {
+        let length = self.exchange(OP_ROOT, "", 0, 0, &[])?;
+        decode_doc_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 在集合中按名字解析文档。
+    pub fn resolve(&mut self, collection: DocId, name: &str) -> Result<DocId, u8> {
+        let length = self.exchange(OP_RESOLVE, name, 0, 0, &collection.to_le_bytes())?;
+        decode_doc_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 在集合中创建文档。
+    pub fn create(
+        &mut self,
+        collection: DocId,
+        name: &str,
+        kind: DocumentKind,
+    ) -> Result<DocId, u8> {
+        let length = self.exchange(
+            OP_CREATE,
+            name,
+            u64::from(kind_code(kind)),
+            0,
+            &collection.to_le_bytes(),
+        )?;
+        decode_doc_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 移除集合项。
+    pub fn unbind(&mut self, collection: DocId, name: &str) -> Result<DocId, u8> {
+        let length = self.exchange(OP_UNBIND, name, 0, 0, &collection.to_le_bytes())?;
+        decode_doc_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 按文档身份枚举集合。
+    pub fn enumerate_id(&mut self, document: DocId) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_ENUMERATE_ID, "", 0, 0, &document.to_le_bytes())?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 按文档身份查询视图。
+    pub fn document_id(&mut self, document: DocId) -> Result<DocumentView, u8> {
+        let length = self.exchange(OP_DOCUMENT_ID, "", 0, 0, &document.to_le_bytes())?;
+        decode_document(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 按文档身份与偏移读取。
+    pub fn read_id(&mut self, document: DocId, offset: u64, out: &mut [u8]) -> Result<usize, u8> {
+        let length = self.exchange(
+            OP_READ_ID,
+            "",
+            offset,
+            out.len() as u64,
+            &document.to_le_bytes(),
+        )?;
+        let copy = length.min(out.len());
+        out[..copy].copy_from_slice(&self.response[3..3 + copy]);
+        Ok(length)
+    }
+
+    /// 按文档身份与偏移写入。
+    pub fn write_id(
+        &mut self,
+        document: DocId,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<RevisionId, u8> {
+        let length = self.exchange_with_doc(OP_WRITE_ID, offset, 0, document, data)?;
+        decode_revision_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 按文档身份调整大小。
+    pub fn truncate_id(&mut self, document: DocId, size: u64) -> Result<(), u8> {
+        self.exchange(OP_TRUNCATE_ID, "", size, 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 按文档身份枚举修订链。
+    pub fn revisions_id(&mut self, document: DocId) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_REVISIONS_ID, "", 0, 0, &document.to_le_bytes())?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 提交卷写入。
+    pub fn sync(&mut self) -> Result<(), u8> {
+        self.exchange(OP_SYNC, "", 0, 0, &[]).map(|_| ())
+    }
+
+    /// 获取文档令牌。
+    pub fn acquire(&mut self, document: DocId, rights: u32) -> Result<u64, u8> {
+        let length = self.exchange(
+            OP_ACQUIRE,
+            "",
+            u64::from(rights),
+            0,
+            &document.to_le_bytes(),
+        )?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 释放令牌。
+    pub fn release(&mut self, token: u64) -> Result<(), u8> {
+        self.exchange(OP_RELEASE, "", token, 0, &[]).map(|_| ())
+    }
+
+    /// 收窄令牌权利，返回子令牌。
+    pub fn grant(&mut self, token: u64, rights: u32) -> Result<u64, u8> {
+        let length = self.exchange(OP_GRANT, "", token, u64::from(rights), &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 撤销令牌及其子令牌。
+    pub fn revoke(&mut self, token: u64) -> Result<(), u8> {
+        self.exchange(OP_REVOKE, "", token, 0, &[]).map(|_| ())
+    }
+
+    /// 把令牌转移到目标端点。
+    pub fn transfer(&mut self, token: u64, target: u64) -> Result<u64, u8> {
+        let length = self.exchange(OP_TRANSFER, "", token, target, &[])?;
+        decode_token(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 枚举标签，返回编码后的标签字节数。
+    pub fn tags(&mut self) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAGS, "", 0, 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 枚举标签成员，返回编码后的文档身份字节数。
+    pub fn tag_members(&mut self, tag: u32) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAG_MEMBERS, "", u64::from(tag), 0, &[])?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 创建标签，返回标签编号。
+    pub fn create_tag(&mut self, name: &str) -> Result<u32, u8> {
+        let length = self.exchange(OP_CREATE_TAG, name, 0, 0, &[])?;
+        decode_u32(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 删除标签。
+    pub fn drop_tag(&mut self, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_DROP_TAG, "", u64::from(tag), 0, &[])
+            .map(|_| ())
+    }
+
+    /// 把文档加入标签。
+    pub fn tag(&mut self, document: DocId, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_TAG, "", u64::from(tag), 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 把文档从标签移除。
+    pub fn untag(&mut self, document: DocId, tag: u32) -> Result<(), u8> {
+        self.exchange(OP_UNTAG, "", u64::from(tag), 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 枚举文档所属标签，返回编码后的标签编号字节数。
+    pub fn tags_of(&mut self, document: DocId) -> Result<&[u8], u8> {
+        let length = self.exchange(OP_TAGS_OF, "", 0, 0, &document.to_le_bytes())?;
+        Ok(&self.response[3..3 + length])
+    }
+
+    /// 通过令牌读取。
+    pub fn read_token(&mut self, token: u64, offset: u64, out: &mut [u8]) -> Result<usize, u8> {
+        let length = self.exchange(
+            OP_READ_TOKEN,
+            "",
+            token,
+            offset,
+            &(out.len() as u64).to_le_bytes(),
+        )?;
+        let copy = length.min(out.len());
+        out[..copy].copy_from_slice(&self.response[3..3 + copy]);
+        Ok(length)
+    }
+
+    /// 通过令牌写入。
+    pub fn write_token(&mut self, token: u64, offset: u64, data: &[u8]) -> Result<RevisionId, u8> {
+        let length = self.exchange(OP_WRITE_TOKEN, "", token, offset, data)?;
+        decode_revision_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 通过令牌调整大小。
+    pub fn truncate_token(&mut self, token: u64, size: u64) -> Result<(), u8> {
+        self.exchange(OP_TRUNCATE_TOKEN, "", token, size, &[])
+            .map(|_| ())
+    }
+
+    /// 通过令牌查询视图。
+    pub fn document_token(&mut self, token: u64) -> Result<DocumentView, u8> {
+        let length = self.exchange(OP_DOCUMENT_TOKEN, "", token, 0, &[])?;
+        decode_document(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    fn exchange(
+        &mut self,
+        op: u8,
+        path: &str,
+        arg0: u64,
+        arg1: u64,
+        data: &[u8],
+    ) -> Result<usize, u8> {
+        let Some(length) = encode_request(&mut self.request, op, path, arg0, arg1, data) else {
+            return Err(STATUS_INVALID);
+        };
+        self.submit(length)
+    }
+
+    fn exchange_with_doc(
+        &mut self,
+        op: u8,
+        arg0: u64,
+        arg1: u64,
+        document: DocId,
+        payload: &[u8],
+    ) -> Result<usize, u8> {
+        let header = 1 + 2 + 8 + 8;
+        let end = header + DOC_LEN + payload.len();
+        if end > self.request.len() {
+            return Err(STATUS_INVALID);
+        }
+        self.request[0] = op;
+        self.request[1..3].copy_from_slice(&0_u16.to_le_bytes());
+        self.request[3..11].copy_from_slice(&arg0.to_le_bytes());
+        self.request[11..19].copy_from_slice(&arg1.to_le_bytes());
+        self.request[19..19 + DOC_LEN].copy_from_slice(&document.to_le_bytes());
+        self.request[19 + DOC_LEN..end].copy_from_slice(payload);
+        self.submit(end)
+    }
+
+    fn submit(&mut self, length: usize) -> Result<usize, u8> {
+        let endpoint = service_endpoint(DRIVE_SERVICE);
+        if endpoint == 0 {
+            return Err(STATUS_IO);
+        }
+        self.endpoint = endpoint;
+        if send_data(self.endpoint, HOLY_REQUEST, &self.request[..length]) == u64::MAX {
+            return Err(STATUS_IO);
+        }
+        let (label, _word, _sender, length) =
+            recv_data_from(self.own_endpoint, self.endpoint, &mut self.response);
+        if label != HOLY_RESPONSE {
+            return Err(STATUS_IO);
+        }
+        if length < 3 {
+            return Err(STATUS_ERROR);
+        }
+        let response = decode_response(&self.response[..length]).ok_or(STATUS_INVALID)?;
+        if response.status != STATUS_OK {
+            return Err(response.status);
+        }
+        Ok(response.data.len())
+    }
+}
