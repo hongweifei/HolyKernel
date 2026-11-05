@@ -85,6 +85,9 @@ pub enum SmokeMode {
     /// 原生静态网络配置（关闭 DHCP）
     #[value(name = "netstatic")]
     NetStatic,
+    /// virtio-net 驱动退出后重启并恢复网络
+    #[value(name = "netrestart")]
+    NetRestart,
 }
 
 impl SmokeMode {
@@ -108,6 +111,7 @@ impl SmokeMode {
             Self::NetStatic => Some(
                 "net-test net.dhcp=off net.ip=10.0.2.15 net.prefix=24 net.gw=10.0.2.2 net.resolver=10.0.2.3 net.dns=localhost shell-test net",
             ),
+            Self::NetRestart => Some("net-test net.restart net.dns=localhost shell-test net"),
         }
     }
 
@@ -234,6 +238,16 @@ impl SmokeMode {
                 "hk-server-netstat: route=",
                 "hk-server-netstat: arp",
             ],
+            Self::NetRestart => &[
+                "hk-server-virtio-net: mac=",
+                "hk-server-net: ready",
+                "hk-server-net: driver restart",
+                "hk-server-net: restart ok",
+                "hk-server-net: tcp ok",
+                "hk-server-net: udp ok",
+                "hk-server-net: dns ok 127.0.0.1",
+                "hk-server-netstat: config dhcp=",
+            ],
         }
     }
 
@@ -249,7 +263,8 @@ impl SmokeMode {
             | Self::Ext4Root
             | Self::HolyFs
             | Self::Net
-            | Self::NetStatic => QEMU_SUCCESS,
+            | Self::NetStatic
+            | Self::NetRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -271,12 +286,13 @@ impl SmokeMode {
             Self::HolyFs => "build/serial-holyfs.log",
             Self::Net => "build/serial-net.log",
             Self::NetStatic => "build/serial-netstatic.log",
+            Self::NetRestart => "build/serial-netrestart.log",
         }
     }
 
     /// 是否为网络模式（需要宿主 echo 与 QEMU 网卡）。
     fn is_network(self) -> bool {
-        matches!(self, Self::Net | Self::NetStatic)
+        matches!(self, Self::Net | Self::NetStatic | Self::NetRestart)
     }
 
     /// 需要断言先后的输出片段。

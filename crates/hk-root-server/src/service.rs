@@ -25,7 +25,7 @@ pub enum RestartPolicy {
 /// 返回服务的默认重启策略。
 pub fn restart_policy(name: &str) -> RestartPolicy {
     match name {
-        "hk-server-device" | "hk-server-virtio" => RestartPolicy::Always,
+        "hk-server-device" | "hk-server-virtio" | "hk-server-virtio-net" => RestartPolicy::Always,
         _ => RestartPolicy::Never,
     }
 }

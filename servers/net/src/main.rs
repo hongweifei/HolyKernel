@@ -23,8 +23,8 @@ use hk_server_api::net::{
     ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
     NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_FRAME_MAX,
     NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE,
-    NET_RX, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX, NetConfig,
-    NetStatus,
+    NET_RX, NET_SHUTDOWN, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX,
+    NetConfig, NetStatus,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
@@ -70,7 +70,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let driver = wait_driver();
+    let mut driver = wait_driver();
     if driver == 0 {
         write("hk-server-net: 没有 virtio-net 驱动\n".as_bytes());
         exit(2)
@@ -268,8 +268,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         );
     }
 
+    if cmdline.is_some_and(|line| line.contains("net.restart")) {
+        driver = restart_network(
+            driver, endpoint, &mut stack, &mut stats, &mut frame, gateway,
+        );
+    }
+
     loop {
         let (label, _word, sender, length) = recv_data(endpoint, &mut frame);
+        if sender != 0 && sender != driver {
+            // 驱动重启后端点编号变化，自动切换到新端点。
+            driver = sender;
+        }
         match label {
             NET_RX => {
                 let length = length.min(frame.len());
@@ -484,6 +494,74 @@ fn poll_once(
         let _ = send_data(driver, NET_TX, &packet);
     }
     let _ = notify(driver, NET_NOTIFY_TX);
+}
+
+/// 请求驱动退出，等待 Root Server 重启后重新握手并验证链路。
+#[cfg(target_os = "none")]
+fn restart_network(
+    old: u64,
+    endpoint: u64,
+    stack: &mut Stack,
+    stats: &mut Stats,
+    frame: &mut [u8; NET_FRAME_MAX],
+    gateway: Ipv4Addr,
+) -> u64 {
+    write("hk-server-net: driver restart\n".as_bytes());
+    let _ = send(old, NET_SHUTDOWN, 0);
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    let mut driver = old;
+    while now_ms() < deadline {
+        let _ = recv_data_try(endpoint, frame);
+        let candidate = service_endpoint("hk-server-virtio-net");
+        if candidate != 0 && candidate != old {
+            driver = candidate;
+            break;
+        }
+        let _ = yield_now();
+    }
+    if driver == old {
+        write("hk-server-net: driver restart failed\n".as_bytes());
+        return old;
+    }
+
+    let mut info = [0_u8; NET_INFO_BYTES];
+    let _ = send(driver, NET_INFO_REQUEST, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    let mut rehandshaked = false;
+    while now_ms() < deadline {
+        let (label, _word, sender, length) = recv_data_try(endpoint, &mut info);
+        if label == NET_INFO_RESPONSE && sender == driver && length >= NET_INFO_BYTES {
+            rehandshaked = true;
+            break;
+        }
+        let _ = yield_now();
+    }
+    if !rehandshaked {
+        write("hk-server-net: driver rehandshake failed\n".as_bytes());
+        return driver;
+    }
+
+    let Ok(icmp) = stack.open_icmp(0x1235) else {
+        write("hk-server-net: restart icmp failed\n".as_bytes());
+        return driver;
+    };
+    let _ = stack.send_ping(icmp, gateway, 0x1235, 1, b"holy");
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    let mut reply = [0_u8; 64];
+    while now_ms() < deadline {
+        poll_once(driver, endpoint, stack, stats, frame);
+        if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
+            && length >= 8
+        {
+            stack.close_socket(icmp);
+            write("hk-server-net: restart ok\n".as_bytes());
+            return driver;
+        }
+    }
+    stack.close_socket(icmp);
+    write("hk-server-net: restart ping failed\n".as_bytes());
+    driver
 }
 
 /// 解析原生启动期网络配置；`net.dhcp=off` 或 `net.ip=` 存在时返回静态配置。
