@@ -21,15 +21,18 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
     ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
-    NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_FRAME_MAX,
-    NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE,
-    NET_RX, NET_SHUTDOWN, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX,
-    NetConfig, NetStatus,
+    NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE,
+    NET_FRAME_ATTACH, NET_FRAME_MAX, NET_FRAME_ROLE_RX, NET_FRAME_ROLE_TX, NET_INFO_BYTES,
+    NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX,
+    NET_RX_FRAME, NET_RX_REFILL, NET_SHARED_FRAME, NET_SHARED_RX, NET_SHARED_TX, NET_SHUTDOWN,
+    NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX, NET_TX_DONE, NET_TX_FRAME,
+    NetConfig, NetStatus, net_frame_index, net_frame_role, net_rx_index, net_rx_length,
+    net_rx_offset, net_tx_index, net_tx_word,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, notify, recv_data, recv_data_from, recv_data_try, send, send_data, service_endpoint, tsc,
-    tsc_frequency, write, write_u64, yield_now,
+    close_handle, exit, frame_map, notify, recv_data, recv_data_handle, recv_data_try, send,
+    send_data, service_endpoint, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 
 #[cfg(target_os = "none")]
@@ -45,6 +48,12 @@ const UDP_LOCAL_PORT: u16 = 40001;
 /// 对外报告的接口 MTU。
 #[cfg(target_os = "none")]
 const MTU: u16 = 1500;
+/// Network Server 侧共享接收帧虚拟基址。
+#[cfg(target_os = "none")]
+const SERVER_RX_BASE: u64 = 0x3000_0000;
+/// Network Server 侧共享发送帧虚拟基址。
+#[cfg(target_os = "none")]
+const SERVER_TX_BASE: u64 = 0x3010_0000;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
 #[cfg(target_os = "none")]
@@ -79,7 +88,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut info = [0_u8; NET_INFO_BYTES];
     let _ = send(driver, NET_INFO_REQUEST, 0);
     let _ = notify(driver, NET_NOTIFY_TX);
-    let (label, _word, _sender, length) = recv_data_from(endpoint, driver, &mut info);
+    let (label, _word, _sender, length, _handle) = recv_data_handle(endpoint, &mut info, driver);
     if label != NET_INFO_RESPONSE || length < NET_INFO_BYTES {
         write("hk-server-net: 接口信息失败\n".as_bytes());
         exit(3)
@@ -93,6 +102,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(4)
         }
     };
+    if zerocopy_enabled() && !attach_shared(driver, endpoint, &mut stack) {
+        write("hk-server-net: 共享帧附加失败\n".as_bytes());
+        exit(3)
+    }
     let mut frame = [0_u8; NET_FRAME_MAX];
     let mut stats = Stats::default();
     let mut gateway = Ipv4Addr::new(10, 0, 2, 2);
@@ -275,7 +288,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     loop {
-        let (label, _word, sender, length) = recv_data(endpoint, &mut frame);
+        let (label, word, sender, length) = recv_data(endpoint, &mut frame);
         if sender != 0 && sender != driver {
             // 驱动重启后端点编号变化，自动切换到新端点。
             driver = sender;
@@ -287,13 +300,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 stats.rx_frames = stats.rx_frames.saturating_add(1);
                 stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
                 stack.poll(now_ms());
-                while let Some(packet) = stack.take_frame() {
-                    stats.tx_frames = stats.tx_frames.saturating_add(1);
-                    stats.tx_bytes = stats.tx_bytes.saturating_add(packet.len() as u64);
-                    let _ = send_data(driver, NET_TX, &packet);
-                }
-                let _ = notify(driver, NET_NOTIFY_TX);
+                flush_tx(driver, &mut stack, &mut stats);
             }
+            NET_RX_FRAME => {
+                let length = net_rx_length(word);
+                stats.rx_frames = stats.rx_frames.saturating_add(1);
+                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
+                stack.poll(now_ms());
+                stack.push_shared_rx(net_rx_index(word), net_rx_offset(word), length);
+                stack.poll(now_ms());
+                flush_tx(driver, &mut stack, &mut stats);
+            }
+            NET_TX_DONE => stack.shared_tx_done(net_tx_index(word)),
             NET_STATUS_REQUEST => {
                 let mut encoded = [0_u8; NET_STATUS_BYTES];
                 if let Some(length) = status_blob(&stack, &stats, &mut encoded) {
@@ -469,7 +487,7 @@ fn poll_once(
     // 有界等待完成消息：即使偶发丢失 NET_POLL_DONE，也不会永久阻塞在接收上。
     let deadline = now_ms().saturating_add(POLL_WAIT_MS);
     loop {
-        let (label, _word, _sender, length) = recv_data_try(endpoint, frame);
+        let (label, word, _sender, length) = recv_data_try(endpoint, frame);
         match label {
             NET_RX => {
                 let length = length.min(frame.len());
@@ -477,6 +495,13 @@ fn poll_once(
                 stats.rx_frames = stats.rx_frames.saturating_add(1);
                 stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
             }
+            NET_RX_FRAME => {
+                let length = net_rx_length(word);
+                stats.rx_frames = stats.rx_frames.saturating_add(1);
+                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
+                stack.push_shared_rx(net_rx_index(word), net_rx_offset(word), length);
+            }
+            NET_TX_DONE => stack.shared_tx_done(net_tx_index(word)),
             NET_POLL_DONE => break,
             0 => {
                 if now_ms() >= deadline {
@@ -488,12 +513,89 @@ fn poll_once(
         }
     }
     stack.poll(now_ms());
+    flush_tx(driver, stack, stats);
+}
+
+/// 是否启用共享帧路径。
+#[cfg(target_os = "none")]
+fn zerocopy_enabled() -> bool {
+    let mut buffer = [0_u8; 128];
+    hk_server_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
+}
+
+/// 接收驱动移交的共享帧并映射到本任务地址空间。
+#[cfg(target_os = "none")]
+fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bool {
+    let mut buffer = [0_u8; 8];
+    let mut rx_seen = 0_usize;
+    let mut tx_seen = 0_usize;
+    while rx_seen < NET_SHARED_RX || tx_seen < NET_SHARED_TX {
+        let (label, word, sender, _length, handle) =
+            recv_data_handle(endpoint, &mut buffer, driver);
+        if label != NET_FRAME_ATTACH || sender != driver || handle == 0 {
+            return false;
+        }
+        let role = net_frame_role(word);
+        let index = net_frame_index(word);
+        let (base, count) = match role {
+            NET_FRAME_ROLE_RX => (SERVER_RX_BASE, NET_SHARED_RX),
+            NET_FRAME_ROLE_TX => (SERVER_TX_BASE, NET_SHARED_TX),
+            _ => {
+                let _ = close_handle(handle);
+                return false;
+            }
+        };
+        if index >= count {
+            let _ = close_handle(handle);
+            return false;
+        }
+        let virt = base + (index * NET_SHARED_FRAME) as u64;
+        if frame_map(handle, virt) != NET_SHARED_FRAME as u64 {
+            let _ = close_handle(handle);
+            return false;
+        }
+        if role == NET_FRAME_ROLE_RX {
+            rx_seen += 1;
+        } else {
+            tx_seen += 1;
+        }
+    }
+    stack.enable_shared(
+        SERVER_RX_BASE,
+        SERVER_TX_BASE,
+        NET_SHARED_FRAME,
+        NET_SHARED_TX,
+    );
+    write("hk-server-net: shared frames ready\n".as_bytes());
+    true
+}
+
+/// 回传共享环的归还/发送事件，并补发普通发送队列；随后唤醒驱动。
+#[cfg(target_os = "none")]
+fn flush_tx(driver: u64, stack: &mut Stack, stats: &mut Stats) {
+    let mut rx_done = Vec::new();
+    let mut tx_ready = Vec::new();
+    stack.take_shared_events(&mut rx_done, &mut tx_ready);
+    let mut woke = false;
+    for index in rx_done {
+        let _ = send(driver, NET_RX_REFILL, index as u64);
+        woke = true;
+    }
+    for (index, length) in tx_ready {
+        stats.tx_frames = stats.tx_frames.saturating_add(1);
+        stats.tx_bytes = stats.tx_bytes.saturating_add(length as u64);
+        let _ = send(driver, NET_TX_FRAME, net_tx_word(index, length));
+        woke = true;
+    }
     while let Some(packet) = stack.take_frame() {
         stats.tx_frames = stats.tx_frames.saturating_add(1);
         stats.tx_bytes = stats.tx_bytes.saturating_add(packet.len() as u64);
         let _ = send_data(driver, NET_TX, &packet);
+        woke = true;
     }
-    let _ = notify(driver, NET_NOTIFY_TX);
+    if woke {
+        let _ = notify(driver, NET_NOTIFY_TX);
+    }
 }
 
 /// 请求驱动退出，等待 Root Server 重启后重新握手并验证链路。

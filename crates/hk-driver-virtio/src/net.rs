@@ -30,12 +30,29 @@ struct TxBuffer {
 
 /// 待发队列上限；超过后丢弃新帧，避免无界增长。
 const MAX_PENDING: usize = 64;
+/// 发送帧中为 virtio 头预留的空间；与 `hk-server-api` 的 `NET_TX_HEADER` 一致。
+const TX_HEADER: usize = 32;
+
+/// 共享帧环布局。
+#[derive(Clone, Copy)]
+struct SharedLayout {
+    rx_base: u64,
+    tx_base: u64,
+    frame_len: usize,
+}
 
 struct State {
     net: VirtIONetRaw<HalImpl, PciTransport, QUEUE_SIZE>,
     rx: Vec<Option<RxBuffer>>,
+    /// 尚未提交的普通接收缓冲；共享模式下不使用。
+    legacy: Vec<RxBuffer>,
     tx: VecDeque<TxBuffer>,
     pending: VecDeque<Vec<u8>>,
+    shared: Option<SharedLayout>,
+    shared_rx: Vec<Option<usize>>,
+    shared_tx: VecDeque<(u16, usize)>,
+    /// 设备队列暂时满时留待补发的共享发送帧。
+    shared_pending: VecDeque<(usize, usize)>,
 }
 
 /// virtio 网络设备。
@@ -46,23 +63,46 @@ pub struct Network {
 impl Network {
     /// 构造网络设备，预先把接收缓冲全部投入接收队列。
     pub(crate) fn new(
-        mut net: VirtIONetRaw<HalImpl, PciTransport, QUEUE_SIZE>,
+        net: VirtIONetRaw<HalImpl, PciTransport, QUEUE_SIZE>,
     ) -> Result<Self, virtio_drivers::Error> {
-        let mut rx: Vec<Option<RxBuffer>> = (0..QUEUE_SIZE).map(|_| None).collect();
-        for _ in 0..QUEUE_SIZE {
-            let mut data = vec![0_u8; RECEIVE_BUFFER];
-            // SAFETY: 缓冲交给设备后不再访问，直到 `receive_complete`。
-            let token = unsafe { net.receive_begin(&mut data) }?;
-            rx[usize::from(token)] = Some(RxBuffer { data });
-        }
+        let rx: Vec<Option<RxBuffer>> = (0..QUEUE_SIZE).map(|_| None).collect();
+        let legacy: Vec<RxBuffer> = (0..QUEUE_SIZE)
+            .map(|_| RxBuffer {
+                data: vec![0_u8; RECEIVE_BUFFER],
+            })
+            .collect();
         Ok(Self {
             state: Mutex::new(State {
                 net,
                 rx,
+                legacy,
                 tx: VecDeque::new(),
                 pending: VecDeque::new(),
+                shared: None,
+                shared_rx: (0..QUEUE_SIZE).map(|_| None).collect(),
+                shared_tx: VecDeque::new(),
+                shared_pending: VecDeque::new(),
             }),
         })
+    }
+
+    /// 普通模式：把预置接收缓冲全部投入接收队列。
+    pub fn enable_legacy_rx(&self) {
+        let mut state = self.state.lock();
+        while let Some(mut buffer) = state.legacy.pop() {
+            // SAFETY: 缓冲交给设备后不再访问，直到 `receive_complete`。
+            match unsafe { state.net.receive_begin(&mut buffer.data) } {
+                Ok(token) => {
+                    if let Some(slot) = state.rx.get_mut(usize::from(token)) {
+                        *slot = Some(buffer);
+                    }
+                }
+                Err(_) => {
+                    state.legacy.push(buffer);
+                    break;
+                }
+            }
+        }
     }
 
     /// 接收一帧以太网数据；队列为空时返回 `None`。
@@ -114,10 +154,12 @@ impl Network {
         true
     }
 
-    /// 回收发送完成并补发待发帧。
+    /// 回收发送完成并补发待发帧；共享模式下由服务轮询完成。
     pub fn flush(&self) {
         let mut state = self.state.lock();
-        Self::flush_pending(&mut state);
+        if state.shared.is_none() {
+            Self::flush_pending(&mut state);
+        }
     }
 
     /// 把待发队列中的帧尽量提交到设备；队列满时留待下次。
@@ -145,6 +187,135 @@ impl Network {
                 }
             }
         }
+    }
+
+    /// 设置共享帧环布局。
+    pub fn set_shared_layout(&self, rx_base: u64, tx_base: u64, frame_len: usize) {
+        self.state.lock().shared = Some(SharedLayout {
+            rx_base,
+            tx_base,
+            frame_len,
+        });
+    }
+
+    /// 把一个共享帧提交为接收缓冲。
+    pub fn submit_shared_rx(&self, index: usize) -> bool {
+        let mut state = self.state.lock();
+        Self::submit_shared_rx_locked(&mut state, index)
+    }
+
+    fn submit_shared_rx_locked(state: &mut State, index: usize) -> bool {
+        let Some(shared) = state.shared else {
+            return false;
+        };
+        let address = shared.rx_base + (index * shared.frame_len) as u64;
+        // SAFETY: 帧由驱动分配并登记，提交期间不访问，直到完成通知。
+        let slice =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
+        // SAFETY: 与 `receive_begin` 的约定一致，缓冲在完成前保持有效。
+        match unsafe { state.net.receive_begin(slice) } {
+            Ok(token) => {
+                if let Some(slot) = state.shared_rx.get_mut(usize::from(token)) {
+                    *slot = Some(index);
+                }
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// 取走一个已完成的共享接收帧，返回帧索引、头偏移与长度。
+    pub fn poll_shared_rx(&self) -> Option<(usize, usize, usize)> {
+        let mut state = self.state.lock();
+        let shared = state.shared?;
+        let token = state.net.poll_receive()?;
+        let index = state
+            .shared_rx
+            .get_mut(usize::from(token))
+            .and_then(Option::take)?;
+        let address = shared.rx_base + (index * shared.frame_len) as u64;
+        // SAFETY: 该 token 对应此前提交的共享帧，直到本次完成前未被访问。
+        let slice =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
+        // SAFETY: `token` 是同一帧的完成 token。
+        match unsafe { state.net.receive_complete(token, slice) } {
+            Ok((header, length)) => Some((index, header, length)),
+            Err(_) => {
+                // 解析失败时重新提交，避免帧永久丢失。
+                Self::submit_shared_rx_locked(&mut state, index);
+                None
+            }
+        }
+    }
+
+    /// 从共享帧发送一帧；`length` 为以太网帧长度，字节位于 `TX_HEADER` 之后。
+    ///
+    /// 设备队列暂时满时进入待发队列并返回 `true`（已接受）；真正失败返回 `false`。
+    pub fn submit_shared_tx(&self, index: usize, length: usize) -> bool {
+        let mut state = self.state.lock();
+        let Some(shared) = state.shared else {
+            return false;
+        };
+        if length > shared.frame_len.saturating_sub(TX_HEADER) {
+            return false;
+        }
+        if !state.net.can_send() {
+            state.shared_pending.push_back((index, length));
+            return true;
+        }
+        Self::transmit_shared_locked(&mut state, index, length)
+    }
+
+    fn transmit_shared_locked(state: &mut State, index: usize, length: usize) -> bool {
+        let Some(shared) = state.shared else {
+            return false;
+        };
+        let address = shared.tx_base + (index * shared.frame_len) as u64;
+        // SAFETY: 帧由本侧持有并独占写入，直到 `transmit_complete`。
+        let slice =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
+        let Ok(header) = state.net.fill_buffer_header(slice) else {
+            return false;
+        };
+        if header != TX_HEADER {
+            slice.copy_within(TX_HEADER..TX_HEADER + length, header);
+        }
+        // SAFETY: 缓冲移入 `shared_tx`，直到 `transmit_complete` 前不再访问。
+        match unsafe { state.net.transmit_begin(&slice[..header + length]) } {
+            Ok(token) => {
+                state.shared_tx.push_back((token, index));
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// 取走一个发送完成的共享帧索引。
+    pub fn poll_shared_tx(&self) -> Option<usize> {
+        let mut state = self.state.lock();
+        let shared = state.shared?;
+        while state.net.can_send() {
+            let Some((index, length)) = state.shared_pending.pop_front() else {
+                break;
+            };
+            if !Self::transmit_shared_locked(&mut state, index, length) {
+                state.shared_pending.push_front((index, length));
+                break;
+            }
+        }
+        let token = state.net.poll_transmit()?;
+        let position = state
+            .shared_tx
+            .iter()
+            .position(|(entry, _)| *entry == token)?;
+        let (_, index) = state.shared_tx.remove(position)?;
+        let address = shared.tx_base + (index * shared.frame_len) as u64;
+        // SAFETY: 该 token 对应此前提交的共享帧。
+        let slice =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
+        // SAFETY: `token` 是同一帧的完成 token。
+        let _ = unsafe { state.net.transmit_complete(token, slice) };
+        Some(index)
     }
 
     /// 回收已完成的发送缓冲。

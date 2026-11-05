@@ -13,6 +13,42 @@ const MAC_A: [u8; 6] = [0x02, 0, 0, 0, 0, 1];
 const MAC_B: [u8; 6] = [0x02, 0, 0, 0, 0, 2];
 
 #[test]
+fn shared_queue_round_trips_and_recycles() {
+    let mut rx_area = vec![0_u8; 4096];
+    let mut tx_area = vec![0_u8; 8192];
+    let mut queue = FrameQueue::new();
+    queue.enable_shared(
+        rx_area.as_mut_ptr() as u64,
+        tx_area.as_mut_ptr() as u64,
+        4096,
+        2,
+    );
+
+    rx_area[..6].copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+    queue.push_shared_rx(0, 0, 6);
+    let (rx, tx) = queue.receive(Instant::from_millis(0)).expect("共享接收");
+    rx.consume(|bytes| assert_eq!(bytes, &[1, 2, 3, 4, 5, 6]));
+    tx.consume(4, |buffer| buffer.copy_from_slice(b"holy"));
+
+    let mut done_rx = Vec::new();
+    let mut done_tx = Vec::new();
+    queue.take_shared_events(&mut done_rx, &mut done_tx);
+    assert_eq!(done_rx, [0]);
+    assert_eq!(done_tx, [(0, 4)]);
+    assert_eq!(&tx_area[32..36], b"holy");
+
+    // 取到但未 consume 的发送 token 不得泄漏帧。
+    let _ = queue.transmit(Instant::from_millis(0));
+    let token = queue.transmit(Instant::from_millis(0)).expect("仍有空闲帧");
+    token.consume(1, |buffer| buffer[0] = 7);
+    let mut done_rx = Vec::new();
+    let mut done_tx = Vec::new();
+    queue.take_shared_events(&mut done_rx, &mut done_tx);
+    assert_eq!(done_tx, [(1, 1)]);
+    assert_eq!(tx_area[4096 + 32], 7);
+}
+
+#[test]
 fn queue_tokens_round_trip() {
     let mut queue = FrameQueue::new();
     assert!(queue.push_rx(b"rx"));

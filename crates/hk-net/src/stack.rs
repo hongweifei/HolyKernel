@@ -214,6 +214,33 @@ impl Stack {
         &self.arp[..self.arp_len]
     }
 
+    /// 启用共享帧环。
+    pub fn enable_shared(&mut self, rx_base: u64, tx_base: u64, frame_len: usize, tx_count: usize) {
+        self.device
+            .enable_shared(rx_base, tx_base, frame_len, tx_count);
+    }
+
+    /// 注入一个共享接收帧；顺带观察 ARP 以便邻居视图继续可用。
+    pub fn push_shared_rx(&mut self, index: usize, offset: usize, length: usize) {
+        let mut head = [0_u8; 42];
+        if let Some(bytes) = self.device.shared_slice(index, offset, length) {
+            let count = bytes.len().min(head.len());
+            head[..count].copy_from_slice(&bytes[..count]);
+            self.observe_arp(&head[..count]);
+        }
+        self.device.push_shared_rx(index, offset, length);
+    }
+
+    /// 取走协议栈已消费的接收帧与待发送帧。
+    pub fn take_shared_events(&mut self, rx: &mut Vec<usize>, tx: &mut Vec<(usize, usize)>) {
+        self.device.take_shared_events(rx, tx);
+    }
+
+    /// 归还发送完成的共享帧。
+    pub fn shared_tx_done(&mut self, index: usize) {
+        self.device.shared_tx_done(index);
+    }
+
     /// 注入一帧接收数据。
     pub fn push_frame(&mut self, frame: &[u8]) -> Result<(), NetError> {
         self.observe_arp(frame);

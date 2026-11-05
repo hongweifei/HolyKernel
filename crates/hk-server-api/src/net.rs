@@ -26,6 +26,79 @@ pub const NET_ARP_RESPONSE: u64 = 0x70a;
 pub const NET_CONFIG_REQUEST: u64 = 0x70b;
 /// 原生网络配置响应。
 pub const NET_CONFIG_RESPONSE: u64 = 0x70c;
+/// 驱动向 Network Server 移交共享帧（`word` 打包角色与索引）。
+pub const NET_FRAME_ATTACH: u64 = 0x70d;
+/// 驱动通知一帧接收数据已就绪（`word` 打包索引、偏移与长度）。
+pub const NET_RX_FRAME: u64 = 0x70e;
+/// Network Server 归还接收帧（`word` 为索引）。
+pub const NET_RX_REFILL: u64 = 0x70f;
+/// Network Server 提交发送帧（`word` 打包索引与长度）。
+pub const NET_TX_FRAME: u64 = 0x710;
+/// 驱动通知发送帧已完成（`word` 为索引）。
+pub const NET_TX_DONE: u64 = 0x711;
+
+/// 共享帧角色：接收。
+pub const NET_FRAME_ROLE_RX: u64 = 0;
+/// 共享帧角色：发送。
+pub const NET_FRAME_ROLE_TX: u64 = 1;
+/// 共享接收帧数量。
+pub const NET_SHARED_RX: usize = 8;
+/// 共享发送帧数量。
+pub const NET_SHARED_TX: usize = 8;
+/// 单个共享帧长度。
+pub const NET_SHARED_FRAME: usize = 4096;
+/// 发送帧中为 virtio 头预留的空间。
+pub const NET_TX_HEADER: usize = 32;
+
+/// 打包共享帧角色与索引。
+pub const fn net_frame_word(role: u64, index: usize) -> u64 {
+    (role << 8) | index as u64
+}
+
+/// 从共享帧消息中取角色。
+pub const fn net_frame_role(word: u64) -> u64 {
+    word >> 8
+}
+
+/// 从共享帧消息中取索引。
+pub const fn net_frame_index(word: u64) -> usize {
+    (word & 0xFF) as usize
+}
+
+/// 打包接收帧索引、偏移与长度。
+pub const fn net_rx_word(index: usize, offset: usize, length: usize) -> u64 {
+    (index as u64 & 0xFF) | ((offset as u64 & 0xFF) << 16) | ((length as u64 & 0xFFFF) << 32)
+}
+
+/// 从接收帧消息中取索引。
+pub const fn net_rx_index(word: u64) -> usize {
+    (word & 0xFF) as usize
+}
+
+/// 从接收帧消息中取偏移。
+pub const fn net_rx_offset(word: u64) -> usize {
+    ((word >> 16) & 0xFF) as usize
+}
+
+/// 从接收帧消息中取长度。
+pub const fn net_rx_length(word: u64) -> usize {
+    ((word >> 32) & 0xFFFF) as usize
+}
+
+/// 打包发送帧索引与长度。
+pub const fn net_tx_word(index: usize, length: usize) -> u64 {
+    (index as u64 & 0xFF) | ((length as u64 & 0xFFFF) << 32)
+}
+
+/// 从发送帧消息中取索引。
+pub const fn net_tx_index(word: u64) -> usize {
+    (word & 0xFF) as usize
+}
+
+/// 从发送帧消息中取长度。
+pub const fn net_tx_length(word: u64) -> usize {
+    ((word >> 32) & 0xFFFF) as usize
+}
 
 /// IRQ Notification 位：设备中断。
 pub const NET_NOTIFY_IRQ: u64 = 1 << 0;
