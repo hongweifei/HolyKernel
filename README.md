@@ -133,6 +133,17 @@ cargo xtask budget
 
 `cargo xtask run --target x86_64-qemu` 会自动创建 `build/run-disk.img` 并作为 virtio-blk 挂载；删除该文件可重建空 ext4 磁盘。图形桌面使用 HolyFS 桌面卷，自动创建 `build/run-holy.img` 与其中的 `H:` 文档。
 
+开发调试工具：
+
+```sh
+cargo xtask inspect                          # 汇总 build/iso 中的原生服务镜像
+cargo xtask inspect --service hk-server-demo --symbols
+cargo xtask symbolize 0xffffffff80018bc4     # 离线解析内核/服务地址
+cargo xtask debug                            # 生成 build/holy.gdb，QEMU 暂停等待 GDB
+```
+
+`inspect` 优先读取 `build/iso/boot` 中的镜像；没有镜像时从目标 ELF 现场转换。`symbolize` 同时查询 `build/kernel.sym` 与原生镜像携带的服务符号。`debug` 构建镜像后以 `-S` 启动 QEMU，在另一终端执行 `gdb -x build/holy.gdb` 即可在 `kmain` 下断。
+
 手动启动 QEMU 时，先生成磁盘再附加 `virtio-blk-pci`：
 
 ```sh
