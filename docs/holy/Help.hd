@@ -10,8 +10,13 @@ HolyDoc 文档由文本与内联指令组成：
 @code("@bullet(\"...\") 列表项")
 @code("@code(\"...\") 代码行")
 @code("@exec version 执行内置命令")
+@code("@exec tags 列出标签")
+
+@heading(2, "标签")
+文档标签按 DocId 记录；文档页显示所属标签，H:/Tags 按标签分组列出成员。按 t 打开标签页。
 
 @heading(2, "命名")
 文档身份是 DocId，名字是集合中的关系；H:/System/Overview 是 DocPath 查找视图。
 
+@link("H:/Tags", "标签")
 @link("H:/Welcome", "返回欢迎页")

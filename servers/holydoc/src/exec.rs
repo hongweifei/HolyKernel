@@ -30,8 +30,13 @@ pub(crate) fn exec(set: &DocSet, command: &str) -> Vec<String> {
             .iter()
             .map(|entry| format!("{} — {}", entry.id, entry.title))
             .collect(),
+        Some("tags") => set
+            .tags()
+            .iter()
+            .map(|tag| format!("{} — {}", tag.id, tag.name))
+            .collect(),
         _ => alloc::vec![String::from(
-            "未知命令；支持 version / time / ticks / echo / documents"
+            "未知命令；支持 version / time / ticks / echo / documents / tags"
         )],
     }
 }

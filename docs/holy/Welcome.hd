@@ -6,13 +6,16 @@ HolyKernel 是句柄型微内核：内核提供线程、地址空间、句柄与
 @exec time
 @exec ticks
 @exec documents
+@exec tags
 
 @heading(2, "开始浏览")
 @link("H:/System", "系统文档")
+@link("H:/Tags", "标签")
 @link("H:/Help", "帮助")
 
 @heading(2, "操作")
 @bullet("d 打开文档索引")
+@bullet("t 打开标签页")
 @bullet("w 返回欢迎页")
 @bullet("j / k 滚动，空格 / b 翻页")
 @bullet("Backspace 返回上一页")

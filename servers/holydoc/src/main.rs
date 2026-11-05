@@ -1,7 +1,8 @@
 //! holydoc：原生活文档窗口服务。
 //!
-//! 服务入口与协议循环；H: 卷文档集与布局在 `document`，绘制在 `render`，
-//! `@exec` 命令在 `exec`。
+//! 服务入口与事件循环；H: 卷加载在 `drive`，文档模型在 `document`，
+//! 指令解析在 `markup`，绘制在 `render`，窗口提交在 `window`，自检在
+//! `selftest`。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -12,270 +13,45 @@ extern crate alloc;
 #[cfg(target_os = "none")]
 mod document;
 #[cfg(target_os = "none")]
+mod drive;
+#[cfg(target_os = "none")]
 mod exec;
 #[cfg(target_os = "none")]
+mod markup;
+#[cfg(target_os = "none")]
 mod render;
+#[cfg(target_os = "none")]
+mod selftest;
+#[cfg(target_os = "none")]
+mod window;
 
-#[cfg(target_os = "none")]
-use alloc::boxed::Box;
-#[cfg(target_os = "none")]
-use alloc::format;
-#[cfg(target_os = "none")]
-use alloc::string::String;
-#[cfg(target_os = "none")]
-use alloc::vec;
 #[cfg(target_os = "none")]
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW,
-    DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT,
-    pack_size, set_title, unpack_click_at, unpack_key,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_CREATE_WINDOW, DISPLAY_KEY,
+    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, unpack_click_at, unpack_key,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{
-    DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
-    STATUS_PERMISSION, decode_doc_ids, decode_entries, decode_tags,
-};
-#[cfg(target_os = "none")]
-use hk_server_api::{
-    exit, frame_alloc, recv, send, send_handle, service_endpoint, write, write_u64,
-};
-#[cfg(target_os = "none")]
-use lovyangfx_fonts::Font;
+use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::fonts::efont_cn_16;
 
 #[cfg(target_os = "none")]
-use document::{DocSet, DocView, HEIGHT, INDEX, WELCOME, WIDTH, doc_name, title_of};
+use document::{DocSet, DocView, HEIGHT, INDEX, TAGS, WELCOME, WIDTH};
 #[cfg(target_os = "none")]
-use render::render;
+use window::apply;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 1024 * 1024;
 
-/// H: 卷根集合。
-#[cfg(target_os = "none")]
-const DRIVE_ROOT: &str = "H:/";
-
-/// 集合递归深度上限。
-#[cfg(target_os = "none")]
-const MAX_DEPTH: usize = 4;
-
-/// 单页文档读取上限。
-#[cfg(target_os = "none")]
-const DOC_MAX: usize = 48 * 1024;
-
 #[cfg(target_os = "none")]
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
-
-/// 拼接集合成员的 DocPath。
-#[cfg(target_os = "none")]
-fn join(parent: &str, name: &str) -> String {
-    if parent.ends_with('/') {
-        format!("{parent}{name}")
-    } else {
-        format!("{parent}/{name}")
-    }
-}
-
-/// 从 H: 卷递归加载集合与文档，返回加载的文档页数。
-#[cfg(target_os = "none")]
-fn load_drive_docs(set: &mut DocSet, endpoint: u64) -> usize {
-    if service_endpoint("hk-server-vfs") == 0 {
-        write(b"hk-server-holydoc: no drive\n");
-        return 0;
-    }
-    let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(root) = client.root() else {
-        write(b"hk-server-holydoc: no root\n");
-        return 0;
-    };
-    let mut count = 0;
-    load_collection(&mut client, root, DRIVE_ROOT, 0, set, &mut count);
-    count
-}
-
-/// 加载一个集合：文档整篇读入，子集合生成成员页并继续递归。
-#[cfg(target_os = "none")]
-fn load_collection(
-    client: &mut HolyClient,
-    collection: DocId,
-    path: &str,
-    depth: usize,
-    set: &mut DocSet,
-    count: &mut usize,
-) -> Vec<(u8, String, String)> {
-    if depth > MAX_DEPTH {
-        return Vec::new();
-    }
-    let entries: Vec<(u8, u128, String)> = match client.enumerate_id(collection) {
-        Ok(bytes) => decode_entries(bytes)
-            .map(|entry| (entry.kind, entry.document, String::from(entry.name)))
-            .collect(),
-        Err(status) => {
-            write(b"hk-server-holydoc: drive ");
-            write(path.as_bytes());
-            write(b" status ");
-            write_u64(status as u64);
-            write(b"\n");
-            return Vec::new();
-        }
-    };
-    let mut members = Vec::new();
-    for (kind, document, name) in entries {
-        let child = join(path, &name);
-        members.push((kind, name.clone(), child.clone()));
-        let document = DocId::new(document);
-        if kind == KIND_COLLECTION {
-            let children = load_collection(client, document, &child, depth + 1, set, count);
-            let mut body =
-                format!("@title(\"{name}\")\n这是 H: 卷中的一个集合。\n\n@heading(2, \"成员\")\n");
-            for (kind, label, path) in &children {
-                if *kind == KIND_COLLECTION {
-                    body.push_str(&format!("@link(\"{path}\", \"{label}/\")\n"));
-                } else {
-                    body.push_str(&format!("@link(\"{path}\", \"{label}\")\n"));
-                }
-            }
-            if children.is_empty() {
-                body.push_str("集合为空。\n");
-            }
-            set.add(child.clone(), name.clone(), body);
-            continue;
-        }
-        let mut buffer = vec![0_u8; DOC_MAX];
-        let result = match client.acquire(document, RIGHT_READ) {
-            Ok(token) => {
-                let result = client.read_token(token, 0, &mut buffer);
-                let _ = client.release(token);
-                result
-            }
-            Err(status) => Err(status),
-        };
-        match result {
-            Ok(length) => {
-                let body = String::from_utf8_lossy(&buffer[..length]).into_owned();
-                let title = title_of(&body).unwrap_or_else(|| doc_name(&child));
-                if set.add(child.clone(), title, body) {
-                    *count += 1;
-                    write(b"hk-server-holydoc: document ");
-                    write(child.as_bytes());
-                    write(b"\n");
-                }
-            }
-            Err(status) => {
-                write(b"hk-server-holydoc: read ");
-                write(child.as_bytes());
-                write(b" status ");
-                write_u64(status as u64);
-                write(b"\n");
-            }
-        }
-    }
-    members
-}
-
-/// 验证令牌收窄、撤销与固定修订读取。
-#[cfg(target_os = "none")]
-fn verify_tokens(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(root) = client.root() else {
-        return false;
-    };
-    let Ok(document) = client.resolve(root, "Welcome") else {
-        return false;
-    };
-    let Ok(token) = client.acquire(document, RIGHT_READ) else {
-        return false;
-    };
-    let Ok(child) = client.grant(token, RIGHT_READ) else {
-        let _ = client.release(token);
-        return false;
-    };
-    let mut buffer = [0_u8; 256];
-    let Ok(length) = client.read_token(child, 0, &mut buffer) else {
-        let _ = client.release(token);
-        return false;
-    };
-    let read_ok = buffer[..length].starts_with(b"@title");
-    let grant_rejected = client.grant(token, RIGHT_WRITE) == Err(STATUS_PERMISSION);
-    let revoked = client.revoke(child).is_ok();
-    let read_rejected = client.read_token(child, 0, &mut buffer) == Err(STATUS_NOT_FOUND);
-    let _ = client.release(token);
-    read_ok && grant_rejected && revoked && read_rejected
-}
-
-/// 验证标签创建、成员关系与删除。
-#[cfg(target_os = "none")]
-fn verify_tags(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(root) = client.root() else {
-        return false;
-    };
-    let Ok(document) = client.resolve(root, "Welcome") else {
-        return false;
-    };
-    let Ok(tag) = client.create_tag("smoke") else {
-        return false;
-    };
-    if client.tag(document, tag).is_err() {
-        return false;
-    }
-    let contains_document = match client.tag_members(tag) {
-        Ok(bytes) => decode_doc_ids(bytes).any(|entry| entry == document),
-        Err(_) => false,
-    };
-    let contains_tag = match client.tags_of(document) {
-        Ok(bytes) => bytes.chunks_exact(4).any(|chunk| {
-            let Ok(bytes) = chunk.try_into() else {
-                return false;
-            };
-            u32::from_le_bytes(bytes) == tag
-        }),
-        Err(_) => false,
-    };
-    let listed = match client.tags() {
-        Ok(bytes) => decode_tags(bytes).any(|entry| entry.id == tag && entry.name == "smoke"),
-        Err(_) => false,
-    };
-    let dropped = client.drop_tag(tag).is_ok();
-    let gone = client.tag_members(tag) == Err(STATUS_NOT_FOUND);
-    contains_document && contains_tag && listed && dropped && gone
-}
-
-/// 提交并等待显示服务完成合成。
-#[cfg(target_os = "none")]
-fn commit(endpoint: u64, display: u64, window: u64) {
-    let _ = send(display, DISPLAY_COMMIT, window);
-    loop {
-        let (label, word, _sender) = recv(endpoint);
-        if label == DISPLAY_FRAME_DONE && word == window {
-            return;
-        }
-    }
-}
-
-/// 刷新标题、渲染并提交。
-#[cfg(target_os = "none")]
-fn apply(
-    view: &DocView,
-    font: &Font<'static>,
-    pixels: *mut u32,
-    endpoint: u64,
-    display: u64,
-    window: u64,
-) {
-    let title = format!("HolyDoc: {}", view.title);
-    set_title(display, window, &title);
-    render(view, font, pixels);
-    commit(endpoint, display, window);
-}
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -310,7 +86,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut docs = DocSet::new();
-    let loaded = load_drive_docs(&mut docs, endpoint);
+    let loaded = drive::load(&mut docs, endpoint);
     docs.add_builtin();
     let font = efont_cn_16();
     let pixels = SURFACE_VIRT as *mut u32;
@@ -328,48 +104,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write_u64(view.lines.len() as u64);
     write(b"\n");
     write(b"hk-server-holydoc: drive docs ");
-    write_u64(loaded as u64);
+    write_u64(loaded.documents as u64);
+    write(b"\n");
+    write(b"hk-server-holydoc: tags ");
+    write_u64(loaded.tags as u64);
     write(b"\n");
 
     let mut cmdline_buffer = [0_u8; 128];
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("holydoc-test"));
     if test {
-        if verify_tokens(endpoint) {
-            write(b"hk-server-holydoc: token ok\n");
-        } else {
-            write(b"hk-server-holydoc: token failed\n");
-        }
-        if verify_tags(endpoint) {
-            write(b"hk-server-holydoc: tag ok\n");
-        } else {
-            write(b"hk-server-holydoc: tag failed\n");
-        }
-        if let Some((x, y, target)) = view.first_link() {
-            write(b"hk-server-holydoc: click ");
-            write(target.as_bytes());
-            write(b"\n");
-            if view.link_at(x, y).is_some() && view.open(&docs, &target) {
-                apply(&view, &font, pixels, endpoint, display, window);
-            }
-        }
-        if loaded > 0
-            && let Some(target) = docs.resolve("H:/System/Overview")
-            && view.open(&docs, &target)
-        {
-            apply(&view, &font, pixels, endpoint, display, window);
-        }
-        view.scroll_by(5);
-        apply(&view, &font, pixels, endpoint, display, window);
-        write(b"hk-server-holydoc: scroll ");
-        write_u64(view.scroll as u64);
-        write(b"\n");
-        if view.back(&docs) {
-            apply(&view, &font, pixels, endpoint, display, window);
-        }
-        write(b"hk-server-holydoc: done\n");
-        let _ = send(display, DISPLAY_SHUTDOWN, 0);
-        exit(0)
+        selftest::run(
+            &mut view,
+            &mut docs,
+            &font,
+            pixels,
+            endpoint,
+            display,
+            window,
+            loaded.documents,
+        );
     }
 
     loop {
@@ -404,6 +158,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         true
                     }
                     b'd' => view.open(&docs, INDEX),
+                    b't' => view.open(&docs, TAGS),
                     b'w' | b'h' => view.open(&docs, WELCOME),
                     0x08 => view.back(&docs),
                     b'q' => {

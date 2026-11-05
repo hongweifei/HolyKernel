@@ -1,12 +1,13 @@
-//! HolyDoc 文档模型：H: 卷文档集、内联指令解析、自动换行布局与历史。
+//! HolyDoc 文档模型：H: 卷文档集、标签、布局与历史。
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_server_api::write;
 
 use crate::exec::exec;
+use crate::markup::{call, char_width, doc_name, parse_inline, split_args, title_of};
 
 /// 窗口宽度。
 pub(crate) const WIDTH: usize = 760;
@@ -25,6 +26,8 @@ pub(crate) const WELCOME: &str = "H:/Welcome";
 pub(crate) const HELP: &str = "H:/Help";
 /// 文档索引 DocPath。
 pub(crate) const INDEX: &str = "H:/Index";
+/// 标签索引 DocPath。
+pub(crate) const TAGS: &str = "H:/Tags";
 
 /// 没有卷时的内置页面。
 const BUILTIN: &[(&str, &str)] = &[
@@ -38,11 +41,20 @@ pub(crate) struct DocEntry {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) body: String,
+    pub(crate) document: Option<u128>,
 }
 
-/// 文档集：H: 卷文档与内置页面。
+/// 标签及其成员文档。
+pub(crate) struct DocTag {
+    pub(crate) id: u32,
+    pub(crate) name: String,
+    pub(crate) members: Vec<u128>,
+}
+
+/// 文档集：H: 卷文档、标签与内置页面。
 pub(crate) struct DocSet {
     entries: Vec<DocEntry>,
+    tags: Vec<DocTag>,
 }
 
 impl DocSet {
@@ -50,15 +62,27 @@ impl DocSet {
     pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),
+            tags: Vec::new(),
         }
     }
 
     /// 加入一页文档；DocPath 重复时返回 `false`。
-    pub(crate) fn add(&mut self, id: String, title: String, body: String) -> bool {
+    pub(crate) fn add(
+        &mut self,
+        id: String,
+        title: String,
+        body: String,
+        document: Option<u128>,
+    ) -> bool {
         if self.entries.iter().any(|entry| entry.id == id) {
             return false;
         }
-        self.entries.push(DocEntry { id, title, body });
+        self.entries.push(DocEntry {
+            id,
+            title,
+            body,
+            document,
+        });
         true
     }
 
@@ -69,12 +93,18 @@ impl DocSet {
                 continue;
             }
             let title = title_of(body).unwrap_or_else(|| doc_name(id));
-            self.entries.push(DocEntry {
-                id: String::from(*id),
-                title,
-                body: String::from(*body),
-            });
+            self.add(String::from(*id), title, String::from(*body), None);
         }
+    }
+
+    /// 设置标签视图。
+    pub(crate) fn set_tags(&mut self, tags: Vec<DocTag>) {
+        self.tags = tags;
+    }
+
+    /// 返回标签视图。
+    pub(crate) fn tags(&self) -> &[DocTag] {
+        &self.tags
     }
 
     /// 返回文档集里的全部页面。
@@ -82,15 +112,27 @@ impl DocSet {
         &self.entries
     }
 
-    /// 判断文档集是否包含指定 DocPath。
-    fn contains(&self, id: &str) -> bool {
-        id == INDEX || self.entries.iter().any(|entry| entry.id == id)
+    /// 返回指定文档所属的标签名。
+    pub(crate) fn tags_of(&self, document: u128) -> Vec<&str> {
+        self.tags
+            .iter()
+            .filter(|tag| tag.members.contains(&document))
+            .map(|tag| tag.name.as_str())
+            .collect()
     }
 
-    /// 按 DocPath 取页面；索引按当前集合即时生成。
+    /// 判断文档集是否包含指定 DocPath。
+    fn contains(&self, id: &str) -> bool {
+        id == INDEX || id == TAGS || self.entries.iter().any(|entry| entry.id == id)
+    }
+
+    /// 按 DocPath 取页面；索引与标签页按当前集合即时生成。
     pub(crate) fn page(&self, id: &str) -> Option<DocEntry> {
         if id == INDEX {
             return Some(self.index());
+        }
+        if id == TAGS {
+            return Some(self.tags_page());
         }
         self.entries.iter().find(|entry| entry.id == id).cloned()
     }
@@ -128,11 +170,58 @@ impl DocSet {
                 body.push_str(&format!("@link(\"{}\", \"{}\")\n", entry.id, entry.title));
             }
         }
+        if !self.tags.is_empty() {
+            body.push_str(&format!(
+                "\n@heading(2, \"标签\")\n@link(\"{TAGS}\", \"全部标签（{}）\")\n",
+                self.tags.len()
+            ));
+        }
         DocEntry {
             id: String::from(INDEX),
             title: String::from("文档索引"),
             body,
+            document: None,
         }
+    }
+
+    /// 生成标签索引页面。
+    fn tags_page(&self) -> DocEntry {
+        let mut body = String::from("@title(\"标签\")\nH: 卷中的文档按标签分组。\n");
+        if self.tags.is_empty() {
+            body.push_str("\n暂无标签。\n");
+        }
+        for tag in &self.tags {
+            body.push_str(&format!(
+                "\n@heading(2, \"{}（{}）\")\n",
+                tag.name,
+                tag.members.len()
+            ));
+            if tag.members.is_empty() {
+                body.push_str("@bullet(\"无成员\")\n");
+                continue;
+            }
+            for document in &tag.members {
+                match self.document_path(*document) {
+                    Some(entry) => {
+                        body.push_str(&format!("@link(\"{}\", \"{}\")\n", entry.id, entry.title));
+                    }
+                    None => body.push_str(&format!("@bullet(\"{document:032x}\")\n")),
+                }
+            }
+        }
+        DocEntry {
+            id: String::from(TAGS),
+            title: String::from("标签"),
+            body,
+            document: None,
+        }
+    }
+
+    /// 按文档身份查找已加载的 DocPath。
+    fn document_path(&self, document: u128) -> Option<&DocEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.document == Some(document))
     }
 }
 
@@ -173,6 +262,7 @@ impl DocView {
     /// 从文档集加载一页并布局。
     pub(crate) fn load(set: &DocSet, id: &str, history: Vec<String>) -> Option<Self> {
         let entry = set.page(id)?;
+        let document = entry.document;
         let mut view = Self {
             id: entry.id,
             title: entry.title,
@@ -226,6 +316,19 @@ impl DocView {
                     }
                 }
                 _ => view.push_inline(set, line, Style::Body, false),
+            }
+        }
+        if let Some(document) = document {
+            let tags = set.tags_of(document);
+            if !tags.is_empty() {
+                view.lines.push(Line {
+                    runs: Vec::new(),
+                    code: false,
+                });
+                view.push_wrapped("标签", Style::Heading, false);
+                for name in tags {
+                    view.push_wrapped(&format!("· {name}"), Style::Bullet, false);
+                }
             }
         }
         if view.lines.is_empty() {
@@ -382,74 +485,6 @@ impl DocView {
     }
 }
 
-/// 判断字符宽度（8×16 字体，非 ASCII 视为双宽）。
-pub(crate) fn char_width(character: char) -> usize {
-    if u32::from(character) > 0x7F { 16 } else { 8 }
-}
-
-/// 从 `@title(...)` 提取页面标题。
-pub(crate) fn title_of(body: &str) -> Option<String> {
-    for line in body.lines() {
-        if let Some((name, rest)) = call(line.trim())
-            && name == "title"
-            && let Some(title) = split_args(rest).first()
-        {
-            return Some(title.clone());
-        }
-    }
-    None
-}
-
-/// DocPath 的最后一段，作为缺省标题。
-pub(crate) fn doc_name(path: &str) -> String {
-    path.rsplit('/').next().unwrap_or(path).to_string()
-}
-
-/// 拆分 `@指令` 名称与参数文本。
-fn call(line: &str) -> Option<(&str, &str)> {
-    let rest = line.strip_prefix('@')?;
-    let end = rest
-        .find(|character: char| character == '(' || character.is_whitespace())
-        .unwrap_or(rest.len());
-    if end == 0 {
-        return None;
-    }
-    Some((&rest[..end], rest[end..].trim()))
-}
-
-/// 拆分逗号分隔的参数，保留引号内的逗号，去掉成对引号。
-fn split_args(text: &str) -> Vec<String> {
-    let text = text.trim();
-    let text = text
-        .strip_prefix('(')
-        .and_then(|text| text.strip_suffix(')'))
-        .unwrap_or(text);
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    let mut escaped = false;
-    for character in text.chars() {
-        if escaped {
-            current.push(character);
-            escaped = false;
-            continue;
-        }
-        match character {
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            ',' if !quoted => {
-                args.push(current.trim().to_string());
-                current.clear();
-            }
-            _ => current.push(character),
-        }
-    }
-    if !current.trim().is_empty() || !args.is_empty() {
-        args.push(current.trim().to_string());
-    }
-    args
-}
-
 /// 向当前行追加一个字符，合并同样式片段。
 fn append_run(runs: &mut Vec<Run>, character: char, style: Style, target: Option<String>) {
     if let Some(last) = runs.last_mut()
@@ -466,43 +501,4 @@ fn append_run(runs: &mut Vec<Run>, character: char, style: Style, target: Option
         style,
         target,
     });
-}
-
-/// 解析行内链接写法 `[label](target)`。
-fn parse_inline(set: &DocSet, text: &str, style: Style) -> Vec<Run> {
-    let mut runs = Vec::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('[') {
-        let Some(close_rel) = rest[open..].find("](") else {
-            break;
-        };
-        let close = open + close_rel;
-        let Some(end_rel) = rest[close + 2..].find(')') else {
-            break;
-        };
-        let end = close + 2 + end_rel;
-        if open > 0 {
-            runs.push(Run {
-                text: String::from(&rest[..open]),
-                style,
-                target: None,
-            });
-        }
-        let label = &rest[open + 1..close];
-        let target = set.resolve(&rest[close + 2..end]);
-        runs.push(Run {
-            text: String::from(label),
-            style: Style::Link,
-            target,
-        });
-        rest = &rest[end + 1..];
-    }
-    if !rest.is_empty() {
-        runs.push(Run {
-            text: String::from(rest),
-            style,
-            target: None,
-        });
-    }
-    runs
 }

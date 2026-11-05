@@ -2,7 +2,8 @@
 
 use lovyangfx_fonts::Font;
 
-use crate::document::{DocView, HEIGHT, LINE_HEIGHT, MARGIN, Style, WIDTH, char_width};
+use crate::document::{DocView, HEIGHT, LINE_HEIGHT, MARGIN, Style, WIDTH};
+use crate::markup::char_width;
 
 /// 纸张背景色。
 const PAPER: u32 = 0x00F6_F1E7;
@@ -13,7 +14,7 @@ const HEADER: u32 = 0x0040_6080;
 /// 链接颜色。
 const LINK: u32 = 0x0030_6090;
 /// 代码背景色。
-const CODE_BG: u32 = 0x00E8_E2_D6;
+const CODE_BG: u32 = 0x00E8_E2D6;
 /// 代码文字颜色。
 const CODE_INK: u32 = 0x0060_4030;
 

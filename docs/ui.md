@@ -47,6 +47,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - HolyDoc 启动落在欢迎页：欢迎页展示版本、民用时间、系统 tick 与文档清单，并提供文档索引与帮助页；`d` 打开索引，`w`/`h` 回到欢迎页，`Backspace` 返回上一页。
 - 文档浏览：HolyDoc 启动时按 `H:` 盘符枚举根集合，把集合成员与子集合递归加载为文档页；内容文档整篇读入，集合页把成员显示为 DocPath 链接。文档标题取自 `@title` 指令，链接在文档集内解析并可直接跳转。没有卷时使用内置欢迎页与帮助页。
 - HolyDoc 文档由文本与内联指令组成：`@title`、`@heading`、`@link`、`@bullet`、`@code` 与 `@exec`；正文按 8×16 位图字体排版，ASCII 半宽、汉字全宽。
+- HolyDoc 标签：启动时读取 H: 卷标签表，文档页追加所属标签；`H:/Tags` 按标签分组列出成员，按 `t` 打开，`@exec tags` 输出标签列表。
 - `desktop` 启动模式装载 virtio-blk 驱动与 VFS，并以 `vfs.fs=holyfs` 挂载 `H:` 卷；`cargo xtask run --target x86_64-qemu --ui` 会把 `docs/holy` 的文档播种到 `build/run-holy.img`。
 - Debug Server：调试窗口展示内核线程/对象/就绪/trace 计数、调度 tick、TSC 频率、本任务句柄与 Display 在线状态；`r` 刷新，`q` 或关闭退出。`smoke --mode debug` 验证统计读取与渲染。
 - Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
