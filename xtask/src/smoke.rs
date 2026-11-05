@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 use hk_hal::CivilTime;
 use hk_vfs::Backend;
-use qmp::{inject, inject_key, inject_pointer};
+use qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
 
 use crate::failure::{Failure, Result};
 use crate::target::{Selection, Target};
@@ -322,6 +322,7 @@ impl SmokeMode {
             ],
             Self::Pointer => &[
                 "hk-server-input: ready",
+                "hk-server-display: drag 1",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",
             ],
@@ -511,6 +512,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
     if mode == SmokeMode::Pointer {
         thread::sleep(Duration::from_secs(5));
+        // 1280x800 下窗口位于 440,240（400x300），标题栏中心约 640,250。
+        inject_pointer_drag(&socket, 0x3FFF, 0x27FF, 0x4666, 0x27FF)?;
+        thread::sleep(Duration::from_millis(300));
         inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));

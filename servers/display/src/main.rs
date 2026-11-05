@@ -99,6 +99,16 @@ struct Window {
     title_length: usize,
 }
 
+/// 正在拖动的窗口。
+#[cfg(target_os = "none")]
+#[derive(Clone, Copy)]
+struct Drag {
+    id: u64,
+    offset_x: usize,
+    offset_y: usize,
+    moved: bool,
+}
+
 #[cfg(target_os = "none")]
 struct Screen {
     base: *mut u32,
@@ -176,20 +186,15 @@ fn draw_cursor(screen: &Screen, x: usize, y: usize) {
     }
 }
 
-/// 返回指定点最上层窗口的编号。
+/// 返回指定点最上层窗口。
 #[cfg(target_os = "none")]
-fn hit_test(windows: &[Option<Window>; MAX_WINDOWS], x: usize, y: usize) -> Option<u64> {
-    windows
-        .iter()
-        .rev()
-        .flatten()
-        .find(|window| {
-            x >= window.x
-                && x < window.x + window.width
-                && y >= window.y
-                && y < window.y + window.height + TITLE_HEIGHT
-        })
-        .map(|window| window.id)
+fn window_at(windows: &[Option<Window>; MAX_WINDOWS], x: usize, y: usize) -> Option<Window> {
+    windows.iter().rev().flatten().copied().find(|window| {
+        x >= window.x
+            && x < window.x + window.width
+            && y >= window.y
+            && y < window.y + window.height + TITLE_HEIGHT
+    })
 }
 
 /// 在给定矩形内绘制一个窗口：标题栏、标题文字与表面。
@@ -391,6 +396,51 @@ fn damage_title(
     }
 }
 
+/// 把窗口移动到新的左上角，并重绘旧、新两个区域。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn move_window(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    old: Window,
+    x: usize,
+    y: usize,
+) {
+    let Some(window) = windows
+        .iter_mut()
+        .flatten()
+        .find(|window| window.id == old.id)
+    else {
+        return;
+    };
+    window.x = x;
+    window.y = y;
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        None,
+        old.x,
+        old.y,
+        old.width,
+        old.height + TITLE_HEIGHT,
+    );
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        None,
+        x,
+        y,
+        old.width,
+        old.height + TITLE_HEIGHT,
+    );
+}
+
 /// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
 #[cfg(target_os = "none")]
 fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
@@ -479,6 +529,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut focus = 0_u64;
     let mut driver_input = false;
     let mut pointer: Option<(usize, usize)> = None;
+    let mut drag: Option<Drag> = None;
     loop {
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
         if !driver_input {
@@ -584,6 +635,34 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         CURSOR_HEIGHT + 1,
                     );
                 }
+                if let Some(state) = drag
+                    && let Some(window) = windows
+                        .iter()
+                        .flatten()
+                        .find(|window| window.id == state.id)
+                        .copied()
+                {
+                    let max_x = screen.width.saturating_sub(window.width);
+                    let max_y = screen.height.saturating_sub(window.height + TITLE_HEIGHT);
+                    let new_x = next.0.saturating_sub(state.offset_x).min(max_x);
+                    let new_y = next.1.saturating_sub(state.offset_y).min(max_y);
+                    if (new_x, new_y) != (window.x, window.y) {
+                        move_window(&screen, &mut windows, focus, &font, window, new_x, new_y);
+                        if !state.moved {
+                            drag = Some(Drag {
+                                moved: true,
+                                ..state
+                            });
+                            write(b"hk-server-display: drag ");
+                            write_u64(state.id);
+                            write(b" ");
+                            write_u64(new_x as u64);
+                            write(b",");
+                            write_u64(new_y as u64);
+                            write(b"\n");
+                        }
+                    }
+                }
                 pointer = Some(next);
                 compose_region(
                     &screen,
@@ -598,11 +677,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 );
             }
             INPUT_BUTTON => {
-                if word != 0
-                    && let Some((x, y)) = pointer
-                {
+                if word == 0 {
+                    drag = None;
+                    continue;
+                }
+                drag = None;
+                if let Some((x, y)) = pointer {
                     let old_focus = focus;
-                    if let Some(id) = hit_test(&windows, x, y) {
+                    if let Some(window) = window_at(&windows, x, y) {
+                        let id = window.id;
                         raise(&mut windows, id);
                         focus = id;
                         if let Some(window) = windows
@@ -625,13 +708,23 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             CURSOR_WIDTH + 1,
                             CURSOR_HEIGHT + 1,
                         );
-                        write(b"hk-server-display: pointer click ");
-                        write_u64(id);
-                        write(b"\n");
-                        if let Some(window) =
-                            windows.iter().flatten().find(|window| window.id == id)
-                        {
-                            let _ = send(window.client, DISPLAY_CLICK, id);
+                        let on_title = y >= window.y && y < window.y + TITLE_HEIGHT;
+                        if on_title {
+                            drag = Some(Drag {
+                                id,
+                                offset_x: x - window.x,
+                                offset_y: y - window.y,
+                                moved: false,
+                            });
+                        } else {
+                            write(b"hk-server-display: pointer click ");
+                            write_u64(id);
+                            write(b"\n");
+                            if let Some(window) =
+                                windows.iter().flatten().find(|window| window.id == id)
+                            {
+                                let _ = send(window.client, DISPLAY_CLICK, id);
+                            }
                         }
                     }
                 }
