@@ -36,7 +36,7 @@ HolyShell 是原生命令行与脚本环境。**Holy 命令是主路径**；POSI
 - **用户态 Shell**：独立服务 `hk-server-shell`，通过 Console 协议读写行；`tasks`/`services`/`handles`/`trace`/`stats`/`start`/`restart`/脚本读取走 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`），由 Root Server 校验调用者并执行；`mounts` 直接查询 VFS 服务的只读挂载表，不建立共享 Frame。Shell 服务不链接 `hk-runtime`、`hk-root-server` 或平台代码。
 - **Console 不是 Shell**：Console 只做终端行编辑、回显与按行交付；命令处理只存在于上述两类 Shell。
 - **共享边界**：`hk-shell` 仅保留中立解析、格式化与 `ShellHost`/`ShellIo` 契约；内核态与用户态各自实现宿主，互不注入对方能力。
-- **宿主扩展命令**：只在某一端存在的功能（如用户态 `mounts`、内核态 `net`）不进入 `hk-shell` 核心命令表，由对应宿主实现 `ShellHost::extension`，并通过 `help_extra` 追加帮助。核心 `help` 只列出跨宿主命令。
+- **宿主扩展命令**：只在某一端存在的功能（如用户态 `mounts` 与标签命令、内核态 `net`）不进入 `hk-shell` 核心命令表，由对应宿主实现 `ShellHost::extension`，并通过 `help_extra` 追加帮助。核心 `help` 只列出跨宿主命令。
 - **启动握手**：用户态 Shell 发送 `CONSOLE_PING`，收到 `CONSOLE_PONG` 后才写提示符，避免 Console 接收循环尚未就绪时丢消息。
 
 ---
@@ -132,6 +132,11 @@ holy> debug app
 | `handles` | 列出当前 Task 的 Handle |
 | `endpoints` | 列出 Endpoint/Notification |
 | `mounts` | 查看 VFS 挂载表（用户态 Shell 扩展） |
+| `tags` | 列出 H: 卷标签（用户态 Shell 扩展） |
+| `tag` / `untag` | 把文档加入或移出标签 |
+| `tags-of` | 列出文档所属标签 |
+| `tag-members` | 列出标签成员 |
+| `tag-create` / `tag-drop` | 创建或删除标签 |
 | `trace` | 查看最近的内核 trace 事件（含句柄审计） |
 | `stats` | 查看上下文切换与 IPC call/reply 时延统计 |
 | `docs` | 列出/搜索 HolyDoc |

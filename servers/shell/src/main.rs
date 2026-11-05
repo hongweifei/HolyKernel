@@ -10,6 +10,9 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+mod tags;
+
+#[cfg(target_os = "none")]
 use alloc::format;
 #[cfg(target_os = "none")]
 use alloc::string::{String, ToString};
@@ -49,7 +52,7 @@ const HANDSHAKE_ATTEMPTS: usize = 4096;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 32 * 1024;
+const HEAP_SIZE: usize = 256 * 1024;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -108,15 +111,17 @@ impl ShellHost for UserHost {
         root_text(ROOT_OP_RESTART, name)
     }
 
-    fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
+    fn extension(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
             "mounts" => Some(mount_text(self.endpoint)),
-            _ => None,
+            _ => tags::extension(self.endpoint, name, args),
         }
     }
 
     fn help_extra(&self) -> String {
-        String::from("扩展：mounts\n")
+        String::from(
+            "扩展：mounts\n标签：tags、tag <路径> <编号>、untag <路径> <编号>、tags-of <路径>、tag-members <编号>、tag-create <名字>、tag-drop <编号>\n",
+        )
     }
 
     fn script(&self, name: &str) -> Result<String, String> {
