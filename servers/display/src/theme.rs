@@ -57,16 +57,30 @@ static LIGHT: Theme = Theme {
 };
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
+static SCALE: AtomicUsize = AtomicUsize::new(1);
 
-/// 按启动命令行选择主题，返回主题名称。
+/// 按启动命令行选择主题与界面缩放，返回主题名称。
 pub(crate) fn select(cmdline: Option<&str>) -> &'static str {
-    if cmdline.is_some_and(|line| line.contains("theme=light")) {
+    let line = cmdline.unwrap_or("");
+    let mut scale = 1;
+    for part in line.split_whitespace() {
+        if let Some(value) = part.strip_prefix("ui.scale=") {
+            scale = value.parse().unwrap_or(1).clamp(1, 2);
+        }
+    }
+    SCALE.store(scale, Ordering::Relaxed);
+    if line.contains("theme=light") {
         CURRENT.store(1, Ordering::Relaxed);
         "light"
     } else {
         CURRENT.store(0, Ordering::Relaxed);
         "dark"
     }
+}
+
+/// 界面缩放倍率。
+pub(crate) fn scale() -> usize {
+    SCALE.load(Ordering::Relaxed).clamp(1, 2)
 }
 
 /// 返回当前主题。

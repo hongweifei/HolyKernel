@@ -2,11 +2,11 @@
 
 use lovyangfx_fonts::Font;
 
-use crate::theme::theme;
+use crate::theme::{scale, theme};
 use crate::window::{
-    CLOSE_SIZE, MAX_WINDOWS, RESIZE_SIZE, Screen, TASKBAR_BUTTON_HEIGHT, TASKBAR_BUTTON_WIDTH,
-    TASKBAR_HEIGHT, TITLE_HEIGHT, Window, close_button_origin, taskbar_button_top,
-    taskbar_button_x, taskbar_top,
+    MAX_WINDOWS, Screen, Window, close_button_origin, close_size, maximize_button_origin,
+    minimize_button_origin, resize_size, taskbar_button_height, taskbar_button_top,
+    taskbar_button_width, taskbar_button_x, taskbar_height, taskbar_top, title_height,
 };
 
 /// 光标宽度。
@@ -105,6 +105,9 @@ fn paint_window(
     right: usize,
     bottom: usize,
 ) {
+    if window.minimized {
+        return;
+    }
     let palette = theme();
     let window_x = window.x;
     let window_y = window.y;
@@ -112,7 +115,7 @@ fn paint_window(
     let title_left = window_x.max(left);
     let title_right = (window_x + window.width).min(right);
     let title_top = window_y.max(top);
-    let title_bottom = (window_y + TITLE_HEIGHT).min(bottom);
+    let title_bottom = (window_y + title_height()).min(bottom);
     if title_left < title_right && title_top < title_bottom {
         let color = if window.id == focus {
             palette.title_focus
@@ -124,40 +127,41 @@ fn paint_window(
                 screen.put(column, row, color);
             }
         }
-        let mut pen_x = window_x as i32 + 4;
+        let font_scale = scale() as i32;
+        let mut pen_x = window_x as i32 + 4 * font_scale;
         for &byte in &window.title[..window.title_length] {
             if !(0x20..0x7F).contains(&byte) {
-                pen_x += 8;
+                pen_x += 8 * font_scale;
                 continue;
             }
-            if pen_x + 8 > (window_x + window.width) as i32 {
+            if pen_x + 8 * font_scale > (window_x + window.width) as i32 {
                 break;
             }
             if let Some(glyph) = font.glyph(byte as char) {
-                let origin_y = window_y as i32 + 4;
+                let origin_y = window_y as i32 + 4 * font_scale;
                 glyph.for_each_pixel(|x, y| {
-                    let pixel_x = pen_x + x;
-                    let pixel_y = origin_y + y;
+                    let pixel_x = pen_x + x * font_scale;
+                    let pixel_y = origin_y + y * font_scale;
                     if pixel_x >= left as i32
                         && pixel_x < right as i32
                         && pixel_y >= top as i32
                         && pixel_y < bottom as i32
-                        && pixel_y < (window_y + TITLE_HEIGHT) as i32
+                        && pixel_y < (window_y + title_height()) as i32
                     {
                         screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
                     }
                 });
             }
-            pen_x += 8;
+            pen_x += 8 * font_scale;
         }
         let (close_x, close_y) = close_button_origin(window);
-        for offset in 0..CLOSE_SIZE {
+        for offset in 0..close_size() {
             let row = close_y + offset;
-            if row < top || row >= bottom || row >= window_y + TITLE_HEIGHT {
+            if row < top || row >= bottom || row >= window_y + title_height() {
                 continue;
             }
             let left_pixel = close_x + offset;
-            let right_pixel = close_x + (CLOSE_SIZE - 1 - offset);
+            let right_pixel = close_x + (close_size() - 1 - offset);
             if left_pixel >= left && left_pixel < right {
                 screen.put(left_pixel, row, palette.title_close);
             }
@@ -165,14 +169,46 @@ fn paint_window(
                 screen.put(right_pixel, row, palette.title_close);
             }
         }
+
+        let (maximize_x, maximize_y) = maximize_button_origin(window);
+        let (minimize_x, minimize_y) = minimize_button_origin(window);
+        let inside = |x: usize, y: usize| {
+            x >= left && x < right && y >= top && y < bottom && y < window_y + title_height()
+        };
+        let button_bottom = maximize_y + close_size() - 1;
+        for offset in 0..close_size() {
+            let x = maximize_x + offset;
+            if inside(x, maximize_y) {
+                screen.put(x, maximize_y, palette.title_text);
+            }
+            if inside(x, button_bottom) {
+                screen.put(x, button_bottom, palette.title_text);
+            }
+        }
+        for offset in 0..close_size() {
+            let y = maximize_y + offset;
+            if inside(maximize_x, y) {
+                screen.put(maximize_x, y, palette.title_text);
+            }
+            if inside(maximize_x + close_size() - 1, y) {
+                screen.put(maximize_x + close_size() - 1, y, palette.title_text);
+            }
+        }
+        let minimize_line = minimize_y + close_size() / 2;
+        for offset in 2..close_size() - 2 {
+            let x = minimize_x + offset;
+            if inside(x, minimize_line) {
+                screen.put(x, minimize_line, palette.title_text);
+            }
+        }
     }
 
     let body_left = window_x.max(left);
     let body_right = (window_x + window.width).min(right);
-    let body_top = (window_y + TITLE_HEIGHT).max(top);
-    let body_bottom = (window_y + TITLE_HEIGHT + window.height).min(bottom);
+    let body_top = (window_y + title_height()).max(top);
+    let body_bottom = (window_y + title_height() + window.height).min(bottom);
     for row in body_top..body_bottom {
-        let source_row = row - (window_y + TITLE_HEIGHT);
+        let source_row = row - (window_y + title_height());
         for column in body_left..body_right {
             screen.put(
                 column,
@@ -184,14 +220,14 @@ fn paint_window(
 
     let right = window_x.saturating_add(window.width);
     let bottom = window_y
-        .saturating_add(TITLE_HEIGHT)
+        .saturating_add(title_height())
         .saturating_add(window.height);
-    for row in 0..RESIZE_SIZE {
+    for row in 0..resize_size() {
         let y = bottom.saturating_sub(1 + row);
         if y < top || y >= bottom {
             continue;
         }
-        for column in 0..RESIZE_SIZE - row {
+        for column in 0..resize_size() - row {
             let x = right.saturating_sub(1 + column);
             if x >= left && x < right {
                 screen.put(x, y, palette.resize_handle);
@@ -227,7 +263,7 @@ fn paint_taskbar(
     }
 
     let button_top = taskbar_button_top(screen.height);
-    if button_top >= bottom || button_top + TASKBAR_BUTTON_HEIGHT <= top {
+    if button_top >= bottom || button_top + taskbar_button_height() <= top {
         return;
     }
     for (index, window) in windows.iter().flatten().enumerate() {
@@ -235,37 +271,38 @@ fn paint_taskbar(
         if button_x >= screen.width {
             break;
         }
-        let button_width = TASKBAR_BUTTON_WIDTH.min(screen.width - button_x);
+        let button_width = taskbar_button_width().min(screen.width - button_x);
         let color = if window.id == focus {
             palette.taskbar_active
         } else {
             palette.taskbar_button
         };
         let fill_top = button_top.max(top);
-        let fill_bottom = (button_top + TASKBAR_BUTTON_HEIGHT).min(bottom);
+        let fill_bottom = (button_top + taskbar_button_height()).min(bottom);
         for row in fill_top..fill_bottom {
             for column in button_x.max(left)..(button_x + button_width).min(right) {
                 screen.put(column, row, color);
             }
         }
 
-        let mut pen_x = button_x as i32 + 6;
-        let text_end = (button_x + button_width) as i32 - 6;
+        let font_scale = scale() as i32;
+        let mut pen_x = button_x as i32 + 6 * font_scale;
+        let text_end = (button_x + button_width) as i32 - 6 * font_scale;
         let title: &[u8] = if window.title_length == 0 {
             b"window"
         } else {
             &window.title[..window.title_length]
         };
         for &byte in title {
-            if pen_x + 8 > text_end {
+            if pen_x + 8 * font_scale > text_end {
                 break;
             }
             if (0x20..0x7F).contains(&byte) {
                 if let Some(glyph) = font.glyph(byte as char) {
-                    let origin_y = button_top as i32 + 2;
+                    let origin_y = button_top as i32 + 2 * font_scale;
                     glyph.for_each_pixel(|x, y| {
-                        let pixel_x = pen_x + x;
-                        let pixel_y = origin_y + y;
+                        let pixel_x = pen_x + x * font_scale;
+                        let pixel_y = origin_y + y * font_scale;
                         if pixel_x >= left as i32
                             && pixel_x < right as i32
                             && pixel_y >= top as i32
@@ -278,7 +315,7 @@ fn paint_taskbar(
                     });
                 }
             }
-            pen_x += 8;
+            pen_x += 8 * font_scale;
         }
     }
 }
@@ -354,7 +391,7 @@ pub(crate) fn damage_window(
         window.x,
         window.y,
         window.width,
-        window.height + TITLE_HEIGHT,
+        window.height + title_height(),
     );
 }
 
@@ -376,7 +413,7 @@ pub(crate) fn damage_taskbar(
         0,
         taskbar_top(screen.height),
         screen.width,
-        TASKBAR_HEIGHT,
+        taskbar_height(),
     );
 }
 
@@ -408,7 +445,7 @@ pub(crate) fn damage_title(
             window.x,
             window.y,
             window.width,
-            TITLE_HEIGHT,
+            title_height(),
         );
     }
 }
@@ -434,6 +471,7 @@ pub(crate) fn move_window(
     };
     window.x = x;
     window.y = y;
+    window.restore = None;
     compose_region(
         screen,
         windows,
@@ -443,7 +481,7 @@ pub(crate) fn move_window(
         old.x,
         old.y,
         old.width,
-        old.height + TITLE_HEIGHT,
+        old.height + title_height(),
     );
     compose_region(
         screen,
@@ -454,7 +492,7 @@ pub(crate) fn move_window(
         x,
         y,
         old.width,
-        old.height + TITLE_HEIGHT,
+        old.height + title_height(),
     );
 }
 
@@ -479,6 +517,7 @@ pub(crate) fn resize_window(
     };
     window.width = width;
     window.height = height;
+    window.restore = None;
     compose_region(
         screen,
         windows,
@@ -488,7 +527,7 @@ pub(crate) fn resize_window(
         old.x,
         old.y,
         old.width,
-        old.height + TITLE_HEIGHT,
+        old.height + title_height(),
     );
     compose_region(
         screen,
@@ -499,6 +538,6 @@ pub(crate) fn resize_window(
         old.x,
         old.y,
         width,
-        height + TITLE_HEIGHT,
+        height + title_height(),
     );
 }

@@ -2,6 +2,8 @@
 
 use hk_server_api::display::TITLE_MAX;
 
+use crate::theme::scale;
+
 /// 最多同时合成的窗口数。
 #[cfg(target_os = "none")]
 pub(crate) const MAX_WINDOWS: usize = 8;
@@ -29,6 +31,10 @@ pub(crate) const MIN_WINDOW_HEIGHT: usize = 80;
 /// 缩放把手尺寸。
 #[cfg(target_os = "none")]
 pub(crate) const RESIZE_SIZE: usize = 12;
+
+/// 标题栏按钮间距。
+#[cfg(target_os = "none")]
+pub(crate) const TITLE_BUTTON_GAP: usize = 4;
 
 /// 标题栏关闭按钮尺寸。
 #[cfg(target_os = "none")]
@@ -61,19 +67,19 @@ pub(crate) const TASKBAR_GAP: usize = 6;
 /// 任务栏顶边。
 #[cfg(target_os = "none")]
 pub(crate) fn taskbar_top(height: usize) -> usize {
-    height.saturating_sub(TASKBAR_HEIGHT)
+    height.saturating_sub(taskbar_height())
 }
 
 /// 任务栏按钮左边界。
 #[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_x(index: usize) -> usize {
-    TASKBAR_MARGIN + index * (TASKBAR_BUTTON_WIDTH + TASKBAR_GAP)
+    taskbar_margin() + index * (taskbar_button_width() + taskbar_gap())
 }
 
 /// 任务栏按钮上边界。
 #[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_top(height: usize) -> usize {
-    taskbar_top(height) + (TASKBAR_HEIGHT - TASKBAR_BUTTON_HEIGHT) / 2
+    taskbar_top(height) + (taskbar_height() - taskbar_button_height()) / 2
 }
 
 /// 返回任务栏按钮对应的窗口编号。
@@ -86,7 +92,7 @@ pub(crate) fn taskbar_at(
     height: usize,
 ) -> Option<u64> {
     let top = taskbar_button_top(height);
-    if y < top || y >= top + TASKBAR_BUTTON_HEIGHT {
+    if y < top || y >= top + taskbar_button_height() {
         return None;
     }
     windows
@@ -95,8 +101,68 @@ pub(crate) fn taskbar_at(
         .enumerate()
         .find_map(|(index, window)| {
             let left = taskbar_button_x(index);
-            (left < width && x >= left && x < left + TASKBAR_BUTTON_WIDTH).then_some(window.id)
+            (left < width && x >= left && x < left + taskbar_button_width()).then_some(window.id)
         })
+}
+
+/// 标题栏高度（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn title_height() -> usize {
+    TITLE_HEIGHT * scale()
+}
+
+/// 任务栏高度（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_height() -> usize {
+    TASKBAR_HEIGHT * scale()
+}
+
+/// 任务栏留白（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_margin() -> usize {
+    TASKBAR_MARGIN * scale()
+}
+
+/// 任务栏按钮宽度（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_button_width() -> usize {
+    TASKBAR_BUTTON_WIDTH * scale()
+}
+
+/// 任务栏按钮高度（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_button_height() -> usize {
+    TASKBAR_BUTTON_HEIGHT * scale()
+}
+
+/// 任务栏按钮间距（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn taskbar_gap() -> usize {
+    TASKBAR_GAP * scale()
+}
+
+/// 标题栏按钮尺寸（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn close_size() -> usize {
+    CLOSE_SIZE * scale()
+}
+
+/// 标题栏按钮右边距（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn close_margin() -> usize {
+    CLOSE_MARGIN * scale()
+}
+
+/// 标题栏按钮间距（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn title_gap() -> usize {
+    TITLE_BUTTON_GAP * scale()
+}
+
+/// 缩放把手尺寸（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn resize_size() -> usize {
+    RESIZE_SIZE * scale()
 }
 
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
@@ -115,6 +181,8 @@ pub(crate) struct Window {
     pub(crate) client: u64,
     pub(crate) title: [u8; TITLE_MAX],
     pub(crate) title_length: usize,
+    pub(crate) restore: Option<(usize, usize, usize, usize)>,
+    pub(crate) minimized: bool,
 }
 
 /// 正在缩放的窗口。
@@ -174,18 +242,46 @@ pub(crate) fn close_button_origin(window: &Window) -> (usize, usize) {
     let left = window
         .x
         .saturating_add(window.width)
-        .saturating_sub(CLOSE_SIZE + CLOSE_MARGIN + 2);
+        .saturating_sub(close_size() + close_margin() + 2 * scale());
     let top = window
         .y
-        .saturating_add(TITLE_HEIGHT.saturating_sub(CLOSE_SIZE) / 2);
+        .saturating_add(title_height().saturating_sub(close_size()) / 2);
     (left, top)
+}
+
+/// 最大化/还原按钮左上角。
+#[cfg(target_os = "none")]
+pub(crate) fn maximize_button_origin(window: &Window) -> (usize, usize) {
+    let (close_x, top) = close_button_origin(window);
+    (close_x.saturating_sub(CLOSE_SIZE + TITLE_BUTTON_GAP), top)
+}
+
+/// 最小化按钮左上角。
+#[cfg(target_os = "none")]
+pub(crate) fn minimize_button_origin(window: &Window) -> (usize, usize) {
+    let (maximize_x, top) = maximize_button_origin(window);
+    (maximize_x.saturating_sub(close_size() + title_gap()), top)
 }
 
 /// 指定点是否命中窗口的关闭按钮。
 #[cfg(target_os = "none")]
 pub(crate) fn close_at(window: &Window, x: usize, y: usize) -> bool {
     let (left, top) = close_button_origin(window);
-    x >= left && x < left + CLOSE_SIZE && y >= top && y < top + CLOSE_SIZE
+    x >= left && x < left + close_size() && y >= top && y < top + close_size()
+}
+
+/// 指定点是否命中最大化/还原按钮。
+#[cfg(target_os = "none")]
+pub(crate) fn maximize_at(window: &Window, x: usize, y: usize) -> bool {
+    let (left, top) = maximize_button_origin(window);
+    x >= left && x < left + close_size() && y >= top && y < top + close_size()
+}
+
+/// 指定点是否命中最小化按钮。
+#[cfg(target_os = "none")]
+pub(crate) fn minimize_at(window: &Window, x: usize, y: usize) -> bool {
+    let (left, top) = minimize_button_origin(window);
+    x >= left && x < left + close_size() && y >= top && y < top + close_size()
 }
 
 /// 指定点是否命中窗口右下角的缩放把手。
@@ -194,11 +290,11 @@ pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> bool {
     let right = window.x.saturating_add(window.width);
     let bottom = window
         .y
-        .saturating_add(TITLE_HEIGHT)
+        .saturating_add(title_height())
         .saturating_add(window.height);
-    x >= right.saturating_sub(RESIZE_SIZE)
+    x >= right.saturating_sub(resize_size())
         && x < right
-        && y >= bottom.saturating_sub(RESIZE_SIZE)
+        && y >= bottom.saturating_sub(resize_size())
         && y < bottom
 }
 
@@ -209,12 +305,18 @@ pub(crate) fn window_at(
     x: usize,
     y: usize,
 ) -> Option<Window> {
-    windows.iter().rev().flatten().copied().find(|window| {
-        x >= window.x
-            && x < window.x + window.width
-            && y >= window.y
-            && y < window.y + window.height + TITLE_HEIGHT
-    })
+    windows
+        .iter()
+        .rev()
+        .flatten()
+        .filter(|window| !window.minimized)
+        .copied()
+        .find(|window| {
+            x >= window.x
+                && x < window.x + window.width
+                && y >= window.y
+                && y < window.y + window.height + title_height()
+        })
 }
 
 /// 把窗口提升到 z 序顶部。

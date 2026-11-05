@@ -40,14 +40,126 @@ mod theme;
 mod window;
 #[cfg(target_os = "none")]
 use window::{
-    Drag, MAX_WINDOWS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, Resize, Screen, TASKBAR_HEIGHT,
-    TITLE_HEIGHT, WINDOW_BASE, WINDOW_STRIDE, Window, close_at, raise, resize_at, taskbar_at,
-    taskbar_top, window_at,
+    Drag, MAX_WINDOWS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, Resize, Screen, WINDOW_BASE,
+    WINDOW_STRIDE, Window, close_at, maximize_at, minimize_at, raise, resize_at, taskbar_at,
+    taskbar_height, taskbar_top, title_height, window_at,
 };
 
 /// Tab 键字节：切换焦点。
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
+
+/// 最小化窗口并把焦点交给剩余最上层窗口。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn minimize_window(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: &mut u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+    id: u64,
+) {
+    let Some(window) = windows.iter_mut().flatten().find(|window| window.id == id) else {
+        return;
+    };
+    window.minimized = true;
+    let old = *window;
+    let previous = *focus;
+    if previous == id {
+        *focus = windows
+            .iter()
+            .flatten()
+            .filter(|window| !window.minimized)
+            .last()
+            .map(|window| window.id)
+            .unwrap_or(0);
+    }
+    compose_region(
+        screen,
+        windows,
+        *focus,
+        font,
+        pointer,
+        old.x,
+        old.y,
+        old.width,
+        old.height + title_height(),
+    );
+    damage_title(screen, windows, *focus, font, pointer, previous);
+    damage_taskbar(screen, windows, *focus, font, pointer);
+    write(b"hk-server-display: minimize ");
+    write_u64(id);
+    write(b"\n");
+}
+
+/// 最大化或还原窗口。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn toggle_maximize(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font<'static>,
+    pointer: Option<(usize, usize)>,
+    id: u64,
+) {
+    let desktop_height = screen.height.saturating_sub(taskbar_height());
+    let Some(window) = windows.iter_mut().flatten().find(|window| window.id == id) else {
+        return;
+    };
+    let old = *window;
+    let maximized = if let Some((x, y, width, height)) = window.restore.take() {
+        window.x = x;
+        window.y = y;
+        window.width = width;
+        window.height = height;
+        false
+    } else {
+        window.restore = Some((old.x, old.y, old.width, old.height));
+        window.x = 0;
+        window.y = 0;
+        window.width = screen.width;
+        window.height = desktop_height.saturating_sub(title_height());
+        true
+    };
+    let new = *window;
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        pointer,
+        old.x,
+        old.y,
+        old.width,
+        old.height + title_height(),
+    );
+    compose_region(
+        screen,
+        windows,
+        focus,
+        font,
+        pointer,
+        new.x,
+        new.y,
+        new.width,
+        new.height + title_height(),
+    );
+    damage_title(screen, windows, focus, font, pointer, id);
+    damage_taskbar(screen, windows, focus, font, pointer);
+    write(if maximized {
+        b"hk-server-display: maximize ".as_slice()
+    } else {
+        b"hk-server-display: restore ".as_slice()
+    });
+    write_u64(id);
+    write(b" ");
+    write_u64(new.width as u64);
+    write(b"x");
+    write_u64(new.height as u64);
+    write(b"\n");
+}
 
 /// 关闭窗口：回收共享表面、通知客户端并更新焦点与任务栏。
 #[cfg(target_os = "none")]
@@ -96,7 +208,7 @@ fn close_window(
         window.x,
         window.y,
         window.width,
-        window.height + TITLE_HEIGHT,
+        window.height + title_height(),
     );
     damage_title(screen, windows, *focus, font, pointer, previous);
     damage_taskbar(screen, windows, *focus, font, pointer);
@@ -122,17 +234,28 @@ fn cycle_focus(
     font: &Font<'static>,
     pointer: Option<(usize, usize)>,
 ) {
-    let count = windows.iter().flatten().count();
+    let count = windows
+        .iter()
+        .flatten()
+        .filter(|window| !window.minimized)
+        .count();
     if count == 0 {
         return;
     }
     let position = windows
         .iter()
         .flatten()
+        .filter(|window| !window.minimized)
         .position(|window| window.id == *focus)
         .unwrap_or(count - 1);
     let next = (position + 1) % count;
-    let Some(id) = windows.iter().flatten().nth(next).map(|window| window.id) else {
+    let Some(id) = windows
+        .iter()
+        .flatten()
+        .filter(|window| !window.minimized)
+        .nth(next)
+        .map(|window| window.id)
+    else {
         return;
     };
     let previous = *focus;
@@ -186,6 +309,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
     write(b"hk-server-display: theme ");
     write(theme_name.as_bytes());
+    write(b"\n");
+    write(b"hk-server-display: scale ");
+    write_u64(theme::scale() as u64);
     write(b"\n");
     draw_desktop(&screen);
     write(b"hk-server-display: ready ");
@@ -261,12 +387,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     .saturating_div(2)
                     .saturating_add(offset)
                     .min(screen.width.saturating_sub(width));
-                let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
+                let desktop_height = screen.height.saturating_sub(taskbar_height());
                 let y = desktop_height
-                    .saturating_sub(height + TITLE_HEIGHT)
+                    .saturating_sub(height + title_height())
                     .saturating_div(2)
                     .saturating_add(offset)
-                    .min(desktop_height.saturating_sub(height + TITLE_HEIGHT));
+                    .min(desktop_height.saturating_sub(height + title_height()));
                 let previous = focus;
                 windows[slot] = Some(Window {
                     id,
@@ -281,6 +407,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     client: sender,
                     title: [0; TITLE_MAX],
                     title_length: 0,
+                    restore: None,
+                    minimized: false,
                 });
                 next_id += 1;
                 focus = id;
@@ -318,9 +446,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .copied()
                 {
                     let max_width = screen.width.saturating_sub(window.x).max(MIN_WINDOW_WIDTH);
-                    let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
+                    let desktop_height = screen.height.saturating_sub(taskbar_height());
                     let max_height = desktop_height
-                        .saturating_sub(window.y + TITLE_HEIGHT)
+                        .saturating_sub(window.y + title_height())
                         .max(MIN_WINDOW_HEIGHT);
                     let delta_x = next.0 as isize - state.start_x as isize;
                     let delta_y = next.1 as isize - state.start_y as isize;
@@ -355,8 +483,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .copied()
                 {
                     let max_x = screen.width.saturating_sub(window.width);
-                    let desktop_height = screen.height.saturating_sub(TASKBAR_HEIGHT);
-                    let max_y = desktop_height.saturating_sub(window.height + TITLE_HEIGHT);
+                    let desktop_height = screen.height.saturating_sub(taskbar_height());
+                    let max_y = desktop_height.saturating_sub(window.height + title_height());
                     let new_x = next.0.saturating_sub(state.offset_x).min(max_x);
                     let new_y = next.1.saturating_sub(state.offset_y).min(max_y);
                     if (new_x, new_y) != (window.x, window.y) {
@@ -416,6 +544,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     if y >= taskbar_top(screen.height) {
                         if let Some(id) = taskbar_at(&windows, x, y, screen.width, screen.height) {
                             let old_focus = focus;
+                            if let Some(window) =
+                                windows.iter_mut().flatten().find(|window| window.id == id)
+                            {
+                                window.minimized = false;
+                            }
                             raise(&mut windows, id);
                             focus = id;
                             if let Some(window) = windows
@@ -458,6 +591,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             );
                             continue;
                         }
+                        if minimize_at(&window, x, y) {
+                            minimize_window(
+                                &screen,
+                                &mut windows,
+                                &mut focus,
+                                &font,
+                                pointer,
+                                window.id,
+                            );
+                            continue;
+                        }
+                        if maximize_at(&window, x, y) {
+                            toggle_maximize(
+                                &screen,
+                                &mut windows,
+                                focus,
+                                &font,
+                                pointer,
+                                window.id,
+                            );
+                            continue;
+                        }
                         let id = window.id;
                         raise(&mut windows, id);
                         focus = id;
@@ -482,7 +637,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             CURSOR_WIDTH + 1,
                             CURSOR_HEIGHT + 1,
                         );
-                        let on_title = y >= window.y && y < window.y + TITLE_HEIGHT;
+                        let on_title = y >= window.y && y < window.y + title_height();
                         if on_title {
                             drag = Some(Drag {
                                 id,
@@ -548,7 +703,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             } else {
                                 palette.title_color
                             };
-                            (window.y + 4..(window.y + TITLE_HEIGHT).min(screen.height)).any(
+                            (window.y + 4..(window.y + title_height()).min(screen.height)).any(
                                 |row| {
                                     (window.x + 4..(window.x + window.width).min(screen.width))
                                         .any(|column| screen.get(column, row) != color)
@@ -584,7 +739,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 damage_title(&screen, &windows, focus, &font, pointer, previous);
                 damage_taskbar(&screen, &windows, focus, &font, pointer);
                 let expected = surface_pixel(&window, 0, 0);
-                let actual = screen.get(window.x, window.y + TITLE_HEIGHT);
+                let actual = screen.get(window.x, window.y + title_height());
                 if expected != actual {
                     write(b"hk-server-display: composite mismatch\n");
                     let _ = send(sender, DISPLAY_FRAME_DONE, window.id);

@@ -136,7 +136,7 @@ impl SmokeMode {
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
             Self::Console => Some("console-test"),
-            Self::Display => Some("theme=light display-test"),
+            Self::Display => Some("theme=light ui.scale=2 display-test"),
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
@@ -299,6 +299,7 @@ impl SmokeMode {
             Self::Console => &["hk-server-console-test: got hello"],
             Self::Display => &[
                 "hk-server-display: theme light",
+                "hk-server-display: scale 2",
                 "hk-server-display: ready",
                 "hk-server-display: title ok",
                 "hk-server-display: composite ok",
@@ -326,6 +327,9 @@ impl SmokeMode {
                 "hk-server-display: drag 1",
                 "hk-server-display: taskbar 1",
                 "hk-server-display: resize 1 464x348",
+                "hk-server-display: maximize 1 1280x748",
+                "hk-server-display: restore 1 464x348",
+                "hk-server-display: minimize 1",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",
                 "hk-server-display: close 1",
@@ -526,9 +530,19 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         // 窗口右下角缩放把手约在 (899,542)，拖到 (963,590)。
         inject_pointer_drag(&socket, 0x59E5, 0x56B6, 0x604C, 0x5E65)?;
         thread::sleep(Duration::from_millis(300));
+        // 最大化按钮约在 (944,236)，还原后再点最小化 (930,236)。
+        inject_pointer(&socket, 0x5E66, 0x25C2)?;
+        thread::sleep(Duration::from_millis(300));
+        inject_pointer(&socket, 0x7D7A, 0x01EB)?;
+        thread::sleep(Duration::from_millis(300));
+        inject_pointer(&socket, 0x5CFF, 0x25C2)?;
+        thread::sleep(Duration::from_millis(300));
+        // 点击任务栏按钮恢复最小化窗口。
+        inject_pointer(&socket, 0x08CC, 0x7DC1)?;
+        thread::sleep(Duration::from_millis(300));
         inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
         thread::sleep(Duration::from_millis(300));
-        // 缩放后窗口右上方约在 (958,236) 的关闭按钮。
+        // 还原后窗口右上方约在 (958,236) 的关闭按钮。
         inject_pointer(&socket, 0x5FCC, 0x25C2)?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
