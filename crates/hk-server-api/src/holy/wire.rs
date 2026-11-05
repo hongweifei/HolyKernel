@@ -89,6 +89,10 @@ pub const OP_REVOKE_VOLUME: u8 = 40;
 pub const OP_READ_REVISION: u8 = 41;
 /// 枚举已注册盘符。
 pub const OP_DRIVES: u8 = 42;
+/// 动态接入块服务并注册盘符。
+pub const OP_ATTACH_DRIVE: u8 = 43;
+/// 刷写并移除盘符。
+pub const OP_DETACH_DRIVE: u8 = 44;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;

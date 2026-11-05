@@ -36,7 +36,7 @@ mod volumes;
 #[cfg(target_os = "none")]
 use sessions::Sessions;
 #[cfg(target_os = "none")]
-use volumes::{ServiceDisk, Volumes};
+use volumes::{ServiceDisk, SharedClient, Volumes};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -67,21 +67,21 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut volumes = Volumes::new();
     if enabled {
         if let Some(disk) = open_disk(endpoint) {
+            let disk = SharedClient::new(disk);
             let total = disk.capacity_blocks();
             let half = total / 2;
             if half == 0 {
                 write("hk-server-holyfs: 磁盘容量不足\n".as_bytes());
             } else {
-                if let Some(volume) = prepare(DiskSlice::new(disk, 0, half), VOLUME_H) {
+                if let Some(volume) = prepare(DiskSlice::new(disk.clone(), 0, half), VOLUME_H) {
                     let _ = volumes.insert(b'H', volume);
+                    volumes.register_service(b'H', BLOCK_SERVICE);
                     write(b"hk-server-holyfs: mounted H:\n");
                     write(b"hk-server-holyfs: drive H:\n");
                 }
-                if let Some(disk) = open_disk(endpoint)
-                    && let Some(volume) =
-                        prepare(DiskSlice::new(disk, half, total - half), VOLUME_I)
-                {
+                if let Some(volume) = prepare(DiskSlice::new(disk, half, total - half), VOLUME_I) {
                     let _ = volumes.insert(b'I', volume);
+                    volumes.register_service(b'I', BLOCK_SERVICE);
                     write(b"hk-server-holyfs: mounted I:\n");
                     write(b"hk-server-holyfs: drive I:\n");
                 }
@@ -109,8 +109,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let (status, written) =
-            holy::handle(&mut volumes, &mut sessions, sender, &request, &mut body);
+        let (status, written) = holy::handle(
+            &mut volumes,
+            &mut sessions,
+            sender,
+            endpoint,
+            &request,
+            &mut body,
+        );
         reply(sender, status, &body[..written], &mut response);
     }
 }

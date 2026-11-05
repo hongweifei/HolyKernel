@@ -25,6 +25,15 @@ pub const VOLUME_H: VolumeId = DEFAULT_VOLUME_ID;
 /// I: 盘卷身份。
 pub const VOLUME_I: VolumeId = VolumeId::new(0x484F_4C59_4653_0002);
 
+/// 按盘符生成卷身份；H/I 使用固定身份，其余盘符使用保留区间。
+pub const fn volume_id_for_drive(letter: u8) -> VolumeId {
+    match letter {
+        b'H' => VOLUME_H,
+        b'I' => VOLUME_I,
+        _ => VolumeId::new(0x484F_4C59_4653_0100 + letter as u128),
+    }
+}
+
 /// 卷提交超级块。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Superblock {

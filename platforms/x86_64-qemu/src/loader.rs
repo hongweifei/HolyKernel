@@ -76,6 +76,7 @@ pub fn run(
                     | "hk-server-holyfs"
                     | "hk-server-vfs"
                     | "hk-server-virtio"
+                    | "hk-server-block"
                     | "hk-server-device"
             );
         }

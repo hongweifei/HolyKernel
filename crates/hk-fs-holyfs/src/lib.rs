@@ -28,7 +28,7 @@ use hk_block::BlockDevice;
 pub use error::HolyError;
 pub use handle::HolyFs;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
-pub use superblock::{BLOCK_SIZE, VOLUME_H, VOLUME_I};
+pub use superblock::{BLOCK_SIZE, VOLUME_H, VOLUME_I, volume_id_for_drive};
 pub use types::{
     DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, PayloadKind,
     RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,

@@ -160,7 +160,7 @@ pub struct ServiceManifest {
 - VFS 通过远程 Holy 后端连接该服务，把 `H:`、`I:` 分别投影到 `/disk`、`/disk-I`；盘符与 VFS 挂载点共享同一份卷状态，VFS 不再内嵌 HolyFS。
 - 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
 - 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
-- 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求。
+- 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求，并可按块服务动态 `Attach`/`Detach` 盘符。
 - POSIX 兼容环境的根文件系统为 ext4/ext2；HolyFS 作为 Holy 卷服务。
 - 详见 [HolyFS](holyfs.md)。
 

@@ -10,14 +10,14 @@ use super::codec::{
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::encode_request;
 use super::wire::{
-    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_CREATE,
-    OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
-    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID,
-    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE,
-    OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS,
-    OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
-    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST,
-    RESPONSE,
+    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
+    OP_ATTACH_DRIVE, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID,
+    OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
+    OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE,
+    OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE,
+    OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
+    OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -66,6 +66,18 @@ impl HolyClient {
     pub fn drives(&mut self) -> Result<&[u8], u8> {
         let length = self.exchange(OP_DRIVES, "", 0, 0, &[])?;
         Ok(&self.response[3..3 + length])
+    }
+
+    /// 动态接入块服务并注册盘符；`token` 是当前盘符的 ADMIN 卷令牌。
+    pub fn attach_drive(&mut self, token: u64, drive: &str, service: &str) -> Result<(), u8> {
+        self.exchange(OP_ATTACH_DRIVE, drive, token, 0, service.as_bytes())
+            .map(|_| ())
+    }
+
+    /// 刷写并移除盘符；`token` 是当前盘符的 ADMIN 卷令牌。
+    pub fn detach_drive(&mut self, token: u64, drive: &str) -> Result<(), u8> {
+        self.exchange(OP_DETACH_DRIVE, drive, token, 0, &[])
+            .map(|_| ())
     }
 
     /// 枚举集合文档，返回编码后的集合项字节数。

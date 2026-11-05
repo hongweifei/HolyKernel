@@ -44,7 +44,56 @@ pub(crate) fn verify_drives(endpoint: u64) -> bool {
     let content_ok = client
         .read_id(document, 0, &mut buffer)
         .is_ok_and(|length| &buffer[..length] == b"volume-i");
-    client.select_drive("H").is_ok() && content_ok
+    if client.select_drive("H").is_err() {
+        return false;
+    }
+    let h_before = {
+        let Ok(root) = client.root() else {
+            return false;
+        };
+        let Ok(document) = client.resolve(root, "Welcome") else {
+            return false;
+        };
+        let mut data = [0_u8; 8];
+        client
+            .read_id(document, 0, &mut data)
+            .map(|length| (length, data))
+            .unwrap_or((0, data))
+    };
+    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+        return false;
+    };
+    let attached = client.attach_drive(admin, "J", "hk-server-block").is_ok();
+    let listed = client
+        .drives()
+        .is_ok_and(|bytes| decode_drives(bytes).any(|drive| drive.letter == b'J'));
+    let mounted = client.select_drive("J").is_ok() && client.root().is_ok();
+    let detached = client.select_drive("H").is_ok() && client.detach_drive(admin, "J").is_ok();
+    let gone = client
+        .drives()
+        .is_ok_and(|bytes| !decode_drives(bytes).any(|drive| drive.letter == b'J'));
+    let h_after = {
+        let Ok(root) = client.root() else {
+            return false;
+        };
+        let Ok(document) = client.resolve(root, "Welcome") else {
+            return false;
+        };
+        let mut data = [0_u8; 8];
+        client
+            .read_id(document, 0, &mut data)
+            .map(|length| (length, data))
+            .unwrap_or((0, data))
+    };
+    let released = client.release_volume(admin).is_ok();
+    content_ok
+        && attached
+        && listed
+        && mounted
+        && detached
+        && gone
+        && h_before == h_after
+        && released
 }
 
 /// 验证快照固定、恢复与释放。

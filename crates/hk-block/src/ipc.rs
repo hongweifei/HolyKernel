@@ -3,6 +3,7 @@
 //! 协议编码在 [`hk_server_api::block`]；本模块把协议接到 [`BlockDevice`]，
 //! 供 Block Server、virtio 驱动服务与 VFS 复用。
 
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -22,6 +23,8 @@ use hk_server_api::{
 };
 
 const CLIENT_FRAME_SLOTS: usize = 8;
+const FRAME_STRIDE: u64 = 0x1_0000;
+static NEXT_FRAME_VIRT: AtomicU64 = AtomicU64::new(0);
 static CLIENT_FRAME_VIRT: [AtomicU64; CLIENT_FRAME_SLOTS] =
     [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
 static CLIENT_FRAME_HANDLE: [AtomicU64; CLIENT_FRAME_SLOTS] =
@@ -66,8 +69,9 @@ fn client_frame_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
 
 /// 块协议客户端；缓冲位于堆上，避免大消息占用服务栈。
 pub struct BlockClient {
-    service: &'static str,
+    service: String,
     own_endpoint: u64,
+    frame_virt: u64,
     request: Vec<u8>,
     response: Vec<u8>,
     frame: Option<u64>,
@@ -75,12 +79,23 @@ pub struct BlockClient {
     external: Option<(u64, u64, usize)>,
 }
 
+impl Drop for BlockClient {
+    fn drop(&mut self) {
+        if let Some(number) = self.frame.take() {
+            let _ = frame_unmap(self.frame_virt, FRAME_LEN);
+            let _ = close_handle(number);
+        }
+    }
+}
+
 impl BlockClient {
     /// 构造客户端。
-    pub fn new(service: &'static str, own_endpoint: u64) -> Self {
+    pub fn new(service: &str, own_endpoint: u64) -> Self {
+        let slot = NEXT_FRAME_VIRT.fetch_add(1, Ordering::Relaxed);
         Self {
-            service,
+            service: String::from(service),
             own_endpoint,
+            frame_virt: FRAME_VIRT + slot * FRAME_STRIDE,
             request: vec![0_u8; 64 * 1024],
             response: vec![0_u8; 64 * 1024],
             frame: None,
@@ -90,7 +105,7 @@ impl BlockClient {
     }
 
     fn ensure_frame(&mut self) -> Result<u64, u8> {
-        let endpoint = service_endpoint(self.service);
+        let endpoint = service_endpoint(self.service.as_str());
         if endpoint == 0 {
             return Err(STATUS_ERROR);
         }
@@ -98,7 +113,7 @@ impl BlockClient {
             return Ok(endpoint);
         }
         if self.frame.is_none() {
-            let number = frame_alloc(FRAME_LEN, FRAME_VIRT);
+            let number = frame_alloc(FRAME_LEN, self.frame_virt);
             if number == 0 || number == u64::MAX {
                 return Err(STATUS_ERROR);
             }
@@ -124,8 +139,8 @@ impl BlockClient {
     }
 
     fn frame(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_FRAME_ALLOC 把 FRAME_LEN 字节映射到 FRAME_VIRT。
-        unsafe { core::slice::from_raw_parts_mut(FRAME_VIRT as *mut u8, FRAME_LEN) }
+        // SAFETY: SYS_FRAME_ALLOC 把 FRAME_LEN 字节映射到本客户端的虚拟槽。
+        unsafe { core::slice::from_raw_parts_mut(self.frame_virt as *mut u8, FRAME_LEN) }
     }
 
     fn attach_external(&self, endpoint: u64, handle: u64, length: usize) -> Result<(), u8> {
@@ -274,7 +289,7 @@ pub struct ClientDisk {
 
 impl ClientDisk {
     /// 连接块设备服务；连接失败时返回协议状态码。
-    pub fn open(service: &'static str, own_endpoint: u64) -> Result<Self, u8> {
+    pub fn open(service: &str, own_endpoint: u64) -> Result<Self, u8> {
         let mut client = BlockClient::new(service, own_endpoint);
         let capacity = client.capacity()?;
         Ok(Self {

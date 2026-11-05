@@ -5,16 +5,17 @@
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, RevisionId};
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentView, DriveView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE,
-    OP_ACQUIRE_VOLUME, OP_CREATE, OP_CREATE_TAG, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN,
-    OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME,
-    OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
-    OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT,
-    OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER,
-    OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN,
-    RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, Request, RevisionId as WireRevisionId,
-    RevisionView, SnapshotView, VolumeView, decode_doc_id, decode_u64, encode_doc_id,
-    encode_document, encode_drive, encode_entry, encode_revision, encode_revision_id,
-    encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
+    OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT,
+    OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
+    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN,
+    OP_RELEASE, OP_RELEASE_VOLUME, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID,
+    OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
+    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
+    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ,
+    RIGHT_WRITE, Request, RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView,
+    decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_drive, encode_entry,
+    encode_revision, encode_revision_id, encode_snapshot, encode_tag, encode_token, encode_u32,
+    encode_u64, encode_volume,
 };
 use hk_server_api::vfs::{
     STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
@@ -22,18 +23,52 @@ use hk_server_api::vfs::{
 };
 
 use crate::sessions::Sessions;
-use crate::volumes::{VolumeInfo, Volumes};
+use crate::volumes::{VolumeInfo, Volumes, parse_drive};
 
 /// 处理原生文档请求，返回状态与响应字节数。
 pub(crate) fn handle(
     volumes: &mut Volumes,
     sessions: &mut Sessions,
     sender: u64,
+    endpoint: u64,
     request: &Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
     if request.op == OP_DRIVES {
         return encode_drives(body, volumes.list());
+    }
+    if request.op == OP_ATTACH_DRIVE || request.op == OP_DETACH_DRIVE {
+        let auth = if request.drive == 0 {
+            b'H'
+        } else {
+            request.drive
+        };
+        let Some(volume) = volumes.get_mut(auth) else {
+            return (STATUS_NOT_FOUND, 0);
+        };
+        let (volume_id, epoch) = (volume.volume_id(), volume.epoch());
+        if let Err(status) =
+            sessions
+                .volume(sender, auth)
+                .check(request.arg0, volume_id, epoch, RIGHT_ADMIN)
+        {
+            return (status, 0);
+        }
+        let Some(target) = parse_drive(request.path) else {
+            return (STATUS_INVALID, 0);
+        };
+        let result = if request.op == OP_ATTACH_DRIVE {
+            let Ok(service) = core::str::from_utf8(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            volumes.attach(target, service, endpoint)
+        } else {
+            volumes.detach(target)
+        };
+        return match result {
+            Ok(()) => (STATUS_OK, 0),
+            Err(status) => (status, 0),
+        };
     }
     let letter = if request.drive == 0 {
         b'H'
