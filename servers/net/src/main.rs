@@ -17,14 +17,11 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::net::{
     ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
-    NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE,
-    NET_FRAME_ATTACH, NET_FRAME_MAX, NET_FRAME_ROLE_RX, NET_FRAME_ROLE_TX, NET_INFO_BYTES,
-    NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX,
-    NET_RX_FRAME, NET_SHARED_FRAME, NET_SHARED_RX, NET_SHARED_TX, NET_SHUTDOWN, NET_STATUS_BYTES,
-    NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX_DONE, NetConfig, net_frame_index,
-    net_frame_role, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
+    NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_FRAME_MAX,
+    NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL_DONE, NET_RX,
+    NET_RX_FRAME, NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX_DONE,
+    NetConfig, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
 };
-#[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::socket::{
     SOCK_CLOSE, SOCK_CONNECT, SOCK_OPEN, SOCK_RECV, SOCK_RESOLVE, SOCK_SEND, SOCK_UDP_RECV,
@@ -32,12 +29,13 @@ use hk_server_api::socket::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, exit, frame_map, notify, recv_data, recv_data_handle, recv_data_try, send,
-    send_data, service_endpoint, tsc, tsc_frequency, write, yield_now,
+    exit, notify, recv_data, recv_data_handle, send, send_data, tsc, tsc_frequency, write,
 };
 
 #[cfg(target_os = "none")]
 mod config;
+#[cfg(target_os = "none")]
+mod driver;
 #[cfg(target_os = "none")]
 mod format;
 #[cfg(target_os = "none")]
@@ -45,6 +43,8 @@ mod protocol;
 
 #[cfg(target_os = "none")]
 use config::{parse_resolvers, parse_static, zerocopy_enabled};
+#[cfg(target_os = "none")]
+use driver::{attach_shared, poll_once, restart_network, wait_driver};
 #[cfg(target_os = "none")]
 use format::write_address;
 #[cfg(target_os = "none")]
@@ -458,164 +458,6 @@ fn resolve(
     write("hk-server-net: dns timeout\n".as_bytes());
 }
 
-#[cfg(target_os = "none")]
-fn poll_once(
-    driver: u64,
-    endpoint: u64,
-    stack: &mut Stack,
-    stats: &mut Stats,
-    frame: &mut [u8; NET_FRAME_MAX],
-) {
-    // 先入队再通知：发送为异步，消息已在端点队列中，唤醒不会丢失。
-    let _ = send(driver, NET_POLL, 0);
-    let _ = notify(driver, NET_NOTIFY_TX);
-    // 有界等待完成消息：即使偶发丢失 NET_POLL_DONE，也不会永久阻塞在接收上。
-    let deadline = now_ms().saturating_add(POLL_WAIT_MS);
-    loop {
-        let (label, word, _sender, length) = recv_data_try(endpoint, frame);
-        match label {
-            NET_RX => {
-                let length = length.min(frame.len());
-                let _ = stack.push_frame(&frame[..length]);
-                stats.rx_frames = stats.rx_frames.saturating_add(1);
-                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
-            }
-            NET_RX_FRAME => {
-                let length = net_rx_length(word);
-                stats.rx_frames = stats.rx_frames.saturating_add(1);
-                stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
-                stack.push_shared_rx(net_rx_index(word), net_rx_offset(word), length);
-            }
-            NET_TX_DONE => stack.shared_tx_done(net_tx_index(word)),
-            NET_POLL_DONE => break,
-            0 => {
-                if now_ms() >= deadline {
-                    break;
-                }
-                let _ = yield_now();
-            }
-            _ => {}
-        }
-    }
-    stack.poll(now_ms());
-    flush_tx(driver, stack, stats);
-}
-
-/// 接收驱动移交的共享帧并映射到本任务地址空间。
-#[cfg(target_os = "none")]
-fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bool {
-    let mut buffer = [0_u8; 8];
-    let mut rx_seen = 0_usize;
-    let mut tx_seen = 0_usize;
-    while rx_seen < NET_SHARED_RX || tx_seen < NET_SHARED_TX {
-        let (label, word, sender, _length, handle) =
-            recv_data_handle(endpoint, &mut buffer, driver);
-        if label != NET_FRAME_ATTACH || sender != driver || handle == 0 {
-            return false;
-        }
-        let role = net_frame_role(word);
-        let index = net_frame_index(word);
-        let (base, count) = match role {
-            NET_FRAME_ROLE_RX => (SERVER_RX_BASE, NET_SHARED_RX),
-            NET_FRAME_ROLE_TX => (SERVER_TX_BASE, NET_SHARED_TX),
-            _ => {
-                let _ = close_handle(handle);
-                return false;
-            }
-        };
-        if index >= count {
-            let _ = close_handle(handle);
-            return false;
-        }
-        let virt = base + (index * NET_SHARED_FRAME) as u64;
-        if frame_map(handle, virt) != NET_SHARED_FRAME as u64 {
-            let _ = close_handle(handle);
-            return false;
-        }
-        if role == NET_FRAME_ROLE_RX {
-            rx_seen += 1;
-        } else {
-            tx_seen += 1;
-        }
-    }
-    stack.enable_shared(
-        SERVER_RX_BASE,
-        SERVER_TX_BASE,
-        NET_SHARED_FRAME,
-        NET_SHARED_TX,
-    );
-    write("hk-server-net: shared frames ready\n".as_bytes());
-    true
-}
-
-/// 请求驱动退出，等待 Root Server 重启后重新握手并验证链路。
-#[cfg(target_os = "none")]
-fn restart_network(
-    old: u64,
-    endpoint: u64,
-    stack: &mut Stack,
-    stats: &mut Stats,
-    frame: &mut [u8; NET_FRAME_MAX],
-    gateway: Ipv4Addr,
-) -> u64 {
-    write("hk-server-net: driver restart\n".as_bytes());
-    let _ = send(old, NET_SHUTDOWN, 0);
-    let deadline = now_ms().saturating_add(WAIT_MS);
-    let mut driver = old;
-    while now_ms() < deadline {
-        let _ = recv_data_try(endpoint, frame);
-        let candidate = service_endpoint("hk-server-virtio-net");
-        if candidate != 0 && candidate != old {
-            driver = candidate;
-            break;
-        }
-        let _ = yield_now();
-    }
-    if driver == old {
-        write("hk-server-net: driver restart failed\n".as_bytes());
-        return old;
-    }
-
-    let mut info = [0_u8; NET_INFO_BYTES];
-    let _ = send(driver, NET_INFO_REQUEST, 0);
-    let _ = notify(driver, NET_NOTIFY_TX);
-    let deadline = now_ms().saturating_add(WAIT_MS);
-    let mut rehandshaked = false;
-    while now_ms() < deadline {
-        let (label, _word, sender, length) = recv_data_try(endpoint, &mut info);
-        if label == NET_INFO_RESPONSE && sender == driver && length >= NET_INFO_BYTES {
-            rehandshaked = true;
-            break;
-        }
-        let _ = yield_now();
-    }
-    if !rehandshaked {
-        write("hk-server-net: driver rehandshake failed\n".as_bytes());
-        return driver;
-    }
-
-    let Ok(icmp) = stack.open_icmp(0x1235) else {
-        write("hk-server-net: restart icmp failed\n".as_bytes());
-        return driver;
-    };
-    let _ = stack.send_ping(icmp, gateway, 0x1235, 1, b"holy");
-    let deadline = now_ms().saturating_add(WAIT_MS);
-    let mut reply = [0_u8; 64];
-    while now_ms() < deadline {
-        poll_once(driver, endpoint, stack, stats, frame);
-        if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
-            && length >= 8
-        {
-            stack.close_socket(icmp);
-            write("hk-server-net: restart ok\n".as_bytes());
-            return driver;
-        }
-    }
-    stack.close_socket(icmp);
-    write("hk-server-net: restart ping failed\n".as_bytes());
-    driver
-}
-
 /// 以 TSC 换算单调毫秒时间；TSC 未知时退回累计 tick（约 10 ms）。
 #[cfg(target_os = "none")]
 fn now_ms() -> u64 {
@@ -624,11 +466,6 @@ fn now_ms() -> u64 {
         return hk_server_api::ticks().saturating_mul(10);
     }
     tsc().saturating_mul(1_000) / frequency
-}
-
-#[cfg(target_os = "none")]
-fn wait_driver() -> u64 {
-    hk_server_api::runtime::wait_service("hk-server-virtio-net").unwrap_or(0)
 }
 
 hk_server_api::server_boilerplate!();
