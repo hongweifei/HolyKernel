@@ -44,7 +44,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 标题栏提供最小化、最大化/还原按钮：最小化保留任务栏按钮，点击任务栏恢复；最大化铺满任务栏上方区域并保存原几何。
 - 启动 token `ui.scale=2` 将标题栏/任务栏字体与控件布局放大 2 倍，窗口内容仍由合成器按尺寸采样。
 - HolyDoc：HolyDoc 指令解析（`@title`、`@heading`、`@link`、`@bullet`、`@code`、`@exec`）、自动换行布局、滚动与历史返回；内置欢迎页与帮助页作为无卷回退，链接可点击跳转；Display 通过 `DISPLAY_CLICK_AT` 提供窗口内点击坐标。`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
-- HolyDoc 启动落在欢迎页：欢迎页展示版本、民用时间、系统 tick 与文档清单，并提供文档索引与帮助页；`d` 打开索引，`w`/`h` 回到欢迎页，`Backspace` 返回上一页。
+- HolyDoc 启动落在欢迎页：欢迎页展示版本、民用时间、系统 tick 与文档清单，并提供文档索引与帮助页；`i` 打开索引，`t` 打开标签页，`w` 回到欢迎页，`[`/`]` 或 Backspace 前后翻阅历史；`n`/`N` 选择链接、Enter 打开，方向键、PageUp/PageDown、Home/End 与鼠标滚轮滚动，底部状态栏显示按键提示与滚动百分比。
 - 文档浏览：HolyDoc 启动时按 `H:` 盘符枚举根集合，把集合成员与子集合递归加载为文档页；内容文档整篇读入，集合页把成员显示为 DocPath 链接。文档标题取自 `@title` 指令，链接在文档集内解析并可直接跳转。没有卷时使用内置欢迎页与帮助页。
 - HolyDoc 文档由文本与内联指令组成：`@title`、`@heading`、`@link`、`@bullet`、`@code` 与 `@exec`；正文按 8×16 位图字体排版，ASCII 半宽、汉字全宽。
 - HolyDoc 标签：启动时读取 H: 卷标签表，文档页追加所属标签；`H:/Tags` 按标签分组列出成员，按 `t` 打开，`@exec tags` 输出标签列表。
@@ -57,6 +57,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
 - Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；它只负责行编辑、回显与按行交付，不包含命令解析。桌面交互命令由用户态 `hk-server-shell` 接管：Shell 通过 PING/PONG 握手确认 Console 已进入接收循环，再写入提示符并逐行执行。
 - 用户态 `hk-server-input` 通过带索引的 DeviceGrant 申请接管多个 virtio-input 设备（键盘 + 平板），分别绑定 IRQ 通知、解码 evdev 键码与绝对坐标，把按键/指针事件发给 Display。`smoke --mode inputdriver/pointer` 验证。
+- 输入驱动把 Shift/Ctrl/Alt 与方向键、PageUp/PageDown、Home/End、Insert/Delete 解码为 ANSI 序列，消费端用 `hk_server_api::input::Decoder` 还原成按键；滚轮经 `INPUT_WHEEL` 上报，Display 按焦点转发 `DISPLAY_WHEEL`。
 - 底部任务栏显示各窗口标题按钮；按钮按焦点高亮，点击即提升并聚焦对应窗口。窗口创建与拖动均限制在任务栏上方，任务栏始终合成在最上层。
 - 指针使用 virtio-tablet 绝对坐标：Display 归一化到屏幕、绘制带阴影的光标；0x7FFF 映射到最后一个有效像素，越界值再被裁剪，取消/拖动/缩放都使用屏幕内坐标。点击按 z 序命中窗口并置顶，任务栏区域单独命中。标题栏按下即开始拖动，移动时按旧/新矩形重绘并限制在任务栏上方；正文点击才向客户端发送 `DISPLAY_CLICK`。`smoke --mode pointer` 验证拖拽、任务栏切换与点击。
 - 终端模式下键盘事件由 Display 按焦点转发给 Console，Console 完成行编辑、回显与按行回复。`smoke --mode terminal` 注入输入验证。

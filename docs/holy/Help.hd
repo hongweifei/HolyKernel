@@ -15,6 +15,13 @@ HolyDoc 文档由文本与内联指令组成：
 @heading(2, "标签")
 文档标签按 DocId 记录；文档页显示所属标签，H:/Tags 按标签分组列出成员。按 t 打开标签页。
 
+@heading(2, "操作")
+@bullet("j / k 滚动，u / d 半页，空格 / b 翻页，g / G 顶部 / 底部")
+@bullet("方向键、PageUp / PageDown、Home / End 与鼠标滚轮滚动")
+@bullet("n / N 选择链接，Enter 打开")
+@bullet("[ / ] 后退 / 前进，Backspace 后退")
+@bullet("i 索引，t 标签，? 帮助，w 欢迎页，q 退出")
+
 @heading(2, "命名")
 文档身份是 DocId，名字是集合中的关系；H:/System/Overview 是 DocPath 查找视图。
 

@@ -15,6 +15,10 @@ pub(crate) const WIDTH: usize = 760;
 pub(crate) const HEIGHT: usize = 520;
 /// 行高。
 pub(crate) const LINE_HEIGHT: usize = 22;
+/// 底部状态栏高度。
+pub(crate) const FOOTER_HEIGHT: usize = 22;
+/// 正文可视高度。
+pub(crate) const CONTENT_HEIGHT: usize = HEIGHT - FOOTER_HEIGHT;
 /// 页面留白。
 pub(crate) const MARGIN: usize = 24;
 /// 内容宽度。
@@ -256,11 +260,18 @@ pub(crate) struct DocView {
     pub(crate) lines: Vec<Line>,
     pub(crate) scroll: usize,
     pub(crate) history: Vec<String>,
+    pub(crate) forward: Vec<String>,
+    pub(crate) selected: Option<String>,
 }
 
 impl DocView {
     /// 从文档集加载一页并布局。
-    pub(crate) fn load(set: &DocSet, id: &str, history: Vec<String>) -> Option<Self> {
+    pub(crate) fn load(
+        set: &DocSet,
+        id: &str,
+        history: Vec<String>,
+        forward: Vec<String>,
+    ) -> Option<Self> {
         let entry = set.page(id)?;
         let document = entry.document;
         let mut view = Self {
@@ -269,6 +280,8 @@ impl DocView {
             lines: Vec::new(),
             scroll: 0,
             history,
+            forward,
+            selected: None,
         };
         for raw in entry.body.lines() {
             let line = raw.trim_end();
@@ -393,7 +406,14 @@ impl DocView {
     }
 
     pub(crate) fn max_scroll(&self) -> usize {
-        (self.lines.len() * LINE_HEIGHT + MARGIN * 2).saturating_sub(HEIGHT)
+        (self.lines.len() * LINE_HEIGHT + MARGIN * 2).saturating_sub(CONTENT_HEIGHT)
+    }
+
+    /// 返回滚动百分比。
+    pub(crate) fn scroll_percent(&self) -> usize {
+        (self.scroll * 100)
+            .checked_div(self.max_scroll())
+            .map_or(100, |percent| percent.min(100))
     }
 
     pub(crate) fn scroll_by(&mut self, lines: isize) {
@@ -413,8 +433,10 @@ impl DocView {
             return false;
         };
         self.history.push(self.id.clone());
+        self.forward.clear();
         let history = core::mem::take(&mut self.history);
-        match Self::load(set, &entry.id, history) {
+        let forward = core::mem::take(&mut self.forward);
+        match Self::load(set, &entry.id, history, forward) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: open ");
@@ -431,8 +453,10 @@ impl DocView {
         let Some(previous) = self.history.pop() else {
             return false;
         };
+        self.forward.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
-        match Self::load(set, &previous, history) {
+        let forward = core::mem::take(&mut self.forward);
+        match Self::load(set, &previous, history, forward) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: back ");
@@ -444,7 +468,88 @@ impl DocView {
         }
     }
 
+    /// 前进到下一页。
+    pub(crate) fn advance(&mut self, set: &DocSet) -> bool {
+        let Some(next) = self.forward.pop() else {
+            return false;
+        };
+        self.history.push(self.id.clone());
+        let history = core::mem::take(&mut self.history);
+        let forward = core::mem::take(&mut self.forward);
+        match Self::load(set, &next, history, forward) {
+            Some(view) => {
+                *self = view;
+                write(b"hk-server-holydoc: forward ");
+                write(self.id.as_bytes());
+                write(b"\n");
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 选中指定链接。
+    pub(crate) fn select(&mut self, target: &str) {
+        self.selected = Some(String::from(target));
+    }
+
+    /// 按文档顺序切换链接选择。
+    pub(crate) fn select_link(&mut self, forward: bool) -> bool {
+        let mut links: Vec<(usize, String)> = Vec::new();
+        for (index, line) in self.lines.iter().enumerate() {
+            for run in &line.runs {
+                if let Some(target) = &run.target
+                    && links.last().is_none_or(|(_, last)| last != target)
+                {
+                    links.push((index, target.clone()));
+                }
+            }
+        }
+        if links.is_empty() {
+            self.selected = None;
+            return false;
+        }
+        let current = self
+            .selected
+            .as_ref()
+            .and_then(|target| links.iter().position(|(_, candidate)| candidate == target));
+        let next = match (current, forward) {
+            (Some(index), true) => (index + 1) % links.len(),
+            (Some(index), false) => (index + links.len() - 1) % links.len(),
+            (None, true) => 0,
+            (None, false) => links.len() - 1,
+        };
+        let (line, target) = links[next].clone();
+        self.selected = Some(target);
+        self.ensure_visible(line);
+        true
+    }
+
+    /// 打开当前选中的链接。
+    pub(crate) fn open_selected(&mut self, set: &DocSet) -> bool {
+        let Some(target) = self.selected.clone() else {
+            return false;
+        };
+        self.open(set, &target)
+    }
+
+    /// 把指定行滚动到可视范围内。
+    fn ensure_visible(&mut self, line: usize) {
+        let top = line * LINE_HEIGHT;
+        let bottom = top + LINE_HEIGHT;
+        if self.scroll > top {
+            self.scroll = top;
+        }
+        if MARGIN + bottom > self.scroll + CONTENT_HEIGHT {
+            self.scroll = (MARGIN + bottom).saturating_sub(CONTENT_HEIGHT);
+        }
+        self.scroll = self.scroll.min(self.max_scroll());
+    }
+
     pub(crate) fn link_at(&self, x: u32, y: u32) -> Option<String> {
+        if y as usize >= CONTENT_HEIGHT {
+            return None;
+        }
         let adjusted = y as isize + self.scroll as isize - MARGIN as isize;
         if adjusted < 0 {
             return None;

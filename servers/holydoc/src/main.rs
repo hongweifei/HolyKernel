@@ -31,17 +31,20 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_CREATE_WINDOW, DISPLAY_KEY,
-    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, unpack_click_at, unpack_key,
+    DISPLAY_SHUTDOWN, DISPLAY_WHEEL, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size,
+    unpack_click_at, unpack_key, unpack_wheel,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
+#[cfg(target_os = "none")]
+use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::fonts::efont_cn_16;
 
 #[cfg(target_os = "none")]
-use document::{DocSet, DocView, HEIGHT, INDEX, TAGS, WELCOME, WIDTH};
+use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 #[cfg(target_os = "none")]
 use window::apply;
 
@@ -90,7 +93,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     docs.add_builtin();
     let font = efont_cn_16();
     let pixels = SURFACE_VIRT as *mut u32;
-    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new()) else {
+    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new()) else {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };
@@ -126,56 +129,107 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         );
     }
 
+    let mut keys = Decoder::new();
+
     loop {
         let (label, word, _sender) = recv(endpoint);
         match label {
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
-                let redraw = match byte {
-                    b'j' => {
-                        view.scroll_by(1);
-                        true
+                if let Some(key) = keys.feed(byte) {
+                    let redraw = match key {
+                        Key::Byte(byte) => match byte {
+                            b'j' => {
+                                view.scroll_by(1);
+                                true
+                            }
+                            b'k' => {
+                                view.scroll_by(-1);
+                                true
+                            }
+                            b'u' => {
+                                view.scroll_by(-10);
+                                true
+                            }
+                            b'd' => {
+                                view.scroll_by(10);
+                                true
+                            }
+                            b' ' => {
+                                view.scroll_by(8);
+                                true
+                            }
+                            b'b' => {
+                                view.scroll_by(-8);
+                                true
+                            }
+                            b'g' => {
+                                view.scroll = 0;
+                                true
+                            }
+                            b'G' => {
+                                let bottom = view.max_scroll();
+                                view.scroll = bottom;
+                                true
+                            }
+                            b'n' => view.select_link(true),
+                            b'N' => view.select_link(false),
+                            b'\n' | b'\r' => view.open_selected(&docs),
+                            b'[' | 0x08 => view.back(&docs),
+                            b']' => view.advance(&docs),
+                            b'i' => view.open(&docs, INDEX),
+                            b't' => view.open(&docs, TAGS),
+                            b'w' | b'h' => view.open(&docs, WELCOME),
+                            b'?' => view.open(&docs, HELP),
+                            b'q' => {
+                                let _ = send(display, DISPLAY_SHUTDOWN, 0);
+                                exit(0)
+                            }
+                            _ => false,
+                        },
+                        Key::Up => {
+                            view.scroll_by(-1);
+                            true
+                        }
+                        Key::Down => {
+                            view.scroll_by(1);
+                            true
+                        }
+                        Key::PageUp => {
+                            view.scroll_by(-8);
+                            true
+                        }
+                        Key::PageDown => {
+                            view.scroll_by(8);
+                            true
+                        }
+                        Key::Home => {
+                            view.scroll = 0;
+                            true
+                        }
+                        Key::End => {
+                            view.scroll = view.max_scroll();
+                            true
+                        }
+                        _ => false,
+                    };
+                    if redraw {
+                        apply(&view, &font, pixels, endpoint, display, window);
                     }
-                    b'k' => {
-                        view.scroll_by(-1);
-                        true
-                    }
-                    b' ' => {
-                        view.scroll_by(8);
-                        true
-                    }
-                    b'b' => {
-                        view.scroll_by(-8);
-                        true
-                    }
-                    b'g' => {
-                        view.scroll = 0;
-                        true
-                    }
-                    b'G' => {
-                        let bottom = view.max_scroll();
-                        view.scroll = bottom;
-                        true
-                    }
-                    b'd' => view.open(&docs, INDEX),
-                    b't' => view.open(&docs, TAGS),
-                    b'w' | b'h' => view.open(&docs, WELCOME),
-                    0x08 => view.back(&docs),
-                    b'q' => {
-                        let _ = send(display, DISPLAY_SHUTDOWN, 0);
-                        exit(0)
-                    }
-                    _ => false,
-                };
-                if redraw {
+                }
+            }
+            DISPLAY_WHEEL => {
+                let (_, delta) = unpack_wheel(word);
+                if delta != 0 {
+                    view.scroll_by(-(delta as isize) * 3);
                     apply(&view, &font, pixels, endpoint, display, window);
                 }
             }
             DISPLAY_CLICK_AT => {
                 let (_, x, y) = unpack_click_at(word);
-                if let Some(target) = view.link_at(x, y)
-                    && view.open(&docs, &target)
-                {
+                if let Some(target) = view.link_at(x, y) {
+                    view.select(&target);
+                    view.open(&docs, &target);
                     apply(&view, &font, pixels, endpoint, display, window);
                 }
             }

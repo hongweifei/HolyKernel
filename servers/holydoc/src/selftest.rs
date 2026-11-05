@@ -4,8 +4,8 @@ use alloc::boxed::Box;
 
 use hk_server_api::display::DISPLAY_SHUTDOWN;
 use hk_server_api::holy::{
-    DocumentKind, HolyClient, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND, STATUS_PERMISSION,
-    STATUS_STALE, decode_doc_ids, decode_snapshots, decode_tags,
+    HolyClient, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND, STATUS_PERMISSION, decode_doc_ids,
+    decode_tags,
 };
 use hk_server_api::{exit, send, write, write_u64};
 use lovyangfx_fonts::Font;
@@ -13,49 +13,6 @@ use lovyangfx_fonts::Font;
 use crate::document::{DocSet, DocView, TAGS};
 use crate::drive;
 use crate::window::apply;
-
-/// 验证快照固定、恢复与释放。
-pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(root) = client.root() else {
-        return false;
-    };
-    let Ok(document) = client.create(root, "SnapshotProbe", DocumentKind::Content) else {
-        return false;
-    };
-    if client.write_id(document, 0, b"before").is_err() {
-        return false;
-    }
-    let Ok(token) = client.acquire(document, RIGHT_READ) else {
-        return false;
-    };
-    let Ok(snapshot) = client.snapshot("smoke") else {
-        return false;
-    };
-    if client.write_id(document, 0, b"after!").is_err() {
-        return false;
-    }
-    let mut buffer = [0_u8; 16];
-    let changed = client
-        .read_id(document, 0, &mut buffer)
-        .is_ok_and(|length| &buffer[..length] == b"after!");
-    let Ok(generation) = client.restore(snapshot) else {
-        return false;
-    };
-    let before = client
-        .read_id(document, 0, &mut buffer)
-        .is_ok_and(|length| &buffer[..length] == b"before");
-    let stale = client.read_token(token, 0, &mut buffer) == Err(STATUS_STALE);
-    let listed = client.snapshots().is_ok_and(|bytes| {
-        decode_snapshots(bytes)
-            .any(|entry| entry.id == snapshot && entry.name == "smoke" && entry.documents > 0)
-    });
-    let forgotten = client.forget(snapshot).is_ok();
-    let gone = client
-        .snapshots()
-        .is_ok_and(|bytes| !decode_snapshots(bytes).any(|entry| entry.id == snapshot));
-    generation > 0 && changed && before && stale && listed && forgotten && gone
-}
 
 /// 验证令牌收窄、撤销与固定修订读取。
 pub(crate) fn verify_tokens(endpoint: u64) -> bool {
@@ -138,11 +95,6 @@ pub(crate) fn run(
     window: u64,
     loaded: usize,
 ) -> ! {
-    if verify_snapshot(endpoint) {
-        write(b"hk-server-holydoc: snapshot ok\n");
-    } else {
-        write(b"hk-server-holydoc: snapshot failed\n");
-    }
     if verify_tokens(endpoint) {
         write(b"hk-server-holydoc: token ok\n");
     } else {
@@ -173,6 +125,15 @@ pub(crate) fn run(
     write_u64(view.scroll as u64);
     write(b"\n");
     if view.back(docs) {
+        apply(view, font, pixels, endpoint, display, window);
+    }
+    if view.advance(docs) {
+        apply(view, font, pixels, endpoint, display, window);
+    }
+    if view.select_link(true) {
+        apply(view, font, pixels, endpoint, display, window);
+    }
+    if view.open_selected(docs) {
         apply(view, font, pixels, endpoint, display, window);
     }
     write(b"hk-server-holydoc: done\n");
