@@ -49,30 +49,23 @@ impl Client {
 
     /// 写入文本。
     pub fn write(&self, text: &[u8]) {
-        let result = send_data(self.console, CONSOLE_WRITE, text);
-        crate::write(b"console client write ep=");
-        crate::write_u64(self.console);
-        crate::write(b" result=");
-        crate::write_u64(result);
-        crate::write(b"\n");
+        let _ = send_data(self.console, CONSOLE_WRITE, text);
         let _ = notify(self.console, CONSOLE_NOTIFY_MESSAGE);
     }
 
     /// 请求并读取一行，返回字节数。
+    ///
+    /// 写入文本时 Console 会回送 `CONSOLE_WRITE_ACK`；握手残留的 PONG 也可能
+    /// 先到达。这里只接受真正的 `CONSOLE_READ_LINE`，避免把控制消息当成空行。
     pub fn read_line(&self, buffer: &mut [u8]) -> usize {
-        let sent = send(self.console, CONSOLE_READ_REQUEST, 0);
-        crate::write(b"console client read ep=");
-        crate::write_u64(self.console);
-        crate::write(b" result=");
-        crate::write_u64(sent);
-        crate::write(b"\n");
         let _ = send(self.console, CONSOLE_READ_REQUEST, 0);
         let _ = notify(self.console, CONSOLE_NOTIFY_MESSAGE);
-        let (label, _word, sender, length) = recv_data_from(self.endpoint, self.console, buffer);
-        if label == CONSOLE_READ_LINE && sender == self.console {
-            length.min(buffer.len())
-        } else {
-            0
+        loop {
+            let (label, _word, sender, length) =
+                recv_data_from(self.endpoint, self.console, buffer);
+            if label == CONSOLE_READ_LINE && sender == self.console {
+                return length.min(buffer.len());
+            }
         }
     }
 
