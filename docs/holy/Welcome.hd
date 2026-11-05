@@ -1,0 +1,19 @@
+@title("欢迎使用 HolyKernel")
+HolyKernel 是句柄型微内核：内核提供线程、地址空间、句柄与 IPC，驱动、文件系统与界面运行在用户态。
+
+@heading(2, "系统状态")
+@exec version
+@exec time
+@exec ticks
+@exec documents
+
+@heading(2, "开始浏览")
+@link("H:/System", "系统文档")
+@link("H:/Help", "帮助")
+
+@heading(2, "操作")
+@bullet("d 打开文档索引")
+@bullet("w 返回欢迎页")
+@bullet("j / k 滚动，空格 / b 翻页")
+@bullet("Backspace 返回上一页")
+@bullet("q 或标题栏关闭按钮退出")

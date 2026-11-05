@@ -1,0 +1,13 @@
+@title("界面")
+界面由 Display Server、Console 服务与 HolyDoc 组成。
+
+@heading(2, "Display")
+帧缓冲只授权给 Display；窗口表面使用共享 Frame，经句柄转移交给合成器。
+
+@heading(2, "Console")
+Console 只做行编辑、回显与按行交付；命令解析属于 Shell 层。
+
+@heading(2, "HolyDoc")
+HolyDoc 把 H: 卷中的文档渲染为窗口内容，链接在文档之间跳转，@exec 结果显示为只读块。
+
+@link("H:/System", "返回系统")

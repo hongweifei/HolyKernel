@@ -1,0 +1,16 @@
+@title("HolyFS")
+HolyFS 是 HolyKernel 的原生文件系统：以卷与盘符组织命名空间，以文档为内容单位，以修订记录历史。
+
+@heading(2, "对象")
+@bullet("Volume：卷、盘符、提交代数与根文档")
+@bullet("Document：DocId 与 head 修订")
+@bullet("Revision：不可变内容版本")
+@bullet("Collection：名字到 DocId 的关系")
+
+@heading(2, "提交")
+写生成新修订，提交点是超级块根切换；Document、Revision 与 Collection 元数据以 COW 树构建。
+
+@heading(2, "访问")
+原生路径是盘符加集合名序列，例如 H:/System/Overview；整文档读取不携带偏移。
+
+@link("H:/System", "返回系统")

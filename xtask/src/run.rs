@@ -20,11 +20,22 @@ pub fn run(selection: Selection, release: bool, arguments: &[String], ui: bool) 
             if !arguments.is_empty() {
                 return Err(Failure::new("x86_64-qemu 不接受额外参数"));
             }
-            let cmdline = if ui { "desktop" } else { "shell-interactive" };
+            // 图形桌面使用 H: 卷：文档、Welcome 与 Help 都住在 HolyFS 上。
+            let cmdline = if ui {
+                "desktop vfs.fs=holyfs"
+            } else {
+                "shell-interactive"
+            };
             let iso = crate::image::run(selection, release, Some(cmdline))?;
-            let disk = crate::workspace::root().join("build/run-disk.img");
-            crate::disk::ensure_ext4(&disk)?;
-            crate::qemu::run(&iso, &disk, ui)
+            if ui {
+                let disk = crate::workspace::root().join("build/run-holy.img");
+                crate::disk::ensure_holyfs(&disk)?;
+                crate::qemu::run(&iso, &disk, ui)
+            } else {
+                let disk = crate::workspace::root().join("build/run-disk.img");
+                crate::disk::ensure_ext4(&disk)?;
+                crate::qemu::run(&iso, &disk, ui)
+            }
         }
         Target::Aarch64Qemu => Err(Failure::new(
             "aarch64-qemu 的启动镜像在 M8 提供；当前使用 cargo xtask build --target aarch64-qemu 校验构建",

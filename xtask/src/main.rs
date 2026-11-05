@@ -62,7 +62,14 @@ enum Task {
     /// 统计内核代码行数
     Budget,
     /// 创建运行磁盘 build/run-disk.img
-    Disk,
+    Disk(DiskArguments),
+}
+
+#[derive(Debug, Args)]
+struct DiskArguments {
+    /// 创建 H: 卷桌面磁盘 build/run-holy.img
+    #[arg(long)]
+    holy: bool,
 }
 
 #[derive(Debug, Args)]
@@ -154,9 +161,16 @@ fn execute(task: Task) -> Result<()> {
         Task::Deps => deps::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
-        Task::Disk => {
-            let path = workspace::root().join("build/run-disk.img");
-            disk::ensure_ext4(&path)?;
+        Task::Disk(arguments) => {
+            let path = if arguments.holy {
+                let path = workspace::root().join("build/run-holy.img");
+                disk::ensure_holyfs(&path)?;
+                path
+            } else {
+                let path = workspace::root().join("build/run-disk.img");
+                disk::ensure_ext4(&path)?;
+                path
+            };
             println!("{}", path.display());
             Ok(())
         }

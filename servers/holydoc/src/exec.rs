@@ -25,13 +25,13 @@ pub(crate) fn exec(set: &DocSet, command: &str) -> Vec<String> {
             None => alloc::vec![String::from("民用时间：不可用")],
         },
         Some("echo") => alloc::vec![parts.collect::<Vec<_>>().join(" ")],
-        Some("docs") => set
+        Some("documents") | Some("docs") => set
             .entries()
             .iter()
             .map(|entry| format!("{} — {}", entry.id, entry.title))
             .collect(),
         _ => alloc::vec![String::from(
-            "未知命令；支持 version / time / ticks / echo / docs"
+            "未知命令；支持 version / time / ticks / echo / documents"
         )],
     }
 }

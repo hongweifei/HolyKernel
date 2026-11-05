@@ -1,0 +1,17 @@
+@title("帮助")
+@heading(2, "文档浏览器")
+HolyDoc 从 H: 卷读取文档：它枚举集合、按文档身份读取整篇内容，把集合成员显示为可点击的链接。
+
+@heading(2, "文档格式")
+HolyDoc 文档由文本与内联指令组成：
+@code("@title(\"...\") 文档标题")
+@code("@heading(2, \"...\") 小节标题")
+@code("@link(\"H:/System\", \"标签\") 文档链接")
+@code("@bullet(\"...\") 列表项")
+@code("@code(\"...\") 代码行")
+@code("@exec version 执行内置命令")
+
+@heading(2, "命名")
+文档身份是 DocId，名字是集合中的关系；H:/System/Overview 是 DocPath 查找视图。
+
+@link("H:/Welcome", "返回欢迎页")

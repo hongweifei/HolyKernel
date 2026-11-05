@@ -1,4 +1,4 @@
-//! 文档模型：内置页面、磁盘文档集、Markdown 子集解析、自动换行布局与历史。
+//! HolyDoc 文档模型：H: 卷文档集、内联指令解析、自动换行布局与历史。
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -19,62 +19,17 @@ pub(crate) const MARGIN: usize = 24;
 /// 内容宽度。
 pub(crate) const CONTENT_WIDTH: usize = WIDTH - MARGIN * 2;
 
-/// 欢迎页编号。
-pub(crate) const WELCOME: &str = "welcome";
-/// 文档索引编号。
-pub(crate) const INDEX: &str = "index";
-/// 磁盘文档编号前缀。
-pub(crate) const DISK_PREFIX: &str = "disk:";
+/// 欢迎页 DocPath。
+pub(crate) const WELCOME: &str = "H:/Welcome";
+/// 帮助页 DocPath。
+pub(crate) const HELP: &str = "H:/Help";
+/// 文档索引 DocPath。
+pub(crate) const INDEX: &str = "H:/Index";
 
-/// 内置页面。
-struct Builtin {
-    id: &'static str,
-    title: &'static str,
-    body: &'static str,
-}
-
-/// 不依赖磁盘的内置页面。
-const BUILTIN: &[Builtin] = &[
-    Builtin {
-        id: WELCOME,
-        title: "欢迎",
-        body: r#"# 欢迎使用 HolyKernel
-HolyKernel 是句柄型微内核：内核提供线程、地址空间、句柄与 IPC，驱动、文件系统与界面运行在用户态。
-
-## 系统状态
-@exec version
-@exec time
-@exec ticks
-@exec docs
-
-## 开始浏览
-- [文档索引](index)
-- [帮助](help)
-
-## 操作
-- d 打开文档索引
-- w 返回欢迎页
-- j / k 滚动，空格 / b 翻页
-- Backspace 返回上一页
-- q 或标题栏关闭按钮退出
-"#,
-    },
-    Builtin {
-        id: "help",
-        title: "帮助",
-        body: r#"# 帮助
-## 文档浏览器
-HolyDoc 从磁盘读取文档：VFS 挂载 ext4 后，它会扫描 /docs 与 /disk/docs 下的 .md 文件，把每个文件作为一页加入索引。
-
-## 链接
-文档中的 [链接](index) 指向内置页面或磁盘文档；磁盘文档之间用相对路径互相引用。
-
-## 显示
-正文按 8×16 位图字体排版，ASCII 半宽、汉字全宽；代码块使用独立底色。
-
-[返回欢迎页](welcome)
-"#,
-    },
+/// 没有卷时的内置页面。
+const BUILTIN: &[(&str, &str)] = &[
+    (WELCOME, include_str!("../../../docs/holy/Welcome.hd")),
+    (HELP, include_str!("../../../docs/holy/Help.hd")),
 ];
 
 /// 一页文档。
@@ -85,26 +40,20 @@ pub(crate) struct DocEntry {
     pub(crate) body: String,
 }
 
-/// 文档集：内置页面加上从磁盘加载的文档。
+/// 文档集：H: 卷文档与内置页面。
 pub(crate) struct DocSet {
     entries: Vec<DocEntry>,
 }
 
 impl DocSet {
-    /// 创建只含内置页面的文档集。
+    /// 创建空文档集。
     pub(crate) fn new() -> Self {
-        let entries = BUILTIN
-            .iter()
-            .map(|builtin| DocEntry {
-                id: String::from(builtin.id),
-                title: String::from(builtin.title),
-                body: String::from(builtin.body),
-            })
-            .collect();
-        Self { entries }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
-    /// 加入一页文档；编号重复时返回 `false`。
+    /// 加入一页文档；DocPath 重复时返回 `false`。
     pub(crate) fn add(&mut self, id: String, title: String, body: String) -> bool {
         if self.entries.iter().any(|entry| entry.id == id) {
             return false;
@@ -113,25 +62,32 @@ impl DocSet {
         true
     }
 
+    /// 补上没有卷时使用的内置页面。
+    pub(crate) fn add_builtin(&mut self) {
+        for (id, body) in BUILTIN {
+            if self.contains(id) {
+                continue;
+            }
+            let title = title_of(body).unwrap_or_else(|| doc_name(id));
+            self.entries.push(DocEntry {
+                id: String::from(*id),
+                title,
+                body: String::from(*body),
+            });
+        }
+    }
+
     /// 返回文档集里的全部页面。
     pub(crate) fn entries(&self) -> &[DocEntry] {
         &self.entries
     }
 
-    /// 统计从磁盘加载的页面数。
-    pub(crate) fn disk_count(&self) -> usize {
-        self.entries
-            .iter()
-            .filter(|entry| entry.id.starts_with(DISK_PREFIX))
-            .count()
-    }
-
-    /// 判断文档集是否包含指定编号。
+    /// 判断文档集是否包含指定 DocPath。
     fn contains(&self, id: &str) -> bool {
         id == INDEX || self.entries.iter().any(|entry| entry.id == id)
     }
 
-    /// 按编号取页面；文档索引按当前集合即时生成。
+    /// 按 DocPath 取页面；索引按当前集合即时生成。
     pub(crate) fn page(&self, id: &str) -> Option<DocEntry> {
         if id == INDEX {
             return Some(self.index());
@@ -139,47 +95,38 @@ impl DocSet {
         self.entries.iter().find(|entry| entry.id == id).cloned()
     }
 
-    /// 把链接目标解析为文档集内的编号。
+    /// 把链接目标解析为文档集内的 DocPath。
     pub(crate) fn resolve(&self, target: &str) -> Option<String> {
         let target = target.trim();
         if target.is_empty() || target.contains("://") {
             return None;
         }
-        if self.contains(target) {
-            return Some(String::from(target));
-        }
-        let file = target.rsplit('/').next().unwrap_or(target);
-        let stem = file.strip_suffix(".md").unwrap_or(file);
-        if self.contains(stem) {
-            return Some(String::from(stem));
-        }
-        let disk = format!("{DISK_PREFIX}{stem}");
-        if self.contains(&disk) {
-            return Some(disk);
-        }
-        None
+        let path = if target.starts_with("H:") {
+            String::from(target)
+        } else if let Some(rest) = target.strip_prefix('/') {
+            format!("H:/{rest}")
+        } else {
+            format!("H:/{target}")
+        };
+        let path = path.trim_end_matches('/');
+        let path = if path.is_empty() { "H:" } else { path };
+        self.contains(path).then(|| String::from(path))
     }
 
     /// 生成文档索引页面。
     fn index(&self) -> DocEntry {
         let mut body = String::from(
-            "# 文档索引\nHolyDoc 把内置页面与磁盘文档放在同一份索引里，链接可直接跳转。\n\n## 内置页面\n",
+            "@title(\"文档索引\")\nH: 卷中的文档与集合按 DocPath 列出，链接直接跳转。\n",
         );
-        for builtin in BUILTIN {
-            body.push_str(&format!("- [{}]({})\n", builtin.title, builtin.id));
-        }
-        body.push_str("\n## 磁盘文档\n");
-        let mut disk = 0;
-        for entry in &self.entries {
-            if entry.id.starts_with(DISK_PREFIX) {
-                body.push_str(&format!("- [{}]({})\n", entry.title, entry.id));
-                disk += 1;
+        if self.entries.is_empty() {
+            body.push_str("\nH: 卷尚未挂载，当前只有内置页面。\n");
+        } else {
+            body.push_str("\n@heading(2, \"页面\")\n");
+            let mut entries: Vec<&DocEntry> = self.entries.iter().collect();
+            entries.sort_by(|left, right| left.id.cmp(&right.id));
+            for entry in entries {
+                body.push_str(&format!("@link(\"{}\", \"{}\")\n", entry.id, entry.title));
             }
-        }
-        if disk == 0 {
-            body.push_str(
-                "未找到磁盘文档。挂载 ext4 磁盘后，把 .md 文件放到 /docs 或 /disk/docs 再重新打开。\n",
-            );
         }
         DocEntry {
             id: String::from(INDEX),
@@ -233,34 +180,52 @@ impl DocView {
             scroll: 0,
             history,
         };
-        let mut code = false;
         for raw in entry.body.lines() {
-            if raw.trim_start().starts_with("```") {
-                code = !code;
-                continue;
-            }
-            if code {
-                view.push_wrapped(raw, Style::Code, true);
-                continue;
-            }
             let line = raw.trim_end();
             if line.is_empty() {
                 view.lines.push(Line {
                     runs: Vec::new(),
                     code: false,
                 });
-            } else if let Some(rest) = line.strip_prefix("# ") {
-                view.push_inline(set, rest, Style::Title, false);
-            } else if let Some(rest) = line.strip_prefix("## ") {
-                view.push_inline(set, rest, Style::Heading, false);
-            } else if let Some(rest) = line.strip_prefix("- ") {
-                view.push_inline(set, &format!("· {rest}"), Style::Bullet, false);
-            } else if let Some(rest) = line.strip_prefix("@exec ") {
-                for output in exec(set, rest) {
-                    view.push_wrapped(&output, Style::Code, true);
-                }
-            } else {
+                continue;
+            }
+            let Some((name, rest)) = call(line) else {
                 view.push_inline(set, line, Style::Body, false);
+                continue;
+            };
+            match name {
+                "title" => {
+                    if let Some(title) = split_args(rest).first() {
+                        view.push_inline(set, title, Style::Title, false);
+                    }
+                }
+                "heading" => {
+                    if let Some(title) = split_args(rest).last() {
+                        view.push_inline(set, title, Style::Heading, false);
+                    }
+                }
+                "link" => {
+                    let args = split_args(rest);
+                    if let Some(label) = args.get(1) {
+                        view.push_link(set, label, args.first().map(String::as_str));
+                    }
+                }
+                "bullet" => {
+                    if let Some(text) = split_args(rest).first() {
+                        view.push_inline(set, &format!("· {text}"), Style::Bullet, false);
+                    }
+                }
+                "code" => {
+                    if let Some(text) = split_args(rest).first() {
+                        view.push_wrapped(text, Style::Code, true);
+                    }
+                }
+                "exec" => {
+                    for output in exec(set, rest) {
+                        view.push_wrapped(&output, Style::Code, true);
+                    }
+                }
+                _ => view.push_inline(set, line, Style::Body, false),
             }
         }
         if view.lines.is_empty() {
@@ -274,6 +239,18 @@ impl DocView {
 
     fn push_inline(&mut self, set: &DocSet, text: &str, style: Style, code: bool) {
         self.wrap(parse_inline(set, text, style), code);
+    }
+
+    fn push_link(&mut self, set: &DocSet, label: &str, target: Option<&str>) {
+        let target = target.and_then(|target| set.resolve(target));
+        self.wrap(
+            alloc::vec![Run {
+                text: String::from(label),
+                style: Style::Link,
+                target,
+            }],
+            false,
+        );
     }
 
     fn push_wrapped(&mut self, text: &str, style: Style, code: bool) {
@@ -410,12 +387,67 @@ pub(crate) fn char_width(character: char) -> usize {
     if u32::from(character) > 0x7F { 16 } else { 8 }
 }
 
-/// 从正文首个一级标题取页面标题。
+/// 从 `@title(...)` 提取页面标题。
 pub(crate) fn title_of(body: &str) -> Option<String> {
-    body.lines().find_map(|line| {
-        line.strip_prefix("# ")
-            .map(|title| title.trim().to_string())
-    })
+    for line in body.lines() {
+        if let Some((name, rest)) = call(line.trim())
+            && name == "title"
+            && let Some(title) = split_args(rest).first()
+        {
+            return Some(title.clone());
+        }
+    }
+    None
+}
+
+/// DocPath 的最后一段，作为缺省标题。
+pub(crate) fn doc_name(path: &str) -> String {
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+/// 拆分 `@指令` 名称与参数文本。
+fn call(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix('@')?;
+    let end = rest
+        .find(|character: char| character == '(' || character.is_whitespace())
+        .unwrap_or(rest.len());
+    if end == 0 {
+        return None;
+    }
+    Some((&rest[..end], rest[end..].trim()))
+}
+
+/// 拆分逗号分隔的参数，保留引号内的逗号，去掉成对引号。
+fn split_args(text: &str) -> Vec<String> {
+    let text = text.trim();
+    let text = text
+        .strip_prefix('(')
+        .and_then(|text| text.strip_suffix(')'))
+        .unwrap_or(text);
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    for character in text.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            ',' if !quoted => {
+                args.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(character),
+        }
+    }
+    if !current.trim().is_empty() || !args.is_empty() {
+        args.push(current.trim().to_string());
+    }
+    args
 }
 
 /// 向当前行追加一个字符，合并同样式片段。
@@ -436,7 +468,7 @@ fn append_run(runs: &mut Vec<Run>, character: char, style: Style, target: Option
     });
 }
 
-/// 解析行内链接。
+/// 解析行内链接写法 `[label](target)`。
 fn parse_inline(set: &DocSet, text: &str, style: Style) -> Vec<Run> {
     let mut runs = Vec::new();
     let mut rest = text;

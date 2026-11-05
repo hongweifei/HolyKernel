@@ -146,7 +146,7 @@ impl SmokeMode {
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
-            Self::Holydoc => Some("holydoc-test"),
+            Self::Holydoc => Some("vfs.fs=holyfs holydoc-test"),
             Self::Debug => Some("debug-test"),
             Self::DisplayRestart => Some("display-restart-test"),
         }
@@ -345,16 +345,18 @@ impl SmokeMode {
             ],
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
+                "hk-server-vfs: drive H:",
+                "hk-server-holydoc: document H:/Welcome",
+                "hk-server-holydoc: document H:/System/Overview",
                 "hk-server-holydoc: ready 1",
-                "hk-server-holydoc: disk architecture.md",
-                "hk-server-holydoc: doc welcome",
-                "hk-server-holydoc: docs 5",
+                "hk-server-holydoc: doc H:/Welcome",
+                "hk-server-holydoc: drive docs 5",
                 "hk-server-holydoc: exec version",
-                "hk-server-holydoc: click index",
-                "hk-server-holydoc: open index",
-                "hk-server-holydoc: open disk:architecture",
+                "hk-server-holydoc: click H:/System",
+                "hk-server-holydoc: open H:/System",
+                "hk-server-holydoc: open H:/System/Overview",
                 "hk-server-holydoc: scroll ",
-                "hk-server-holydoc: back index",
+                "hk-server-holydoc: back H:/System",
                 "hk-server-holydoc: done",
             ],
             Self::Debug => &[
@@ -733,13 +735,13 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
     }
     let blocks = crate::disk::DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
-    let disk = if mode == SmokeMode::HolyFs {
-        hk_fs_holyfs::format(disk)
-            .map_err(|error| Failure::new(format!("格式化 HolyFS 测试磁盘失败：{error}")))?
+    let disk = if matches!(mode, SmokeMode::HolyFs | SmokeMode::Holydoc) {
+        let disk = hk_fs_holyfs::format(disk)
+            .map_err(|error| Failure::new(format!("格式化 HolyFS 测试磁盘失败：{error}")))?;
+        crate::disk::seed_holy_docs(disk)?
     } else {
-        let disk = hk_fs_ext4::format_with_wall_clock(disk, HostClock)
-            .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?;
-        crate::disk::seed_docs(disk)?
+        hk_fs_ext4::format_with_wall_clock(disk, HostClock)
+            .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?
     };
     fs::write(&path, disk.into_data())
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
