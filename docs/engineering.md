@@ -13,6 +13,7 @@ HolyKernel/
 ├── Cargo.toml / rust-toolchain.toml
 ├── xtask/                 构建、镜像、QEMU、smoke、文档、依赖检查
 ├── crates/
+│   ├── 基础类型           hk-base（地址、架构、启动信息）
 │   ├── 内核 ABI 与对象    hk-syscall hk-hal hk-handle hk-ipc hk-mem hk-kernel
 │   ├── 内核库             hk-boot hk-acpi hk-framebuffer hk-smp hk-test hk-drivers
 │   ├── 用户态库           hk-server-api hk-block hk-net hk-vfs hk-fs-ext4

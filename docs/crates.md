@@ -10,6 +10,7 @@
 
 | 层 | crate | 职责 |
 | --- | --- | --- |
+| L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
 | L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
 | L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出 |
 | L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
@@ -28,7 +29,7 @@
 
 | crate 类别 | 允许 | 禁止 |
 | --- | --- | --- |
-| L0 内核 crate | `hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
+| L0 内核 crate | `hk-base`、`hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
 | `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
 | `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
@@ -42,6 +43,8 @@
 目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
+
+基础类型分层：`hk-base` 零依赖，定义地址、架构与启动信息；`hk-hal` 在其上定义平台 trait 并重导出这些类型，`hk-boot` 直接在 `hk-base` 之上实现 Limine 适配，避免 HAL 与引导适配互相依赖。
 
 ---
 
