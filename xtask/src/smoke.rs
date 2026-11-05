@@ -22,6 +22,9 @@ use crate::workspace;
 /// 等待内核退出的上限。
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// HolyDoc 自检含快照与多次渲染，debug 构建需要更长时间。
+const HOLYDOC_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// ext4 自检写入的标记内容。
 const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
 
@@ -635,7 +638,12 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         serve_tcp_echo(listener)?;
     }
 
-    let deadline = Instant::now() + TIMEOUT;
+    let timeout = if mode == SmokeMode::Holydoc {
+        HOLYDOC_TIMEOUT
+    } else {
+        TIMEOUT
+    };
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
