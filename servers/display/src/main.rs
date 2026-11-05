@@ -25,6 +25,14 @@ use lovyangfx_fonts::Font;
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::fonts::efont_cn_16;
 
+#[cfg(target_os = "none")]
+mod compositor;
+#[cfg(target_os = "none")]
+use compositor::{
+    CURSOR_HEIGHT, CURSOR_WIDTH, TITLE_COLOR, TITLE_FOCUS, compose_region, damage_title,
+    damage_window, draw_desktop, move_window, surface_pixel,
+};
+
 /// 最多同时合成的窗口数。
 #[cfg(target_os = "none")]
 const MAX_WINDOWS: usize = 8;
@@ -44,44 +52,6 @@ const TITLE_HEIGHT: usize = 24;
 /// Tab 键字节：切换焦点。
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
-
-/// 桌面背景顶部颜色。
-#[cfg(target_os = "none")]
-const DESKTOP_TOP: u32 = 0x0010_1820;
-/// 桌面背景底部颜色。
-#[cfg(target_os = "none")]
-const DESKTOP_BOTTOM: u32 = 0x0030_4860;
-/// 标题栏颜色。
-#[cfg(target_os = "none")]
-const TITLE_COLOR: u32 = 0x0020_60A0;
-/// 焦点窗口的标题栏颜色。
-#[cfg(target_os = "none")]
-const TITLE_FOCUS: u32 = 0x0040_A0E0;
-/// 标题文字颜色。
-#[cfg(target_os = "none")]
-const TITLE_TEXT: u32 = 0x00E0_F0FF;
-/// 光标宽度。
-#[cfg(target_os = "none")]
-const CURSOR_WIDTH: usize = 8;
-/// 光标高度。
-#[cfg(target_os = "none")]
-const CURSOR_HEIGHT: usize = 12;
-/// 光标位图（每行 8 位）。
-#[cfg(target_os = "none")]
-const CURSOR_BITS: [u8; CURSOR_HEIGHT] = [
-    0b1000_0000,
-    0b1100_0000,
-    0b1110_0000,
-    0b1111_0000,
-    0b1111_1000,
-    0b1111_1100,
-    0b1111_1110,
-    0b1111_1111,
-    0b1111_0000,
-    0b1100_1000,
-    0b1000_1100,
-    0b0000_0110,
-];
 
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
@@ -138,54 +108,6 @@ impl Screen {
     }
 }
 
-/// 按 `ratio/255` 混合两个颜色。
-#[cfg(target_os = "none")]
-fn blend(from: u32, to: u32, ratio: u32) -> u32 {
-    let channel = |shift: u32| {
-        let a = (from >> shift) & 0xFF;
-        let b = (to >> shift) & 0xFF;
-        ((a * (255 - ratio) + b * ratio) / 255) & 0xFF
-    };
-    (channel(16) << 16) | (channel(8) << 8) | channel(0)
-}
-
-/// 返回桌面在指定行的颜色。
-#[cfg(target_os = "none")]
-fn desktop_color(height: usize, row: usize) -> u32 {
-    let ratio = (row * 255 / height.max(1)) as u32;
-    blend(DESKTOP_TOP, DESKTOP_BOTTOM, ratio)
-}
-
-/// 读取窗口表面中的一个像素。
-#[cfg(target_os = "none")]
-fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
-    // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
-    unsafe {
-        (window.virt as *const u32)
-            .add(y * window.width + x)
-            .read_volatile()
-    }
-}
-
-/// 绘制鼠标箭头（带 1 像素阴影）。
-#[cfg(target_os = "none")]
-fn draw_cursor(screen: &Screen, x: usize, y: usize) {
-    for (row, bits) in CURSOR_BITS.iter().enumerate() {
-        for column in 0..CURSOR_WIDTH {
-            if bits & (0x80 >> column) != 0 {
-                screen.put(x + column + 1, y + row + 1, 0x0000_0000);
-            }
-        }
-    }
-    for (row, bits) in CURSOR_BITS.iter().enumerate() {
-        for column in 0..CURSOR_WIDTH {
-            if bits & (0x80 >> column) != 0 {
-                screen.put(x + column, y + row, 0x00FF_FFFF);
-            }
-        }
-    }
-}
-
 /// 返回指定点最上层窗口。
 #[cfg(target_os = "none")]
 fn window_at(windows: &[Option<Window>; MAX_WINDOWS], x: usize, y: usize) -> Option<Window> {
@@ -195,132 +117,6 @@ fn window_at(windows: &[Option<Window>; MAX_WINDOWS], x: usize, y: usize) -> Opt
             && y >= window.y
             && y < window.y + window.height + TITLE_HEIGHT
     })
-}
-
-/// 在给定矩形内绘制一个窗口：标题栏、标题文字与表面。
-#[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-fn paint_window(
-    screen: &Screen,
-    window: &Window,
-    focus: u64,
-    font: &Font<'static>,
-    left: usize,
-    top: usize,
-    right: usize,
-    bottom: usize,
-) {
-    let window_x = window.x;
-    let window_y = window.y;
-
-    let title_left = window_x.max(left);
-    let title_right = (window_x + window.width).min(right);
-    let title_top = window_y.max(top);
-    let title_bottom = (window_y + TITLE_HEIGHT).min(bottom);
-    if title_left < title_right && title_top < title_bottom {
-        let color = if window.id == focus {
-            TITLE_FOCUS
-        } else {
-            TITLE_COLOR
-        };
-        for row in title_top..title_bottom {
-            for column in title_left..title_right {
-                screen.put(column, row, color);
-            }
-        }
-        let mut pen_x = window_x as i32 + 4;
-        for &byte in &window.title[..window.title_length] {
-            if !(0x20..0x7F).contains(&byte) {
-                pen_x += 8;
-                continue;
-            }
-            if pen_x + 8 > (window_x + window.width) as i32 {
-                break;
-            }
-            if let Some(glyph) = font.glyph(byte as char) {
-                let origin_y = window_y as i32 + 4;
-                glyph.for_each_pixel(|x, y| {
-                    let pixel_x = pen_x + x;
-                    let pixel_y = origin_y + y;
-                    if pixel_x >= left as i32
-                        && pixel_x < right as i32
-                        && pixel_y >= top as i32
-                        && pixel_y < bottom as i32
-                        && pixel_y < (window_y + TITLE_HEIGHT) as i32
-                    {
-                        screen.put(pixel_x as usize, pixel_y as usize, TITLE_TEXT);
-                    }
-                });
-            }
-            pen_x += 8;
-        }
-    }
-
-    let body_left = window_x.max(left);
-    let body_right = (window_x + window.width).min(right);
-    let body_top = (window_y + TITLE_HEIGHT).max(top);
-    let body_bottom = (window_y + TITLE_HEIGHT + window.height).min(bottom);
-    for row in body_top..body_bottom {
-        let source_row = row - (window_y + TITLE_HEIGHT);
-        for column in body_left..body_right {
-            screen.put(
-                column,
-                row,
-                surface_pixel(window, column - window_x, source_row),
-            );
-        }
-    }
-}
-
-/// 重绘一个矩形区域：背景 + 自下而上的窗口。
-#[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-fn compose_region(
-    screen: &Screen,
-    windows: &[Option<Window>; MAX_WINDOWS],
-    focus: u64,
-    font: &Font<'static>,
-    pointer: Option<(usize, usize)>,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-) {
-    let left = x.min(screen.width);
-    let top = y.min(screen.height);
-    let right = x.saturating_add(width).min(screen.width);
-    let bottom = y.saturating_add(height).min(screen.height);
-    if left >= right || top >= bottom {
-        return;
-    }
-    for row in top..bottom {
-        let color = desktop_color(screen.height, row);
-        for column in left..right {
-            screen.put(column, row, color);
-        }
-    }
-    for window in windows.iter().flatten() {
-        paint_window(screen, window, focus, font, left, top, right, bottom);
-    }
-    if let Some((cursor_x, cursor_y)) = pointer
-        && cursor_x >= left
-        && cursor_x < right
-        && cursor_y >= top
-        && cursor_y < bottom
-    {
-        draw_cursor(screen, cursor_x, cursor_y);
-    }
-}
-
-/// 重绘整个桌面。
-#[cfg(target_os = "none")]
-fn draw_desktop(screen: &Screen) {
-    for row in 0..screen.height {
-        let color = desktop_color(screen.height, row);
-        for column in 0..screen.width {
-            screen.put(column, row, color);
-        }
-    }
 }
 
 /// 把窗口提升到 z 序顶部。
@@ -338,107 +134,6 @@ fn raise(windows: &mut [Option<Window>; MAX_WINDOWS], id: u64) {
     if position < last {
         windows[position..=last].rotate_left(1);
     }
-}
-
-/// 重绘窗口（含标题栏）。
-#[cfg(target_os = "none")]
-fn damage_window(
-    screen: &Screen,
-    windows: &[Option<Window>; MAX_WINDOWS],
-    focus: u64,
-    font: &Font<'static>,
-    pointer: Option<(usize, usize)>,
-    window: &Window,
-) {
-    compose_region(
-        screen,
-        windows,
-        focus,
-        font,
-        pointer,
-        window.x,
-        window.y,
-        window.width,
-        window.height + TITLE_HEIGHT,
-    );
-}
-
-/// 重绘指定窗口的标题栏。
-#[cfg(target_os = "none")]
-fn damage_title(
-    screen: &Screen,
-    windows: &[Option<Window>; MAX_WINDOWS],
-    focus: u64,
-    font: &Font<'static>,
-    pointer: Option<(usize, usize)>,
-    id: u64,
-) {
-    if id == 0 {
-        return;
-    }
-    if let Some(window) = windows
-        .iter()
-        .flatten()
-        .find(|window| window.id == id)
-        .copied()
-    {
-        compose_region(
-            screen,
-            windows,
-            focus,
-            font,
-            pointer,
-            window.x,
-            window.y,
-            window.width,
-            TITLE_HEIGHT,
-        );
-    }
-}
-
-/// 把窗口移动到新的左上角，并重绘旧、新两个区域。
-#[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-fn move_window(
-    screen: &Screen,
-    windows: &mut [Option<Window>; MAX_WINDOWS],
-    focus: u64,
-    font: &Font<'static>,
-    old: Window,
-    x: usize,
-    y: usize,
-) {
-    let Some(window) = windows
-        .iter_mut()
-        .flatten()
-        .find(|window| window.id == old.id)
-    else {
-        return;
-    };
-    window.x = x;
-    window.y = y;
-    compose_region(
-        screen,
-        windows,
-        focus,
-        font,
-        None,
-        old.x,
-        old.y,
-        old.width,
-        old.height + TITLE_HEIGHT,
-    );
-    compose_region(
-        screen,
-        windows,
-        focus,
-        font,
-        None,
-        x,
-        y,
-        old.width,
-        old.height + TITLE_HEIGHT,
-    );
 }
 
 /// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
