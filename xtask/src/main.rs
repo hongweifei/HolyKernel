@@ -61,6 +61,8 @@ enum Task {
     Docs,
     /// 统计内核代码行数
     Budget,
+    /// 创建运行磁盘 build/run-disk.img
+    Disk,
 }
 
 #[derive(Debug, Args)]
@@ -143,5 +145,11 @@ fn execute(task: Task) -> Result<()> {
         Task::Deps => deps::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
+        Task::Disk => {
+            let path = workspace::root().join("build/run-disk.img");
+            disk::ensure_ext4(&path)?;
+            println!("{}", path.display());
+            Ok(())
+        }
     }
 }

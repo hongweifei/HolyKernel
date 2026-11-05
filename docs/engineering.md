@@ -66,7 +66,13 @@ cargo xtask lint
 cargo xtask budget
 ```
 
-x86_64 QEMU 的 `run` 会自动创建 `build/run-disk.img` 并挂载为 virtio-blk；删除该文件可重建空 ext4 磁盘。
+x86_64 QEMU 的 `run` 会自动创建 `build/run-disk.img` 并挂载为 virtio-blk；`cargo xtask disk` 可单独生成该磁盘。手动 QEMU 启动需要：
+
+```sh
+qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
+  -drive file=build/run-disk.img,if=none,id=disk,format=raw \
+  -device virtio-blk-pci,drive=disk
+```
 
 当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。
 
