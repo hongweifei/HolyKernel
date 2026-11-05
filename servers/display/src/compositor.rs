@@ -354,6 +354,7 @@ pub(crate) fn compose_region(
     if left >= right || top >= bottom {
         return;
     }
+    screen.mark_damage(x, y, width, height);
     for row in top..bottom {
         let color = desktop_color(screen.height, row);
         screen.fill_row(left, row, right - left, color);
@@ -375,6 +376,7 @@ pub(crate) fn compose_region(
 /// 重绘整个桌面。
 #[cfg(target_os = "none")]
 pub(crate) fn draw_desktop(screen: &Screen) {
+    screen.mark_damage(0, 0, screen.width, screen.height);
     for row in 0..screen.height {
         let color = desktop_color(screen.height, row);
         screen.fill_row(0, row, screen.width, color);

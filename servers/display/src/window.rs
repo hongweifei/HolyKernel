@@ -1,5 +1,7 @@
 //! 窗口模型、屏幕访问与 z 序。
 
+use core::cell::Cell;
+
 use hk_server_api::display::TITLE_MAX;
 
 use crate::theme::scale;
@@ -209,14 +211,74 @@ pub(crate) struct Drag {
 
 #[cfg(target_os = "none")]
 pub(crate) struct Screen {
-    pub(crate) base: *mut u32,
+    base: *mut u32,
+    fb: *mut u32,
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) stride: usize,
+    damage: Cell<Option<(usize, usize, usize, usize)>>,
 }
 
 #[cfg(target_os = "none")]
 impl Screen {
+    pub(crate) fn new(
+        back: *mut u32,
+        fb: *mut u32,
+        width: usize,
+        height: usize,
+        stride: usize,
+    ) -> Self {
+        Self {
+            base: back,
+            fb,
+            width,
+            height,
+            stride,
+            damage: Cell::new(None),
+        }
+    }
+
+    /// 记录需要从后备缓冲提交到帧缓冲的区域。
+    pub(crate) fn mark_damage(&self, x: usize, y: usize, width: usize, height: usize) {
+        let left = x.min(self.width);
+        let top = y.min(self.height);
+        let right = x.saturating_add(width).min(self.width);
+        let bottom = y.saturating_add(height).min(self.height);
+        if left >= right || top >= bottom {
+            return;
+        }
+        let union = match self.damage.get() {
+            Some((old_left, old_top, old_right, old_bottom)) => (
+                old_left.min(left),
+                old_top.min(top),
+                old_right.max(right),
+                old_bottom.max(bottom),
+            ),
+            None => (left, top, right, bottom),
+        };
+        self.damage.set(Some(union));
+    }
+
+    /// 把累积的 damage 一次性提交到帧缓冲。
+    pub(crate) fn present(&self) {
+        let Some((left, top, right, bottom)) = self.damage.take() else {
+            return;
+        };
+        let count = right - left;
+        for row in top..bottom {
+            // SAFETY: 后备缓冲与帧缓冲均为 width×height，区域已裁剪；VGA 内存逐元素写。
+            unsafe {
+                let source = self.base.add(row * self.stride + left);
+                let destination = self.fb.add(row * self.stride + left);
+                for index in 0..count {
+                    destination
+                        .add(index)
+                        .write_volatile(source.add(index).read());
+                }
+            }
+        }
+    }
+
     pub(crate) fn put(&self, x: usize, y: usize, color: u32) {
         if x >= self.width || y >= self.height {
             return;

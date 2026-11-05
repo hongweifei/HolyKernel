@@ -18,8 +18,8 @@ use hk_server_api::framebuffer;
 use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, unpack_pointer};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_info, frame_map, frame_unmap, recv_data_handle_try,
-    send, write, write_u64, yield_now,
+    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
+    recv_data_handle_try, send, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::Font;
@@ -48,6 +48,10 @@ use window::{
 /// Tab 键字节：切换焦点。
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
+
+/// 离屏后备缓冲的映射地址。
+#[cfg(target_os = "none")]
+const BACK_VIRT: u64 = 0x7000_0000;
 
 /// 最小化窗口并把焦点交给剩余最上层窗口。
 #[cfg(target_os = "none")]
@@ -298,12 +302,21 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(2)
     }
 
-    let screen = Screen {
-        base: framebuffer::MAP_ADDRESS as *mut u32,
-        width: framebuffer.width as usize,
-        height: framebuffer.height as usize,
-        stride: framebuffer.stride as usize / 4,
-    };
+    let width = framebuffer.width as usize;
+    let height = framebuffer.height as usize;
+    let bytes = width * height * 4;
+    let back = frame_alloc(bytes, BACK_VIRT);
+    if back == 0 || back == u64::MAX {
+        write(b"hk-server-display: back buffer failed\n");
+        exit(2)
+    }
+    let screen = Screen::new(
+        BACK_VIRT as *mut u32,
+        framebuffer::MAP_ADDRESS as *mut u32,
+        width,
+        height,
+        framebuffer.stride as usize / 4,
+    );
     let font = efont_cn_16();
     let mut theme_buffer = [0_u8; 128];
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
@@ -329,6 +342,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut resize: Option<Resize> = None;
     damage_taskbar(&screen, &windows, focus, &font, pointer);
     loop {
+        screen.present();
         // 输入驱动接入后不再读内核控制台，避免两路输入重复。
         if !driver_input {
             while let Some(byte) = console_read() {
