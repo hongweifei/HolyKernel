@@ -15,7 +15,9 @@ use hk_server_api::display::{
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
-use hk_server_api::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, unpack_pointer};
+use hk_server_api::input::{
+    INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, unpack_pointer, unpack_wheel,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, console_read, exit, frame_alloc, frame_info, frame_map, recv_data_handle_try,
@@ -29,7 +31,9 @@ use lovyangfx_fonts::fonts::efont_cn_16;
 #[cfg(target_os = "none")]
 mod actions;
 #[cfg(target_os = "none")]
-use actions::{close_window, cycle_focus, minimize_window, route_key, toggle_maximize};
+use actions::{
+    close_window, cycle_focus, minimize_window, route_key, route_wheel, toggle_maximize,
+};
 
 #[cfg(target_os = "none")]
 mod compositor;
@@ -103,16 +107,13 @@ fn report_full_redraw(label: &[u8], cycles: u64) {
     let frequency = tsc_frequency();
     write(b"hk-server-display: ");
     write(label);
-    write_u64(if frequency == 0 {
-        cycles
+    let micros = cycles.saturating_mul(1_000_000).checked_div(frequency);
+    write_u64(micros.unwrap_or(cycles));
+    write(if micros.is_some() {
+        b" us\n".as_slice()
     } else {
-        cycles.saturating_mul(1_000_000) / frequency
+        b" cycles\n".as_slice()
     });
-    if frequency == 0 {
-        write(b" cycles\n");
-    } else {
-        write(b" us\n");
-    }
 }
 
 /// 服务入口。
@@ -548,6 +549,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     cycle_focus(&screen, &mut windows, &mut focus, &font, pointer);
                 } else {
                     route_key(&windows, focus, byte);
+                }
+            }
+            INPUT_WHEEL => {
+                let delta = unpack_wheel(word);
+                if delta != 0 {
+                    route_wheel(&windows, focus, delta);
                 }
             }
             DISPLAY_SET_TITLE => {

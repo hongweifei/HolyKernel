@@ -1,6 +1,6 @@
 //! 窗口操作：最小化、最大化、关闭、焦点切换与按键路由。
 
-use hk_server_api::display::{DISPLAY_CLOSE, DISPLAY_KEY, pack_key};
+use hk_server_api::display::{DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_WHEEL, pack_key, pack_wheel};
 use hk_server_api::{close_handle, frame_unmap, send, write, write_u64};
 use lovyangfx_fonts::Font;
 
@@ -27,8 +27,7 @@ pub(crate) fn minimize_window(
         *focus = windows
             .iter()
             .flatten()
-            .filter(|window| !window.minimized)
-            .last()
+            .rfind(|window| !window.minimized)
             .map(|window| window.id)
             .unwrap_or(0);
     }
@@ -176,6 +175,13 @@ pub(crate) fn close_window(
 pub(crate) fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
     if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
         let _ = send(window.client, DISPLAY_KEY, pack_key(window.id, byte));
+    }
+}
+
+/// 把滚轮增量转发给焦点窗口的客户端；没有焦点时丢弃。
+pub(crate) fn route_wheel(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, delta: i32) {
+    if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
+        let _ = send(window.client, DISPLAY_WHEEL, pack_wheel(window.id, delta));
     }
 }
 

@@ -97,16 +97,16 @@ fn desktop_color(height: usize, row: usize) -> u32 {
 /// 读取窗口表面中的一个像素。
 #[cfg(target_os = "none")]
 pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
-    let source_x = if window.width == 0 {
-        0
-    } else {
-        (x * window.surface_width / window.width).min(window.surface_width.saturating_sub(1))
-    };
-    let source_y = if window.height == 0 {
-        0
-    } else {
-        (y * window.surface_height / window.height).min(window.surface_height.saturating_sub(1))
-    };
+    let source_x = x
+        .checked_mul(window.surface_width)
+        .and_then(|value| value.checked_div(window.width))
+        .map_or(0, |value| value.min(window.surface_width.saturating_sub(1)));
+    let source_y = y
+        .checked_mul(window.surface_height)
+        .and_then(|value| value.checked_div(window.height))
+        .map_or(0, |value| {
+            value.min(window.surface_height.saturating_sub(1))
+        });
     // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
     unsafe {
         (window.virt as *const u32)
@@ -468,23 +468,23 @@ fn paint_taskbar(
             if pen_x + 8 * font_scale > text_end {
                 break;
             }
-            if (0x20..0x7F).contains(&byte) {
-                if let Some(glyph) = font.glyph(byte as char) {
-                    let origin_y = button_top as i32 + 2 * font_scale;
-                    glyph.for_each_pixel(|x, y| {
-                        let pixel_x = pen_x + x * font_scale;
-                        let pixel_y = origin_y + y * font_scale;
-                        if pixel_x >= left as i32
-                            && pixel_x < right as i32
-                            && pixel_y >= top as i32
-                            && pixel_y < bottom as i32
-                            && pixel_y >= bar_top as i32
-                            && pixel_y < screen.height as i32
-                        {
-                            screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
-                        }
-                    });
-                }
+            if (0x20..0x7F).contains(&byte)
+                && let Some(glyph) = font.glyph(byte as char)
+            {
+                let origin_y = button_top as i32 + 2 * font_scale;
+                glyph.for_each_pixel(|x, y| {
+                    let pixel_x = pen_x + x * font_scale;
+                    let pixel_y = origin_y + y * font_scale;
+                    if pixel_x >= left as i32
+                        && pixel_x < right as i32
+                        && pixel_y >= top as i32
+                        && pixel_y < bottom as i32
+                        && pixel_y >= bar_top as i32
+                        && pixel_y < screen.height as i32
+                    {
+                        screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
+                    }
+                });
             }
             pen_x += 8 * font_scale;
         }

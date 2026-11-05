@@ -27,6 +27,8 @@ pub const DISPLAY_CLOSE: u64 = 0xA08;
 pub const DISPLAY_CLICK_AT: u64 = 0xA09;
 /// 请求 Display 以失败码退出，供热重启自检使用。
 pub const DISPLAY_RESTART: u64 = 0xA0A;
+/// 鼠标滚轮；`word` 打包窗口编号与有符号增量，发给焦点窗口的客户端。
+pub const DISPLAY_WHEEL: u64 = 0xA0B;
 
 /// 窗口标题最大字节数。
 pub const TITLE_MAX: usize = 32;
@@ -61,6 +63,16 @@ pub const fn pack_key(window: u64, byte: u8) -> u64 {
 /// 从消息字解包窗口编号与按键字节。
 pub const fn unpack_key(word: u64) -> (u64, u8) {
     (word >> 32, word as u8)
+}
+
+/// 把窗口编号与滚轮增量打包进一个消息字。
+pub const fn pack_wheel(window: u64, delta: i32) -> u64 {
+    (window << 32) | delta as u32 as u64
+}
+
+/// 从消息字解包窗口编号与滚轮增量。
+pub const fn unpack_wheel(word: u64) -> (u64, i32) {
+    (word >> 32, word as u32 as i32)
 }
 
 /// 把窗口编号与窗口内坐标打包进一个消息字。

@@ -14,11 +14,12 @@ use hk_server_api::console::{
 #[cfg(target_os = "none")]
 use hk_server_api::display::{DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SERVICE, unpack_key};
 #[cfg(target_os = "none")]
+use hk_server_api::input::{Decoder, Key};
+#[cfg(target_os = "none")]
 use hk_server_api::{
     console_read, exit, recv_data_try, send, send_data, service_endpoint, write, write_u64,
     yield_now,
 };
-#[cfg(target_os = "none")]
 
 /// 输出到图形终端；没有终端时退回内核控制台。
 #[cfg(target_os = "none")]
@@ -58,12 +59,10 @@ fn handle_input(
                 emit(terminal, b"\x08 \x08");
             }
         }
-        byte if byte >= 0x20 && byte != 0x7F => {
-            if *length < line.len() {
-                line[*length] = byte;
-                *length += 1;
-                emit(terminal, &[byte]);
-            }
+        byte if byte >= 0x20 && byte != 0x7F && *length < line.len() => {
+            line[*length] = byte;
+            *length += 1;
+            emit(terminal, &[byte]);
         }
         _ => {}
     }
@@ -98,6 +97,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut pending = 0_u64;
     let mut queued = [0_u8; 128];
     let mut queued_length = 0_usize;
+    let mut keys = Decoder::new();
 
     loop {
         let current_display = service_endpoint(DISPLAY_SERVICE);
@@ -158,15 +158,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 CONSOLE_SHUTDOWN => exit(0),
                 DISPLAY_KEY => {
                     let (_, byte) = unpack_key(word);
-                    handle_input(
-                        &mut terminal,
-                        &mut line,
-                        &mut length,
-                        &mut pending,
-                        &mut queued,
-                        &mut queued_length,
-                        byte,
-                    );
+                    if let Some(Key::Byte(byte)) = keys.feed(byte) {
+                        handle_input(
+                            &mut terminal,
+                            &mut line,
+                            &mut length,
+                            &mut pending,
+                            &mut queued,
+                            &mut queued_length,
+                            byte,
+                        );
+                    }
                 }
                 DISPLAY_FRAME_DONE => {}
                 _ => {}

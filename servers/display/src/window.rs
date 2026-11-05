@@ -302,6 +302,7 @@ impl Screen {
         }
         // SAFETY: 坐标已裁剪到后备缓冲范围内。
         let pixel = unsafe { self.base.add(y * self.stride + x) };
+        // SAFETY: 坐标已裁剪，像素位于后备缓冲内。
         let from = unsafe { pixel.read() };
         let inverse = 255 - ratio;
         let red = (((from >> 16) & 0xFF) * inverse + ((color >> 16) & 0xFF) * ratio) / 255;
