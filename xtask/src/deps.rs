@@ -48,7 +48,7 @@ const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-root-server", "hk-platform-
 pub fn run() -> Result<()> {
     let root = workspace::root();
     let mut manifests = Vec::new();
-    for group in ["crates", "platforms", "servers", "clients"] {
+    for group in ["crates", "platforms", "servers", "clients", "demos"] {
         let directory = root.join(group);
         let entries = fs::read_dir(&directory)
             .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", directory.display())))?;
