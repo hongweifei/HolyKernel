@@ -77,6 +77,7 @@ pub fn run(
                     | "hk-server-device"
                     | "hk-server-input"
                     | "hk-server-holydoc"
+                    | "hk-server-shell"
             );
         }
         if hk_boot::cmdline().is_some_and(|line| line.contains("pointer-test")) {
@@ -112,6 +113,7 @@ pub fn run(
             "hk-server-netstat"
                 | "hk-server-holydoc"
                 | "hk-server-debug"
+                | "hk-server-shell"
                 | "hk-server-display-restart-test"
         ) {
             return false;
@@ -142,7 +144,8 @@ pub fn run(
             "hk-server-input" => 2,
             "hk-server-holydoc" => 3,
             "hk-server-console" => 4,
-            _ => 5,
+            "hk-server-shell" => 5,
+            _ => 6,
         });
     }
     if modules.is_empty() {
@@ -194,6 +197,7 @@ pub fn run(
     let mut restarts = 0;
     loop {
         let idle = runtime::run_budgeted(services, 1024);
+        runtime::process_controls(&mut shell_loader, services);
         let restarted = runtime::supervise(&mut shell_loader, services);
         if restarted > 0 {
             restarts += restarted;

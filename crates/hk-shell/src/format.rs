@@ -5,7 +5,8 @@ use alloc::string::String;
 
 use crate::view::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent};
 
-pub(crate) fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
+/// 格式化任务表。
+pub fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
     if tasks.is_empty() {
         return String::from("任务表为空\n");
     }
@@ -48,7 +49,8 @@ pub(crate) fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String 
     output
 }
 
-pub(crate) fn format_handles(tasks: &[TaskInfo]) -> String {
+/// 格式化 Handle 计数。
+pub fn format_handles(tasks: &[TaskInfo]) -> String {
     if tasks.is_empty() {
         return String::from("任务表为空\n");
     }
@@ -64,7 +66,8 @@ pub(crate) fn format_handles(tasks: &[TaskInfo]) -> String {
     output
 }
 
-pub(crate) fn format_trace(events: &[TraceEvent]) -> String {
+/// 格式化 trace 事件。
+pub fn format_trace(events: &[TraceEvent]) -> String {
     if events.is_empty() {
         return String::from("trace 为空\n");
     }
@@ -80,7 +83,8 @@ pub(crate) fn format_trace(events: &[TraceEvent]) -> String {
     output
 }
 
-pub(crate) fn format_stats(stats: &RuntimeStats) -> String {
+/// 格式化运行时统计。
+pub fn format_stats(stats: &RuntimeStats) -> String {
     let mut output = String::from("运行时统计\n");
     if stats.tsc_frequency == 0 {
         output.push_str("  TSC 频率：未知\n");
@@ -124,7 +128,8 @@ fn ns(cycles: u64, frequency: u64) -> u64 {
     ((u128::from(cycles) * 1_000_000_000) / u128::from(frequency)) as u64
 }
 
-pub(crate) fn format_services(services: &[ServiceInfo]) -> String {
+/// 格式化服务表。
+pub fn format_services(services: &[ServiceInfo]) -> String {
     if services.is_empty() {
         return String::from("服务表为空\n");
     }

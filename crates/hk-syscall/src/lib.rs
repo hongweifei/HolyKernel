@@ -137,6 +137,29 @@ pub const SYS_RECV_DATA_HANDLE_TRY: u64 = 44;
 /// 只读内核运行统计：线程/对象/就绪线程/trace 事件计数。
 pub const SYS_KERNEL_STATS: u64 = 45;
 
+/// Root Server 控制请求；返回请求编号。
+pub const SYS_ROOT_CONTROL: u64 = 46;
+
+/// 读取 Root Server 控制结果；未完成时返回 `u64::MAX`。
+pub const SYS_ROOT_RESULT: u64 = 47;
+
+/// Root 控制：任务视图。
+pub const ROOT_OP_TASKS: u64 = 1;
+/// Root 控制：服务视图。
+pub const ROOT_OP_SERVICES: u64 = 2;
+/// Root 控制：trace 视图。
+pub const ROOT_OP_TRACE: u64 = 3;
+/// Root 控制：运行时统计。
+pub const ROOT_OP_STATS: u64 = 4;
+/// Root 控制：启动服务。
+pub const ROOT_OP_START: u64 = 5;
+/// Root 控制：重启服务。
+pub const ROOT_OP_RESTART: u64 = 6;
+/// Root 控制：读取 HolyShell 脚本。
+pub const ROOT_OP_SCRIPT: u64 = 7;
+/// Root 控制：Handle 计数视图。
+pub const ROOT_OP_HANDLES: u64 = 8;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 

@@ -54,6 +54,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         self.wake_aps();
     }
 
+    /// 返回当前 CPU 正在执行的任务名。
+    pub fn current_task_name(&self, cpu: usize) -> Option<String> {
+        self.runtime
+            .lock()
+            .as_ref()
+            .and_then(|runtime| runtime.current_task_name(cpu))
+            .map(String::from)
+    }
+
+    /// 从当前任务用户内存读取字节。
+    pub fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
+        self.runtime
+            .lock()
+            .as_ref()
+            .is_some_and(|runtime| runtime.read_user(address, buffer))
+    }
+
+    /// 向当前任务用户内存写入字节。
+    pub fn write_user(&self, address: u64, data: &[u8]) -> bool {
+        self.runtime
+            .lock()
+            .as_ref()
+            .is_some_and(|runtime| runtime.write_user(address, data))
+    }
+
     /// 返回任务数量。
     pub fn task_count(&self) -> usize {
         self.runtime

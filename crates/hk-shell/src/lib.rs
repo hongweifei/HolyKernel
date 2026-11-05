@@ -9,7 +9,7 @@ extern crate alloc;
 
 mod command;
 mod execute;
-mod format;
+pub mod format;
 mod host;
 mod response;
 mod session;

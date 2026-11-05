@@ -8,11 +8,14 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use hk_hal::Console;
+use hk_hal::{Console, SyscallFrame};
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
+
+mod control;
+use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_RESULT};
 
 /// 看门狗两次快照之间的墙钟间隔。
 const WATCHDOG_INTERVAL_MS: u64 = 3_000;
@@ -328,6 +331,11 @@ pub fn run_ap(cpu: usize) -> ! {
     }
 }
 
+/// 处理 Root Server 控制请求。
+pub fn process_controls(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) {
+    control::process(loader, table);
+}
+
 /// 按重启策略监督服务；返回重启数量。
 pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) -> usize {
     hk_root_server::service::supervise(
@@ -364,6 +372,33 @@ pub fn restart_service(
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
+    if frame.number() == SYS_ROOT_CONTROL {
+        let length = frame.arg2() as usize;
+        let mut argument = [0_u8; 128];
+        if length > argument.len() || !RUNTIME.read_user(frame.arg1(), &mut argument[..length]) {
+            frame.set_result(u64::MAX);
+            return SyscallAction::Continue;
+        }
+        let caller = RUNTIME
+            .current_task_name(cpu::cpu_index())
+            .unwrap_or_default();
+        let argument = core::str::from_utf8(&argument[..length]).unwrap_or("");
+        frame.set_result(control::request(frame.arg0(), argument, &caller));
+        return SyscallAction::Continue;
+    }
+    if frame.number() == SYS_ROOT_RESULT {
+        let Some(data) = control::take_result(frame.arg0()) else {
+            frame.set_result(u64::MAX);
+            return SyscallAction::Continue;
+        };
+        let length = (frame.arg2() as usize).min(data.len());
+        if !RUNTIME.write_user(frame.arg1(), &data[..length]) {
+            frame.set_result(u64::MAX - 1);
+            return SyscallAction::Continue;
+        }
+        frame.set_result(length as u64);
+        return SyscallAction::Continue;
+    }
     match RUNTIME.dispatch(cpu::cpu_index(), frame) {
         Switch::Continue => SyscallAction::Continue,
         Switch::Block => SyscallAction::Block,

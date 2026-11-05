@@ -18,6 +18,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-netsock",
     "hk-server-console",
     "hk-server-console-test",
+    "hk-server-shell",
     "hk-server-display",
     "hk-server-display-test",
     "hk-server-terminal-test",

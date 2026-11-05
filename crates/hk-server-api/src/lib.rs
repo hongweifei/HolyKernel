@@ -15,6 +15,7 @@ pub mod framebuffer;
 pub mod heap;
 pub mod input;
 pub mod net;
+pub mod root;
 pub mod runtime;
 pub mod socket;
 pub mod vfs;

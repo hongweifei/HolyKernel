@@ -169,6 +169,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    /// 返回当前 CPU 正在执行的任务名。
+    pub fn current_task_name(&self, cpu: usize) -> Option<&str> {
+        self.current[cpu].map(|index| self.tasks[index].name.as_str())
+    }
+
+    /// 从当前任务用户内存读取字节。
+    pub fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
+        self.platform.read_user(address, buffer)
+    }
+
+    /// 向当前任务用户内存写入字节。
+    pub fn write_user(&self, address: u64, data: &[u8]) -> bool {
+        self.platform.write_user(address, data)
+    }
+
     /// 生成任务视图快照。
     pub fn tasks(&self) -> Vec<TaskInfo> {
         self.tasks

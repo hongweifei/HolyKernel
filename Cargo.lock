@@ -561,6 +561,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-shell"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-shell",
+]
+
+[[package]]
 name = "hk-server-spin"
 version = "0.1.0"
 dependencies = [
@@ -656,6 +665,7 @@ dependencies = [
  "hk-root-server",
  "hk-shell",
  "hk-smp",
+ "hk-syscall",
  "hk-test",
  "spin",
 ]

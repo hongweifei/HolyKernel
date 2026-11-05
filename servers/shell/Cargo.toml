@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-shell"
+description = "HolyKernel 用户态 Shell 服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-shell"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-shell = { version = "0.1.0", path = "../../crates/hk-shell" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true
