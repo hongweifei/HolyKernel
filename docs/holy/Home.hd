@@ -1,0 +1,7 @@
+@title("Home")
+Home 是每次 Shell 启动都会执行的启动文档：把需要随会话恢复的服务、窗口与配置命令写在这里。
+
+@heading(2, "启动命令")
+@exec tags
+@bullet("每一行 @exec 都会交给 Shell 执行")
+@bullet("修改 Home 后重启 Shell 即可生效")

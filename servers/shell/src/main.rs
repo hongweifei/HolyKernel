@@ -6,9 +6,11 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 extern crate alloc;
 
+#[cfg(any(target_os = "none", test))]
+mod startup;
 #[cfg(target_os = "none")]
 mod tags;
 
@@ -31,7 +33,7 @@ use hk_server_api::root::{
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::list_mounts;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_try, send_data, write, yield_now};
+use hk_server_api::{exit, recv_data_try, send_data, write, write_u64, yield_now};
 #[cfg(target_os = "none")]
 use hk_shell::{
     Command, RuntimeStats, ServiceInfo, Session, ShellHost, ShellIo, TaskInfo, TraceEvent,
@@ -214,6 +216,27 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let io = ConsoleIo { console };
     let mut host = UserHost { endpoint };
     let mut session = Session::new();
+
+    let startup = startup::load(endpoint);
+    let mut executed = 0_u64;
+    for command in &startup.commands {
+        if run_command(&io, &mut host, &mut session, command) {
+            exit(0);
+        }
+        executed += 1;
+    }
+    let marked = if startup.mark_once {
+        startup::mark_once(endpoint)
+    } else {
+        false
+    };
+    if executed > 0 || startup.mark_once {
+        write(b"hk-server-shell: home ");
+        write_u64(executed);
+        write(b" once ");
+        write_u64(u64::from(marked));
+        write(b"\n");
+    }
 
     write(b"hk-server-shell: ready\n");
     io.write("HolyShell（用户态）\n");

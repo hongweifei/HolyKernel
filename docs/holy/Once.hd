@@ -1,0 +1,7 @@
+@title("Once")
+Once 只在首次启动时执行，完成后写入 H:/Once.done；后续启动会跳过它。
+
+@heading(2, "首次初始化")
+@exec echo Once 初始化完成
+@bullet("适合创建标签、示例文档或默认配置")
+@bullet("删除 H:/Once.done 可让 Once 再次执行")

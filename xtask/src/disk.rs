@@ -22,6 +22,8 @@ pub(crate) const DISK_BYTES: u64 = 64 * 1024 * 1024;
 /// 播种到 H: 卷的文档：名字、源文件与所属集合。
 const HOLY_DOCS: &[(&str, &str, Option<&str>)] = &[
     ("Welcome", "docs/holy/Welcome.hd", None),
+    ("Home", "docs/holy/Home.hd", None),
+    ("Once", "docs/holy/Once.hd", None),
     ("Help", "docs/holy/Help.hd", None),
     ("Overview", "docs/holy/System/Overview.hd", Some("System")),
     ("HolyFS", "docs/holy/System/HolyFS.hd", Some("System")),
