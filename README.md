@@ -142,7 +142,7 @@ cargo xtask symbolize 0xffffffff80018bc4     # 离线解析内核/服务地址
 cargo xtask debug                            # 生成 build/holy.gdb，QEMU 暂停等待 GDB
 ```
 
-`inspect` 优先读取 `build/iso/boot` 中的镜像；没有镜像时从目标 ELF 现场转换。`symbolize` 同时查询 `build/kernel.sym` 与原生镜像携带的服务符号。`debug` 构建镜像后以 `-S` 启动 QEMU，在另一终端执行 `gdb -x build/holy.gdb` 即可在 `kmain` 下断。
+`inspect` 优先读取 `build/iso/boot` 中的 `hk-server-*.hkx`；没有镜像时从目标 ELF 现场转换。`symbolize` 同时查询 `build/kernel.sym` 与原生镜像携带的服务符号。`debug` 构建镜像后以 `-S` 启动 QEMU，在另一终端执行 `gdb -x build/holy.gdb` 即可在 `kmain` 下断。
 
 手动启动 QEMU 时，先生成磁盘再附加 `virtio-blk-pci`：
 

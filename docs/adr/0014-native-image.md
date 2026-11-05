@@ -17,7 +17,7 @@ HolyKernel 的原生服务镜像此前使用 ELF，Root Server 在运行期用 `
    - `Capability`：能力类别、权利与名称，装载时由 Root Server 授予 Handle；
    - `Symbol`：地址与名称，随镜像携带；
    - `Dependency`：服务名与最低版本。
-3. `hk-image` 提供构建、解析与校验；`xtask image` 在打包时把服务 ELF 转换为 HKX，ISO 内的服务模块只包含 HKX。ELF 只作为编译器的中间产物。
+3. `hk-image` 提供构建、解析与校验；`xtask image` 在打包时把服务 ELF 转换为 HKX，ISO 内的服务模块以 `.hkx` 结尾且只包含 HKX。ELF 只作为编译器的中间产物。
 4. Root Server 只解析 HKX：Task 决定入口、栈与 Arena；Capability 决定设备授权；Symbol 在装载时注册到 Debug Server；移除运行期 `xmas-elf` 依赖。
 5. 内核镜像仍以 ELF 交给 Limine；这是引导器协议边界，不属于原生运行期格式。
 6. POSIX/Linux 兼容层继续处理 ELF，因为那是外部应用格式；构建期符号提取也仍读取 ELF 构建产物。
