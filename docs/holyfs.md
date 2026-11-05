@@ -460,14 +460,17 @@ crates/hk-fs-holyfs/src/
 ├── lib.rs          公共 API、模块装配、format
 ├── ids.rs          DocId、RevisionId、VolumeId、HandleRights
 ├── types.rs        Document/Revision/Entry 记录与编码
-├── error.rs        HolyError 与 VFS 错误映射
+├── error.rs        HolyError
 ├── crc32c.rs       CRC32C
 ├── superblock.rs   卷布局、双超级块、校验
 ├── store.rs        块设备、位图分配器、区间 I/O
 ├── tree.rs         持久化 COW 元数据树
 ├── volume.rs       卷状态、文档/修订/集合操作、提交
-├── vfs.rs          VFS Backend 适配
+├── handle.rs       原生卷句柄（DocPath、整文档、修订链）
 └── tests.rs        单元、子集合、持久化测试
+
+crates/hk-fs-holyfs-vfs/src/lib.rs
+                     VFS Backend 适配：NodeId ↔ DocId、错误与类型映射
 ```
 
 ---

@@ -4,8 +4,9 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
-use hk_vfs::{Backend, FileType, VfsError};
 
+use crate::error::HolyError;
+use crate::types::DocumentKind;
 use crate::{HolyFs, format};
 
 const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
@@ -18,13 +19,15 @@ fn formatted() -> MemoryDisk {
 fn creates_writes_and_reads_files() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let node = fs.create(root, "hello", FileType::File).expect("创建");
-    assert_eq!(fs.write(node, 0, b"holyfs").expect("写"), 6);
+    let document = fs
+        .create(root, "hello", DocumentKind::Content)
+        .expect("创建");
+    assert_eq!(fs.write_range(document, 0, b"holyfs").expect("写"), 6);
     let mut buffer = [0_u8; 16];
-    assert_eq!(fs.read(node, 0, &mut buffer).expect("读"), 6);
+    assert_eq!(fs.read_range(document, 0, &mut buffer).expect("读"), 6);
     assert_eq!(&buffer[..6], b"holyfs");
-    assert_eq!(fs.metadata(node).expect("元数据").size, 6);
-    let entries = fs.readdir(root).expect("目录");
+    assert_eq!(fs.document_info(document).expect("元数据").size, 6);
+    let entries = fs.enumerate_document(root).expect("目录");
     assert!(entries.iter().any(|entry| entry.name == "hello"));
 }
 
@@ -32,16 +35,20 @@ fn creates_writes_and_reads_files() {
 fn appends_and_reads_large_file() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let node = fs.create(root, "large", FileType::File).expect("创建");
+    let document = fs
+        .create(root, "large", DocumentKind::Content)
+        .expect("创建");
     let chunk = [0x5A_u8; 60 * 1024];
     for index in 0..17 {
-        fs.write(node, index * chunk.len() as u64, &chunk)
+        fs.write_range(document, index * chunk.len() as u64, &chunk)
             .expect("追加");
     }
-    let size = fs.metadata(node).expect("元数据").size;
+    let size = fs.document_info(document).expect("元数据").size;
     assert_eq!(size, 17 * chunk.len() as u64);
     let mut buffer = [0_u8; 4096];
-    let read = fs.read(node, size - 4096, &mut buffer).expect("读");
+    let read = fs
+        .read_range(document, size - 4096, &mut buffer)
+        .expect("读");
     assert_eq!(read, 4096);
     assert_eq!(buffer, [0x5A; 4096]);
 }
@@ -50,15 +57,19 @@ fn appends_and_reads_large_file() {
 fn supports_nested_collections() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let docs = fs.create(root, "docs", FileType::Directory).expect("集合");
-    let readme = fs.create(docs, "readme", FileType::File).expect("文档");
-    fs.write(readme, 0, b"nested").expect("写");
+    let docs = fs
+        .create(root, "docs", DocumentKind::Collection)
+        .expect("集合");
+    let readme = fs
+        .create(docs, "readme", DocumentKind::Content)
+        .expect("文档");
+    fs.write_range(readme, 0, b"nested").expect("写");
     assert_eq!(fs.lookup(root, "docs").expect("查找集合"), docs);
     assert_eq!(fs.lookup(docs, "readme").expect("查找文档"), readme);
     let mut buffer = [0_u8; 8];
-    assert_eq!(fs.read(readme, 0, &mut buffer).expect("读"), 6);
+    assert_eq!(fs.read_range(readme, 0, &mut buffer).expect("读"), 6);
     assert_eq!(&buffer[..6], b"nested");
-    let entries = fs.readdir(docs).expect("枚举");
+    let entries = fs.enumerate_document(docs).expect("枚举");
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].name, "readme");
 }
@@ -67,10 +78,11 @@ fn supports_nested_collections() {
 fn rejects_duplicate_names() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    fs.create(root, "same", FileType::File).expect("创建");
+    fs.create(root, "same", DocumentKind::Content)
+        .expect("创建");
     assert_eq!(
-        fs.create(root, "same", FileType::File),
-        Err(VfsError::AlreadyExists)
+        fs.create(root, "same", DocumentKind::Content),
+        Err(HolyError::Exists)
     );
 }
 
@@ -78,12 +90,14 @@ fn rejects_duplicate_names() {
 fn truncates_and_unlinks() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let node = fs.create(root, "file", FileType::File).expect("创建");
-    fs.write(node, 0, b"0123456789").expect("写");
-    fs.truncate(node, 4).expect("截断");
-    assert_eq!(fs.metadata(node).expect("元数据").size, 4);
-    assert_eq!(fs.unlink(root, "file").expect("删除"), node);
-    assert_eq!(fs.lookup(root, "file"), Err(VfsError::NotFound));
+    let document = fs
+        .create(root, "file", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(document, 0, b"0123456789").expect("写");
+    fs.truncate(document, 4).expect("截断");
+    assert_eq!(fs.document_info(document).expect("元数据").size, 4);
+    assert_eq!(fs.unlink(root, "file").expect("删除"), document);
+    assert_eq!(fs.lookup(root, "file"), Err(HolyError::NotFound));
 }
 
 struct Shared(Rc<RefCell<MemoryDisk>>);
@@ -116,19 +130,21 @@ fn persists_documents_and_collections() {
     {
         let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
         let root = fs.root();
-        let docs = fs.create(root, "docs", FileType::Directory).expect("集合");
-        let node = fs.create(docs, "doc", FileType::File).expect("文档");
-        fs.write(node, 0, b"HolyFS document").expect("写");
+        let docs = fs
+            .create(root, "docs", DocumentKind::Collection)
+            .expect("集合");
+        let document = fs.create(docs, "doc", DocumentKind::Content).expect("文档");
+        fs.write_range(document, 0, b"HolyFS document").expect("写");
         fs.sync().expect("提交");
     }
     let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
     let root = fs.root();
     let docs = fs.lookup(root, "docs").expect("集合");
-    let node = fs.lookup(docs, "doc").expect("文档");
+    let document = fs.lookup(docs, "doc").expect("文档");
     let mut buffer = [0_u8; 32];
-    let read = fs.read(node, 0, &mut buffer).expect("读");
+    let read = fs.read_range(document, 0, &mut buffer).expect("读");
     assert_eq!(&buffer[..read], b"HolyFS document");
-    assert_eq!(fs.readdir(docs).expect("枚举").len(), 1);
+    assert_eq!(fs.enumerate_document(docs).expect("枚举").len(), 1);
 }
 
 #[test]
@@ -137,19 +153,19 @@ fn reclaims_old_metadata_trees() {
     {
         let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
         let root = fs.root();
-        let node = fs.create(root, "doc", FileType::File).expect("创建");
-        fs.write(node, 0, b"first").expect("写一");
+        let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+        fs.write_range(document, 0, b"first").expect("写一");
         fs.sync().expect("提交一");
-        fs.write(node, 0, b"second").expect("写二");
+        fs.write_range(document, 0, b"second").expect("写二");
         fs.sync().expect("提交二");
-        fs.write(node, 0, b"third!").expect("写三");
+        fs.write_range(document, 0, b"third!").expect("写三");
         fs.sync().expect("提交三");
     }
     let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
     let root = fs.root();
-    let node = fs.lookup(root, "doc").expect("查找");
+    let document = fs.lookup(root, "doc").expect("查找");
     let mut buffer = [0_u8; 8];
-    let read = fs.read(node, 0, &mut buffer).expect("读");
+    let read = fs.read_range(document, 0, &mut buffer).expect("读");
     assert_eq!(&buffer[..read], b"third!");
 }
 
@@ -157,13 +173,13 @@ fn reclaims_old_metadata_trees() {
 fn revision_head_moves_on_write() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let node = fs.create(root, "doc", FileType::File).expect("创建");
-    fs.write(node, 0, b"one").expect("写一");
-    let first = fs.metadata(node).expect("元数据").size;
-    fs.write(node, 0, b"two").expect("写二");
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    fs.write_range(document, 0, b"one").expect("写一");
+    let first = fs.document_info(document).expect("元数据").size;
+    fs.write_range(document, 0, b"two").expect("写二");
     assert_eq!(first, 3);
     let mut buffer = [0_u8; 8];
-    assert_eq!(fs.read(node, 0, &mut buffer).expect("读"), 3);
+    assert_eq!(fs.read_range(document, 0, &mut buffer).expect("读"), 3);
     assert_eq!(&buffer[..3], b"two");
 }
 
@@ -172,10 +188,13 @@ fn native_document_api_reads_whole_documents() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
     let system = fs
-        .create(root, "System", FileType::Directory)
+        .create(root, "System", DocumentKind::Collection)
         .expect("集合");
-    let doc = fs.create(system, "Welcome", FileType::File).expect("文档");
-    fs.write(doc, 0, b"@title(\"Welcome\")").expect("写");
+    let document = fs
+        .create(system, "Welcome", DocumentKind::Content)
+        .expect("文档");
+    fs.write_range(document, 0, b"@title(\"Welcome\")")
+        .expect("写");
     fs.sync().expect("提交");
 
     assert_eq!(
@@ -198,8 +217,8 @@ fn native_document_api_reads_whole_documents() {
 fn native_document_write_moves_head() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
-    let doc = fs.create(root, "Doc", FileType::File).expect("文档");
-    fs.write(doc, 0, b"first").expect("写一");
+    let document = fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+    fs.write_range(document, 0, b"first").expect("写一");
     fs.sync().expect("提交");
     let head = fs.document("H:/Doc").expect("视图").head;
     let next = fs.write_document("H:/Doc", b"second").expect("整文档写");

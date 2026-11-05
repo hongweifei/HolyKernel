@@ -13,7 +13,7 @@
 | L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
 | L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
 | L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出 |
-| L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
+| L2 用户态库 | `hk-server-api`、`hk-block`、`hk-net`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
@@ -41,6 +41,8 @@
 | `hk-shell` | 无 | 任何依赖 |
 
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
+
+文件系统遵循“实现 + 后端”约定：`hk-fs-holyfs` 是原生实现，只暴露 `DocId`、集合与修订操作，不得依赖 `hk-vfs`；`hk-fs-holyfs-vfs` 是唯一的 VFS 适配层，负责 `NodeId`、错误与类型映射。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。
 
 目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
 

@@ -267,6 +267,14 @@ name = "hk-fs-holyfs"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+]
+
+[[package]]
+name = "hk-fs-holyfs-vfs"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-fs-holyfs",
  "hk-vfs",
 ]
 
@@ -601,6 +609,7 @@ dependencies = [
  "hk-block",
  "hk-fs-ext4",
  "hk-fs-holyfs",
+ "hk-fs-holyfs-vfs",
  "hk-hal",
  "hk-server-api",
  "hk-server-build",

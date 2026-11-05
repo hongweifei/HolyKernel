@@ -6,7 +6,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use hk_block::BlockDevice;
-use hk_vfs::{DirEntry, FileType, Metadata, NodeId};
 
 use crate::error::{HolyError, map_io};
 use crate::ids::{DocId, RevisionId};
@@ -32,9 +31,6 @@ pub(crate) struct Volume<D: BlockDevice> {
     documents: BTreeMap<DocId, DocumentRecord>,
     revisions: BTreeMap<RevisionId, RevisionRecord>,
     collections: BTreeMap<RevisionId, Entries>,
-    nodes: BTreeMap<DocId, NodeId>,
-    documents_by_node: BTreeMap<NodeId, DocId>,
-    next_node: NodeId,
     dirty: bool,
 }
 
@@ -66,9 +62,6 @@ impl<D: BlockDevice> Volume<D> {
             documents: BTreeMap::new(),
             revisions: BTreeMap::new(),
             collections: BTreeMap::new(),
-            nodes: BTreeMap::new(),
-            documents_by_node: BTreeMap::new(),
-            next_node: 2,
             dirty: true,
         };
         volume.documents.insert(
@@ -81,8 +74,6 @@ impl<D: BlockDevice> Volume<D> {
         );
         volume.revisions.insert(RevisionId::ROOT, root);
         volume.collections.insert(RevisionId::ROOT, BTreeMap::new());
-        volume.nodes.insert(DocId::ROOT, 1);
-        volume.documents_by_node.insert(1, DocId::ROOT);
         volume.persist()?;
         Ok(volume.store.into_device())
     }
@@ -127,10 +118,6 @@ impl<D: BlockDevice> Volume<D> {
         if !revisions.contains_key(&root.head) {
             return Err(HolyError::Corrupt);
         }
-        let mut nodes = BTreeMap::new();
-        let mut documents_by_node = BTreeMap::new();
-        nodes.insert(DocId::ROOT, 1);
-        documents_by_node.insert(1, DocId::ROOT);
         Ok(Self {
             store,
             superblock,
@@ -138,9 +125,6 @@ impl<D: BlockDevice> Volume<D> {
             documents,
             revisions,
             collections,
-            nodes,
-            documents_by_node,
-            next_node: 2,
             dirty: false,
         })
     }
@@ -153,42 +137,26 @@ impl<D: BlockDevice> Volume<D> {
         }
     }
 
-    pub(crate) fn root_node(&self) -> NodeId {
-        1
+    pub(crate) fn root_document(&self) -> DocId {
+        DocId::ROOT
     }
 
-    pub(crate) fn lookup(&mut self, parent: NodeId, name: &str) -> Result<NodeId, HolyError> {
-        let parent_doc = self.document_for_node(parent)?;
-        let head = self.head(parent_doc)?;
+    pub(crate) fn lookup(&self, parent: DocId, name: &str) -> Result<DocId, HolyError> {
+        let head = self.head(parent)?;
         if !head.payload_has_collection() {
             return Err(HolyError::NotDirectory);
         }
         let entries = self.collections.get(&head.id).ok_or(HolyError::Corrupt)?;
         let entry = entries.get(name.as_bytes()).ok_or(HolyError::NotFound)?;
-        self.node_for(entry.document)
+        Ok(entry.document)
     }
 
-    pub(crate) fn metadata(&self, node: NodeId) -> Result<Metadata, HolyError> {
-        let document = self.document_for_node(node)?;
-        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
-        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
-        Ok(Metadata {
-            kind: record.kind.file_type(),
-            size: if record.kind == DocumentKind::Content {
-                revision.size
-            } else {
-                0
-            },
-        })
-    }
-
-    pub(crate) fn read(
+    pub(crate) fn read_range(
         &self,
-        node: NodeId,
+        document: DocId,
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, HolyError> {
-        let document = self.document_for_node(node)?;
         let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
         if record.kind == DocumentKind::Collection {
             return Err(HolyError::IsDirectory);
@@ -202,13 +170,12 @@ impl<D: BlockDevice> Volume<D> {
         Ok(length)
     }
 
-    pub(crate) fn write(
+    pub(crate) fn write_range(
         &mut self,
-        node: NodeId,
+        document: DocId,
         offset: u64,
         data: &[u8],
     ) -> Result<usize, HolyError> {
-        let document = self.document_for_node(node)?;
         let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
         if record.kind == DocumentKind::Collection {
             return Err(HolyError::IsDirectory);
@@ -231,11 +198,10 @@ impl<D: BlockDevice> Volume<D> {
         Ok(data.len())
     }
 
-    pub(crate) fn truncate(&mut self, node: NodeId, size: u64) -> Result<(), HolyError> {
+    pub(crate) fn truncate(&mut self, document: DocId, size: u64) -> Result<(), HolyError> {
         if size > MAX_CONTENT_BYTES {
             return Err(HolyError::NoSpace);
         }
-        let document = self.document_for_node(node)?;
         let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
         if record.kind == DocumentKind::Collection {
             return Err(HolyError::IsDirectory);
@@ -251,13 +217,12 @@ impl<D: BlockDevice> Volume<D> {
 
     pub(crate) fn create(
         &mut self,
-        parent: NodeId,
+        parent: DocId,
         name: &str,
-        kind: FileType,
-    ) -> Result<NodeId, HolyError> {
+        kind: DocumentKind,
+    ) -> Result<DocId, HolyError> {
         validate_name(name)?;
-        let parent_doc = self.document_for_node(parent)?;
-        let parent_head = *self.head(parent_doc)?;
+        let parent_head = *self.head(parent)?;
         if !parent_head.payload_has_collection() {
             return Err(HolyError::NotDirectory);
         }
@@ -271,10 +236,9 @@ impl<D: BlockDevice> Volume<D> {
         }
         let document = self.allocate_document();
         let revision = self.allocate_revision();
-        let document_kind = DocumentKind::from_file_type(kind);
         let revision_kind = match kind {
-            FileType::File => PayloadKind::Content,
-            FileType::Directory => PayloadKind::Collection,
+            DocumentKind::Content => PayloadKind::Content,
+            DocumentKind::Collection => PayloadKind::Collection,
         };
         let mut record = RevisionRecord::empty(revision, document, None);
         record.payload = revision_kind;
@@ -284,10 +248,10 @@ impl<D: BlockDevice> Volume<D> {
             DocumentRecord {
                 document,
                 head: revision,
-                kind: document_kind,
+                kind,
             },
         );
-        if kind == FileType::Directory {
+        if kind == DocumentKind::Collection {
             self.collections.insert(revision, BTreeMap::new());
         }
         let mut next_entries = entries;
@@ -295,7 +259,7 @@ impl<D: BlockDevice> Volume<D> {
             name.as_bytes().to_vec(),
             EntryRecord {
                 document,
-                kind: document_kind,
+                kind,
                 flags: 0,
             },
         );
@@ -306,38 +270,15 @@ impl<D: BlockDevice> Volume<D> {
         parent_record.entries_root = 0;
         self.revisions.insert(parent_revision, parent_record);
         self.collections.insert(parent_revision, next_entries);
-        if let Some(record) = self.documents.get_mut(&parent_doc) {
+        if let Some(record) = self.documents.get_mut(&parent) {
             record.head = parent_revision;
         }
         self.dirty = true;
-        self.node_for(document)
+        Ok(document)
     }
 
-    pub(crate) fn readdir(&self, node: NodeId) -> Result<Vec<DirEntry>, HolyError> {
-        let document = self.document_for_node(node)?;
-        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
-        if record.kind != DocumentKind::Collection {
-            return Err(HolyError::NotDirectory);
-        }
-        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
-        let entries = self
-            .collections
-            .get(&revision.id)
-            .ok_or(HolyError::Corrupt)?;
-        let mut result = Vec::with_capacity(entries.len());
-        for (name, entry) in entries {
-            let name = core::str::from_utf8(name).map_err(|_| HolyError::Corrupt)?;
-            result.push(DirEntry {
-                name: String::from(name),
-                kind: entry.kind.file_type(),
-            });
-        }
-        Ok(result)
-    }
-
-    pub(crate) fn unlink(&mut self, parent: NodeId, name: &str) -> Result<NodeId, HolyError> {
-        let parent_doc = self.document_for_node(parent)?;
-        let parent_head = *self.head(parent_doc)?;
+    pub(crate) fn unlink(&mut self, parent: DocId, name: &str) -> Result<DocId, HolyError> {
+        let parent_head = *self.head(parent)?;
         if !parent_head.payload_has_collection() {
             return Err(HolyError::NotDirectory);
         }
@@ -359,11 +300,11 @@ impl<D: BlockDevice> Volume<D> {
         parent_record.entries_root = 0;
         self.revisions.insert(parent_revision, parent_record);
         self.collections.insert(parent_revision, next_entries);
-        if let Some(record) = self.documents.get_mut(&parent_doc) {
+        if let Some(record) = self.documents.get_mut(&parent) {
             record.head = parent_revision;
         }
         self.dirty = true;
-        self.node_for(entry.document)
+        Ok(entry.document)
     }
 
     /// 按 DocPath 解析文档；驱动号 `H:` 与 `.` 被忽略，`..` 不属于 Holy 命名。
@@ -489,27 +430,6 @@ impl<D: BlockDevice> Volume<D> {
     fn head(&self, document: DocId) -> Result<&RevisionRecord, HolyError> {
         let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
         self.revisions.get(&record.head).ok_or(HolyError::Corrupt)
-    }
-
-    fn document_for_node(&self, node: NodeId) -> Result<DocId, HolyError> {
-        self.documents_by_node
-            .get(&node)
-            .copied()
-            .ok_or(HolyError::NotFound)
-    }
-
-    fn node_for(&mut self, document: DocId) -> Result<NodeId, HolyError> {
-        if let Some(node) = self.nodes.get(&document) {
-            return Ok(*node);
-        }
-        if !self.documents.contains_key(&document) {
-            return Err(HolyError::NotFound);
-        }
-        let node = self.next_node;
-        self.next_node = self.next_node.saturating_add(1);
-        self.nodes.insert(document, node);
-        self.documents_by_node.insert(node, document);
-        Ok(node)
     }
 
     fn allocate_document(&mut self) -> DocId {

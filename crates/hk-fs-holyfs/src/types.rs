@@ -2,8 +2,6 @@
 
 use alloc::string::String;
 
-use hk_vfs::FileType;
-
 use crate::crc32c::crc32c;
 use crate::error::HolyError;
 use crate::ids::{DocId, RevisionId};
@@ -26,24 +24,6 @@ pub enum DocumentKind {
     Content,
     /// 集合文档。
     Collection,
-}
-
-impl DocumentKind {
-    /// 映射为 VFS 文件类型。
-    pub const fn file_type(self) -> FileType {
-        match self {
-            Self::Content => FileType::File,
-            Self::Collection => FileType::Directory,
-        }
-    }
-
-    /// 从 VFS 文件类型映射。
-    pub const fn from_file_type(kind: FileType) -> Self {
-        match kind {
-            FileType::File => Self::Content,
-            FileType::Directory => Self::Collection,
-        }
-    }
 }
 
 /// 修订 payload 类型。

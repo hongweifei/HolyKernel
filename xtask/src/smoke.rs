@@ -754,21 +754,16 @@ fn verify_holyfs(path: &Path) -> Result<()> {
         .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
     let disk = MemoryDisk::from_data(bytes, SECTOR_SIZE)
         .ok_or_else(|| Failure::new("测试磁盘长度不是扇区整数倍"))?;
-    let backend = hk_fs_holyfs::HolyFs::mount(disk)
+    let volume = hk_fs_holyfs::HolyFs::mount(disk)
         .map_err(|error| Failure::new(format!("重新挂载 HolyFS 失败：{error}")))?;
-    let root = backend.root();
-    let node = backend
-        .lookup(root, "hello")
+    let document = volume
+        .resolve("/hello")
         .map_err(|error| Failure::new(format!("HolyFS 标记文件缺失：{error:?}")))?;
-    let mut buffer = [0_u8; 32];
-    let read = backend
-        .read(node, 0, &mut buffer)
+    let content = volume
+        .read_document_id(document)
         .map_err(|error| Failure::new(format!("读取 HolyFS 标记文件失败：{error:?}")))?;
-    if &buffer[..read] != FS_MARKER {
-        return Err(Failure::new(format!(
-            "HolyFS 标记内容不符：{:?}",
-            &buffer[..read]
-        )));
+    if content != FS_MARKER {
+        return Err(Failure::new(format!("HolyFS 标记内容不符：{:?}", content)));
     }
     Ok(())
 }

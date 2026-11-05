@@ -1,0 +1,15 @@
+[package]
+name = "hk-fs-holyfs-vfs"
+description = "HolyFS 的 VFS 后端适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-fs-holyfs = { version = "0.1.0", path = "../hk-fs-holyfs" }
+hk-vfs = { version = "0.1.0", path = "../hk-vfs" }
+
+[lints]
+workspace = true

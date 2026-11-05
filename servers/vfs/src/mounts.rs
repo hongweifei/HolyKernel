@@ -5,6 +5,7 @@ use alloc::boxed::Box;
 use hk_block::ipc::ClientDisk;
 use hk_fs_ext4::mount_at_with_wall_clock;
 use hk_fs_holyfs::HolyFs;
+use hk_fs_holyfs_vfs::HolyFsVfs;
 use hk_hal::CivilTime;
 use hk_server_api::yield_now;
 use hk_vfs::Vfs;
@@ -38,14 +39,14 @@ pub(crate) fn mount_holyfs(
             let _ = yield_now();
             continue;
         };
-        let Ok(backend) = HolyFs::mount(disk) else {
+        let Ok(volume) = HolyFs::mount(disk) else {
             return None;
         };
-        let drive = backend.clone();
+        let backend = HolyFsVfs::new(volume.clone());
         return filesystem
             .mount(target, Box::new(backend))
             .ok()
-            .map(|()| drive);
+            .map(|()| volume);
     }
     None
 }

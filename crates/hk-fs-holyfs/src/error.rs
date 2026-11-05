@@ -1,8 +1,6 @@
-//! HolyFS 错误与 VFS 错误映射。
+//! HolyFS 操作错误。
 
 use core::fmt;
-
-use hk_vfs::VfsError;
 
 /// HolyFS 操作错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,25 +63,6 @@ impl fmt::Display for HolyError {
 }
 
 impl core::error::Error for HolyError {}
-
-pub(crate) fn map_vfs(error: HolyError) -> VfsError {
-    match error {
-        HolyError::NotFound => VfsError::NotFound,
-        HolyError::NotDirectory => VfsError::NotDirectory,
-        HolyError::IsDirectory => VfsError::IsDirectory,
-        HolyError::Exists => VfsError::AlreadyExists,
-        HolyError::ReadOnly | HolyError::Refused => VfsError::PermissionDenied,
-        HolyError::Invalid | HolyError::Stale => VfsError::InvalidOffset,
-        HolyError::Io
-        | HolyError::Corrupt
-        | HolyError::NoSpace
-        | HolyError::Unsupported
-        | HolyError::Damaged
-        | HolyError::Busy
-        | HolyError::Pinned
-        | HolyError::Quota => VfsError::Backend,
-    }
-}
 
 pub(crate) fn map_io(_error: hk_block::BlockError) -> HolyError {
     HolyError::Io

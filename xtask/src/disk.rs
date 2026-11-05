@@ -7,9 +7,8 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
-use hk_fs_holyfs::HolyFs;
+use hk_fs_holyfs::{DocumentKind, HolyError, HolyFs};
 use hk_hal::CivilTime;
-use hk_vfs::{Backend, FileType};
 
 use crate::failure::{Failure, Result};
 use crate::workspace;
@@ -106,26 +105,31 @@ fn write_holy_docs(filesystem: &mut HolyFs<SharedDisk>) -> Result<()> {
         let parent = match collection {
             None => root,
             Some(collection) => match filesystem.lookup(root, collection) {
-                Ok(node) => node,
-                Err(_) => filesystem
-                    .create(root, collection, FileType::Directory)
+                Ok(document) => document,
+                Err(HolyError::NotFound) => filesystem
+                    .create(root, collection, DocumentKind::Collection)
                     .map_err(|error| {
                         Failure::new(format!("创建集合 {collection} 失败：{error:?}"))
                     })?,
+                Err(error) => {
+                    return Err(Failure::new(format!(
+                        "查找集合 {collection} 失败：{error:?}"
+                    )));
+                }
             },
         };
         let bytes = read_source(source)?;
-        let node = match filesystem.lookup(parent, name) {
-            Ok(node) => node,
-            Err(_) => filesystem
-                .create(parent, name, FileType::File)
+        let document = match filesystem.lookup(parent, name) {
+            Ok(document) => document,
+            Err(HolyError::NotFound) => filesystem
+                .create(parent, name, DocumentKind::Content)
                 .map_err(|error| Failure::new(format!("创建文档 {name} 失败：{error:?}")))?,
+            Err(error) => {
+                return Err(Failure::new(format!("查找文档 {name} 失败：{error:?}")));
+            }
         };
         filesystem
-            .truncate(node, 0)
-            .map_err(|error| Failure::new(format!("清空文档 {name} 失败：{error:?}")))?;
-        filesystem
-            .write(node, 0, &bytes)
+            .write_document_id(document, &bytes)
             .map_err(|error| Failure::new(format!("写入文档 {name} 失败：{error:?}")))?;
     }
     Ok(())

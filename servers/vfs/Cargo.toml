@@ -14,6 +14,7 @@ path = "src/main.rs"
 hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
 hk-fs-ext4 = { version = "0.1.0", path = "../../crates/hk-fs-ext4" }
 hk-fs-holyfs = { version = "0.1.0", path = "../../crates/hk-fs-holyfs" }
+hk-fs-holyfs-vfs = { version = "0.1.0", path = "../../crates/hk-fs-holyfs-vfs" }
 hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-vfs = { version = "0.1.0", path = "../../crates/hk-vfs" }

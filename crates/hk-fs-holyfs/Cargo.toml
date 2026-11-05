@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 hk-block = { version = "0.1.0", path = "../hk-block" }
-hk-vfs = { version = "0.1.0", path = "../hk-vfs" }
 
 [lints]
 workspace = true
