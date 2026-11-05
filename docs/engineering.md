@@ -20,7 +20,8 @@ HolyKernel/
 │   ├── 装配层             hk-root-server hk-platform-x86_64 hk-platform-hosted
 │   └── 独立/工具          hk-shell（零依赖） hk-sim
 ├── platforms/             x86_64-qemu、hosted
-├── servers/               用户态服务与自检客户端
+├── servers/               常驻用户态服务
+├── clients/               网络状态与 `*-test` 自检客户端
 ├── scripts/               随镜像打包的 HolyShell 脚本
 └── docs/
 ```
