@@ -4,6 +4,7 @@ use core::cell::Cell;
 
 use hk_server_api::display::TITLE_MAX;
 
+use crate::resize::{Edges, Rect};
 use crate::theme::scale;
 
 /// 最多同时合成的窗口数。
@@ -33,6 +34,10 @@ pub(crate) const MIN_WINDOW_HEIGHT: usize = 80;
 /// 缩放把手尺寸。
 #[cfg(target_os = "none")]
 pub(crate) const RESIZE_SIZE: usize = 12;
+
+/// 边缘缩放命中宽度。
+#[cfg(target_os = "none")]
+pub(crate) const RESIZE_BORDER: usize = 8;
 
 /// 标题栏按钮间距。
 #[cfg(target_os = "none")]
@@ -167,6 +172,12 @@ pub(crate) fn resize_size() -> usize {
     RESIZE_SIZE * scale()
 }
 
+/// 边缘缩放命中宽度（含缩放）。
+#[cfg(target_os = "none")]
+pub(crate) fn resize_border() -> usize {
+    RESIZE_BORDER * scale()
+}
+
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
 #[derive(Clone, Copy)]
@@ -192,10 +203,10 @@ pub(crate) struct Window {
 #[derive(Clone, Copy)]
 pub(crate) struct Resize {
     pub(crate) id: u64,
+    pub(crate) edge: Edges,
     pub(crate) start_x: usize,
     pub(crate) start_y: usize,
-    pub(crate) width: usize,
-    pub(crate) height: usize,
+    pub(crate) original: Rect,
     pub(crate) resized: bool,
 }
 
@@ -397,18 +408,25 @@ pub(crate) fn minimize_at(window: &Window, x: usize, y: usize) -> bool {
     x >= left && x < left + close_size() && y >= top && y < top + close_size()
 }
 
-/// 指定点是否命中窗口右下角的缩放把手。
+/// 指定点命中的窗口缩放边；未命中返回 `None`。
 #[cfg(target_os = "none")]
-pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> bool {
+pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> Option<Edges> {
     let right = window.x.saturating_add(window.width);
     let bottom = window
         .y
         .saturating_add(title_height())
         .saturating_add(window.height);
-    x >= right.saturating_sub(resize_size())
-        && x < right
-        && y >= bottom.saturating_sub(resize_size())
-        && y < bottom
+    if x < window.x || x >= right || y < window.y || y >= bottom {
+        return None;
+    }
+    let border = resize_border();
+    let edge = Edges {
+        left: x < window.x.saturating_add(border),
+        right: x >= right.saturating_sub(border),
+        top: y < window.y.saturating_add(border),
+        bottom: y >= bottom.saturating_sub(border),
+    };
+    edge.any().then_some(edge)
 }
 
 /// 返回指定点最上层窗口。

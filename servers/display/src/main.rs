@@ -6,6 +6,9 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 
+#[cfg(any(target_os = "none", test))]
+mod resize;
+
 #[cfg(target_os = "none")]
 use hk_font::Font;
 #[cfg(target_os = "none")]
@@ -329,28 +332,33 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .find(|window| window.id == state.id)
                         .copied()
                 {
-                    let max_width = screen.width.saturating_sub(window.x).max(MIN_WINDOW_WIDTH);
                     let desktop_height = screen.height.saturating_sub(taskbar_height());
-                    let max_height = desktop_height
-                        .saturating_sub(window.y + title_height())
-                        .max(MIN_WINDOW_HEIGHT);
                     let delta_x = next.0 as isize - state.start_x as isize;
                     let delta_y = next.1 as isize - state.start_y as isize;
-                    let new_width = (state.width as isize + delta_x)
-                        .clamp(MIN_WINDOW_WIDTH as isize, max_width as isize)
-                        as usize;
-                    let new_height = (state.height as isize + delta_y)
-                        .clamp(MIN_WINDOW_HEIGHT as isize, max_height as isize)
-                        as usize;
-                    if (new_width, new_height) != (window.width, window.height) {
+                    let next_rect = resize::resized(
+                        state.original,
+                        state.edge,
+                        delta_x,
+                        delta_y,
+                        screen.width,
+                        desktop_height,
+                        title_height(),
+                        MIN_WINDOW_WIDTH,
+                        MIN_WINDOW_HEIGHT,
+                    );
+                    if (next_rect.x, next_rect.y, next_rect.width, next_rect.height)
+                        != (window.x, window.y, window.width, window.height)
+                    {
                         resize_window(
                             &screen,
                             &mut windows,
                             focus,
                             &font,
                             window,
-                            new_width,
-                            new_height,
+                            next_rect.x,
+                            next_rect.y,
+                            next_rect.width,
+                            next_rect.height,
                         );
                         if !state.resized {
                             resize = Some(Resize {
@@ -522,21 +530,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             CURSOR_HEIGHT + 1,
                         );
                         let on_title = y >= window.y && y < window.y + title_height();
-                        if on_title {
+                        if let Some(edge) = resize_at(&window, x, y) {
+                            resize = Some(Resize {
+                                id,
+                                edge,
+                                start_x: x,
+                                start_y: y,
+                                original: resize::Rect {
+                                    x: window.x,
+                                    y: window.y,
+                                    width: window.width,
+                                    height: window.height,
+                                },
+                                resized: false,
+                            });
+                        } else if on_title {
                             drag = Some(Drag {
                                 id,
                                 offset_x: x - window.x,
                                 offset_y: y - window.y,
                                 moved: false,
-                            });
-                        } else if resize_at(&window, x, y) {
-                            resize = Some(Resize {
-                                id,
-                                start_x: x,
-                                start_y: y,
-                                width: window.width,
-                                height: window.height,
-                                resized: false,
                             });
                         } else {
                             write(b"hk-server-display: pointer click ");

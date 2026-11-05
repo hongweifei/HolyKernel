@@ -711,6 +711,8 @@ pub(crate) fn resize_window(
     focus: u64,
     font: &Font,
     old: Window,
+    x: usize,
+    y: usize,
     width: usize,
     height: usize,
 ) {
@@ -721,6 +723,8 @@ pub(crate) fn resize_window(
     else {
         return;
     };
+    window.x = x;
+    window.y = y;
     window.width = width;
     window.height = height;
     window.restore = None;
@@ -741,8 +745,8 @@ pub(crate) fn resize_window(
         focus,
         font,
         None,
-        old.x,
-        old.y,
+        x,
+        y,
         width,
         height + title_height(),
     );
