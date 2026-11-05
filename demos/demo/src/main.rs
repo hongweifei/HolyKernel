@@ -89,7 +89,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 exit(1)
             }
         }
-        if let Some(tenths) = benchmark_ext4(endpoint) {
+        // 没有块设备时不跑 ext4 顺序读基准，避免 tmpfs 上长时间阻塞启动。
+        if service_endpoint("hk-server-virtio") != 0
+            && let Some(tenths) = benchmark_ext4(endpoint)
+        {
             write("fs 1 MiB 读：".as_bytes());
             write_u64(tenths / 10);
             write(".".as_bytes());
