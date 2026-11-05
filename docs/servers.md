@@ -148,6 +148,7 @@ pub struct ServiceManifest {
 - 向 POSIX Server 提供 socket 后端：`socket`、`bind`、`connect`、`send`、`recv`、`poll`。
 - 网络驱动通过 Net Endpoint 提供收发队列；数据使用共享 Frame。
 - 共享 Frame 收发环：驱动分配并登记 DMA 帧，RX 直接 DMA 到共享帧、TX 由协议栈写入后零拷贝提交；`net.zerocopy` 启用。
+- 原生 Socket Handle：`hk-server-api::socket` 客户端提供 open/connect/send/recv/close、UDP 收发与 DNS 解析；Network Server 处理请求；`hk-server-netsock` 用户态自检。
 - 状态查询：`hk-server-netstat` 是独立用户态客户端，向 Network Server 发送 `NET_STATUS_REQUEST`/`NET_ARP_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数、收发计数、路由视图、ARP 邻居与原生配置（DHCP/地址/网关/DNS/MTU）；`net` 命令在两种 shell 下语义一致。
 - TLS/Wi-Fi/USB 网卡属于后续版本；详见 [网络](network.md)。
 

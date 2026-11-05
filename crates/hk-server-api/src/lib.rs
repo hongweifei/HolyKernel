@@ -9,6 +9,7 @@ pub mod block;
 pub mod device;
 pub mod heap;
 pub mod net;
+pub mod socket;
 pub mod vfs;
 
 pub use hk_syscall::*;

@@ -15,7 +15,7 @@ use core::net::Ipv4Addr;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
-use hk_net::{DnsQueryType, IpAddress, Stack};
+use hk_net::{DnsQueryType, IpAddress, SocketId, Stack};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
@@ -28,6 +28,12 @@ use hk_server_api::net::{
     NET_STATUS_BYTES, NET_STATUS_REQUEST, NET_STATUS_RESPONSE, NET_TX, NET_TX_DONE, NET_TX_FRAME,
     NetConfig, NetStatus, net_frame_index, net_frame_role, net_rx_index, net_rx_length,
     net_rx_offset, net_tx_index, net_tx_word,
+};
+#[cfg(target_os = "none")]
+use hk_server_api::socket::{
+    SOCK_CLOSE, SOCK_CONNECT, SOCK_ERROR, SOCK_KIND_TCP, SOCK_KIND_UDP, SOCK_OPEN,
+    SOCK_PAYLOAD_MAX, SOCK_RECV, SOCK_RESOLVE, SOCK_RESPONSE, SOCK_SEND, SOCK_UDP_RECV,
+    SOCK_UDP_SEND,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
@@ -157,128 +163,131 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
     write("hk-server-net: ready\n".as_bytes());
-    let icmp = match stack.open_icmp(0x1234) {
-        Ok(handle) => handle,
-        Err(_) => {
-            write("hk-server-net: ICMP 初始化失败\n".as_bytes());
-            exit(5)
+    let no_selftest = cmdline.is_some_and(|line| line.contains("net.no-selftest"));
+    if !no_selftest {
+        let icmp = match stack.open_icmp(0x1234) {
+            Ok(handle) => handle,
+            Err(_) => {
+                write("hk-server-net: ICMP 初始化失败\n".as_bytes());
+                exit(5)
+            }
+        };
+        let _ = stack.send_ping(icmp, gateway, 0x1234, 1, b"holy");
+        let deadline = now_ms().saturating_add(WAIT_MS);
+        let mut reply = [0_u8; 64];
+        let mut ping_ok = false;
+        while now_ms() < deadline {
+            poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+            if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
+                && length >= 8
+            {
+                ping_ok = true;
+                break;
+            }
         }
-    };
-    let _ = stack.send_ping(icmp, gateway, 0x1234, 1, b"holy");
-    let deadline = now_ms().saturating_add(WAIT_MS);
-    let mut reply = [0_u8; 64];
-    let mut ping_ok = false;
-    while now_ms() < deadline {
-        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
-        if let Ok(Some((length, _))) = stack.recv_ping(icmp, &mut reply)
-            && length >= 8
-        {
-            ping_ok = true;
-            break;
+        if !ping_ok {
+            write("hk-server-net: ping failed\n".as_bytes());
+            exit(6)
         }
-    }
-    if !ping_ok {
-        write("hk-server-net: ping failed\n".as_bytes());
-        exit(6)
-    }
-    write("hk-server-net: ping ok\n".as_bytes());
+        write("hk-server-net: ping ok\n".as_bytes());
 
-    let tcp = match stack.open_tcp(2048) {
-        Ok(handle) => handle,
-        Err(_) => {
-            write("hk-server-net: TCP 初始化失败\n".as_bytes());
+        let tcp = match stack.open_tcp(2048) {
+            Ok(handle) => handle,
+            Err(_) => {
+                write("hk-server-net: TCP 初始化失败\n".as_bytes());
+                exit(7)
+            }
+        };
+        if stack.connect_tcp(tcp, gateway, TCP_PORT, 40000).is_err() {
+            write("hk-server-net: TCP 连接失败\n".as_bytes());
             exit(7)
         }
-    };
-    if stack.connect_tcp(tcp, gateway, TCP_PORT, 40000).is_err() {
-        write("hk-server-net: TCP 连接失败\n".as_bytes());
-        exit(7)
-    }
-    let connect_deadline = now_ms().saturating_add(WAIT_MS);
-    let mut connected = false;
-    while now_ms() < connect_deadline {
-        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
-        if stack.tcp_may_send(tcp) {
-            connected = true;
-            break;
+        let connect_deadline = now_ms().saturating_add(WAIT_MS);
+        let mut connected = false;
+        while now_ms() < connect_deadline {
+            poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+            if stack.tcp_may_send(tcp) {
+                connected = true;
+                break;
+            }
         }
-    }
-    if !connected {
-        write("hk-server-net: TCP 握手失败\n".as_bytes());
-        exit(7)
-    }
-    let _ = stack.send_tcp(tcp, b"holy");
-    let mut reply = [0_u8; 8];
-    let mut tcp_ok = false;
-    let reply_deadline = now_ms().saturating_add(WAIT_MS);
-    while now_ms() < reply_deadline {
-        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
-        if let Ok(Some(length)) = stack.recv_tcp(tcp, &mut reply)
-            && length >= 4
-        {
-            tcp_ok = true;
-            break;
+        if !connected {
+            write("hk-server-net: TCP 握手失败\n".as_bytes());
+            exit(7)
         }
-    }
-    if !tcp_ok {
-        write("hk-server-net: TCP 回显失败\n".as_bytes());
-        exit(7)
-    }
-    write("hk-server-net: tcp ok\n".as_bytes());
+        let _ = stack.send_tcp(tcp, b"holy");
+        let mut reply = [0_u8; 8];
+        let mut tcp_ok = false;
+        let reply_deadline = now_ms().saturating_add(WAIT_MS);
+        while now_ms() < reply_deadline {
+            poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+            if let Ok(Some(length)) = stack.recv_tcp(tcp, &mut reply)
+                && length >= 4
+            {
+                tcp_ok = true;
+                break;
+            }
+        }
+        if !tcp_ok {
+            write("hk-server-net: TCP 回显失败\n".as_bytes());
+            exit(7)
+        }
+        write("hk-server-net: tcp ok\n".as_bytes());
 
-    let udp = match stack.open_udp(UDP_LOCAL_PORT) {
-        Ok(handle) => handle,
-        Err(_) => {
-            write("hk-server-net: UDP 初始化失败\n".as_bytes());
+        let udp = match stack.open_udp(UDP_LOCAL_PORT) {
+            Ok(handle) => handle,
+            Err(_) => {
+                write("hk-server-net: UDP 初始化失败\n".as_bytes());
+                exit(8)
+            }
+        };
+        if stack
+            .send_udp(udp, gateway, UDP_ECHO_PORT, b"holy")
+            .is_err()
+        {
+            write("hk-server-net: UDP 发送失败\n".as_bytes());
             exit(8)
         }
-    };
-    if stack
-        .send_udp(udp, gateway, UDP_ECHO_PORT, b"holy")
-        .is_err()
-    {
-        write("hk-server-net: UDP 发送失败\n".as_bytes());
-        exit(8)
-    }
-    let mut udp_reply = [0_u8; 16];
-    let mut udp_ok = false;
-    let udp_deadline = now_ms().saturating_add(WAIT_MS);
-    while now_ms() < udp_deadline {
-        poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
-        if let Ok(Some((length, _))) = stack.recv_udp(udp, &mut udp_reply)
-            && length >= 4
-        {
-            udp_ok = true;
-            break;
+        let mut udp_reply = [0_u8; 16];
+        let mut udp_ok = false;
+        let udp_deadline = now_ms().saturating_add(WAIT_MS);
+        while now_ms() < udp_deadline {
+            poll_once(driver, endpoint, &mut stack, &mut stats, &mut frame);
+            if let Ok(Some((length, _))) = stack.recv_udp(udp, &mut udp_reply)
+                && length >= 4
+            {
+                udp_ok = true;
+                break;
+            }
         }
-    }
-    stack.close_socket(udp);
-    if !udp_ok {
-        write("hk-server-net: UDP 回显失败\n".as_bytes());
-        exit(8)
-    }
-    write("hk-server-net: udp ok\n".as_bytes());
+        stack.close_socket(udp);
+        if !udp_ok {
+            write("hk-server-net: UDP 回显失败\n".as_bytes());
+            exit(8)
+        }
+        write("hk-server-net: udp ok\n".as_bytes());
 
-    // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP/UDP。
-    let mut name_buffer = [0_u8; 128];
-    if let Some(name) = hk_server_api::boot_cmdline(&mut name_buffer).and_then(|line| {
-        line.split_whitespace()
-            .find_map(|part| part.strip_prefix("net.dns="))
-    }) {
-        let dns_server = dns_servers
-            .first()
-            .copied()
-            .unwrap_or(Ipv4Addr::new(10, 0, 2, 3));
-        write("hk-server-net: dns-start\n".as_bytes());
-        resolve(
-            &mut stack,
-            &[dns_server],
-            name,
-            driver,
-            endpoint,
-            &mut stats,
-            &mut frame,
-        );
+        // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP/UDP。
+        let mut name_buffer = [0_u8; 128];
+        if let Some(name) = hk_server_api::boot_cmdline(&mut name_buffer).and_then(|line| {
+            line.split_whitespace()
+                .find_map(|part| part.strip_prefix("net.dns="))
+        }) {
+            let dns_server = dns_servers
+                .first()
+                .copied()
+                .unwrap_or(Ipv4Addr::new(10, 0, 2, 3));
+            write("hk-server-net: dns-start\n".as_bytes());
+            resolve(
+                &mut stack,
+                &[dns_server],
+                name,
+                driver,
+                endpoint,
+                &mut stats,
+                &mut frame,
+            );
+        }
     }
 
     if cmdline.is_some_and(|line| line.contains("net.restart")) {
@@ -287,16 +296,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         );
     }
 
+    write("hk-server-net: serving\n".as_bytes());
+    let mut control = [0_u8; 2048];
+    let mut next_udp = 40200_u16;
     loop {
-        let (label, word, sender, length) = recv_data(endpoint, &mut frame);
-        if sender != 0 && sender != driver {
-            // 驱动重启后端点编号变化，自动切换到新端点。
-            driver = sender;
-        }
+        let (label, word, sender, length) = recv_data(endpoint, &mut control);
         match label {
             NET_RX => {
-                let length = length.min(frame.len());
-                let _ = stack.push_frame(&frame[..length]);
+                if sender != 0 && sender != driver {
+                    // 驱动重启后端点编号变化，自动切换到新端点。
+                    driver = sender;
+                }
+                let length = length.min(control.len());
+                let _ = stack.push_frame(&control[..length]);
                 stats.rx_frames = stats.rx_frames.saturating_add(1);
                 stats.rx_bytes = stats.rx_bytes.saturating_add(length as u64);
                 stack.poll(now_ms());
@@ -311,7 +323,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 stack.poll(now_ms());
                 flush_tx(driver, &mut stack, &mut stats);
             }
-            NET_TX_DONE => stack.shared_tx_done(net_tx_index(word)),
+            NET_TX_DONE => {
+                if sender != 0 && sender != driver {
+                    driver = sender;
+                }
+                stack.shared_tx_done(net_tx_index(word));
+            }
+            NET_POLL_DONE => {}
+            SOCK_OPEN | SOCK_CONNECT | SOCK_SEND | SOCK_RECV | SOCK_CLOSE | SOCK_UDP_SEND
+            | SOCK_UDP_RECV | SOCK_RESOLVE => {
+                handle_socket(
+                    label,
+                    &control[..length.min(control.len())],
+                    sender,
+                    driver,
+                    endpoint,
+                    &mut stack,
+                    &mut stats,
+                    &dns_servers,
+                    &mut frame,
+                    &mut next_udp,
+                );
+            }
             NET_STATUS_REQUEST => {
                 let mut encoded = [0_u8; NET_STATUS_BYTES];
                 if let Some(length) = status_blob(&stack, &stats, &mut encoded) {
@@ -568,6 +601,204 @@ fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bool {
     );
     write("hk-server-net: shared frames ready\n".as_bytes());
     true
+}
+
+/// 处理一次原生 Socket 请求并回复。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn handle_socket(
+    label: u64,
+    data: &[u8],
+    sender: u64,
+    driver: u64,
+    endpoint: u64,
+    stack: &mut Stack,
+    stats: &mut Stats,
+    dns_servers: &[Ipv4Addr],
+    frame: &mut [u8; NET_FRAME_MAX],
+    next_udp: &mut u16,
+) {
+    let mut reply = [0_u8; 8 + SOCK_PAYLOAD_MAX];
+    let mut payload = 0_usize;
+    let result = match label {
+        SOCK_OPEN => {
+            let id = match data.first().copied() {
+                Some(SOCK_KIND_TCP) => stack.socket_open_tcp(2048),
+                Some(SOCK_KIND_UDP) => {
+                    let port = *next_udp;
+                    *next_udp = next_udp.wrapping_add(1);
+                    stack.socket_open_udp(port)
+                }
+                _ => None,
+            };
+            id.map_or(SOCK_ERROR, |id| id.0 as u64 + 1)
+        }
+        SOCK_CONNECT => match (socket_id(data, 0), read_ipv4(data, 8), read_u16(data, 12)) {
+            (Some(id), Some(address), Some(port)) => {
+                if stack.socket_connect(id, Ipv4Addr::from(address), port, 40000 + id.0 as u16) {
+                    0
+                } else {
+                    SOCK_ERROR
+                }
+            }
+            _ => SOCK_ERROR,
+        },
+        SOCK_SEND => match socket_id(data, 0) {
+            Some(id) => stack.socket_send(id, &data[8..]).unwrap_or(0) as u64,
+            None => SOCK_ERROR,
+        },
+        SOCK_RECV => {
+            let max = read_u16(data, 8)
+                .unwrap_or(SOCK_PAYLOAD_MAX as u16)
+                .min(SOCK_PAYLOAD_MAX as u16) as usize;
+            let mut buffer = [0_u8; SOCK_PAYLOAD_MAX];
+            match socket_id(data, 0) {
+                Some(id) => match stack.socket_recv(id, &mut buffer[..max]) {
+                    Ok(Some(length)) => {
+                        reply[8..8 + length].copy_from_slice(&buffer[..length]);
+                        payload = length;
+                        length as u64
+                    }
+                    Ok(None) => 0,
+                    Err(_) => SOCK_ERROR,
+                },
+                None => SOCK_ERROR,
+            }
+        }
+        SOCK_UDP_RECV => {
+            let max = read_u16(data, 8)
+                .unwrap_or(SOCK_PAYLOAD_MAX as u16)
+                .min(SOCK_PAYLOAD_MAX as u16) as usize;
+            let mut buffer = [0_u8; SOCK_PAYLOAD_MAX];
+            match socket_id(data, 0) {
+                Some(id) => match stack.socket_udp_recv(id, &mut buffer[..max]) {
+                    Ok(Some(length)) => {
+                        reply[8..8 + length].copy_from_slice(&buffer[..length]);
+                        payload = length;
+                        length as u64
+                    }
+                    Ok(None) => 0,
+                    Err(_) => SOCK_ERROR,
+                },
+                None => SOCK_ERROR,
+            }
+        }
+        SOCK_CLOSE => match socket_id(data, 0) {
+            Some(id) => {
+                stack.socket_close(id);
+                0
+            }
+            None => SOCK_ERROR,
+        },
+        SOCK_UDP_SEND => match (socket_id(data, 0), read_ipv4(data, 8), read_u16(data, 12)) {
+            (Some(id), Some(address), Some(port)) => {
+                if stack.socket_udp_send(id, Ipv4Addr::from(address), port, &data[14..]) {
+                    (data.len() - 14) as u64
+                } else {
+                    0
+                }
+            }
+            _ => SOCK_ERROR,
+        },
+        SOCK_RESOLVE => {
+            let name = core::str::from_utf8(data).unwrap_or("");
+            let fallback = [Ipv4Addr::new(10, 0, 2, 3)];
+            let servers = if dns_servers.is_empty() {
+                &fallback[..]
+            } else {
+                dns_servers
+            };
+            match lookup(stack, servers, name, driver, endpoint, stats, frame) {
+                Some(addresses) => {
+                    let count = addresses.len().min(4);
+                    for (index, address) in addresses.iter().take(count).enumerate() {
+                        reply[8 + index * 4..8 + index * 4 + 4].copy_from_slice(&address.octets());
+                    }
+                    payload = count * 4;
+                    count as u64
+                }
+                None => SOCK_ERROR,
+            }
+        }
+        _ => SOCK_ERROR,
+    };
+    reply[..8].copy_from_slice(&result.to_le_bytes());
+    let _ = send_data(sender, SOCK_RESPONSE, &reply[..8 + payload]);
+    stack.poll(now_ms());
+    flush_tx(driver, stack, stats);
+    // 主动轮询驱动，确保握手/重传期间能及时取走接收帧。
+    let _ = send(driver, NET_POLL, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
+}
+
+#[cfg(target_os = "none")]
+fn socket_id(data: &[u8], offset: usize) -> Option<SocketId> {
+    let handle = read_u64(data, offset)?;
+    (handle != 0).then(|| SocketId((handle - 1) as usize))
+}
+
+#[cfg(target_os = "none")]
+fn read_u64(data: &[u8], offset: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(
+        data.get(offset..offset + 8)?.try_into().ok()?,
+    ))
+}
+
+#[cfg(target_os = "none")]
+fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        data.get(offset..offset + 2)?.try_into().ok()?,
+    ))
+}
+
+#[cfg(target_os = "none")]
+fn read_ipv4(data: &[u8], offset: usize) -> Option<[u8; 4]> {
+    data.get(offset..offset + 4)?.try_into().ok()
+}
+
+/// 用协议栈解析名称，返回最多 4 个 IPv4 地址。
+#[cfg(target_os = "none")]
+fn lookup(
+    stack: &mut Stack,
+    servers: &[Ipv4Addr],
+    name: &str,
+    driver: u64,
+    endpoint: u64,
+    stats: &mut Stats,
+    frame: &mut [u8; NET_FRAME_MAX],
+) -> Option<Vec<Ipv4Addr>> {
+    let dns = stack.open_dns(servers).ok()?;
+    let query = match stack.start_dns_query(dns, name, DnsQueryType::A) {
+        Ok(query) => query,
+        Err(_) => {
+            stack.close_socket(dns);
+            return None;
+        }
+    };
+    let deadline = now_ms().saturating_add(DNS_WAIT_MS);
+    let mut result = None;
+    while now_ms() < deadline {
+        poll_once(driver, endpoint, stack, stats, frame);
+        match stack.poll_dns(dns, query) {
+            Ok(Some(addresses)) => {
+                result = Some(
+                    addresses
+                        .iter()
+                        .filter_map(|address| match address {
+                            IpAddress::Ipv4(address) => Some(*address),
+                            _ => None,
+                        })
+                        .take(4)
+                        .collect(),
+                );
+                break;
+            }
+            Ok(None) => {}
+            Err(_) => break,
+        }
+    }
+    stack.close_socket(dns);
+    result
 }
 
 /// 回传共享环的归还/发送事件，并补发普通发送队列；随后唤醒驱动。

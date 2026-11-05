@@ -41,7 +41,11 @@ pub fn run(
         if name == "hk-server-netstat" {
             return false;
         }
-        network_enabled || !matches!(name, "hk-server-virtio-net" | "hk-server-net")
+        network_enabled
+            || !matches!(
+                name,
+                "hk-server-virtio-net" | "hk-server-net" | "hk-server-netsock"
+            )
     });
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));

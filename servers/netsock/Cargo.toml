@@ -1,0 +1,20 @@
+[package]
+name = "hk-server-netsock"
+description = "HolyKernel 原生 Socket 客户端自检服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-netsock"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

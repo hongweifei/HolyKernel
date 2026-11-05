@@ -91,6 +91,9 @@ pub enum SmokeMode {
     /// 共享 Frame 收发环（零拷贝）
     #[value(name = "netzerocopy")]
     NetZerocopy,
+    /// 原生 Socket Handle 客户端自检
+    #[value(name = "netsocket")]
+    NetSocket,
 }
 
 impl SmokeMode {
@@ -116,6 +119,7 @@ impl SmokeMode {
             ),
             Self::NetRestart => Some("net-test net.restart net.dns=localhost shell-test net"),
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
+            Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
         }
     }
 
@@ -266,6 +270,12 @@ impl SmokeMode {
                 "127.0.0.1",
                 "hk-server-netstat: config dhcp=",
             ],
+            Self::NetSocket => &[
+                "hk-server-net: ready",
+                "hk-server-netsock: tcp ok",
+                "hk-server-netsock: udp ok",
+                "hk-server-netsock: dns ok",
+            ],
         }
     }
 
@@ -283,7 +293,8 @@ impl SmokeMode {
             | Self::Net
             | Self::NetStatic
             | Self::NetRestart
-            | Self::NetZerocopy => QEMU_SUCCESS,
+            | Self::NetZerocopy
+            | Self::NetSocket => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
@@ -307,6 +318,7 @@ impl SmokeMode {
             Self::NetStatic => "build/serial-netstatic.log",
             Self::NetRestart => "build/serial-netrestart.log",
             Self::NetZerocopy => "build/serial-netzerocopy.log",
+            Self::NetSocket => "build/serial-netsocket.log",
         }
     }
 
@@ -314,7 +326,7 @@ impl SmokeMode {
     fn is_network(self) -> bool {
         matches!(
             self,
-            Self::Net | Self::NetStatic | Self::NetRestart | Self::NetZerocopy
+            Self::Net | Self::NetStatic | Self::NetRestart | Self::NetZerocopy | Self::NetSocket
         )
     }
 

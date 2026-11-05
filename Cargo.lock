@@ -439,6 +439,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-netsock"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-netstat"
 version = "0.1.0"
 dependencies = [

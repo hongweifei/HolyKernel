@@ -67,11 +67,21 @@ impl ArpEntry {
     };
 }
 
+/// 对外 Socket 句柄（由协议栈分配）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SocketId(pub usize);
+
+enum Entry {
+    Tcp(SocketHandle),
+    Udp(SocketHandle),
+}
+
 /// 一个以太网接口上的 smoltcp 协议栈。
 pub struct Stack {
     device: FrameQueue,
     interface: Interface,
     sockets: SocketSet<'static>,
+    entries: Vec<Option<Entry>>,
     arp: [ArpEntry; ARP_CACHE_SIZE],
     arp_len: usize,
     arp_next: usize,
@@ -107,6 +117,7 @@ impl Stack {
             device,
             interface,
             sockets,
+            entries: Vec::new(),
             arp: [ArpEntry::EMPTY; ARP_CACHE_SIZE],
             arp_len: 0,
             arp_next: 0,
@@ -126,6 +137,7 @@ impl Stack {
                 device,
                 interface,
                 sockets,
+                entries: Vec::new(),
                 arp: [ArpEntry::EMPTY; ARP_CACHE_SIZE],
                 arp_len: 0,
                 arp_next: 0,
@@ -335,6 +347,96 @@ impl Stack {
     /// 关闭 socket，释放查询槽与缓冲区。
     pub fn close_socket(&mut self, handle: SocketHandle) {
         self.sockets.remove(handle);
+    }
+
+    /// 打开一个对外 TCP socket。
+    pub fn socket_open_tcp(&mut self, buffer: usize) -> Option<SocketId> {
+        let handle = self.open_tcp(buffer).ok()?;
+        self.entries.push(Some(Entry::Tcp(handle)));
+        Some(SocketId(self.entries.len() - 1))
+    }
+
+    /// 打开一个对外 UDP socket 并绑定本地端口。
+    pub fn socket_open_udp(&mut self, port: u16) -> Option<SocketId> {
+        let handle = self.open_udp(port).ok()?;
+        self.entries.push(Some(Entry::Udp(handle)));
+        Some(SocketId(self.entries.len() - 1))
+    }
+
+    /// TCP 主动连接。
+    pub fn socket_connect(
+        &mut self,
+        id: SocketId,
+        remote: Ipv4Address,
+        port: u16,
+        local_port: u16,
+    ) -> bool {
+        match self.entries.get(id.0) {
+            Some(Some(Entry::Tcp(handle))) => {
+                self.connect_tcp(*handle, remote, port, local_port).is_ok()
+            }
+            _ => false,
+        }
+    }
+
+    /// 发送 TCP 数据，返回写入长度。
+    pub fn socket_send(&mut self, id: SocketId, data: &[u8]) -> Option<usize> {
+        match self.entries.get(id.0) {
+            Some(Some(Entry::Tcp(handle))) => self.send_tcp(*handle, data).ok(),
+            _ => None,
+        }
+    }
+
+    /// 接收 TCP 数据；无数据返回 `Some(None)`。
+    pub fn socket_recv(
+        &mut self,
+        id: SocketId,
+        buffer: &mut [u8],
+    ) -> Result<Option<usize>, NetError> {
+        match self.entries.get(id.0) {
+            Some(Some(Entry::Tcp(handle))) => self.recv_tcp(*handle, buffer),
+            _ => Err(NetError::Recv),
+        }
+    }
+
+    /// UDP 发送到指定远端。
+    pub fn socket_udp_send(
+        &mut self,
+        id: SocketId,
+        remote: Ipv4Address,
+        port: u16,
+        data: &[u8],
+    ) -> bool {
+        match self.entries.get(id.0) {
+            Some(Some(Entry::Udp(handle))) => self.send_udp(*handle, remote, port, data).is_ok(),
+            _ => false,
+        }
+    }
+
+    /// 接收 UDP 数据；无数据返回 `Some(None)`。
+    pub fn socket_udp_recv(
+        &mut self,
+        id: SocketId,
+        buffer: &mut [u8],
+    ) -> Result<Option<usize>, NetError> {
+        match self.entries.get(id.0) {
+            Some(Some(Entry::Udp(handle))) => self
+                .recv_udp(*handle, buffer)
+                .map(|value| value.map(|(length, _)| length)),
+            _ => Err(NetError::Recv),
+        }
+    }
+
+    /// 关闭对外 socket。
+    pub fn socket_close(&mut self, id: SocketId) {
+        let Some(slot) = self.entries.get_mut(id.0) else {
+            return;
+        };
+        if let Some(entry) = slot.take() {
+            match entry {
+                Entry::Tcp(handle) | Entry::Udp(handle) => self.close_socket(handle),
+            }
+        }
     }
 
     /// 启动一次 DNS 查询；`DnsQueryType::A` 查询 IPv4，`DnsQueryType::Aaaa` 查询 IPv6。
