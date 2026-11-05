@@ -129,7 +129,9 @@ fn check(path: &Path, violations: &mut Vec<String>) -> Result<()> {
 
 fn rules(name: &str) -> &'static [&'static str] {
     match name {
-        "hk-hal" | "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => IMPL_FORBIDDEN,
+        "hk-base" | "hk-hal" | "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => {
+            IMPL_FORBIDDEN
+        }
         "hk-server-api" => &[
             "hk-kernel",
             "hk-runtime",
