@@ -18,6 +18,7 @@
 | L3 客户端 | `clients/*` | netstat/netsock 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
 | L4 运行时 | `hk-runtime` | 用户任务视图、系统调用分派、Arena、RootServer 启动原语 |
+| L4 内核 Shell | `hk-kernel-shell` | 内核态 Shell 宿主、运行时视图转换、服务启动/重启/脚本编排；只依赖 `hk-shell` 与 `hk-root-server` |
 | L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督与运行时宿主、平台实现、镜像与测试工具 |
 | 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
 
@@ -33,7 +34,8 @@
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
 | `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
 | `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
-| `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、平台二进制 |
+| `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、`hk-kernel-shell`、平台二进制 |
+| `hk-kernel-shell` | `hk-shell`、`hk-root-server`、`hk-hal` | `hk-server-*`、平台二进制 |
 | L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
 | L3 服务/客户端/演示 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
 | `hk-shell` | 无 | 任何依赖 |

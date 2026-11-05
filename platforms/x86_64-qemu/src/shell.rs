@@ -1,18 +1,17 @@
-//! HolyShell 平台适配：串口/帧缓冲 I/O、脚本读取与服务启动副作用。
+//! HolyShell 平台适配：串口/帧缓冲 I/O、服务装载与调度回调。
 //!
-//! 命令解析、输出文本与执行循环由 `hk-shell` 提供；本模块只实现 `ShellIo`
-//! 与 `ShellHost`，把输入输出接到硬件，把 `use`/`load` 接到启动模块，把
-//! `start` 接到镜像装载与运行时。
+//! 通用命令宿主位于 `hk-kernel-shell`；本模块只提供控制台 I/O、服务装载器与
+//! 调度回调。
 
 use alloc::format;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, Console};
+use hk_kernel_shell::{Scheduling, ScriptSource};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{FrameAllocator, FramebufferConsole, PageTable, Serial, keyboard};
 use hk_root_server::ServiceTable;
-use hk_shell::{Session, ShellHost, ShellIo};
+use hk_shell::ShellIo;
 
 use crate::{loader, runtime};
 
@@ -53,12 +52,6 @@ impl ShellIo for ConsoleIo<'_> {
     }
 }
 
-/// 命令宿主：任务视图、服务表与按需装载。
-struct Host<'a, 'b> {
-    services: &'a mut ServiceTable,
-    loader: &'a mut Loader<'b>,
-}
-
 impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> {
     fn load(&mut self, name: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
         loader::load_service(
@@ -87,104 +80,7 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
     }
 }
 
-impl Host<'_, '_> {
-    /// 启动用户态 `netstat` 客户端并驱动调度，按需查询网络状态。
-    ///
-    /// 内核态 shell 只负责编排，不接触网络协议或实现。
-    fn net_status(&mut self) -> String {
-        let message = runtime::start_service(self.loader, self.services, "hk-server-netstat", None);
-        if message.contains("失败") || message.contains("未知") {
-            return message;
-        }
-        for _ in 0..64 {
-            if runtime::run_budgeted(self.services, 4096) {
-                break;
-            }
-        }
-        message
-    }
-}
-
-impl ShellHost for Host<'_, '_> {
-    fn tasks(&self) -> Vec<hk_shell::TaskInfo> {
-        runtime::tasks()
-            .into_iter()
-            .map(|task| hk_shell::TaskInfo {
-                tcb: task.tcb,
-                name: task.name,
-                parent: task.parent,
-                endpoint: task.endpoint,
-                state: task.state,
-                pending: task.pending,
-                handles: task.handles,
-                arena_used: task.arena_used,
-                arena_size: task.arena_size,
-                vspace: task.vspace,
-                exit_code: task.exit_code,
-            })
-            .collect()
-    }
-
-    fn services(&mut self) -> Vec<hk_shell::ServiceInfo> {
-        runtime::drain_exits(self.services);
-        self.services
-            .services()
-            .iter()
-            .map(|service| hk_shell::ServiceInfo {
-                name: service.name.clone(),
-                state: service.state.name(),
-                restarts: service.restarts,
-                exit_code: service.exit_code,
-            })
-            .collect()
-    }
-
-    fn trace(&self, limit: usize) -> Vec<hk_shell::TraceEvent> {
-        runtime::trace(limit)
-            .into_iter()
-            .map(|event| hk_shell::TraceEvent {
-                sequence: event.sequence,
-                category: event.category.name(),
-                thread: event.thread,
-                code: event.code,
-                argument: event.argument,
-            })
-            .collect()
-    }
-
-    fn stats(&self) -> hk_shell::RuntimeStats {
-        let stats = runtime::stats();
-        hk_shell::RuntimeStats {
-            switches: stats.switches,
-            switch_cycles: stats.switch_cycles,
-            switch_max_cycles: stats.switch_max_cycles,
-            calls: stats.calls,
-            call_cycles: stats.call_cycles,
-            call_max_cycles: stats.call_max_cycles,
-            resumes: stats.resumes.to_vec(),
-            tsc_frequency: stats.tsc_frequency,
-        }
-    }
-
-    fn extension(&mut self, name: &str, _args: &str) -> Option<String> {
-        match name {
-            "net" => Some(self.net_status()),
-            _ => None,
-        }
-    }
-
-    fn help_extra(&self) -> String {
-        String::from("扩展：net\n")
-    }
-
-    fn start(&mut self, name: &str, parent: Option<&str>) -> String {
-        runtime::start_service(self.loader, self.services, name, parent)
-    }
-
-    fn restart(&mut self, name: &str, parent: Option<&str>) -> String {
-        runtime::restart_service(self.loader, self.services, name, parent)
-    }
-
+impl ScriptSource for Loader<'_> {
     fn script(&self, name: &str) -> Result<String, String> {
         let wanted = if name.ends_with(".hsh") {
             String::from(name)
@@ -192,7 +88,6 @@ impl ShellHost for Host<'_, '_> {
             format!("{name}.hsh")
         };
         let module = self
-            .loader
             .info
             .server_modules
             .iter()
@@ -200,13 +95,21 @@ impl ShellHost for Host<'_, '_> {
             .ok_or_else(|| format!("未找到脚本：{wanted}"))?;
 
         let bytes = self
-            .loader
             .info
             .module_bytes(module)
             .ok_or_else(|| format!("脚本不在 direct map 内：{wanted}"))?;
         core::str::from_utf8(bytes)
             .map(String::from)
             .map_err(|_| format!("脚本不是 UTF-8：{wanted}"))
+    }
+}
+
+/// 平台调度回调。
+struct Scheduler;
+
+impl Scheduling for Scheduler {
+    fn run_budgeted(&mut self, services: &mut ServiceTable, steps: usize) -> bool {
+        runtime::run_budgeted(services, steps)
     }
 }
 
@@ -219,16 +122,14 @@ pub fn run(
     script: &[&str],
 ) -> Result<(), String> {
     let io = ConsoleIo { console, screen };
-    io.write("HolyShell\n");
-
-    if script.is_empty() {
-        io.write("当前仅支持脚本化执行：shell-test <命令>...\n");
-        return Ok(());
-    }
-
-    let mut host = Host { services, loader };
-    let mut session = Session::new();
-    hk_shell::run_script(&io, &mut host, &mut session, script);
+    hk_kernel_shell::run(
+        &io,
+        runtime::host(),
+        services,
+        loader,
+        &mut Scheduler,
+        script,
+    );
     Ok(())
 }
 
@@ -240,11 +141,7 @@ pub fn interactive(
     loader: &mut Loader<'_>,
 ) -> Result<(), String> {
     let io = ConsoleIo { console, screen };
-    io.write("HolyShell 交互模式（help 查看命令）\n");
-
-    let mut host = Host { services, loader };
-    let mut session = Session::new();
-    hk_shell::run_repl(&io, &mut host, &mut session);
+    hk_kernel_shell::interactive(&io, runtime::host(), services, loader, &mut Scheduler);
     Ok(())
 }
 

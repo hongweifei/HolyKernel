@@ -323,6 +323,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-kernel-shell"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
+ "hk-root-server",
+ "hk-shell",
+]
+
+[[package]]
 name = "hk-mem"
 version = "0.1.0"
 dependencies = [
@@ -661,6 +670,7 @@ dependencies = [
  "hk-boot",
  "hk-hal",
  "hk-kernel",
+ "hk-kernel-shell",
  "hk-platform-x86_64",
  "hk-root-server",
  "hk-shell",

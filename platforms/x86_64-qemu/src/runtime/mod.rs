@@ -76,7 +76,7 @@ fn user_range(address: u64, length: usize) -> bool {
             .is_some_and(|end| end <= USER_LIMIT)
 }
 
-struct X86Platform;
+pub(crate) struct X86Platform;
 
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
@@ -258,6 +258,11 @@ pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
     Ok(())
 }
 
+/// 返回运行时宿主。
+pub(crate) fn host() -> &'static RuntimeHost<InterruptFrame, X86Platform> {
+    &RUNTIME
+}
+
 /// 设置任务的用户态初始现场。
 pub fn attach(index: usize, context: InterruptFrame) {
     RUNTIME.attach(index, context);
@@ -344,11 +349,6 @@ pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable
         loader,
         hk_root_server::service::restart_policy,
     )
-}
-
-/// 同步其他 CPU 记录的服务退出。
-pub fn drain_exits(table: &mut ServiceTable) {
-    RUNTIME.drain_exits(table);
 }
 
 /// 启动服务。
