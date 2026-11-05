@@ -15,6 +15,7 @@ mod build;
 mod cargo;
 mod catalog;
 mod deps;
+mod disk;
 mod docs;
 mod failure;
 mod image;

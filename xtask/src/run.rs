@@ -21,7 +21,9 @@ pub fn run(selection: Selection, release: bool, arguments: &[String]) -> Result<
                 return Err(Failure::new("x86_64-qemu 不接受额外参数"));
             }
             let iso = crate::image::run(selection, release, Some("shell-interactive"))?;
-            crate::qemu::run(&iso)
+            let disk = crate::workspace::root().join("build/run-disk.img");
+            crate::disk::ensure_ext4(&disk)?;
+            crate::qemu::run(&iso, &disk)
         }
         Target::Aarch64Qemu => Err(Failure::new(
             "aarch64-qemu 的启动镜像在 M8 提供；当前使用 cargo xtask build --target aarch64-qemu 校验构建",

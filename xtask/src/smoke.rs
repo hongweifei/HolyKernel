@@ -8,22 +8,19 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use hk_block::{MemoryDisk, SECTOR_SIZE};
-use hk_hal::CivilTime;
 use hk_vfs::Backend;
 use qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
 
+use crate::disk::HostClock;
 use crate::failure::{Failure, Result};
 use crate::target::{Selection, Target};
 use crate::workspace;
 
 /// 等待内核退出的上限。
 const TIMEOUT: Duration = Duration::from_secs(30);
-
-/// 测试磁盘大小。
-const TEST_DISK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// ext4 自检写入的标记内容。
 const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
@@ -665,31 +662,6 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     Ok(())
 }
 
-/// 宿主墙钟，用于给测试镜像写入正常时间戳。
-struct HostClock;
-
-impl hk_fs_ext4::WallClock for HostClock {
-    fn now(&self) -> Option<CivilTime> {
-        host_civil_time()
-    }
-}
-
-/// std::time 的原点；宿主工具只在镜像生成时使用。
-const HOST_TIME_ORIGIN: CivilTime = CivilTime {
-    year: 1970,
-    month: 1,
-    day: 1,
-    hour: 0,
-    minute: 0,
-    second: 0,
-    nanosecond: 0,
-};
-
-fn host_civil_time() -> Option<CivilTime> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    Some(HOST_TIME_ORIGIN.add_seconds(elapsed.as_secs(), elapsed.subsec_nanos()))
-}
-
 /// 接受一次 QEMU 宿主的 TCP 连接并回显。
 fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -757,7 +729,7 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
         fs::create_dir_all(parent)
             .map_err(|error| Failure::new(format!("创建 {} 失败：{error}", parent.display())))?;
     }
-    let blocks = TEST_DISK_BYTES / SECTOR_SIZE as u64;
+    let blocks = crate::disk::DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
     let disk = if mode == SmokeMode::HolyFs {
         hk_fs_holyfs::format(disk)

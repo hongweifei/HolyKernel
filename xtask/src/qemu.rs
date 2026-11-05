@@ -9,7 +9,7 @@ use crate::failure::{Failure, Result};
 const QEMU_SUCCESS: i32 = 1;
 
 /// 启动 QEMU 并等待内核退出。
-pub fn run(iso: &Path) -> Result<()> {
+pub fn run(iso: &Path, disk: &Path) -> Result<()> {
     let status = Command::new("qemu-system-x86_64")
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
         .arg(iso)
@@ -21,9 +21,14 @@ pub fn run(iso: &Path) -> Result<()> {
             "-display",
             "none",
             "-no-reboot",
-            "-device",
-            "isa-debug-exit,iobase=0xf4,iosize=0x04",
         ])
+        .arg("-drive")
+        .arg(format!(
+            "file={},if=none,id=disk,format=raw",
+            disk.display()
+        ))
+        .args(["-device", "virtio-blk-pci,drive=disk"])
+        .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"])
         .status()
         .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
 
