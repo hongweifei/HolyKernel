@@ -222,6 +222,7 @@ fn translate(scancode: u8, shift: bool) -> Option<u8> {
         KEY_1..=KEY_0 => b'1' + (scancode - KEY_1),
         0x0C => b'-',
         0x0D => b'=',
+        0x0F => b'\t',
         0x10..=0x19 => b"qwertyuiop"[usize::from(scancode - 0x10)],
         0x1A => b'[',
         0x1B => b']',

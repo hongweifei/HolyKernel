@@ -1,7 +1,7 @@
 //! display：帧缓冲合成器与窗口服务。
 //!
 //! 只有本服务持有帧缓冲授权。客户端把共享 Frame 作为窗口表面，经句柄转移
-//! 交给本服务；合成时直接把表面像素写入帧缓冲，不复制整块表面。
+//! 交给本服务；合成按区域重绘，避免每次提交都重画整屏。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -11,7 +11,7 @@ use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
-    DISPLAY_WINDOW_CREATED, unpack_size,
+    DISPLAY_WINDOW_CREATED, pack_key, unpack_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -37,6 +37,10 @@ const WINDOW_STRIDE: u64 = 0x20_0000;
 #[cfg(target_os = "none")]
 const TITLE_HEIGHT: usize = 24;
 
+/// Tab 键字节：切换焦点。
+#[cfg(target_os = "none")]
+const TAB: u8 = b'\t';
+
 /// 桌面背景顶部颜色。
 #[cfg(target_os = "none")]
 const DESKTOP_TOP: u32 = 0x0010_1820;
@@ -50,7 +54,7 @@ const TITLE_COLOR: u32 = 0x0020_60A0;
 #[cfg(target_os = "none")]
 const TITLE_FOCUS: u32 = 0x0040_A0E0;
 
-/// 已创建的窗口。
+/// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
 #[cfg(target_os = "none")]
 #[derive(Clone, Copy)]
 struct Window {
@@ -91,31 +95,6 @@ impl Screen {
         // SAFETY: 坐标已裁剪到帧缓冲范围内。
         unsafe { self.base.add(y * self.stride + x).read_volatile() }
     }
-
-    fn fill(&self, x: usize, y: usize, width: usize, height: usize, color: u32) {
-        for row in y..(y + height).min(self.height) {
-            for column in x..(x + width).min(self.width) {
-                // SAFETY: 坐标已裁剪到帧缓冲范围内。
-                unsafe {
-                    self.base
-                        .add(row * self.stride + column)
-                        .write_volatile(color);
-                }
-            }
-        }
-    }
-}
-
-/// 绘制桌面渐变背景。
-#[cfg(target_os = "none")]
-fn draw_desktop(screen: &Screen) {
-    for y in 0..screen.height {
-        let ratio = (y * 255 / screen.height.max(1)) as u32;
-        let color = blend(DESKTOP_TOP, DESKTOP_BOTTOM, ratio);
-        for x in 0..screen.width {
-            screen.put(x, y, color);
-        }
-    }
 }
 
 /// 按 `ratio/255` 混合两个颜色。
@@ -129,28 +108,135 @@ fn blend(from: u32, to: u32, ratio: u32) -> u32 {
     (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
-/// 绘制一个窗口：标题栏 + 客户端表面。
+/// 返回桌面在指定行的颜色。
 #[cfg(target_os = "none")]
-fn draw_window(screen: &Screen, window: &Window, focused: bool) {
-    let title = if focused { TITLE_FOCUS } else { TITLE_COLOR };
-    screen.fill(window.x, window.y, window.width, TITLE_HEIGHT, title);
-    let surface = window.virt as *const u32;
-    for row in 0..window.height {
-        let target_y = window.y + TITLE_HEIGHT + row;
-        for column in 0..window.width {
-            // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
-            let color = unsafe { surface.add(row * window.width + column).read_volatile() };
-            screen.put(window.x + column, target_y, color);
+fn desktop_color(height: usize, row: usize) -> u32 {
+    let ratio = (row * 255 / height.max(1)) as u32;
+    blend(DESKTOP_TOP, DESKTOP_BOTTOM, ratio)
+}
+
+/// 读取窗口表面中的一个像素。
+#[cfg(target_os = "none")]
+fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
+    // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
+    unsafe {
+        (window.virt as *const u32)
+            .add(y * window.width + x)
+            .read_volatile()
+    }
+}
+
+/// 重绘一个矩形区域：背景 + 自顶向下的窗口。
+#[cfg(target_os = "none")]
+fn compose_region(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) {
+    let left = x.min(screen.width);
+    let top = y.min(screen.height);
+    let right = x.saturating_add(width).min(screen.width);
+    let bottom = y.saturating_add(height).min(screen.height);
+    for row in top..bottom {
+        for column in left..right {
+            let mut color = desktop_color(screen.height, row);
+            for window in windows.iter().rev().flatten() {
+                if column < window.x
+                    || column >= window.x + window.width
+                    || row < window.y
+                    || row >= window.y + window.height + TITLE_HEIGHT
+                {
+                    continue;
+                }
+                if row < window.y + TITLE_HEIGHT {
+                    color = if window.id == focus {
+                        TITLE_FOCUS
+                    } else {
+                        TITLE_COLOR
+                    };
+                } else {
+                    color =
+                        surface_pixel(window, column - window.x, row - (window.y + TITLE_HEIGHT));
+                }
+                break;
+            }
+            screen.put(column, row, color);
         }
     }
 }
 
-/// 合成桌面与全部窗口。
+/// 重绘整个桌面。
 #[cfg(target_os = "none")]
-fn compose(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus: u64) {
-    draw_desktop(screen);
-    for window in windows.iter().flatten() {
-        draw_window(screen, window, window.id == focus);
+fn draw_desktop(screen: &Screen) {
+    for row in 0..screen.height {
+        let color = desktop_color(screen.height, row);
+        for column in 0..screen.width {
+            screen.put(column, row, color);
+        }
+    }
+}
+
+/// 把窗口提升到 z 序顶部。
+#[cfg(target_os = "none")]
+fn raise(windows: &mut [Option<Window>; MAX_WINDOWS], id: u64) {
+    let Some(position) = windows
+        .iter()
+        .position(|window| window.as_ref().is_some_and(|window| window.id == id))
+    else {
+        return;
+    };
+    let Some(last) = windows.iter().rposition(Option::is_some) else {
+        return;
+    };
+    if position < last {
+        windows[position..=last].rotate_left(1);
+    }
+}
+
+/// 重绘窗口（含标题栏）。
+#[cfg(target_os = "none")]
+fn damage_window(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    window: &Window,
+) {
+    compose_region(
+        screen,
+        windows,
+        focus,
+        window.x,
+        window.y,
+        window.width,
+        window.height + TITLE_HEIGHT,
+    );
+}
+
+/// 焦点切换后重绘旧焦点窗口的标题栏。
+#[cfg(target_os = "none")]
+fn damage_title(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus: u64, id: u64) {
+    if id == 0 || id == focus {
+        return;
+    }
+    if let Some(window) = windows
+        .iter()
+        .flatten()
+        .find(|window| window.id == id)
+        .copied()
+    {
+        compose_region(
+            screen,
+            windows,
+            focus,
+            window.x,
+            window.y,
+            window.width,
+            TITLE_HEIGHT,
+        );
     }
 }
 
@@ -158,8 +244,41 @@ fn compose(screen: &Screen, windows: &[Option<Window>; MAX_WINDOWS], focus: u64)
 #[cfg(target_os = "none")]
 fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
     if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
-        let _ = send(window.client, DISPLAY_KEY, u64::from(byte));
+        let _ = send(window.client, DISPLAY_KEY, pack_key(window.id, byte));
     }
+}
+
+/// Tab：把焦点移到下一个窗口并提升它。
+#[cfg(target_os = "none")]
+fn cycle_focus(screen: &Screen, windows: &mut [Option<Window>; MAX_WINDOWS], focus: &mut u64) {
+    let count = windows.iter().flatten().count();
+    if count == 0 {
+        return;
+    }
+    let position = windows
+        .iter()
+        .flatten()
+        .position(|window| window.id == *focus)
+        .unwrap_or(count - 1);
+    let next = (position + 1) % count;
+    let Some(id) = windows.iter().flatten().nth(next).map(|window| window.id) else {
+        return;
+    };
+    let previous = *focus;
+    raise(windows, id);
+    *focus = id;
+    if let Some(window) = windows
+        .iter()
+        .flatten()
+        .find(|window| window.id == id)
+        .copied()
+    {
+        damage_window(screen, windows, *focus, &window);
+    }
+    damage_title(screen, windows, *focus, previous);
+    write(b"hk-server-display: focus ");
+    write_u64(id);
+    write(b"\n");
 }
 
 /// 服务入口。
@@ -203,7 +322,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     loop {
         // 输入来自内核控制台（自检阶段）；后续由 Input Driver 取代。
         while let Some(byte) = console_read() {
-            route_key(&windows, focus, byte);
+            if byte == TAB {
+                cycle_focus(&screen, &mut windows, &mut focus);
+            } else {
+                route_key(&windows, focus, byte);
+            }
         }
         let mut payload = [0_u8; 8];
         let (label, word, sender, _length, handle) =
@@ -260,6 +383,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     .saturating_div(2)
                     .saturating_add(offset)
                     .min(screen.height.saturating_sub(height + TITLE_HEIGHT));
+                let previous = focus;
                 windows[slot] = Some(Window {
                     id,
                     x,
@@ -272,6 +396,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 });
                 next_id += 1;
                 focus = id;
+                if let Some(window) = windows[slot] {
+                    damage_window(&screen, &windows, focus, &window);
+                }
+                damage_title(&screen, &windows, focus, previous);
                 let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
             }
             DISPLAY_COMMIT => {
@@ -283,11 +411,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 else {
                     continue;
                 };
+                raise(&mut windows, word);
+                let previous = focus;
                 focus = window.id;
-                compose(&screen, &windows, focus);
-                let surface = window.virt as *const u32;
-                // SAFETY: 表面长度已在创建时校验。
-                let expected = unsafe { surface.read_volatile() };
+                let Some(window) = windows
+                    .iter()
+                    .flatten()
+                    .find(|window| window.id == word)
+                    .copied()
+                else {
+                    continue;
+                };
+                damage_window(&screen, &windows, focus, &window);
+                damage_title(&screen, &windows, focus, previous);
+                let expected = surface_pixel(&window, 0, 0);
                 let actual = screen.get(window.x, window.y + TITLE_HEIGHT);
                 if expected != actual {
                     write(b"hk-server-display: composite mismatch\n");

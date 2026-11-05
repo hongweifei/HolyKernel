@@ -9,6 +9,17 @@ use crate::failure::{Failure, Result};
 /// 通过 QMP 套接字注入一串按键。
 #[cfg(unix)]
 pub(super) fn inject(socket: &Path, text: &str) -> Result<()> {
+    inject_codes(socket, &qcodes(text))
+}
+
+/// 通过 QMP 套接字注入一个 qcode（例如 `tab`）。
+#[cfg(unix)]
+pub(super) fn inject_key(socket: &Path, code: &str) -> Result<()> {
+    inject_codes(socket, &[String::from(code)])
+}
+
+#[cfg(unix)]
+fn inject_codes(socket: &Path, codes: &[String]) -> Result<()> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
@@ -41,7 +52,7 @@ pub(super) fn inject(socket: &Path, text: &str) -> Result<()> {
         .map_err(|error| Failure::new(format!("发送 QMP 握手失败：{error}")))?;
     thread::sleep(Duration::from_millis(100));
 
-    for key in qcodes(text) {
+    for key in codes {
         let command = format!(
             "{{\"execute\":\"send-key\",\"arguments\":{{\"keys\":[{{\"type\":\"qcode\",\"data\":\"{key}\"}}]}}}}\n"
         );
@@ -57,6 +68,12 @@ pub(super) fn inject(socket: &Path, text: &str) -> Result<()> {
 /// 非 Unix 主机不支持 QMP 套接字。
 #[cfg(not(unix))]
 pub(super) fn inject(_socket: &Path, _text: &str) -> Result<()> {
+    Err(Failure::new("键盘输入冒烟只在 Unix 主机上运行"))
+}
+
+/// 非 Unix 主机不支持 QMP 套接字。
+#[cfg(not(unix))]
+pub(super) fn inject_key(_socket: &Path, _code: &str) -> Result<()> {
     Err(Failure::new("键盘输入冒烟只在 Unix 主机上运行"))
 }
 

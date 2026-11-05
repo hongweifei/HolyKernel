@@ -30,3 +30,13 @@ pub const fn pack_size(width: u32, height: u32) -> u64 {
 pub const fn unpack_size(word: u64) -> (u32, u32) {
     ((word >> 32) as u32, word as u32)
 }
+
+/// 把窗口编号与按键字节打包进一个消息字。
+pub const fn pack_key(window: u64, byte: u8) -> u64 {
+    (window << 32) | byte as u64
+}
+
+/// 从消息字解包窗口编号与按键字节。
+pub const fn unpack_key(word: u64) -> (u64, u8) {
+    (word >> 32, word as u8)
+}

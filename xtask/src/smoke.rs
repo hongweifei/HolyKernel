@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use hk_block::{MemoryDisk, SECTOR_SIZE};
 use hk_hal::CivilTime;
 use hk_vfs::Backend;
-use qmp::inject;
+use qmp::{inject, inject_key};
 
 use crate::failure::{Failure, Result};
 use crate::target::{Selection, Target};
@@ -288,8 +288,9 @@ impl SmokeMode {
             Self::Display => &[
                 "hk-server-display: ready",
                 "hk-server-display: composite ok",
+                "hk-server-display: focus 1",
                 "hk-server-display-test: ready",
-                "hk-server-display-test: key 97",
+                "hk-server-display-test: key 97 win 1",
                 "hk-server-display-test: done",
             ],
         }
@@ -447,6 +448,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     }
     if mode == SmokeMode::Display {
         thread::sleep(Duration::from_secs(5));
+        inject_key(&socket, "tab")?;
+        thread::sleep(Duration::from_millis(300));
         inject(&socket, "a")?;
     }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));

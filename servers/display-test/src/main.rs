@@ -1,4 +1,4 @@
-//! display-test：创建共享表面窗口，提交给 Display 合成并验证。
+//! display-test：创建两个共享表面窗口，提交合成、切换焦点并校验按键路由。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -8,19 +8,16 @@ use core::panic::PanicInfo;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE, DISPLAY_KEY, DISPLAY_SHUTDOWN,
-    DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size,
+    DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, unpack_key,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
     exit, frame_alloc, recv, send, send_handle, service_endpoint, write, write_u64, yield_now,
 };
 
-/// 窗口宽度。
+/// 两个窗口表面的地址间隔。
 #[cfg(target_os = "none")]
-const WIDTH: u32 = 320;
-/// 窗口高度。
-#[cfg(target_os = "none")]
-const HEIGHT: u32 = 200;
+const SURFACE_STRIDE: u64 = 0x10_0000;
 /// 等待显示服务出现的重试次数。
 #[cfg(target_os = "none")]
 const WAIT_ATTEMPTS: usize = 4096;
@@ -35,27 +32,78 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let bytes = WIDTH as usize * HEIGHT as usize * 4;
-    let handle = frame_alloc(bytes, SURFACE_VIRT);
+    let first = create_window(display, endpoint, 320, 200, 0, 0x0033_99FF, 0x0008_1018);
+    let second = create_window(
+        display,
+        endpoint,
+        280,
+        180,
+        SURFACE_STRIDE,
+        0x00FF_9933,
+        0x0020_1008,
+    );
+
+    let _ = send(display, DISPLAY_COMMIT, first);
+    let _ = send(display, DISPLAY_COMMIT, second);
+    for _ in 0..2 {
+        let (label, _word, _sender) = recv(endpoint);
+        if label != DISPLAY_FRAME_DONE {
+            write(b"hk-server-display-test: no frame\n");
+            exit(5)
+        }
+    }
+
+    write(b"hk-server-display-test: ready\n");
+    let (label, word, _sender) = recv(endpoint);
+    if label != DISPLAY_KEY {
+        write(b"hk-server-display-test: no key\n");
+        exit(6)
+    }
+    let (window, byte) = unpack_key(word);
+    write(b"hk-server-display-test: key ");
+    write_u64(u64::from(byte));
+    write(b" win ");
+    write_u64(window);
+    write(b"\n");
+
+    write(b"hk-server-display-test: done\n");
+    let _ = send(display, DISPLAY_SHUTDOWN, 0);
+    exit(0)
+}
+
+/// 分配表面、绘制棋盘并创建窗口，返回窗口编号。
+#[cfg(target_os = "none")]
+fn create_window(
+    display: u64,
+    endpoint: u64,
+    width: u32,
+    height: u32,
+    offset: u64,
+    accent: u32,
+    shade: u32,
+) -> u64 {
+    let bytes = width as usize * height as usize * 4;
+    let virt = SURFACE_VIRT + offset;
+    let handle = frame_alloc(bytes, virt);
     if handle == 0 || handle == u64::MAX {
         write(b"hk-server-display-test: frame alloc failed\n");
         exit(2)
     }
 
-    let pixels = SURFACE_VIRT as *mut u32;
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            let color = if x < 2 || y < 2 || x + 2 >= WIDTH || y + 2 >= HEIGHT {
+    let pixels = virt as *mut u32;
+    for y in 0..height {
+        for x in 0..width {
+            let color = if x < 2 || y < 2 || x + 2 >= width || y + 2 >= height {
                 0x00FF_FFFF
             } else if ((x / 16 + y / 16) % 2) == 0 {
-                0x0033_99FF
+                accent
             } else {
-                0x0008_1018
+                shade
             };
-            // SAFETY: 共享 Frame 已按宽高分配并映射到 SURFACE_VIRT。
+            // SAFETY: 共享 Frame 已按宽高分配并映射到该虚拟地址。
             unsafe {
                 pixels
-                    .add(y as usize * WIDTH as usize + x as usize)
+                    .add(y as usize * width as usize + x as usize)
                     .write_volatile(color);
             }
         }
@@ -64,7 +112,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if send_handle(
         display,
         DISPLAY_CREATE_WINDOW,
-        pack_size(WIDTH, HEIGHT),
+        pack_size(width, height),
         handle,
     ) == u64::MAX
     {
@@ -80,27 +128,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-display-test: window ");
     write_u64(window);
     write(b"\n");
-
-    let _ = send(display, DISPLAY_COMMIT, window);
-    let (label, _word, _sender) = recv(endpoint);
-    if label != DISPLAY_FRAME_DONE {
-        write(b"hk-server-display-test: no frame\n");
-        exit(5)
-    }
-
-    write(b"hk-server-display-test: ready\n");
-    let (label, key, _sender) = recv(endpoint);
-    if label != DISPLAY_KEY {
-        write(b"hk-server-display-test: no key\n");
-        exit(6)
-    }
-    write(b"hk-server-display-test: key ");
-    write_u64(key);
-    write(b"\n");
-
-    write(b"hk-server-display-test: done\n");
-    let _ = send(display, DISPLAY_SHUTDOWN, 0);
-    exit(0)
+    window
 }
 
 #[cfg(target_os = "none")]
