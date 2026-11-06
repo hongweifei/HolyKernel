@@ -4,7 +4,8 @@
 //! `efont_cn_16` 位图字体并按目标字号缩放，栅格化使用固定缓冲与 4×4 超采样。
 //! 关闭 `scalable` 特性后只保留位图字体，用于不需要 TrueType 的早期启动链路。
 //!
-//! [`default_font`] 提供首次使用时初始化并常驻的 16 像素字体，供不指定字体的通用排版复用。
+//! [`default_font`]、[`default_font_scaled`] 与 [`default_monospace`] 提供首次使用时初始化
+//! 并常驻的 16/32 像素可缩放字体与 16 像素等宽字体，供不指定字体的通用排版与字符网格复用。
 
 #![no_std]
 
@@ -224,12 +225,34 @@ pub struct Font {
 
 /// 内置默认字体，首次使用时初始化并常驻。
 static DEFAULT: Once<Font> = Once::new();
+/// 内置默认字体在 200% 界面缩放下的实例。
+static DEFAULT_LARGE: Once<Font> = Once::new();
+/// 内置默认等宽字体。
+static DEFAULT_MONOSPACE: Once<Font> = Once::new();
 
 /// 返回内置默认字体：16 像素可缩放字体，缺字形时回退到内置位图字体。
 ///
 /// 所有调用共享同一份字形缓存，适合不指定字体的通用文本绘制。
 pub fn default_font() -> &'static Font {
     DEFAULT.call_once(|| Font::new(16))
+}
+
+/// 返回内置默认字体在界面缩放下的实例；`scale` 取 1 或 2。
+///
+/// 100% 缩放复用 [`default_font`]，200% 缩放使用 32 像素实例。
+pub fn default_font_scaled(scale: usize) -> &'static Font {
+    if scale <= 1 {
+        default_font()
+    } else {
+        DEFAULT_LARGE.call_once(|| Font::new(32))
+    }
+}
+
+/// 返回内置默认等宽字体：16 像素位图字形，ASCII 半宽、汉字全宽。
+///
+/// 适合字符网格与代码块排版，所有调用共享同一份字形缓存。
+pub fn default_monospace() -> &'static Font {
+    DEFAULT_MONOSPACE.call_once(|| Font::monospace(16))
 }
 
 impl Font {

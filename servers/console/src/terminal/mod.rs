@@ -4,7 +4,7 @@ mod ansi;
 mod render;
 mod style;
 
-use hk_canvas::Surface;
+use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
 use hk_server_api::display::{
     DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
@@ -93,7 +93,7 @@ pub(crate) struct Terminal {
     grid: Grid,
     column: usize,
     row: usize,
-    font: Font,
+    font: &'static Font,
     decoder: Utf8,
     style: Style,
     ansi: Ansi,
@@ -288,7 +288,7 @@ impl Terminal {
     fn refresh(&mut self) {
         // SAFETY: 共享表面已映射，长度为 WIDTH * HEIGHT。
         let frame = unsafe { Surface::from_raw(self.pixels, WIDTH, HEIGHT, WIDTH) };
-        render::refresh(&frame, &self.grid, self.row, self.column, &self.font);
+        render::refresh(&frame, &self.grid, self.row, self.column, self.font);
         let _ = send(self.display, SURFACE_COMMIT, self.surface);
     }
 
@@ -349,7 +349,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         grid: [[Cell::BLANK; COLUMNS]; ROWS],
         column: 0,
         row: 0,
-        font: Font::monospace(16),
+        font: default_monospace(),
         decoder: Utf8::new(),
         style: Style::DEFAULT,
         ansi: Ansi::new(),

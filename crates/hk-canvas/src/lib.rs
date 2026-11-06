@@ -8,6 +8,8 @@
 //!
 //! 文本既可以用 `hk_font::Font` 显式绘制，也可以走 `draw_text_default`、
 //! `draw_glyph_default` 与 `text_width_default`，直接使用 `hk-font` 的内置默认字体。
+//! 内置默认字体通过 [`default_font`]、[`default_font_scaled`] 与 [`default_monospace`]
+//! 重新导出，UI 服务统一从这里取字体。
 //!
 //! - `rect`：整数矩形与集合运算。
 //! - `color`：按比例混合两个颜色。
@@ -29,6 +31,7 @@ mod tests;
 mod text;
 
 pub use color::mix;
+pub use hk_font::{default_font, default_font_scaled, default_monospace};
 pub use rect::Rect;
 pub use surface::Surface;
 pub use text::{GlyphMask, text_width, text_width_default};

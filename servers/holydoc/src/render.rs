@@ -5,7 +5,7 @@ use alloc::format;
 use hk_canvas::{Rect, Surface, text_width};
 
 use crate::document::{
-    CONTENT_HEIGHT, DocView, FOOTER_HEIGHT, HEIGHT, LINE_HEIGHT, MARGIN, Style, WIDTH,
+    CONTENT_HEIGHT, DocView, FOOTER_HEIGHT, HEIGHT, LINE_HEIGHT, MARGIN, Style, WIDTH, font_for,
 };
 use crate::markup::char_width;
 
@@ -47,7 +47,7 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
         if y + 18 < 0 || y >= content_height {
             continue;
         }
-        let font = view.fonts.for_line(line.code);
+        let font = font_for(line.code);
         if line.code {
             let top = y.max(0);
             let bottom = (y + LINE_HEIGHT as i32).min(content_height);
@@ -85,7 +85,7 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
         }
     }
 
-    let footer_font = view.fonts.mono;
+    let footer_font = font_for(false);
     let text_y = (CONTENT_HEIGHT + (FOOTER_HEIGHT.saturating_sub(16)) / 2) as i32;
     let mut pen = MARGIN as i32;
     surface.draw_text(&mut pen, text_y, HINT, FOOTER_INK, footer_font);

@@ -307,11 +307,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(4)
     }
 
-    let font = Font::new(16);
+    let font = hk_canvas::default_font();
     let pixels = SURFACE_VIRT as *mut u32;
     let _ = fault_subscribe(endpoint);
     let mut model = Box::new(Model::new(endpoint));
-    show(&model, &font, pixels, endpoint, display, surface, window);
+    show(&model, font, pixels, endpoint, display, surface, window);
     write(b"hk-server-workbench: ready ");
     write_u64(window);
     write(b"\n");
@@ -323,9 +323,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("workbench-test"));
     if test {
-        selftest::run(
-            &mut model, &font, pixels, endpoint, display, surface, window,
-        );
+        selftest::run(&mut model, font, pixels, endpoint, display, surface, window);
     }
 
     let mut decoder = Decoder::new();
@@ -356,14 +354,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             DISPLAY_CLICK_AT => {
                 let (_, x, y) = unpack_click_at(word);
-                click(&mut model, &font, x, y);
+                click(&mut model, font, x, y);
                 true
             }
             DISPLAY_CLOSE => exit(0),
             _ => false,
         };
         if redraw {
-            show(&model, &font, pixels, endpoint, display, surface, window);
+            show(&model, font, pixels, endpoint, display, surface, window);
         }
     }
 }

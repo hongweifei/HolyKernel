@@ -125,7 +125,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(4)
     }
 
-    let font = Font::new(16);
+    let font = hk_canvas::default_font();
     write(b"hk-server-debug: font ");
     write(if font.has_scalable() {
         b"scalable ".as_slice()
@@ -139,7 +139,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut text = page.fetch();
     let mut scroll = 0;
     show(
-        page, &text, scroll, &font, pixels, endpoint, display, surface, window,
+        page, &text, scroll, font, pixels, endpoint, display, surface, window,
     );
 
     let stats = kernel_stats();
@@ -164,7 +164,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         for page in Page::ALL {
             let text = page.fetch();
             show(
-                page, &text, 0, &font, pixels, endpoint, display, surface, window,
+                page, &text, 0, font, pixels, endpoint, display, surface, window,
             );
             write(b"hk-server-debug: view ");
             write(page.slug().as_bytes());
@@ -195,7 +195,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 Page::Fault,
                 &fault,
                 0,
-                &font,
+                font,
                 pixels,
                 endpoint,
                 display,
@@ -247,7 +247,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let Some(key) = keys.feed(byte) else {
                     continue;
                 };
-                let max = line_count(&text, &font).saturating_sub(visible_lines());
+                let max = line_count(&text, font).saturating_sub(visible_lines());
                 let visible = visible_lines();
                 let mut update = false;
                 match key {
@@ -291,7 +291,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                     Key::Byte(b'r') => {
                         text = page.fetch();
-                        let max = line_count(&text, &font).saturating_sub(visible);
+                        let max = line_count(&text, font).saturating_sub(visible);
                         scroll = scroll.min(max);
                         update = true;
                     }
@@ -303,7 +303,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 if update {
                     show(
-                        page, &text, scroll, &font, pixels, endpoint, display, surface, window,
+                        page, &text, scroll, font, pixels, endpoint, display, surface, window,
                     );
                 }
             }

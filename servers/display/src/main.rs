@@ -372,7 +372,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     );
     let mut theme_buffer = [0_u8; 128];
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
-    let font = Font::new((16 * theme::scale()) as u32);
+    let font = hk_canvas::default_font_scaled(theme::scale());
     write(b"hk-server-display: font ");
     write(if font.has_scalable() {
         b"scalable ".as_slice()
@@ -403,7 +403,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut seat = Seat::new();
     let mut drag: Option<Drag> = None;
     let mut resize: Option<Resize> = None;
-    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
 
     let mut benchmarked = false;
     let benchmark_at = tsc().saturating_add(tsc_frequency().saturating_mul(2));
@@ -419,7 +419,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     &screen,
                     &windows,
                     focus,
-                    &font,
+                    font,
                     seat.pointer,
                 ));
             }
@@ -429,7 +429,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if !driver_input {
             while let Some(byte) = console_read() {
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font, seat.pointer);
+                    cycle_focus(&screen, &mut windows, &mut focus, font, seat.pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -463,7 +463,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     word,
                     &mut next_window_id,
                     &mut focus,
-                    &font,
+                    font,
                     seat.pointer,
                 );
                 let _ = send(sender, WINDOW_CREATED, window.unwrap_or(0));
@@ -533,7 +533,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &screen,
                                 &windows,
                                 focus,
-                                &font,
+                                font,
                                 seat.pointer,
                                 window.x + body.x,
                                 window.y + title_height() + body.y,
@@ -546,7 +546,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         write(b" ok\n");
                     }
                     None => {
-                        damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
+                        damage_window(&screen, &windows, focus, font, seat.pointer, &window);
                         let expected = surface_pixel(&window, 0, 0);
                         let actual = screen.get(window.x, window.y + title_height());
                         if expected != actual {
@@ -576,7 +576,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         &screen,
                         &mut windows,
                         &mut focus,
-                        &font,
+                        font,
                         seat.pointer,
                         window.id,
                     );
@@ -594,10 +594,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .find(|window| window.id == id)
                         .copied()
                     {
-                        damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
+                        damage_window(&screen, &windows, focus, font, seat.pointer, &window);
                     }
-                    damage_title(&screen, &windows, focus, &font, seat.pointer, previous);
-                    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+                    damage_title(&screen, &windows, focus, font, seat.pointer, previous);
+                    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
                     write(b"hk-server-display: focus ");
                     write_u64(id);
                     write(b"\n");
@@ -628,7 +628,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         &screen,
                         &windows,
                         focus,
-                        &font,
+                        font,
                         None,
                         previous.0,
                         previous.1,
@@ -664,7 +664,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             &screen,
                             &mut windows,
                             focus,
-                            &font,
+                            font,
                             window,
                             next_rect.x,
                             next_rect.y,
@@ -691,7 +691,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     let new_x = next.0.saturating_sub(state.offset_x).min(max_x);
                     let new_y = next.1.saturating_sub(state.offset_y).min(max_y);
                     if (new_x, new_y) != (window.x, window.y) {
-                        move_window(&screen, &mut windows, focus, &font, window, new_x, new_y);
+                        move_window(&screen, &mut windows, focus, font, window, new_x, new_y);
                         if !state.moved {
                             drag = Some(Drag {
                                 moved: true,
@@ -712,7 +712,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     &screen,
                     &windows,
                     focus,
-                    &font,
+                    font,
                     seat.pointer,
                     next.0,
                     next.1,
@@ -764,18 +764,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                     &screen,
                                     &windows,
                                     focus,
-                                    &font,
+                                    font,
                                     seat.pointer,
                                     &window,
                                 );
                             }
-                            damage_title(&screen, &windows, focus, &font, seat.pointer, old_focus);
-                            damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+                            damage_title(&screen, &windows, focus, font, seat.pointer, old_focus);
+                            damage_taskbar(&screen, &windows, focus, font, seat.pointer);
                             compose_region(
                                 &screen,
                                 &windows,
                                 focus,
-                                &font,
+                                font,
                                 seat.pointer,
                                 x,
                                 y,
@@ -795,7 +795,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &screen,
                                 &mut windows,
                                 &mut focus,
-                                &font,
+                                font,
                                 seat.pointer,
                                 window.id,
                             );
@@ -806,7 +806,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &screen,
                                 &mut windows,
                                 &mut focus,
-                                &font,
+                                font,
                                 seat.pointer,
                                 window.id,
                             );
@@ -817,7 +817,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &screen,
                                 &mut windows,
                                 focus,
-                                &font,
+                                font,
                                 seat.pointer,
                                 window.id,
                             );
@@ -832,15 +832,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             .find(|window| window.id == id)
                             .copied()
                         {
-                            damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
+                            damage_window(&screen, &windows, focus, font, seat.pointer, &window);
                         }
-                        damage_title(&screen, &windows, focus, &font, seat.pointer, old_focus);
-                        damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+                        damage_title(&screen, &windows, focus, font, seat.pointer, old_focus);
+                        damage_taskbar(&screen, &windows, focus, font, seat.pointer);
                         compose_region(
                             &screen,
                             &windows,
                             focus,
-                            &font,
+                            font,
                             seat.pointer,
                             x,
                             y,
@@ -893,7 +893,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 driver_input = true;
                 let byte = word as u8;
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font, seat.pointer);
+                    cycle_focus(&screen, &mut windows, &mut focus, font, seat.pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -921,8 +921,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         window.title[..count].copy_from_slice(&text[..count]);
                         window.title_length = count;
                     }
-                    damage_title(&screen, &windows, focus, &font, seat.pointer, id);
-                    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+                    damage_title(&screen, &windows, focus, font, seat.pointer, id);
+                    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
                     let titled = windows
                         .iter()
                         .flatten()
