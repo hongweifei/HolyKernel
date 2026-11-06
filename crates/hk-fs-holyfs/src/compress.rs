@@ -69,7 +69,7 @@ pub(crate) fn decompress(payload: &[u8], size: usize) -> Result<Vec<u8>, HolyErr
 }
 
 /// 把内容解压到调用方提供的缓冲；缓冲长度必须是明文长度。
-pub(crate) fn decompress_into(payload: &[u8], output: &mut [u8]) -> Result<(), HolyError> {
+pub fn decompress_into(payload: &[u8], output: &mut [u8]) -> Result<(), HolyError> {
     if payload.len() < HEADER {
         return Err(HolyError::Corrupt);
     }

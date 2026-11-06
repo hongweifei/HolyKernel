@@ -107,6 +107,16 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().read_document(document)
     }
 
+    /// 返回当前修订是否压缩与解压后的长度，不读取内容。
+    pub fn content_layout(&self, document: DocId) -> Result<(bool, usize), HolyError> {
+        self.state.borrow().content_layout(document)
+    }
+
+    /// 读取当前修订的原始载荷，不解压。
+    pub fn stored_content(&self, document: DocId) -> Result<crate::StoredContent, HolyError> {
+        self.state.borrow().stored_content(document)
+    }
+
     /// 从文档偏移读取。
     pub fn read_range(
         &self,

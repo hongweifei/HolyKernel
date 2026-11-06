@@ -10,7 +10,9 @@ use crate::error::HolyError;
 use crate::hash::{ContentHasher, content_hash};
 use crate::ids::{DocId, RevisionId};
 use crate::superblock::BLOCK_SIZE;
-use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags, RevisionRecord};
+use crate::types::{
+    DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags, RevisionRecord, StoredContent,
+};
 
 use super::{MAX_CONTENT_BYTES, Volume};
 
@@ -536,5 +538,45 @@ impl<D: BlockDevice> Volume<D> {
         }
         self.dirty = true;
         Ok(())
+    }
+
+    /// 返回当前修订是否压缩与解压后的长度，不读取内容。
+    pub(crate) fn content_layout(&self, document: DocId) -> Result<(bool, usize), HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        if record.kind == DocumentKind::Collection {
+            return Err(HolyError::IsDirectory);
+        }
+        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        Ok((
+            revision.flags.contains(RevisionFlags::COMPRESSED),
+            revision.size as usize,
+        ))
+    }
+
+    /// 读取当前修订的原始载荷，不解压；压缩文档返回压缩后的字节。
+    pub(crate) fn stored_content(&self, document: DocId) -> Result<StoredContent, HolyError> {
+        let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
+        if record.kind == DocumentKind::Collection {
+            return Err(HolyError::IsDirectory);
+        }
+        let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        let capacity: usize = revision
+            .extents()
+            .iter()
+            .map(|extent| extent.bytes() as usize)
+            .sum();
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(capacity)
+            .map_err(|_| HolyError::NoSpace)?;
+        payload.resize(capacity, 0);
+        if capacity > 0 {
+            self.read_raw_extents(revision, 0, &mut payload)?;
+        }
+        Ok(StoredContent {
+            payload,
+            size: revision.size as usize,
+            compressed: revision.flags.contains(RevisionFlags::COMPRESSED),
+        })
     }
 }

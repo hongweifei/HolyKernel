@@ -2,6 +2,8 @@
 
 pub use hk_fs::{DocumentInfo, DocumentKind, EntryInfo, RevisionFlags, RevisionInfo, SnapshotInfo};
 
+use alloc::vec::Vec;
+
 use crate::crc32c::crc32c;
 use crate::error::HolyError;
 use crate::ids::{DocId, RevisionId};
@@ -16,6 +18,16 @@ pub const DOCUMENT_RECORD_SIZE: usize = 64;
 pub const REVISION_RECORD_SIZE: usize = 272;
 /// 集合项编码长度。
 pub const ENTRY_RECORD_SIZE: usize = 24;
+
+/// 文档当前修订的原始存储载荷。
+pub struct StoredContent {
+    /// 原始载荷；压缩文档保存压缩后的字节。
+    pub payload: Vec<u8>,
+    /// 解压后的内容长度。
+    pub size: usize,
+    /// 载荷是否压缩。
+    pub compressed: bool,
+}
 
 /// 卷配额；0 表示不限。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
