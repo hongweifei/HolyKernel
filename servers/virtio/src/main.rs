@@ -1,4 +1,7 @@
-//! virtio 驱动服务：接收 Device Manager 移交的设备授权并暴露块设备协议。
+//! virtio 驱动服务：按设备类别收集授权，块设备走块协议，熵源与控制台走辅助协议。
+//!
+//! 同一服务可以持有多块 virtio 设备；各设备的驱动封装在每次操作前切回自己的
+//! 设备授权，因此共享的 HAL 状态不会在设备之间串用。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -7,28 +10,32 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use alloc::string::ToString;
+use alloc::boxed::Box;
+
+#[cfg(target_os = "none")]
+mod aux;
+#[cfg(target_os = "none")]
+use aux::Aux;
 
 #[cfg(target_os = "none")]
 use hk_block::BlockDevice;
 #[cfg(target_os = "none")]
-use hk_block::ipc::serve_with_wait;
-#[cfg(target_os = "none")]
-use hk_driver_virtio::{Device, probe};
+use hk_driver_virtio::{Block, Device, probe};
 #[cfg(target_os = "none")]
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_server_api::block::{
-    BLOCK_GRANT, BLOCK_NO_DEVICE, BLOCK_RESPONSE, DEVICE_REQUEST, STATUS_ERROR, encode_response,
-};
+use hk_server_api::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::device::DEVICE_CLASS_BLOCK;
+use hk_server_api::device::{
+    DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_RNG, DEVICE_GRANT, DEVICE_NONE,
+    DEVICE_REQUEST,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, dma_map_capability, exit, irq_bind, recv_handle, self_notification, send,
-    send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
+    close_handle, device_info, dma_map_capability, exit, irq_bind, recv_data_handle, recv_handle,
+    self_notification, send, send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
 };
 
 /// 服务堆大小。
@@ -39,9 +46,21 @@ const HEAP_SIZE: usize = 512 * 1024;
 #[cfg(target_os = "none")]
 const BLOCK_NOTIFY_IRQ: u64 = 1;
 
+/// 辅助设备消息缓冲长度。
+#[cfg(target_os = "none")]
+const AUX_BUFFER: usize = 256;
+
 #[cfg(target_os = "none")]
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+
+/// 启动时按类别收集到的设备授权。
+#[cfg(target_os = "none")]
+struct Grants {
+    block: Option<u64>,
+    rng: Option<u64>,
+    console: Option<u64>,
+}
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -53,126 +72,169 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-virtio: 没有设备管理器\n".as_bytes());
         exit(2)
     }
-    let _ = send(manager, DEVICE_REQUEST, DEVICE_CLASS_BLOCK);
-    let wait = wait_for_grant(endpoint);
-    let Some(grant_handle) = wait.grant else {
-        reply_not_ready(wait.pending);
-        exit(0)
-    };
-    let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
-    let length = device_info(grant_handle, &mut bytes) as usize;
-    if length == u64::MAX as usize {
-        write("hk-server-virtio: 授权描述读取失败\n".as_bytes());
-        reply_not_ready(wait.pending);
-        exit(2)
-    }
-    let Some(descriptor) = DeviceGrant::decode(&bytes[..length]) else {
-        write("hk-server-virtio: 授权描述无效\n".as_bytes());
-        reply_not_ready(wait.pending);
-        exit(2)
-    };
+    let grants = collect_grants(endpoint, manager);
 
-    match probe(grant_handle, descriptor) {
-        Ok(Device::Block(mut block)) => {
-            write("hk-server-virtio: virtio-blk sectors=".as_bytes());
-            write_u64(block.capacity_blocks());
-            write(b"\n");
-            reply_not_ready(wait.pending);
-            let notification = self_notification();
-            let bound = irq_bind(grant_handle, notification, BLOCK_NOTIFY_IRQ) == 0;
-            if bound {
-                block.enable_interrupts();
+    let mut block = None;
+    if let Some(handle) = grants.block {
+        match probe_grant(handle) {
+            Some(Device::Block(device)) => block = Some((handle, device)),
+            Some(_) => {
+                write("hk-server-virtio: 授权设备不是块设备\n".as_bytes());
+                exit(3)
             }
-            write(if bound {
-                b"hk-server-virtio: block irq bound\n"
+            None => {
+                write("hk-server-virtio: 块设备初始化失败\n".as_bytes());
+                exit(4)
+            }
+        }
+    }
+
+    let mut devices = Aux::default();
+    if let Some(handle) = grants.rng {
+        if let Some(Device::Rng(device)) = probe_grant(handle) {
+            if aux::rng::self_test(&device) {
+                write(b"hk-server-virtio: entropy ok\n");
             } else {
-                b"hk-server-virtio: block irq polling\n"
-            });
-            serve_with_wait(
-                endpoint,
-                block.as_mut(),
-                |virt, phys, length, frame| {
-                    if dma_map_capability(grant_handle, frame, length) != u64::MAX {
-                        hk_driver_virtio::register_mapping(virt, phys, length);
-                    }
-                },
-                || {
-                    if bound {
-                        let _ = wait_notify(notification, BLOCK_NOTIFY_IRQ);
-                    } else {
-                        yield_now();
-                    }
-                },
-            );
-            // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
-            exit(1)
+                write(b"hk-server-virtio: entropy failed\n");
+            }
+            write(b"hk-server-virtio: rng ready\n");
+            devices.rng = Some(*device);
+        } else {
+            write("hk-server-virtio: 熵源初始化失败\n".as_bytes());
         }
-        Ok(Device::Network(_)) => {
-            write("hk-server-virtio: 网络设备需要 hk-server-virtio-net\n".as_bytes());
-            reply_not_ready(wait.pending);
-            exit(6)
+    }
+    if let Some(handle) = grants.console {
+        if let Some(Device::Console(device)) = probe_grant(handle) {
+            write(b"hk-server-virtio: console ready\n");
+            if aux::console::self_test(&device) {
+                write(b"hk-server-virtio: console echo ok\n");
+            } else {
+                write(b"hk-server-virtio: console echo timeout\n");
+            }
+            devices.console = Some(*device);
+        } else {
+            write("hk-server-virtio: 控制台初始化失败\n".as_bytes());
         }
-        Ok(Device::Input(_)) => {
-            write("hk-server-virtio: 输入设备需要 hk-server-input\n".as_bytes());
-            reply_not_ready(wait.pending);
-            exit(6)
-        }
-        Ok(Device::Unsupported(kind)) => {
-            write("hk-server-virtio: 尚未支持的设备类型 ".as_bytes());
-            write_u64(kind as u64);
-            write(b"\n");
-            reply_not_ready(wait.pending);
-            exit(3)
-        }
-        Err(error) => {
-            write("hk-server-virtio: ".as_bytes());
-            write(error.to_string().as_bytes());
-            write(b"\n");
-            reply_not_ready(wait.pending);
-            exit(4)
-        }
+    }
+
+    if let Some((handle, device)) = block {
+        serve_block(endpoint, handle, device, devices)
+    } else if devices.rng.is_some() || devices.console.is_some() {
+        serve_aux(endpoint, devices)
+    } else {
+        write("hk-server-virtio: 没有可服务的设备\n".as_bytes());
+        exit(0)
     }
 }
 
-/// 等待设备授权期间暂存提前到达的块请求发送者。
+/// 依次向设备管理器申请块、熵源与控制台授权。
 #[cfg(target_os = "none")]
-struct GrantWait {
-    grant: Option<u64>,
-    pending: Option<u64>,
+fn collect_grants(endpoint: u64, manager: u64) -> Grants {
+    Grants {
+        block: request_grant(endpoint, manager, DEVICE_CLASS_BLOCK),
+        rng: request_grant(endpoint, manager, DEVICE_CLASS_RNG),
+        console: request_grant(endpoint, manager, DEVICE_CLASS_CONSOLE),
+    }
 }
 
-/// 等待设备授权；提前到达的块请求只记下发送者，等驱动就绪后再回复。
+/// 申请一类设备授权；等待期间到达的客户端请求回复「尚未就绪」。
 #[cfg(target_os = "none")]
-fn wait_for_grant(endpoint: u64) -> GrantWait {
-    let mut pending = None;
+fn request_grant(endpoint: u64, manager: u64, class: u64) -> Option<u64> {
+    let _ = send(manager, DEVICE_REQUEST, class);
     loop {
         let (label, _word, sender, handle) = recv_handle(endpoint);
-        if label == BLOCK_GRANT && handle != 0 {
-            return GrantWait {
-                grant: Some(handle),
-                pending,
-            };
+        if label == DEVICE_GRANT && handle != 0 {
+            return Some(handle);
         }
-        if label == BLOCK_NO_DEVICE {
-            write("hk-server-virtio: 没有设备授权\n".as_bytes());
-            return GrantWait {
-                grant: None,
-                pending,
-            };
+        if label == DEVICE_NONE {
+            return None;
         }
-        pending = Some(sender);
+        if handle != 0 {
+            let _ = close_handle(handle);
+        }
+        reply_not_ready(sender, label);
     }
 }
 
-/// 回复「驱动尚未就绪」，让客户端可以重试。
+/// 回复块客户端「驱动尚未就绪」，让它可以重试。
 #[cfg(target_os = "none")]
-fn reply_not_ready(pending: Option<u64>) {
-    let Some(sender) = pending else {
+fn reply_not_ready(sender: u64, label: u64) {
+    if label != BLOCK_REQUEST {
         return;
-    };
+    }
     let mut response = [0_u8; 8];
     if let Some(length) = encode_response(&mut response, 0, STATUS_ERROR, &[]) {
         let _ = send_data(sender, BLOCK_RESPONSE, &response[..length]);
+    }
+}
+
+/// 读取授权描述并探测设备。
+#[cfg(target_os = "none")]
+fn probe_grant(handle: u64) -> Option<Device> {
+    let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+    let length = device_info(handle, &mut bytes) as usize;
+    if length == u64::MAX as usize {
+        return None;
+    }
+    let descriptor = DeviceGrant::decode(&bytes[..length])?;
+    probe(handle, descriptor).ok()
+}
+
+/// 块设备主循环；辅助设备消息由 `devices` 分派。
+#[cfg(target_os = "none")]
+fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -> ! {
+    write("hk-server-virtio: virtio-blk sectors=".as_bytes());
+    write_u64(block.capacity_blocks());
+    write(b"\n");
+
+    let notification = self_notification();
+    let bound = irq_bind(grant, notification, BLOCK_NOTIFY_IRQ) == 0;
+    if bound {
+        block.enable_interrupts();
+    }
+    write(if bound {
+        b"hk-server-virtio: block irq bound\n"
+    } else {
+        b"hk-server-virtio: block irq polling\n"
+    });
+
+    hk_block::ipc::serve_with_wait_and(
+        endpoint,
+        block.as_mut(),
+        |virt, phys, length, frame| {
+            if dma_map_capability(grant, frame, length) != u64::MAX {
+                hk_driver_virtio::register_mapping(virt, phys, length);
+            }
+        },
+        || {
+            if bound {
+                let _ = wait_notify(notification, BLOCK_NOTIFY_IRQ);
+            } else {
+                yield_now();
+            }
+        },
+        |label, word, sender, data, received| {
+            if received != 0 {
+                let _ = close_handle(received);
+            }
+            devices.handle(label, word, sender, data);
+        },
+    );
+    // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
+    exit(1)
+}
+
+/// 没有块设备时只服务辅助设备。
+#[cfg(target_os = "none")]
+fn serve_aux(endpoint: u64, devices: Aux) -> ! {
+    let mut buffer = [0_u8; AUX_BUFFER];
+    loop {
+        let (label, word, sender, length, received) = recv_data_handle(endpoint, &mut buffer, 0);
+        if received != 0 {
+            let _ = close_handle(received);
+        }
+        let length = length.min(buffer.len());
+        devices.handle(label, word, sender, &buffer[..length]);
     }
 }
 

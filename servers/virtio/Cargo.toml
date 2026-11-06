@@ -1,6 +1,6 @@
 [package]
 name = "hk-server-virtio"
-description = "HolyKernel virtio 驱动服务：DeviceGrant 探测与块设备协议"
+description = "HolyKernel virtio 驱动服务：块、熵源与控制台"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
