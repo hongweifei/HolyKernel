@@ -281,6 +281,7 @@ impl SmokeMode {
                 "fs 1 MiB 读：",
             ],
             Self::HolyFs => &[
+                "hk-server-holyfs: async bulk ok",
                 "hk-server-holyfs: mounted H:",
                 "hk-server-holyfs: drive H:",
                 "hk-server-holyfs: mounted I:",

@@ -640,6 +640,140 @@ impl ClientDisk {
         })
         .await
     }
+
+    /// 异步读取一段连续区间；多槽位并行提交，未完成时让出执行器。
+    pub async fn read_bulk_async(
+        &self,
+        block: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, BlockError> {
+        if buffer.len() <= FRAME_LEN {
+            return self.read_async(block, buffer).await;
+        }
+        if !buffer.len().is_multiple_of(SECTOR_SIZE) {
+            return Err(BlockError::InvalidLength);
+        }
+        let mut inflight: Vec<(u32, usize, usize)> = Vec::new();
+        let mut submitted = 0usize;
+        let mut failure: Option<u8> = None;
+        core::future::poll_fn(|context| {
+            let mut client = self.client.borrow_mut();
+            while let Some((tag, status, written)) = client.poll() {
+                let Some(index) = inflight.iter().position(|(entry, _, _)| *entry == tag) else {
+                    continue;
+                };
+                let (_, offset, length) = inflight.remove(index);
+                if status != STATUS_OK {
+                    failure = Some(status);
+                    continue;
+                }
+                let written = written.min(length);
+                client.copy_out(tag as usize, written, buffer, offset);
+                if written != length {
+                    failure = Some(STATUS_ERROR);
+                }
+            }
+            while failure.is_none() && submitted < buffer.len() {
+                let length = (buffer.len() - submitted).min(FRAME_LEN);
+                let length = length / SECTOR_SIZE * SECTOR_SIZE;
+                if length == 0 {
+                    failure = Some(STATUS_INVALID);
+                    break;
+                }
+                let Some(slot) = client.idle_slot() else {
+                    break;
+                };
+                let sectors = block + (submitted / SECTOR_SIZE) as u64;
+                match client.submit_own(slot, OP_READ, sectors, length) {
+                    Ok(tag) => {
+                        inflight.push((tag, submitted, length));
+                        submitted += length;
+                    }
+                    Err(status) => {
+                        failure = Some(status);
+                        break;
+                    }
+                }
+            }
+            if inflight.is_empty() {
+                return core::task::Poll::Ready(match failure {
+                    Some(status) => Err(block_status(status)),
+                    None => Ok(submitted),
+                });
+            }
+            context.waker().wake_by_ref();
+            core::task::Poll::Pending
+        })
+        .await
+    }
+
+    /// 异步写入一段连续区间；多槽位并行提交，未完成时让出执行器。
+    pub async fn write_bulk_async(&self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        if data.len() <= FRAME_LEN {
+            return self.write_async(block, data).await;
+        }
+        if !data.len().is_multiple_of(SECTOR_SIZE) {
+            return Err(BlockError::InvalidLength);
+        }
+        let mut inflight: Vec<(u32, usize)> = Vec::new();
+        let mut submitted = 0usize;
+        let mut failure: Option<u8> = None;
+        core::future::poll_fn(|context| {
+            let mut client = self.client.borrow_mut();
+            while let Some((tag, status, written)) = client.poll() {
+                let Some(index) = inflight.iter().position(|(entry, _)| *entry == tag) else {
+                    continue;
+                };
+                let (_, length) = inflight.remove(index);
+                if status != STATUS_OK || written.min(length) != length {
+                    failure = Some(if status == STATUS_OK {
+                        STATUS_ERROR
+                    } else {
+                        status
+                    });
+                }
+            }
+            while failure.is_none() && submitted < data.len() {
+                let length = (data.len() - submitted).min(FRAME_LEN);
+                let length = length / SECTOR_SIZE * SECTOR_SIZE;
+                if length == 0 {
+                    failure = Some(STATUS_INVALID);
+                    break;
+                }
+                let Some(slot) = client.idle_slot() else {
+                    break;
+                };
+                if client.ensure_slot(slot).is_err() {
+                    failure = Some(STATUS_ERROR);
+                    break;
+                }
+                {
+                    let frame = client.frame(slot);
+                    frame[..length].copy_from_slice(&data[submitted..submitted + length]);
+                }
+                let sectors = block + (submitted / SECTOR_SIZE) as u64;
+                match client.submit_raw(slot, OP_WRITE, sectors, length) {
+                    Ok(tag) => {
+                        inflight.push((tag, length));
+                        submitted += length;
+                    }
+                    Err(status) => {
+                        failure = Some(status);
+                        break;
+                    }
+                }
+            }
+            if inflight.is_empty() {
+                return core::task::Poll::Ready(match failure {
+                    Some(status) => Err(block_status(status)),
+                    None => Ok(submitted),
+                });
+            }
+            context.waker().wake_by_ref();
+            core::task::Poll::Pending
+        })
+        .await
+    }
 }
 
 impl BlockDevice for ClientDisk {

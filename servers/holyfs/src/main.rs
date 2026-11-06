@@ -79,6 +79,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 Ok(512) => write(b"hk-server-holyfs: async block ok\n"),
                 _ => write(b"hk-server-holyfs: async block fail\n"),
             }
+            let mut async_bulk = vec![0_u8; 128 * 1024];
+            let mut sync_bulk = vec![0_u8; async_bulk.len()];
+            let async_read = hk_async::block_on(disk.read_bulk_async(0, &mut async_bulk));
+            let sync_read = disk.read_blocks_bulk(0, &mut sync_bulk);
+            let async_ok = matches!(&async_read, Ok(read) if *read == async_bulk.len());
+            let sync_ok = matches!(&sync_read, Ok(read) if *read == sync_bulk.len());
+            if async_ok && sync_ok && async_bulk == sync_bulk {
+                write(b"hk-server-holyfs: async bulk ok\n");
+            } else {
+                write(b"hk-server-holyfs: async bulk fail\n");
+            }
             let disk = SharedClient::new(disk);
             let total = disk.capacity_blocks();
             let half = total / 2;
