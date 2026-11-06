@@ -811,26 +811,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     None => blocked_again = true,
                 }
             }
-            Pending::ProviderFault { page } => {
+            Pending::ProviderFault {
+                capability,
+                index: page_index,
+                page,
+            } => {
                 let tcb = self.tasks[index].tcb;
                 if let Some(message) = self.kernel.take_reply(tcb) {
-                    let Some(handle) = message.handles[0] else {
-                        self.tasks[index].pending = Pending::ProviderFault { page };
-                        self.current[cpu] = None;
-                        return true;
-                    };
-                    match self.kernel.capability(tcb, handle) {
-                        Ok((_, Some(range))) if range.len() >= hk_hal::PAGE_SIZE as u64 => {
-                            if !self.platform.map_dma(
-                                index,
-                                page,
-                                range.start().get(),
-                                hk_hal::PAGE_SIZE,
-                            ) {
-                                blocked_again = true;
-                            }
+                    let phys = message.words[0];
+                    if phys != 0 && phys != u64::MAX {
+                        let lease = hk_mem::hmp::FrameLease::new(
+                            hk_hal::PhysAddr::new(phys),
+                            hk_hal::PAGE_SIZE,
+                        );
+                        if self
+                            .kernel
+                            .set_capability_page(tcb, capability, page_index, lease)
+                            .unwrap_or(false)
+                            && self.platform.map_dma(index, page, phys, hk_hal::PAGE_SIZE)
+                        {
+                            self.platform.zero(page, hk_hal::PAGE_SIZE);
+                        } else {
+                            blocked_again = true;
                         }
-                        _ => blocked_again = true,
+                    } else {
+                        blocked_again = true;
                     }
                 } else {
                     blocked_again = true;

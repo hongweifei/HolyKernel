@@ -125,9 +125,12 @@ impl UserPlatform for MockPlatform {
     }
 }
 
-fn runtime() -> UserRuntime<MockContext, MockPlatform> {
+fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> {
     let mut runtime = crate::boot::user_runtime(
-        &[crate::ServiceSpec::new("a"), crate::ServiceSpec::new("b")],
+        &[
+            crate::ServiceSpec::new("a"),
+            crate::ServiceSpec::new(second),
+        ],
         MockPlatform,
         |_index, endpoint| MockContext {
             rdi: endpoint,
@@ -145,6 +148,10 @@ fn runtime() -> UserRuntime<MockContext, MockPlatform> {
         );
     }
     runtime
+}
+
+fn runtime() -> UserRuntime<MockContext, MockPlatform> {
+    runtime_with("b")
 }
 
 #[test]
@@ -713,7 +720,7 @@ fn lazy_anonymous_capability_maps_without_backing() {
 
 #[test]
 fn provider_fault_blocks_caller() {
-    let mut runtime = runtime();
+    let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let Step::Resume {
         index: _,
         mut context,
@@ -756,17 +763,15 @@ fn provider_fault_blocks_caller() {
     context.rdi = 2;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
 
-    context.rax = SYS_CAPABILITY_CREATE;
-    context.rdi = 4;
-    context.rsi = 4096;
+    context.rax = SYS_FRAME_ALLOC;
+    context.rdi = 4096;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let page = context.rax;
     assert_ne!(page, u64::MAX);
 
-    context.rax = SYS_REPLY_HANDLE;
+    context.rax = SYS_REPLY;
     context.rdi = 0;
-    context.rsi = 0;
-    context.rdx = page;
+    context.rsi = page;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 

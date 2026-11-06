@@ -46,8 +46,12 @@ pub enum Pending {
         /// 调用开始时间戳。
         started: u64,
     },
-    /// 缺页请求已发给 Provider，等待页能力回包。
+    /// 缺页请求已发给 Provider，等待物理页回包。
     ProviderFault {
+        /// 目标能力句柄。
+        capability: Handle,
+        /// 目标能力内的页下标。
+        index: usize,
         /// 待安装页的用户虚拟地址。
         page: u64,
     },

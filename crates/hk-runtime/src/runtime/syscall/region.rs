@@ -192,7 +192,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.kernel.call(tcb, provider, message).is_err() {
             return false;
         }
-        self.tasks[index].pending = Pending::ProviderFault { page: page_address };
+        let page_index = (page_address.saturating_sub(virt) / page) as usize;
+        self.tasks[index].pending = Pending::ProviderFault {
+            capability: capability_handle,
+            index: page_index,
+            page: page_address,
+        };
         self.current[cpu] = None;
         true
     }

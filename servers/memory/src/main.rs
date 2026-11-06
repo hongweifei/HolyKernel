@@ -10,8 +10,8 @@ extern crate alloc;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CAPABILITY_ANONYMOUS, MEMORY_ALLOC, MEMORY_ALLOCATED, capability_bind_provider,
-    capability_create, capability_create_lazy, exit, recv, reply_handle, send_handle, write,
+    MEMORY_ALLOC, MEMORY_ALLOCATED, capability_bind_provider, capability_create_lazy, exit,
+    frame_alloc, recv, reply, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{PROVIDER_FAULT, PROVIDER_PROVIDE};
@@ -46,15 +46,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         if label != PROVIDER_FAULT {
-            let _ = reply_handle(0, u64::MAX, 0);
+            let _ = reply(0, u64::MAX);
             continue;
         }
         write(b"hk-server-memory: fault\n");
-        let Some(page) = capability_create(CAPABILITY_ANONYMOUS, PAGE) else {
-            let _ = reply_handle(0, u64::MAX, 0);
+        let Some(page) = frame_alloc(PAGE) else {
+            let _ = reply(0, u64::MAX);
             continue;
         };
-        if reply_handle(PROVIDER_PROVIDE, 0, page) != 0 {
+        if reply(PROVIDER_PROVIDE, page) != 0 {
             exit(2);
         }
     }

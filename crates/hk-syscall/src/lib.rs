@@ -88,6 +88,12 @@ pub const SYS_REPLY: u64 = 0x2A;
 /// 回复最近一次调用并转移一个句柄。
 pub const SYS_REPLY_HANDLE: u64 = 0x32;
 
+/// 为 Memory Provider 分配一个物理页。
+pub const SYS_FRAME_ALLOC: u64 = 0x33;
+
+/// Memory Server 名称。
+pub const MEMORY_SERVICE: &str = "hk-server-memory";
+
 /// 置位通知位。
 pub const SYS_NOTIFY: u64 = 0x2B;
 
@@ -456,6 +462,7 @@ mod tests {
             SYS_SERVICE_ENDPOINT,
             SYS_FUTEX_WAIT,
             SYS_FUTEX_WAKE,
+            SYS_FRAME_ALLOC,
             SYS_ALLOC,
             SYS_CAPABILITY_CREATE,
             SYS_REGION_MAP,

@@ -214,6 +214,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn frame_alloc(&mut self, index: usize, frame: &mut C) -> Switch {
+        if self.tasks[index].name != hk_syscall::MEMORY_SERVICE {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let length = frame.arg0() as usize;
+        let Some(range) = self.platform.dma_window(length) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        frame.set_result(range.start().get());
+        Switch::Continue
+    }
+
     pub(crate) fn capability_phys(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();
