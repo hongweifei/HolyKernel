@@ -73,9 +73,6 @@ pub fn set_title(display: u64, window: u64, title: &str) {
     let _ = crate::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
 }
 
-/// 客户端映射窗口表面使用的用户虚拟地址。
-pub const SURFACE_VIRT: u64 = 0x5000_0000;
-
 /// 把表面坐标矩形编码为 4 个小端 u16。
 pub const fn pack_rect(x: u16, y: u16, width: u16, height: u16) -> [u8; SURFACE_RECT_BYTES] {
     [
