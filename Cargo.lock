@@ -540,6 +540,8 @@ dependencies = [
  "hk-coroutine",
  "hk-server-api",
  "hk-server-build",
+ "hk-sync",
+ "hk-thread",
 ]
 
 [[package]]
@@ -774,12 +776,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-sync"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-syscall"
 version = "0.1.0"
 
 [[package]]
 name = "hk-test"
 version = "0.1.0"
+
+[[package]]
+name = "hk-thread"
+version = "0.1.0"
+dependencies = [
+ "hk-async",
+ "hk-server-api",
+]
 
 [[package]]
 name = "hk-vfs"

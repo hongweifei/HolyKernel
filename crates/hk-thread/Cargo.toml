@@ -1,0 +1,14 @@
+[package]
+name = "hk-thread"
+description = "HolyKernel 用户态线程库：创建、加入与休眠"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-async = { version = "0.1.0", path = "../hk-async" }
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+
+[lints]
+workspace = true
