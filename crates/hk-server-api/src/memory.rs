@@ -2,9 +2,9 @@
 
 use crate::syscall_call;
 use crate::{
-    SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS,
-    SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO,
-    SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
+    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
+    SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 /// Revision 能力。
@@ -115,6 +115,15 @@ pub fn map_new(kind: u8, length: usize) -> Option<(u64, u64, u64)> {
     Some((capability, region, virt))
 }
 
+/// 创建并映射按需装入的匿名能力，返回 `(capability, region, virt)`。
+pub fn map_new_lazy(length: usize) -> Option<(u64, u64, u64)> {
+    let length = length.checked_add(4095)? & !4095;
+    let capability = capability_create_lazy(length)?;
+    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
+    let (virt, _) = region_info(region)?;
+    Some((capability, region, virt))
+}
+
 /// 映射已有能力，返回 `(region, virt)`。
 pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
     let (_, length) = capability_phys(capability)?;
@@ -152,6 +161,27 @@ pub fn capability_commit(capability: u64) -> Option<u64> {
     // SAFETY: 内核校验能力类型并推进版本。
     let version = unsafe { syscall_call(SYS_CAPABILITY_COMMIT, capability, 0, 0, 0).value };
     (version != u64::MAX).then_some(version)
+}
+
+/// 创建按需装入的匿名能力。
+pub fn capability_create_lazy(length: usize) -> Option<u64> {
+    let handle = unsafe {
+        syscall_call(
+            SYS_CAPABILITY_CREATE_LAZY,
+            CAPABILITY_ANONYMOUS as u64,
+            length as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    (handle != u64::MAX).then_some(handle)
+}
+
+/// 把类型化能力绑定到 Provider 端点。
+pub fn capability_bind_provider(capability: u64, endpoint: u64) -> u64 {
+    // SAFETY: 内核校验能力与端点句柄后建立绑定。
+    unsafe { syscall_call(SYS_CAPABILITY_BIND_PROVIDER, capability, endpoint, 0, 0).value }
 }
 
 /// 导出可转移的能力句柄。

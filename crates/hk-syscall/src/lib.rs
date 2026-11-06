@@ -149,6 +149,12 @@ pub const SYS_CAPABILITY_COMMIT: u64 = 0x4B;
 /// 导出可转移的类型化能力句柄。
 pub const SYS_CAPABILITY_EXPORT: u64 = 0x4C;
 
+/// 把类型化能力绑定到 Provider 端点。
+pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
+
+/// 创建按需装入的匿名能力。
+pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
+
 // === 设备与中断 0x50-0x5F ===
 
 /// 读取 PCI 配置空间。
@@ -400,7 +406,7 @@ mod tests {
         const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
         const { assert!(SYS_SEND >= 0x20 && SYS_SERVICE_ENDPOINT < 0x30) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
-        const { assert!(SYS_ALLOC >= 0x40 && SYS_DMA_SYNC < 0x50) };
+        const { assert!(SYS_ALLOC >= 0x40 && SYS_CAPABILITY_CREATE_LAZY < 0x50) };
         const { assert!(SYS_PCI_READ >= 0x50 && SYS_MSI_BIND < 0x60) };
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
@@ -449,6 +455,8 @@ mod tests {
             SYS_CAPABILITY_SCANOUT,
             SYS_CAPABILITY_COMMIT,
             SYS_CAPABILITY_EXPORT,
+            SYS_CAPABILITY_BIND_PROVIDER,
+            SYS_CAPABILITY_CREATE_LAZY,
             SYS_PCI_READ,
             SYS_PCI_WRITE,
             SYS_DEVICE_GRANT_CREATE,

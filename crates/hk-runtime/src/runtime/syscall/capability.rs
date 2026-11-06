@@ -120,6 +120,71 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn capability_create_lazy(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        let length = frame.arg1() as usize;
+        if length == 0 || capability_kind(frame.arg0() as u8) != Some(CapabilityKind::Anonymous) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
+        let Ok(charge) = self.tasks[index].ledger.charge(aligned) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(capability) = Capability::new(CapabilityKind::Anonymous, aligned, PAGE_SIZE, None)
+        else {
+            let _ = self.tasks[index].ledger.release(charge);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let handle = match self.kernel.create_capability(
+            tcb,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::TRANSFER,
+        ) {
+            Ok(handle) => handle,
+            Err(_) => {
+                let _ = self.tasks[index].ledger.release(charge);
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+        };
+        frame.set_result(self.install_capability(index, handle, charge));
+        Switch::Continue
+    }
+
+    pub(crate) fn capability_bind_provider(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        let number = frame.arg0() as usize;
+        let endpoint = frame.arg1() as usize;
+        let Some((capability, _, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(endpoint) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        match self
+            .kernel
+            .bind_capability_provider(tcb, capability, endpoint)
+        {
+            Ok(()) => frame.set_result(0),
+            Err(_) => frame.set_result(u64::MAX),
+        }
+        Switch::Continue
+    }
+
     pub(crate) fn capability_phys(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

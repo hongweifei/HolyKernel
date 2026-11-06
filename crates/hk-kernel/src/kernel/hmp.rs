@@ -31,11 +31,20 @@ impl Kernel {
         backing: Option<hk_mem::hmp::FrameLease>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        let pages = if backing.is_none() {
+            core::iter::repeat_with(|| None)
+                .take((capability.size() / capability.page_size() as u64) as usize)
+                .collect()
+        } else {
+            alloc::vec::Vec::new()
+        };
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Capability {
                 capability,
                 backing,
+                provider: Mutex::new(None),
+                pages: Mutex::new(pages),
                 pinned: AtomicBool::new(false),
                 version: AtomicU64::new(0),
             })),
@@ -54,6 +63,54 @@ impl Kernel {
             expected: ObjectKind::Capability,
         })?;
         Ok((capability, object.capability_backing()))
+    }
+
+    /// 把类型化能力绑定到 Provider 端点。
+    pub fn bind_capability_provider(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        endpoint: Handle,
+    ) -> Result<(), KernelError> {
+        let (object, _) =
+            self.resolve(thread, capability, Rights::ADMIN, ObjectKind::Capability)?;
+        self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
+        object.set_capability_provider(endpoint);
+        Ok(())
+    }
+
+    /// 返回类型化能力绑定的 Provider 端点。
+    pub fn capability_provider(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+    ) -> Result<Option<Handle>, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_provider())
+    }
+
+    /// 返回能力内已装入的页。
+    pub fn capability_page(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+    ) -> Result<Option<PhysRange>, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_page(index))
+    }
+
+    /// 把一页装入能力。
+    pub fn set_capability_page(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+        lease: hk_mem::hmp::FrameLease,
+    ) -> Result<bool, KernelError> {
+        let (object, _) =
+            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
+        Ok(object.set_capability_page(index, lease))
     }
 
     /// 在指定线程的句柄表中创建虚拟映射。

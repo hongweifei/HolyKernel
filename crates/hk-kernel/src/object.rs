@@ -1,6 +1,7 @@
 //! 内核对象：对象头与负载。
 
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use hk_hal::{DeviceGrant, PhysRange};
@@ -28,6 +29,10 @@ pub enum ObjectPayload {
         capability: Capability,
         /// 常驻物理页。
         backing: Option<FrameLease>,
+        /// 缺页/回写 Provider 端点。
+        provider: Mutex<Option<hk_handle::Handle>>,
+        /// 按需装入的页租约；常驻能力为空。
+        pages: Mutex<Vec<Option<FrameLease>>>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// Revision 版本。
@@ -122,6 +127,45 @@ impl KernelObject {
                 .as_ref()
                 .map(|backing| PhysRange::new(backing.phys(), backing.len() as u64)),
             _ => None,
+        }
+    }
+
+    /// 返回能力内的按需页租约。
+    pub fn capability_page(&self, index: usize) -> Option<PhysRange> {
+        match &self.payload {
+            ObjectPayload::Capability { pages, .. } => pages
+                .lock()
+                .get(index)?
+                .as_ref()
+                .map(|lease| PhysRange::new(lease.phys(), lease.len() as u64)),
+            _ => None,
+        }
+    }
+
+    /// 装入能力内的一页。
+    pub fn set_capability_page(&self, index: usize, lease: FrameLease) -> bool {
+        if let ObjectPayload::Capability { pages, .. } = &self.payload {
+            let mut pages = pages.lock();
+            if let Some(slot) = pages.get_mut(index) {
+                *slot = Some(lease);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 返回类型化能力绑定的 Provider 端点。
+    pub fn capability_provider(&self) -> Option<hk_handle::Handle> {
+        match &self.payload {
+            ObjectPayload::Capability { provider, .. } => *provider.lock(),
+            _ => None,
+        }
+    }
+
+    /// 绑定类型化能力的 Provider 端点。
+    pub fn set_capability_provider(&self, endpoint: hk_handle::Handle) {
+        if let ObjectPayload::Capability { provider, .. } = &self.payload {
+            *provider.lock() = Some(endpoint);
         }
     }
 

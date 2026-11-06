@@ -236,6 +236,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
+            SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),
             SYS_REGION_MAP => self.region_map(index, tcb, frame),
             SYS_REGION_INFO => self.region_info(index, tcb, frame),
             SYS_REGION_UNMAP => self.region_unmap(index, tcb, frame),
@@ -244,6 +245,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPABILITY_SCANOUT => self.capability_pin(index, tcb, frame, true),
             SYS_CAPABILITY_COMMIT => self.capability_commit(index, tcb, frame),
             SYS_CAPABILITY_EXPORT => self.capability_export(index, tcb, frame),
+            SYS_CAPABILITY_BIND_PROVIDER => self.capability_bind_provider(index, tcb, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
             SYS_BOOT_CMDLINE => {

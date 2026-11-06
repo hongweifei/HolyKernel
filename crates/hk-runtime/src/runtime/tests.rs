@@ -83,6 +83,21 @@ impl UserPlatform for MockPlatform {
 
     fn zero(&self, _address: u64, _length: usize) {}
 
+    fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {
+        Some(hk_hal::PhysRange::new(
+            hk_hal::PhysAddr::new(0x1000_0000),
+            len as u64,
+        ))
+    }
+
+    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+        true
+    }
+
+    fn user_mapped(&self, _address: u64) -> bool {
+        true
+    }
+
     fn arena_layout(&self, slot: usize) -> (u64, u64) {
         (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
     }
@@ -660,4 +675,38 @@ fn failed_service_wakes_inflight_recv_with_empty_response() {
     assert!(matches!(runtime.tasks[index].pending, Pending::None));
     assert_eq!(runtime.tasks[index].context.rax, 0);
     assert_eq!(runtime.tasks[index].context.r8, 0);
+}
+
+#[test]
+fn lazy_anonymous_capability_maps_without_backing() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    context.rax = SYS_REGION_INFO;
+    context.rdi = region;
+    context.rsi = 0;
+    context.rdx = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 16);
+
+    assert!(runtime.anonymous_fault(0, hk_hal::user::AUTO_WINDOW_BASE));
+    let _ = runtime.finish(0, index);
 }

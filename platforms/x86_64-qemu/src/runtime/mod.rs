@@ -607,6 +607,12 @@ fn preempt(frame: &InterruptFrame) -> bool {
 
 fn fault(frame: &mut InterruptFrame) -> FaultAction {
     if frame.vector == 14
+        && frame.error & 0b1 == 0
+        && RUNTIME.anonymous_fault(cpu::cpu_index(), cpu::fault_address())
+    {
+        return FaultAction::Resume;
+    }
+    if frame.vector == 14
         && frame.error & 0b11 == 0b11
         && hk_platform_x86_64::paging::resolve_cow(cpu::fault_address())
     {
