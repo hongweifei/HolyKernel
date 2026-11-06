@@ -4,6 +4,7 @@ mod ansi;
 mod render;
 mod style;
 
+use hk_canvas::Surface;
 use hk_server_api::display::{
     DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
     WINDOW_CREATED, pack_size,
@@ -286,7 +287,9 @@ impl Terminal {
 
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
-        render::refresh(self.pixels, &self.grid, self.row, self.column, &self.font);
+        // SAFETY: 共享表面已映射，长度为 WIDTH * HEIGHT。
+        let frame = unsafe { Surface::from_raw(self.pixels, WIDTH, HEIGHT, WIDTH) };
+        render::refresh(&frame, &self.grid, self.row, self.column, &self.font);
         let _ = send(self.display, SURFACE_COMMIT, self.surface);
     }
 

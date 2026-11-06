@@ -11,6 +11,7 @@ name = "hk-server-console"
 path = "src/main.rs"
 
 [dependencies]
+hk-canvas = { version = "0.1.0", path = "../../crates/hk-canvas" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
 

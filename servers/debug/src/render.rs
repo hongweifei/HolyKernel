@@ -2,6 +2,7 @@
 
 use alloc::format;
 
+use hk_canvas::{Rect, Surface, text_width};
 use hk_font::Font;
 
 /// 窗口宽度。
@@ -56,21 +57,28 @@ pub(crate) fn line_count(text: &str, font: &Font) -> usize {
 }
 
 /// 绘制页面。
-pub(crate) fn render(text: &str, title: &str, scroll: usize, font: &Font, pixels: *mut u32) {
-    fill(pixels, 0, 0, WIDTH, HEIGHT, BACKGROUND);
-    fill(
-        pixels,
-        0,
-        HEIGHT - FOOTER_HEIGHT,
-        WIDTH,
-        FOOTER_HEIGHT,
+pub(crate) fn render(text: &str, title: &str, scroll: usize, font: &Font, surface: &Surface) {
+    surface.fill(Rect::new(0, 0, WIDTH as i32, HEIGHT as i32), BACKGROUND);
+    surface.fill(
+        Rect::new(
+            0,
+            (HEIGHT - FOOTER_HEIGHT) as i32,
+            WIDTH as i32,
+            FOOTER_HEIGHT as i32,
+        ),
         FOOTER_BG,
     );
 
     let mut x = MARGIN as i32;
-    draw_text(font, pixels, &mut x, 12, "HolyKernel Debug · ", HEADER);
-    draw_text(font, pixels, &mut x, 12, title, HEADER);
+    surface.draw_text(&mut x, 12, "HolyKernel Debug · ", HEADER, font);
+    surface.draw_text(&mut x, 12, title, HEADER, font);
 
+    let body = surface.clipped(Rect::new(
+        MARGIN as i32,
+        BODY_TOP as i32,
+        (WIDTH - MARGIN * 2) as i32,
+        (HEIGHT - BODY_TOP - FOOTER_HEIGHT) as i32,
+    ));
     let visible = visible_lines();
     let mut line = 0;
     let mut pen = MARGIN as i32;
@@ -90,77 +98,16 @@ pub(crate) fn render(text: &str, title: &str, scroll: usize, font: &Font, pixels
         }
         if line >= scroll {
             let y = BODY_TOP + (line - scroll) * LINE_HEIGHT;
-            if let Some(glyph) = font.glyph(character) {
-                glyph.for_each_pixel(|px, py| {
-                    let screen_x = pen + px;
-                    let screen_y = y as i32 + py;
-                    if screen_x >= MARGIN as i32
-                        && screen_y >= BODY_TOP as i32
-                        && (screen_x as usize) < WIDTH - MARGIN
-                        && (screen_y as usize) < HEIGHT - FOOTER_HEIGHT
-                    {
-                        // SAFETY: 坐标已裁剪到正文区。
-                        unsafe {
-                            pixels
-                                .add(screen_y as usize * WIDTH + screen_x as usize)
-                                .write_volatile(FOREGROUND);
-                        }
-                    }
-                });
-            }
+            body.draw_glyph(pen, y as i32, FOREGROUND, character, font);
         }
         pen += advance;
     }
 
     let mut x = MARGIN as i32;
     let y = (HEIGHT - FOOTER_HEIGHT + 4) as i32;
-    draw_text(font, pixels, &mut x, y, HINT, FOOTER_INK);
+    surface.draw_text(&mut x, y, HINT, FOOTER_INK, font);
     let total = line_count(text, font);
     let position = format!("{}/{}", scroll + 1, total);
-    let width: usize = position
-        .chars()
-        .map(|character| font.advance(character) as usize)
-        .sum();
-    let mut x = (WIDTH - MARGIN - width) as i32;
-    draw_text(font, pixels, &mut x, y, &position, FOOTER_INK);
-}
-
-fn draw_text(font: &Font, pixels: *mut u32, x: &mut i32, y: i32, text: &str, color: u32) {
-    for character in text.chars() {
-        let advance = font.advance(character);
-        if let Some(glyph) = font.glyph(character) {
-            glyph.for_each_pixel(|px, py| {
-                let screen_x = *x + px;
-                let screen_y = y + py;
-                if screen_x >= 0
-                    && screen_y >= 0
-                    && (screen_x as usize) < WIDTH
-                    && (screen_y as usize) < HEIGHT
-                {
-                    // SAFETY: 坐标已裁剪。
-                    unsafe {
-                        pixels
-                            .add(screen_y as usize * WIDTH + screen_x as usize)
-                            .write_volatile(color);
-                    }
-                }
-            });
-        }
-        *x += advance;
-    }
-}
-
-fn fill(pixels: *mut u32, x: usize, y: usize, width: usize, height: usize, color: u32) {
-    let left = x.min(WIDTH);
-    let right = x.saturating_add(width).min(WIDTH);
-    if left >= right {
-        return;
-    }
-    for row in y..y.saturating_add(height).min(HEIGHT) {
-        // SAFETY: 行列已裁剪到表面内。
-        unsafe {
-            core::slice::from_raw_parts_mut(pixels.add(row * WIDTH + left), right - left)
-                .fill(color);
-        }
-    }
+    let mut x = (WIDTH - MARGIN) as i32 - text_width(font, &position);
+    surface.draw_text(&mut x, y, &position, FOOTER_INK, font);
 }

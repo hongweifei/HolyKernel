@@ -18,6 +18,8 @@ mod pages;
 mod render;
 
 #[cfg(target_os = "none")]
+use hk_canvas::Surface;
+#[cfg(target_os = "none")]
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
@@ -80,7 +82,9 @@ fn show(
 ) {
     let title = format!("Debug: {}", page.title());
     set_title(display, window, &title);
-    render(text, page.title(), scroll, font, pixels);
+    // SAFETY: 表面帧已映射，长度为 WIDTH * HEIGHT。
+    let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
+    render(text, page.title(), scroll, font, &frame);
     commit(endpoint, display, surface);
 }
 
