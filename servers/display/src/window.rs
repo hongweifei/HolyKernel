@@ -13,14 +13,6 @@ use crate::theme::scale;
 #[cfg(target_os = "none")]
 pub(crate) const MAX_WINDOWS: usize = 8;
 
-/// 窗口表面映射基址。
-#[cfg(target_os = "none")]
-pub(crate) const WINDOW_BASE: u64 = 0x6000_0000;
-
-/// 相邻窗口表面的地址间隔；容纳 1920×1040 的 32 位表面。
-#[cfg(target_os = "none")]
-pub(crate) const WINDOW_STRIDE: u64 = 0x0080_0000;
-
 /// 标题栏高度。
 #[cfg(target_os = "none")]
 pub(crate) const TITLE_HEIGHT: usize = 24;

@@ -10,17 +10,12 @@
 use hk_server_api::display::{
     DISPLAY_KEY, DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD,
     SEAT_SET_CLIPBOARD, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE,
-    SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size, pack_surface_rect,
-    unpack_key,
+    SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, pack_size, pack_surface_rect, unpack_key,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, frame_alloc, recv, recv_data, send, send_data, send_handle, write, write_u64,
+    exit, frame_alloc_any, recv, recv_data, send, send_data, send_handle, write, write_u64,
 };
-
-/// 两个表面在客户端地址空间中的间隔。
-#[cfg(target_os = "none")]
-const SURFACE_STRIDE: u64 = 0x10_0000;
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -32,18 +27,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let first_surface = create_surface(display, endpoint, 320, 200, 0, 0x0033_99FF, 0x0008_1018);
+    let first_surface = create_surface(display, endpoint, 320, 200, 0x0033_99FF, 0x0008_1018);
     let first = create_window(display, endpoint, first_surface);
     hk_server_api::display::set_title(display, first, "Window 1");
-    let second_surface = create_surface(
-        display,
-        endpoint,
-        280,
-        180,
-        SURFACE_STRIDE,
-        0x00FF_9933,
-        0x0020_1008,
-    );
+    let second_surface = create_surface(display, endpoint, 280, 180, 0x00FF_9933, 0x0020_1008);
     let second = create_window(display, endpoint, second_surface);
     hk_server_api::display::set_title(display, second, "Window 2");
 
@@ -89,17 +76,14 @@ fn create_surface(
     endpoint: u64,
     width: u32,
     height: u32,
-    offset: u64,
     accent: u32,
     shade: u32,
 ) -> u64 {
     let bytes = width as usize * height as usize * 4;
-    let virt = SURFACE_VIRT + offset;
-    let handle = frame_alloc(bytes, virt);
-    if handle == 0 || handle == u64::MAX {
+    let Some((handle, virt)) = frame_alloc_any(bytes) else {
         write(b"hk-server-display-test: frame alloc failed\n");
         exit(2)
-    }
+    };
 
     let pixels = virt as *mut u32;
     for y in 0..height {

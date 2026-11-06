@@ -32,7 +32,7 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
+    close_handle, console_read, exit, frame_alloc_any, frame_info, frame_map_any, frame_unmap,
     recv_data_handle_try, send, send_data, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
@@ -64,18 +64,14 @@ mod theme;
 mod window;
 #[cfg(target_os = "none")]
 use window::{
-    Drag, MAX_WINDOWS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, Resize, Screen, WINDOW_BASE,
-    WINDOW_STRIDE, Window, close_at, maximize_at, minimize_at, raise, resize_at, taskbar_at,
-    taskbar_height, taskbar_top, title_height, window_at,
+    Drag, MAX_WINDOWS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, Resize, Screen, Window, close_at,
+    maximize_at, minimize_at, raise, resize_at, taskbar_at, taskbar_height, taskbar_top,
+    title_height, window_at,
 };
 
 /// Tab 键字节：切换焦点。
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
-
-/// 离屏后备缓冲的映射地址。
-#[cfg(target_os = "none")]
-const BACK_VIRT: u64 = 0x7000_0000;
 
 /// 把输入的 0..=0x7FFF 绝对坐标映射到屏幕像素范围。
 ///
@@ -171,9 +167,13 @@ fn create_surface(
         return None;
     }
     let id = *next_id;
-    let virt = WINDOW_BASE + (slot as u64) * WINDOW_STRIDE;
-    let mapped = frame_map(handle, virt);
+    let Some((mapped, virt)) = frame_map_any(handle) else {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: create map-failed\n");
+        return None;
+    };
     if mapped < bytes {
+        let _ = frame_unmap(virt, mapped as usize);
         let _ = close_handle(handle);
         write(b"hk-server-display: create map-failed ");
         write_u64(mapped);
@@ -267,24 +267,29 @@ fn replace_window_surface(
         write(b"hk-server-display: resize owner mismatch\n");
         return false;
     }
-    let (surface_id, client, slot, virt) = (
+    let (surface_id, client, slot) = (
         window.surface.id,
         window.surface.client,
         window.surface.slot,
-        window.surface.virt,
     );
-    let old_bytes = window.surface.width * window.surface.height * 4;
-    let _ = frame_unmap(virt, old_bytes);
-    let _ = close_handle(window.surface.handle);
-    let mapped = frame_map(handle, virt);
+    let Some((mapped, virt)) = frame_map_any(handle) else {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: resize map-failed\n");
+        return false;
+    };
     if mapped < bytes {
+        let _ = frame_unmap(virt, mapped as usize);
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
     }
+    let old = window.surface;
     if let Some(window) = windows[index].as_mut() {
         window.surface = Surface::new(surface_id, client, slot, width, height, virt, handle);
     }
+    let old_bytes = old.width * old.height * 4;
+    let _ = frame_unmap(old.virt, old_bytes);
+    let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {
         damage_window(screen, windows, focus, font, pointer, &window);
     }
@@ -450,13 +455,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let back = frame_alloc(bytes, BACK_VIRT);
-    if back == 0 || back == u64::MAX {
+    let Some((_back_handle, back_virt)) = frame_alloc_any(bytes) else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)
-    }
+    };
     let screen = Screen::new(
-        BACK_VIRT as *mut u32,
+        back_virt as *mut u32,
         framebuffer::MAP_ADDRESS as *mut u32,
         width,
         height,

@@ -11,7 +11,8 @@ use hk_server_api::display::{
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    frame_alloc, frame_unmap, recv_data_try, send, send_handle, service_endpoint, write, yield_now,
+    close_handle, frame_alloc_any, frame_unmap, recv_data_try, send, send_handle, service_endpoint,
+    write, yield_now,
 };
 
 use ansi::{Ansi, Command, Event};
@@ -33,8 +34,6 @@ pub(crate) const CELL_HEIGHT: usize = 18;
 pub(crate) const WIDTH: usize = COLUMNS * CELL_WIDTH;
 /// 初始表面高度（像素）。
 pub(crate) const HEIGHT: usize = ROWS * CELL_HEIGHT;
-/// 表面映射地址。
-const SURFACE: u64 = 0x5000_0000;
 
 /// 字符网格。
 pub(crate) type Grid = [[Cell; MAX_COLUMNS]; MAX_ROWS];
@@ -107,6 +106,7 @@ pub(crate) struct Terminal {
     display: u64,
     surface: u64,
     window: u64,
+    surface_virt: u64,
     pixels: *mut u32,
     width: usize,
     height: usize,
@@ -361,7 +361,7 @@ impl Terminal {
 
     /// 解除共享表面映射，准备重建窗口。
     pub(crate) fn detach(&self) {
-        let _ = frame_unmap(SURFACE, self.width * self.height * 4);
+        let _ = frame_unmap(self.surface_virt, self.width * self.height * 4);
     }
 
     /// 按新的窗口内容尺寸重建表面并重排网格。
@@ -371,12 +371,11 @@ impl Terminal {
         }
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
-        let _ = frame_unmap(SURFACE, self.width * self.height * 4);
-        let handle = frame_alloc(width * height * 4, SURFACE);
-        if handle == 0 || handle == u64::MAX {
+        let bytes = width * height * 4;
+        let Some((handle, virt)) = frame_alloc_any(bytes) else {
             write(b"hk-server-console: resize frame failed\n");
             return;
-        }
+        };
         if send_handle(
             self.display,
             WINDOW_RESIZE,
@@ -384,15 +383,21 @@ impl Terminal {
             handle,
         ) == u64::MAX
         {
+            let _ = close_handle(handle);
             write(b"hk-server-console: resize rejected\n");
             return;
         }
+        let old_virt = self.surface_virt;
+        let old_bytes = self.width * self.height * 4;
         self.width = width;
         self.height = height;
+        self.surface_virt = virt;
+        self.pixels = virt as *mut u32;
         self.columns = columns;
         self.rows = rows;
         self.row = self.row.min(rows.saturating_sub(1));
         self.column = self.column.min(columns.saturating_sub(1));
+        let _ = frame_unmap(old_virt, old_bytes);
         self.refresh();
     }
 
@@ -424,10 +429,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     if display == 0 {
         return None;
     }
-    let handle = frame_alloc(WIDTH * HEIGHT * 4, SURFACE);
-    if handle == 0 || handle == u64::MAX {
-        return None;
-    }
+    let (handle, surface_virt) = frame_alloc_any(WIDTH * HEIGHT * 4)?;
     if send_handle(
         display,
         SURFACE_CREATE,
@@ -445,7 +447,8 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         display,
         surface,
         window,
-        pixels: SURFACE as *mut u32,
+        surface_virt,
+        pixels: surface_virt as *mut u32,
         width: WIDTH,
         height: HEIGHT,
         columns: COLUMNS,

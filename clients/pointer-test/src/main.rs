@@ -6,11 +6,13 @@
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
-    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED,
-    WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_window_size,
+    SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size,
+    pack_window_size, set_title, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, frame_unmap, recv, send, send_handle, write, write_u64};
+use hk_server_api::{
+    exit, frame_alloc_any, frame_unmap, recv, send, send_handle, write, write_u64,
+};
 
 /// 窗口宽度。
 #[cfg(target_os = "none")]
@@ -32,12 +34,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width as usize * height as usize * 4;
-    let handle = frame_alloc(bytes, SURFACE_VIRT);
-    if handle == 0 || handle == u64::MAX {
+    let Some((handle, mut surface_virt)) = frame_alloc_any(bytes) else {
         write(b"hk-server-pointer-test: frame alloc failed\n");
         exit(2)
-    }
-    let pixels = SURFACE_VIRT as *mut u32;
+    };
+    let mut pixels = surface_virt as *mut u32;
     paint(pixels, width, height);
 
     if send_handle(display, SURFACE_CREATE, pack_size(width, height), handle) == u64::MAX {
@@ -70,13 +71,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             DISPLAY_RESIZE => {
                 let (_, new_width, new_height) = unpack_window_size(word);
                 if new_width != width || new_height != height {
-                    let _ = frame_unmap(SURFACE_VIRT, width as usize * height as usize * 4);
-                    let handle =
-                        frame_alloc(new_width as usize * new_height as usize * 4, SURFACE_VIRT);
-                    if handle == 0 || handle == u64::MAX {
+                    let bytes = new_width as usize * new_height as usize * 4;
+                    let Some((handle, virt)) = frame_alloc_any(bytes) else {
                         write(b"hk-server-pointer-test: resize frame failed\n");
                         exit(7)
-                    }
+                    };
                     if send_handle(
                         display,
                         WINDOW_RESIZE,
@@ -87,8 +86,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         write(b"hk-server-pointer-test: resize rejected\n");
                         exit(7)
                     }
+                    let old_virt = surface_virt;
+                    let old_bytes = width as usize * height as usize * 4;
                     width = new_width;
                     height = new_height;
+                    surface_virt = virt;
+                    pixels = virt as *mut u32;
+                    let _ = frame_unmap(old_virt, old_bytes);
                     paint(pixels, width, height);
                     let _ = send(display, SURFACE_COMMIT, surface);
                     write(b"hk-server-pointer-test: resize ");
@@ -139,7 +143,7 @@ fn paint(pixels: *mut u32, width: u32, height: u32) {
             } else {
                 0x0010_2010
             };
-            // SAFETY: 共享 Frame 已按宽高分配并映射到 SURFACE_VIRT。
+            // SAFETY: 共享 Frame 已按宽高分配并映射到自动地址。
             unsafe {
                 pixels
                     .add(y as usize * width as usize + x as usize)

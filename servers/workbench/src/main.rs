@@ -32,9 +32,9 @@ use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
-    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT,
-    WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title,
-    unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
+    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE,
+    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_click_at,
+    unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -42,8 +42,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, fault_subscribe, frame_alloc, frame_unmap, recv, recv_data, send, send_handle, write,
-    write_u64,
+    close_handle, exit, fault_subscribe, frame_alloc_any, frame_unmap, recv, recv_data, send,
+    send_handle, write, write_u64,
 };
 
 #[cfg(target_os = "none")]
@@ -292,11 +292,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width * height * 4;
-    let handle = frame_alloc(bytes, SURFACE_VIRT);
-    if handle == 0 || handle == u64::MAX {
+    let Some((handle, mut surface_virt)) = frame_alloc_any(bytes) else {
         write(b"hk-server-workbench: frame alloc failed\n");
         exit(2)
-    }
+    };
     if send_handle(
         display,
         SURFACE_CREATE,
@@ -320,7 +319,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let font = hk_canvas::default_font();
-    let pixels = SURFACE_VIRT as *mut u32;
+    let mut pixels = surface_virt as *mut u32;
     let _ = fault_subscribe(endpoint);
     let mut model = Box::new(Model::new(endpoint));
     let layout = Layout::new(width, height);
@@ -361,27 +360,32 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 {
                     false
                 } else {
-                    let _ = frame_unmap(SURFACE_VIRT, width * height * 4);
-                    let handle = frame_alloc(new_width * new_height * 4, SURFACE_VIRT);
-                    if handle == 0 || handle == u64::MAX {
+                    let bytes = new_width * new_height * 4;
+                    let Some((handle, virt)) = frame_alloc_any(bytes) else {
                         write(b"hk-server-workbench: resize frame failed\n");
-                        false
-                    } else if send_handle(
+                        continue;
+                    };
+                    if send_handle(
                         display,
                         WINDOW_RESIZE,
                         pack_window_size(window, new_width as u32, new_height as u32),
                         handle,
                     ) == u64::MAX
                     {
+                        let _ = close_handle(handle);
                         write(b"hk-server-workbench: resize rejected\n");
-                        false
-                    } else {
-                        width = new_width;
-                        height = new_height;
-                        let layout = Layout::new(width, height);
-                        model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
-                        true
+                        continue;
                     }
+                    let old_virt = surface_virt;
+                    let old_bytes = width * height * 4;
+                    width = new_width;
+                    height = new_height;
+                    surface_virt = virt;
+                    pixels = virt as *mut u32;
+                    let _ = frame_unmap(old_virt, old_bytes);
+                    let layout = Layout::new(width, height);
+                    model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
+                    true
                 }
             }
             DISPLAY_KEY => {
