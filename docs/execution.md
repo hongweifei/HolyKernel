@@ -168,9 +168,9 @@ impl Notification {
 
 - Frame 是匿名内核对象 `{ phys, len }`，通过 Handle 访问。
 - 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace，句柄权限决定只读/可写/可转移。
-- 内核提供 `SYS_FRAME_ALLOC`、`SYS_FRAME_MAP`、`SYS_FRAME_UNMAP`、`SYS_FRAME_INFO`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_FRAME`。
-- `SYS_FRAME_ALLOC(length, out)` 从 DMA 池分配连续物理页、创建 Frame 并映射；内核从任务私有的用户虚拟窗口自动选择地址，并把所选地址写入 `out`。`SYS_FRAME_MAP(handle, out)` 同样自动映射并把地址写入 `out`；`SYS_FRAME_UNMAP(virt, len)` 解除映射并归还窗口区间。`SYS_FRAME_INFO` 返回物理地址与长度，供驱动建立 DMA。
-- 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_FRAME_MAP` 映射同一物理页。
+- 内核提供 `SYS_MAP_CREATE`、`SYS_MAP_ATTACH`、`SYS_MAP_UNMAP`、`SYS_MAP_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_FRAME`。
+- `SYS_MAP_CREATE(length, out)` 从 DMA 池分配连续物理页、创建 Frame 并映射；内核从任务私有的用户虚拟窗口自动选择地址，并把所选地址写入 `out`。`SYS_MAP_ATTACH(handle, out)` 同样自动映射并把地址写入 `out`；`SYS_MAP_UNMAP(virt, len)` 解除映射并归还窗口区间。`SYS_MAP_PHYS` 返回物理地址与长度，供驱动建立 DMA。
+- 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_MAP_ATTACH` 映射同一物理页。
 - 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享帧，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应帧。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动把帧物理地址登记给 virtio HAL，设备 DMA 直接读写帧。`BLOCK_DETACH` 按槽位或整体解除映射并关闭驱动侧句柄。
 - VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_FRAME`/`OP_WRITE_FRAME` 用 8 字节参数携带长度，文件内容直接读写客户端共享帧；服务端按发送者维护帧映射，重连时解除旧映射并关闭旧句柄，`VFS_DETACH` 清理帧与会话文件句柄。
 - 块客户端登记 VFS 客户端帧；当后端把该帧作为缓冲区时，块客户端临时 attach 同一物理帧并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据帧切回自有帧。
