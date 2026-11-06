@@ -1,19 +1,12 @@
-//! 连续 DMA 内存池。
+//! 连续 DMA 内存池：底层使用 HMP Capacity。
 
-use alloc::vec::Vec;
-
-use hk_hal::{CacheOps, DmaBuffer, DmaError, DmaOps, PAGE_SIZE, PhysAddr, PhysRange};
+use crate::hmp::{Capacity, CapacityId, CapacityKind};
+use hk_hal::{CacheOps, DmaBuffer, DmaError, DmaOps, PhysRange};
 use spin::Mutex;
-
-struct Pool {
-    next: u64,
-    end: u64,
-}
 
 /// 启动期预留、可分配与归还的连续 DMA 池。
 pub struct DmaPool {
-    pool: Mutex<Option<Pool>>,
-    free: Mutex<Vec<PhysRange>>,
+    capacity: Mutex<Option<Capacity>>,
     cache: Mutex<Option<&'static dyn CacheOps>>,
 }
 
@@ -21,8 +14,7 @@ impl DmaPool {
     /// 构造空池。
     pub const fn new() -> Self {
         Self {
-            pool: Mutex::new(None),
-            free: Mutex::new(Vec::new()),
+            capacity: Mutex::new(None),
             cache: Mutex::new(None),
         }
     }
@@ -34,47 +26,30 @@ impl DmaPool {
 
     /// 注册启动期预留的连续 DMA 区域。
     pub fn init(&self, range: PhysRange) {
-        self.free.lock().clear();
-        *self.pool.lock() = Some(Pool {
-            next: range.start().get(),
-            end: range.end().get(),
-        });
+        *self.capacity.lock() = Capacity::new(
+            CapacityId::new(1),
+            range,
+            hk_hal::PAGE_SIZE,
+            CapacityKind::Dma,
+            0,
+        )
+        .ok();
     }
 
     /// 分配一段连续内存，长度按页向上取整。
     pub fn allocate(&self, len: usize) -> Option<PhysRange> {
-        let page = PAGE_SIZE as u64;
-        let length = (len as u64).div_ceil(page) * page;
-        if length == 0 {
-            return None;
-        }
-        let mut free = self.free.lock();
-        if let Some(index) = free.iter().position(|range| range.len() >= length) {
-            let range = free.swap_remove(index);
-            let start = range.start();
-            if range.len() > length {
-                free.push(PhysRange::new(
-                    PhysAddr::new(start.get() + length),
-                    range.len() - length,
-                ));
-            }
-            return Some(PhysRange::new(start, length));
-        }
-
-        let mut pool = self.pool.lock();
-        let pool = pool.as_mut()?;
-        if pool.next.checked_add(length)? > pool.end {
-            return None;
-        }
-        let start = pool.next;
-        pool.next += length;
-        Some(PhysRange::new(PhysAddr::new(start), length))
+        let mut capacity = self.capacity.lock();
+        let frame = capacity.as_mut()?.allocate(len).ok()?;
+        Some(PhysRange::new(frame.phys(), frame.len() as u64))
     }
 
     /// 归还一段 DMA 内存。
     pub fn free(&self, range: PhysRange) {
-        if !range.is_empty() {
-            self.free.lock().push(range);
+        if range.is_empty() {
+            return;
+        }
+        if let Some(capacity) = self.capacity.lock().as_mut() {
+            let _ = capacity.release(range.start(), range.len() as usize);
         }
     }
 }
@@ -110,6 +85,8 @@ impl DmaOps for DmaPool {
 
 #[cfg(test)]
 mod tests {
+    use hk_hal::PhysAddr;
+
     use super::*;
 
     #[test]

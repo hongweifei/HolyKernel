@@ -133,9 +133,23 @@ impl Capacity {
         if frame.is_pinned() {
             return Err(HmpError::PermissionDenied);
         }
-        let range = PhysRange::new(frame.phys(), frame.len() as u64);
-        self.used = self.used.saturating_sub(frame.len() as u64);
-        self.free.push(range);
+        self.release(frame.phys(), frame.len())
+    }
+
+    /// 归还一段原始物理区间，供底层 DMA 池使用。
+    pub fn release(&mut self, phys: PhysAddr, len: usize) -> Result<(), HmpError> {
+        let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
+        if length == 0 || !phys.get().is_multiple_of(self.page_size as u64) {
+            return Err(HmpError::Unaligned);
+        }
+        let start = phys.get();
+        let end = start.checked_add(length).ok_or(HmpError::OutOfRange)?;
+        let limit_end = self.range.start().get().saturating_add(self.limit);
+        if start < self.range.start().get() || end > limit_end {
+            return Err(HmpError::OutOfRange);
+        }
+        self.used = self.used.saturating_sub(length);
+        self.free.push(PhysRange::new(phys, length));
         self.coalesce();
         Ok(())
     }
