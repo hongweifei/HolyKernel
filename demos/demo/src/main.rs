@@ -7,14 +7,26 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+#[cfg(target_os = "none")]
 use hk_server_api::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
+
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, recv, send, send_handle, service_endpoint, tsc,
-    tsc_frequency, wait_notify, write, write_u64, yield_now,
+    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, recv, send,
+    send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
+    write, write_u64, yield_now,
 };
+
+/// 线程共享的累加计数。
+#[cfg(target_os = "none")]
+static THREAD_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// 线程共享的唤醒字。
+#[cfg(target_os = "none")]
+static THREAD_WORD: AtomicU32 = AtomicU32::new(0);
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -49,6 +61,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo arena ok\n");
         } else {
             write("hk-server-demo arena 失败\n".as_bytes());
+            exit(1)
+        }
+        if verify_threads() {
+            write(b"hk-server-demo thread ok\n");
+        } else {
+            write(b"hk-server-demo thread fail\n");
             exit(1)
         }
 
@@ -318,6 +336,56 @@ fn verify_arena() -> bool {
     let buffer = unsafe { core::slice::from_raw_parts_mut(pointer, 4096) };
     buffer.fill(0xA5);
     buffer.iter().all(|&byte| byte == 0xA5)
+}
+
+/// 线程入口：校验 TLS、累加共享计数并唤醒等待者。
+#[cfg(target_os = "none")]
+extern "C" fn thread_worker(argument: u64) -> ! {
+    let tls: u64;
+    // SAFETY: 运行库在切到本线程前把 FS 基址设为 `argument`。
+    unsafe {
+        core::arch::asm!("mov {}, fs:[0]", out(reg) tls, options(nostack, preserves_flags));
+    }
+    if tls != argument {
+        write(b"hk-server-demo thread tls fail\n");
+        exit(1)
+    }
+    for _ in 0..1000 {
+        THREAD_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+    THREAD_WORD.store(1, Ordering::Release);
+    futex_wake(core::ptr::addr_of!(THREAD_WORD) as u64, 1);
+    exit(0)
+}
+
+/// 验证同地址空间线程、TLS 与共享内存等待。
+#[cfg(target_os = "none")]
+fn verify_threads() -> bool {
+    const STACK: usize = 64 * 1024;
+    let stack = alloc(STACK, 16);
+    let tls = alloc(16, 8);
+    if stack.is_null() || tls.is_null() {
+        return false;
+    }
+    // SAFETY: `tls` 是 Arena 内已清零的 8 字节对齐区间。
+    unsafe { (tls as *mut u64).write(tls as u64) };
+    THREAD_COUNT.store(0, Ordering::Relaxed);
+    THREAD_WORD.store(0, Ordering::Relaxed);
+    let thread = thread_create(
+        thread_worker as *const () as u64,
+        stack as u64 + STACK as u64 - 8,
+        tls as u64,
+        tls as u64,
+    );
+    if thread == u64::MAX {
+        return false;
+    }
+    let word = core::ptr::addr_of!(THREAD_WORD) as u64;
+    let _ = futex_wait(word, 0);
+    if thread_join(thread) != 0 {
+        return false;
+    }
+    THREAD_COUNT.load(Ordering::Relaxed) == 1000 && THREAD_WORD.load(Ordering::Relaxed) == 1
 }
 
 hk_server_api::server_boilerplate!();
