@@ -242,6 +242,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-checkpoint"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
+
+[[package]]
 name = "hk-coroutine"
 version = "0.1.0"
 
@@ -441,6 +448,7 @@ dependencies = [
 name = "hk-runtime"
 version = "0.1.0"
 dependencies = [
+ "hk-checkpoint",
  "hk-hal",
  "hk-handle",
  "hk-ipc",
@@ -786,6 +794,7 @@ name = "hk-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-boot",
+ "hk-checkpoint",
  "hk-hal",
  "hk-kernel",
  "hk-kernel-shell",

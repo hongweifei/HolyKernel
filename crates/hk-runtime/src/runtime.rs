@@ -8,6 +8,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use hk_checkpoint::Page;
 use hk_hal::{CivilTime, DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
@@ -53,12 +54,13 @@ pub(crate) struct FrameMap {
     pub handle: Handle,
 }
 
-/// 保存的 Native Task 现场；VSpace 仍留在平台任务槽中。
+/// 保存的 Native Task 现场；VSpace 已释放，页内容保存在快照中。
 pub(crate) struct Checkpoint<C> {
     pub(crate) slot: usize,
     pub(crate) context: C,
     pub(crate) parent: Option<u64>,
     pub(crate) arena_used: u64,
+    pub(crate) pages: Vec<Page>,
 }
 
 /// 用户态任务运行时。

@@ -137,9 +137,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let context = task.context;
         let parent = task.parent;
         let arena_used = task.arena.used();
+        let pages = self
+            .platform
+            .capture_pages(index)
+            .ok_or_else(|| String::from("无法捕获地址空间"))?;
         if !self.terminate(name, 0) {
             return Err(String::from("无法暂停任务"));
         }
+        self.platform.release_pages(index);
         self.checkpoints.retain(|(saved, _)| saved != name);
         self.checkpoints.push((
             String::from(name),
@@ -148,6 +153,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 context,
                 parent,
                 arena_used,
+                pages,
             },
         ));
         Ok(index)
@@ -158,10 +164,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(position) = self.checkpoints.iter().position(|(saved, _)| saved == name) else {
             return Err(String::from("检查点不存在"));
         };
-        let (_, checkpoint) = self.checkpoints.remove(position);
+        let (saved, checkpoint) = self.checkpoints.remove(position);
         let slot = checkpoint.slot;
         if self.tasks.get(slot).is_none_or(|task| !task.exited) {
+            self.checkpoints.push((saved, checkpoint));
             return Err(String::from("任务槽不可用"));
+        }
+        if !self.platform.restore_pages(slot, &checkpoint.pages) {
+            self.checkpoints.push((saved, checkpoint));
+            return Err(String::from("无法重建地址空间"));
         }
 
         let kernel = &self.kernel;

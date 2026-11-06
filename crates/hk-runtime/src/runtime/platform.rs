@@ -1,5 +1,8 @@
 //! 平台提供的用户态运行支持。
 
+use alloc::vec::Vec;
+
+use hk_checkpoint::Page;
 use hk_hal::CivilTime;
 
 /// 平台提供的用户态运行支持。
@@ -111,4 +114,17 @@ pub trait UserPlatform {
     }
     /// 唤醒空闲 CPU 重新检查调度队列。
     fn wake_aps(&self) {}
+
+    /// 捕获任务地址空间的用户页；不支持时返回 `None`。
+    fn capture_pages(&self, _slot: usize) -> Option<Vec<Page>> {
+        None
+    }
+
+    /// 从快照重建任务地址空间；不支持时返回 `false`。
+    fn restore_pages(&self, _slot: usize, _pages: &[Page]) -> bool {
+        false
+    }
+
+    /// 释放任务地址空间及其页帧。
+    fn release_pages(&self, _slot: usize) {}
 }

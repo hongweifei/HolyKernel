@@ -1,0 +1,13 @@
+[package]
+name = "hk-checkpoint"
+description = "HolyKernel Native Task 检查点快照格式"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+
+[lints]
+workspace = true

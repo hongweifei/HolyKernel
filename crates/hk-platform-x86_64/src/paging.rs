@@ -3,6 +3,7 @@
 //! 沿用 Limine 建立的页表，按需为 MMIO 建立 4 KiB 映射：缺失的中间级页表从物理
 //! 帧分配器取页并清零，页表本身经 HHDM 访问。
 
+use alloc::vec::Vec;
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -18,17 +19,35 @@ const PWT: u64 = 1 << 3;
 const PCD: u64 = 1 << 4;
 const HUGE: u64 = 1 << 7;
 const COW: u64 = 1 << 9;
+const NX: u64 = 1 << 63;
+const FLAGS_MASK: u64 = 0xFFF | NX;
 const ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 const ENTRIES: usize = 512;
 const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
+static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
 static COW_FRAMES: FramePool = FramePool::new();
 static USER_TABLE_FRAMES: FramePool = FramePool::new();
+static RESTORE_FRAMES: FramePool = FramePool::new();
 
-/// 设置页表运行时使用的 direct map 基址。
+/// 设置页表运行时使用的 direct map 基址，并记录内核页表根。
 pub fn init_runtime(direct_map: u64) {
+    KERNEL_ROOT.store(read_cr3().get(), Ordering::Release);
     DIRECT_MAP.store(direct_map, Ordering::Release);
+}
+
+/// 返回 direct map 基址；未初始化时为 0。
+pub fn direct_map_base() -> u64 {
+    DIRECT_MAP.load(Ordering::Acquire)
+}
+
+/// 返回启动时记录的内核页表句柄；与当前 CR3 无关。
+pub fn kernel_table() -> PageTable {
+    PageTable {
+        direct_map: DIRECT_MAP.load(Ordering::Acquire),
+        root: PhysAddr::new(KERNEL_ROOT.load(Ordering::Acquire)),
+    }
 }
 
 /// 预留写时复制与页表使用的物理帧。
@@ -38,6 +57,21 @@ pub fn reserve_frames(allocator: &mut FrameAllocator, count: usize) {
 
 fn take_frame() -> Option<PhysAddr> {
     COW_FRAMES.take()
+}
+
+/// 预留检查点恢复使用的物理帧。
+pub fn reserve_restore_frames(allocator: &mut FrameAllocator, count: usize) {
+    RESTORE_FRAMES.reserve(allocator, count);
+}
+
+/// 取出一个检查点恢复帧。
+pub fn take_restore_frame() -> Option<PhysAddr> {
+    RESTORE_FRAMES.take()
+}
+
+/// 归还一个检查点恢复帧。
+pub fn give_restore_frame(frame: PhysAddr) {
+    RESTORE_FRAMES.give(frame);
 }
 
 /// 预留 MMIO 映射所需的页表帧。
@@ -92,6 +126,32 @@ impl PageFlags {
     const fn bits(self) -> u64 {
         self.0
     }
+
+    /// 返回原始页表属性位。
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+
+    /// 从原始页表属性位构造。
+    pub const fn from_raw(bits: u64) -> Self {
+        Self(bits)
+    }
+}
+
+/// 把快照属性转换为恢复用属性：清除 COW 与大页位，COW 页恢复为可写私有页。
+pub const fn restore_flags(bits: u64) -> PageFlags {
+    let writable = if bits & COW != 0 {
+        WRITABLE
+    } else {
+        bits & WRITABLE
+    };
+    PageFlags((bits & !COW & !HUGE) | writable | USER)
+}
+
+fn push_unique(frames: &mut Vec<PhysAddr>, frame: PhysAddr) {
+    if !frames.contains(&frame) {
+        frames.push(frame);
+    }
 }
 
 /// 页表操作错误。
@@ -142,7 +202,15 @@ impl PageTable {
 
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
     pub fn create_user(&self, allocator: &mut FrameAllocator) -> Result<Self, PagingError> {
-        let root = allocator.allocate().ok_or(PagingError::OutOfFrames)?;
+        self.create_user_with(|| allocator.allocate())
+    }
+
+    /// 以指定分配器创建用户页表；中间页表也由 `allocate` 提供。
+    pub fn create_user_with<F>(&self, mut allocate: F) -> Result<Self, PagingError>
+    where
+        F: FnMut() -> Option<PhysAddr>,
+    {
+        let root = allocate().ok_or(PagingError::OutOfFrames)?;
         self.zero_frame(root);
 
         for index in KERNEL_PML4_START..ENTRIES {
@@ -158,6 +226,148 @@ impl PageTable {
             direct_map: self.direct_map,
             root,
         })
+    }
+
+    /// 遍历低半区的 4 KiB 用户页；设备（PWT/PCD）页与大页跳过。
+    pub fn user_pages<F>(&self, mut visit: F)
+    where
+        F: FnMut(u64, u64, u64),
+    {
+        for pml4 in 0..KERNEL_PML4_START {
+            // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
+            let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
+            if pml4e & PRESENT == 0 || pml4e & USER == 0 {
+                continue;
+            }
+            let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
+            for pdpt_index in 0..ENTRIES {
+                // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
+                let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
+                if pdp & PRESENT == 0 || pdp & USER == 0 {
+                    continue;
+                }
+                let pd = PhysAddr::new(pdp & ADDRESS_MASK);
+                for pd_index in 0..ENTRIES {
+                    // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
+                    let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
+                    if pde & PRESENT == 0 || pde & USER == 0 || pde & HUGE != 0 {
+                        continue;
+                    }
+                    let pt = PhysAddr::new(pde & ADDRESS_MASK);
+                    for pt_index in 0..ENTRIES {
+                        // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
+                        let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
+                        if pte & PRESENT == 0 || pte & USER == 0 {
+                            continue;
+                        }
+                        if pte & (PWT | PCD) != 0 {
+                            continue;
+                        }
+                        let virt = ((pml4 as u64) << 39)
+                            | ((pdpt_index as u64) << 30)
+                            | ((pd_index as u64) << 21)
+                            | ((pt_index as u64) << 12);
+                        visit(virt, pte & FLAGS_MASK, pte & ADDRESS_MASK);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 判断低半区是否存在写时复制页；此类任务暂不支持检查点。
+    pub fn has_cow_user_page(&self) -> bool {
+        for pml4 in 0..KERNEL_PML4_START {
+            // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
+            let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
+            if pml4e & PRESENT == 0 {
+                continue;
+            }
+            let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
+            for pdpt_index in 0..ENTRIES {
+                // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
+                let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
+                if pdp & PRESENT == 0 {
+                    continue;
+                }
+                let pd = PhysAddr::new(pdp & ADDRESS_MASK);
+                for pd_index in 0..ENTRIES {
+                    // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
+                    let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
+                    if pde & PRESENT == 0 || pde & HUGE != 0 {
+                        continue;
+                    }
+                    let pt = PhysAddr::new(pde & ADDRESS_MASK);
+                    for pt_index in 0..ENTRIES {
+                        // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
+                        let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
+                        if pte & PRESENT != 0 && pte & COW != 0 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// 收集低半区用户页表与数据帧，供检查点释放或复用。
+    pub fn user_frames(&self) -> Vec<PhysAddr> {
+        let mut frames = Vec::new();
+        push_unique(&mut frames, self.root);
+        for pml4 in 0..KERNEL_PML4_START {
+            // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
+            let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
+            if pml4e & PRESENT == 0 {
+                continue;
+            }
+            let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
+            push_unique(&mut frames, pdpt);
+            for pdpt_index in 0..ENTRIES {
+                // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
+                let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
+                if pdp & PRESENT == 0 {
+                    continue;
+                }
+                let pd = PhysAddr::new(pdp & ADDRESS_MASK);
+                push_unique(&mut frames, pd);
+                for pd_index in 0..ENTRIES {
+                    // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
+                    let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
+                    if pde & PRESENT == 0 || pde & HUGE != 0 {
+                        continue;
+                    }
+                    let pt = PhysAddr::new(pde & ADDRESS_MASK);
+                    push_unique(&mut frames, pt);
+                    for pt_index in 0..ENTRIES {
+                        // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
+                        let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
+                        if pte & PRESENT == 0 || pte & (PWT | PCD) != 0 {
+                            continue;
+                        }
+                        push_unique(&mut frames, PhysAddr::new(pte & ADDRESS_MASK));
+                    }
+                }
+            }
+        }
+        frames
+    }
+
+    /// 从物理帧读取一段字节；帧经 direct map 访问。
+    pub fn read_phys(&self, phys: PhysAddr, out: &mut [u8]) {
+        let source = (self.direct_map + phys.get()) as *const u8;
+        // SAFETY: 物理帧位于 direct map 内，调用方保证长度不超过一页。
+        unsafe {
+            core::ptr::copy_nonoverlapping(source, out.as_mut_ptr(), out.len());
+        }
+    }
+
+    /// 向物理帧写入一段字节；帧经 direct map 访问。
+    pub fn write_phys(&self, phys: PhysAddr, data: &[u8]) {
+        let target = (self.direct_map + phys.get()) as *mut u8;
+        // SAFETY: 物理帧位于 direct map 内，调用方保证长度不超过一页。
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr(), target, data.len());
+        }
     }
 
     /// 切换到该页表。

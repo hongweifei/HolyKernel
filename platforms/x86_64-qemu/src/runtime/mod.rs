@@ -8,8 +8,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use hk_checkpoint::Page;
 use hk_hal::{Console, SyscallFrame};
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
+use hk_platform_x86_64::paging;
 use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
@@ -246,6 +248,63 @@ impl UserPlatform for X86Platform {
 
     fn wake_aps(&self) {
         cpu::wake_aps();
+    }
+
+    fn capture_pages(&self, slot: usize) -> Option<Vec<Page>> {
+        USER_VSPACES.with(slot, |table| {
+            if table.has_cow_user_page() {
+                return None;
+            }
+            let mut pages = Vec::new();
+            table.user_pages(|virt, flags, phys| {
+                let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
+                table.read_phys(hk_hal::PhysAddr::new(phys), &mut data);
+                pages.push(Page { virt, flags, data });
+            });
+            if pages.is_empty() { None } else { Some(pages) }
+        })?
+    }
+
+    fn restore_pages(&self, slot: usize, pages: &[Page]) -> bool {
+        paging::kernel_table().activate();
+        if let Some(old) = USER_VSPACES.take(slot) {
+            for frame in old.user_frames() {
+                paging::give_restore_frame(frame);
+            }
+        }
+        let template = paging::kernel_table();
+        let Ok(table) = template.create_user_with(paging::take_restore_frame) else {
+            return false;
+        };
+        for page in pages {
+            let Some(frame) = paging::take_restore_frame() else {
+                return false;
+            };
+            table.write_phys(frame, &page.data);
+            let flags = paging::restore_flags(page.flags);
+            if table
+                .map_with(
+                    hk_hal::VirtAddr::new(page.virt),
+                    frame,
+                    flags,
+                    paging::take_restore_frame,
+                )
+                .is_err()
+            {
+                return false;
+            }
+        }
+        USER_VSPACES.install(slot, table);
+        true
+    }
+
+    fn release_pages(&self, slot: usize) {
+        paging::kernel_table().activate();
+        if let Some(old) = USER_VSPACES.take(slot) {
+            for frame in old.user_frames() {
+                paging::give_restore_frame(frame);
+            }
+        }
     }
 }
 

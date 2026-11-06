@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hk-checkpoint = { version = "0.1.0", path = "../hk-checkpoint" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-ipc = { version = "0.1.0", path = "../hk-ipc" }

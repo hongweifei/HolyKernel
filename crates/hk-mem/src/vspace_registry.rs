@@ -63,6 +63,18 @@ impl<T: UserVspace> VspaceRegistry<T> {
         }
     }
 
+    /// 取走任务槽位的地址空间。
+    pub fn take(&self, slot: usize) -> Option<T> {
+        let mut tables = self.tables.lock();
+        tables.get_mut(slot)?.take()
+    }
+
+    /// 借用任务槽位的地址空间。
+    pub fn with<R>(&self, slot: usize, inspect: impl FnOnce(&T) -> R) -> Option<R> {
+        let tables = self.tables.lock();
+        tables.get(slot).and_then(Option::as_ref).map(inspect)
+    }
+
     /// 返回任务槽位的页表根；不存在时为 0。
     pub fn root(&self, slot: usize) -> u64 {
         self.tables
