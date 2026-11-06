@@ -18,6 +18,7 @@ pub mod heap;
 pub mod holy;
 pub mod input;
 pub mod memory;
+pub mod memory_manager;
 pub mod net;
 pub mod root;
 pub mod runtime;
@@ -54,4 +55,5 @@ pub(crate) use arch::call as syscall_call;
 
 mod syscall;
 pub use memory::*;
+pub use memory_manager::*;
 pub use syscall::*;

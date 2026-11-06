@@ -8,6 +8,11 @@ use crate::{
     SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
+/// Memory Server 分配请求。
+pub const MEMORY_ALLOC: u64 = 0x4D45_4D41;
+/// Memory Server 分配成功回复。
+pub const MEMORY_ALLOCATED: u64 = 0x4D45_4D42;
+
 /// Revision 能力。
 pub const CAPABILITY_REVISION: u8 = 0;
 /// Surface 能力。
@@ -123,6 +128,13 @@ pub fn map_new_lazy(length: usize) -> Option<(u64, u64, u64)> {
     let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
     let (virt, _) = region_info(region)?;
     Some((capability, region, virt))
+}
+
+/// 在不要求常驻物理页的情况下映射能力。
+pub fn map_lazy(capability: u64, length: usize) -> Option<(u64, u64)> {
+    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
+    let (virt, _) = region_info(region)?;
+    Some((region, virt))
 }
 
 /// 映射已有能力，返回 `(region, virt)`。

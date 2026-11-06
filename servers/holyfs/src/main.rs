@@ -71,7 +71,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let enabled = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs") || line.contains("checkpoint-srv-test"));
     let mut volumes = Volumes::new();
-    let mut cache = ReadCache::new(hk_worker::Pool::start_with_stack(1, 64 * 1024));
+    let mut cache = ReadCache::new(hk_worker::Pool::start_with_stack(1, 64 * 1024), endpoint);
     if enabled {
         if let Some(disk) = open_disk(endpoint) {
             let mut probe = [0_u8; 512];
