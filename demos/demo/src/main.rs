@@ -7,7 +7,23 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
+extern crate alloc;
+
+#[cfg(target_os = "none")]
+use hk_server_api::heap::FreeHeap;
+
+/// 服务堆大小；协程栈从该堆分配。
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 256 * 1024;
+
+#[cfg(target_os = "none")]
+#[global_allocator]
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+
+#[cfg(target_os = "none")]
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+#[cfg(target_os = "none")]
+use hk_coroutine::{Coroutine, State, suspend};
 #[cfg(target_os = "none")]
 use hk_server_api::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
@@ -19,6 +35,10 @@ use hk_server_api::{
     send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
     write, write_u64, yield_now,
 };
+
+/// 协程共享的执行轨迹。
+#[cfg(target_os = "none")]
+static COROUTINE_TRACE: AtomicU32 = AtomicU32::new(0);
 
 /// 线程共享的累加计数。
 #[cfg(target_os = "none")]
@@ -67,6 +87,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo thread ok\n");
         } else {
             write(b"hk-server-demo thread fail\n");
+            exit(1)
+        }
+        if verify_coroutines() {
+            write(b"hk-server-demo coroutine ok\n");
+        } else {
+            write(b"hk-server-demo coroutine fail\n");
             exit(1)
         }
 
@@ -386,6 +412,37 @@ fn verify_threads() -> bool {
         return false;
     }
     THREAD_COUNT.load(Ordering::Relaxed) == 1000 && THREAD_WORD.load(Ordering::Relaxed) == 1
+}
+
+/// 验证两个协程在同一线程内交替执行。
+#[cfg(target_os = "none")]
+fn verify_coroutines() -> bool {
+    COROUTINE_TRACE.store(0, Ordering::Relaxed);
+    let Some(mut first) = Coroutine::new(16 * 1024, || {
+        COROUTINE_TRACE.fetch_add(1, Ordering::Relaxed);
+        suspend();
+        COROUTINE_TRACE.fetch_add(100, Ordering::Relaxed);
+    }) else {
+        return false;
+    };
+    let Some(mut second) = Coroutine::new(16 * 1024, || {
+        COROUTINE_TRACE.fetch_add(10, Ordering::Relaxed);
+        suspend();
+        COROUTINE_TRACE.fetch_add(1000, Ordering::Relaxed);
+    }) else {
+        return false;
+    };
+
+    if first.resume() != State::Suspended || second.resume() != State::Suspended {
+        return false;
+    }
+    if COROUTINE_TRACE.load(Ordering::Relaxed) != 11 {
+        return false;
+    }
+    if first.resume() != State::Finished || second.resume() != State::Finished {
+        return false;
+    }
+    COROUTINE_TRACE.load(Ordering::Relaxed) == 1111
 }
 
 hk_server_api::server_boilerplate!();
