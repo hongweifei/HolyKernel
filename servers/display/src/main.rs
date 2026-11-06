@@ -742,6 +742,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 write(b"\n");
             }
             INPUT_POINTER => {
+                static FIRST_POINTER: core::sync::atomic::AtomicBool =
+                    core::sync::atomic::AtomicBool::new(true);
+                if FIRST_POINTER.swap(false, core::sync::atomic::Ordering::Relaxed) {
+                    write(b"hk-server-display: pointer ready\n");
+                }
                 let (x, y) = unpack_pointer(word);
                 let next = pointer_position(x, y, screen.width, screen.height);
                 if let Some(previous) = seat.pointer {

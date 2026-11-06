@@ -86,12 +86,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let Some(descriptor) = DeviceGrant::decode(&bytes[..length]) else {
             continue;
         };
+        let line = descriptor.irq.unwrap_or(0xFF);
         match probe(handle, descriptor) {
             Ok(Device::Input(input)) => {
                 if irq_bind(handle, notification, 1) != 0 {
                     write(b"hk-server-input: irq bind failed\n");
                     continue;
                 }
+                write(b"hk-server-input: device ");
+                write_u64(index - 1);
+                write(b" line ");
+                write_u64(u64::from(line));
+                write(b"\n");
                 inputs.push(input);
             }
             Ok(_) => {}
