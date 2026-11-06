@@ -229,6 +229,7 @@ version = "0.1.0"
 name = "hk-block"
 version = "0.1.0"
 dependencies = [
+ "hk-async",
  "hk-server-api",
 ]
 
@@ -604,6 +605,7 @@ dependencies = [
 name = "hk-server-holyfs"
 version = "0.1.0"
 dependencies = [
+ "hk-async",
  "hk-block",
  "hk-fs",
  "hk-fs-holyfs",

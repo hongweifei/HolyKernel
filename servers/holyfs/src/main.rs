@@ -69,6 +69,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut volumes = Volumes::new();
     if enabled {
         if let Some(disk) = open_disk(endpoint) {
+            let mut probe = [0_u8; 512];
+            match hk_async::block_on(disk.read_async(0, &mut probe)) {
+                Ok(512) => write(b"hk-server-holyfs: async block ok\n"),
+                _ => write(b"hk-server-holyfs: async block fail\n"),
+            }
             let disk = SharedClient::new(disk);
             let total = disk.capacity_blocks();
             let half = total / 2;

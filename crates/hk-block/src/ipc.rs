@@ -94,6 +94,8 @@ pub struct BlockClient {
     request: Vec<u8>,
     response: Vec<u8>,
     endpoint: u64,
+    /// 已完成但尚未被对应请求取走的标签。
+    deferred: Vec<(u32, u8, usize)>,
 }
 
 impl Drop for BlockClient {
@@ -129,6 +131,7 @@ impl BlockClient {
             request: vec![0_u8; 64],
             response: vec![0_u8; 64 * 1024],
             endpoint: 0,
+            deferred: Vec::new(),
         }
     }
 
@@ -253,14 +256,35 @@ impl BlockClient {
         Some((tag, status, body_u64(body)))
     }
 
+    /// 等待指定标签的完成；其它标签的完成暂存，供各自的请求取走。
+    pub fn poll_for(&mut self, tag: u32) -> Option<(u8, usize)> {
+        if let Some(index) = self
+            .deferred
+            .iter()
+            .position(|(pending, _, _)| *pending == tag)
+        {
+            let (_, status, written) = self.deferred.remove(index);
+            return Some((status, written));
+        }
+        while let Some((completed, status, written)) = self.poll() {
+            if completed == tag {
+                return Some((status, written));
+            }
+            self.deferred.push((completed, status, written));
+        }
+        None
+    }
+
     /// 阻塞回收一个完成。
     pub fn wait(&mut self) -> (u32, u8, usize) {
-        loop {
+        hk_async::block_on(core::future::poll_fn(|context| {
             if let Some(completed) = self.poll() {
-                return completed;
+                core::task::Poll::Ready(completed)
+            } else {
+                context.waker().wake_by_ref();
+                core::task::Poll::Pending
             }
-            yield_now();
-        }
+        }))
     }
 
     /// 读取块数据。
@@ -537,6 +561,84 @@ impl ClientDisk {
     /// 返回设备容量，单位为字节。
     pub const fn capacity_bytes(&self) -> u64 {
         self.capacity
+    }
+
+    /// 异步读取一段块数据；未就绪时让出执行器。
+    pub async fn read_async(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        if buffer.len() > FRAME_LEN {
+            return Err(BlockError::InvalidLength);
+        }
+        let mut submitted: Option<(usize, u32)> = None;
+        core::future::poll_fn(|context| {
+            let mut client = self.client.borrow_mut();
+            let (slot, tag) = match submitted {
+                Some(entry) => entry,
+                None => {
+                    let Some(slot) = client.idle_slot() else {
+                        context.waker().wake_by_ref();
+                        return core::task::Poll::Pending;
+                    };
+                    match client.submit_own(slot, OP_READ, block, buffer.len()) {
+                        Ok(tag) => {
+                            submitted = Some((slot, tag));
+                            (slot, tag)
+                        }
+                        Err(status) => return core::task::Poll::Ready(Err(block_status(status))),
+                    }
+                }
+            };
+            if let Some((status, written)) = client.poll_for(tag) {
+                if status != STATUS_OK {
+                    return core::task::Poll::Ready(Err(block_status(status)));
+                }
+                let written = written.min(buffer.len());
+                client.copy_out(slot, written, buffer, 0);
+                return core::task::Poll::Ready(Ok(written));
+            }
+            context.waker().wake_by_ref();
+            core::task::Poll::Pending
+        })
+        .await
+    }
+
+    /// 异步写入一段块数据；未就绪时让出执行器。
+    pub async fn write_async(&self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        if data.len() > FRAME_LEN {
+            return Err(BlockError::InvalidLength);
+        }
+        let mut submitted: Option<(usize, u32)> = None;
+        core::future::poll_fn(|context| {
+            let mut client = self.client.borrow_mut();
+            let (_slot, tag) = match submitted {
+                Some(entry) => entry,
+                None => {
+                    let Some(slot) = client.idle_slot() else {
+                        context.waker().wake_by_ref();
+                        return core::task::Poll::Pending;
+                    };
+                    if client.ensure_slot(slot).is_err() {
+                        return core::task::Poll::Ready(Err(BlockError::Io));
+                    }
+                    client.frame(slot)[..data.len()].copy_from_slice(data);
+                    match client.submit_raw(slot, OP_WRITE, block, data.len()) {
+                        Ok(tag) => {
+                            submitted = Some((slot, tag));
+                            (slot, tag)
+                        }
+                        Err(status) => return core::task::Poll::Ready(Err(block_status(status))),
+                    }
+                }
+            };
+            if let Some((status, written)) = client.poll_for(tag) {
+                if status != STATUS_OK {
+                    return core::task::Poll::Ready(Err(block_status(status)));
+                }
+                return core::task::Poll::Ready(Ok(written.min(data.len())));
+            }
+            context.waker().wake_by_ref();
+            core::task::Poll::Pending
+        })
+        .await
     }
 }
 
