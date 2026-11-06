@@ -11,6 +11,8 @@ static UPTIME_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static TICK_COUNT: AtomicU32 = AtomicU32::new(TICK_INITIAL_COUNT);
 static TICK_ARMED: AtomicBool = AtomicBool::new(false);
+/// 当前 CPU 的调度 tick 是否处于投递状态。
+static TICK_ENABLED: AtomicBool = AtomicBool::new(false);
 /// 启动周期定时器，目标中断次数为 `target`。
 pub fn arm_timer(target: u64) {
     TICK_ARMED.store(true, Ordering::SeqCst);
@@ -44,6 +46,7 @@ pub fn start_tick() {
     }
     TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    TICK_ENABLED.store(true, Ordering::SeqCst);
 
     // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
     unsafe { asm!("sti", options(nomem, nostack)) };
@@ -60,11 +63,32 @@ pub fn start_ap_tick() {
     }
 }
 
+/// 重新装载 tick 计数并启用定时器。
+///
+/// shell 命令在调度循环之外执行，`stop_tick` 已屏蔽本地定时器；嵌套运行服务前
+/// 需要重新写入初始计数，否则解除屏蔽后可能不再产生周期性中断。
+pub fn rearm_tick() {
+    TICK_ARMED.store(true, Ordering::SeqCst);
+    TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
+    lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
+    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    TICK_ENABLED.store(true, Ordering::SeqCst);
+
+    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    unsafe { asm!("sti", options(nomem, nostack)) };
+}
+
 /// 停止调度 tick 并关中断。
 pub fn stop_tick() {
     // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
     unsafe { asm!("cli", options(nomem, nostack)) };
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+    TICK_ENABLED.store(false, Ordering::SeqCst);
+}
+
+/// 调度 tick 当前是否在投递。
+pub fn tick_enabled() -> bool {
+    TICK_ENABLED.load(Ordering::SeqCst)
 }
 
 /// 用 TSC 频率校准 LAPIC 定时器，把调度 tick 设为约 10 ms。

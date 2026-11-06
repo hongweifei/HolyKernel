@@ -26,6 +26,12 @@ pub trait ScriptSource {
 pub trait Scheduling {
     /// 调度至多 `steps` 步；返回是否已无可运行线程。
     fn run_budgeted(&mut self, services: &mut ServiceTable, steps: usize) -> bool;
+
+    /// 进入嵌套服务运行；默认无需额外准备。
+    fn begin_service_run(&mut self) {}
+
+    /// 退出嵌套服务运行；恢复进入前的调度状态。
+    fn end_service_run(&mut self) {}
 }
 
 /// 内核态 Shell 宿主。
@@ -122,11 +128,17 @@ where
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
-        service::start(self.runtime, self.services, self.loader, name, parent)
+        self.scheduler.begin_service_run();
+        let result = service::start(self.runtime, self.services, self.loader, name, parent);
+        self.scheduler.end_service_run();
+        result
     }
 
     fn restart(&mut self, name: &str, parent: Option<&str>) -> String {
-        service::restart(self.runtime, self.services, self.loader, name, parent)
+        self.scheduler.begin_service_run();
+        let result = service::restart(self.runtime, self.services, self.loader, name, parent);
+        self.scheduler.end_service_run();
+        result
     }
 
     fn script(&self, name: &str) -> Result<String, String> {
@@ -150,7 +162,10 @@ where
         let Some(module) = parts.next() else {
             return String::from("用法：replace <服务> <镜像>\n");
         };
-        service::replace(self.runtime, self.services, self.loader, name, module, None)
+        self.scheduler.begin_service_run();
+        let result = service::replace(self.runtime, self.services, self.loader, name, module, None);
+        self.scheduler.end_service_run();
+        result
     }
 
     /// 保存任务检查点。

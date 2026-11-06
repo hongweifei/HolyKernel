@@ -370,12 +370,30 @@ pub fn process_controls(loader: &mut crate::shell::Loader<'_>, table: &mut Servi
 
 /// 按重启策略监督服务；返回重启数量。
 pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) -> usize {
-    hk_root_server::service::supervise(
-        &RUNTIME,
-        table,
-        loader,
-        hk_root_server::service::restart_policy,
-    )
+    with_tick(|| {
+        hk_root_server::service::supervise(
+            &RUNTIME,
+            table,
+            loader,
+            hk_root_server::service::restart_policy,
+        )
+    })
+}
+
+/// 在调度 tick 可用的前提下执行一次服务控制。
+///
+/// shell 命令在 `run_budgeted` 之外执行，此时 tick 默认关闭；嵌套运行的服务需要
+/// 周期 tick 才能推进定时器与抢占。已经开启时保持原状态。
+fn with_tick<R, F: FnOnce() -> R>(work: F) -> R {
+    let armed = cpu::tick_enabled();
+    if !armed {
+        cpu::rearm_tick();
+    }
+    let result = work();
+    if !armed {
+        cpu::stop_tick();
+    }
+    result
 }
 
 /// 启动服务。
@@ -385,7 +403,7 @@ pub fn start_service(
     name: &str,
     parent: Option<&str>,
 ) -> String {
-    hk_root_server::service::start(&RUNTIME, services, loader, name, parent)
+    with_tick(|| hk_root_server::service::start(&RUNTIME, services, loader, name, parent))
 }
 
 /// 重启已退出的服务。
@@ -395,7 +413,7 @@ pub fn restart_service(
     name: &str,
     parent: Option<&str>,
 ) -> String {
-    hk_root_server::service::restart(&RUNTIME, services, loader, name, parent)
+    with_tick(|| hk_root_server::service::restart(&RUNTIME, services, loader, name, parent))
 }
 
 /// 保存 Native Task 检查点。
@@ -433,7 +451,7 @@ pub fn replace_service(
     let Some(module) = parts.next() else {
         return String::from("用法：replace <服务> <镜像>\n");
     };
-    hk_root_server::service::replace(&RUNTIME, services, loader, name, module, None)
+    with_tick(|| hk_root_server::service::replace(&RUNTIME, services, loader, name, module, None))
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {

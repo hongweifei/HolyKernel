@@ -138,11 +138,39 @@ impl ScriptSource for Loader<'_> {
 }
 
 /// 平台调度回调。
-struct Scheduler;
+struct Scheduler {
+    /// 嵌套服务运行前的 tick 状态；`None` 表示不在嵌套运行中。
+    tick_restore: Option<bool>,
+}
+
+impl Scheduler {
+    const fn new() -> Self {
+        Self { tick_restore: None }
+    }
+}
 
 impl Scheduling for Scheduler {
     fn run_budgeted(&mut self, services: &mut ServiceTable, steps: usize) -> bool {
         runtime::run_budgeted(services, steps)
+    }
+
+    fn begin_service_run(&mut self) {
+        if self.tick_restore.is_some() {
+            return;
+        }
+        let armed = cpu::tick_enabled();
+        self.tick_restore = Some(armed);
+        if !armed {
+            cpu::rearm_tick();
+        }
+    }
+
+    fn end_service_run(&mut self) {
+        if let Some(armed) = self.tick_restore.take()
+            && !armed
+        {
+            cpu::stop_tick();
+        }
     }
 }
 
@@ -160,7 +188,7 @@ pub fn run(
         runtime::host(),
         services,
         loader,
-        &mut Scheduler,
+        &mut Scheduler::new(),
         script,
     );
     Ok(())
@@ -174,7 +202,13 @@ pub fn interactive(
     loader: &mut Loader<'_>,
 ) -> Result<(), String> {
     let io = ConsoleIo { console, screen };
-    hk_kernel_shell::interactive(&io, runtime::host(), services, loader, &mut Scheduler);
+    hk_kernel_shell::interactive(
+        &io,
+        runtime::host(),
+        services,
+        loader,
+        &mut Scheduler::new(),
+    );
     Ok(())
 }
 
