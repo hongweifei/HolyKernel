@@ -13,7 +13,7 @@
 | L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
 | L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
 | L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像、测试退出 |
-| L2 用户态库 | `hk-server-api`、`hk-block`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、块/文件系统核心、可缩放字体、网络协议栈、virtio 适配、服务链接脚本 |
+| L2 用户态库 | `hk-server-api`、`hk-debug`、`hk-block`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、用户态符号与回溯格式化、块/文件系统核心、可缩放字体、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
@@ -33,6 +33,7 @@
 | L0 内核 crate | `hk-base`、`hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
 | `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
+| `hk-debug` | `hk-server-api` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*` |
 | `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
 | `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、`hk-kernel-shell`、平台二进制 |
 | `hk-kernel-shell` | `hk-shell`、`hk-root-server`、`hk-hal` | `hk-server-*`、平台二进制 |
@@ -59,25 +60,26 @@
 | 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
 | 服务客户端与编解码 | `crates/hk-server-api/src/*` |
-| 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
+| 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
+| 镜像服务清单与自动基址 | `crates/hk-server-build/src/lib.rs`（`xtask` 复用） |
 | 默认启动服务白名单 | `crates/hk-root-server/src/loader.rs` |
 | 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
-新增服务时只需要改 `catalog.rs`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
+新增服务时只需要改 `hk-server-build` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
 
 ---
 
 ## 4. 新增服务清单
 
 1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-server-api` 与所需 L2 库；`[build-dependencies] hk-server-build`。
-2. `build.rs`：`hk_server_build::configure(<独立链接基址>)`。
+2. `build.rs`：`hk_server_build::configure()`；镜像基址按 `SERVERS` 顺序自动分配。
 3. `src/main.rs`：
    - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
    - 实现 `_start(endpoint)`；
    - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
    - 服务发现使用 `hk_server_api::runtime::wait_service`。
-4. 加入 `xtask/src/catalog.rs` 的 `SERVERS`。
+4. 加入 `hk-server-build` 的 `SERVERS`；`xtask` 的镜像清单直接复用该表。
 5. 如需默认启动，加入 `hk-root-server` 的 `BOOT_SERVICES`，并在平台 loader 的模式过滤中处理。
 6. 协议与常量放入 `hk-server-api`，不放入内核或 `hk-shell`。
 7. 为可自动验证的行为新增 `xtask smoke` 模式。

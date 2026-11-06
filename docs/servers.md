@@ -197,7 +197,7 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 - **Wayland Server / XWayland**：Linux Wayland/X11 客户端适配到 surface/seat。
 - **Harmony Server**：OpenHarmony standard-system 用户态 + KAL/HDI 适配。
 - **Checkpoint Server**：`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议，委托 Root 控制保存与恢复 Native Task；`hk-server-checkpoint-test` 自检客户端验证保存、恢复与列表。
-- **Debug Server**：分页 Task/资源/trace 视图与最近异常符号化回溯；`hk-server-dbg` 客户端输出同样的视图。
+- **Debug Server**：分页 Task/资源/trace 视图与最近异常回溯；内核只保存内核符号并输出原始现场，服务符号经 Root 按地址按需查询，符号化与回溯过滤在用户态（`hk-debug`）完成；`hk-server-dbg` 客户端输出同样的视图。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
 - **Console Service**：纯终端数据面，只做行编辑、回显、UTF-8/宽字符与按行交付；不解析命令。用户态 Shell 未启动时保留输入行，收到读行请求后再交付。
 - **Shell 分层**：`hk-shell` 只提供命令解析、格式化与 `ShellHost`/`ShellIo` 契约，保持零依赖。内核态 shell 直接使用平台 runtime/loader，负责文本模式与恢复；用户态 `hk-server-shell` 通过 `ShellIo` 访问 Console，通过 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`）执行 `tasks`、`services`、`start`、`restart` 与脚本读取，`mounts` 作为用户态宿主扩展通过 VFS 只读查询挂载表，不进入 `hk-shell` 核心命令表，也不链接 `hk-runtime`/`hk-root-server`。两类 Shell 共享解析/格式化，但能力与权限边界独立；Console 不承担第三套命令。

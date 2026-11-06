@@ -157,9 +157,10 @@ sequenceDiagram
 ## 9. 符号化调试
 
 - Debug Server 读取构建期符号表与 Task 符号。
+- 内核只安装内核符号、保存原始异常现场；服务符号留在 `.hkx` 镜像中，经 Root 控制按地址按需查询，不进入内核常驻状态。
+- 回溯过滤、符号化与展示由用户态 `hk-debug`/Debug Server 完成，`hk-dbg` 与 Workbench 复用同一实现。
 - 地址 → 函数/行号 → 源码文档/HolyDoc 链接。
 - 栈回溯显示 Task、TCB、HolyDoc 链接。
-- 支持 `hk-dbg` 协议与 Workbench 面板。
 - 崩溃 dump 包含符号化栈与相关文档链接。
 
 ---
