@@ -32,6 +32,7 @@ impl<D: BlockDevice> Volume<D> {
         name: &str,
         kind: DocumentKind,
     ) -> Result<DocId, HolyError> {
+        self.ensure_writable()?;
         validate_name(name)?;
         self.check_quota(1, 0, 2, 0, 0)?;
         let parent_head = *self.head(parent)?;
@@ -93,6 +94,7 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     pub(crate) fn unlink(&mut self, parent: DocId, name: &str) -> Result<DocId, HolyError> {
+        self.ensure_writable()?;
         self.check_quota(0, 0, 1, 0, 0)?;
         let parent_head = *self.head(parent)?;
         if !parent_head.payload_has_collection() {

@@ -13,6 +13,15 @@ use super::Volume;
 
 impl<D: BlockDevice> Volume<D> {
     pub(super) fn persist(&mut self) -> Result<(), HolyError> {
+        self.ensure_writable()?;
+        let result = self.persist_inner();
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn persist_inner(&mut self) -> Result<(), HolyError> {
         let mut old_roots = vec![
             self.superblock.document_tree,
             self.superblock.revision_tree,

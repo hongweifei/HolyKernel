@@ -222,7 +222,7 @@ flowchart LR
 - 修订内容带 ContentHash；写入时计算，整文档读取与 `Check` 时始终校验。
 - `Check` 只读校验文档/修订/集合项/标签/快照引用、extent 范围、元数据树 CRC 与内容哈希，并统计泄漏块。
 - `Scrub` 校验后回收已分配但不可达的 extent；`Repair` 额外补记可达但位图未标记的块。两者需要 ADMIN 卷令牌。
-- 校验失败或 I/O 错误时返回 `Damaged` 或 `Corrupt`，不自动修改内容。
+- 读取校验失败、短读或 I/O 错误时卷进入只读并返回 `Damaged`；后续变更被拒绝。`Repair` 成功后可解除只读，无法修复的内容损坏会继续返回 `Damaged`。
 
 ### 状态
 
@@ -238,7 +238,8 @@ flowchart LR
 | `Busy` | 卷正在恢复或切换根 |
 | `NoSpace` | 卷空间不足 |
 | `Quota` | 超出配额 |
-| `Damaged` | 校验失败或介质损坏 |
+| `Damaged` | 校验失败或介质损坏；卷进入只读 |
+| `ReadOnly` | 卷当前只读 |
 | `Offline` | 卷或后端离线 |
 | `Refused` | 句柄权利不足或令牌过期 |
 | `Unsupported` | 当前格式或版本超出支持范围 |
@@ -476,6 +477,7 @@ flowchart LR
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
 | Hosted 基准：顺序/随机 IO、去重、压缩、快照、流式写预算门禁 | 已实现 |
 | 崩溃一致性：写入失败、短写、flush 失败矩阵与重挂载恢复 | 已实现 |
+| 介质错误：读失败/短读标记 Damaged、只读降级、Repair 解除 | 已实现 |
 | ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |
 
 ### 代码组织

@@ -15,6 +15,7 @@ mod tags;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use hk_block::BlockDevice;
 
@@ -53,6 +54,7 @@ pub(crate) struct Volume<D: BlockDevice> {
     next_staging: u64,
     epoch: u64,
     dirty: bool,
+    damaged: Cell<bool>,
 }
 
 impl<D: BlockDevice> Volume<D> {
@@ -99,6 +101,7 @@ impl<D: BlockDevice> Volume<D> {
             next_staging: 1,
             epoch: 1,
             dirty: true,
+            damaged: Cell::new(false),
         };
         volume.documents.insert(
             DocId::ROOT,
@@ -229,16 +232,20 @@ impl<D: BlockDevice> Volume<D> {
             next_staging: 1,
             epoch: 1,
             dirty: false,
+            damaged: Cell::new(false),
         };
         volume.rebuild_dedup();
         Ok(volume)
     }
 
     pub(crate) fn sync(&mut self) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         if self.dirty {
             self.persist()
         } else {
-            self.store.flush()
+            self.store
+                .flush()
+                .inspect_err(|error| self.note_error(error))
         }
     }
 
@@ -256,6 +263,31 @@ impl<D: BlockDevice> Volume<D> {
 
     pub(crate) fn dedup_hits(&self) -> u64 {
         self.dedup_hits
+    }
+
+    pub(crate) fn is_damaged(&self) -> bool {
+        self.damaged.get()
+    }
+
+    pub(super) fn mark_damaged(&self) {
+        self.damaged.set(true);
+    }
+
+    pub(super) fn ensure_writable(&self) -> Result<(), HolyError> {
+        if self.damaged.get() {
+            Err(HolyError::Damaged)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(super) fn note_error(&self, error: &HolyError) {
+        if matches!(
+            error,
+            HolyError::Io | HolyError::Corrupt | HolyError::Damaged
+        ) {
+            self.mark_damaged();
+        }
     }
 
     fn head(&self, document: DocId) -> Result<&RevisionRecord, HolyError> {

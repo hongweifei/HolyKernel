@@ -20,8 +20,8 @@ use hk_server_api::holy::{
     encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
 use hk_server_api::vfs::{
-    STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
-    STATUS_PERMISSION, STATUS_STALE,
+    STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
+    STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
 };
 
 use crate::sessions::Sessions;
@@ -794,6 +794,8 @@ fn status(error: HolyError) -> u8 {
         HolyError::Io => STATUS_IO,
         HolyError::Refused => STATUS_PERMISSION,
         HolyError::Stale => STATUS_STALE,
+        HolyError::Damaged => STATUS_DAMAGED,
+        HolyError::ReadOnly => STATUS_READ_ONLY,
         _ => STATUS_ERROR,
     }
 }

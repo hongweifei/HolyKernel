@@ -21,6 +21,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 更新配额并提交。
     pub(crate) fn set_quota(&mut self, quota: Quota) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         self.superblock.quota_documents = quota.documents;
         self.superblock.quota_bytes = quota.bytes;
         self.superblock.quota_revisions = quota.revisions;

@@ -14,6 +14,7 @@ use super::Volume;
 impl<D: BlockDevice> Volume<D> {
     /// 创建标签。
     pub(crate) fn create_tag(&mut self, name: &str) -> Result<u32, HolyError> {
+        self.ensure_writable()?;
         validate_name(name)?;
         self.check_quota(0, 0, 0, 0, 1)?;
         if self.tags.values().any(|existing| existing == name) {
@@ -28,6 +29,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 删除标签及其成员关系。
     pub(crate) fn drop_tag(&mut self, tag: u32) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         if self.tags.remove(&tag).is_none() {
             return Err(HolyError::NotFound);
         }
@@ -38,6 +40,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 把文档加入标签。
     pub(crate) fn tag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         if !self.documents.contains_key(&document) {
             return Err(HolyError::NotFound);
         }
@@ -51,6 +54,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 把文档从标签移除。
     pub(crate) fn untag(&mut self, document: DocId, tag: u32) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         if !self.tags.contains_key(&tag) {
             return Err(HolyError::NotFound);
         }

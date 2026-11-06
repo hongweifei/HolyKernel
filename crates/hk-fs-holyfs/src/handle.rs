@@ -290,6 +290,11 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().quota_used()
     }
 
+    /// 卷是否因 I/O 错误或校验失败进入只读。
+    pub fn is_damaged(&self) -> bool {
+        self.state.borrow().is_damaged()
+    }
+
     /// 创建 staging，返回 staging 编号。
     pub fn stage(
         &mut self,

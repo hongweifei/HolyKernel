@@ -15,6 +15,7 @@ use super::{MAX_REVISIONS, Volume};
 impl<D: BlockDevice> Volume<D> {
     /// 封存修订，使其不参与自动裁剪。
     pub(crate) fn seal(&mut self, revision: RevisionId) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         let record = self
             .revisions
             .get_mut(&revision)
@@ -30,6 +31,7 @@ impl<D: BlockDevice> Volume<D> {
         document: DocId,
         keep_last: u64,
     ) -> Result<MaintenanceReport, HolyError> {
+        self.ensure_writable()?;
         if keep_last == 0 {
             return Err(HolyError::Invalid);
         }
@@ -87,6 +89,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 显式销毁文档、当前集合项、标签关系与修订链；快照固定时返回 `Pinned`。
     pub(crate) fn purge(&mut self, document: DocId) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         if document == DocId::ROOT {
             return Err(HolyError::Invalid);
         }

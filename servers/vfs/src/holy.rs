@@ -13,8 +13,8 @@ use hk_server_api::holy::{
     encode_entry, encode_revision, encode_revision_id, encode_token,
 };
 use hk_server_api::vfs::{
-    STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
-    STATUS_PERMISSION, STATUS_STALE,
+    STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
+    STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
 };
 
 use crate::drives::Drives;
@@ -391,6 +391,8 @@ fn status(error: FsError) -> u8 {
         FsError::Io => STATUS_IO,
         FsError::Refused => STATUS_PERMISSION,
         FsError::Stale => STATUS_STALE,
+        FsError::Damaged => STATUS_DAMAGED,
+        FsError::ReadOnly => STATUS_READ_ONLY,
         _ => STATUS_ERROR,
     }
 }

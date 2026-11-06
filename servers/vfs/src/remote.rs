@@ -14,7 +14,8 @@ use hk_server_api::holy::{
     RevisionId as WireRevisionId, VolumeView, decode_entries, decode_revisions,
 };
 use hk_server_api::vfs::{
-    STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE,
+    STATUS_DAMAGED, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
+    STATUS_READ_ONLY, STATUS_STALE,
 };
 
 /// 独立 HolyFS 服务的远程后端。
@@ -204,6 +205,8 @@ fn map_status(status: u8) -> Error {
         STATUS_PERMISSION => Error::Refused,
         STATUS_EXISTS => Error::Exists,
         STATUS_STALE => Error::Stale,
+        STATUS_DAMAGED => Error::Damaged,
+        STATUS_READ_ONLY => Error::ReadOnly,
         _ => Error::Io,
     }
 }

@@ -16,6 +16,14 @@ use super::Volume;
 impl<D: BlockDevice> Volume<D> {
     /// 只读校验对象图、引用与内容哈希。
     pub(crate) fn check(&self) -> Result<MaintenanceReport, HolyError> {
+        let result = self.check_inner();
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn check_inner(&self) -> Result<MaintenanceReport, HolyError> {
         let (report, _, missing) = self.scan()?;
         if missing {
             return Err(HolyError::Corrupt);
@@ -25,6 +33,14 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 校验并回收不可达的泄漏块。
     pub(crate) fn scrub(&mut self) -> Result<MaintenanceReport, HolyError> {
+        let result = self.scrub_inner();
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn scrub_inner(&mut self) -> Result<MaintenanceReport, HolyError> {
         let (mut report, reachable, missing) = self.scan()?;
         if missing {
             return Err(HolyError::Corrupt);
@@ -36,6 +52,15 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 校验并修复位图：补记可达块、回收泄漏块。
     pub(crate) fn repair(&mut self) -> Result<MaintenanceReport, HolyError> {
+        let result = self.repair_inner();
+        match &result {
+            Ok(_) => self.damaged.set(false),
+            Err(error) => self.note_error(error),
+        }
+        result
+    }
+
+    fn repair_inner(&mut self) -> Result<MaintenanceReport, HolyError> {
         let (mut report, reachable, _) = self.scan()?;
         let mut repaired = 0;
         for block in &reachable {

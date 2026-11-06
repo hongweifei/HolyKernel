@@ -270,6 +270,7 @@ pub(super) fn load<D: BlockDevice>(
 impl<D: BlockDevice> Volume<D> {
     /// 固定当前文档表、标签视图与根修订。
     pub(crate) fn snapshot(&mut self, name: &str) -> Result<u64, HolyError> {
+        self.ensure_writable()?;
         validate_name(name)?;
         self.check_quota(0, 0, 0, 1, 0)?;
         let root = self.documents.get(&DocId::ROOT).ok_or(HolyError::Corrupt)?;
@@ -303,6 +304,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 把卷切回快照的文档表、标签视图与根修订。
     pub(crate) fn restore(&mut self, id: u64) -> Result<u64, HolyError> {
+        self.ensure_writable()?;
         let snapshot = self
             .snapshots
             .get(&id)
@@ -331,6 +333,7 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 释放快照固定。
     pub(crate) fn forget(&mut self, id: u64) -> Result<(), HolyError> {
+        self.ensure_writable()?;
         let record = self.snapshots.remove(&id).ok_or(HolyError::NotFound)?;
         self.dirty = true;
         if let Err(error) = self.persist() {

@@ -36,7 +36,10 @@ impl<D: BlockDevice> Volume<D> {
             return Ok(0);
         }
         let length = buffer.len().min((revision.size - offset) as usize);
-        self.read_extents(revision, offset, &mut buffer[..length])?;
+        if let Err(error) = self.read_extents(revision, offset, &mut buffer[..length]) {
+            self.note_error(&error);
+            return Err(error);
+        }
         Ok(length)
     }
 
@@ -59,11 +62,28 @@ impl<D: BlockDevice> Volume<D> {
             return Ok(0);
         }
         let length = buffer.len().min((revision.size - offset) as usize);
-        self.read_extents(revision, offset, &mut buffer[..length])?;
+        if let Err(error) = self.read_extents(revision, offset, &mut buffer[..length]) {
+            self.note_error(&error);
+            return Err(error);
+        }
         Ok(length)
     }
 
     pub(crate) fn write_range(
+        &mut self,
+        document: DocId,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<usize, HolyError> {
+        self.ensure_writable()?;
+        let result = self.write_range_inner(document, offset, data);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn write_range_inner(
         &mut self,
         document: DocId,
         offset: u64,
@@ -94,6 +114,15 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     pub(crate) fn truncate(&mut self, document: DocId, size: u64) -> Result<(), HolyError> {
+        self.ensure_writable()?;
+        let result = self.truncate_inner(document, size);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn truncate_inner(&mut self, document: DocId, size: u64) -> Result<(), HolyError> {
         if size > MAX_CONTENT_BYTES {
             return Err(HolyError::NoSpace);
         }
@@ -118,8 +147,15 @@ impl<D: BlockDevice> Volume<D> {
             return Err(HolyError::IsDirectory);
         }
         let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
-        let buffer = self.read_content(revision)?;
+        let buffer = match self.read_content(revision) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                self.note_error(&error);
+                return Err(error);
+            }
+        };
         if content_hash(&buffer) != revision.content_hash {
+            self.mark_damaged();
             return Err(HolyError::Damaged);
         }
         Ok(buffer)
@@ -127,6 +163,19 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 整文档写入，生成新的内容修订并返回其身份。
     pub(crate) fn write_document(
+        &mut self,
+        document: DocId,
+        content: &[u8],
+    ) -> Result<RevisionId, HolyError> {
+        self.ensure_writable()?;
+        let result = self.write_document_inner(document, content);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn write_document_inner(
         &mut self,
         document: DocId,
         content: &[u8],
@@ -159,7 +208,11 @@ impl<D: BlockDevice> Volume<D> {
             buffer.copy_from_slice(content);
             return Ok(());
         }
-        self.read_raw_extents(revision, offset, buffer)
+        let result = self.read_raw_extents(revision, offset, buffer);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
     }
 
     fn read_raw_extents(
@@ -193,6 +246,14 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     fn read_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
+        let result = self.read_content_inner(revision);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn read_content_inner(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
         let size = revision.size as usize;
         if revision.flags.contains(RevisionFlags::COMPRESSED) {
             let capacity: usize = revision

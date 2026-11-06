@@ -140,8 +140,11 @@ impl BlockDevice for Shared {
 struct FaultState {
     fail_write: Option<usize>,
     short_write: Option<usize>,
+    fail_read: Option<usize>,
+    short_read: Option<usize>,
     fail_flush: Option<usize>,
     writes: usize,
+    reads: usize,
     flushes: usize,
     dead: bool,
 }
@@ -161,8 +164,11 @@ impl FaultDisk {
         let state = Rc::new(RefCell::new(FaultState {
             fail_write,
             short_write,
+            fail_read: None,
+            short_read: None,
             fail_flush,
             writes: 0,
+            reads: 0,
             flushes: 0,
             dead: false,
         }));
@@ -186,6 +192,36 @@ impl BlockDevice for FaultDisk {
     }
 
     fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        let (dead, index) = {
+            let mut state = self.state.borrow_mut();
+            if state.dead {
+                return Err(BlockError::Io);
+            }
+            let index = state.reads;
+            state.reads += 1;
+            (state.dead, index)
+        };
+        if dead {
+            return Err(BlockError::Io);
+        }
+        let mut state = self.state.borrow_mut();
+        if state.fail_read == Some(index) {
+            state.dead = true;
+            return Err(BlockError::Io);
+        }
+        if state.short_read == Some(index) {
+            state.dead = true;
+            let half = (buffer.len() / 2 / SECTOR_SIZE) * SECTOR_SIZE;
+            if half == 0 {
+                return Err(BlockError::Io);
+            }
+            let read = self
+                .inner
+                .borrow()
+                .read_blocks(block, &mut buffer[..half])?;
+            return Ok(read);
+        }
+        drop(state);
         self.inner.borrow().read_blocks(block, buffer)
     }
 
@@ -300,6 +336,56 @@ fn boot_survives_write_and_flush_faults() {
     for index in 0..flushes {
         crash_case(&base, None, None, Some(index));
     }
+}
+
+#[test]
+fn read_fault_marks_damaged_and_repair_clears() {
+    let base = crash_base();
+    let raw = MemoryDisk::from_data(base, SECTOR_SIZE).expect("内存盘");
+    let inner = Rc::new(RefCell::new(raw));
+    let (disk, _state) = FaultDisk::new(inner.clone(), None, None, None);
+    let mut fs = HolyFs::mount(disk).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "damaged", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(document, 0, b"read-fault").expect("写");
+    fs.sync().expect("提交");
+    drop(fs);
+
+    let data = Rc::try_unwrap(inner)
+        .ok()
+        .expect("故障盘仍被引用")
+        .into_inner()
+        .into_data();
+    let raw = MemoryDisk::from_data(data, SECTOR_SIZE).expect("内存盘");
+    let inner = Rc::new(RefCell::new(raw));
+    let (disk, state) = FaultDisk::new(inner, None, None, None);
+    let mut fs = HolyFs::mount(disk).expect("重新挂载");
+    let reads = state.borrow().reads;
+    state.borrow_mut().fail_read = Some(reads);
+    assert!(fs.read_document_id(document).is_err());
+    assert!(fs.is_damaged());
+    assert_eq!(
+        fs.write_range(document, 0, b"blocked"),
+        Err(HolyError::Damaged)
+    );
+
+    state.borrow_mut().fail_read = None;
+    state.borrow_mut().dead = false;
+    fs.repair().expect("修复");
+    assert!(!fs.is_damaged());
+    fs.write_range(document, 0, b"recovered").expect("恢复写");
+
+    let reads = state.borrow().reads;
+    state.borrow_mut().short_read = Some(reads);
+    state.borrow_mut().dead = false;
+    assert!(fs.read_document_id(document).is_err());
+    assert!(fs.is_damaged());
+    state.borrow_mut().short_read = None;
+    state.borrow_mut().dead = false;
+    fs.repair().expect("短读修复");
+    assert!(!fs.is_damaged());
 }
 
 #[test]

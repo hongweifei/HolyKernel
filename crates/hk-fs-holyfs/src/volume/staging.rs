@@ -23,6 +23,7 @@ impl<D: BlockDevice> Volume<D> {
         document: DocId,
         expected: Option<RevisionId>,
     ) -> Result<u64, HolyError> {
+        self.ensure_writable()?;
         let record = self.documents.get(&document).ok_or(HolyError::NotFound)?;
         if record.kind == DocumentKind::Collection {
             return Err(HolyError::IsDirectory);
@@ -52,6 +53,7 @@ impl<D: BlockDevice> Volume<D> {
         offset: u64,
         data: &[u8],
     ) -> Result<usize, HolyError> {
+        self.ensure_writable()?;
         let entry = self.staging.get_mut(&staging).ok_or(HolyError::NotFound)?;
         if data.is_empty() {
             return Ok(0);
@@ -71,6 +73,19 @@ impl<D: BlockDevice> Volume<D> {
 
     /// 提交 staging，返回新 head 修订。
     pub(crate) fn commit_staging(
+        &mut self,
+        staging: u64,
+        expected: Option<RevisionId>,
+    ) -> Result<RevisionId, HolyError> {
+        self.ensure_writable()?;
+        let result = self.commit_staging_inner(staging, expected);
+        if let Err(error) = &result {
+            self.note_error(error);
+        }
+        result
+    }
+
+    fn commit_staging_inner(
         &mut self,
         staging: u64,
         expected: Option<RevisionId>,
