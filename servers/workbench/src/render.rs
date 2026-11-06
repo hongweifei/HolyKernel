@@ -7,26 +7,20 @@ use hk_canvas::{Rect, Surface, text_width};
 use hk_font::Font;
 use hk_server_api::holy::KIND_COLLECTION;
 
-use crate::model::{Focus, Model, VISIBLE_LINES, line_column};
+use crate::model::{Focus, Model, line_column};
 
-/// 窗口宽度。
+/// 初始窗口宽度。
 pub(crate) const WIDTH: usize = 760;
-/// 窗口高度。
+/// 初始窗口高度。
 pub(crate) const HEIGHT: usize = 520;
 
 const HEADER: usize = 28;
-pub(crate) const SIDEBAR: usize = 220;
+const SIDEBAR: usize = 220;
 const FOOTER: usize = 22;
 const OUTPUT: usize = 104;
-pub(crate) const ROW: usize = 18;
+const ROW: usize = 18;
 const PAD: usize = 8;
 const LINE_NO: usize = 34;
-
-pub(crate) const NAV_TOP: usize = HEADER + 28;
-pub(crate) const BODY_TOP: usize = HEADER + 4;
-pub(crate) const OUTPUT_TOP: usize = HEIGHT - FOOTER - OUTPUT;
-pub(crate) const TEXT_LEFT: usize = SIDEBAR + PAD + LINE_NO;
-pub(crate) const TEXT_RIGHT: usize = WIDTH - PAD;
 
 const BG: u32 = 0x0014_1A20;
 const PANEL: u32 = 0x0010_1820;
@@ -43,37 +37,91 @@ const DIR: u32 = 0x00E0_C080;
 const WARN: u32 = 0x00E0_9080;
 const GUTTER: u32 = 0x0050_6878;
 
-/// 绘制整个工作台。
-pub(crate) fn render(model: &Model, font: &Font, surface: &Surface) {
-    surface.fill(Rect::new(0, 0, WIDTH as i32, HEIGHT as i32), BG);
-    draw_header(model, font, surface);
-    draw_navigator(model, font, surface);
-    draw_editor(model, font, surface);
-    draw_output(model, font, surface);
-    draw_footer(model, font, surface);
-    surface.fill(
-        Rect::new(
-            SIDEBAR as i32 - 1,
-            HEADER as i32,
-            1,
-            (HEIGHT - HEADER) as i32,
-        ),
-        BORDER,
-    );
-    surface.fill(
-        Rect::new(
-            SIDEBAR as i32,
-            OUTPUT_TOP as i32 - 1,
-            (WIDTH - SIDEBAR) as i32,
-            1,
-        ),
-        BORDER,
-    );
-    surface.fill(Rect::new(0, HEADER as i32 - 1, WIDTH as i32, 1), BORDER);
+/// 随窗口尺寸变化的布局。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Layout {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) sidebar: usize,
+    pub(crate) output_top: usize,
+    pub(crate) body_top: usize,
+    pub(crate) nav_top: usize,
+    pub(crate) text_left: usize,
+    pub(crate) text_right: usize,
+    pub(crate) row: usize,
+    pub(crate) editor_rows: usize,
+    pub(crate) nav_rows: usize,
+    pub(crate) editor_cols: usize,
 }
 
-fn draw_header(model: &Model, font: &Font, surface: &Surface) {
-    surface.fill(Rect::new(0, 0, WIDTH as i32, HEADER as i32), HEADER_BG);
+impl Layout {
+    /// 按窗口尺寸计算栏宽、面板高度与可视行数。
+    pub(crate) fn new(width: usize, height: usize) -> Self {
+        let sidebar = SIDEBAR.min(width.saturating_sub(120)).max(80);
+        let output = OUTPUT.min(height / 3).max(40);
+        let output_top = height.saturating_sub(FOOTER + output);
+        let body_top = HEADER + 4;
+        let nav_top = HEADER + 28;
+        let text_left = sidebar + PAD + LINE_NO;
+        let text_right = width.saturating_sub(PAD);
+        Self {
+            width,
+            height,
+            sidebar,
+            output_top,
+            body_top,
+            nav_top,
+            text_left,
+            text_right,
+            row: ROW,
+            editor_rows: output_top.saturating_sub(body_top) / ROW,
+            nav_rows: height.saturating_sub(FOOTER + nav_top) / ROW,
+            editor_cols: text_right.saturating_sub(text_left) / 8,
+        }
+    }
+}
+
+/// 绘制整个工作台。
+pub(crate) fn render(model: &Model, font: &Font, surface: &Surface) {
+    let layout = Layout::new(surface.width(), surface.height());
+    surface.fill(
+        Rect::new(0, 0, layout.width as i32, layout.height as i32),
+        BG,
+    );
+    draw_header(model, font, surface, &layout);
+    draw_navigator(model, font, surface, &layout);
+    draw_editor(model, font, surface, &layout);
+    draw_output(model, font, surface, &layout);
+    draw_footer(model, font, surface, &layout);
+    surface.fill(
+        Rect::new(
+            layout.sidebar as i32 - 1,
+            HEADER as i32,
+            1,
+            layout.height.saturating_sub(HEADER) as i32,
+        ),
+        BORDER,
+    );
+    surface.fill(
+        Rect::new(
+            layout.sidebar as i32,
+            layout.output_top as i32 - 1,
+            layout.width.saturating_sub(layout.sidebar) as i32,
+            1,
+        ),
+        BORDER,
+    );
+    surface.fill(
+        Rect::new(0, HEADER as i32 - 1, layout.width as i32, 1),
+        BORDER,
+    );
+}
+
+fn draw_header(model: &Model, font: &Font, surface: &Surface, layout: &Layout) {
+    surface.fill(
+        Rect::new(0, 0, layout.width as i32, HEADER as i32),
+        HEADER_BG,
+    );
     let mut x = PAD as i32;
     surface.draw_text(&mut x, 6, "Workbench", ACCENT, font);
     x += 10;
@@ -95,36 +143,50 @@ fn draw_header(model: &Model, font: &Font, surface: &Surface) {
         }
         None => String::from("没有打开的文档"),
     };
-    let mut x = WIDTH as i32 - PAD as i32 - text_width(font, &title);
-    surface.draw_text(&mut x, 6, &title, MUTED, font);
+    let mut x = layout.width as i32 - PAD as i32 - text_width(font, &title);
+    draw_clipped(
+        surface,
+        font,
+        &mut x,
+        6,
+        layout.width as i32 - PAD as i32,
+        MUTED,
+        &title,
+    );
 }
 
-fn draw_navigator(model: &Model, font: &Font, surface: &Surface) {
+fn draw_navigator(model: &Model, font: &Font, surface: &Surface, layout: &Layout) {
     surface.fill(
-        Rect::new(0, HEADER as i32, SIDEBAR as i32, (HEIGHT - HEADER) as i32),
+        Rect::new(
+            0,
+            HEADER as i32,
+            layout.sidebar as i32,
+            layout.height.saturating_sub(HEADER) as i32,
+        ),
         PANEL,
     );
     let mut x = PAD as i32;
     surface.draw_text(&mut x, (HEADER + 8) as i32, "文档", MUTED, font);
     let count = format!("{}", model.entries.len());
-    let mut x = SIDEBAR as i32 - PAD as i32 - text_width(font, &count);
+    let mut x = layout.sidebar as i32 - PAD as i32 - text_width(font, &count);
     surface.draw_text(&mut x, (HEADER + 8) as i32, &count, MUTED, font);
 
-    let list_top = HEADER + 28;
-    let rows = (HEIGHT - FOOTER - list_top) / ROW;
     if model.entries.is_empty() {
         let mut x = PAD as i32;
-        surface.draw_text(&mut x, list_top as i32, "没有 H: 文档", WARN, font);
+        surface.draw_text(&mut x, layout.nav_top as i32, "没有 H: 文档", WARN, font);
         return;
     }
-    for row in 0..rows {
+    for row in 0..layout.nav_rows {
         let index = model.nav_scroll + row;
         let Some(entry) = model.entries.get(index) else {
             break;
         };
-        let y = list_top + row * ROW;
+        let y = layout.nav_top + row * ROW;
         if index == model.selected {
-            surface.fill(Rect::new(0, y as i32, SIDEBAR as i32, ROW as i32), SELECT);
+            surface.fill(
+                Rect::new(0, y as i32, layout.sidebar as i32, ROW as i32),
+                SELECT,
+            );
         }
         let indent = PAD + entry.depth * 10;
         let is_collection = entry.kind == KIND_COLLECTION;
@@ -140,60 +202,67 @@ fn draw_navigator(model: &Model, font: &Font, surface: &Surface) {
             font,
             &mut x,
             y as i32,
-            (SIDEBAR - PAD) as i32,
+            layout.sidebar as i32 - PAD as i32,
             color,
             &label,
         );
     }
 }
 
-fn draw_editor(model: &Model, font: &Font, surface: &Surface) {
+fn draw_editor(model: &Model, font: &Font, surface: &Surface, layout: &Layout) {
     surface.fill(
         Rect::new(
-            SIDEBAR as i32,
+            layout.sidebar as i32,
             HEADER as i32,
-            (WIDTH - SIDEBAR) as i32,
-            (OUTPUT_TOP - HEADER) as i32,
+            layout.width.saturating_sub(layout.sidebar) as i32,
+            layout.output_top.saturating_sub(HEADER) as i32,
         ),
         BG,
     );
     let Some(editor) = &model.editor else {
-        let mut x = TEXT_LEFT as i32;
-        surface.draw_text(&mut x, BODY_TOP as i32 + 8, "从左侧选择文档", MUTED, font);
+        let mut x = layout.text_left as i32;
+        surface.draw_text(
+            &mut x,
+            layout.body_top as i32 + 8,
+            "从左侧选择文档",
+            MUTED,
+            font,
+        );
         return;
     };
     let lines: alloc::vec::Vec<&str> = editor.text.split('\n').collect();
     let (cursor_line, cursor_column) = line_column(&editor.text, editor.cursor);
-    for row in 0..VISIBLE_LINES {
+    for row in 0..layout.editor_rows {
         let line_index = editor.scroll_line + row;
         let Some(line) = lines.get(line_index) else {
             break;
         };
-        let y = BODY_TOP + row * ROW;
+        let y = layout.body_top + row * ROW;
         if line_index == cursor_line {
             surface.fill(
                 Rect::new(
-                    SIDEBAR as i32,
+                    layout.sidebar as i32,
                     y as i32,
-                    (WIDTH - SIDEBAR) as i32,
+                    layout.width.saturating_sub(layout.sidebar) as i32,
                     ROW as i32,
                 ),
                 CURRENT_LINE,
             );
         }
         let number = format!("{}", line_index + 1);
-        let mut x = SIDEBAR as i32 + PAD as i32 + LINE_NO as i32 - 4 - text_width(font, &number);
+        let mut x =
+            layout.sidebar as i32 + PAD as i32 + LINE_NO as i32 - 4 - text_width(font, &number);
         surface.draw_text(&mut x, y as i32 + 1, &number, GUTTER, font);
 
         let color = line_color(line);
-        let mut pen = TEXT_LEFT as i32;
+        let mut pen = layout.text_left as i32;
         let mut column = 0;
         for character in line.chars() {
             if column < editor.scroll_col {
                 column += 1;
                 continue;
             }
-            if pen >= TEXT_RIGHT as i32 {
+            if pen >= layout.text_right as i32 {
                 break;
             }
             let cursor_here = line_index == cursor_line && column == cursor_column;
@@ -210,35 +279,45 @@ fn draw_editor(model: &Model, font: &Font, surface: &Surface) {
         if line_index == cursor_line
             && cursor_column >= editor.scroll_col
             && cursor_column >= column
-            && pen < TEXT_RIGHT as i32
+            && pen < layout.text_right as i32
         {
             surface.fill(Rect::new(pen, y as i32, 2, ROW as i32), CURSOR);
         }
     }
 
     if editor.text.is_empty() && editor.scroll_line == 0 {
-        let mut x = TEXT_LEFT as i32;
-        surface.draw_text(&mut x, BODY_TOP as i32 + 1, "（空文档）", MUTED, font);
+        let mut x = layout.text_left as i32;
+        surface.draw_text(
+            &mut x,
+            layout.body_top as i32 + 1,
+            "（空文档）",
+            MUTED,
+            font,
+        );
     }
 }
 
-fn draw_output(model: &Model, font: &Font, surface: &Surface) {
+fn draw_output(model: &Model, font: &Font, surface: &Surface, layout: &Layout) {
+    let output_height = layout
+        .height
+        .saturating_sub(FOOTER)
+        .saturating_sub(layout.output_top);
     surface.fill(
         Rect::new(
-            SIDEBAR as i32,
-            OUTPUT_TOP as i32,
-            (WIDTH - SIDEBAR) as i32,
-            OUTPUT as i32,
+            layout.sidebar as i32,
+            layout.output_top as i32,
+            layout.width.saturating_sub(layout.sidebar) as i32,
+            output_height as i32,
         ),
         OUTPUT_BG,
     );
-    let mut x = SIDEBAR as i32 + PAD as i32;
-    surface.draw_text(&mut x, OUTPUT_TOP as i32 + 4, "输出", MUTED, font);
+    let mut x = layout.sidebar as i32 + PAD as i32;
+    surface.draw_text(&mut x, layout.output_top as i32 + 4, "输出", MUTED, font);
 
-    let rows = (OUTPUT - 24) / 16;
+    let rows = output_height.saturating_sub(24) / 16;
     let start = model.output.len().saturating_sub(rows);
     for (row, line) in model.output[start..].iter().enumerate() {
-        let y = OUTPUT_TOP + 22 + row * 16;
+        let y = layout.output_top + 22 + row * 16;
         let color = if line.contains("失败") || line.contains("不可用") {
             WARN
         } else if line.starts_with("  ") {
@@ -246,22 +325,27 @@ fn draw_output(model: &Model, font: &Font, surface: &Surface) {
         } else {
             TEXT
         };
-        let mut x = SIDEBAR as i32 + PAD as i32;
+        let mut x = layout.sidebar as i32 + PAD as i32;
         draw_clipped(
             surface,
             font,
             &mut x,
             y as i32,
-            (WIDTH - PAD) as i32,
+            layout.width as i32 - PAD as i32,
             color,
             line,
         );
     }
 }
 
-fn draw_footer(model: &Model, font: &Font, surface: &Surface) {
+fn draw_footer(model: &Model, font: &Font, surface: &Surface, layout: &Layout) {
     surface.fill(
-        Rect::new(0, (HEIGHT - FOOTER) as i32, WIDTH as i32, FOOTER as i32),
+        Rect::new(
+            0,
+            layout.height.saturating_sub(FOOTER) as i32,
+            layout.width as i32,
+            FOOTER as i32,
+        ),
         HEADER_BG,
     );
     let hint = match model.focus {
@@ -275,8 +359,8 @@ fn draw_footer(model: &Model, font: &Font, surface: &Surface) {
         surface,
         font,
         &mut x,
-        (HEIGHT - FOOTER) as i32 + 3,
-        (WIDTH - PAD) as i32,
+        layout.height.saturating_sub(FOOTER) as i32 + 3,
+        layout.width as i32 - PAD as i32,
         MUTED,
         hint,
     );

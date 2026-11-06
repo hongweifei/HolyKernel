@@ -31,9 +31,10 @@ use hk_canvas::Surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WHEEL, SURFACE_COMMIT,
-    SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE,
-    WINDOW_CREATED, pack_size, set_title, unpack_click_at, unpack_key, unpack_wheel,
+    DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
+    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT,
+    WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title,
+    unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -41,13 +42,14 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, fault_subscribe, frame_alloc, recv, recv_data, send, send_handle, write, write_u64,
+    exit, fault_subscribe, frame_alloc, frame_unmap, recv, recv_data, send, send_handle, write,
+    write_u64,
 };
 
 #[cfg(target_os = "none")]
-use model::{EditorKey, Focus, Model, VISIBLE_LINES, line_text};
+use model::{EditorKey, Focus, Model, line_text};
 #[cfg(target_os = "none")]
-use render::{BODY_TOP, HEIGHT, NAV_TOP, OUTPUT_TOP, ROW, SIDEBAR, TEXT_LEFT, WIDTH, render};
+use render::{HEIGHT, Layout, WIDTH, render};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -76,6 +78,7 @@ fn commit(endpoint: u64, display: u64, surface: u64) {
 
 /// 刷新标题、绘制并提交。
 #[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn show(
     model: &Model,
     font: &Font,
@@ -84,37 +87,40 @@ pub(crate) fn show(
     display: u64,
     surface: u64,
     window: u64,
+    width: usize,
+    height: usize,
 ) {
     let title = match &model.editor {
         Some(editor) => format!("Workbench: {}", editor.title),
         None => String::from("Workbench"),
     };
     set_title(display, window, &title);
-    // SAFETY: 表面帧已映射，长度为 WIDTH * HEIGHT。
-    let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
+    // SAFETY: 表面帧已映射，长度为 width * height。
+    let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
     render(model, font, &frame);
     commit(endpoint, display, surface);
 }
 
 /// 处理点击：命中文档树或编辑器。
 #[cfg(target_os = "none")]
-fn click(model: &mut Model, font: &Font, x: u32, y: u32) {
+fn click(model: &mut Model, font: &Font, x: u32, y: u32, width: usize, height: usize) {
+    let layout = Layout::new(width, height);
     let x = x as usize;
     let y = y as usize;
-    if x < SIDEBAR && y >= NAV_TOP {
-        let index = model.nav_scroll + (y - NAV_TOP) / ROW;
+    if x < layout.sidebar && y >= layout.nav_top {
+        let index = model.nav_scroll + (y - layout.nav_top) / layout.row;
         if index < model.entries.len() {
             model.open(index);
         }
         model.focus = Focus::Navigator;
         return;
     }
-    if x >= SIDEBAR && y >= BODY_TOP && y < OUTPUT_TOP {
+    if x >= layout.sidebar && y >= layout.body_top && y < layout.output_top {
         model.focus = Focus::Editor;
         let position = model.editor.as_ref().map(|editor| {
-            let line = (y - BODY_TOP) / ROW + editor.scroll_line;
+            let line = (y - layout.body_top) / layout.row + editor.scroll_line;
             let line = line.min(editor.text.split('\n').count().saturating_sub(1));
-            let target = x.saturating_sub(TEXT_LEFT);
+            let target = x.saturating_sub(layout.text_left);
             let mut column = 0;
             let mut width = 0;
             for character in line_text(&editor.text, line).chars() {
@@ -244,16 +250,20 @@ fn handle_key(model: &mut Model, key: Key, display: u64) -> bool {
             }
         }
         Key::PageUp => {
+            let nav_rows = model.nav_rows() as isize;
+            let editor_rows = model.visible_lines() as isize;
             match model.focus {
-                Focus::Navigator => model.scroll_nav(-(VISIBLE_LINES as isize)),
-                Focus::Editor => model.scroll_editor(-(VISIBLE_LINES as isize)),
+                Focus::Navigator => model.scroll_nav(-nav_rows),
+                Focus::Editor => model.scroll_editor(-editor_rows),
             }
             true
         }
         Key::PageDown => {
+            let nav_rows = model.nav_rows() as isize;
+            let editor_rows = model.visible_lines() as isize;
             match model.focus {
-                Focus::Navigator => model.scroll_nav(VISIBLE_LINES as isize),
-                Focus::Editor => model.scroll_editor(VISIBLE_LINES as isize),
+                Focus::Navigator => model.scroll_nav(nav_rows),
+                Focus::Editor => model.scroll_editor(editor_rows),
             }
             true
         }
@@ -279,7 +289,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-workbench: no display\n");
         exit(1)
     }
-    let bytes = WIDTH * HEIGHT * 4;
+    let mut width = WIDTH;
+    let mut height = HEIGHT;
+    let bytes = width * height * 4;
     let handle = frame_alloc(bytes, SURFACE_VIRT);
     if handle == 0 || handle == u64::MAX {
         write(b"hk-server-workbench: frame alloc failed\n");
@@ -288,7 +300,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if send_handle(
         display,
         SURFACE_CREATE,
-        pack_size(WIDTH as u32, HEIGHT as u32),
+        pack_size(width as u32, height as u32),
         handle,
     ) == u64::MAX
     {
@@ -311,7 +323,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let pixels = SURFACE_VIRT as *mut u32;
     let _ = fault_subscribe(endpoint);
     let mut model = Box::new(Model::new(endpoint));
-    show(&model, font, pixels, endpoint, display, surface, window);
+    let layout = Layout::new(width, height);
+    model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
+    show(
+        &model, font, pixels, endpoint, display, surface, window, width, height,
+    );
     write(b"hk-server-workbench: ready ");
     write_u64(window);
     write(b"\n");
@@ -323,7 +339,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("workbench-test"));
     if test {
-        selftest::run(&mut model, font, pixels, endpoint, display, surface, window);
+        selftest::run(
+            &mut model, font, pixels, endpoint, display, surface, window, width, height,
+        );
     }
 
     let mut decoder = Decoder::new();
@@ -335,6 +353,37 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         let redraw = match label {
+            DISPLAY_RESIZE => {
+                let (_, new_width, new_height) = unpack_window_size(word);
+                let new_width = new_width as usize;
+                let new_height = new_height as usize;
+                if new_width == 0 || new_height == 0 || (new_width == width && new_height == height)
+                {
+                    false
+                } else {
+                    let _ = frame_unmap(SURFACE_VIRT, width * height * 4);
+                    let handle = frame_alloc(new_width * new_height * 4, SURFACE_VIRT);
+                    if handle == 0 || handle == u64::MAX {
+                        write(b"hk-server-workbench: resize frame failed\n");
+                        false
+                    } else if send_handle(
+                        display,
+                        WINDOW_RESIZE,
+                        pack_window_size(window, new_width as u32, new_height as u32),
+                        handle,
+                    ) == u64::MAX
+                    {
+                        write(b"hk-server-workbench: resize rejected\n");
+                        false
+                    } else {
+                        width = new_width;
+                        height = new_height;
+                        let layout = Layout::new(width, height);
+                        model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
+                        true
+                    }
+                }
+            }
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
                 match decoder.feed(byte) {
@@ -354,14 +403,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             DISPLAY_CLICK_AT => {
                 let (_, x, y) = unpack_click_at(word);
-                click(&mut model, font, x, y);
+                click(&mut model, font, x, y, width, height);
                 true
             }
             DISPLAY_CLOSE => exit(0),
             _ => false,
         };
         if redraw {
-            show(&model, font, pixels, endpoint, display, surface, window);
+            show(
+                &model, font, pixels, endpoint, display, surface, window, width, height,
+            );
         }
     }
 }

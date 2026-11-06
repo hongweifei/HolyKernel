@@ -4,9 +4,7 @@ use alloc::format;
 
 use hk_canvas::{Rect, Surface, text_width};
 
-use crate::document::{
-    CONTENT_HEIGHT, DocView, FOOTER_HEIGHT, HEIGHT, LINE_HEIGHT, MARGIN, Style, WIDTH, font_for,
-};
+use crate::document::{DocView, FOOTER_HEIGHT, LINE_HEIGHT, MARGIN, Style, font_for};
 use crate::markup::char_width;
 
 /// 纸张背景色。
@@ -34,14 +32,22 @@ const HINT: &str =
 
 /// 把文档绘制到共享表面。
 pub(crate) fn render(view: &DocView, surface: &Surface) {
-    let content_height = CONTENT_HEIGHT as i32;
-    let content = surface.clipped(Rect::new(0, 0, WIDTH as i32, content_height));
-    surface.fill(Rect::new(0, 0, WIDTH as i32, HEIGHT as i32), PAPER);
+    let width = view.width.min(i32::MAX as usize) as i32;
+    let height = view.height.min(i32::MAX as usize) as i32;
+    let content_height = view.content_height().min(i32::MAX as usize) as i32;
+    let content = surface.clipped(Rect::new(0, 0, width, content_height));
+    surface.fill(Rect::new(0, 0, width, height), PAPER);
     surface.fill(
-        Rect::new(0, content_height, WIDTH as i32, FOOTER_HEIGHT as i32),
+        Rect::new(
+            0,
+            content_height,
+            width,
+            FOOTER_HEIGHT.min(view.height) as i32,
+        ),
         FOOTER_BG,
     );
 
+    let content_width = view.content_width().min(i32::MAX as usize) as i32;
     for (index, line) in view.lines.iter().enumerate() {
         let y = MARGIN as i32 + (index * LINE_HEIGHT) as i32 - view.scroll as i32;
         if y + 18 < 0 || y >= content_height {
@@ -52,12 +58,7 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
             let top = y.max(0);
             let bottom = (y + LINE_HEIGHT as i32).min(content_height);
             content.fill(
-                Rect::new(
-                    MARGIN as i32,
-                    top,
-                    (WIDTH - MARGIN * 2) as i32,
-                    bottom - top,
-                ),
+                Rect::new(MARGIN as i32, top, content_width, bottom - top),
                 CODE_BG,
             );
         }
@@ -86,10 +87,10 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
     }
 
     let footer_font = font_for(false);
-    let text_y = (CONTENT_HEIGHT + (FOOTER_HEIGHT.saturating_sub(16)) / 2) as i32;
+    let text_y = (view.content_height() + (FOOTER_HEIGHT.saturating_sub(16)) / 2) as i32;
     let mut pen = MARGIN as i32;
     surface.draw_text(&mut pen, text_y, HINT, FOOTER_INK, footer_font);
     let percent = format!("{}%", view.scroll_percent());
-    let mut pen = WIDTH as i32 - MARGIN as i32 - text_width(footer_font, &percent);
+    let mut pen = width - MARGIN as i32 - text_width(footer_font, &percent);
     surface.draw_text(&mut pen, text_y, &percent, FOOTER_INK, footer_font);
 }

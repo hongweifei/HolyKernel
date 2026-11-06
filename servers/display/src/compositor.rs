@@ -84,23 +84,16 @@ fn desktop_color(height: usize, row: usize) -> u32 {
     mix(palette.desktop_top, palette.desktop_bottom, ratio)
 }
 
-/// 读取窗口表面中的一个像素。
+/// 读取窗口表面中的一个像素；坐标超出表面时返回 0。
 #[cfg(target_os = "none")]
 pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
-    let source_x = x
-        .checked_mul(window.surface.width)
-        .and_then(|value| value.checked_div(window.width))
-        .map_or(0, |value| value.min(window.surface.width.saturating_sub(1)));
-    let source_y = y
-        .checked_mul(window.surface.height)
-        .and_then(|value| value.checked_div(window.height))
-        .map_or(0, |value| {
-            value.min(window.surface.height.saturating_sub(1))
-        });
+    if x >= window.surface.width || y >= window.surface.height {
+        return 0;
+    }
     // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
     unsafe {
         (window.surface.virt as *const u32)
-            .add(source_y * window.surface.width + source_x)
+            .add(y * window.surface.width + x)
             .read_volatile()
     }
 }
@@ -369,11 +362,7 @@ fn paint_window(
     let body_right = (window_x + window.width).min(right);
     let body_top = (window_y + title_height()).max(top);
     let body_bottom = (window_y + title_height() + window.height).min(bottom);
-    if body_left < body_right
-        && body_top < body_bottom
-        && window.width == window.surface.width
-        && window.height == window.surface.height
-    {
+    if body_left < body_right && body_top < body_bottom {
         let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
             let distance = window_bottom.saturating_sub(1).saturating_sub(row);
@@ -385,47 +374,22 @@ fn paint_window(
             if row_left >= row_right {
                 continue;
             }
-            let count = row_right - row_left;
-            let source_x = row_left - window_x;
+            screen.fill_row(row_left, row, row_right - row_left, palette.window_bg);
             let source_row = row - (window_y + title_height());
+            if source_row >= window.surface.height {
+                continue;
+            }
+            let source_x = row_left - window_x;
+            if source_x >= window.surface.width {
+                continue;
+            }
+            let count = (row_right - row_left).min(window.surface.width - source_x);
             // SAFETY: 表面按 surface_width×surface_height 映射，坐标已裁剪到窗口内。
             let source = unsafe {
                 (window.surface.virt as *const u32)
                     .add(source_row * window.surface.width + source_x)
             };
             screen.copy_row(row_left, row, count, source);
-        }
-    } else {
-        let width = window.width.max(1);
-        let height = window.height.max(1);
-        let x_step = (window.surface.width as u64 * 65536 / width as u64) as usize;
-        let window_bottom = window_y + title_height() + window.height;
-        for row in body_top..body_bottom {
-            let distance = window_bottom.saturating_sub(1).saturating_sub(row);
-            let inset = corner_inset(distance, radius);
-            let row_left = window_x.saturating_add(inset).max(body_left);
-            let row_right = (window_x + window.width)
-                .saturating_sub(inset)
-                .min(body_right);
-            if row_left >= row_right {
-                continue;
-            }
-            let source_row = row - (window_y + title_height());
-            let source_y =
-                (source_row as u64 * window.surface.height as u64 / height as u64) as usize;
-            // SAFETY: 采样坐标已按表面尺寸缩放。
-            let source =
-                unsafe { (window.surface.virt as *const u32).add(source_y * window.surface.width) };
-            let start_x = row_left - window_x;
-            let mut column_source =
-                ((start_x as u64 * window.surface.width as u64 * 65536) / width as u64) as usize;
-            for column in row_left..row_right {
-                let sample = (column_source >> 16).min(window.surface.width - 1);
-                // SAFETY: sample < surface_width。
-                let color = unsafe { source.add(sample).read() };
-                screen.put(column, row, color);
-                column_source += x_step;
-            }
         }
     }
 

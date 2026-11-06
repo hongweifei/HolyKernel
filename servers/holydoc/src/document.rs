@@ -10,20 +10,16 @@ use hk_server_api::write;
 use crate::exec::exec;
 use crate::markup::{call, char_width, doc_name, parse_inline, split_args, title_of};
 
-/// 窗口宽度。
+/// 初始窗口宽度。
 pub(crate) const WIDTH: usize = 760;
-/// 窗口高度。
+/// 初始窗口高度。
 pub(crate) const HEIGHT: usize = 520;
 /// 行高。
 pub(crate) const LINE_HEIGHT: usize = 22;
 /// 底部状态栏高度。
 pub(crate) const FOOTER_HEIGHT: usize = 22;
-/// 正文可视高度。
-pub(crate) const CONTENT_HEIGHT: usize = HEIGHT - FOOTER_HEIGHT;
 /// 页面留白。
 pub(crate) const MARGIN: usize = 24;
-/// 内容宽度。
-pub(crate) const CONTENT_WIDTH: usize = WIDTH - MARGIN * 2;
 
 /// 欢迎页 DocPath。
 pub(crate) const WELCOME: &str = "H:/Welcome";
@@ -275,6 +271,8 @@ pub(crate) struct DocView {
     pub(crate) history: Vec<String>,
     pub(crate) forward: Vec<String>,
     pub(crate) selected: Option<String>,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
 }
 
 impl DocView {
@@ -284,6 +282,8 @@ impl DocView {
         id: &str,
         history: Vec<String>,
         forward: Vec<String>,
+        width: usize,
+        height: usize,
     ) -> Option<Self> {
         let entry = set.page(id)?;
         let document = entry.document;
@@ -295,6 +295,8 @@ impl DocView {
             history,
             forward,
             selected: None,
+            width,
+            height,
         };
         for raw in entry.body.lines() {
             let line = raw.trim_end();
@@ -394,12 +396,13 @@ impl DocView {
     }
 
     fn wrap(&mut self, runs: Vec<Run>, code: bool) {
+        let limit = self.content_width();
         let mut current: Vec<Run> = Vec::new();
         let mut x = 0;
         for run in runs {
             for character in run.text.chars() {
                 let width = char_width(font_for(code), character);
-                if x + width > CONTENT_WIDTH && x > 0 {
+                if x + width > limit && x > 0 {
                     self.lines.push(Line {
                         runs: core::mem::take(&mut current),
                         code,
@@ -419,7 +422,17 @@ impl DocView {
     }
 
     pub(crate) fn max_scroll(&self) -> usize {
-        (self.lines.len() * LINE_HEIGHT + MARGIN * 2).saturating_sub(CONTENT_HEIGHT)
+        (self.lines.len() * LINE_HEIGHT + MARGIN * 2).saturating_sub(self.content_height())
+    }
+
+    /// 正文可视高度。
+    pub(crate) fn content_height(&self) -> usize {
+        self.height.saturating_sub(FOOTER_HEIGHT)
+    }
+
+    /// 正文内容宽度。
+    pub(crate) fn content_width(&self) -> usize {
+        self.width.saturating_sub(MARGIN * 2)
     }
 
     /// 返回滚动百分比。
@@ -449,7 +462,7 @@ impl DocView {
         self.forward.clear();
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &entry.id, history, forward) {
+        match Self::load(set, &entry.id, history, forward, self.width, self.height) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: open ");
@@ -469,7 +482,7 @@ impl DocView {
         self.forward.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &previous, history, forward) {
+        match Self::load(set, &previous, history, forward, self.width, self.height) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: back ");
@@ -489,7 +502,7 @@ impl DocView {
         self.history.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &next, history, forward) {
+        match Self::load(set, &next, history, forward, self.width, self.height) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: forward ");
@@ -553,14 +566,14 @@ impl DocView {
         if self.scroll > top {
             self.scroll = top;
         }
-        if MARGIN + bottom > self.scroll + CONTENT_HEIGHT {
-            self.scroll = (MARGIN + bottom).saturating_sub(CONTENT_HEIGHT);
+        if MARGIN + bottom > self.scroll + self.content_height() {
+            self.scroll = (MARGIN + bottom).saturating_sub(self.content_height());
         }
         self.scroll = self.scroll.min(self.max_scroll());
     }
 
     pub(crate) fn link_at(&self, x: u32, y: u32) -> Option<String> {
-        if y as usize >= CONTENT_HEIGHT {
+        if y as usize >= self.content_height() {
             return None;
         }
         let adjusted = y as isize + self.scroll as isize - MARGIN as isize;

@@ -136,31 +136,6 @@ pub(crate) fn union(current: Rect, next: Rect) -> Rect {
     }
 }
 
-/// 把表面坐标矩形按比例映射到窗口正文坐标，向外取整。
-pub(crate) fn scale(
-    rect: Rect,
-    surface_width: usize,
-    surface_height: usize,
-    width: usize,
-    height: usize,
-) -> Rect {
-    if surface_width == 0 || surface_height == 0 || width == 0 || height == 0 {
-        return Rect::default();
-    }
-    let left = rect.x as u64 * width as u64 / surface_width as u64;
-    let top = rect.y as u64 * height as u64 / surface_height as u64;
-    let right =
-        (rect.x.saturating_add(rect.width) as u64 * width as u64).div_ceil(surface_width as u64);
-    let bottom =
-        (rect.y.saturating_add(rect.height) as u64 * height as u64).div_ceil(surface_height as u64);
-    Rect {
-        x: left as usize,
-        y: top as usize,
-        width: (right.saturating_sub(left)) as usize,
-        height: (bottom.saturating_sub(top)) as usize,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,40 +196,5 @@ mod tests {
         let mut surface = surface(100, 100);
         surface.set_input_region(Rect::default());
         assert!(surface.input_contains(99, 99));
-    }
-
-    #[test]
-    fn scaled_damage_covers_target_pixels() {
-        let rect = Rect {
-            x: 10,
-            y: 10,
-            width: 10,
-            height: 10,
-        };
-        assert_eq!(
-            scale(rect, 100, 100, 200, 200),
-            Rect {
-                x: 20,
-                y: 20,
-                width: 20,
-                height: 20,
-            }
-        );
-        let small = scale(rect, 100, 100, 50, 50);
-        assert_eq!(small.x, 5);
-        assert_eq!(small.width, 5);
-    }
-
-    #[test]
-    fn scaling_rounds_outwards() {
-        let rect = Rect {
-            x: 1,
-            y: 1,
-            width: 1,
-            height: 1,
-        };
-        let mapped = scale(rect, 3, 3, 10, 10);
-        assert_eq!(mapped.x, 3);
-        assert_eq!(mapped.width, 4);
     }
 }

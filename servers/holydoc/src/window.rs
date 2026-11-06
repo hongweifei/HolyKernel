@@ -6,7 +6,7 @@ use hk_canvas::Surface;
 use hk_server_api::display::{SURFACE_COMMIT, SURFACE_FRAME_DONE, SURFACE_VIRT, set_title};
 use hk_server_api::{recv, send};
 
-use crate::document::{DocView, HEIGHT, WIDTH};
+use crate::document::DocView;
 use crate::render::render;
 
 /// 更新窗口标题。
@@ -16,11 +16,18 @@ pub(crate) fn update_title(display: u64, window: u64, view: &DocView) {
 }
 
 /// 把渲染缓冲拷贝到共享表面并提交。
-pub(crate) fn present(source: &[u32], endpoint: u64, display: u64, surface: u64) {
+pub(crate) fn present(
+    source: &[u32],
+    width: usize,
+    height: usize,
+    endpoint: u64,
+    display: u64,
+    surface: u64,
+) {
     let pixels = SURFACE_VIRT as *mut u32;
-    // SAFETY: 渲染缓冲与表面帧都已映射，长度均为 WIDTH * HEIGHT。
+    // SAFETY: 渲染缓冲与表面帧都已映射，长度均为 width * height。
     unsafe {
-        core::ptr::copy_nonoverlapping(source.as_ptr(), pixels, WIDTH * HEIGHT);
+        core::ptr::copy_nonoverlapping(source.as_ptr(), pixels, width * height);
     }
     commit(endpoint, display, surface);
 }
@@ -47,8 +54,8 @@ pub(crate) fn apply(
     window: u64,
 ) {
     update_title(display, window, view);
-    // SAFETY: 调用方传入的表面帧已映射，长度为 WIDTH * HEIGHT。
-    let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
+    // SAFETY: 调用方传入的表面帧已映射，长度为 view.width * view.height。
+    let frame = unsafe { Surface::from_raw(pixels, view.width, view.height, view.width) };
     render(view, &frame);
     commit(endpoint, display, surface);
 }

@@ -23,9 +23,10 @@ use hk_canvas::Surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
-    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
-    set_title, unpack_key,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT,
+    SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE,
+    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_key,
+    unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -33,8 +34,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, fault_subscribe, frame_alloc, kernel_stats, recv, recv_data, recv_data_try, send,
-    send_handle, write, write_u64,
+    exit, fault_subscribe, frame_alloc, frame_unmap, kernel_stats, recv, recv_data, recv_data_try,
+    send, send_handle, write, write_u64,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -73,6 +74,8 @@ fn show(
     page: Page,
     text: &str,
     scroll: usize,
+    width: usize,
+    height: usize,
     font: &Font,
     pixels: *mut u32,
     endpoint: u64,
@@ -82,9 +85,9 @@ fn show(
 ) {
     let title = format!("Debug: {}", page.title());
     set_title(display, window, &title);
-    // SAFETY: 表面帧已映射，长度为 WIDTH * HEIGHT。
-    let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
-    render(text, page.title(), scroll, font, &frame);
+    // SAFETY: 表面帧已映射，长度为 width * height。
+    let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
+    render(text, page.title(), scroll, width, height, font, &frame);
     commit(endpoint, display, surface);
 }
 
@@ -97,7 +100,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-debug: no display\n");
         exit(1)
     }
-    let bytes = WIDTH * HEIGHT * 4;
+    let mut width = WIDTH;
+    let mut height = HEIGHT;
+    let bytes = width * height * 4;
     let handle = frame_alloc(bytes, SURFACE_VIRT);
     if handle == 0 || handle == u64::MAX {
         write(b"hk-server-debug: frame alloc failed\n");
@@ -106,7 +111,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if send_handle(
         display,
         SURFACE_CREATE,
-        pack_size(WIDTH as u32, HEIGHT as u32),
+        pack_size(width as u32, height as u32),
         handle,
     ) == u64::MAX
     {
@@ -139,7 +144,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut text = page.fetch();
     let mut scroll = 0;
     show(
-        page, &text, scroll, font, pixels, endpoint, display, surface, window,
+        page, &text, scroll, width, height, font, pixels, endpoint, display, surface, window,
     );
 
     let stats = kernel_stats();
@@ -164,7 +169,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         for page in Page::ALL {
             let text = page.fetch();
             show(
-                page, &text, 0, font, pixels, endpoint, display, surface, window,
+                page, &text, 0, width, height, font, pixels, endpoint, display, surface, window,
             );
             write(b"hk-server-debug: view ");
             write(page.slug().as_bytes());
@@ -195,6 +200,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 Page::Fault,
                 &fault,
                 0,
+                width,
+                height,
                 font,
                 pixels,
                 endpoint,
@@ -242,13 +249,43 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         match label {
+            DISPLAY_RESIZE => {
+                let (_, new_width, new_height) = unpack_window_size(word);
+                let new_width = new_width as usize;
+                let new_height = new_height as usize;
+                if new_width == 0 || new_height == 0 {
+                    continue;
+                }
+                if new_width != width || new_height != height {
+                    let _ = frame_unmap(SURFACE_VIRT, width * height * 4);
+                    let handle = frame_alloc(new_width * new_height * 4, SURFACE_VIRT);
+                    if handle == 0 || handle == u64::MAX {
+                        write(b"hk-server-debug: resize frame failed\n");
+                        continue;
+                    }
+                    let _ = send_handle(
+                        display,
+                        WINDOW_RESIZE,
+                        pack_window_size(window, new_width as u32, new_height as u32),
+                        handle,
+                    );
+                    width = new_width;
+                    height = new_height;
+                    let max = line_count(&text, width, font).saturating_sub(visible_lines(height));
+                    scroll = scroll.min(max);
+                    show(
+                        page, &text, scroll, width, height, font, pixels, endpoint, display,
+                        surface, window,
+                    );
+                }
+            }
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
                 let Some(key) = keys.feed(byte) else {
                     continue;
                 };
-                let max = line_count(&text, font).saturating_sub(visible_lines());
-                let visible = visible_lines();
+                let max = line_count(&text, width, font).saturating_sub(visible_lines(height));
+                let visible = visible_lines(height);
                 let mut update = false;
                 match key {
                     Key::Byte(byte @ b'1'..=b'6') => {
@@ -291,7 +328,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                     Key::Byte(b'r') => {
                         text = page.fetch();
-                        let max = line_count(&text, font).saturating_sub(visible);
+                        let max = line_count(&text, width, font).saturating_sub(visible);
                         scroll = scroll.min(max);
                         update = true;
                     }
@@ -303,7 +340,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 if update {
                     show(
-                        page, &text, scroll, font, pixels, endpoint, display, surface, window,
+                        page, &text, scroll, width, height, font, pixels, endpoint, display,
+                        surface, window,
                     );
                 }
             }

@@ -17,9 +17,9 @@ pub(crate) const MAX_WINDOWS: usize = 8;
 #[cfg(target_os = "none")]
 pub(crate) const WINDOW_BASE: u64 = 0x6000_0000;
 
-/// 相邻窗口表面的地址间隔。
+/// 相邻窗口表面的地址间隔；容纳 1920×1040 的 32 位表面。
 #[cfg(target_os = "none")]
-pub(crate) const WINDOW_STRIDE: u64 = 0x20_0000;
+pub(crate) const WINDOW_STRIDE: u64 = 0x0080_0000;
 
 /// 标题栏高度。
 #[cfg(target_os = "none")]
@@ -416,14 +416,12 @@ pub(crate) fn window_at(
                 // 标题栏与装饰属于服务端，始终接受输入。
                 return true;
             }
-            let surface_x = (x - window.x)
-                .checked_mul(window.surface.width)
-                .and_then(|value| value.checked_div(window.width.max(1)))
-                .unwrap_or(0);
-            let surface_y = (y - body_top)
-                .checked_mul(window.surface.height)
-                .and_then(|value| value.checked_div(window.height.max(1)))
-                .unwrap_or(0);
+            let surface_x = x - window.x;
+            let surface_y = y - body_top;
+            if surface_x >= window.surface.width || surface_y >= window.surface.height {
+                // 表面尚未跟上窗口尺寸时，正文区域仍归窗口所有。
+                return true;
+            }
             window.surface.input_contains(surface_x, surface_y)
         })
 }

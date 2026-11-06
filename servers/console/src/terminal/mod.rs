@@ -8,32 +8,50 @@ use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
 use hk_server_api::display::{
     DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
-    WINDOW_CREATED, pack_size,
+    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    frame_alloc, recv_data_try, send, send_handle, service_endpoint, write, yield_now,
+    frame_alloc, frame_unmap, recv_data_try, send, send_handle, service_endpoint, write, yield_now,
 };
 
 use ansi::{Ansi, Command, Event};
 use style::{Cell, Style};
 
-/// 终端列数。
+/// 终端初始列数。
 pub(crate) const COLUMNS: usize = 80;
-/// 终端行数。
+/// 终端初始行数。
 pub(crate) const ROWS: usize = 24;
+/// 网格最大列数。
+pub(crate) const MAX_COLUMNS: usize = 240;
+/// 网格最大行数。
+pub(crate) const MAX_ROWS: usize = 60;
 /// 单元格宽度。
 pub(crate) const CELL_WIDTH: usize = 8;
 /// 单元格高度。
 pub(crate) const CELL_HEIGHT: usize = 18;
-/// 表面宽度（像素）。
+/// 初始表面宽度（像素）。
 pub(crate) const WIDTH: usize = COLUMNS * CELL_WIDTH;
-/// 表面高度（像素）。
+/// 初始表面高度（像素）。
 pub(crate) const HEIGHT: usize = ROWS * CELL_HEIGHT;
 /// 表面映射地址。
 const SURFACE: u64 = 0x5000_0000;
 
 /// 字符网格。
-pub(crate) type Grid = [[Cell; COLUMNS]; ROWS];
+pub(crate) type Grid = [[Cell; MAX_COLUMNS]; MAX_ROWS];
+
+/// 全局字符网格；Console 单线程持有唯一访问权。
+static mut GRID: Grid = [[Cell::BLANK; MAX_COLUMNS]; MAX_ROWS];
+
+/// 返回全局网格；一次方法调用内完成访问，不跨调用持有。
+fn grid() -> &'static mut Grid {
+    // SAFETY: Console 服务单线程运行，网格访问都在终端方法内串行完成。
+    unsafe { &mut *core::ptr::addr_of_mut!(GRID) }
+}
+
+/// 清空全局网格。
+fn reset_grid() {
+    grid().fill([Cell::BLANK; MAX_COLUMNS]);
+}
 
 /// 增量 UTF-8 解码器。
 struct Utf8 {
@@ -90,7 +108,10 @@ pub(crate) struct Terminal {
     surface: u64,
     window: u64,
     pixels: *mut u32,
-    grid: Grid,
+    width: usize,
+    height: usize,
+    columns: usize,
+    rows: usize,
     column: usize,
     row: usize,
     font: &'static Font,
@@ -152,26 +173,29 @@ impl Terminal {
                 self.style.apply(&params[..count]);
             }
             Command::CursorPosition { row, column } => {
-                self.row = usize::from(row.saturating_sub(1)).min(ROWS - 1);
-                self.column = usize::from(column.saturating_sub(1)).min(COLUMNS - 1);
+                self.row = usize::from(row.saturating_sub(1)).min(self.rows.saturating_sub(1));
+                self.column =
+                    usize::from(column.saturating_sub(1)).min(self.columns.saturating_sub(1));
             }
             Command::CursorUp(lines) => {
                 self.row = self.row.saturating_sub(usize::from(lines));
             }
             Command::CursorDown(lines) => {
-                self.row = (self.row + usize::from(lines)).min(ROWS - 1);
+                self.row = (self.row + usize::from(lines)).min(self.rows.saturating_sub(1));
             }
             Command::CursorForward(columns) => {
-                self.column = (self.column + usize::from(columns)).min(COLUMNS - 1);
+                self.column =
+                    (self.column + usize::from(columns)).min(self.columns.saturating_sub(1));
             }
             Command::CursorBack(columns) => {
                 self.column = self.column.saturating_sub(usize::from(columns));
             }
             Command::CursorColumn(column) => {
-                self.column = usize::from(column.saturating_sub(1)).min(COLUMNS - 1);
+                self.column =
+                    usize::from(column.saturating_sub(1)).min(self.columns.saturating_sub(1));
             }
             Command::CursorRow(row) => {
-                self.row = usize::from(row.saturating_sub(1)).min(ROWS - 1);
+                self.row = usize::from(row.saturating_sub(1)).min(self.rows.saturating_sub(1));
             }
             Command::EraseDisplay(mode) => self.erase_display(mode),
             Command::EraseLine(mode) => self.erase_line(mode),
@@ -181,41 +205,61 @@ impl Terminal {
 
     fn erase_line(&mut self, mode: u16) {
         let blank = self.blank();
+        let grid = grid();
         match mode {
             0 => {
-                for column in self.column..COLUMNS {
-                    self.grid[self.row][column] = blank;
+                for cell in grid[self.row]
+                    .iter_mut()
+                    .take(self.columns)
+                    .skip(self.column)
+                {
+                    *cell = blank;
                 }
             }
             1 => {
-                for column in 0..=self.column.min(COLUMNS - 1) {
-                    self.grid[self.row][column] = blank;
+                let end = self
+                    .column
+                    .min(self.columns.saturating_sub(1))
+                    .saturating_add(1)
+                    .min(MAX_COLUMNS);
+                for cell in grid[self.row].iter_mut().take(end) {
+                    *cell = blank;
                 }
             }
-            _ => self.grid[self.row] = [blank; COLUMNS],
+            _ => grid[self.row] = [blank; MAX_COLUMNS],
         }
     }
 
     fn erase_display(&mut self, mode: u16) {
         let blank = self.blank();
+        let grid = grid();
         match mode {
             0 => {
-                for column in self.column..COLUMNS {
-                    self.grid[self.row][column] = blank;
+                for cell in grid[self.row]
+                    .iter_mut()
+                    .take(self.columns)
+                    .skip(self.column)
+                {
+                    *cell = blank;
                 }
-                for row in (self.row + 1)..ROWS {
-                    self.grid[row] = [blank; COLUMNS];
+                for row in grid.iter_mut().skip(self.row.saturating_add(1)) {
+                    row.fill(blank);
                 }
             }
             1 => {
-                for row in 0..self.row {
-                    self.grid[row] = [blank; COLUMNS];
+                for row in grid.iter_mut().take(self.row.min(MAX_ROWS)) {
+                    row.fill(blank);
                 }
-                for column in 0..=self.column.min(COLUMNS - 1) {
-                    self.grid[self.row][column] = blank;
+                let end = self
+                    .column
+                    .min(self.columns.saturating_sub(1))
+                    .saturating_add(1)
+                    .min(MAX_COLUMNS);
+                for cell in grid[self.row].iter_mut().take(end) {
+                    *cell = blank;
                 }
             }
-            _ => self.grid = [[blank; COLUMNS]; ROWS],
+            _ => grid.fill([blank; MAX_COLUMNS]),
         }
     }
 
@@ -229,17 +273,21 @@ impl Terminal {
             self.cjk_seen = true;
             write(b"hk-server-console: cjk ok\n");
         }
-        if self.column + width > COLUMNS {
+        if self.column + width > self.columns {
             self.column = 0;
             self.row += 1;
             self.wrap();
         }
-        self.grid[self.row][self.column] = Cell {
+        if self.row >= MAX_ROWS || self.column >= MAX_COLUMNS {
+            return;
+        }
+        let grid = grid();
+        grid[self.row][self.column] = Cell {
             character,
             style: self.style,
         };
-        if width > 1 {
-            self.grid[self.row][self.column + 1] = Cell {
+        if width > 1 && self.column + 1 < MAX_COLUMNS {
+            grid[self.row][self.column + 1] = Cell {
                 character: '\0',
                 style: self.style,
             };
@@ -268,38 +316,89 @@ impl Terminal {
         if self.column == 0 {
             return;
         }
+        let grid = grid();
         self.column -= 1;
-        if self.grid[self.row][self.column].character == '\0' && self.column > 0 {
-            self.grid[self.row][self.column] = self.blank();
+        if grid[self.row][self.column].character == '\0' && self.column > 0 {
+            grid[self.row][self.column] = self.blank();
             self.column -= 1;
         }
-        self.grid[self.row][self.column] = self.blank();
+        grid[self.row][self.column] = self.blank();
     }
 
     fn wrap(&mut self) {
-        while self.row >= ROWS {
-            self.grid[..].copy_within(1.., 0);
-            self.grid[ROWS - 1] = [self.blank(); COLUMNS];
-            self.row = ROWS - 1;
+        let grid = grid();
+        while self.row >= self.rows {
+            let rows = self.rows.max(1);
+            grid.copy_within(1..rows, 0);
+            grid[rows - 1] = [self.blank(); MAX_COLUMNS];
+            self.row = rows - 1;
+        }
+    }
+
+    fn view(&self) -> render::View {
+        render::View {
+            width: self.width,
+            height: self.height,
+            columns: self.columns,
+            rows: self.rows,
         }
     }
 
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
-        // SAFETY: 共享表面已映射，长度为 WIDTH * HEIGHT。
-        let frame = unsafe { Surface::from_raw(self.pixels, WIDTH, HEIGHT, WIDTH) };
-        render::refresh(&frame, &self.grid, self.row, self.column, self.font);
+        // SAFETY: 共享表面已映射，长度为 self.width * self.height。
+        let frame = unsafe { Surface::from_raw(self.pixels, self.width, self.height, self.width) };
+        render::refresh(
+            &frame,
+            grid(),
+            self.row,
+            self.column,
+            self.font,
+            self.view(),
+        );
         let _ = send(self.display, SURFACE_COMMIT, self.surface);
     }
 
     /// 解除共享表面映射，准备重建窗口。
     pub(crate) fn detach(&self) {
-        let _ = hk_server_api::frame_unmap(SURFACE, WIDTH * HEIGHT * 4);
+        let _ = frame_unmap(SURFACE, self.width * self.height * 4);
+    }
+
+    /// 按新的窗口内容尺寸重建表面并重排网格。
+    pub(crate) fn resize(&mut self, width: usize, height: usize) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
+        let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
+        let _ = frame_unmap(SURFACE, self.width * self.height * 4);
+        let handle = frame_alloc(width * height * 4, SURFACE);
+        if handle == 0 || handle == u64::MAX {
+            write(b"hk-server-console: resize frame failed\n");
+            return;
+        }
+        if send_handle(
+            self.display,
+            WINDOW_RESIZE,
+            pack_window_size(self.window, width as u32, height as u32),
+            handle,
+        ) == u64::MAX
+        {
+            write(b"hk-server-console: resize rejected\n");
+            return;
+        }
+        self.width = width;
+        self.height = height;
+        self.columns = columns;
+        self.rows = rows;
+        self.row = self.row.min(rows.saturating_sub(1));
+        self.column = self.column.min(columns.saturating_sub(1));
+        self.refresh();
     }
 
     /// 清空终端并重绘。
     pub(crate) fn clear(&mut self) {
-        self.grid = [[Cell::BLANK; COLUMNS]; ROWS];
+        reset_grid();
         self.style = Style::DEFAULT;
         self.decoder = Utf8::new();
         self.ansi = Ansi::new();
@@ -341,12 +440,16 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     let surface = wait_reply(endpoint, SURFACE_CREATED)?;
     let _ = send(display, WINDOW_CREATE, surface);
     let window = wait_reply(endpoint, WINDOW_CREATED)?;
+    reset_grid();
     Some(Terminal {
         display,
         surface,
         window,
         pixels: SURFACE as *mut u32,
-        grid: [[Cell::BLANK; COLUMNS]; ROWS],
+        width: WIDTH,
+        height: HEIGHT,
+        columns: COLUMNS,
+        rows: ROWS,
         column: 0,
         row: 0,
         font: default_monospace(),

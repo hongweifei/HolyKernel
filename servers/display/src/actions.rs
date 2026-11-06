@@ -1,7 +1,10 @@
 //! 窗口操作：最小化、最大化、关闭、焦点切换与按键路由。
 
 use hk_font::Font;
-use hk_server_api::display::{DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_WHEEL, pack_key, pack_wheel};
+use hk_server_api::display::{
+    DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
+    pack_window_size,
+};
 use hk_server_api::{close_handle, frame_unmap, send, write, write_u64};
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
@@ -114,6 +117,11 @@ pub(crate) fn toggle_maximize(
     write(b"x");
     write_u64(new.height as u64);
     write(b"\n");
+    let _ = send(
+        new.surface.client,
+        DISPLAY_RESIZE,
+        pack_window_size(id, new.width as u32, new.height as u32),
+    );
 }
 
 /// 关闭窗口：回收共享表面、通知客户端并更新焦点与任务栏。

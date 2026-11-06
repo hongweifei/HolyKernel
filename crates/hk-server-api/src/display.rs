@@ -21,6 +21,8 @@ pub const DISPLAY_CLICK_AT: u64 = 0xA09;
 pub const DISPLAY_RESTART: u64 = 0xA0A;
 /// 鼠标滚轮；`word` 打包窗口编号与有符号增量，发给焦点窗口的客户端。
 pub const DISPLAY_WHEEL: u64 = 0xA0B;
+/// 窗口内容尺寸变化；`word` 打包窗口编号与新的内容宽高，发给窗口客户端。
+pub const DISPLAY_RESIZE: u64 = 0xA0C;
 
 /// 创建表面；`word` 打包宽高，随消息转移表面 Frame 句柄。
 pub const SURFACE_CREATE: u64 = 0xA10;
@@ -40,6 +42,8 @@ pub const SURFACE_DESTROY: u64 = 0xA16;
 pub const WINDOW_CREATE: u64 = 0xA17;
 /// 窗口已创建；`word` 为窗口编号。
 pub const WINDOW_CREATED: u64 = 0xA18;
+/// 客户端替换窗口表面；`word` 打包窗口编号与新表面宽高，随消息转移 Frame 句柄。
+pub const WINDOW_RESIZE: u64 = 0xA1D;
 /// 设置焦点窗口；`word` 为窗口编号。
 pub const SEAT_FOCUS: u64 = 0xA19;
 /// 写入剪贴板；载荷为 UTF-8 文本。
@@ -129,6 +133,20 @@ pub const fn unpack_size(word: u64) -> (u32, u32) {
     ((word >> 32) as u32, word as u32)
 }
 
+/// 把窗口编号与内容宽高打包进一个消息字；宽高限制在 16 位。
+pub const fn pack_window_size(window: u64, width: u32, height: u32) -> u64 {
+    (window << 32) | ((width as u64 & 0xFFFF) << 16) | (height as u64 & 0xFFFF)
+}
+
+/// 从消息字解包窗口编号与内容宽高。
+pub const fn unpack_window_size(word: u64) -> (u64, u32, u32) {
+    (
+        word >> 32,
+        ((word >> 16) & 0xFFFF) as u32,
+        (word & 0xFFFF) as u32,
+    )
+}
+
 /// 把窗口编号与按键字节打包进一个消息字。
 pub const fn pack_key(window: u64, byte: u8) -> u64 {
     (window << 32) | byte as u64
@@ -161,4 +179,15 @@ pub const fn unpack_click_at(word: u64) -> (u64, u32, u32) {
         ((word >> 16) & 0xFFFF) as u32,
         (word & 0xFFFF) as u32,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pack_window_size, unpack_window_size};
+
+    #[test]
+    fn packs_window_size_and_position() {
+        let word = pack_window_size(3, 464, 348);
+        assert_eq!(unpack_window_size(word), (3, 464, 348));
+    }
 }

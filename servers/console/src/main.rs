@@ -12,7 +12,10 @@ use hk_server_api::console::{
     CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::display::{DISPLAY_KEY, DISPLAY_SERVICE, SURFACE_FRAME_DONE, unpack_key};
+use hk_server_api::display::{
+    DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE, SURFACE_FRAME_DONE, unpack_key,
+    unpack_window_size,
+};
 #[cfg(target_os = "none")]
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
@@ -106,6 +109,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     let (_, byte) = unpack_key(word);
                     if let Some(Key::Byte(byte)) = keys.feed(byte) {
                         editor.handle(&mut terminal, byte);
+                    }
+                }
+                DISPLAY_RESIZE => {
+                    if let Some(terminal) = &mut terminal {
+                        let (_, width, height) = unpack_window_size(word);
+                        terminal.resize(width as usize, height as usize);
                     }
                 }
                 SURFACE_FRAME_DONE => {}

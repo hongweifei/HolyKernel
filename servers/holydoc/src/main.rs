@@ -32,9 +32,10 @@ use alloc::vec::Vec;
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
-    SURFACE_CREATE, SURFACE_CREATED, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
-    unpack_click_at, unpack_key, unpack_wheel,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN,
+    DISPLAY_WHEEL, SURFACE_CREATE, SURFACE_CREATED, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED,
+    WINDOW_RESIZE, pack_size, pack_window_size, unpack_click_at, unpack_key, unpack_wheel,
+    unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -42,7 +43,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, frame_alloc, recv, recv_data_try, send, send_handle, write, write_u64, yield_now,
+    close_handle, exit, frame_alloc, frame_unmap, recv, recv_data_try, send, send_handle, write,
+    write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
@@ -54,9 +56,9 @@ use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 1024 * 1024;
 
-/// 渲染缓冲的虚拟地址；表面在 `SURFACE_VIRT`，这里错开 2 MiB。
+/// 渲染缓冲的虚拟地址；与表面保持 16 MiB 间隔，容纳放大后的表面。
 #[cfg(target_os = "none")]
-const RENDER_VIRT: u64 = SURFACE_VIRT + 0x0020_0000;
+const RENDER_VIRT: u64 = SURFACE_VIRT + 0x0100_0000;
 
 /// 渲染工作线程栈尺寸。
 #[cfg(target_os = "none")]
@@ -76,7 +78,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let bytes = WIDTH * HEIGHT * 4;
+    let mut width = WIDTH;
+    let mut height = HEIGHT;
+    let bytes = width * height * 4;
     let handle = frame_alloc(bytes, SURFACE_VIRT);
     if handle == 0 || handle == u64::MAX {
         write(b"hk-server-holydoc: frame alloc failed\n");
@@ -85,7 +89,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if send_handle(
         display,
         SURFACE_CREATE,
-        pack_size(WIDTH as u32, HEIGHT as u32),
+        pack_size(width as u32, height as u32),
         handle,
     ) == u64::MAX
     {
@@ -108,12 +112,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let loaded = drive::load(&mut docs, endpoint);
     docs.add_builtin();
     let pixels = SURFACE_VIRT as *mut u32;
-    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new()) else {
+    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new(), width, height)
+    else {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };
 
-    let render_frame = frame_alloc(bytes, RENDER_VIRT);
+    let mut render_frame = frame_alloc(bytes, RENDER_VIRT);
     if render_frame == 0 || render_frame == u64::MAX {
         write(b"hk-server-holydoc: render frame failed\n");
         exit(6)
@@ -126,7 +131,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     window::update_title(display, window, &view);
     submit_render(pool, &view);
     wait_render(pool);
-    present_render(endpoint, display, surface);
+    present_render(view.width, view.height, endpoint, display, surface);
     write(b"hk-server-holydoc: render worker ok\n");
     write(b"hk-server-holydoc: ready ");
     write_u64(window);
@@ -146,18 +151,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("holydoc-test"));
+    let resize_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+        .is_some_and(|line| line.contains("holydoc-resize-test"));
     if test {
         // 工作线程渲染必须与主线程渲染逐像素一致。
-        // SAFETY: 表面帧已映射，长度为 WIDTH * HEIGHT。
-        let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
+        // SAFETY: 表面帧已映射，长度为 width * height。
+        let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
         render::render(&view, &frame);
         submit_render(pool, &view);
         wait_render(pool);
-        // SAFETY: 表面与渲染缓冲都已映射，长度均为 WIDTH * HEIGHT。
-        let direct = unsafe { core::slice::from_raw_parts(pixels, WIDTH * HEIGHT) };
+        // SAFETY: 表面与渲染缓冲都已映射，长度均为 width * height。
+        let direct = unsafe { core::slice::from_raw_parts(pixels, width * height) };
         // SAFETY: 同上。
         let worker =
-            unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, WIDTH * HEIGHT) };
+            unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, width * height) };
         if direct != worker {
             write(b"hk-server-holydoc: render worker mismatch\n");
             exit(8)
@@ -178,10 +185,30 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut scratch = [0_u8; 32];
     let mut render_pending = false;
     let mut render_dirty = false;
+    let mut resized = false;
 
     loop {
         if render_pending && pool.try_next().is_some() {
-            present_render(endpoint, display, surface);
+            present_render(view.width, view.height, endpoint, display, surface);
+            if resized {
+                // SAFETY: 表面帧已映射，首像素位于 SURFACE_VIRT。
+                let pixel = unsafe { core::ptr::read_volatile(SURFACE_VIRT as *const u32) };
+                write(b"hk-server-holydoc: resize pixel ");
+                if pixel != 0 {
+                    write(b"ok\n");
+                    if resize_test {
+                        write(b"hk-server-holydoc: resize done\n");
+                        let _ = send(display, DISPLAY_SHUTDOWN, 0);
+                        exit(0)
+                    }
+                } else {
+                    write(b"zero\n");
+                    if resize_test {
+                        exit(9)
+                    }
+                }
+                resized = false;
+            }
             render_pending = false;
             if render_dirty {
                 render_dirty = false;
@@ -204,6 +231,65 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
         let mut redraw = false;
         match label {
+            DISPLAY_RESIZE => {
+                let (_, new_width, new_height) = unpack_window_size(word);
+                let new_width = new_width as usize;
+                let new_height = new_height as usize;
+                if new_width == 0 || new_height == 0 || (new_width == width && new_height == height)
+                {
+                    continue;
+                }
+                if render_pending {
+                    wait_render(pool);
+                    render_pending = false;
+                    render_dirty = false;
+                }
+                let old_bytes = width * height * 4;
+                let new_bytes = new_width * new_height * 4;
+                let _ = frame_unmap(RENDER_VIRT, old_bytes);
+                let _ = close_handle(render_frame);
+                let next_render = frame_alloc(new_bytes, RENDER_VIRT);
+                if next_render == 0 || next_render == u64::MAX {
+                    write(b"hk-server-holydoc: resize render frame failed\n");
+                    continue;
+                }
+                let _ = frame_unmap(SURFACE_VIRT, old_bytes);
+                let handle = frame_alloc(new_bytes, SURFACE_VIRT);
+                if handle == 0 || handle == u64::MAX {
+                    write(b"hk-server-holydoc: resize frame failed\n");
+                    continue;
+                }
+                if send_handle(
+                    display,
+                    WINDOW_RESIZE,
+                    pack_window_size(window, new_width as u32, new_height as u32),
+                    handle,
+                ) == u64::MAX
+                {
+                    write(b"hk-server-holydoc: resize rejected\n");
+                    continue;
+                }
+                render_frame = next_render;
+                width = new_width;
+                height = new_height;
+                let scroll = view.scroll;
+                let history = core::mem::take(&mut view.history);
+                let forward = core::mem::take(&mut view.forward);
+                let id = view.id.clone();
+                if let Some(mut next) = DocView::load(&docs, &id, history, forward, width, height) {
+                    next.scroll = scroll.min(next.max_scroll());
+                    view = next;
+                }
+                window::update_title(display, window, &view);
+                submit_render(pool, &view);
+                render_pending = true;
+                resized = true;
+                write(b"hk-server-holydoc: resize ");
+                write_u64(width as u64);
+                write(b"x");
+                write_u64(height as u64);
+                write(b"\n");
+            }
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
                 if let Some(key) = keys.feed(byte) {
@@ -322,8 +408,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 fn submit_render(pool: &Pool, view: &DocView) {
     let snapshot = view.clone();
     let _ = pool.submit(0, move || {
-        // SAFETY: 渲染缓冲在启动时映射，长度为 WIDTH * HEIGHT。
-        let frame = unsafe { Surface::from_raw(RENDER_VIRT as *mut u32, WIDTH, HEIGHT, WIDTH) };
+        // SAFETY: 渲染缓冲在启动时映射，长度为 view.width * view.height。
+        let frame = unsafe {
+            Surface::from_raw(
+                RENDER_VIRT as *mut u32,
+                snapshot.width,
+                snapshot.height,
+                snapshot.width,
+            )
+        };
         render::render(&snapshot, &frame);
         0
     });
@@ -339,10 +432,10 @@ fn wait_render(pool: &Pool) {
 
 /// 把渲染缓冲拷贝到表面并提交。
 #[cfg(target_os = "none")]
-fn present_render(endpoint: u64, display: u64, surface: u64) {
-    // SAFETY: 渲染缓冲在启动时映射，长度为 WIDTH * HEIGHT。
-    let pixels = unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, WIDTH * HEIGHT) };
-    window::present(pixels, endpoint, display, surface);
+fn present_render(width: usize, height: usize, endpoint: u64, display: u64, surface: u64) {
+    // SAFETY: 渲染缓冲在启动时映射，长度为 width * height。
+    let pixels = unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, width * height) };
+    window::present(pixels, width, height, endpoint, display, surface);
 }
 
 hk_server_api::server_boilerplate!();

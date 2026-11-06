@@ -18,10 +18,12 @@ pub(crate) const DOC_MAX: usize = 48 * 1024;
 const OUTPUT_LINES: usize = 64;
 /// 集合递归深度上限。
 const MAX_DEPTH: usize = 4;
-/// 编辑器可见行数。
-pub(crate) const VISIBLE_LINES: usize = 20;
-/// 编辑器可见字符列数。
-pub(crate) const VISIBLE_COLS: usize = 52;
+/// 编辑器默认可见行数。
+const DEFAULT_VISIBLE_LINES: usize = 20;
+/// 编辑器默认可见字符列数。
+const DEFAULT_VISIBLE_COLS: usize = 52;
+/// 文档树默认可见行数。
+const DEFAULT_NAV_ROWS: usize = 22;
 
 /// 输入焦点。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +68,10 @@ pub(crate) struct Editor {
     pub(crate) dirty: bool,
     /// 是否只读。
     pub(crate) readonly: bool,
+    /// 可视行数。
+    visible_lines: usize,
+    /// 可视字符列数。
+    visible_cols: usize,
 }
 
 /// 工作台状态。
@@ -83,6 +89,8 @@ pub(crate) struct Model {
     pub(crate) output: Vec<String>,
     /// 焦点。
     pub(crate) focus: Focus,
+    /// 文档树可视行数。
+    nav_rows: usize,
 }
 
 impl Model {
@@ -96,6 +104,7 @@ impl Model {
             editor: None,
             output: Vec::new(),
             focus: Focus::Navigator,
+            nav_rows: DEFAULT_NAV_ROWS,
         };
         model.refresh();
         model
@@ -183,6 +192,12 @@ impl Model {
         let depth = entry.depth;
         self.selected = index;
 
+        let (visible_lines, visible_cols) = self
+            .editor
+            .as_ref()
+            .map_or((DEFAULT_VISIBLE_LINES, DEFAULT_VISIBLE_COLS), |editor| {
+                (editor.visible_lines, editor.visible_cols)
+            });
         let mut editor = Editor {
             path: path.clone(),
             title,
@@ -193,6 +208,8 @@ impl Model {
             scroll_col: 0,
             dirty: false,
             readonly: kind == KIND_COLLECTION,
+            visible_lines,
+            visible_cols,
         };
         if kind == KIND_COLLECTION {
             editor.text = self.collection_listing(&path, depth);
@@ -276,12 +293,35 @@ impl Model {
     }
 
     fn ensure_selection_visible(&mut self) {
-        const ROWS: usize = 22;
+        let rows = self.nav_rows.max(1);
         if self.selected < self.nav_scroll {
             self.nav_scroll = self.selected;
-        } else if self.selected >= self.nav_scroll + ROWS {
-            self.nav_scroll = self.selected + 1 - ROWS;
+        } else if self.selected >= self.nav_scroll + rows {
+            self.nav_scroll = self.selected + 1 - rows;
         }
+    }
+
+    /// 按窗口尺寸更新可见行列并保持游标可见。
+    pub(crate) fn set_viewport(&mut self, nav_rows: usize, editor_rows: usize, editor_cols: usize) {
+        self.nav_rows = nav_rows.max(1);
+        if let Some(editor) = self.editor.as_mut() {
+            editor.visible_lines = editor_rows.max(1);
+            editor.visible_cols = editor_cols.max(1);
+            editor.ensure_visible();
+        }
+        self.ensure_selection_visible();
+    }
+
+    /// 编辑器当前可视行数。
+    pub(crate) fn visible_lines(&self) -> usize {
+        self.editor
+            .as_ref()
+            .map_or(DEFAULT_VISIBLE_LINES, |editor| editor.visible_lines)
+    }
+
+    /// 文档树当前可视行数。
+    pub(crate) fn nav_rows(&self) -> usize {
+        self.nav_rows
     }
 
     /// 切换焦点。
@@ -335,7 +375,7 @@ impl Model {
     pub(crate) fn scroll_editor(&mut self, delta: isize) {
         if let Some(editor) = self.editor.as_mut() {
             let lines = editor.line_count();
-            let max = lines.saturating_sub(VISIBLE_LINES);
+            let max = lines.saturating_sub(editor.visible_lines);
             if delta < 0 {
                 editor.scroll_line = editor.scroll_line.saturating_sub(delta.unsigned_abs());
             } else {
@@ -451,6 +491,12 @@ impl Model {
     /// 把编辑器切到指定文档，用于自检与新建文档。
     #[cfg_attr(not(target_os = "none"), allow(dead_code))]
     pub(crate) fn load_editor(&mut self, document: u128, path: &str, title: &str, text: &str) {
+        let (visible_lines, visible_cols) = self
+            .editor
+            .as_ref()
+            .map_or((DEFAULT_VISIBLE_LINES, DEFAULT_VISIBLE_COLS), |editor| {
+                (editor.visible_lines, editor.visible_cols)
+            });
         self.editor = Some(Editor {
             path: String::from(path),
             title: String::from(title),
@@ -461,6 +507,8 @@ impl Model {
             scroll_col: 0,
             dirty: false,
             readonly: false,
+            visible_lines,
+            visible_cols,
         });
     }
 
@@ -590,13 +638,13 @@ impl Editor {
         let (line, column) = line_column(&self.text, self.cursor);
         if line < self.scroll_line {
             self.scroll_line = line;
-        } else if line >= self.scroll_line + VISIBLE_LINES {
-            self.scroll_line = line + 1 - VISIBLE_LINES;
+        } else if line >= self.scroll_line + self.visible_lines {
+            self.scroll_line = line + 1 - self.visible_lines;
         }
         if column < self.scroll_col {
             self.scroll_col = column;
-        } else if column >= self.scroll_col + VISIBLE_COLS {
-            self.scroll_col = column + 1 - VISIBLE_COLS;
+        } else if column >= self.scroll_col + self.visible_cols {
+            self.scroll_col = column + 1 - self.visible_cols;
         }
     }
 }

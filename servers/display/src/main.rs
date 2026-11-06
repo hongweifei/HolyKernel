@@ -17,11 +17,12 @@ mod surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN,
-    SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD, SURFACE_COMMIT,
-    SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE, SURFACE_DESTROY, SURFACE_FRAME_DONE,
-    SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE, WINDOW_CREATED, pack_click_at, unpack_size,
-    unpack_surface_rect,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_RESIZE, DISPLAY_RESTART, DISPLAY_SET_TITLE,
+    DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD,
+    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE, SURFACE_DESTROY,
+    SURFACE_FRAME_DONE, SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE, WINDOW_CREATED,
+    WINDOW_RESIZE, pack_click_at, pack_window_size, unpack_size, unpack_surface_rect,
+    unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -55,7 +56,7 @@ use resize::Rect;
 #[cfg(target_os = "none")]
 use seat::Seat;
 #[cfg(target_os = "none")]
-use surface::{MAX_SURFACES, Surface, scale};
+use surface::{MAX_SURFACES, Surface, clip};
 
 #[cfg(target_os = "none")]
 mod theme;
@@ -204,6 +205,99 @@ fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u
     }
 }
 
+/// 通知客户端窗口内容尺寸；提交帧后若仍不一致会再次补发。
+#[cfg(target_os = "none")]
+fn notify_resize(windows: &[Option<Window>; MAX_WINDOWS], id: u64) {
+    if let Some(window) = windows.iter().flatten().find(|window| window.id == id) {
+        let _ = send(
+            window.surface.client,
+            DISPLAY_RESIZE,
+            pack_window_size(id, window.width as u32, window.height as u32),
+        );
+    }
+}
+
+/// 用客户端转移的新表面替换窗口缓冲，尺寸以客户端声明为准。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn replace_window_surface(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font,
+    pointer: Option<(usize, usize)>,
+    id: u64,
+    width: usize,
+    height: usize,
+    handle: u64,
+    sender: u64,
+) -> bool {
+    let Some(index) = windows
+        .iter()
+        .position(|window| window.as_ref().is_some_and(|window| window.id == id))
+    else {
+        if handle != 0 && handle != u64::MAX {
+            let _ = close_handle(handle);
+        }
+        return false;
+    };
+    if handle == 0 || handle == u64::MAX || width == 0 || height == 0 {
+        if handle != 0 && handle != u64::MAX {
+            let _ = close_handle(handle);
+        }
+        return false;
+    }
+    let bytes = width as u64 * height as u64 * 4;
+    let Some((_, frame_length)) = frame_info(handle) else {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: resize no-frame\n");
+        return false;
+    };
+    if frame_length < bytes {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: resize short-frame\n");
+        return false;
+    }
+    let Some(window) = windows[index] else {
+        let _ = close_handle(handle);
+        return false;
+    };
+    if window.surface.client != sender {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: resize owner mismatch\n");
+        return false;
+    }
+    let (surface_id, client, slot, virt) = (
+        window.surface.id,
+        window.surface.client,
+        window.surface.slot,
+        window.surface.virt,
+    );
+    let old_bytes = window.surface.width * window.surface.height * 4;
+    let _ = frame_unmap(virt, old_bytes);
+    let _ = close_handle(window.surface.handle);
+    let mapped = frame_map(handle, virt);
+    if mapped < bytes {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: resize map-failed\n");
+        return false;
+    }
+    if let Some(window) = windows[index].as_mut() {
+        window.surface = Surface::new(surface_id, client, slot, width, height, virt, handle);
+    }
+    if let Some(window) = windows[index] {
+        damage_window(screen, windows, focus, font, pointer, &window);
+    }
+    write(b"hk-server-display: surface resize ");
+    write_u64(id);
+    write(b" ");
+    write_u64(width as u64);
+    write(b"x");
+    write_u64(height as u64);
+    write(b"\n");
+    true
+}
+
 /// 把表面绑定到窗口：分配窗口槽、放置几何并提升焦点。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
@@ -222,9 +316,7 @@ fn attach_window(
             .as_ref()
             .is_some_and(|surface| surface.id == surface_id)
     })?;
-    let Some(surface) = surfaces[slot].take() else {
-        return None;
-    };
+    let surface = surfaces[slot].take()?;
     let Some(window_slot) = windows.iter().position(Option::is_none) else {
         surfaces[slot] = Some(surface);
         write(b"hk-server-display: create full\n");
@@ -468,6 +560,21 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 );
                 let _ = send(sender, WINDOW_CREATED, window.unwrap_or(0));
             }
+            WINDOW_RESIZE => {
+                let (id, width, height) = unpack_window_size(word);
+                replace_window_surface(
+                    &screen,
+                    &mut windows,
+                    focus,
+                    font,
+                    seat.pointer,
+                    id,
+                    width as usize,
+                    height as usize,
+                    handle,
+                    sender,
+                );
+            }
             SURFACE_DAMAGE => {
                 if let Some((surface, x, y, width, height)) =
                     unpack_surface_rect(&payload[..length.min(payload.len())])
@@ -521,14 +628,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 };
                 match damage {
                     Some(damage) => {
-                        let body = scale(
-                            damage,
-                            window.surface.width,
-                            window.surface.height,
+                        let body = clip(
+                            damage.x,
+                            damage.y,
+                            damage.width,
+                            damage.height,
                             window.width,
                             window.height,
                         );
-                        if body.width > 0 && body.height > 0 {
+                        if let Some(body) = body {
                             compose_region(
                                 &screen,
                                 &windows,
@@ -563,6 +671,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                 }
                 let _ = send(sender, SURFACE_FRAME_DONE, word);
+                if let Some(window) = windows[slot].as_ref()
+                    && (window.width != window.surface.width
+                        || window.height != window.surface.height)
+                {
+                    let _ = send(
+                        window.surface.client,
+                        DISPLAY_RESIZE,
+                        pack_window_size(window.id, window.width as u32, window.height as u32),
+                    );
+                }
             }
             SURFACE_DESTROY => {
                 discard_surface(&mut surfaces, word);
@@ -724,18 +842,22 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 if word == 0 {
                     if let Some(state) = resize
                         && state.resized
-                        && let Some(window) = windows
+                    {
+                        if let Some(window) = windows
                             .iter()
                             .flatten()
                             .find(|window| window.id == state.id)
-                    {
-                        write(b"hk-server-display: resize ");
-                        write_u64(window.id);
-                        write(b" ");
-                        write_u64(window.width as u64);
-                        write(b"x");
-                        write_u64(window.height as u64);
-                        write(b"\n");
+                            .copied()
+                        {
+                            write(b"hk-server-display: resize ");
+                            write_u64(window.id);
+                            write(b" ");
+                            write_u64(window.width as u64);
+                            write(b"x");
+                            write_u64(window.height as u64);
+                            write(b"\n");
+                        }
+                        notify_resize(&windows, state.id);
                     }
                     drag = None;
                     resize = None;

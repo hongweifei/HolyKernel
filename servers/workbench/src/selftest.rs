@@ -21,11 +21,15 @@ pub(crate) fn run(
     display: u64,
     surface: u64,
     window: u64,
+    width: usize,
+    height: usize,
 ) -> ! {
     write(b"hk-server-workbench: selftest\n");
 
     if model.select_path("H:/Welcome") {
-        crate::show(model, font, pixels, endpoint, display, surface, window);
+        crate::show(
+            model, font, pixels, endpoint, display, surface, window, width, height,
+        );
         write(b"hk-server-workbench: open H:/Welcome\n");
     } else {
         write(b"hk-server-workbench: open failed\n");
@@ -77,7 +81,9 @@ pub(crate) fn run(
         model.open(index);
     }
     model.log(&format!("自检完成：{} 项文档", model.entries.len()));
-    crate::show(model, font, pixels, endpoint, display, surface, window);
+    crate::show(
+        model, font, pixels, endpoint, display, surface, window, width, height,
+    );
     write(b"hk-server-workbench: done\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);
     exit(0)
