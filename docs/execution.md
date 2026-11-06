@@ -222,6 +222,7 @@ impl Notification {
 - 块完成按请求标签匹配：`ClientDisk::read_async`/`write_async` 把一次块读写封装成 future，其它标签的完成暂存给各自的请求；`BlockClient::wait` 也由执行器驱动。
 - `Waker` 记录唤醒标志；标志已置位时跳过让出并立即重试，避免丢失唤醒。
 - 阻塞语义仍由内核对象承担；执行器负责把多个等待点组合到同一线程。
+- 块客户端提供 `read_bulk_async`/`write_bulk_async`：按槽位并行提交，多个请求在途时仍由执行器驱动，调用方拿到的仍是一次结果。
 - 执行器不持有内核资源，服务退出时随线程一起消失。
 
 ### 5.4 线程与同步库
@@ -241,7 +242,7 @@ impl Notification {
 
 - 任务队列与完成队列都用 `Mutex` + `Condvar`；任务体是 `FnOnce() -> u64`。
 - `Pool::start(n)` 的池泄漏到进程生命周期；`shutdown` 由主线程调用并 join 工作线程。
-- echo 服务用 3 个工作线程处理 `WORK_REQUEST`，有在途任务时主线程改用非阻塞接收，完成即回复。
+- echo 服务用 3 个工作线程处理 `WORK_REQUEST`；`Pool::set_wake` 让每个完成向服务端点发 `WORK_DONE`，主线程始终阻塞接收，不再轮询。
 - demo 并发提交 4 个任务，校验结果、乱序完成与并发峰值。
 
 ### 5.6 渲染工作线程
