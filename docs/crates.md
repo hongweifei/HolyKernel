@@ -11,8 +11,8 @@
 | 层 | crate | 职责 |
 | --- | --- | --- |
 | L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
-| L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
-| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像、测试退出 |
+| L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号与跨边界编码、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
+| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像与服务角色元数据、测试退出 |
 | L2 用户态库 | `hk-server-api`、`hk-debug`、`hk-checkpoint`、`hk-coroutine`、`hk-async`、`hk-sync`、`hk-thread`、`hk-worker`、`hk-block`、`hk-canvas`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、用户态符号与回溯格式化、检查点快照格式、有栈协程、异步执行器、同步原语、线程库、工作线程池、块/文件系统核心、像素绘制与文本排版、字体（TrueType 栅格化、等宽位图与回退）、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
@@ -22,7 +22,7 @@
 | L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督、运行时宿主、符号表与异常回溯、平台实现、镜像与测试工具 |
 | 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
 
-`hk-shell` 必须保持零依赖；用户态命令通过 `ShellHost::extension` 交给宿主，不以任何形式引入内核或服务实现。
+`hk-shell` 与 `hk-syscall` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现。
 
 ---
 
@@ -32,7 +32,7 @@
 | --- | --- | --- |
 | L0 内核 crate | `hk-base`、`hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
 | L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
-| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
+| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-handle`、`hk-mem`、`hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
 | `hk-debug` | `hk-server-api` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*` |
 | `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
 | `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、`hk-kernel-shell`、平台二进制 |
@@ -40,6 +40,7 @@
 | L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
 | L3 服务/客户端/演示 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
 | `hk-shell` | 无 | 任何依赖 |
+| `hk-syscall` | 无 | 任何依赖 |
 
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
 
@@ -47,7 +48,7 @@
 
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`；`hk-fs-holyfs-vfs` 把原生实现接到契约上，不引入路径语义。`hk-vfs` 的核心也使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。
 
-目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
+目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块；它从 `hk-syscall` 只显式重导出用到的 ABI 常量与类型，不整体展开内核命名空间。
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 
@@ -59,7 +60,10 @@
 
 | 内容 | 位置 |
 | --- | --- |
-| 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
+| 系统调用编号与跨边界 ABI 编码 | `crates/hk-syscall/src/lib.rs` |
+| 类型化能力判类（`CapabilityKind`） | `crates/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
+| 句柄权利与 Region 标志位 | `crates/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
+| 服务角色元数据与 `.hk_service` 段 | `crates/hk-image/src/role.rs` |
 | 用户虚拟布局与自动映射窗口 | `crates/hk-hal/src/user.rs` |
 | HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/hk-mem/src/hmp/` |
 | 页分配、页表页池与用户地址空间登记 | `crates/hk-mem/src/page/` |
@@ -68,6 +72,7 @@
 | 字形度量、缓存与字体特性 | `crates/hk-font/src/lib.rs` |
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
 | 服务客户端与编解码 | `crates/hk-server-api/src/*` |
+| 服务协议标签与服务名常量 | `crates/hk-server-api/src/*`（内核按名称授权的服务名在 `hk-syscall`） |
 | 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
 | 检查点快照格式 | `crates/hk-checkpoint/src/lib.rs` |
 | 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
@@ -91,7 +96,7 @@
    - 服务发现使用 `hk_server_api::runtime::wait_service`。
 4. 加入 `xtask/src/catalog.rs` 的 `SERVERS`。
 5. 如需默认启动，加入 `hk-root-server` 的 `BOOT_SERVICES`，并在平台 loader 的模式过滤中处理。
-6. 协议与常量放入 `hk-server-api`，不放入内核或 `hk-shell`。
+6. 服务协议与常量放入 `hk-server-api`；内核与用户态共用的编号与 ABI 编码放入 `hk-syscall`，不放入 `hk-shell`。
 7. 为可自动验证的行为新增 `xtask smoke` 模式。
 
 ---
