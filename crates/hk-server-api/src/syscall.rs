@@ -413,13 +413,13 @@ pub fn self_notification() -> u64 {
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
 }
 
-/// 分配共享 Frame 并映射到内核选择的虚拟地址，返回帧句柄编号与映射地址。
-pub fn frame_alloc(length: usize) -> Option<(u64, u64)> {
+/// 创建共享 Frame 并映射到内核选择的虚拟地址，返回帧句柄编号与映射地址。
+pub fn map_create(length: usize) -> Option<(u64, u64)> {
     let mut virt = 0_u64;
     // SAFETY: `virt` 位于本栈帧；内核校验长度后写入所选地址。
     let handle = unsafe {
         syscall_call(
-            SYS_FRAME_ALLOC,
+            SYS_MAP_CREATE,
             length as u64,
             &mut virt as *mut u64 as u64,
             0,
@@ -431,27 +431,27 @@ pub fn frame_alloc(length: usize) -> Option<(u64, u64)> {
 }
 
 /// 把 Frame 映射到内核选择的虚拟地址，返回映射长度与地址。
-pub fn frame_map(number: u64) -> Option<(u64, u64)> {
+pub fn map_attach(number: u64) -> Option<(u64, u64)> {
     let mut virt = 0_u64;
     // SAFETY: `virt` 位于本栈帧；内核校验帧句柄后写入所选地址。
     let mapped =
-        unsafe { syscall_call(SYS_FRAME_MAP, number, &mut virt as *mut u64 as u64, 0, 0).value };
+        unsafe { syscall_call(SYS_MAP_ATTACH, number, &mut virt as *mut u64 as u64, 0, 0).value };
     (mapped != 0 && virt != 0).then_some((mapped, virt))
 }
 
 /// 解除 Frame 映射；成功返回 1。
-pub fn frame_unmap(virt: u64, length: usize) -> u64 {
+pub fn map_unmap(virt: u64, length: usize) -> u64 {
     // SAFETY: 内核只解除调用者地址空间内的映射。
-    unsafe { syscall_call(SYS_FRAME_UNMAP, virt, length as u64, 0, 0).value }
+    unsafe { syscall_call(SYS_MAP_UNMAP, virt, length as u64, 0, 0).value }
 }
 
 /// 查询 Frame 的物理地址与长度。
-pub fn frame_info(number: u64) -> Option<(u64, u64)> {
+pub fn map_phys(number: u64) -> Option<(u64, u64)> {
     let mut bytes = [0_u8; 16];
     // SAFETY: 缓冲区属于本进程；内核校验句柄与容量后写入。
     let result = unsafe {
         syscall_call(
-            SYS_FRAME_INFO,
+            SYS_MAP_PHYS,
             number,
             bytes.as_mut_ptr() as u64,
             bytes.len() as u64,

@@ -1,7 +1,7 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
 use crate::{
-    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, frame_alloc, handle_duplicate,
+    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, handle_duplicate, map_create,
     recv_data_from, send_data, send_handle, service_endpoint,
 };
 
@@ -204,7 +204,7 @@ impl Drop for VfsClient {
             if endpoint != 0 {
                 let _ = send_data(endpoint, VFS_DETACH, &[]);
             }
-            let _ = crate::frame_unmap(self.frame_virt, VFS_FRAME_LEN);
+            let _ = crate::map_unmap(self.frame_virt, VFS_FRAME_LEN);
             let _ = crate::close_handle(number);
         }
     }
@@ -266,7 +266,7 @@ impl VfsClient {
             return Ok(endpoint);
         }
         if self.frame.is_none() {
-            let Some((number, virt)) = frame_alloc(VFS_FRAME_LEN) else {
+            let Some((number, virt)) = map_create(VFS_FRAME_LEN) else {
                 return Err(STATUS_IO);
             };
             self.frame = Some(number);
@@ -290,7 +290,7 @@ impl VfsClient {
 
     /// 返回客户端共享帧。
     pub fn frame(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_FRAME_ALLOC 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
+        // SAFETY: SYS_MAP_CREATE 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
         unsafe { core::slice::from_raw_parts_mut(self.frame_virt as *mut u8, VFS_FRAME_LEN) }
     }
 

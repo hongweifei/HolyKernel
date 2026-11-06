@@ -32,7 +32,7 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
+    close_handle, console_read, exit, map_attach, map_create, map_phys, map_unmap,
     recv_data_handle_try, send, send_data, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
@@ -156,7 +156,7 @@ fn create_surface(
         return None;
     };
     let bytes = width as u64 * height as u64 * 4;
-    let Some((_, frame_length)) = frame_info(handle) else {
+    let Some((_, frame_length)) = map_phys(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: create no-frame\n");
         return None;
@@ -167,13 +167,13 @@ fn create_surface(
         return None;
     }
     let id = *next_id;
-    let Some((mapped, virt)) = frame_map(handle) else {
+    let Some((mapped, virt)) = map_attach(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: create map-failed\n");
         return None;
     };
     if mapped < bytes {
-        let _ = frame_unmap(virt, mapped as usize);
+        let _ = map_unmap(virt, mapped as usize);
         let _ = close_handle(handle);
         write(b"hk-server-display: create map-failed ");
         write_u64(mapped);
@@ -200,7 +200,7 @@ fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u
             .width
             .saturating_mul(surface.height)
             .saturating_mul(4);
-        let _ = frame_unmap(surface.virt, bytes);
+        let _ = map_unmap(surface.virt, bytes);
         let _ = close_handle(surface.handle);
     }
 }
@@ -248,7 +248,7 @@ fn replace_window_surface(
         return false;
     }
     let bytes = width as u64 * height as u64 * 4;
-    let Some((_, frame_length)) = frame_info(handle) else {
+    let Some((_, frame_length)) = map_phys(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: resize no-frame\n");
         return false;
@@ -272,13 +272,13 @@ fn replace_window_surface(
         window.surface.client,
         window.surface.slot,
     );
-    let Some((mapped, virt)) = frame_map(handle) else {
+    let Some((mapped, virt)) = map_attach(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
     };
     if mapped < bytes {
-        let _ = frame_unmap(virt, mapped as usize);
+        let _ = map_unmap(virt, mapped as usize);
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
@@ -288,7 +288,7 @@ fn replace_window_surface(
         window.surface = Surface::new(surface_id, client, slot, width, height, virt, handle);
     }
     let old_bytes = old.width * old.height * 4;
-    let _ = frame_unmap(old.virt, old_bytes);
+    let _ = map_unmap(old.virt, old_bytes);
     let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {
         damage_window(screen, windows, focus, font, pointer, &window);
@@ -454,7 +454,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let Some((_back_handle, back_virt)) = frame_alloc(bytes) else {
+    let Some((_back_handle, back_virt)) = map_create(bytes) else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)
     };

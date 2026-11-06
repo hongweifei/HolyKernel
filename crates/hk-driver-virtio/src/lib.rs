@@ -24,7 +24,7 @@ use virtio_drivers::transport::pci::bus::PciRoot;
 use virtio_drivers::transport::pci::virtio_device_type;
 
 pub use blk::Block;
-pub use hal::register_frame;
+pub use hal::register_mapping;
 pub use input::Input;
 pub use msix::Msix;
 pub use net::Network;

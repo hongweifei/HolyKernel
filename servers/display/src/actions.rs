@@ -5,7 +5,7 @@ use hk_server_api::display::{
     DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
     pack_window_size,
 };
-use hk_server_api::{close_handle, frame_unmap, send, write, write_u64};
+use hk_server_api::{close_handle, map_unmap, send, write, write_u64};
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
 use crate::window::{MAX_WINDOWS, Screen, Window, raise, taskbar_height, title_height};
@@ -149,7 +149,7 @@ pub(crate) fn close_window(
         .width
         .saturating_mul(window.surface.height)
         .saturating_mul(4);
-    let _ = frame_unmap(window.surface.virt, bytes);
+    let _ = map_unmap(window.surface.virt, bytes);
     let _ = close_handle(window.surface.handle);
     let _ = send(window.surface.client, DISPLAY_CLOSE, id);
 

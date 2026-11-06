@@ -2,8 +2,8 @@
 
 use alloc::collections::BTreeMap;
 
-use hk_block::ipc::{register_client_frame, unregister_client_frame};
-use hk_server_api::{close_handle, frame_map, frame_unmap};
+use hk_block::ipc::{register_client_mapping, unregister_client_mapping};
+use hk_server_api::{close_handle, map_attach, map_unmap};
 use hk_vfs::{FileHandle, Vfs};
 
 #[cfg(target_os = "none")]
@@ -60,29 +60,29 @@ impl Sessions {
         if length == 0 || length > hk_server_api::vfs::VFS_FRAME_LEN {
             return false;
         }
-        let Some((mapped, virt)) = frame_map(handle) else {
+        let Some((mapped, virt)) = map_attach(handle) else {
             return false;
         };
         if mapped != length as u64 {
-            let _ = frame_unmap(virt, mapped as usize);
+            let _ = map_unmap(virt, mapped as usize);
             return false;
         }
         if let Some((old_virt, old_len, old_handle)) =
             self.frames.insert(sender, (virt, length, handle))
         {
-            let _ = frame_unmap(old_virt, old_len);
+            let _ = map_unmap(old_virt, old_len);
             let _ = close_handle(old_handle);
-            unregister_client_frame(old_virt);
+            unregister_client_mapping(old_virt);
         }
-        register_client_frame(virt, handle, length);
+        register_client_mapping(virt, handle, length);
         true
     }
 
     pub(crate) fn detach(&mut self, sender: u64, filesystem: &mut Vfs) {
         if let Some((virt, length, handle)) = self.frames.remove(&sender) {
-            let _ = frame_unmap(virt, length);
+            let _ = map_unmap(virt, length);
             let _ = close_handle(handle);
-            unregister_client_frame(virt);
+            unregister_client_mapping(virt);
         }
         if let Some(session) = self.clients.remove(&sender) {
             for handle in session.handles.into_values() {

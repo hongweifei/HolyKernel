@@ -93,7 +93,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 block.as_mut(),
                 |virt, phys, length, frame| {
                     if dma_map_frame(grant_handle, frame, length) != u64::MAX {
-                        hk_driver_virtio::register_frame(virt, phys, length);
+                        hk_driver_virtio::register_mapping(virt, phys, length);
                     }
                 },
                 || {

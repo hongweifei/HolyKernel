@@ -3,9 +3,9 @@
 use super::*;
 
 mod device;
-mod frame;
 mod framebuffer;
 mod ipc;
+mod mapping;
 mod task;
 mod thread;
 
@@ -310,10 +310,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.framebuffer_map(index, frame));
                 Switch::Continue
             }
-            SYS_FRAME_ALLOC => self.frame_alloc(index, tcb, frame),
-            SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
-            SYS_FRAME_UNMAP => self.frame_unmap(index, frame),
-            SYS_FRAME_INFO => self.frame_info(index, tcb, frame),
+            SYS_MAP_CREATE => self.map_create(index, tcb, frame),
+            SYS_MAP_ATTACH => self.map_attach(index, tcb, frame),
+            SYS_MAP_UNMAP => self.map_unmap(index, frame),
+            SYS_MAP_PHYS => self.map_phys(index, tcb, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),
             SYS_BOOT_CMDLINE => {

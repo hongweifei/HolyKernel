@@ -1,9 +1,9 @@
-//! 共享 Frame 与句柄复制的系统调用。
+//! 用户映射与句柄复制的系统调用。
 
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
-    pub(crate) fn frame_alloc(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+    pub(crate) fn map_create(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let length = frame.arg0() as usize;
         let out = frame.arg1();
         let page = hk_hal::PAGE_SIZE as u64;
@@ -54,7 +54,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn frame_map(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
+    pub(crate) fn map_attach(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();
         let Some((_, range)) = self.frame_at(index, number) else {
@@ -86,7 +86,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn frame_unmap(&mut self, index: usize, frame: &mut C) -> Switch {
+    pub(crate) fn map_unmap(&mut self, index: usize, frame: &mut C) -> Switch {
         let virt = frame.arg0();
         let length = frame.arg1() as usize;
         let result = u64::from(self.platform.unmap_dma(index, virt, length));
@@ -97,7 +97,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn frame_info(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
+    pub(crate) fn map_phys(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let Some((_, range)) = self.frame_at(index, number) else {
             frame.set_result(u64::MAX);

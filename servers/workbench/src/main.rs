@@ -42,8 +42,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, exit, fault_subscribe, frame_alloc, frame_unmap, recv, recv_data, send,
-    send_handle, write, write_u64,
+    close_handle, exit, fault_subscribe, map_create, map_unmap, recv, recv_data, send, send_handle,
+    write, write_u64,
 };
 
 #[cfg(target_os = "none")]
@@ -292,7 +292,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width * height * 4;
-    let Some((handle, mut surface_virt)) = frame_alloc(bytes) else {
+    let Some((handle, mut surface_virt)) = map_create(bytes) else {
         write(b"hk-server-workbench: frame alloc failed\n");
         exit(2)
     };
@@ -361,7 +361,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     false
                 } else {
                     let bytes = new_width * new_height * 4;
-                    let Some((handle, virt)) = frame_alloc(bytes) else {
+                    let Some((handle, virt)) = map_create(bytes) else {
                         write(b"hk-server-workbench: resize frame failed\n");
                         continue;
                     };
@@ -382,7 +382,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     height = new_height;
                     surface_virt = virt;
                     pixels = virt as *mut u32;
-                    let _ = frame_unmap(old_virt, old_bytes);
+                    let _ = map_unmap(old_virt, old_bytes);
                     let layout = Layout::new(width, height);
                     model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
                     true

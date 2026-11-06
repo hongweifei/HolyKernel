@@ -33,8 +33,8 @@ struct FrameRegion {
     len: usize,
 }
 
-/// 登记共享 Frame 的用户虚拟地址与物理区间，供 DMA 直接引用。
-pub fn register_frame(virt: u64, phys: u64, len: usize) {
+/// 登记共享映射的用户虚拟地址与物理区间，供 DMA 直接引用。
+pub fn register_mapping(virt: u64, phys: u64, len: usize) {
     let mut frames = FRAMES.lock();
     if let Some(region) = frames.iter_mut().find(|region| region.virt == virt) {
         region.phys = phys;

@@ -11,8 +11,8 @@ use hk_server_api::display::{
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    close_handle, frame_alloc, frame_unmap, recv_data_try, send, send_handle, service_endpoint,
-    write, yield_now,
+    close_handle, map_create, map_unmap, recv_data_try, send, send_handle, service_endpoint, write,
+    yield_now,
 };
 
 use ansi::{Ansi, Command, Event};
@@ -361,7 +361,7 @@ impl Terminal {
 
     /// 解除共享表面映射，准备重建窗口。
     pub(crate) fn detach(&self) {
-        let _ = frame_unmap(self.surface_virt, self.width * self.height * 4);
+        let _ = map_unmap(self.surface_virt, self.width * self.height * 4);
     }
 
     /// 按新的窗口内容尺寸重建表面并重排网格。
@@ -372,7 +372,7 @@ impl Terminal {
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
         let bytes = width * height * 4;
-        let Some((handle, virt)) = frame_alloc(bytes) else {
+        let Some((handle, virt)) = map_create(bytes) else {
             write(b"hk-server-console: resize frame failed\n");
             return;
         };
@@ -397,7 +397,7 @@ impl Terminal {
         self.rows = rows;
         self.row = self.row.min(rows.saturating_sub(1));
         self.column = self.column.min(columns.saturating_sub(1));
-        let _ = frame_unmap(old_virt, old_bytes);
+        let _ = map_unmap(old_virt, old_bytes);
         self.refresh();
     }
 
@@ -429,7 +429,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     if display == 0 {
         return None;
     }
-    let (handle, surface_virt) = frame_alloc(WIDTH * HEIGHT * 4)?;
+    let (handle, surface_virt) = map_create(WIDTH * HEIGHT * 4)?;
     if send_handle(
         display,
         SURFACE_CREATE,

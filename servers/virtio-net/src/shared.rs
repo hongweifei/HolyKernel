@@ -1,13 +1,13 @@
 //! 共享帧路径：分配、DMA 登记、附加与收发搬运。
 
-use hk_driver_virtio::{Network, register_frame};
+use hk_driver_virtio::{Network, register_mapping};
 use hk_server_api::net::{
     NET_FRAME_ATTACH, NET_FRAME_ROLE_RX, NET_FRAME_ROLE_TX, NET_RX, NET_RX_FRAME, NET_SHARED_FRAME,
     NET_SHARED_RX, NET_SHARED_TX, net_frame_word, net_rx_word,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, dma_map_frame, frame_alloc, frame_info,
-    handle_duplicate, send, send_data, send_handle, write,
+    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, dma_map_frame, handle_duplicate, map_create, map_phys,
+    send, send_data, send_handle, write,
 };
 
 /// 解析是否启用共享帧路径。
@@ -42,12 +42,12 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 #[cfg(target_os = "none")]
 fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
     for (index, frame_virt) in virts.iter_mut().enumerate() {
-        let Some((handle, virt)) = frame_alloc(NET_SHARED_FRAME) else {
+        let Some((handle, virt)) = map_create(NET_SHARED_FRAME) else {
             return false;
         };
         *frame_virt = virt;
-        if let Some((phys, _)) = frame_info(handle) {
-            register_frame(virt, phys, NET_SHARED_FRAME);
+        if let Some((phys, _)) = map_phys(handle) {
+            register_mapping(virt, phys, NET_SHARED_FRAME);
         }
         let _ = dma_map_frame(grant, handle, NET_SHARED_FRAME);
         let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);

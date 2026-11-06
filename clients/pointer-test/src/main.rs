@@ -10,7 +10,7 @@ use hk_server_api::display::{
     pack_window_size, set_title, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, frame_unmap, recv, send, send_handle, write, write_u64};
+use hk_server_api::{exit, map_create, map_unmap, recv, send, send_handle, write, write_u64};
 
 /// 窗口宽度。
 #[cfg(target_os = "none")]
@@ -32,7 +32,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width as usize * height as usize * 4;
-    let Some((handle, mut surface_virt)) = frame_alloc(bytes) else {
+    let Some((handle, mut surface_virt)) = map_create(bytes) else {
         write(b"hk-server-pointer-test: frame alloc failed\n");
         exit(2)
     };
@@ -70,7 +70,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let (_, new_width, new_height) = unpack_window_size(word);
                 if new_width != width || new_height != height {
                     let bytes = new_width as usize * new_height as usize * 4;
-                    let Some((handle, virt)) = frame_alloc(bytes) else {
+                    let Some((handle, virt)) = map_create(bytes) else {
                         write(b"hk-server-pointer-test: resize frame failed\n");
                         exit(7)
                     };
@@ -90,7 +90,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     height = new_height;
                     surface_virt = virt;
                     pixels = virt as *mut u32;
-                    let _ = frame_unmap(old_virt, old_bytes);
+                    let _ = map_unmap(old_virt, old_bytes);
                     paint(pixels, width, height);
                     let _ = send(display, SURFACE_COMMIT, surface);
                     write(b"hk-server-pointer-test: resize ");

@@ -22,8 +22,8 @@ use hk_server_api::block::{
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_alloc, frame_info, frame_map,
-    frame_unmap, handle_duplicate, recv_data_handle, recv_data_handle_try, send, send_data,
+    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, handle_duplicate, map_attach,
+    map_create, map_phys, map_unmap, recv_data_handle, recv_data_handle_try, send, send_data,
     send_handle, service_endpoint, yield_now,
 };
 
@@ -39,8 +39,8 @@ static CLIENT_FRAME_HANDLE: [AtomicU64; CLIENT_FRAME_SLOTS] =
 static CLIENT_FRAME_LEN: [AtomicU64; CLIENT_FRAME_SLOTS] =
     [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
 
-/// 登记一个 VFS 客户端帧，供块客户端识别直写缓冲区。
-pub fn register_client_frame(virt: u64, handle: u64, len: usize) {
+/// 登记一个 VFS 客户端缓冲区映射，供块客户端识别直写缓冲区。
+pub fn register_client_mapping(virt: u64, handle: u64, len: usize) {
     for (slot, virt_slot) in CLIENT_FRAME_VIRT.iter().enumerate() {
         let current = virt_slot.load(Ordering::Acquire);
         if current == 0 || current == virt {
@@ -52,8 +52,8 @@ pub fn register_client_frame(virt: u64, handle: u64, len: usize) {
     }
 }
 
-/// 注销一个 VFS 客户端帧。
-pub fn unregister_client_frame(virt: u64) {
+/// 注销一个 VFS 客户端缓冲区映射。
+pub fn unregister_client_mapping(virt: u64) {
     for virt_slot in &CLIENT_FRAME_VIRT {
         if virt_slot.load(Ordering::Acquire) == virt {
             virt_slot.store(0, Ordering::Release);
@@ -101,7 +101,7 @@ impl Drop for BlockClient {
         }
         for slot in &mut self.slots {
             if let Some(number) = slot.frame.take() {
-                let _ = frame_unmap(slot.virt, FRAME_LEN);
+                let _ = map_unmap(slot.virt, FRAME_LEN);
                 let _ = close_handle(number);
             }
         }
@@ -131,7 +131,7 @@ impl BlockClient {
     }
 
     fn frame(&mut self, slot: usize) -> &mut [u8] {
-        // SAFETY: SYS_FRAME_ALLOC 把 FRAME_LEN 字节映射到该槽的虚拟地址。
+        // SAFETY: SYS_MAP_CREATE 把 FRAME_LEN 字节映射到该槽的虚拟地址。
         unsafe { core::slice::from_raw_parts_mut(self.slots[slot].virt as *mut u8, FRAME_LEN) }
     }
 
@@ -170,7 +170,7 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].frame.is_none() {
-            let Some((number, virt)) = frame_alloc(FRAME_LEN) else {
+            let Some((number, virt)) = map_create(FRAME_LEN) else {
                 return Err(STATUS_ERROR);
             };
             self.slots[slot].frame = Some(number);
@@ -906,19 +906,19 @@ pub fn serve_with_wait<F, W>(
             let key = (sender, slot);
             let previous = frames.remove(&key);
             if let Some(old) = &previous {
-                let _ = frame_unmap(old.virt, old.len);
+                let _ = map_unmap(old.virt, old.len);
                 let _ = close_handle(old.handle);
             }
-            let Some((mapped, virt)) = frame_map(received) else {
+            let Some((mapped, virt)) = map_attach(received) else {
                 let _ = close_handle(received);
                 continue;
             };
             if mapped != length as u64 {
-                let _ = frame_unmap(virt, mapped as usize);
+                let _ = map_unmap(virt, mapped as usize);
                 let _ = close_handle(received);
                 continue;
             }
-            if let Some((phys, _)) = frame_info(received) {
+            if let Some((phys, _)) = map_phys(received) {
                 hook(virt, phys, length, received);
             }
             frames.insert(
@@ -936,7 +936,7 @@ pub fn serve_with_wait<F, W>(
             if word == u64::MAX {
                 detach_sender(&mut frames, sender);
             } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
-                let _ = frame_unmap(frame.virt, frame.len);
+                let _ = map_unmap(frame.virt, frame.len);
                 let _ = close_handle(frame.handle);
             }
             continue;
@@ -1045,7 +1045,7 @@ fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerFrame>, sender: u64) {
         .collect();
     for key in keys {
         if let Some(frame) = frames.remove(&key) {
-            let _ = frame_unmap(frame.virt, frame.len);
+            let _ = map_unmap(frame.virt, frame.len);
             let _ = close_handle(frame.handle);
         }
     }

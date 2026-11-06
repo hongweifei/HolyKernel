@@ -5,7 +5,7 @@
 //! (盘符, 文档, head 修订) 校验，文档产生新修订后自动失效。
 
 use hk_fs_holyfs::{DocId, DocumentKind, HolyError, HolyFs};
-use hk_server_api::{frame_alloc, yield_now};
+use hk_server_api::{map_create, yield_now};
 use hk_worker::Pool;
 
 use crate::volumes::ServiceDisk;
@@ -118,7 +118,7 @@ impl ReadCache {
         if self.virt != 0 {
             return true;
         }
-        let Some((_handle, virt)) = frame_alloc(MAX_CACHE) else {
+        let Some((_handle, virt)) = map_create(MAX_CACHE) else {
             return false;
         };
         self.virt = virt;

@@ -14,7 +14,7 @@ use hk_server_api::display::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, frame_alloc, recv, recv_data, send, send_data, send_handle, write, write_u64,
+    exit, map_create, recv, recv_data, send, send_data, send_handle, write, write_u64,
 };
 
 /// 服务入口。
@@ -80,7 +80,7 @@ fn create_surface(
     shade: u32,
 ) -> u64 {
     let bytes = width as usize * height as usize * 4;
-    let Some((handle, virt)) = frame_alloc(bytes) else {
+    let Some((handle, virt)) = map_create(bytes) else {
         write(b"hk-server-display-test: frame alloc failed\n");
         exit(2)
     };
