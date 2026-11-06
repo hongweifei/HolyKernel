@@ -46,13 +46,13 @@ pub(crate) fn refresh(
             if cell.style.flags & FLAG_REVERSE != 0 {
                 core::mem::swap(&mut foreground, &mut background);
             }
-            let Some(glyph) = font.glyph(cell.character) else {
+            if !font.has_glyph(cell.character) {
                 continue;
-            };
+            }
             if cell.style.flags & FLAG_DIM != 0 {
                 foreground = mix(foreground, background, 128);
             }
-            let wide = glyph.metric().xadvance.max(0) as usize > CELL_WIDTH;
+            let wide = font.advance(cell.character).max(0) as usize > CELL_WIDTH;
             let cell_pixels = if wide { CELL_WIDTH * 2 } else { CELL_WIDTH };
             let cell_surface = surface.clipped(Rect::new(
                 origin_x as i32,
