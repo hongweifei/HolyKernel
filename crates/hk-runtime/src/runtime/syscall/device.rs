@@ -165,9 +165,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .and_then(Option::take);
         self.release_bindings(index, handle);
         self.release_dma_mappings(index, handle);
-        self.tasks[index]
-            .dma_used
-            .retain(|(bound, _)| *bound != handle);
         if let Ok(grant) = self.kernel.device_grant(tcb, handle)
             && let Some(range) = grant.dma
         {

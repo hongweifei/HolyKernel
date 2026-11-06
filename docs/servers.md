@@ -92,7 +92,7 @@ pub struct ServiceManifest {
 ## 4. Device Manager
 
 - 枚举 PCI（ECAM）或 DTB 设备。
-- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO、`SYS_DMA_ALLOC` 在授权 DMA 窗口内按页分配并映射，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
+- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO，`SYS_CAPABILITY_CREATE` 创建 DeviceAllocation 能力并用 `SYS_DMA_MAP_CAPABILITY` 绑定授权 IOMMU 域，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
 - 服务镜像通过 `.hk_service` 段声明角色，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
 - 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务已接入 virtio-blk，完成容量查询、读、写与 flush 验证；Block Server 保留 RAM disk 后端与块协议。
 - Device Manager 常驻并等待驱动的设备授权申请（`DEVICE_REQUEST`），驱动重启后重新枚举并下发 DeviceGrant。

@@ -357,23 +357,6 @@ pub fn device_map(grant: u64, index: u64) -> Option<u64> {
     (result != u64::MAX && virt != 0).then_some(virt)
 }
 
-/// 从 DeviceGrant 的 DMA 窗口分配并映射，返回设备可见物理地址与用户虚拟地址。
-pub fn dma_alloc(grant: u64, len: usize) -> Option<(u64, u64)> {
-    let mut virt = 0_u64;
-    // SAFETY: `virt` 位于本栈帧；内核校验授权与长度后写入映射地址。
-    let phys = unsafe {
-        syscall_call(
-            SYS_DMA_ALLOC,
-            grant,
-            len as u64,
-            &mut virt as *mut u64 as u64,
-            0,
-        )
-        .value
-    };
-    (phys != 0 && virt != 0).then_some((phys, virt))
-}
-
 /// 把 DeviceGrant 的中断线绑定到通知位。
 pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     // SAFETY: 内核校验授权与通知句柄。

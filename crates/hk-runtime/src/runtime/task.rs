@@ -467,7 +467,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn release_grants(&mut self, index: usize) {
         let tcb = self.tasks[index].tcb;
         self.release_all_dma_mappings(index);
-        self.tasks[index].dma_used.clear();
         let charges = core::mem::take(&mut self.tasks[index].grant_charges);
         for (handle, charge) in core::mem::take(&mut self.tasks[index].grants)
             .into_iter()

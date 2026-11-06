@@ -5,7 +5,10 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::DeviceGrant;
-use hk_server_api::{device_map, dma_alloc, dma_sync, pci_read, pci_write};
+use hk_server_api::{
+    CAPABILITY_DEVICE_ALLOCATION, capability_create, capability_phys, close_handle, device_map,
+    dma_map_capability, dma_sync, map_attach, pci_read, pci_write, region_unmap,
+};
 use spin::Mutex;
 use virtio_drivers::transport::pci::bus::{ConfigurationAccess, DeviceFunction};
 use virtio_drivers::{BufferDirection, Hal, PhysAddr};
@@ -16,7 +19,7 @@ const PAGE: usize = 4096;
 static GRANT: AtomicU64 = AtomicU64::new(0);
 static GRANT_DESC: Mutex<Option<DeviceGrant>> = Mutex::new(None);
 static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
-static FREE: Mutex<Vec<Free>> = Mutex::new(Vec::new());
+static ALLOCATIONS: Mutex<Vec<Allocation>> = Mutex::new(Vec::new());
 static FRAMES: Mutex<Vec<FrameRegion>> = Mutex::new(Vec::new());
 static MMIO: Mutex<Vec<Option<u64>>> = Mutex::new(Vec::new());
 
@@ -44,10 +47,11 @@ pub fn register_mapping(virt: u64, phys: u64, len: usize) {
     }
 }
 
-struct Free {
-    pages: usize,
+struct Allocation {
     phys: u64,
     virt: u64,
+    capability: u64,
+    region: u64,
 }
 
 /// 绑定本次驱动实例使用的设备授权。
@@ -66,23 +70,40 @@ pub struct HalImpl;
 
 impl HalImpl {
     fn alloc_pages(pages: usize) -> Option<(u64, u64)> {
-        {
-            let mut free = FREE.lock();
-            if let Some(index) = free.iter().position(|entry| entry.pages == pages) {
-                let entry = free.swap_remove(index);
-                return Some((entry.phys, entry.virt));
-            }
-        }
         let len = pages.checked_mul(PAGE)?;
         let grant = GRANT.load(Ordering::Acquire);
         if grant == 0 {
             return None;
         }
-        dma_alloc(grant, len)
+        let capability = capability_create(CAPABILITY_DEVICE_ALLOCATION, len)?;
+        let (region, virt) = map_attach(capability)?;
+        let (phys, length) = capability_phys(capability)?;
+        if length != len as u64 || dma_map_capability(grant, capability, len) == u64::MAX {
+            let _ = region_unmap(region);
+            let _ = close_handle(capability);
+            return None;
+        }
+        ALLOCATIONS.lock().push(Allocation {
+            phys,
+            virt,
+            capability,
+            region,
+        });
+        Some((phys, virt))
     }
 
-    fn release_pages(pages: usize, phys: u64, virt: u64) {
-        FREE.lock().push(Free { pages, phys, virt });
+    fn release_pages(_pages: usize, phys: u64, virt: u64) {
+        let mut allocations = ALLOCATIONS.lock();
+        let Some(position) = allocations
+            .iter()
+            .position(|entry| entry.phys == phys && entry.virt == virt)
+        else {
+            return;
+        };
+        let entry = allocations.swap_remove(position);
+        drop(allocations);
+        let _ = region_unmap(entry.region);
+        let _ = close_handle(entry.capability);
     }
 }
 
@@ -91,7 +112,7 @@ impl HalImpl {
 unsafe impl Hal for HalImpl {
     fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
         let (phys, virt) = Self::alloc_pages(pages).expect("DMA 分配失败");
-        // SAFETY: SYS_DMA_ALLOC 已把该连续区间映射到当前任务。
+        // SAFETY: map_attach 已把 DeviceAllocation 的连续区间映射到当前任务。
         unsafe {
             core::ptr::write_bytes(virt as *mut u8, 0, pages * PAGE);
         }

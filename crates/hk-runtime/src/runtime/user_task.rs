@@ -35,8 +35,6 @@ pub struct UserTask<C> {
     pub grant_charges: Vec<Option<hk_mem::hmp::Charge>>,
     /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
     pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
-    /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
-    pub dma_used: Vec<(Handle, u64)>,
     /// DeviceGrant 的 IOMMU 映射。
     pub dma_mappings: Vec<(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)>,
     /// 用户现场。
@@ -85,7 +83,6 @@ impl<C> UserTask<C> {
             grants: Vec::new(),
             grant_charges: Vec::new(),
             bound_irqs: Vec::new(),
-            dma_used: Vec::new(),
             dma_mappings: Vec::new(),
             context,
             pending: Pending::None,
