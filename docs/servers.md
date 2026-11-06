@@ -177,7 +177,7 @@ pub struct ServiceManifest {
 - **HolyDoc Server**：活文档渲染、链接、代码块、表单。
 - **Workbench**：编辑、浏览、构建、运行、调试一体化应用。
 - **Toolchain Server**：系统内编译/链接/打包/缓存。
-- **Checkpoint Server**：Native Task/Server 快照与恢复。
+- **Checkpoint Server**：`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议，委托 Root 控制保存与恢复 Native Task；`hk-server-checkpoint-test` 自检客户端验证保存、恢复与列表。
 - **Debug Server**：分页 Task/资源/trace 视图与最近异常符号化回溯；`hk-server-dbg` 客户端输出同样的视图。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
 - **Console Service**：纯终端数据面，只做行编辑、回显、UTF-8/宽字符与按行交付；不解析命令。用户态 Shell 未启动时保留输入行，收到读行请求后再交付。
