@@ -37,8 +37,10 @@ pub fn run_with(iso: &Path, disk: &Path, ui: bool, gdb: Option<u16>) -> Result<(
         ))
         .args(["-device", "virtio-blk-pci,drive=disk"]);
     if ui {
-        command.args(["-device", "virtio-keyboard-pci"]);
+        // 平板必须先于键盘：QEMU 的绝对指针事件交给最先注册的输入设备，
+        // 键盘在前时指针事件会被丢掉，桌面上就看不到鼠标。
         command.args(["-device", "virtio-tablet-pci"]);
+        command.args(["-device", "virtio-keyboard-pci"]);
     }
     let status = command
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"])
