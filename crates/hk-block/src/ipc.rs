@@ -848,14 +848,28 @@ pub fn serve_with_hook<F: FnMut(u64, u64, usize, u64)>(
 }
 
 /// 同 [`serve_with_hook`]，但等待在途完成时不轮询：`wait` 返回后读取设备中断状态。
-pub fn serve_with_wait<F, W>(
+pub fn serve_with_wait<F, W>(endpoint: u64, disk: &mut dyn AsyncBlockDevice, hook: F, wait: W)
+where
+    F: FnMut(u64, u64, usize, u64),
+    W: FnMut(),
+{
+    serve_with_wait_and(endpoint, disk, hook, wait, |_, _, _, _, _| {});
+}
+
+/// 同 [`serve_with_wait`]，并把非块协议消息交给 `other` 处理。
+///
+/// `other` 收到 `(label, word, sender, 数据, 随消息收到的句柄)`；句柄由回调负责
+/// 关闭。块协议标签由本函数处理，不会传入回调。
+pub fn serve_with_wait_and<F, W, O>(
     endpoint: u64,
     disk: &mut dyn AsyncBlockDevice,
     mut hook: F,
     mut wait: W,
+    mut other: O,
 ) where
     F: FnMut(u64, u64, usize, u64),
     W: FnMut(),
+    O: FnMut(u64, u64, u64, &[u8], u64),
 {
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut response = vec![0_u8; 64 * 1024];
@@ -895,6 +909,16 @@ pub fn serve_with_wait<F, W>(
             message
         };
 
+        if !is_block_label(label) {
+            other(
+                label,
+                word,
+                sender,
+                &buffer[..length.min(buffer.len())],
+                received,
+            );
+            continue;
+        }
         if label == BLOCK_SHUTDOWN {
             return;
         }
@@ -1035,6 +1059,14 @@ pub fn serve_with_wait<F, W>(
             }
         }
     }
+}
+
+/// 判断标签是否属于块协议。
+fn is_block_label(label: u64) -> bool {
+    matches!(
+        label,
+        BLOCK_SHUTDOWN | BLOCK_ATTACH | BLOCK_DETACH | BLOCK_REQUEST
+    )
 }
 
 fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) {
