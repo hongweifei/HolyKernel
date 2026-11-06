@@ -16,12 +16,26 @@ pub fn set_frame_lease_releaser(release: fn(PhysAddr, usize)) {
 pub struct FrameLease {
     phys: PhysAddr,
     len: usize,
+    owned: bool,
 }
 
 impl FrameLease {
-    /// 构造租约。
+    /// 构造由分配器授予的租约。
     pub const fn new(phys: PhysAddr, len: usize) -> Self {
-        Self { phys, len }
+        Self {
+            phys,
+            len,
+            owned: true,
+        }
+    }
+
+    /// 构造导入的物理区间租约；释放时只丢弃描述，不归还物理页。
+    pub const fn import(phys: PhysAddr, len: usize) -> Self {
+        Self {
+            phys,
+            len,
+            owned: false,
+        }
     }
 
     /// 返回起始物理地址。
@@ -47,6 +61,9 @@ impl FrameLease {
 
 impl Drop for FrameLease {
     fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
         let release = BACKING_RELEASER.load(Ordering::Acquire);
         if release != 0 {
             // SAFETY: 回调由平台在启动期注册，签名与存储的地址一致。

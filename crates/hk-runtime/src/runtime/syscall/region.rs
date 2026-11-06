@@ -2,7 +2,7 @@
 
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
-use hk_mem::hmp::{Region, RegionFlags};
+use hk_mem::hmp::{Capability, CapabilityKind, FrameLease, Region, RegionFlags};
 
 use super::*;
 
@@ -81,6 +81,57 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
         }
         Switch::Continue
+    }
+
+    /// 为已映射的设备物理区间建立 DeviceAllocation 能力与 Region。
+    pub(crate) fn install_device_mapping(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        phys: u64,
+        len: usize,
+        virt: u64,
+    ) -> bool {
+        let Ok(capability) = Capability::new(
+            CapabilityKind::DeviceAllocation,
+            len as u64,
+            hk_hal::PAGE_SIZE,
+            None,
+        ) else {
+            return false;
+        };
+        let lease = FrameLease::import(hk_hal::PhysAddr::new(phys), len);
+        let Ok(capability_handle) = self.kernel.create_capability(
+            tcb,
+            capability.clone(),
+            Some(lease),
+            Rights::READ | Rights::WRITE,
+        ) else {
+            return false;
+        };
+        let Ok(mut region) = Region::new(
+            &capability,
+            0,
+            len,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
+        ) else {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return false;
+        };
+        if region.map(VirtAddr::new(virt)).is_err() {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return false;
+        }
+        let Ok(region_handle) =
+            self.kernel
+                .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        else {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return false;
+        };
+        self.install_region(index, region_handle, capability_handle, virt, len);
+        true
     }
 
     pub(crate) fn region_unmap(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {

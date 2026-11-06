@@ -63,6 +63,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks[index].user_window.release(virt);
             return 0;
         }
+        if !self.install_device_mapping(
+            index,
+            self.tasks[index].tcb,
+            framebuffer.phys.get(),
+            aligned as usize,
+            virt,
+        ) {
+            let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+            self.tasks[index].user_window.release(virt);
+            return 0;
+        }
         mapped
     }
 }

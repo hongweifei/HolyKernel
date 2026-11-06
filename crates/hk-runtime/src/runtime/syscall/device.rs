@@ -86,9 +86,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             self.tasks[index].user_window.release(virt);
             frame.set_result(u64::MAX);
-        } else {
-            frame.set_result(0);
+            return Switch::Continue;
         }
+        if !self.install_device_mapping(index, tcb, range.base, aligned as usize, virt) {
+            let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        frame.set_result(0);
         Switch::Continue
     }
 
