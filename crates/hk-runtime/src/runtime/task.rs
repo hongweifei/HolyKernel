@@ -347,10 +347,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 读取已保存快照的一段镜像。
     pub fn checkpoint_chunk(&self, name: &str, offset: u64, length: usize) -> Option<Vec<u8>> {
-        let (_, checkpoint) = self
-            .checkpoints
-            .iter()
-            .find(|(saved, _)| saved == name)?;
+        let (_, checkpoint) = self.checkpoints.iter().find(|(saved, _)| saved == name)?;
         let start = usize::try_from(offset).ok()?.min(checkpoint.image.len());
         let end = start.saturating_add(length).min(checkpoint.image.len());
         Some(checkpoint.image[start..end].to_vec())

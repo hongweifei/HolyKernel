@@ -11,9 +11,7 @@ use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
-use hk_runtime::runtime::{
-    CheckpointCapture, Step, Switch, TaskInfo, UserPlatform, UserRuntime,
-};
+use hk_runtime::runtime::{CheckpointCapture, Step, Switch, TaskInfo, UserPlatform, UserRuntime};
 
 use crate::ServiceTable;
 use crate::debug::{self, FaultContext};

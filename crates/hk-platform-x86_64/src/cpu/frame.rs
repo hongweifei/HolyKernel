@@ -78,9 +78,28 @@ impl InterruptFrame {
     /// 编码为 22 个小端 u64。
     pub fn encode(&self) -> Vec<u8> {
         let words = [
-            self.rax, self.rbx, self.rcx, self.rdx, self.rsi, self.rdi, self.rbp, self.r8, self.r9,
-            self.r10, self.r11, self.r12, self.r13, self.r14, self.r15, self.vector, self.error,
-            self.rip, self.cs, self.rflags, self.rsp, self.ss,
+            self.rax,
+            self.rbx,
+            self.rcx,
+            self.rdx,
+            self.rsi,
+            self.rdi,
+            self.rbp,
+            self.r8,
+            self.r9,
+            self.r10,
+            self.r11,
+            self.r12,
+            self.r13,
+            self.r14,
+            self.r15,
+            self.vector,
+            self.error,
+            self.rip,
+            self.cs,
+            self.rflags,
+            self.rsp,
+            self.ss,
         ];
         let mut out = Vec::with_capacity(FRAME_WORDS * 8);
         for word in words {

@@ -51,16 +51,8 @@ pub fn call_data(op: u64, argument: &str, data: &[u8], out: &mut [u8]) -> Result
     buffer[name_len..name_len + data.len()].copy_from_slice(data);
     let packed = ((data.len() as u64) << 16) | name_len as u64;
     // SAFETY: 缓冲区属于本任务；内核校验长度后复制。
-    let id = unsafe {
-        syscall_call(
-            SYS_ROOT_CONTROL_DATA,
-            op,
-            buffer.as_ptr() as u64,
-            packed,
-            0,
-        )
-        .value
-    };
+    let id =
+        unsafe { syscall_call(SYS_ROOT_CONTROL_DATA, op, buffer.as_ptr() as u64, packed, 0).value };
     if id == u64::MAX {
         return Err(1);
     }

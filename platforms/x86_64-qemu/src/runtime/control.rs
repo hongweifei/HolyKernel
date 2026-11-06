@@ -135,9 +135,7 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
             runtime::restore_checkpoint_service(services, &request.argument)
         }
         ROOT_OP_CHECKPOINT_READ => checkpoint_read(&request.argument),
-        ROOT_OP_CHECKPOINT_WRITE => {
-            checkpoint_write(&request.argument, &request.data, services)
-        }
+        ROOT_OP_CHECKPOINT_WRITE => checkpoint_write(&request.argument, &request.data, services),
         _ => execute_text(request, loader, services).into_bytes(),
     }
 }

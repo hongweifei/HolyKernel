@@ -517,7 +517,9 @@ pub fn restore_checkpoint_bytes(services: &mut ServiceTable, bytes: &[u8]) -> Ve
 
 /// 读取内存快照的一段镜像。
 pub fn checkpoint_chunk(name: &str, offset: u64, length: usize) -> Vec<u8> {
-    RUNTIME.checkpoint_chunk(name, offset, length).unwrap_or_default()
+    RUNTIME
+        .checkpoint_chunk(name, offset, length)
+        .unwrap_or_default()
 }
 
 /// 用另一原生镜像热替换服务。
