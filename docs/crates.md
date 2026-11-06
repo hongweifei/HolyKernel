@@ -43,7 +43,7 @@
 
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
 
-字体统一由 `hk-font` 提供：内核帧缓冲控制台以 `default-features = false` 只取位图字形，用户态服务启用 `scalable` 取得 TrueType 栅格化。`xtask` 因此按目标把内核与服务分成两组构建，避免 Cargo 把特性取并集后把字体数据链进内核。像素绘制与文本落位统一走 `hk-canvas`，它直接以 `hk-font::Font` 为字体来源：调用方把字体交给 `draw_text`、`draw_glyph` 与 `text_width`，不需要在两者之间做适配；`hk-font::default_font()` 常驻一份 16 像素默认字体，`draw_text_default`、`draw_glyph_default` 与 `text_width_default` 无需传入字体即可排版。同一 crate 还提供圆角矩形、椭圆、线段、水平/垂直/任意方向渐变、最近邻缩放拷贝、半透明拷贝与区域滚动；圆角与椭圆的抗锯齿使用整数定点运算，热路径不依赖浮点数学库。
+字体统一由 `hk-font` 提供：内核帧缓冲控制台以 `default-features = false` 只取位图字形，用户态服务启用 `scalable` 取得 TrueType 栅格化。`xtask` 因此按目标把内核与服务分成两组构建，避免 Cargo 把特性取并集后把字体数据链进内核。像素绘制与文本落位统一走 `hk-canvas`，它直接以 `hk-font::Font` 为字体来源：调用方把字体交给 `draw_text`、`draw_glyph` 与 `text_width`，不需要在两者之间做适配。`hk-font` 常驻 `default_font`（16 像素可缩放）、`default_font_scaled`（100%/200% 界面缩放）与 `default_monospace`（16 像素等宽）三份默认字体，`hk-canvas` 将它们重新导出；`draw_text_default`、`draw_glyph_default` 与 `text_width_default` 无需传入字体即可排版。Display、Workbench、Debug 与 HolyDoc 正文使用可缩放默认字体，Console 字符网格与 HolyDoc 代码块使用等宽默认字体。同一 crate 还提供圆角矩形、椭圆、线段、水平/垂直/任意方向渐变、最近邻缩放拷贝、半透明拷贝与区域滚动；圆角与椭圆的抗锯齿使用整数定点运算，热路径不依赖浮点数学库。
 
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`；`hk-fs-holyfs-vfs` 把原生实现接到契约上，不引入路径语义。`hk-vfs` 的核心也使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。
 
