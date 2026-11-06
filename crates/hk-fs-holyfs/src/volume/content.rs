@@ -5,9 +5,9 @@ use alloc::vec::Vec;
 
 use hk_block::BlockDevice;
 
-use crate::compress::{compress, decompress};
+use crate::compress::{compress, decompress, decompress_into};
 use crate::error::HolyError;
-use crate::hash::content_hash;
+use crate::hash::{ContentHasher, content_hash};
 use crate::ids::{DocId, RevisionId};
 use crate::superblock::BLOCK_SIZE;
 use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags, RevisionRecord};
@@ -16,6 +16,8 @@ use super::{MAX_CONTENT_BYTES, Volume};
 
 const CACHE_ENTRY_LIMIT: usize = 64 * 1024;
 const CACHE_TOTAL_LIMIT: usize = 256 * 1024;
+/// 计算追加哈希时每次读取的窗口。
+const HASH_CHUNK: usize = 60 * 1024;
 
 #[derive(Clone)]
 pub(super) struct DedupEntry {
@@ -214,6 +216,22 @@ impl<D: BlockDevice> Volume<D> {
         buffer: &mut [u8],
     ) -> Result<(), HolyError> {
         if revision.flags.contains(RevisionFlags::COMPRESSED) {
+            if offset == 0 && buffer.len() == revision.size as usize {
+                let capacity: usize = revision
+                    .extents()
+                    .iter()
+                    .map(|extent| extent.bytes() as usize)
+                    .sum();
+                if capacity > 0 {
+                    let mut payload = Vec::new();
+                    payload
+                        .try_reserve_exact(capacity)
+                        .map_err(|_| HolyError::NoSpace)?;
+                    payload.resize(capacity, 0);
+                    self.read_raw_extents(revision, 0, &mut payload)?;
+                    return decompress_into(&payload, buffer);
+                }
+            }
             let content = self.read_content(revision)?;
             let start = offset as usize;
             let end = start.checked_add(buffer.len()).ok_or(HolyError::Corrupt)?;
@@ -296,11 +314,19 @@ impl<D: BlockDevice> Volume<D> {
             if capacity == 0 {
                 return Err(HolyError::Corrupt);
             }
-            let mut payload = vec![0_u8; capacity];
+            let mut payload = Vec::new();
+            payload
+                .try_reserve_exact(capacity)
+                .map_err(|_| HolyError::NoSpace)?;
+            payload.resize(capacity, 0);
             self.read_raw_extents(revision, 0, &mut payload)?;
             return decompress(&payload, size);
         }
-        let mut content = vec![0_u8; size];
+        let mut content = Vec::new();
+        content
+            .try_reserve_exact(size)
+            .map_err(|_| HolyError::NoSpace)?;
+        content.resize(size, 0);
         if size > 0 {
             self.read_raw_extents(revision, 0, &mut content)?;
         }
@@ -313,13 +339,24 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     fn append_hash(&self, head: &RevisionRecord, data: &[u8]) -> Result<u64, HolyError> {
-        if head.size == 0 {
-            return Ok(content_hash(data));
+        let mut hasher = ContentHasher::new();
+        if head.size > 0 {
+            let window = (head.size as usize).min(HASH_CHUNK);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(window)
+                .map_err(|_| HolyError::NoSpace)?;
+            buffer.resize(window, 0);
+            let mut offset = 0_u64;
+            while offset < head.size {
+                let take = ((head.size - offset) as usize).min(buffer.len());
+                self.read_extents(head, offset, &mut buffer[..take])?;
+                hasher.update(&buffer[..take]);
+                offset += take as u64;
+            }
         }
-        let mut content = vec![0_u8; head.size as usize];
-        self.read_extents(head, 0, &mut content)?;
-        content.extend_from_slice(data);
-        Ok(content_hash(&content))
+        hasher.update(data);
+        Ok(hasher.finish())
     }
 
     fn append_content(
@@ -380,7 +417,11 @@ impl<D: BlockDevice> Volume<D> {
         if new_size > MAX_CONTENT_BYTES {
             return Err(HolyError::NoSpace);
         }
-        let mut content = vec![0_u8; new_size as usize];
+        let mut content = Vec::new();
+        content
+            .try_reserve_exact(new_size as usize)
+            .map_err(|_| HolyError::NoSpace)?;
+        content.resize(new_size as usize, 0);
         if head.size > 0 {
             self.read_extents(head, 0, &mut content[..head.size as usize])?;
         }

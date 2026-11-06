@@ -3,12 +3,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_block::BlockDevice;
+use hk_block::{BlockDevice, IO_BULK};
 
 use crate::error::{HolyError, map_io};
 use crate::superblock::{BITMAP_START, BLOCK_SIZE, SUPERBLOCK_A, SUPERBLOCK_B, Superblock};
 
-const IO_CHUNK: usize = 60 * 1024;
 /// 每个分配组的块数。
 pub(crate) const GROUP_BLOCKS: u64 = 1024;
 
@@ -23,7 +22,6 @@ pub(crate) struct Store<D: BlockDevice> {
     device: D,
     total_blocks: u64,
     bitmap_start: u64,
-    bitmap_blocks: u32,
     data_start: u64,
     bitmap: Vec<u8>,
     next_hint: u64,
@@ -48,7 +46,6 @@ impl<D: BlockDevice> Store<D> {
             device,
             total_blocks,
             bitmap_start: BITMAP_START,
-            bitmap_blocks,
             data_start,
             bitmap: vec![0_u8; bitmap_blocks as usize * BLOCK_SIZE],
             next_hint: data_start,
@@ -87,7 +84,6 @@ impl<D: BlockDevice> Store<D> {
             device,
             total_blocks: superblock.total_blocks,
             bitmap_start: superblock.bitmap_start,
-            bitmap_blocks: superblock.bitmap_blocks,
             data_start: superblock.bitmap_start + u64::from(superblock.bitmap_blocks),
             bitmap: vec![0_u8; superblock.bitmap_blocks as usize * BLOCK_SIZE],
             next_hint: superblock.bitmap_start + u64::from(superblock.bitmap_blocks),
@@ -97,10 +93,13 @@ impl<D: BlockDevice> Store<D> {
         if store.data_start > store.total_blocks {
             return Err(HolyError::Corrupt);
         }
-        for index in 0..store.bitmap_blocks as usize {
-            let mut block = [0_u8; BLOCK_SIZE];
-            store.read_block(store.bitmap_start + index as u64, &mut block)?;
-            store.bitmap[index * BLOCK_SIZE..(index + 1) * BLOCK_SIZE].copy_from_slice(&block);
+        let sectors = (BLOCK_SIZE / store.device.block_size()) as u64;
+        let length = store
+            .device
+            .read_blocks_bulk(store.bitmap_start * sectors, &mut store.bitmap)
+            .map_err(map_io)?;
+        if length != store.bitmap.len() {
+            return Err(HolyError::Corrupt);
         }
         store.rebuild_groups();
         Ok(store)
@@ -166,11 +165,11 @@ impl<D: BlockDevice> Store<D> {
             let remaining = buffer.len() - done;
             let direct = within == 0 && remaining >= BLOCK_SIZE;
             if direct {
-                let chunk = (remaining.min(IO_CHUNK) / block_size) * block_size;
+                let chunk = (remaining.min(IO_BULK) / block_size) * block_size;
                 let sectors = position / block_size as u64;
                 let length = self
                     .device
-                    .read_blocks(sectors, &mut buffer[done..done + chunk])
+                    .read_blocks_bulk(sectors, &mut buffer[done..done + chunk])
                     .map_err(map_io)?;
                 if length != chunk {
                     return Err(HolyError::Io);
@@ -199,11 +198,11 @@ impl<D: BlockDevice> Store<D> {
             let remaining = data.len() - done;
             let direct = within == 0 && remaining >= BLOCK_SIZE;
             if direct {
-                let chunk = (remaining.min(IO_CHUNK) / block_size) * block_size;
+                let chunk = (remaining.min(IO_BULK) / block_size) * block_size;
                 let sectors = position / block_size as u64;
                 let length = self
                     .device
-                    .write_blocks(sectors, &data[done..done + chunk])
+                    .write_blocks_bulk(sectors, &data[done..done + chunk])
                     .map_err(map_io)?;
                 if length != chunk {
                     return Err(HolyError::Io);
@@ -387,17 +386,13 @@ impl<D: BlockDevice> Store<D> {
     }
 
     pub(crate) fn write_bitmap(&mut self) -> Result<(), HolyError> {
-        for index in 0..self.bitmap_blocks as usize {
-            let mut block = [0_u8; BLOCK_SIZE];
-            let start = index * BLOCK_SIZE;
-            let end = start + BLOCK_SIZE;
-            if end <= self.bitmap.len() {
-                block.copy_from_slice(&self.bitmap[start..end]);
-            } else {
-                let available = self.bitmap.len().saturating_sub(start);
-                block[..available].copy_from_slice(&self.bitmap[start..start + available]);
-            }
-            self.write_block(self.bitmap_start + index as u64, &block)?;
+        let sectors = (BLOCK_SIZE / self.device.block_size()) as u64;
+        let length = self
+            .device
+            .write_blocks_bulk(self.bitmap_start * sectors, &self.bitmap)
+            .map_err(map_io)?;
+        if length != self.bitmap.len() {
+            return Err(HolyError::Io);
         }
         Ok(())
     }

@@ -13,7 +13,9 @@ pub(crate) fn compress(data: &[u8]) -> Option<Vec<u8>> {
     if data.is_empty() {
         return None;
     }
-    let mut stream = Vec::with_capacity(data.len());
+    // 游程编码通常显著小于原文，按需增长即可；开口就按原文预留会让
+    // 大文档在压缩期间额外占满服务堆。
+    let mut stream = Vec::new();
     let mut index = 0;
     while index < data.len() {
         let mut run = 1;
@@ -56,6 +58,17 @@ pub(crate) fn compress(data: &[u8]) -> Option<Vec<u8>> {
 
 /// 解压带长度头的内容，并校验明文长度。
 pub(crate) fn decompress(payload: &[u8], size: usize) -> Result<Vec<u8>, HolyError> {
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(size)
+        .map_err(|_| HolyError::NoSpace)?;
+    output.resize(size, 0);
+    decompress_into(payload, &mut output)?;
+    Ok(output)
+}
+
+/// 把内容解压到调用方提供的缓冲；缓冲长度必须是明文长度。
+pub(crate) fn decompress_into(payload: &[u8], output: &mut [u8]) -> Result<(), HolyError> {
     if payload.len() < HEADER {
         return Err(HolyError::Corrupt);
     }
@@ -67,7 +80,7 @@ pub(crate) fn decompress(payload: &[u8], size: usize) -> Result<Vec<u8>, HolyErr
     let stream = payload
         .get(HEADER..HEADER + length)
         .ok_or(HolyError::Corrupt)?;
-    let mut output = Vec::with_capacity(size);
+    let mut written = 0;
     let mut index = 0;
     while index < stream.len() {
         let tag = stream[index];
@@ -77,24 +90,29 @@ pub(crate) fn decompress(payload: &[u8], size: usize) -> Result<Vec<u8>, HolyErr
         match tag {
             LITERAL => {
                 let bytes = stream.get(index..index + count).ok_or(HolyError::Corrupt)?;
-                output.extend_from_slice(bytes);
+                output
+                    .get_mut(written..written + count)
+                    .ok_or(HolyError::Corrupt)?
+                    .copy_from_slice(bytes);
+                written += count;
                 index += count;
             }
             REPEAT => {
                 let byte = *stream.get(index).ok_or(HolyError::Corrupt)?;
                 index += 1;
-                output.extend(core::iter::repeat_n(byte, count));
+                output
+                    .get_mut(written..written + count)
+                    .ok_or(HolyError::Corrupt)?
+                    .fill(byte);
+                written += count;
             }
             _ => return Err(HolyError::Corrupt),
         }
-        if output.len() > size {
-            return Err(HolyError::Corrupt);
-        }
     }
-    if output.len() != size {
+    if written != output.len() {
         return Err(HolyError::Corrupt);
     }
-    Ok(output)
+    Ok(())
 }
 
 #[cfg(test)]
