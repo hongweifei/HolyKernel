@@ -1,25 +1,25 @@
-//! 类型化能力的物理 backing 租约。
+//! FrameLease：类型化能力的物理页持有租约。
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use hk_hal::{PhysAddr, PhysRange};
 
-/// backing 释放时归还物理区间的回调。
+/// lease 释放时归还物理区间的回调。
 static BACKING_RELEASER: AtomicUsize = AtomicUsize::new(0);
 
-/// 注册 backing 回收回调；重复调用会替换旧回调。
-pub fn set_backing_releaser(release: fn(PhysAddr, usize)) {
+/// 注册 FrameLease 回收回调；重复调用会替换旧回调。
+pub fn set_frame_lease_releaser(release: fn(PhysAddr, usize)) {
     BACKING_RELEASER.store(release as usize, Ordering::Release);
 }
 
-/// 一段由 Capacity 或 DMA 池授予的物理 backing。
-pub struct Backing {
+/// 一段由 Capacity 或 DMA 池授予的物理页租约。
+pub struct FrameLease {
     phys: PhysAddr,
     len: usize,
 }
 
-impl Backing {
-    /// 构造 backing。
+impl FrameLease {
+    /// 构造租约。
     pub const fn new(phys: PhysAddr, len: usize) -> Self {
         Self { phys, len }
     }
@@ -45,7 +45,7 @@ impl Backing {
     }
 }
 
-impl Drop for Backing {
+impl Drop for FrameLease {
     fn drop(&mut self) {
         let release = BACKING_RELEASER.load(Ordering::Acquire);
         if release != 0 {

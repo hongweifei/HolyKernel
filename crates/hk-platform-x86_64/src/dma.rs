@@ -12,7 +12,7 @@ pub static DMA: DmaPool = DmaPool::new();
 pub fn init(range: PhysRange) {
     DMA.set_cache(&crate::cache::CACHE);
     DMA.init(range);
-    hk_mem::hmp::set_backing_releaser(|phys, len| {
+    hk_mem::hmp::set_frame_lease_releaser(|phys, len| {
         DMA.free(PhysRange::new(phys, len as u64));
     });
 }

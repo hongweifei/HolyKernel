@@ -93,7 +93,7 @@ flowchart TB
     Scanout["Scanout"]
   end
 
-  subgraph Backing["Backing：缺页与回写"]
+  subgraph ProviderLayer["Provider：缺页与回写"]
     Provider["Provider"]
     RevisionStore["RevisionStore / VFS"]
     MemMgr["MemoryManager"]
@@ -165,7 +165,7 @@ flowchart TB
   B["Identity<br/>类型化能力：Revision / Surface / TaskImage / DeviceAllocation / Anonymous / Frame / Mappable"]
   C["Mapping<br/>VSpace + Region"]
   D["Access<br/>CPU / GPU / DMA / Scanout"]
-  E["Backing<br/>Provider Endpoint"]
+  E["Provider<br/>Endpoint"]
   F["Accounting<br/>Ledger"]
   G["Compatibility<br/>POSIX personality"]
 
@@ -184,7 +184,7 @@ flowchart TB
 - **Identity**：类型化能力承载对象身份；每类能力实现 `Mappable` 接口。
 - **Mapping**：Region 是唯一视图；权利、COW、guard、pin、sealed 都在这一层。
 - **Access**：CPU、GPU、DMA、scanout 统一走 Region。
-- **Backing**：Provider 按类型实现契约，提供页、回写、驱逐。
+- **Provider**：按能力类型实现契约，提供页、回写、驱逐。
 - **Accounting**：Ledger 记录容量、常驻、提交、配额、压力。
 - **Compatibility**：POSIX 语义在 HMP 之上实现，位于内核核心之外。
 
@@ -501,6 +501,7 @@ HMP 将内存组织为类型化能力 + Mappable + Region + Provider + Ledger：
 | **HMP** | Holy Memory Plane；以 Region 统一映射、类型化能力承载身份的内存平面 |
 | **Capacity** | Root Server 授予的物理容量能力 |
 | **Frame** | 连续物理页；唯一的物理内存能力 |
+| **FrameLease** | Frame 的持有租约；释放时归还 Capacity/DMA 池 |
 | **类型化能力** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 各自以独立 Handle 类型暴露 |
 | **Revision** | HolyFS 文档的不可变版本；按 `(DocId, RevisionId)` 寻址 |
 | **Surface** | 像素缓冲与 scanout 状态；窗口引用它 |

@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use hk_hal::{DeviceGrant, PhysRange};
 use hk_handle::{Object, ObjectHeader, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::hmp::Backing;
+use hk_mem::hmp::FrameLease;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
 use spin::Mutex;
 
@@ -27,7 +27,7 @@ pub enum ObjectPayload {
         /// 能力描述。
         capability: Capability,
         /// 常驻物理页。
-        backing: Option<Backing>,
+        backing: Option<FrameLease>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// Revision 版本。

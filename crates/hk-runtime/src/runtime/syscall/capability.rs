@@ -2,7 +2,7 @@
 
 use hk_hal::PAGE_SIZE;
 use hk_handle::Rights;
-use hk_mem::hmp::Backing;
+use hk_mem::hmp::FrameLease;
 use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp};
 
 use super::*;
@@ -34,7 +34,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let backing = Backing::new(range.start(), aligned as usize);
+        let backing = FrameLease::new(range.start(), aligned as usize);
         let handle = match self.kernel.create_capability(
             tcb,
             capability,

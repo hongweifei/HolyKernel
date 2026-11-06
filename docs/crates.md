@@ -61,7 +61,7 @@
 | --- | --- |
 | 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
 | 用户虚拟布局与自动映射窗口 | `crates/hk-hal/src/user.rs` |
-| HMP 核心对象（Capacity/Frame/Capability/Region/Provider/Ledger/Backing） | `crates/hk-mem/src/hmp/` |
+| HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/hk-mem/src/hmp/` |
 | 页分配、页表页池与用户地址空间登记 | `crates/hk-mem/src/page/` |
 | DMA 池与软件 IOMMU | `crates/hk-mem/src/platform/` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/hk-canvas/src/{surface,color,rect,text}.rs` |
