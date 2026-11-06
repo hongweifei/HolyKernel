@@ -14,6 +14,8 @@ path = "src/main.rs"
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 hk-coroutine = { version = "0.1.0", path = "../../crates/hk-coroutine" }
 hk-async = { version = "0.1.0", path = "../../crates/hk-async" }
+hk-sync = { version = "0.1.0", path = "../../crates/hk-sync" }
+hk-thread = { version = "0.1.0", path = "../../crates/hk-thread" }
 
 [build-dependencies]
 hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }

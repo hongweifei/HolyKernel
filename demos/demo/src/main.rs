@@ -30,12 +30,14 @@ use hk_coroutine::{Coroutine, State, suspend};
 use hk_server_api::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
+#[cfg(target_os = "none")]
+use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
     ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv,
     self_notification, send, send_handle, service_endpoint, thread_create, thread_join, tsc,
-    tsc_frequency, wait_notify, wait_notify_try, write, write_u64, yield_now,
+    tsc_frequency, wait_notify, write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -53,6 +55,16 @@ static THREAD_COUNT: AtomicU64 = AtomicU64::new(0);
 /// 线程共享的唤醒字。
 #[cfg(target_os = "none")]
 static THREAD_WORD: AtomicU32 = AtomicU32::new(0);
+
+/// 同步自检：互斥计数、条件变量与读写锁。
+#[cfg(target_os = "none")]
+static SYNC_COUNTER: Mutex<u64> = Mutex::new(0);
+#[cfg(target_os = "none")]
+static SYNC_VALUE: Mutex<u32> = Mutex::new(0);
+#[cfg(target_os = "none")]
+static SYNC_CONDVAR: Condvar = Condvar::new();
+#[cfg(target_os = "none")]
+static SYNC_RW: RwLock<u64> = RwLock::new(0);
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -105,6 +117,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo async ok\n");
         } else {
             write(b"hk-server-demo async fail\n");
+            exit(1)
+        }
+        if verify_sync() {
+            write(b"hk-server-demo sync ok\n");
+        } else {
+            write(b"hk-server-demo sync fail\n");
             exit(1)
         }
 
@@ -488,6 +506,85 @@ fn verify_async() -> bool {
     ));
     let joined = thread_join(thread) == 0;
     joined && bits & ASYNC_BIT != 0
+}
+
+/// 互斥计数线程入口。
+#[cfg(target_os = "none")]
+extern "C" fn mutex_worker(_: u64) -> ! {
+    for _ in 0..250 {
+        *SYNC_COUNTER.lock() += 1;
+    }
+    exit(0)
+}
+
+/// 条件变量等待线程入口。
+#[cfg(target_os = "none")]
+extern "C" fn condvar_worker(_: u64) -> ! {
+    let mut value = SYNC_VALUE.lock();
+    while *value == 0 {
+        value = SYNC_CONDVAR.wait(value);
+    }
+    *value += 1;
+    drop(value);
+    exit(0)
+}
+
+/// 写锁线程入口。
+#[cfg(target_os = "none")]
+extern "C" fn rw_writer(_: u64) -> ! {
+    *SYNC_RW.write() += 1;
+    exit(0)
+}
+
+/// 读锁线程入口。
+#[cfg(target_os = "none")]
+extern "C" fn rw_reader(_: u64) -> ! {
+    let _ = *SYNC_RW.read();
+    exit(0)
+}
+
+/// 验证互斥锁、条件变量与读写锁。
+#[cfg(target_os = "none")]
+fn verify_sync() -> bool {
+    const STACK: usize = 32 * 1024;
+
+    *SYNC_COUNTER.lock() = 0;
+    for _ in 0..4 {
+        let Some(handle) = hk_thread::spawn_raw(mutex_worker, 0, STACK) else {
+            return false;
+        };
+        if handle.join() != 0 {
+            return false;
+        }
+    }
+    if *SYNC_COUNTER.lock() != 1000 {
+        return false;
+    }
+
+    *SYNC_VALUE.lock() = 0;
+    let Some(waiter) = hk_thread::spawn_raw(condvar_worker, 0, STACK) else {
+        return false;
+    };
+    {
+        let mut value = SYNC_VALUE.lock();
+        *value = 1;
+        SYNC_CONDVAR.notify_one();
+    }
+    if waiter.join() != 0 || *SYNC_VALUE.lock() != 2 {
+        return false;
+    }
+
+    *SYNC_RW.write() = 0;
+    let Some(writer) = hk_thread::spawn_raw(rw_writer, 0, STACK) else {
+        return false;
+    };
+    let Some(reader) = hk_thread::spawn_raw(rw_reader, 0, STACK) else {
+        return false;
+    };
+    if writer.join() != 0 || reader.join() != 0 {
+        return false;
+    }
+    *SYNC_RW.read() == 1
 }
 
 hk_server_api::server_boilerplate!();
