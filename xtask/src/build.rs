@@ -13,16 +13,19 @@ pub fn run(selection: Selection, release: bool) -> Result<()> {
 }
 
 fn build_target(target: Target, release: bool) -> Result<()> {
-    let mut command = cargo::command();
-    command.arg("build");
-    if let Some(triple) = target.triple() {
-        command.arg("--target").arg(triple);
+    for group in target.package_groups() {
+        let mut command = cargo::command();
+        command.arg("build");
+        if let Some(triple) = target.triple() {
+            command.arg("--target").arg(triple);
+        }
+        for package in group {
+            command.args(["-p", package]);
+        }
+        if release {
+            command.arg("--release");
+        }
+        cargo::run(command)?;
     }
-    for package in target.packages() {
-        command.args(["-p", package]);
-    }
-    if release {
-        command.arg("--release");
-    }
-    cargo::run(command)
+    Ok(())
 }

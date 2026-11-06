@@ -68,16 +68,15 @@ impl Target {
         }
     }
 
-    /// 返回该目标构建的包集合。
-    pub fn packages(self) -> Vec<&'static str> {
+    /// 按依赖特性分组的包列表。
+    ///
+    /// 内核只带位图字形的 `hk-font`，服务带可缩放字形；两者必须分开构建，
+    /// 否则 Cargo 会把同一 crate 的特性取并集，把 TrueType 字体链进内核。
+    pub fn package_groups(self) -> Vec<Vec<&'static str>> {
         match self {
-            Self::Hosted => HOSTED_PACKAGES.to_vec(),
-            Self::X86_64Qemu => {
-                let mut packages = vec!["hk-x86_64"];
-                packages.extend_from_slice(crate::catalog::SERVERS);
-                packages
-            }
-            Self::Aarch64Qemu => KERNEL_PACKAGES.to_vec(),
+            Self::Hosted => vec![HOSTED_PACKAGES.to_vec()],
+            Self::X86_64Qemu => vec![vec!["hk-x86_64"], crate::catalog::SERVERS.to_vec()],
+            Self::Aarch64Qemu => vec![KERNEL_PACKAGES.to_vec()],
         }
     }
 

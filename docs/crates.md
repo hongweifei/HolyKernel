@@ -13,7 +13,7 @@
 | L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
 | L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
 | L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像、测试退出 |
-| L2 用户态库 | `hk-server-api`、`hk-debug`、`hk-checkpoint`、`hk-coroutine`、`hk-async`、`hk-sync`、`hk-thread`、`hk-worker`、`hk-block`、`hk-canvas`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、用户态符号与回溯格式化、检查点快照格式、有栈协程、异步执行器、同步原语、线程库、工作线程池、块/文件系统核心、像素绘制原语、可缩放字体、网络协议栈、virtio 适配、服务链接脚本 |
+| L2 用户态库 | `hk-server-api`、`hk-debug`、`hk-checkpoint`、`hk-coroutine`、`hk-async`、`hk-sync`、`hk-thread`、`hk-worker`、`hk-block`、`hk-canvas`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 服务协议与客户端、用户态符号与回溯格式化、检查点快照格式、有栈协程、异步执行器、同步原语、线程库、工作线程池、块/文件系统核心、像素绘制原语、字体（TrueType 栅格化、等宽位图与回退）、网络协议栈、virtio 适配、服务链接脚本 |
 | L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
 | L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
 | L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
@@ -43,6 +43,8 @@
 
 服务之间只通过 Endpoint、Handle 与 `hk-server-api` 的线协议协作，不链接彼此的实现。
 
+字体统一由 `hk-font` 提供：内核帧缓冲控制台以 `default-features = false` 只取位图字形，用户态服务启用 `scalable` 取得 TrueType 栅格化。`xtask` 因此按目标把内核与服务分成两组构建，避免 Cargo 把特性取并集后把字体数据链进内核。像素落位统一走 `hk-canvas`。
+
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`；`hk-fs-holyfs-vfs` 把原生实现接到契约上，不引入路径语义。`hk-vfs` 的核心也使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。
 
 目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 的系统调用薄封装集中在 `src/syscall.rs`，共享输出格式化在 `src/format.rs`，协议与客户端在各子模块。
@@ -59,6 +61,7 @@
 | --- | --- |
 | 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
 | 像素绘制原语与字宽度量 | `crates/hk-canvas/src/surface.rs`、`crates/hk-canvas/src/text.rs` |
+| 字形度量、缓存与字体特性 | `crates/hk-font/src/lib.rs` |
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
 | 服务客户端与编解码 | `crates/hk-server-api/src/*` |
 | 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
