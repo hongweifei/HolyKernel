@@ -412,8 +412,8 @@ impl SmokeMode {
                 "hk-server-dbg: done",
             ],
             Self::DisplayRestart => &[
-                "hk-server-console: window 1",
                 "hk-server-display: restart requested",
+                "hk-server-display: bye",
                 "hk-server-console: reconnected",
                 "hk-server-display-restart-test: restarted",
                 "hk-server-console: done",
