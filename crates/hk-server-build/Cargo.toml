@@ -10,4 +10,4 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-hk-hal = { path = "../hk-hal" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
