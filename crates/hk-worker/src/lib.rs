@@ -37,6 +37,11 @@ impl Pool {
     ///
     /// 返回 `None` 表示线程创建失败（栈分配或内核拒绝）。
     pub fn start(workers: usize) -> Option<&'static Pool> {
+        Self::start_with_stack(workers, WORKER_STACK)
+    }
+
+    /// 以指定栈尺寸启动工作线程。
+    pub fn start_with_stack(workers: usize, stack_size: usize) -> Option<&'static Pool> {
         if workers == 0 {
             return None;
         }
@@ -50,7 +55,7 @@ impl Pool {
         let pointer = pool as *const Pool as u64;
         let mut handles = pool.workers.lock();
         for _ in 0..workers {
-            match hk_thread::spawn_raw(worker, pointer, WORKER_STACK) {
+            match hk_thread::spawn_raw(worker, pointer, stack_size) {
                 Some(handle) => handles.push(handle),
                 None => {
                     drop(handles);

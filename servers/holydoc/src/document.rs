@@ -241,6 +241,7 @@ pub(crate) enum Style {
 }
 
 /// 一段同样式文本。
+#[derive(Clone)]
 pub(crate) struct Run {
     pub(crate) text: String,
     pub(crate) style: Style,
@@ -248,12 +249,14 @@ pub(crate) struct Run {
 }
 
 /// 布局后的一行。
+#[derive(Clone)]
 pub(crate) struct Line {
     pub(crate) runs: Vec<Run>,
     pub(crate) code: bool,
 }
 
 /// 文档视图。
+#[derive(Clone)]
 pub(crate) struct DocView {
     pub(crate) id: String,
     pub(crate) title: String,

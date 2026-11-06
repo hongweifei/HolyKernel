@@ -610,6 +610,7 @@ version = "0.1.0"
 dependencies = [
  "hk-server-api",
  "hk-server-build",
+ "hk-worker",
  "lovyangfx-fonts",
 ]
 

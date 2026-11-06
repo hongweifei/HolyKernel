@@ -2,7 +2,7 @@
 //!
 //! 服务入口与事件循环；H: 卷加载在 `drive`，文档模型在 `document`，
 //! 指令解析在 `markup`，绘制在 `render`，窗口提交在 `window`，自检在
-//! `selftest`。
+//! `selftest`。整页绘制交给工作线程，主线程只负责事件、拷贝与提交。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -26,6 +26,8 @@ mod selftest;
 mod window;
 
 #[cfg(target_os = "none")]
+use alloc::boxed::Box;
+#[cfg(target_os = "none")]
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
@@ -39,18 +41,30 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
+use hk_server_api::{
+    exit, frame_alloc, recv, recv_data_try, send, send_handle, write, write_u64, yield_now,
+};
+#[cfg(target_os = "none")]
+use hk_worker::Pool;
+#[cfg(target_os = "none")]
+use lovyangfx_fonts::Font;
 #[cfg(target_os = "none")]
 use lovyangfx_fonts::fonts::efont_cn_16;
 
 #[cfg(target_os = "none")]
 use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
-#[cfg(target_os = "none")]
-use window::apply;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 1024 * 1024;
+
+/// 渲染缓冲的虚拟地址；表面在 `SURFACE_VIRT`，这里错开 2 MiB。
+#[cfg(target_os = "none")]
+const RENDER_VIRT: u64 = SURFACE_VIRT + 0x0020_0000;
+
+/// 渲染工作线程栈尺寸。
+#[cfg(target_os = "none")]
+const RENDER_STACK: usize = 64 * 1024;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -97,13 +111,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut docs = DocSet::new();
     let loaded = drive::load(&mut docs, endpoint);
     docs.add_builtin();
-    let font = efont_cn_16();
+    let font: &'static Font<'static> = Box::leak(Box::new(efont_cn_16()));
     let pixels = SURFACE_VIRT as *mut u32;
     let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new()) else {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };
-    apply(&view, &font, pixels, endpoint, display, surface, window);
+
+    let render_frame = frame_alloc(bytes, RENDER_VIRT);
+    if render_frame == 0 || render_frame == u64::MAX {
+        write(b"hk-server-holydoc: render frame failed\n");
+        exit(6)
+    }
+    let Some(pool) = Pool::start_with_stack(1, RENDER_STACK) else {
+        write(b"hk-server-holydoc: render pool failed\n");
+        exit(6)
+    };
+
+    window::update_title(display, window, &view);
+    submit_render(pool, font, &view);
+    wait_render(pool);
+    present_render(endpoint, display, surface);
+    write(b"hk-server-holydoc: render worker ok\n");
     write(b"hk-server-holydoc: ready ");
     write_u64(window);
     write(b"\n");
@@ -123,10 +152,23 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("holydoc-test"));
     if test {
+        // 工作线程渲染必须与主线程渲染逐像素一致。
+        render::render(&view, font, pixels);
+        submit_render(pool, font, &view);
+        wait_render(pool);
+        // SAFETY: 表面与渲染缓冲都已映射，长度均为 WIDTH * HEIGHT。
+        let direct = unsafe { core::slice::from_raw_parts(pixels, WIDTH * HEIGHT) };
+        // SAFETY: 同上。
+        let worker =
+            unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, WIDTH * HEIGHT) };
+        if direct != worker {
+            write(b"hk-server-holydoc: render worker mismatch\n");
+            exit(8)
+        }
         selftest::run(
             &mut view,
             &mut docs,
-            &font,
+            font,
             pixels,
             endpoint,
             display,
@@ -137,14 +179,39 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut keys = Decoder::new();
+    let mut scratch = [0_u8; 32];
+    let mut render_pending = false;
+    let mut render_dirty = false;
 
     loop {
-        let (label, word, _sender) = recv(endpoint);
+        if render_pending && pool.try_next().is_some() {
+            present_render(endpoint, display, surface);
+            render_pending = false;
+            if render_dirty {
+                render_dirty = false;
+                submit_render(pool, font, &view);
+                render_pending = true;
+            }
+        }
+
+        let (label, word) = if render_pending {
+            let (label, word, _sender, _length) = recv_data_try(endpoint, &mut scratch);
+            if label == 0 {
+                yield_now();
+                continue;
+            }
+            (label, word)
+        } else {
+            let (label, word, _sender) = recv(endpoint);
+            (label, word)
+        };
+
+        let mut redraw = false;
         match label {
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
                 if let Some(key) = keys.feed(byte) {
-                    let redraw = match key {
+                    redraw = match key {
                         Key::Byte(byte) => match byte {
                             b'j' => {
                                 view.scroll_by(1);
@@ -220,16 +287,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         }
                         _ => false,
                     };
-                    if redraw {
-                        apply(&view, &font, pixels, endpoint, display, surface, window);
-                    }
                 }
             }
             DISPLAY_WHEEL => {
                 let (_, delta) = unpack_wheel(word);
                 if delta != 0 {
                     view.scroll_by(-(delta as isize) * 3);
-                    apply(&view, &font, pixels, endpoint, display, surface, window);
+                    redraw = true;
                 }
             }
             DISPLAY_CLICK_AT => {
@@ -237,14 +301,50 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 if let Some(target) = view.link_at(x, y) {
                     view.select(&target);
                     view.open(&docs, &target);
-                    apply(&view, &font, pixels, endpoint, display, surface, window);
+                    redraw = true;
                 }
             }
             DISPLAY_CLICK => {}
             DISPLAY_CLOSE => exit(0),
             _ => {}
         }
+
+        if redraw {
+            window::update_title(display, window, &view);
+            if render_pending {
+                render_dirty = true;
+            } else {
+                submit_render(pool, font, &view);
+                render_pending = true;
+            }
+        }
     }
+}
+
+/// 把当前视图快照交给渲染线程。
+#[cfg(target_os = "none")]
+fn submit_render(pool: &Pool, font: &'static Font<'static>, view: &DocView) {
+    let snapshot = view.clone();
+    let _ = pool.submit(0, move || {
+        render::render(&snapshot, font, RENDER_VIRT as *mut u32);
+        0
+    });
+}
+
+/// 等待渲染线程完成一帧。
+#[cfg(target_os = "none")]
+fn wait_render(pool: &Pool) {
+    while pool.try_next().is_none() {
+        yield_now();
+    }
+}
+
+/// 把渲染缓冲拷贝到表面并提交。
+#[cfg(target_os = "none")]
+fn present_render(endpoint: u64, display: u64, surface: u64) {
+    // SAFETY: 渲染缓冲在启动时映射，长度为 WIDTH * HEIGHT。
+    let pixels = unsafe { core::slice::from_raw_parts(RENDER_VIRT as *const u32, WIDTH * HEIGHT) };
+    window::present(pixels, endpoint, display, surface);
 }
 
 hk_server_api::server_boilerplate!();
