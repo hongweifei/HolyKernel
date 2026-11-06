@@ -391,10 +391,36 @@ pub fn frame_alloc(length: usize, virt: u64) -> u64 {
     unsafe { syscall_call(SYS_FRAME_ALLOC, length as u64, virt, 0, 0).value }
 }
 
+/// 分配共享 Frame 并让内核选择虚拟地址，返回帧句柄编号与映射地址。
+pub fn frame_alloc_any(length: usize) -> Option<(u64, u64)> {
+    let mut virt = 0_u64;
+    // SAFETY: `virt` 位于本栈帧；内核校验长度后写入所选地址。
+    let handle = unsafe {
+        syscall_call(
+            SYS_FRAME_ALLOC,
+            length as u64,
+            0,
+            &mut virt as *mut u64 as u64,
+            0,
+        )
+        .value
+    };
+    (handle != u64::MAX && virt != 0).then_some((handle, virt))
+}
+
 /// 把 Frame 映射到调用者地址空间，返回长度。
 pub fn frame_map(number: u64, virt: u64) -> u64 {
     // SAFETY: 内核校验帧句柄与目标地址。
     unsafe { syscall_call(SYS_FRAME_MAP, number, virt, 0, 0).value }
+}
+
+/// 把 Frame 映射到内核选择的虚拟地址，返回映射长度与地址。
+pub fn frame_map_any(number: u64) -> Option<(u64, u64)> {
+    let mut virt = 0_u64;
+    // SAFETY: `virt` 位于本栈帧；内核校验帧句柄后写入所选地址。
+    let mapped =
+        unsafe { syscall_call(SYS_FRAME_MAP, number, 0, &mut virt as *mut u64 as u64, 0).value };
+    (mapped != 0 && virt != 0).then_some((mapped, virt))
 }
 
 /// 解除 Frame 映射；成功返回 1。

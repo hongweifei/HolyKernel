@@ -22,6 +22,8 @@ pub struct UserTask<C> {
     pub extra: Vec<Option<Handle>>,
     /// 本任务持有的共享 Frame。
     pub(crate) frames: Vec<Option<FrameMap>>,
+    /// 自动虚拟地址窗口。
+    pub(crate) frame_window: FrameWindow,
     /// 本任务持有的 DeviceGrant 句柄。
     pub grants: Vec<Option<Handle>>,
     /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
@@ -69,6 +71,7 @@ impl<C> UserTask<C> {
             notifications,
             extra: Vec::new(),
             frames: Vec::new(),
+            frame_window: FrameWindow::new(),
             grants: Vec::new(),
             bound_irqs: Vec::new(),
             dma_used: Vec::new(),

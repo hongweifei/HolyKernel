@@ -137,6 +137,11 @@ pub const SYS_DMA_MAP_FRAME: u64 = 0x46;
 /// 同步 DMA 缓冲缓存。
 pub const SYS_DMA_SYNC: u64 = 0x47;
 
+/// 自动分配的用户 Frame 虚拟窗口起始地址。
+pub const USER_FRAME_WINDOW_BASE: u64 = 0x5000_0000;
+/// 自动分配的用户 Frame 虚拟窗口结束地址（不含）；其上是帧缓冲映射。
+pub const USER_FRAME_WINDOW_LIMIT: u64 = 0x7800_0000;
+
 // === 设备与中断 0x50-0x5F ===
 
 /// 读取 PCI 配置空间。
