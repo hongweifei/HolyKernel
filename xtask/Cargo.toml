@@ -17,6 +17,7 @@ hk-fs-ext4 = { version = "0.1.0", path = "../crates/hk-fs-ext4" }
 hk-fs-holyfs = { version = "0.1.0", path = "../crates/hk-fs-holyfs" }
 hk-hal = { version = "0.1.0", path = "../crates/hk-hal" }
 hk-image = { version = "0.1.0", path = "../crates/hk-image" }
+hk-server-build = { version = "0.1.0", path = "../crates/hk-server-build" }
 hk-vfs = { version = "0.1.0", path = "../crates/hk-vfs" }
 toml = "0.8"
 xmas-elf = "0.10"

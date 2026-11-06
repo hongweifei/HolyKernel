@@ -1,5 +1,5 @@
-//! 链接配置：Debug 服务固定链接到 0x01B00000。
+//! 链接配置：Debug 服务使用自动分配的镜像基址。
 
 fn main() {
-    hk_server_build::configure(0x01B0_0000);
+    hk_server_build::configure();
 }

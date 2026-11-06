@@ -1,5 +1,5 @@
-//! 链接配置：指针自检客户端固定链接到 0x01900000。
+//! 链接配置：指针自检客户端使用自动分配的镜像基址。
 
 fn main() {
-    hk_server_build::configure(0x0190_0000);
+    hk_server_build::configure();
 }
