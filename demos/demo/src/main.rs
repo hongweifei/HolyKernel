@@ -29,6 +29,8 @@ use hk_coroutine::{Coroutine, State, suspend};
 #[cfg(target_os = "none")]
 use hk_server_api::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
+use hk_server_api::echo::{WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
+#[cfg(target_os = "none")]
 use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
 #[cfg(target_os = "none")]
 use hk_sync::{Condvar, Mutex, RwLock};
@@ -36,8 +38,8 @@ use hk_sync::{Condvar, Mutex, RwLock};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv,
-    self_notification, send, send_handle, service_endpoint, thread_create, thread_join, tsc,
-    tsc_frequency, wait_notify, write, write_u64, yield_now,
+    recv_data_try, self_notification, send, send_handle, service_endpoint, thread_create,
+    thread_join, tsc, tsc_frequency, wait_notify, write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -123,6 +125,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo sync ok\n");
         } else {
             write(b"hk-server-demo sync fail\n");
+            exit(1)
+        }
+        if verify_worker(endpoint) {
+            write(b"hk-server-demo worker ok\n");
+        } else {
+            write(b"hk-server-demo worker fail\n");
             exit(1)
         }
 
@@ -585,6 +593,74 @@ fn verify_sync() -> bool {
         return false;
     }
     *SYNC_RW.read() == 1
+}
+
+/// 验证服务端工作线程池：并发提交、乱序完成与并发峰值。
+#[cfg(target_os = "none")]
+fn verify_worker(endpoint: u64) -> bool {
+    const COUNT: u64 = 4;
+    let mut buffer = [0_u8; 8];
+    for word in 1..=COUNT {
+        let mut sent = false;
+        for _ in 0..64 {
+            if send(ENDPOINT_ECHO, WORK_REQUEST, word) == 0 {
+                sent = true;
+                break;
+            }
+            yield_now();
+        }
+        if !sent {
+            return false;
+        }
+    }
+
+    let mut seen = [false; COUNT as usize + 1];
+    let mut received = 0;
+    while received < COUNT {
+        let (label, word, _sender, _length) = recv_data_try(endpoint, &mut buffer);
+        if label == 0 {
+            yield_now();
+            continue;
+        }
+        if label != WORK_RESPONSE {
+            continue;
+        }
+        if !word.is_multiple_of(2) {
+            return false;
+        }
+        let index = (word / 2) as usize;
+        if index == 0 || index > COUNT as usize || seen[index] {
+            return false;
+        }
+        seen[index] = true;
+        received += 1;
+    }
+
+    let mut sent = false;
+    for _ in 0..64 {
+        if send(ENDPOINT_ECHO, WORK_STATS, 0) == 0 {
+            sent = true;
+            break;
+        }
+        yield_now();
+    }
+    if !sent {
+        return false;
+    }
+    let peak = loop {
+        let (label, word, _sender, _length) = recv_data_try(endpoint, &mut buffer);
+        if label == WORK_STATS_RESPONSE {
+            break word;
+        }
+        if label == 0 {
+            yield_now();
+        }
+    };
+
+    write(b"hk-server-demo worker peak ");
+    write_u64(peak);
+    write(b"\n");
+    peak >= 2
 }
 
 hk_server_api::server_boilerplate!();
