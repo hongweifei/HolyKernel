@@ -265,6 +265,10 @@ flowchart LR
 | `Purge(document)`                     | 显式销毁文档、集合项、标签关系与修订链；快照固定时返回 `Pinned` |
 | `Quota(volume)`                       | 查询文档数、字节数、修订数、快照数与标签数配额；需要 ADMIN 令牌 |
 | `SetQuota(volume, quota)`             | 更新并持久化配额；需要 ADMIN 令牌 |
+| `Stage(document, expected)`           | 创建 staging，固定当前 head 作为提交基线 |
+| `WriteRange(staging, offset, bytes)`  | 写入 staging 区间 |
+| `Commit(staging, expected)`           | 校验基线并生成正式修订 |
+| `Abort(staging)`                      | 放弃 staging |
 
 ### Collection
 
@@ -394,7 +398,7 @@ sequenceDiagram
 - **修订链**：每次写入生成不可变修订；`Checkout` 提供只读历史视图，`Prune` 控制保留窗口。
 - **快照与恢复**：COW 根固定；快照零拷贝；`Restore` 原子切换根、标签根与代数。
 - **标签**：Tag Table 是唯一索引，包含 tag → members 与 doc → tags 两个方向；快照固定标签根。
-- **流式写**：`Stage`/`WriteRange`/`Commit` 支持大文档；`Append` 共享基线 extent。
+- **流式写**：`Stage` 固定基线并累积内容，`WriteRange` 区间写入，`Commit` 校验基线后生成正式修订，`Abort` 丢弃 staging。
 - **去重**：ContentHash + 大小索引，相同内容共享 extent；索引在挂载、GC、裁剪与销毁后根据现有修订重建。
 - **压缩**：按修订尝试 RLE 游程编码，压缩更优时写 `COMPRESSED` 修订；读取透明解压，ContentHash 始终针对明文。
 - **加密**：按修订加密内容与元数据；密钥由卷配置提供（规划）。
@@ -465,7 +469,7 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组 | 规划 |
-| 流式写 | 规划 |
+| 流式写：Stage/WriteRange/Commit/Abort、基线校验 | 已实现 |
 | 压缩：RLE 游程编码、`COMPRESSED` 修订标志、透明解压 | 已实现 |
 | 配额：文档数、逻辑字节、修订数、快照数、标签数，Superblock 持久化 | 已实现 |
 | 内容去重：ContentHash 索引、extent 共享 | 已实现 |
@@ -492,6 +496,7 @@ crates/hk-fs-holyfs/src/
 │   ├── maintenance.rs Check/Scrub/Repair
 │   ├── retention.rs Seal/Prune/Purge 与 GC
 │   ├── quota.rs    配额检查与持久化
+│   ├── staging.rs  流式写 staging
 │   ├── content.rs  内容读写与内容修订
 │   ├── metadata.rs 集合项、路径解析与文档视图
 │   ├── tags.rs     标签与成员关系

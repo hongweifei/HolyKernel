@@ -290,6 +290,39 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().quota_used()
     }
 
+    /// 创建 staging，返回 staging 编号。
+    pub fn stage(
+        &mut self,
+        document: DocId,
+        expected: Option<RevisionId>,
+    ) -> Result<u64, HolyError> {
+        self.state.borrow_mut().stage(document, expected)
+    }
+
+    /// 写入 staging 区间。
+    pub fn write_staging(
+        &mut self,
+        staging: u64,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<usize, HolyError> {
+        self.state.borrow_mut().write_staging(staging, offset, data)
+    }
+
+    /// 提交 staging，返回新 head。
+    pub fn commit_staging(
+        &mut self,
+        staging: u64,
+        expected: Option<RevisionId>,
+    ) -> Result<RevisionId, HolyError> {
+        self.state.borrow_mut().commit_staging(staging, expected)
+    }
+
+    /// 放弃 staging。
+    pub fn abort_staging(&mut self, staging: u64) -> Result<(), HolyError> {
+        self.state.borrow_mut().abort_staging(staging)
+    }
+
     #[cfg(test)]
     pub(crate) fn allocate_leak(&mut self, count: u64) -> Result<u64, HolyError> {
         self.state.borrow_mut().allocate_leak(count)

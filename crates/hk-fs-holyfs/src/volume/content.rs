@@ -295,7 +295,7 @@ impl<D: BlockDevice> Volume<D> {
         self.replace_content(document, head, &content)
     }
 
-    fn replace_content(
+    pub(super) fn replace_content(
         &mut self,
         document: DocId,
         head: &RevisionRecord,

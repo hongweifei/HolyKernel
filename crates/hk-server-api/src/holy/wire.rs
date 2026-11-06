@@ -109,6 +109,14 @@ pub const OP_PURGE: u8 = 50;
 pub const OP_QUOTA: u8 = 51;
 /// 设置卷配额。
 pub const OP_SET_QUOTA: u8 = 52;
+/// 创建 staging。
+pub const OP_STAGE: u8 = 53;
+/// 写入 staging 区间。
+pub const OP_WRITE_STAGING: u8 = 54;
+/// 提交 staging。
+pub const OP_COMMIT_STAGING: u8 = 55;
+/// 放弃 staging。
+pub const OP_ABORT_STAGING: u8 = 56;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;

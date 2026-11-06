@@ -309,6 +309,35 @@ fn quota_survives_remount() {
 }
 
 #[test]
+fn streams_staged_writes() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "stream", DocumentKind::Content)
+        .expect("创建");
+    let staging = fs.stage(document, None).expect("staging");
+    fs.write_staging(staging, 0, b"hello").expect("写一");
+    fs.write_staging(staging, 5, b"!").expect("写二");
+    fs.commit_staging(staging, None).expect("提交");
+    assert_eq!(fs.read_document_id(document).expect("读"), b"hello!");
+    assert_eq!(fs.check().expect("校验").leaked_blocks, 0);
+}
+
+#[test]
+fn rejects_stale_or_aborted_staging() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "stream", DocumentKind::Content)
+        .expect("创建");
+    let staging = fs.stage(document, None).expect("staging");
+    fs.write_range(document, 0, b"changed").expect("外部写");
+    assert_eq!(fs.commit_staging(staging, None), Err(HolyError::Stale));
+    fs.abort_staging(staging).expect("中止");
+    assert_eq!(fs.commit_staging(staging, None), Err(HolyError::NotFound));
+}
+
+#[test]
 fn compresses_repetitive_content() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();

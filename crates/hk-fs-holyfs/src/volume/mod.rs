@@ -9,6 +9,7 @@ mod persist;
 mod quota;
 mod retention;
 mod snapshot;
+mod staging;
 mod tags;
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -48,6 +49,8 @@ pub(crate) struct Volume<D: BlockDevice> {
     next_snapshot: u64,
     dedup: BTreeMap<(u64, u64), content::DedupEntry>,
     dedup_hits: u64,
+    staging: BTreeMap<u64, staging::Staging>,
+    next_staging: u64,
     epoch: u64,
     dirty: bool,
 }
@@ -92,6 +95,8 @@ impl<D: BlockDevice> Volume<D> {
             next_snapshot: 1,
             dedup: BTreeMap::new(),
             dedup_hits: 0,
+            staging: BTreeMap::new(),
+            next_staging: 1,
             epoch: 1,
             dirty: true,
         };
@@ -220,6 +225,8 @@ impl<D: BlockDevice> Volume<D> {
             next_snapshot,
             dedup: BTreeMap::new(),
             dedup_hits: 0,
+            staging: BTreeMap::new(),
+            next_staging: 1,
             epoch: 1,
             dirty: false,
         };

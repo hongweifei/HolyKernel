@@ -11,15 +11,15 @@ use super::codec::{
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::encode_request;
 use super::wire::{
-    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
-    OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT,
-    OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
-    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID,
-    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE,
-    OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB,
-    OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
-    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
-    OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ABORT_STAGING, OP_ACQUIRE,
+    OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG,
+    OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
+    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
+    OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
+    OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
+    OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG,
+    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
+    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -327,6 +327,48 @@ impl HolyClient {
         let mut bytes = [0_u8; 40];
         encode_quota(&mut bytes, quota).ok_or(STATUS_INVALID)?;
         self.exchange(OP_SET_QUOTA, "", token, 0, &bytes)
+            .map(|_| ())
+    }
+
+    /// 创建 staging，返回 staging 编号。
+    pub fn stage(&mut self, document: DocId, expected: Option<RevisionId>) -> Result<u64, u8> {
+        let length = self.exchange(
+            OP_STAGE,
+            "",
+            expected.map_or(0, RevisionId::get),
+            0,
+            &document.to_le_bytes(),
+        )?;
+        decode_u64(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 写入 staging 区间。
+    pub fn write_staging(&mut self, staging: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
+        let length = self.exchange(OP_WRITE_STAGING, "", staging, offset, data)?;
+        decode_u64(&self.response[3..3 + length])
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(STATUS_INVALID)
+    }
+
+    /// 提交 staging，返回新 head 修订。
+    pub fn commit_staging(
+        &mut self,
+        staging: u64,
+        expected: Option<RevisionId>,
+    ) -> Result<RevisionId, u8> {
+        let length = self.exchange(
+            OP_COMMIT_STAGING,
+            "",
+            staging,
+            expected.map_or(0, RevisionId::get),
+            &[],
+        )?;
+        decode_revision_id(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 放弃 staging。
+    pub fn abort_staging(&mut self, staging: u64) -> Result<(), u8> {
+        self.exchange(OP_ABORT_STAGING, "", staging, 0, &[])
             .map(|_| ())
     }
 

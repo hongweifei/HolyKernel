@@ -5,18 +5,19 @@
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, Quota, RevisionId};
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentView, DriveView, KIND_COLLECTION, KIND_CONTENT, MaintenanceView,
-    OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG,
-    OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
-    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
-    OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
-    OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
-    OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
-    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ,
-    RIGHT_WRITE, Request, RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView,
-    decode_doc_id, decode_quota, decode_u64, encode_doc_id, encode_document, encode_drive,
-    encode_entry, encode_maintenance, encode_quota, encode_revision, encode_revision_id,
-    encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
+    OP_ABORT_STAGING, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_COMMIT_STAGING,
+    OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN,
+    OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME,
+    OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE,
+    OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE,
+    OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS,
+    OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
+    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING,
+    OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, Request,
+    RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView, decode_doc_id,
+    decode_quota, decode_u64, encode_doc_id, encode_document, encode_drive, encode_entry,
+    encode_maintenance, encode_quota, encode_revision, encode_revision_id, encode_snapshot,
+    encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
 use hk_server_api::vfs::{
     STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
@@ -274,6 +275,31 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
+        OP_STAGE => {
+            let Some(document) = doc_from(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            let expected = (request.arg0 != 0).then(|| RevisionId::new(request.arg0));
+            match drive.stage(document, expected) {
+                Ok(staging) => encode_u64_response(body, staging),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_WRITE_STAGING => match drive.write_staging(request.arg0, request.arg1, request.data) {
+            Ok(length) => encode_u64_response(body, length as u64),
+            Err(error) => (status(error), 0),
+        },
+        OP_COMMIT_STAGING => {
+            let expected = (request.arg1 != 0).then(|| RevisionId::new(request.arg1));
+            match drive.commit_staging(request.arg0, expected) {
+                Ok(revision) => encode_revision_response(body, revision),
+                Err(error) => (status(error), 0),
+            }
+        }
+        OP_ABORT_STAGING => match drive.abort_staging(request.arg0) {
+            Ok(()) => (STATUS_OK, 0),
+            Err(error) => (status(error), 0),
+        },
         OP_TRUNCATE_ID => {
             let Some(document) = doc_from(request.data) else {
                 return (STATUS_INVALID, 0);

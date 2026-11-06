@@ -306,6 +306,32 @@ pub(crate) fn verify_quota(endpoint: u64) -> bool {
     set && read && restored && released
 }
 
+/// 验证 staging 流式写、提交与清理。
+pub(crate) fn verify_streaming(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.create(root, "StreamProbe", DocumentKind::Content) else {
+        return false;
+    };
+    let Ok(staging) = client.stage(document, None) else {
+        return false;
+    };
+    let written = client.write_staging(staging, 0, b"stream").is_ok();
+    let committed = client.commit_staging(staging, None).is_ok();
+    let mut buffer = [0_u8; 8];
+    let content = client
+        .read_id(document, 0, &mut buffer)
+        .is_ok_and(|length| &buffer[..length] == b"stream");
+    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+        return false;
+    };
+    let purged = client.purge(admin, document).is_ok();
+    let released = client.release_volume(admin).is_ok();
+    written && committed && content && purged && released
+}
+
 /// 执行脚本化的导航、滚动与退出。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -352,6 +378,11 @@ pub(crate) fn run(
         write(b"hk-server-holydoc: quota ok\n");
     } else {
         write(b"hk-server-holydoc: quota failed\n");
+    }
+    if verify_streaming(endpoint) {
+        write(b"hk-server-holydoc: stream ok\n");
+    } else {
+        write(b"hk-server-holydoc: stream failed\n");
     }
     if let Some((x, y, target)) = view.first_link() {
         write(b"hk-server-holydoc: click ");

@@ -394,6 +394,7 @@ impl SmokeMode {
                 "hk-server-holydoc: maintenance ok",
                 "hk-server-holydoc: retention ok",
                 "hk-server-holydoc: quota ok",
+                "hk-server-holydoc: stream ok",
                 "hk-server-holydoc: click H:/System",
                 "hk-server-holydoc: open H:/System",
                 "hk-server-holydoc: open H:/System/Overview",
