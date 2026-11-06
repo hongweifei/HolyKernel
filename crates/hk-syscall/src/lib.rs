@@ -162,6 +162,9 @@ pub const SYS_DEVICE_INFO: u64 = 0x54;
 /// 把设备中断绑定到通知。
 pub const SYS_IRQ_BIND: u64 = 0x55;
 
+/// 把 MSI/MSI-X 向量绑定到通知；只记录投递目标，不建立 IOAPIC 路由。
+pub const SYS_MSI_BIND: u64 = 0x56;
+
 // === 时间与系统信息 0x60-0x6F ===
 
 /// 读取调度 tick 计数。
@@ -391,7 +394,7 @@ mod tests {
         const { assert!(SYS_SEND >= 0x20 && SYS_SERVICE_ENDPOINT < 0x30) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
         const { assert!(SYS_ALLOC >= 0x40 && SYS_DMA_SYNC < 0x50) };
-        const { assert!(SYS_PCI_READ >= 0x50 && SYS_IRQ_BIND < 0x60) };
+        const { assert!(SYS_PCI_READ >= 0x50 && SYS_MSI_BIND < 0x60) };
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
@@ -441,6 +444,7 @@ mod tests {
             SYS_DEVICE_MAP,
             SYS_DEVICE_INFO,
             SYS_IRQ_BIND,
+            SYS_MSI_BIND,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

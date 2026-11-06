@@ -5,6 +5,9 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::CpuId;
 
+/// 设备中断向量基址；IRQ `n` 使用 `IRQ_VECTOR_BASE + n`。
+pub const IRQ_VECTOR_BASE: u8 = 0x40;
+
 /// 硬件中断号。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Irq(u32);
@@ -77,6 +80,13 @@ impl core::error::Error for IrqError {}
 pub trait InterruptController: Send + Sync {
     /// 把中断号绑定到 Notification。
     fn bind(&self, irq: Irq, target: NotificationId) -> Result<(), IrqError>;
+
+    /// 把中断绑定到通知，但只记录投递目标，不建立 IOAPIC 路由。
+    ///
+    /// MSI/MSI-X 由设备直接写 LAPIC，不需要也不应该占用一条 IOAPIC 线路。
+    fn bind_direct(&self, irq: Irq, target: NotificationId) -> Result<(), IrqError> {
+        self.bind(irq, target)
+    }
 
     /// 解除中断号绑定。
     fn unbind(&self, irq: Irq) -> Result<(), IrqError>;

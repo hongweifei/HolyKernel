@@ -67,6 +67,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn bind_irq(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        self.bind_irq_route(index, tcb, frame, false)
+    }
+
+    /// 绑定 MSI/MSI-X 向量：只记录通知目标，不建立 IOAPIC 路由。
+    pub(crate) fn bind_msi(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        self.bind_irq_route(index, tcb, frame, true)
+    }
+
+    fn bind_irq_route(&mut self, index: usize, tcb: TcbId, frame: &mut C, direct: bool) -> Switch {
         let grant_number = frame.arg0() as usize;
         let notification_number = frame.arg1() as usize;
         let bits = frame.arg2();
@@ -95,10 +104,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let irq = hk_hal::Irq::new(u32::from(irq));
-        if controller
-            .bind(irq, hk_hal::NotificationId::new(notification_id.get()))
-            .is_err()
-        {
+        let target = hk_hal::NotificationId::new(notification_id.get());
+        let bound = if direct {
+            controller.bind_direct(irq, target)
+        } else {
+            controller.bind(irq, target)
+        };
+        if bound.is_err() {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }

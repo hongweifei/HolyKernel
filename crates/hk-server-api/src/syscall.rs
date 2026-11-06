@@ -358,6 +358,12 @@ pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     unsafe { syscall_call(SYS_IRQ_BIND, grant, notification, bits, 0).value }
 }
 
+/// 把 MSI/MSI-X 向量绑定到通知；不建立 IOAPIC 路由。
+pub fn msi_bind(grant: u64, notification: u64, bits: u64) -> u64 {
+    // SAFETY: 内核校验授权与通知句柄。
+    unsafe { syscall_call(SYS_MSI_BIND, grant, notification, bits, 0).value }
+}
+
 /// 同步 DeviceGrant 的 DMA 缓冲缓存；`to_device` 为真时写回，否则使失效。
 pub fn dma_sync(grant: u64, phys: u64, len: usize, to_device: bool) -> u64 {
     // SAFETY: 内核校验物理范围属于该授权。

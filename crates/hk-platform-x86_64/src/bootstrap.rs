@@ -96,6 +96,15 @@ impl InterruptController for IoApicController {
         Ok(())
     }
 
+    fn bind_direct(&self, irq: Irq, target: NotificationId) -> Result<(), IrqError> {
+        let line = irq.get();
+        if line >= u32::from(crate::irq::IRQ_LINES) {
+            return Err(IrqError::Unsupported);
+        }
+        IRQ_BINDINGS.lock().entry(line).or_default().push(target);
+        Ok(())
+    }
+
     fn unbind(&self, irq: Irq) -> Result<(), IrqError> {
         let line = irq.get();
         if IRQ_BINDINGS.lock().remove(&line).is_none() {

@@ -2,8 +2,8 @@
 
 use hk_hal::IrqBitmap;
 
-/// 中断向量基址；IRQ `n` 使用 `IRQ_VECTOR_BASE + n`。
-pub const IRQ_VECTOR_BASE: u8 = 0x40;
+/// 中断向量基址；与 `hk-hal` 共用同一常量。
+pub const IRQ_VECTOR_BASE: u8 = hk_hal::irq::IRQ_VECTOR_BASE;
 
 /// 支持的最大 IRQ 线数。
 pub const IRQ_LINES: u8 = 32;
