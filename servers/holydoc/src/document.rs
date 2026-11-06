@@ -4,8 +4,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_font::Font;
 use hk_server_api::write;
-use lovyangfx_fonts::Font;
 
 use crate::exec::exec;
 use crate::markup::{call, char_width, doc_name, parse_inline, split_args, title_of};
@@ -256,6 +256,22 @@ pub(crate) struct Line {
     pub(crate) code: bool,
 }
 
+/// 文档排版字体：正文用可缩放字体，代码块用等宽字体。
+#[derive(Clone, Copy)]
+pub(crate) struct Fonts {
+    /// 正文、标题与提示栏。
+    pub(crate) text: &'static Font,
+    /// 代码块。
+    pub(crate) mono: &'static Font,
+}
+
+impl Fonts {
+    /// 按行类型选取字体。
+    pub(crate) fn for_line(&self, code: bool) -> &'static Font {
+        if code { self.mono } else { self.text }
+    }
+}
+
 /// 文档视图。
 #[derive(Clone)]
 pub(crate) struct DocView {
@@ -266,7 +282,7 @@ pub(crate) struct DocView {
     pub(crate) history: Vec<String>,
     pub(crate) forward: Vec<String>,
     pub(crate) selected: Option<String>,
-    pub(crate) font: &'static Font<'static>,
+    pub(crate) fonts: Fonts,
 }
 
 impl DocView {
@@ -276,7 +292,7 @@ impl DocView {
         id: &str,
         history: Vec<String>,
         forward: Vec<String>,
-        font: &'static Font<'static>,
+        fonts: Fonts,
     ) -> Option<Self> {
         let entry = set.page(id)?;
         let document = entry.document;
@@ -288,7 +304,7 @@ impl DocView {
             history,
             forward,
             selected: None,
-            font,
+            fonts,
         };
         for raw in entry.body.lines() {
             let line = raw.trim_end();
@@ -392,7 +408,7 @@ impl DocView {
         let mut x = 0;
         for run in runs {
             for character in run.text.chars() {
-                let width = char_width(self.font, character);
+                let width = char_width(self.fonts.for_line(code), character);
                 if x + width > CONTENT_WIDTH && x > 0 {
                     self.lines.push(Line {
                         runs: core::mem::take(&mut current),
@@ -443,7 +459,7 @@ impl DocView {
         self.forward.clear();
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &entry.id, history, forward, self.font) {
+        match Self::load(set, &entry.id, history, forward, self.fonts) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: open ");
@@ -463,7 +479,7 @@ impl DocView {
         self.forward.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &previous, history, forward, self.font) {
+        match Self::load(set, &previous, history, forward, self.fonts) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: back ");
@@ -483,7 +499,7 @@ impl DocView {
         self.history.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &next, history, forward, self.font) {
+        match Self::load(set, &next, history, forward, self.fonts) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: forward ");
@@ -563,10 +579,11 @@ impl DocView {
         }
         let index = adjusted as usize / LINE_HEIGHT;
         let line = self.lines.get(index)?;
+        let font = self.fonts.for_line(line.code);
         let mut pen = MARGIN;
         for run in &line.runs {
             for character in run.text.chars() {
-                let width = char_width(self.font, character);
+                let width = char_width(font, character);
                 if let Some(target) = &run.target
                     && x as usize >= pen
                     && (x as usize) < pen + width
@@ -582,13 +599,14 @@ impl DocView {
     pub(crate) fn first_link(&self) -> Option<(u32, u32, String)> {
         let mut y = MARGIN;
         for line in &self.lines {
+            let font = self.fonts.for_line(line.code);
             let mut pen = MARGIN;
             for run in &line.runs {
                 for character in run.text.chars() {
                     if let Some(target) = &run.target {
                         return Some(((pen + 4) as u32, (y + 8) as u32, target.clone()));
                     }
-                    pen += char_width(self.font, character);
+                    pen += char_width(font, character);
                 }
             }
             y += LINE_HEIGHT;

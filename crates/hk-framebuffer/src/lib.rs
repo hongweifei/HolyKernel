@@ -10,9 +10,8 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+use hk_font::Font;
 use hk_hal::{BootInfo, Console, FramebufferInfo, PixelFormat};
-use lovyangfx_fonts::Font;
-use lovyangfx_fonts::fonts::efont_cn_16;
 use spin::Mutex;
 
 const FOREGROUND: u32 = 0x00D0_D0D0;
@@ -32,7 +31,7 @@ pub struct FramebufferConsole {
     height: usize,
     stride: usize,
     format: PixelFormat,
-    font: Font<'static>,
+    font: Font,
     cell_width: usize,
     cell_height: usize,
     line_height: usize,
@@ -58,7 +57,7 @@ impl FramebufferConsole {
 
     /// 以帧缓冲描述与 direct map 基址创建控制台。
     pub fn new(info: &FramebufferInfo, direct_map_base: u64) -> Self {
-        let font = efont_cn_16();
+        let font = Font::monospace(16);
         let cell_width = font.max_width() as usize;
         let cell_height = font.max_height() as usize;
         // 行距留出行间空白，中文满格字形不会与相邻行相贴。

@@ -1,27 +1,37 @@
-//! 可缩放字体：TrueType 解析、轮廓栅格化与 8×16 位图回退。
+//! 字体：TrueType 解析、轮廓栅格化、等宽位图与 8×16 回退。
 //!
-//! 内置 Adwaita Sans（SIL OFL 1.1）；缺少字形时回退到 `efont_cn_16` 位图
-//! 字体，并按目标字号缩放。栅格化使用固定缓冲与 4×4 超采样，无堆分配。
+//! 默认构建包含可缩放字体：内置 Adwaita Sans（SIL OFL 1.1），缺少字形时回退到
+//! `efont_cn_16` 位图字体并按目标字号缩放，栅格化使用固定缓冲与 4×4 超采样。
+//! 关闭 `scalable` 特性后只保留位图字体，用于不需要 TrueType 的早期启动链路。
 
 #![no_std]
 
 #[cfg(test)]
 extern crate std;
 
-use core::cell::{Ref, RefCell};
-
 use lovyangfx_fonts::Font as BitmapFont;
 use lovyangfx_fonts::fonts::efont_cn_16;
-use spin::Mutex;
+use spin::{Mutex, MutexGuard};
+#[cfg(feature = "scalable")]
 use ttf_parser::{Face, OutlineBuilder};
 
+/// 可缩放字体的字形类型；关闭 `scalable` 时没有可缩放字形。
+#[cfg(feature = "scalable")]
+type FaceSlot = Face<'static>;
+/// 可缩放字体的字形类型；关闭 `scalable` 时没有可缩放字形。
+#[cfg(not(feature = "scalable"))]
+type FaceSlot = ();
+
 /// 内置可缩放字体。
+#[cfg(feature = "scalable")]
 const FONT_DATA: &[u8] = include_bytes!("../assets/AdwaitaSans-Regular.ttf");
 /// 单字形位图边长上限。
 const MAX_GLYPH: usize = 48;
 /// 轮廓线段上限。
+#[cfg(feature = "scalable")]
 const MAX_EDGES: usize = 512;
 /// 超采样倍数。
+#[cfg(feature = "scalable")]
 const SAMPLES: u32 = 4;
 /// 字形缓存条目数。
 const CACHE_SLOTS: usize = 128;
@@ -51,14 +61,12 @@ impl Cached {
 
 struct Cache {
     entries: [Cached; CACHE_SLOTS],
-    next: usize,
 }
 
 impl Cache {
     const fn new() -> Self {
         Self {
             entries: [Cached::EMPTY; CACHE_SLOTS],
-            next: 0,
         }
     }
 }
@@ -74,7 +82,7 @@ pub struct Metric {
 
 /// 已栅格化的字形。
 pub struct Glyph<'a> {
-    state: Ref<'a, State>,
+    state: MutexGuard<'a, State>,
 }
 
 impl Glyph<'_> {
@@ -94,6 +102,36 @@ impl Glyph<'_> {
         Metric {
             xadvance: self.state.advance,
         }
+    }
+
+    /// 位图宽度（像素）。
+    pub fn width(&self) -> usize {
+        self.state.width
+    }
+
+    /// 位图高度（像素）。
+    pub fn height(&self) -> usize {
+        self.state.height
+    }
+
+    /// 位图左边相对绘制原点的偏移。
+    pub fn left(&self) -> i32 {
+        self.state.left
+    }
+
+    /// 位图顶边相对绘制原点的偏移。
+    pub fn top(&self) -> i32 {
+        self.state.top
+    }
+
+    /// 覆盖率数据的行跨度。
+    pub fn stride(&self) -> usize {
+        MAX_GLYPH
+    }
+
+    /// 覆盖率数据：0 为完全透明，255 为完全覆盖。
+    pub fn coverage(&self) -> &[u8] {
+        &self.state.buffer[..]
     }
 }
 
@@ -119,7 +157,6 @@ impl State {
     }
 
     fn reset(&mut self) {
-        self.buffer.fill(0);
         self.width = 0;
         self.height = 0;
         self.left = 0;
@@ -128,20 +165,38 @@ impl State {
     }
 }
 
+/// 返回缓存 key 的起始槽位；槽位数是 2 的幂。
+fn cache_slot(key: u64) -> usize {
+    let hash = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    ((hash >> 33) as usize) & (CACHE_SLOTS - 1)
+}
+
 fn cache_get(key: u64) -> Option<Cached> {
-    CACHE
-        .lock()
-        .entries
-        .iter()
-        .find(|entry| entry.key == key)
-        .copied()
+    let cache = CACHE.lock();
+    let mut index = cache_slot(key);
+    for _ in 0..CACHE_SLOTS {
+        let entry = cache.entries[index];
+        if entry.key == key {
+            return Some(entry);
+        }
+        if entry.key == 0 {
+            return None;
+        }
+        index = (index + 1) & (CACHE_SLOTS - 1);
+    }
+    None
 }
 
 fn cache_put(key: u64, state: &State) {
     let mut cache = CACHE.lock();
-    let slot = cache.next % CACHE_SLOTS;
-    cache.next = cache.next.wrapping_add(1);
-    cache.entries[slot] = Cached {
+    let mut index = cache_slot(key);
+    for _ in 0..CACHE_SLOTS {
+        if cache.entries[index].key == key || cache.entries[index].key == 0 {
+            break;
+        }
+        index = (index + 1) & (CACHE_SLOTS - 1);
+    }
+    cache.entries[index] = Cached {
         key,
         width: state.width,
         height: state.height,
@@ -154,45 +209,79 @@ fn cache_put(key: u64, state: &State) {
 
 /// 字体。
 pub struct Font {
-    face: Option<Face<'static>>,
+    #[cfg_attr(not(feature = "scalable"), allow(dead_code))]
+    face: Option<FaceSlot>,
     fallback: BitmapFont<'static>,
     size: u32,
+    #[cfg_attr(not(feature = "scalable"), allow(dead_code))]
     scale: f32,
     ascent: i32,
     line_height: i32,
-    state: RefCell<State>,
+    state: Mutex<State>,
 }
 
 impl Font {
-    /// 以像素字号构造字体。
+    /// 以像素字号构造可缩放字体，缺字形时回退到内置位图字体。
+    ///
+    /// 关闭 `scalable` 特性时等同于 [`Font::monospace`]。
     pub fn new(size: u32) -> Self {
         let size = size.max(4);
-        let face = Face::parse(FONT_DATA, 0).ok();
-        let (scale, ascent, line_height) = match face.as_ref() {
-            Some(face) if face.units_per_em() > 0 => {
-                let scale = size as f32 / f32::from(face.units_per_em());
-                let ascent = ceil(f32::from(face.ascender()) * scale) as i32;
-                let height =
-                    ceil(f32::from(face.ascender() - face.descender() + face.line_gap()) * scale)
-                        as i32;
-                (scale, ascent, height.max(ascent))
+        #[cfg(feature = "scalable")]
+        {
+            let face = Face::parse(FONT_DATA, 0).ok();
+            let (scale, ascent, line_height) = match face.as_ref() {
+                Some(face) if face.units_per_em() > 0 => {
+                    let scale = size as f32 / f32::from(face.units_per_em());
+                    let ascent = libm::ceilf(f32::from(face.ascender()) * scale) as i32;
+                    let height = libm::ceilf(
+                        f32::from(face.ascender() - face.descender() + face.line_gap()) * scale,
+                    ) as i32;
+                    (scale, ascent, height.max(ascent))
+                }
+                _ => (0.0, size as i32, size as i32 + size as i32 / 2),
+            };
+            Self {
+                face,
+                fallback: efont_cn_16(),
+                size,
+                scale,
+                ascent,
+                line_height,
+                state: Mutex::new(State::new()),
             }
-            _ => (0.0, size as i32, size as i32 + size as i32 / 2),
-        };
+        }
+        #[cfg(not(feature = "scalable"))]
+        {
+            Self::monospace(size)
+        }
+    }
+
+    /// 以等宽位图字体构造，字符按 8 像素与 16 像素的网格推进。
+    ///
+    /// 字形全部来自内置位图字体，ASCII 半宽、汉字全宽，适合字符网格与代码块排版。
+    pub fn monospace(size: u32) -> Self {
+        let size = size.max(4);
         Self {
-            face,
+            face: None,
             fallback: efont_cn_16(),
             size,
-            scale,
-            ascent,
-            line_height,
-            state: RefCell::new(State::new()),
+            scale: 0.0,
+            ascent: size as i32,
+            line_height: size as i32 + size as i32 / 2,
+            state: Mutex::new(State::new()),
         }
     }
 
     /// 是否成功加载可缩放字体。
     pub fn has_scalable(&self) -> bool {
-        self.face.is_some() && self.scale > 0.0
+        #[cfg(feature = "scalable")]
+        {
+            self.face.is_some() && self.scale > 0.0
+        }
+        #[cfg(not(feature = "scalable"))]
+        {
+            false
+        }
     }
 
     /// 返回字号。
@@ -210,13 +299,29 @@ impl Font {
         self.line_height
     }
 
+    /// 返回最大字形宽度（像素），用于字符网格的列宽。
+    pub fn max_width(&self) -> i32 {
+        self.size as i32
+    }
+
+    /// 返回最大字形高度（像素），用于字符网格的行高。
+    pub fn max_height(&self) -> i32 {
+        self.size as i32
+    }
+
+    /// 是否能提供该字符的字形。
+    pub fn has_glyph(&self, character: char) -> bool {
+        self.glyph(character).is_some()
+    }
+
     /// 计算字符前进宽度，不栅格化字形。
     pub fn advance(&self, character: char) -> i32 {
+        #[cfg(feature = "scalable")]
         if let Some(face) = self.face.as_ref()
             && let Some(id) = face.glyph_index(character)
             && let Some(advance) = face.glyph_hor_advance(id)
         {
-            return (round(f32::from(advance) * self.scale) as i32).max(1);
+            return (libm::roundf(f32::from(advance) * self.scale) as i32).max(1);
         }
         if let Some(source) = self.fallback.glyph(character) {
             let advance = source.metric().xadvance.max(0) as usize;
@@ -231,15 +336,19 @@ impl Font {
             return None;
         }
         Some(Glyph {
-            state: self.state.borrow(),
+            state: self.state.lock(),
         })
     }
 
     fn fill(&self, character: char) -> bool {
         let key = (u64::from(self.size) << 32) | u64::from(character as u32);
-        let mut state = self.state.borrow_mut();
+        let mut state = self.state.lock();
         if let Some(cached) = cache_get(key) {
-            state.buffer = cached.buffer;
+            for row in 0..cached.height {
+                let start = row * MAX_GLYPH;
+                state.buffer[start..start + cached.width]
+                    .copy_from_slice(&cached.buffer[start..start + cached.width]);
+            }
             state.width = cached.width;
             state.height = cached.height;
             state.left = cached.left;
@@ -248,23 +357,35 @@ impl Font {
             return true;
         }
         state.reset();
-        let filled = if let Some(face) = self.face.as_ref()
-            && let Some(id) = face.glyph_index(character)
-        {
-            state.advance = face
-                .glyph_hor_advance(id)
-                .map(|advance| round(f32::from(advance) * self.scale) as i32)
-                .unwrap_or(self.size as i32 / 2)
-                .max(1);
-            rasterize(face, id, self.scale, self.ascent, &mut state)
-                || self.fill_bitmap(character, &mut state)
-        } else {
-            self.fill_bitmap(character, &mut state)
-        };
+        let filled =
+            self.fill_scalable(character, &mut state) || self.fill_bitmap(character, &mut state);
         if filled {
             cache_put(key, &state);
         }
         filled
+    }
+
+    /// 用可缩放字形填充状态；没有可缩放字形或栅格化失败时返回 `false`。
+    #[cfg(feature = "scalable")]
+    fn fill_scalable(&self, character: char, state: &mut State) -> bool {
+        let Some(face) = self.face.as_ref() else {
+            return false;
+        };
+        let Some(id) = face.glyph_index(character) else {
+            return false;
+        };
+        state.advance = face
+            .glyph_hor_advance(id)
+            .map(|advance| libm::roundf(f32::from(advance) * self.scale) as i32)
+            .unwrap_or(self.size as i32 / 2)
+            .max(1);
+        rasterize(face, id, self.scale, self.ascent, state)
+    }
+
+    /// 用可缩放字形填充状态；关闭 `scalable` 时恒为 `false`。
+    #[cfg(not(feature = "scalable"))]
+    fn fill_scalable(&self, _: char, _: &mut State) -> bool {
+        false
     }
 
     fn fill_bitmap(&self, character: char, state: &mut State) -> bool {
@@ -286,6 +407,7 @@ impl Font {
             return false;
         }
         for row in 0..target_height {
+            state.buffer[row * MAX_GLYPH..row * MAX_GLYPH + target_width].fill(0);
             let source_y = (row * source_width / target_width).min(15);
             for column in 0..target_width {
                 let source_x = (column * source_width / target_width).min(source_width - 1);
@@ -308,13 +430,21 @@ impl hk_canvas::GlyphSource for Font {
         Font::advance(self, character)
     }
 
-    fn for_each_pixel(&self, character: char, draw: impl FnMut(i32, i32)) {
+    fn with_glyph(&self, character: char, mut plot: impl FnMut(&hk_canvas::GlyphMask<'_>)) {
         if let Some(glyph) = self.glyph(character) {
-            glyph.for_each_pixel(draw);
+            plot(&hk_canvas::GlyphMask {
+                width: glyph.width(),
+                height: glyph.height(),
+                left: glyph.left(),
+                top: glyph.top(),
+                stride: glyph.stride(),
+                coverage: glyph.coverage(),
+            });
         }
     }
 }
 
+#[cfg(feature = "scalable")]
 struct Edge {
     x0: f32,
     y0: f32,
@@ -322,6 +452,7 @@ struct Edge {
     y1: f32,
 }
 
+#[cfg(feature = "scalable")]
 impl Edge {
     const ZERO: Self = Self {
         x0: 0.0,
@@ -331,6 +462,7 @@ impl Edge {
     };
 }
 
+#[cfg(feature = "scalable")]
 struct Builder {
     edges: [Edge; MAX_EDGES],
     count: usize,
@@ -339,6 +471,7 @@ struct Builder {
     scale: f32,
 }
 
+#[cfg(feature = "scalable")]
 impl Builder {
     fn new(scale: f32) -> Self {
         Self {
@@ -368,6 +501,7 @@ impl Builder {
     }
 }
 
+#[cfg(feature = "scalable")]
 impl OutlineBuilder for Builder {
     fn move_to(&mut self, x: f32, y: f32) {
         self.current = self.point(x, y);
@@ -427,6 +561,7 @@ impl OutlineBuilder for Builder {
     }
 }
 
+#[cfg(feature = "scalable")]
 fn rasterize(
     face: &Face<'_>,
     id: ttf_parser::GlyphId,
@@ -451,10 +586,10 @@ fn rasterize(
         max_x = max_x.max(edge.x0.max(edge.x1));
         max_y = max_y.max(edge.y0.max(edge.y1));
     }
-    let left = floor(min_x);
-    let top = floor(min_y);
-    let width = (ceil(max_x) - left).max(0.0) as usize;
-    let height = (ceil(max_y) - top).max(0.0) as usize;
+    let left = libm::floorf(min_x);
+    let top = libm::floorf(min_y);
+    let width = (libm::ceilf(max_x) - left).max(0.0) as usize;
+    let height = (libm::ceilf(max_y) - top).max(0.0) as usize;
     if width == 0 || height == 0 {
         return true;
     }
@@ -484,6 +619,7 @@ fn rasterize(
     true
 }
 
+#[cfg(feature = "scalable")]
 fn winding(edges: &[Edge], x: f32, y: f32) -> i32 {
     let mut winding = 0;
     for edge in edges {
@@ -498,39 +634,20 @@ fn winding(edges: &[Edge], x: f32, y: f32) -> i32 {
     winding
 }
 
+#[cfg(feature = "scalable")]
 fn cross(edge: &Edge, x: f32, y: f32) -> f32 {
     (edge.x1 - edge.x0) * (y - edge.y0) - (x - edge.x0) * (edge.y1 - edge.y0)
 }
 
+#[cfg(feature = "scalable")]
 fn lerp(from: (f32, f32), to: (f32, f32), t: f32) -> (f32, f32) {
     (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t)
-}
-
-fn floor(value: f32) -> f32 {
-    let integer = value as i32 as f32;
-    if integer > value {
-        integer - 1.0
-    } else {
-        integer
-    }
-}
-
-fn ceil(value: f32) -> f32 {
-    let integer = value as i32 as f32;
-    if integer < value {
-        integer + 1.0
-    } else {
-        integer
-    }
-}
-
-fn round(value: f32) -> f32 {
-    floor(value + 0.5)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::println;
 
     #[test]
     fn rasterizes_latin_glyph() {
@@ -560,5 +677,102 @@ mod tests {
         assert!(large.ascent() > small.ascent());
         let glyph = large.glyph('A').expect("A");
         assert!(glyph.metric().xadvance > small.glyph('A').unwrap().metric().xadvance);
+    }
+
+    #[test]
+    fn monospace_advances_on_bitmap_grid() {
+        let font = Font::monospace(16);
+        assert!(!font.has_scalable());
+        assert_eq!(font.advance('A'), 8);
+        assert_eq!(font.advance('中'), 16);
+        let glyph = font.glyph('中').expect("中");
+        assert_eq!(glyph.width(), 16);
+        assert_eq!(glyph.height(), 16);
+    }
+
+    #[test]
+    fn coverage_matches_glyph_size() {
+        let font = Font::new(16);
+        let glyph = font.glyph('A').expect("A");
+        let coverage = glyph.coverage();
+        let covered = (0..glyph.height()).any(|row| {
+            let start = row * glyph.stride();
+            coverage[start..start + glyph.width()]
+                .iter()
+                .any(|value| *value > 0)
+        });
+        assert!(covered);
+        assert!(coverage.len() >= glyph.height() * glyph.stride());
+    }
+
+    #[test]
+    fn monospace_grid_matches_cell() {
+        let font = Font::monospace(16);
+        assert_eq!(font.max_width(), 16);
+        assert_eq!(font.max_height(), 16);
+        for character in [' ', 'A', '中', '?'] {
+            assert!(font.has_glyph(character), "{character} 应有字形");
+        }
+    }
+
+    /// 对比覆盖率位图绘制与逐像素绘制的吞吐，手动运行：
+    /// `cargo test -p hk-font --release -- --ignored --nocapture bench_text_throughput`
+    #[test]
+    #[ignore = "性能测量"]
+    fn bench_text_throughput() {
+        use hk_canvas::Surface;
+        use std::time::Instant;
+
+        const WIDTH: usize = 800;
+        const HEIGHT: usize = 600;
+        const ROUNDS: usize = 20;
+        const LINES: usize = 20;
+
+        let font = Font::new(16);
+        let samples = [
+            ("中文", "渲染性能测量用的是整行汉字与标点，覆盖位图字形路径"),
+            ("ASCII", "Rendering throughput measurement for bitmap path."),
+            (
+                "混排",
+                "HolyKernel 渲染性能测量 performance measurement 混排",
+            ),
+        ];
+        let mut pixels = std::vec![0_u32; WIDTH * HEIGHT];
+
+        for (name, text) in samples {
+            let glyphs = (ROUNDS * LINES * text.chars().count()) as u128;
+            let mut masked = u128::MAX;
+            let mut pixelwise = u128::MAX;
+            for _ in 0..ROUNDS {
+                let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
+                let start = Instant::now();
+                for row in 0..LINES {
+                    let mut pen = 4;
+                    surface.draw_text(&mut pen, 8 + row as i32 * 20, text, 0xFF_FFFF, &font);
+                }
+                masked = masked.min(start.elapsed().as_nanos());
+
+                let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
+                let start = Instant::now();
+                for row in 0..LINES {
+                    let mut pen = 4;
+                    for character in text.chars() {
+                        if let Some(glyph) = font.glyph(character) {
+                            let y = 8 + row as i32 * 20;
+                            glyph.for_each_pixel(|x, offset_y| {
+                                surface.put(pen + x, y + offset_y, 0xFF_FFFF);
+                            });
+                        }
+                        pen += font.advance(character);
+                    }
+                }
+                pixelwise = pixelwise.min(start.elapsed().as_nanos());
+            }
+            println!(
+                "{name}：按行位图 {} ns/字符，逐像素 {} ns/字符",
+                masked / glyphs,
+                pixelwise / glyphs
+            );
+        }
     }
 }

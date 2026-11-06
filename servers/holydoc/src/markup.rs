@@ -3,12 +3,12 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use hk_canvas::GlyphSource;
+use hk_font::Font;
 
 use crate::document::{DocSet, Run, Style};
 
 /// 返回字符在该字体下的前进宽度。
-pub(crate) fn char_width(font: &impl GlyphSource, character: char) -> usize {
+pub(crate) fn char_width(font: &Font, character: char) -> usize {
     font.advance(character).max(0) as usize
 }
 

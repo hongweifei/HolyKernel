@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
-lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
+hk-font = { version = "0.1.0", path = "../hk-font", default-features = false }
 spin = "0.9"
 
 [lints]

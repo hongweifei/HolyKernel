@@ -34,7 +34,6 @@ const HINT: &str =
 
 /// 把文档绘制到共享表面。
 pub(crate) fn render(view: &DocView, surface: &Surface) {
-    let font = view.font;
     let content_height = CONTENT_HEIGHT as i32;
     let content = surface.clipped(Rect::new(0, 0, WIDTH as i32, content_height));
     surface.fill(Rect::new(0, 0, WIDTH as i32, HEIGHT as i32), PAPER);
@@ -48,6 +47,7 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
         if y + 18 < 0 || y >= content_height {
             continue;
         }
+        let font = view.fonts.for_line(line.code);
         if line.code {
             let top = y.max(0);
             let bottom = (y + LINE_HEIGHT as i32).min(content_height);
@@ -85,10 +85,11 @@ pub(crate) fn render(view: &DocView, surface: &Surface) {
         }
     }
 
+    let footer_font = view.fonts.mono;
     let text_y = (CONTENT_HEIGHT + (FOOTER_HEIGHT.saturating_sub(16)) / 2) as i32;
     let mut pen = MARGIN as i32;
-    surface.draw_text(&mut pen, text_y, HINT, FOOTER_INK, font);
+    surface.draw_text(&mut pen, text_y, HINT, FOOTER_INK, footer_font);
     let percent = format!("{}%", view.scroll_percent());
-    let mut pen = WIDTH as i32 - MARGIN as i32 - text_width(font, &percent);
-    surface.draw_text(&mut pen, text_y, &percent, FOOTER_INK, font);
+    let mut pen = WIDTH as i32 - MARGIN as i32 - text_width(footer_font, &percent);
+    surface.draw_text(&mut pen, text_y, &percent, FOOTER_INK, footer_font);
 }

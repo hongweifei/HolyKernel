@@ -17,4 +17,4 @@ mod tests;
 mod text;
 
 pub use surface::{Rect, Surface, mix};
-pub use text::{GlyphSource, text_width};
+pub use text::{GlyphMask, GlyphSource, text_width};

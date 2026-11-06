@@ -33,6 +33,8 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
+use hk_font::Font;
+#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
     SURFACE_CREATE, SURFACE_CREATED, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
@@ -48,13 +50,9 @@ use hk_server_api::{
 };
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
-#[cfg(target_os = "none")]
-use lovyangfx_fonts::Font;
-#[cfg(target_os = "none")]
-use lovyangfx_fonts::fonts::efont_cn_16;
 
 #[cfg(target_os = "none")]
-use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
+use document::{DocSet, DocView, Fonts, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -113,9 +111,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut docs = DocSet::new();
     let loaded = drive::load(&mut docs, endpoint);
     docs.add_builtin();
-    let font: &'static Font<'static> = Box::leak(Box::new(efont_cn_16()));
+    let fonts = Fonts {
+        text: Box::leak(Box::new(Font::new(16))),
+        mono: Box::leak(Box::new(Font::monospace(16))),
+    };
     let pixels = SURFACE_VIRT as *mut u32;
-    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new(), font) else {
+    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new(), fonts) else {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };

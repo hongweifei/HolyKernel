@@ -5,6 +5,7 @@ mod render;
 mod style;
 
 use hk_canvas::Surface;
+use hk_font::Font;
 use hk_server_api::display::{
     DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
     WINDOW_CREATED, pack_size,
@@ -12,8 +13,6 @@ use hk_server_api::display::{
 use hk_server_api::{
     frame_alloc, recv_data_try, send, send_handle, service_endpoint, write, yield_now,
 };
-use lovyangfx_fonts::Font;
-use lovyangfx_fonts::fonts::efont_cn_16;
 
 use ansi::{Ansi, Command, Event};
 use style::{Cell, Style};
@@ -94,7 +93,7 @@ pub(crate) struct Terminal {
     grid: Grid,
     column: usize,
     row: usize,
-    font: Font<'static>,
+    font: Font,
     decoder: Utf8,
     style: Style,
     ansi: Ansi,
@@ -350,7 +349,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         grid: [[Cell::BLANK; COLUMNS]; ROWS],
         column: 0,
         row: 0,
-        font: efont_cn_16(),
+        font: Font::monospace(16),
         decoder: Utf8::new(),
         style: Style::DEFAULT,
         ansi: Ansi::new(),

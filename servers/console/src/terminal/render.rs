@@ -1,7 +1,7 @@
 //! 终端表面绘制：单元格背景、字形、属性与光标。
 
 use hk_canvas::{Rect, Surface, mix};
-use lovyangfx_fonts::Font;
+use hk_font::Font;
 
 use super::style::{BACKGROUND, CURSOR, FLAG_BOLD, FLAG_DIM, FLAG_REVERSE, FLAG_UNDERLINE};
 use super::{CELL_HEIGHT, CELL_WIDTH, Grid, HEIGHT, WIDTH};
@@ -12,7 +12,7 @@ pub(crate) fn refresh(
     grid: &Grid,
     cursor_row: usize,
     cursor_column: usize,
-    font: &Font<'static>,
+    font: &Font,
 ) {
     surface.fill(Rect::new(0, 0, WIDTH as i32, HEIGHT as i32), BACKGROUND);
     // 先统一铺背景，避免后一个单元格的背景覆盖宽字符的右半部分。

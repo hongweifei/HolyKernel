@@ -226,6 +226,139 @@ impl<'a> Surface<'a> {
         }
     }
 
+    /// 用单色填充圆角矩形。
+    ///
+    /// 四个角的行边界按圆方程内缩，边界像素按覆盖率混入，边缘不出现台阶。
+    /// `radius` 超出短边一半时按一半处理。
+    pub fn fill_rounded(&self, rect: Rect, radius: i32, color: u32) {
+        let limit = rect.width.min(rect.height) / 2;
+        let radius = radius.max(0).min(limit);
+        if radius == 0 {
+            self.fill(rect, color);
+            return;
+        }
+        let area = rect.intersect(self.clip);
+        if area.is_empty() {
+            return;
+        }
+        let radius_f = radius as f32;
+        let top_center = rect.y as f32 + radius_f;
+        let bottom_center = rect.bottom() as f32 - radius_f;
+        for row in area.y..area.bottom() {
+            let center = row as f32 + 0.5;
+            let dy = (top_center - center).max(center - bottom_center);
+            let inset = if dy <= 0.0 {
+                0.0
+            } else if dy >= radius_f {
+                radius_f
+            } else {
+                radius_f - libm::sqrtf(radius_f * radius_f - dy * dy)
+            };
+            let left_edge = rect.x as f32 + inset;
+            let right_edge = rect.right() as f32 - inset;
+            if left_edge >= right_edge {
+                continue;
+            }
+            let full_left = libm::ceilf(left_edge);
+            let full_right = libm::floorf(right_edge);
+            let left_pixel = full_left as i32;
+            let right_pixel = full_right as i32;
+            if left_pixel < right_pixel {
+                self.fill(
+                    Rect::new(left_pixel, row, right_pixel - left_pixel, 1),
+                    color,
+                );
+            }
+            let left_part = full_left - left_edge;
+            if left_part > 0.0 {
+                self.blend(
+                    left_pixel - 1,
+                    row,
+                    color,
+                    libm::roundf(left_part * 255.0) as u8,
+                );
+            }
+            let right_part = right_edge - full_right;
+            if right_part > 0.0 {
+                self.blend(
+                    right_pixel,
+                    row,
+                    color,
+                    libm::roundf(right_part * 255.0) as u8,
+                );
+            }
+        }
+    }
+
+    /// 在矩形内按行做垂直渐变填充，`top` 在最上一行、`bottom` 在最下一行。
+    pub fn fill_vertical_gradient(&self, rect: Rect, top: u32, bottom: u32) {
+        let area = rect.intersect(self.clip);
+        if area.is_empty() {
+            return;
+        }
+        let height = rect.height.max(1) as u32;
+        for row in area.y..area.bottom() {
+            let offset = (row - rect.y).max(0) as u32;
+            let ratio = (offset * 255 / height).min(255) as u8;
+            self.fill(
+                Rect::new(area.x, row, area.width, 1),
+                mix(top, bottom, ratio),
+            );
+        }
+    }
+
+    /// 用单色描边矩形，`width` 同时限制在宽高之内。
+    pub fn stroke(&self, rect: Rect, width: i32, color: u32) {
+        if width <= 0 || rect.is_empty() {
+            return;
+        }
+        let width = width.min(rect.width).min(rect.height);
+        self.fill(Rect::new(rect.x, rect.y, rect.width, width), color);
+        self.fill(
+            Rect::new(rect.x, rect.bottom() - width, rect.width, width),
+            color,
+        );
+        self.fill(Rect::new(rect.x, rect.y, width, rect.height), color);
+        self.fill(
+            Rect::new(rect.right() - width, rect.y, width, rect.height),
+            color,
+        );
+    }
+
+    /// 把另一个表面整块拷贝到 `(at_x, at_y)`，按两层裁剪求交。
+    pub fn blit(&self, at_x: i32, at_y: i32, source: &Surface<'_>) {
+        let target = Rect::new(at_x, at_y, source.width as i32, source.height as i32);
+        let area = target.intersect(self.clip);
+        if area.is_empty() {
+            return;
+        }
+        let source_rect = Rect::new(
+            area.x.saturating_sub(at_x),
+            area.y.saturating_sub(at_y),
+            area.width,
+            area.height,
+        );
+        let source_area = source_rect.intersect(source.clip);
+        if source_area.is_empty() {
+            return;
+        }
+        let target_left = source_area.x.saturating_add(at_x);
+        let target_top = source_area.y.saturating_add(at_y);
+        for row in 0..source_area.height as usize {
+            // SAFETY: 源行与目标行都落在各自表面的裁剪矩形内，长度按交集宽度裁剪。
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    source.base.add(
+                        (source_area.y as usize + row) * source.stride + source_area.x as usize,
+                    ),
+                    self.base
+                        .add((target_top as usize + row) * self.stride + target_left as usize),
+                    source_area.width as usize,
+                );
+            }
+        }
+    }
+
     /// 从另一块内存整行拷贝像素。
     ///
     /// # Safety
