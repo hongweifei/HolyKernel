@@ -2,7 +2,8 @@
 
 use crate::syscall_call;
 use crate::{
-    SYS_CAPABILITY_CREATE, SYS_CAPABILITY_PHYS, SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO,
+    SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS,
+    SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO,
     SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
@@ -132,4 +133,30 @@ pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
 pub fn dma_map_capability(grant: u64, capability: u64, length: usize) -> u64 {
     // SAFETY: 内核校验授权、能力句柄与长度后建立 IOMMU 映射。
     unsafe { syscall_call(SYS_DMA_MAP_CAPABILITY, grant, capability, length as u64, 0).value }
+}
+
+/// 固定或解除固定类型化能力。
+pub fn capability_pin(capability: u64, pinned: bool) -> u64 {
+    // SAFETY: 内核校验能力类型与驻留状态。
+    unsafe { syscall_call(SYS_CAPABILITY_PIN, capability, u64::from(pinned), 0, 0).value }
+}
+
+/// 设置 Surface 的 scanout 驻留状态。
+pub fn capability_scanout(capability: u64, enabled: bool) -> u64 {
+    // SAFETY: 内核校验 Surface 类型与驻留状态。
+    unsafe { syscall_call(SYS_CAPABILITY_SCANOUT, capability, u64::from(enabled), 0, 0).value }
+}
+
+/// 提交 Revision 能力，返回新版本。
+pub fn capability_commit(capability: u64) -> Option<u64> {
+    // SAFETY: 内核校验能力类型并推进版本。
+    let version = unsafe { syscall_call(SYS_CAPABILITY_COMMIT, capability, 0, 0, 0).value };
+    (version != u64::MAX).then_some(version)
+}
+
+/// 导出可转移的能力句柄。
+pub fn capability_export(capability: u64) -> Option<u64> {
+    // SAFETY: 内核校验能力类型并复制可转移句柄。
+    let exported = unsafe { syscall_call(SYS_CAPABILITY_EXPORT, capability, 0, 0, 0).value };
+    (exported != u64::MAX && exported != 0).then_some(exported)
 }

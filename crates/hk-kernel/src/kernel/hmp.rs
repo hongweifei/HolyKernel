@@ -1,5 +1,7 @@
 //! HMP 对象创建与解析。
 
+use core::sync::atomic::{AtomicBool, AtomicU64};
+
 use super::*;
 use hk_hal::VirtAddr;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
@@ -34,6 +36,8 @@ impl Kernel {
             Arc::new(KernelObject::new(ObjectPayload::Capability {
                 capability,
                 backing,
+                pinned: AtomicBool::new(false),
+                version: AtomicU64::new(0),
             })),
             rights,
         )
@@ -78,6 +82,31 @@ impl Kernel {
             Arc::new(KernelObject::new(ObjectPayload::Ledger(Mutex::new(ledger)))),
             rights,
         )
+    }
+
+    /// 提交 Revision 能力，推进版本。
+    pub fn commit_capability(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        object.commit_capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })
+    }
+
+    /// 设置类型化能力的固定驻留状态。
+    pub fn pin_capability(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        pinned: bool,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        if object.capability().is_none() {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        }
+        object.set_capability_pinned(pinned);
+        Ok(())
     }
 
     /// 为 fork 复制 Region 元数据，并映射到子任务的虚拟地址。

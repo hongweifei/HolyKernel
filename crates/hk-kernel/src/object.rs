@@ -1,6 +1,7 @@
 //! 内核对象：对象头与负载。
 
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use hk_hal::{DeviceGrant, PhysRange};
 use hk_handle::{Object, ObjectHeader, ObjectKind};
@@ -33,6 +34,10 @@ pub enum ObjectPayload {
         capability: Capability,
         /// 常驻物理页。
         backing: Option<Frame>,
+        /// 是否固定驻留。
+        pinned: AtomicBool,
+        /// Revision 版本。
+        version: AtomicU64,
     },
     /// 虚拟映射。
     Region(Mutex<Region>),
@@ -154,6 +159,31 @@ impl KernelObject {
             ObjectPayload::Capability { backing, .. } => backing
                 .as_ref()
                 .map(|frame| PhysRange::new(frame.phys(), frame.len() as u64)),
+            _ => None,
+        }
+    }
+
+    /// 判断类型化能力是否固定驻留。
+    pub fn capability_pinned(&self) -> bool {
+        match &self.payload {
+            ObjectPayload::Capability { pinned, .. } => pinned.load(Ordering::Acquire),
+            _ => false,
+        }
+    }
+
+    /// 设置类型化能力的固定驻留状态。
+    pub fn set_capability_pinned(&self, pinned: bool) {
+        if let ObjectPayload::Capability { pinned: state, .. } = &self.payload {
+            state.store(pinned, Ordering::Release);
+        }
+    }
+
+    /// 推进 Revision 版本并返回新版本。
+    pub fn commit_capability(&self) -> Option<u64> {
+        match &self.payload {
+            ObjectPayload::Capability { version, .. } => {
+                Some(version.fetch_add(1, Ordering::AcqRel) + 1)
+            }
             _ => None,
         }
     }

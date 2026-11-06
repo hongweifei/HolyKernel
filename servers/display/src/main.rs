@@ -32,9 +32,9 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CAPABILITY_SURFACE, capability_phys, close_handle, console_read, exit, map_attach, map_new,
-    recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency, write, write_u64,
-    yield_now,
+    CAPABILITY_SURFACE, capability_phys, capability_pin, close_handle, console_read, exit,
+    map_attach, map_new, recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency,
+    write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -179,6 +179,7 @@ fn create_surface(
         write(b"hk-server-display: create map-failed\n");
         return None;
     }
+    let _ = capability_pin(handle, true);
     surfaces[slot] = Some(Surface::new(
         id, client, slot, width, height, virt, region, handle,
     ));
@@ -195,6 +196,7 @@ fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u
             .is_some_and(|surface| surface.id == surface_id)
     }) && let Some(surface) = surfaces[slot].take()
     {
+        let _ = capability_pin(surface.handle, false);
         let _ = region_unmap(surface.region);
         let _ = close_handle(surface.handle);
     }
@@ -278,12 +280,14 @@ fn replace_window_surface(
         write(b"hk-server-display: resize map-failed\n");
         return false;
     }
+    let _ = capability_pin(handle, true);
     let old = window.surface;
     if let Some(window) = windows[index].as_mut() {
         window.surface = Surface::new(
             surface_id, client, slot, width, height, virt, region, handle,
         );
     }
+    let _ = capability_pin(old.handle, false);
     let _ = region_unmap(old.region);
     let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {

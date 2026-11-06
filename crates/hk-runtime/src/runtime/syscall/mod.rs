@@ -320,6 +320,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_REGION_INFO => self.region_info(index, tcb, frame),
             SYS_REGION_UNMAP => self.region_unmap(index, tcb, frame),
             SYS_CAPABILITY_PHYS => self.capability_phys(index, frame),
+            SYS_CAPABILITY_PIN => self.capability_pin(index, tcb, frame, false),
+            SYS_CAPABILITY_SCANOUT => self.capability_pin(index, tcb, frame, true),
+            SYS_CAPABILITY_COMMIT => self.capability_commit(index, tcb, frame),
+            SYS_CAPABILITY_EXPORT => self.capability_export(index, tcb, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
             SYS_BOOT_CMDLINE => {

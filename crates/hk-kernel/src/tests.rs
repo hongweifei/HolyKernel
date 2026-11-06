@@ -76,6 +76,24 @@ fn creates_hmp_objects() {
 }
 
 #[test]
+fn commits_revision_capability_versions() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability =
+        Capability::new(CapabilityKind::Revision, 0x1000, PAGE_SIZE, None).expect("Capability");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("创建 Revision 能力");
+    assert_eq!(kernel.commit_capability(worker, handle), Ok(1));
+    assert_eq!(kernel.commit_capability(worker, handle), Ok(2));
+}
+
+#[test]
 fn traces_handle_grants_and_closes() {
     let kernel = kernel();
     let worker = thread(&kernel);

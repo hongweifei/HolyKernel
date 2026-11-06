@@ -3,7 +3,7 @@
 use hk_hal::PAGE_SIZE;
 use hk_handle::Rights;
 use hk_mem::Frame as PhysicalFrame;
-use hk_mem::hmp::{Capability, CapabilityKind};
+use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp};
 
 use super::*;
 
@@ -42,6 +42,74 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         };
         frame.set_result(self.install_capability(index, handle));
+        Switch::Continue
+    }
+
+    pub(crate) fn capability_pin(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+        scanout: bool,
+    ) -> Switch {
+        let number = frame.arg0() as usize;
+        let pinned = frame.arg1() != 0;
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let operation = if scanout {
+            CapabilityOp::Scanout
+        } else {
+            CapabilityOp::Pin
+        };
+        if capability.require(operation).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if self.kernel.pin_capability(tcb, handle, pinned).is_err() {
+            frame.set_result(u64::MAX);
+        } else {
+            frame.set_result(0);
+        }
+        Switch::Continue
+    }
+
+    pub(crate) fn capability_commit(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capability.require(CapabilityOp::Commit).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        match self.kernel.commit_capability(tcb, handle) {
+            Ok(version) => frame.set_result(version),
+            Err(_) => frame.set_result(u64::MAX),
+        }
+        Switch::Continue
+    }
+
+    pub(crate) fn capability_export(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capability.require(CapabilityOp::Export).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        match self.kernel.duplicate_handle(tcb, handle, rights) {
+            Ok(copy) => {
+                let number = self.install_extra_handle(index, copy);
+                frame.set_result(number);
+            }
+            Err(_) => frame.set_result(u64::MAX),
+        }
         Switch::Continue
     }
 

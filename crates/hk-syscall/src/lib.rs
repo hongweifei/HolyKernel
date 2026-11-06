@@ -140,6 +140,18 @@ pub const SYS_DMA_MAP_CAPABILITY: u64 = 0x47;
 /// 同步 DMA 缓冲缓存。
 pub const SYS_DMA_SYNC: u64 = 0x48;
 
+/// 固定或解除固定类型化能力。
+pub const SYS_CAPABILITY_PIN: u64 = 0x49;
+
+/// 设置 Surface 的 scanout 驻留状态。
+pub const SYS_CAPABILITY_SCANOUT: u64 = 0x4A;
+
+/// 提交 Revision 能力，推进版本。
+pub const SYS_CAPABILITY_COMMIT: u64 = 0x4B;
+
+/// 导出可转移的类型化能力句柄。
+pub const SYS_CAPABILITY_EXPORT: u64 = 0x4C;
+
 // === 设备与中断 0x50-0x5F ===
 
 /// 读取 PCI 配置空间。
@@ -437,6 +449,10 @@ mod tests {
             SYS_DMA_ALLOC,
             SYS_DMA_MAP_CAPABILITY,
             SYS_DMA_SYNC,
+            SYS_CAPABILITY_PIN,
+            SYS_CAPABILITY_SCANOUT,
+            SYS_CAPABILITY_COMMIT,
+            SYS_CAPABILITY_EXPORT,
             SYS_PCI_READ,
             SYS_PCI_WRITE,
             SYS_DEVICE_GRANT_CREATE,

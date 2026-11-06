@@ -5,7 +5,7 @@ use hk_server_api::display::{
     DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
     pack_window_size,
 };
-use hk_server_api::{close_handle, region_unmap, send, write, write_u64};
+use hk_server_api::{capability_pin, close_handle, region_unmap, send, write, write_u64};
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
 use crate::window::{MAX_WINDOWS, Screen, Window, raise, taskbar_height, title_height};
@@ -144,6 +144,7 @@ pub(crate) fn close_window(
         return;
     };
     windows[slot] = None;
+    let _ = capability_pin(window.surface.handle, false);
     let _ = region_unmap(window.surface.region);
     let _ = close_handle(window.surface.handle);
     let _ = send(window.surface.client, DISPLAY_CLOSE, id);
