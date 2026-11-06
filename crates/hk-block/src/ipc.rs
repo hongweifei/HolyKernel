@@ -841,8 +841,23 @@ pub fn serve(endpoint: u64, disk: &mut dyn AsyncBlockDevice) {
 pub fn serve_with_hook<F: FnMut(u64, u64, usize, u64)>(
     endpoint: u64,
     disk: &mut dyn AsyncBlockDevice,
-    mut hook: F,
+    hook: F,
 ) {
+    serve_with_wait(endpoint, disk, hook, || {
+        yield_now();
+    });
+}
+
+/// 同 [`serve_with_hook`]，但等待在途完成时不轮询：`wait` 返回后读取设备中断状态。
+pub fn serve_with_wait<F, W>(
+    endpoint: u64,
+    disk: &mut dyn AsyncBlockDevice,
+    mut hook: F,
+    mut wait: W,
+) where
+    F: FnMut(u64, u64, usize, u64),
+    W: FnMut(),
+{
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut response = vec![0_u8; 64 * 1024];
     let mut frames: BTreeMap<(u64, u32), ServerFrame> = BTreeMap::new();
@@ -876,7 +891,8 @@ pub fn serve_with_hook<F: FnMut(u64, u64, usize, u64)>(
         } else {
             let message = recv_data_handle_try(endpoint, &mut buffer, 0);
             if message.0 == 0 {
-                yield_now();
+                wait();
+                disk.ack_interrupt();
                 continue;
             }
             message

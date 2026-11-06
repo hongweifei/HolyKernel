@@ -12,7 +12,7 @@ use alloc::string::ToString;
 #[cfg(target_os = "none")]
 use hk_block::BlockDevice;
 #[cfg(target_os = "none")]
-use hk_block::ipc::serve_with_hook;
+use hk_block::ipc::serve_with_wait;
 #[cfg(target_os = "none")]
 use hk_driver_virtio::{Device, probe};
 #[cfg(target_os = "none")]
@@ -27,13 +27,17 @@ use hk_server_api::device::DEVICE_CLASS_BLOCK;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, dma_map_frame, exit, recv_handle, send, send_data, service_endpoint, write,
-    write_u64,
+    device_info, dma_map_frame, exit, irq_bind, recv_handle, self_notification, send, send_data,
+    service_endpoint, wait_notify, write, write_u64, yield_now,
 };
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 512 * 1024;
+
+/// 块完成中断使用的通知位。
+#[cfg(target_os = "none")]
+const BLOCK_NOTIFY_IRQ: u64 = 1;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -74,11 +78,32 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write_u64(block.capacity_blocks());
             write(b"\n");
             reply_not_ready(wait.pending);
-            serve_with_hook(endpoint, block.as_mut(), |virt, phys, length, frame| {
-                if dma_map_frame(grant_handle, frame, length) != u64::MAX {
-                    hk_driver_virtio::register_frame(virt, phys, length);
-                }
+            let notification = self_notification();
+            let bound = irq_bind(grant_handle, notification, BLOCK_NOTIFY_IRQ) == 0;
+            if bound {
+                block.enable_interrupts();
+            }
+            write(if bound {
+                b"hk-server-virtio: block irq bound\n"
+            } else {
+                b"hk-server-virtio: block irq polling\n"
             });
+            serve_with_wait(
+                endpoint,
+                block.as_mut(),
+                |virt, phys, length, frame| {
+                    if dma_map_frame(grant_handle, frame, length) != u64::MAX {
+                        hk_driver_virtio::register_frame(virt, phys, length);
+                    }
+                },
+                || {
+                    if bound {
+                        let _ = wait_notify(notification, BLOCK_NOTIFY_IRQ);
+                    } else {
+                        yield_now();
+                    }
+                },
+            );
             // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
             exit(1)
         }

@@ -146,6 +146,9 @@ pub trait AsyncBlockDevice: BlockDevice {
 
     /// 回收一个完成；没有完成时返回 `None`。
     fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)>;
+
+    /// 读取并清除设备中断状态；不产生中断的设备保持默认实现。
+    fn ack_interrupt(&mut self) {}
 }
 
 impl<D: AsyncBlockDevice + ?Sized> AsyncBlockDevice for &mut D {
@@ -159,6 +162,10 @@ impl<D: AsyncBlockDevice + ?Sized> AsyncBlockDevice for &mut D {
 
     fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)> {
         (**self).poll_complete()
+    }
+
+    fn ack_interrupt(&mut self) {
+        (**self).ack_interrupt()
     }
 }
 

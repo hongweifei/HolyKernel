@@ -195,6 +195,7 @@ impl SmokeMode {
                 "内核初始化耗时",
                 "加载服务并进入用户态",
                 "hk-server-demo running",
+                "hk-server-virtio: block irq bound",
                 "hk-server-echo 收到请求 21",
                 "hk-server-demo 收到回复 42",
                 "hk-server-demo arena ok",
@@ -285,6 +286,7 @@ impl SmokeMode {
                 "fs 1 MiB 读：",
             ],
             Self::HolyFs => &[
+                "hk-server-virtio: block irq bound",
                 "hk-server-holyfs: async bulk ok",
                 "hk-server-holyfs: mounted H:",
                 "hk-server-holyfs: drive H:",

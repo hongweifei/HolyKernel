@@ -37,6 +37,11 @@ impl Block {
         }
     }
 
+    /// 启用设备中断；完成时设备会向授权 IRQ 线发信号。
+    pub fn enable_interrupts(&self) {
+        self.block.lock().enable_interrupts();
+    }
+
     fn submit(
         &mut self,
         block: u64,
@@ -140,6 +145,10 @@ impl AsyncBlockDevice for Block {
             Err(error) => Err(map_error(error)),
         };
         Some((u64::from(token), result))
+    }
+
+    fn ack_interrupt(&mut self) {
+        self.block.lock().ack_interrupt();
     }
 }
 
