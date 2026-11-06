@@ -74,7 +74,7 @@
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
 | 服务线协议、客户端与编解码 | `crates/hk-proto/src/*` |
 | 服务响应框架与状态码 | `crates/hk-proto/src/status.rs` |
-| 协议标签区间 | `crates/hk-proto/src/labels.rs` |
+| 协议标签区间 | `crates/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
 | 服务协议标签与服务名常量 | `crates/hk-proto/src/*`（内核按名称授权的服务名在 `hk-syscall`） |
 | 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
 | 检查点快照格式 | `crates/hk-checkpoint/src/lib.rs` |

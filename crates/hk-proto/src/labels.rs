@@ -26,6 +26,8 @@ pub const KERNEL_EVENT: u64 = 0xD00;
 pub const ECHO: u64 = 0xE00;
 /// Holy 文档协议基址。
 pub const HOLY: u64 = 0xF00;
+/// virtio 驱动服务（熵源与控制台）协议基址。
+pub const VIRTIO: u64 = 0x1000;
 
 /// 返回标签所属区间的基址。
 pub const fn base_of(label: u64) -> u64 {
@@ -45,6 +47,7 @@ pub const BASES: &[(&str, u64)] = &[
     ("kernel-event", KERNEL_EVENT),
     ("echo", ECHO),
     ("holy", HOLY),
+    ("virtio", VIRTIO),
 ];
 
 #[cfg(test)]

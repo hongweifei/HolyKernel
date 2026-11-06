@@ -3,18 +3,19 @@
 //! 属于 virtio-rng 驱动层，不进入内核提供给所有服务的通用 API。请求字为期望
 //! 长度，响应载荷为实际字节；单次请求上限 [`ENTROPY_MAX`]。
 
+use hk_proto::labels::VIRTIO;
 use hk_server_api::{recv_data_try, send, yield_now};
 
 /// 请求随机字节；消息字为长度。
-pub const ENTROPY_REQUEST: u64 = 0xC00;
+pub const ENTROPY_REQUEST: u64 = VIRTIO;
 /// 随机字节响应；载荷为字节。
-pub const ENTROPY_RESPONSE: u64 = 0xC01;
+pub const ENTROPY_RESPONSE: u64 = VIRTIO + 0x01;
 /// 握手请求。
-pub const ENTROPY_PING: u64 = 0xC02;
+pub const ENTROPY_PING: u64 = VIRTIO + 0x02;
 /// 握手响应。
-pub const ENTROPY_PONG: u64 = 0xC03;
+pub const ENTROPY_PONG: u64 = VIRTIO + 0x03;
 /// 请求驱动服务退出。
-pub const ENTROPY_SHUTDOWN: u64 = 0xC04;
+pub const ENTROPY_SHUTDOWN: u64 = VIRTIO + 0x04;
 
 /// 单次请求的最大字节数。
 pub const ENTROPY_MAX: usize = 256;

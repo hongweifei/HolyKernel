@@ -4,22 +4,23 @@
 //! `VCONSOLE_WRITE` 写入字节，服务回送 `VCONSOLE_ACK`；发送 `VCONSOLE_READ`
 //! 取回已到达的输入字节，没有数据时响应载荷为空。
 
+use hk_proto::labels::VIRTIO;
 use hk_server_api::{recv_data_try, send, send_data, yield_now};
 
 /// 写入字节；载荷为数据。
-pub const VCONSOLE_WRITE: u64 = 0xC10;
+pub const VCONSOLE_WRITE: u64 = VIRTIO + 0x10;
 /// 读取输入字节。
-pub const VCONSOLE_READ: u64 = 0xC11;
+pub const VCONSOLE_READ: u64 = VIRTIO + 0x11;
 /// 读取响应；载荷为数据。
-pub const VCONSOLE_DATA: u64 = 0xC12;
+pub const VCONSOLE_DATA: u64 = VIRTIO + 0x12;
 /// 写入完成；消息字为写入长度。
-pub const VCONSOLE_ACK: u64 = 0xC13;
+pub const VCONSOLE_ACK: u64 = VIRTIO + 0x13;
 /// 握手请求。
-pub const VCONSOLE_PING: u64 = 0xC14;
+pub const VCONSOLE_PING: u64 = VIRTIO + 0x14;
 /// 握手响应。
-pub const VCONSOLE_PONG: u64 = 0xC15;
+pub const VCONSOLE_PONG: u64 = VIRTIO + 0x15;
 /// 请求驱动服务退出。
-pub const VCONSOLE_SHUTDOWN: u64 = 0xC16;
+pub const VCONSOLE_SHUTDOWN: u64 = VIRTIO + 0x16;
 
 /// 单次读写的最大字节数。
 pub const VCONSOLE_MAX: usize = 256;
