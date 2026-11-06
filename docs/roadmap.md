@@ -21,20 +21,20 @@
 
 ## 2. 里程碑总览
 
-| 里程碑 | 主题         | 关键产物                                               | 决策门             |
-| --- | ---------- | -------------------------------------------------- | --------------- |
-| M0  | 章程、架构、脚手架  | 文档、workspace、CI、xtask、Hosted stub                  | G0：架构批准         |
-| M1  | Hosted 微内核 | TCB、VSpace、HandleTable、Endpoint、Notification、Frame | G1：内核对象冻结       |
-| M2  | x86_64 启动  | Limine、BootInfo、Root Server、IPC                    | —               |
-| M3  | 句柄与内存      | Handle duplicate/close、COW、SMP、调度                  | G2：句柄模型冻结       |
-| M4  | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs     | G3：VFS 接口冻结     |
-| M5  | 网络         | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS | —               |
-| M6  | 原生 UI      | Display Server、surface/seat、HolyDoc、Console、输入、字体/主题 | —               |
+| 里程碑 | 主题                  | 关键产物                                                                                         | 决策门             |
+| --- | ------------------- | -------------------------------------------------------------------------------------------- | --------------- |
+| M0  | 章程、架构、脚手架           | 文档、workspace、CI、xtask、Hosted stub                                                            | G0：架构批准         |
+| M1  | Hosted 微内核          | TCB、VSpace、HandleTable、Endpoint、Notification、Frame                                           | G1：内核对象冻结       |
+| M2  | x86_64 启动           | Limine、BootInfo、Root Server、IPC                                                              | —               |
+| M3  | 句柄与内存               | Handle duplicate/close、COW、SMP、调度                                                            | G2：句柄模型冻结       |
+| M4  | 用户态驱动与 VFS          | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs                                               | G3：VFS 接口冻结     |
+| M5  | 网络                  | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS                                         | —               |
+| M6  | 原生 UI               | Display Server、surface/seat、HolyDoc、Console、输入、字体/主题                                         | —               |
 | M7  | POSIX 核心与 Toolchain | Compatibility Server、POSIX personality、musl、hk-abi/hk-crt、fork/exec/wait、文件、Toolchain Server | G4：POSIX ABI 冻结 |
-| M8  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、SCM_RIGHTS、memfd/shm、mmap、POSIX socket | —               |
-| M9  | Linux ABI 兼容 | Linux personality、ELF/glibc/musl、/proc、vDSO、Wayland/XWayland | G5：Linux ABI 冻结 |
-| M10 | 多架构、鸿蒙与测试 | AArch64/RISC-V、Harmony personality、OpenHarmony 用户态、HDI、兼容测试 | G6：平台抽象冻结       |
-| M11 | 1.0        | 硬化、fuzz、发布镜像、真机                                    | G7：1.0          |
+| M8  | POSIX 扩展            | pthreads、信号、pipe、AF_UNIX、SCM_RIGHTS、memfd/shm、mmap、POSIX socket                              | —               |
+| M9  | Linux ABI 兼容        | Linux personality、ELF/glibc/musl、/proc、vDSO、Wayland/XWayland                                 | G5：Linux ABI 冻结 |
+| M10 | 多架构、鸿蒙与测试           | AArch64/RISC-V、Harmony personality、OpenHarmony 用户态、HDI、兼容测试                                  | G6：平台抽象冻结       |
+| M11 | 1.0                 | 硬化、fuzz、发布镜像、真机                                                                              | G7：1.0          |
 
 ```mermaid
 flowchart LR
@@ -149,7 +149,7 @@ flowchart LR
 - ext2、tmpfs、devfs、procfs 后端。
 - Block Driver 与 VFS 的 Endpoint 接口。
 
-已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上；HolyFS v1 完成对象化重构（Document/Revision/Entry、文档与集合项共用修订链、Document/Revision/Collection 三棵 COW 元数据树、子集合、追加快路径与整文档读取）并通过 `vfs.fs=holyfs` 挂载与 QEMU `holyfs` 冒烟；共享 Frame 数据路径落地（`SYS_FRAME_*`、`SYS_HANDLE_DUPLICATE`、`SYS_RECV_DATA_HANDLE`，块设备与 VFS 的 attach 协议），驱动把帧物理地址直接交给 virtio DMA，VFS 文件读写直接落在客户端共享帧；客户端 detach 清理帧映射与会话句柄，Frame 最后句柄释放时归还 DMA 池；HolyFS inode 缓存与块客户端直写帧使文档路径零拷贝。块协议引入请求标签与按发送者的多帧槽位，服务端提交即返回、完成时回复，virtio-blk 驱动改用非阻塞 `read_blocks_nb`/`write_blocks_nb` 与 used-ring 轮询，同一设备队列可同时挂多条请求；块客户端提供按槽位并行的批量读写，HolyFS 的追加哈希与压缩解压改为一处一缓冲的流式处理，避免大文档写入时整内容临时缓冲耗尽服务堆。同地址空间线程机制落地：`SYS_THREAD_CREATE` 共享页表与句柄快照并返回线程编号，`SYS_THREAD_JOIN` 挂起等待线程退出，`SYS_THREAD_SET_TLS` 在每次切换写入线程指针，`SYS_FUTEX_WAIT`/`SYS_FUTEX_WAKE` 以共享内存字同步；demo 在启动时校验 TLS、共享计数与 futex 唤醒。用户态有栈协程 `hk-coroutine` 落地：独立栈与 callee-saved 现场切换、嵌套恢复与挂起/结束状态；demo 在启动时交替执行两个协程并校验执行轨迹。用户态异步执行器 `hk-async` 落地：`block_on`/`block_on_with`、`join2`、通知位与 tick 完成源，`SYS_WAIT_NOTIFY_TRY` 提供无阻塞检查；demo 在同一线程同时等待线程通知与 tick。系统调用号按子系统重排为 `0x00`–`0x8F` 的九个区间，段内发送/接收变体相邻排列，单元测试锁定分组与唯一性；shell 命令触发的嵌套服务运行会重新装载调度 tick，重启后的服务里定时器与异步等待可以推进。
+已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上；HolyFS v1 完成对象化重构（Document/Revision/Entry、文档与集合项共用修订链、Document/Revision/Collection 三棵 COW 元数据树、子集合、追加快路径与整文档读取）并通过 `vfs.fs=holyfs` 挂载与 QEMU `holyfs` 冒烟；共享 Frame 数据路径落地（`SYS_FRAME_*`、`SYS_HANDLE_DUPLICATE`、`SYS_RECV_DATA_HANDLE`，块设备与 VFS 的 attach 协议），驱动把帧物理地址直接交给 virtio DMA，VFS 文件读写直接落在客户端共享帧；客户端 detach 清理帧映射与会话句柄，Frame 最后句柄释放时归还 DMA 池；HolyFS inode 缓存与块客户端直写帧使文档路径零拷贝。块协议引入请求标签与按发送者的多帧槽位，服务端提交即返回、完成时回复，virtio-blk 驱动改用非阻塞 `read_blocks_nb`/`write_blocks_nb` 与 used-ring 轮询，同一设备队列可同时挂多条请求；块客户端提供按槽位并行的批量读写，HolyFS 的追加哈希与压缩解压改为一处一缓冲的流式处理，避免大文档写入时整内容临时缓冲耗尽服务堆。同地址空间线程机制落地：`SYS_THREAD_CREATE` 共享页表与句柄快照并返回线程编号，`SYS_THREAD_JOIN` 挂起等待线程退出，`SYS_THREAD_SET_TLS` 在每次切换写入线程指针，`SYS_FUTEX_WAIT`/`SYS_FUTEX_WAKE` 以共享内存字同步；demo 在启动时校验 TLS、共享计数与 futex 唤醒。用户态有栈协程 `hk-coroutine` 落地：独立栈与 callee-saved 现场切换、嵌套恢复与挂起/结束状态；demo 在启动时交替执行两个协程并校验执行轨迹。用户态异步执行器 `hk-async` 落地：`block_on`/`block_on_with`、`join2`、通知位与 tick 完成源，`SYS_WAIT_NOTIFY_TRY` 提供无阻塞检查；demo 在同一线程同时等待线程通知与 tick。系统调用号按子系统重排为 `0x00`–`0x8F` 的九个区间，段内发送/接收变体相邻排列，单元测试锁定分组与唯一性；shell 命令触发的嵌套服务运行会重新装载调度 tick，重启后的服务里定时器与异步等待可以推进。块 I/O 异步封装落地：`ClientDisk::read_async`/`write_async` 按请求标签匹配完成、其它完成暂存，`BlockClient::wait` 由执行器驱动；HolyFS 启动时异步读取一个块并校验。
 - VFS 重启与后端恢复。
 
 ### 退出标准

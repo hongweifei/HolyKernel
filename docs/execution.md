@@ -219,6 +219,7 @@ impl Notification {
 `hk-async` 提供用户态单线程执行器：`block_on` 轮询 future，未就绪时让出 CPU；`block_on_with` 允许调用方替换让出策略。组合子提供 `join2`，内建 `NotificationWait` 与 `SleepTicks` 完成源。
 
 - future 只做非阻塞检查：通知位走 `SYS_WAIT_NOTIFY_TRY`，时间走 `SYS_TICKS`，块完成走请求标签的 `poll`。
+- 块完成按请求标签匹配：`ClientDisk::read_async`/`write_async` 把一次块读写封装成 future，其它标签的完成暂存给各自的请求；`BlockClient::wait` 也由执行器驱动。
 - `Waker` 记录唤醒标志；标志已置位时跳过让出并立即重试，避免丢失唤醒。
 - 阻塞语义仍由内核对象承担；执行器负责把多个等待点组合到同一线程。
 - 执行器不持有内核资源，服务退出时随线程一起消失。
