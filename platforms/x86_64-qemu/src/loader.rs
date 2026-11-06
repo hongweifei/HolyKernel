@@ -51,6 +51,7 @@ pub fn run(
     let display_restart_test =
         hk_boot::cmdline().is_some_and(|line| line.contains("display-restart-test"));
     let hotswap_test = hk_boot::cmdline().is_some_and(|line| line.contains("hotswap-test"));
+    let checkpoint_test = hk_boot::cmdline().is_some_and(|line| line.contains("checkpoint-test"));
     let desktop = hk_boot::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
@@ -98,6 +99,10 @@ pub fn run(
                 name,
                 "hk-server-echo" | "hk-server-spin" | "hk-server-fault"
             );
+        }
+        if checkpoint_test {
+            // 检查点自检只需要一个阻塞任务与内核 Shell。
+            return name == "hk-server-echo";
         }
         if desktop {
             // 图形桌面：Display + Console + Input/Device + 块驱动 + VFS 文档 + HolyDoc 欢迎页。

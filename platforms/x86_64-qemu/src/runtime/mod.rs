@@ -390,6 +390,29 @@ pub fn restart_service(
     hk_root_server::service::restart(&RUNTIME, services, loader, name, parent)
 }
 
+/// 保存 Native Task 检查点。
+pub fn checkpoint_service(services: &mut ServiceTable, name: &str) -> String {
+    match RUNTIME.checkpoint(name) {
+        Ok(_) => {
+            services.mark_exited(name, 0);
+            format!("已检查点：{name}\n")
+        }
+        Err(error) => format!("检查点失败：{error}\n"),
+    }
+}
+
+/// 恢复 Native Task 检查点。
+pub fn restore_checkpoint_service(services: &mut ServiceTable, name: &str) -> String {
+    match RUNTIME.restore_checkpoint(name) {
+        Ok(_) => {
+            services.mark_running(name);
+            RUNTIME.run(services);
+            format!("已恢复：{name}\n")
+        }
+        Err(error) => format!("恢复失败：{error}\n"),
+    }
+}
+
 /// 用另一原生镜像热替换服务。
 pub fn replace_service(
     loader: &mut crate::shell::Loader<'_>,

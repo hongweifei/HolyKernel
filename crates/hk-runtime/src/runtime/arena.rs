@@ -44,6 +44,11 @@ impl Arena {
         self.base
     }
 
+    /// 恢复已用字节数；用于检查点恢复。
+    pub(crate) fn set_used(&mut self, used: u64) {
+        self.next = self.base.saturating_add(used).min(self.end);
+    }
+
     /// 返回总字节数。
     pub fn size(&self) -> u64 {
         self.end - self.base

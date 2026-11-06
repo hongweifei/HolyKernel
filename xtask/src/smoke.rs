@@ -127,6 +127,9 @@ pub enum SmokeMode {
     /// 运行中应用热替换
     #[value(name = "hotswap")]
     Hotswap,
+    /// Native Task 检查点与恢复
+    #[value(name = "checkpoint")]
+    Checkpoint,
 }
 
 impl SmokeMode {
@@ -166,6 +169,9 @@ impl SmokeMode {
             Self::Hotswap => {
                 Some("hotswap-test shell-test help;replace hk-server-echo hk-server-fault;tasks")
             }
+            Self::Checkpoint => Some(
+                "checkpoint-test shell-test help;checkpoint hk-server-echo;restore-checkpoint hk-server-echo;tasks",
+            ),
         }
     }
 
@@ -419,6 +425,7 @@ impl SmokeMode {
                 "hk-server-console: done",
             ],
             Self::Hotswap => &["已替换：hk-server-echo", "hk-server-fault: 触发用户页错误"],
+            Self::Checkpoint => &["已检查点：hk-server-echo", "已恢复：hk-server-echo"],
         }
     }
 
@@ -448,6 +455,7 @@ impl SmokeMode {
             | Self::DebugFault
             | Self::Dbg
             | Self::Hotswap
+            | Self::Checkpoint
             | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -484,6 +492,7 @@ impl SmokeMode {
             Self::Dbg => "build/serial-dbg.log",
             Self::DisplayRestart => "build/serial-displayrestart.log",
             Self::Hotswap => "build/serial-hotswap.log",
+            Self::Checkpoint => "build/serial-checkpoint.log",
         }
     }
 

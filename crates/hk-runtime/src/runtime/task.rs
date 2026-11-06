@@ -101,6 +101,132 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Ok(endpoint)
     }
 
+    /// 暂停任务并保存现场；VSpace 留在原槽位等待恢复。
+    pub fn checkpoint(&mut self, name: &str) -> Result<usize, String> {
+        let Some(index) = self
+            .tasks
+            .iter()
+            .position(|task| task.name == name && !task.exited)
+        else {
+            return Err(String::from("任务不存在或已退出"));
+        };
+        if self
+            .current
+            .iter()
+            .flatten()
+            .any(|current| *current == index)
+        {
+            return Err(String::from("任务正在 CPU 上执行"));
+        }
+        let task = &self.tasks[index];
+        if task.device_factory.is_some()
+            || task.frames.iter().flatten().next().is_some()
+            || task.grants.iter().flatten().next().is_some()
+        {
+            return Err(String::from("任务持有设备或共享 Frame"));
+        }
+        let context = task.context;
+        let parent = task.parent;
+        let arena_used = task.arena.used();
+        if !self.terminate(name, 0) {
+            return Err(String::from("无法暂停任务"));
+        }
+        self.checkpoints.retain(|(saved, _)| saved != name);
+        self.checkpoints.push((
+            String::from(name),
+            Checkpoint {
+                slot: index,
+                context,
+                parent,
+                arena_used,
+            },
+        ));
+        Ok(index)
+    }
+
+    /// 用保存的现场在同一任务槽恢复 TCB 与地址空间。
+    pub fn restore_checkpoint(&mut self, name: &str) -> Result<usize, String> {
+        let Some(position) = self.checkpoints.iter().position(|(saved, _)| saved == name) else {
+            return Err(String::from("检查点不存在"));
+        };
+        let (_, checkpoint) = self.checkpoints.remove(position);
+        let slot = checkpoint.slot;
+        if self.tasks.get(slot).is_none_or(|task| !task.exited) {
+            return Err(String::from("任务槽不可用"));
+        }
+
+        let kernel = &self.kernel;
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+        let own = kernel
+            .create_endpoint(tcb, rights)
+            .map_err(|error| format!("{error}"))?;
+        let own_id = kernel
+            .handle_id(tcb, own)
+            .map_err(|error| format!("{error}"))?;
+        let own_notification = kernel
+            .create_notification(tcb, rights)
+            .map_err(|error| format!("{error}"))?;
+        let own_notification_id = kernel
+            .handle_id(tcb, own_notification)
+            .map_err(|error| format!("{error}"))?;
+        self.endpoints[slot] = Some(own_id);
+        self.notifications[slot] = Some(own_notification_id);
+
+        for (index, task) in self.tasks.iter_mut().enumerate() {
+            if index == slot || task.exited {
+                continue;
+            }
+            let endpoint = kernel.grant(task.tcb, own_id, rights).ok();
+            if let Some(handle) = task.handles.get_mut(slot) {
+                *handle = endpoint;
+            } else {
+                task.handles.push(endpoint);
+            }
+            let notification = kernel.grant(task.tcb, own_notification_id, rights).ok();
+            if let Some(handle) = task.notifications.get_mut(slot) {
+                *handle = notification;
+            } else {
+                task.notifications.push(notification);
+            }
+        }
+
+        let mut handles = Vec::with_capacity(self.endpoints.len());
+        for (index, object) in self.endpoints.iter().enumerate() {
+            let handle = if index == slot {
+                Some(own)
+            } else {
+                object.and_then(|id| kernel.grant(tcb, id, rights).ok())
+            };
+            handles.push(handle);
+        }
+        let mut notifications = Vec::with_capacity(self.notifications.len());
+        for (index, object) in self.notifications.iter().enumerate() {
+            let handle = if index == slot {
+                Some(own_notification)
+            } else {
+                object.and_then(|id| kernel.grant(tcb, id, rights).ok())
+            };
+            notifications.push(handle);
+        }
+
+        let (arena_base, arena_size) = self.platform.arena_layout(slot);
+        let mut task = UserTask::new(
+            tcb,
+            name,
+            checkpoint.parent,
+            handles,
+            notifications,
+            checkpoint.context,
+            arena_base,
+            arena_size,
+        );
+        task.arena.set_used(checkpoint.arena_used);
+        self.tasks[slot] = task;
+        let _ = self.kernel.activate(tcb);
+        Ok(slot)
+    }
+
     /// 复制当前任务：页表写时复制、句柄与通知映射；子任务返回 0。
     pub(crate) fn fork_task(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let child_index = self.tasks.len();

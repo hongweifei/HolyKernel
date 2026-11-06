@@ -50,6 +50,14 @@ pub(crate) struct FrameMap {
     pub handle: Handle,
 }
 
+/// 保存的 Native Task 现场；VSpace 仍留在平台任务槽中。
+pub(crate) struct Checkpoint<C> {
+    pub(crate) slot: usize,
+    pub(crate) context: C,
+    pub(crate) parent: Option<u64>,
+    pub(crate) arena_used: u64,
+}
+
 /// 用户态任务运行时。
 pub struct UserRuntime<C, P> {
     kernel: Kernel,
@@ -57,6 +65,7 @@ pub struct UserRuntime<C, P> {
     tasks: Vec<UserTask<C>>,
     endpoints: Vec<Option<ObjectId>>,
     notifications: Vec<Option<ObjectId>>,
+    checkpoints: Vec<(String, Checkpoint<C>)>,
     current: [Option<usize>; MAX_CPUS],
     pending_exits: Vec<(String, u64)>,
     last_finish: Option<u64>,
@@ -88,6 +97,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             tasks,
             endpoints,
             notifications,
+            checkpoints: Vec::new(),
             current: [None; MAX_CPUS],
             pending_exits: Vec::new(),
             last_finish: None,

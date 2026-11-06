@@ -165,6 +165,10 @@ pub const ROOT_OP_SYMBOLIZE: u64 = 9;
 pub const ROOT_OP_FAULT: u64 = 10;
 /// Root 控制：用另一原生镜像热替换服务。
 pub const ROOT_OP_REPLACE: u64 = 11;
+/// Root 控制：保存 Native Task 检查点。
+pub const ROOT_OP_CHECKPOINT: u64 = 12;
+/// Root 控制：恢复 Native Task 检查点。
+pub const ROOT_OP_RESTORE_CHECKPOINT: u64 = 13;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

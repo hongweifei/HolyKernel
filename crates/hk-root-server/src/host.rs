@@ -140,6 +140,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         self.runtime.lock().as_ref().map_or(0, UserRuntime::root)
     }
 
+    /// 保存一个未在 CPU 上执行的任务现场。
+    pub fn checkpoint(&self, name: &str) -> Result<usize, String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .checkpoint(name)
+    }
+
+    /// 从保存的现场恢复任务。
+    pub fn restore_checkpoint(&self, name: &str) -> Result<usize, String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .restore_checkpoint(name)
+    }
+
     /// 终止一个未在 CPU 上执行的任务。
     pub fn terminate(&self, name: &str) -> bool {
         self.runtime

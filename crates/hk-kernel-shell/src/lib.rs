@@ -7,6 +7,7 @@
 
 extern crate alloc;
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -108,12 +109,16 @@ where
         match name {
             "net" => Some(self.client_status("hk-server-netstat")),
             "replace" => Some(self.replace(args)),
+            "checkpoint" => Some(self.checkpoint(args)),
+            "restore-checkpoint" => Some(self.restore_checkpoint(args)),
             _ => None,
         }
     }
 
     fn help_extra(&self) -> String {
-        String::from("扩展：net、replace <服务> <镜像>\n")
+        String::from(
+            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>\n",
+        )
     }
 
     fn start(&mut self, name: &str, parent: Option<&str>) -> String {
@@ -146,6 +151,37 @@ where
             return String::from("用法：replace <服务> <镜像>\n");
         };
         service::replace(self.runtime, self.services, self.loader, name, module, None)
+    }
+
+    /// 保存任务检查点。
+    fn checkpoint(&mut self, arguments: &str) -> String {
+        let name = arguments.trim();
+        if name.is_empty() {
+            return String::from("用法：checkpoint <任务>\n");
+        }
+        match self.runtime.checkpoint(name) {
+            Ok(_) => {
+                self.services.mark_exited(name, 0);
+                format!("已检查点：{name}\n")
+            }
+            Err(error) => format!("检查点失败：{error}\n"),
+        }
+    }
+
+    /// 恢复任务检查点并驱动调度。
+    fn restore_checkpoint(&mut self, arguments: &str) -> String {
+        let name = arguments.trim();
+        if name.is_empty() {
+            return String::from("用法：restore-checkpoint <任务>\n");
+        }
+        match self.runtime.restore_checkpoint(name) {
+            Ok(_) => {
+                self.services.mark_running(name);
+                let _ = self.scheduler.run_budgeted(self.services, 4096);
+                format!("已恢复：{name}\n")
+            }
+            Err(error) => format!("恢复失败：{error}\n"),
+        }
     }
 
     /// 启动用户态客户端并驱动调度，等待它输出结果。

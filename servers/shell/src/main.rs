@@ -27,8 +27,9 @@ use hk_server_api::console::{CONSOLE_PING, CONSOLE_PONG, Client};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{
-    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_SCRIPT,
-    ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_CHECKPOINT, ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART,
+    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
+    ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::list_mounts;
@@ -118,13 +119,15 @@ impl ShellHost for UserHost {
             "mounts" => Some(mount_text(self.endpoint)),
             "debug" => Some(root_text(ROOT_OP_FAULT, "")),
             "replace" => Some(root_text(ROOT_OP_REPLACE, args)),
+            "checkpoint" => Some(root_text(ROOT_OP_CHECKPOINT, args)),
+            "restore-checkpoint" => Some(root_text(ROOT_OP_RESTORE_CHECKPOINT, args)),
             _ => tags::extension(self.endpoint, name, args),
         }
     }
 
     fn help_extra(&self) -> String {
         String::from(
-            "扩展：mounts、debug（最近异常回溯）、replace <服务> <镜像>\n标签：tags、tag <路径> <编号>、untag <路径> <编号>、tags-of <路径>、tag-members <编号>、tag-create <名字>、tag-drop <编号>\n",
+            "扩展：mounts、debug（最近异常回溯）、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>\n标签：tags、tag <路径> <编号>、untag <路径> <编号>、tags-of <路径>、tag-members <编号>、tag-create <名字>、tag-drop <编号>\n",
         )
     }
 
