@@ -556,7 +556,7 @@ impl DocView {
         }
         let index = adjusted as usize / LINE_HEIGHT;
         let line = self.lines.get(index)?;
-        let mut pen = 0;
+        let mut pen = MARGIN;
         for run in &line.runs {
             for character in run.text.chars() {
                 let width = char_width(character);
@@ -575,7 +575,7 @@ impl DocView {
     pub(crate) fn first_link(&self) -> Option<(u32, u32, String)> {
         let mut y = MARGIN;
         for line in &self.lines {
-            let mut pen = 0;
+            let mut pen = MARGIN;
             for run in &line.runs {
                 for character in run.text.chars() {
                     if let Some(target) = &run.target {

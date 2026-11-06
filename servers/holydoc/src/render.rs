@@ -64,7 +64,7 @@ pub(crate) fn render(view: &DocView, font: &Font<'static>, pixels: *mut u32) {
                 }
             }
         }
-        let mut pen = 0;
+        let mut pen = MARGIN;
         for run in &line.runs {
             let color = match run.style {
                 Style::Title | Style::Heading => HEADER,
