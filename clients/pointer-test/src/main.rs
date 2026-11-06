@@ -5,12 +5,12 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
-    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
-    set_title,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
+    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED,
+    WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
+use hk_server_api::{exit, frame_alloc, frame_unmap, recv, send, send_handle, write, write_u64};
 
 /// 窗口宽度。
 #[cfg(target_os = "none")]
@@ -18,8 +18,6 @@ const WIDTH: u32 = 400;
 /// 窗口高度。
 #[cfg(target_os = "none")]
 const HEIGHT: u32 = 300;
-/// 等待显示服务出现的重试次数。
-#[cfg(target_os = "none")]
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -31,32 +29,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let bytes = WIDTH as usize * HEIGHT as usize * 4;
+    let mut width = WIDTH;
+    let mut height = HEIGHT;
+    let bytes = width as usize * height as usize * 4;
     let handle = frame_alloc(bytes, SURFACE_VIRT);
     if handle == 0 || handle == u64::MAX {
         write(b"hk-server-pointer-test: frame alloc failed\n");
         exit(2)
     }
     let pixels = SURFACE_VIRT as *mut u32;
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            let color = if x < 3 || y < 3 || x + 3 >= WIDTH || y + 3 >= HEIGHT {
-                0x00FF_FFFF
-            } else if ((x / 24 + y / 24) % 2) == 0 {
-                0x0040_C080
-            } else {
-                0x0010_2010
-            };
-            // SAFETY: 共享 Frame 已按宽高分配并映射到 SURFACE_VIRT。
-            unsafe {
-                pixels
-                    .add(y as usize * WIDTH as usize + x as usize)
-                    .write_volatile(color);
-            }
-        }
-    }
+    paint(pixels, width, height);
 
-    if send_handle(display, SURFACE_CREATE, pack_size(WIDTH, HEIGHT), handle) == u64::MAX {
+    if send_handle(display, SURFACE_CREATE, pack_size(width, height), handle) == u64::MAX {
         write(b"hk-server-pointer-test: create failed\n");
         exit(3)
     }
@@ -80,13 +64,50 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     write(b"hk-server-pointer-test: ready\n");
-    let (label, word, _sender) = recv(endpoint);
-    if label != DISPLAY_CLICK || word != window {
-        write(b"hk-server-pointer-test: no click\n");
-        exit(6)
+    loop {
+        let (label, word, _sender) = recv(endpoint);
+        match label {
+            DISPLAY_RESIZE => {
+                let (_, new_width, new_height) = unpack_window_size(word);
+                if new_width != width || new_height != height {
+                    let _ = frame_unmap(SURFACE_VIRT, width as usize * height as usize * 4);
+                    let handle =
+                        frame_alloc(new_width as usize * new_height as usize * 4, SURFACE_VIRT);
+                    if handle == 0 || handle == u64::MAX {
+                        write(b"hk-server-pointer-test: resize frame failed\n");
+                        exit(7)
+                    }
+                    if send_handle(
+                        display,
+                        WINDOW_RESIZE,
+                        pack_window_size(window, new_width, new_height),
+                        handle,
+                    ) == u64::MAX
+                    {
+                        write(b"hk-server-pointer-test: resize rejected\n");
+                        exit(7)
+                    }
+                    width = new_width;
+                    height = new_height;
+                    paint(pixels, width, height);
+                    let _ = send(display, SURFACE_COMMIT, surface);
+                    write(b"hk-server-pointer-test: resize ");
+                    write_u64(u64::from(width));
+                    write(b"x");
+                    write_u64(u64::from(height));
+                    write(b"\n");
+                }
+            }
+            DISPLAY_CLICK if word == window => break,
+            DISPLAY_CLOSE => {
+                write(b"hk-server-pointer-test: no click\n");
+                exit(6)
+            }
+            _ => {}
+        }
     }
     write(b"hk-server-pointer-test: clicked ");
-    write_u64(word);
+    write_u64(window);
     write(b"\n");
     loop {
         let (label, word, _sender) = recv(endpoint);
@@ -104,6 +125,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 #[cfg(target_os = "none")]
 fn wait_display() -> u64 {
     hk_server_api::runtime::wait_service(hk_server_api::DISPLAY_SERVICE).unwrap_or(0)
+}
+
+/// 按当前尺寸绘制测试图案。
+#[cfg(target_os = "none")]
+fn paint(pixels: *mut u32, width: u32, height: u32) {
+    for y in 0..height {
+        for x in 0..width {
+            let color = if x < 3 || y < 3 || x + 3 >= width || y + 3 >= height {
+                0x00FF_FFFF
+            } else if ((x / 24 + y / 24) % 2) == 0 {
+                0x0040_C080
+            } else {
+                0x0010_2010
+            };
+            // SAFETY: 共享 Frame 已按宽高分配并映射到 SURFACE_VIRT。
+            unsafe {
+                pixels
+                    .add(y as usize * width as usize + x as usize)
+                    .write_volatile(color);
+            }
+        }
+    }
 }
 
 hk_server_api::server_boilerplate!();

@@ -46,6 +46,8 @@ pub fn run(
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
     let holydoc_test = hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-test"));
+    let holydoc_resize_test =
+        hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-resize-test"));
     let workbench_test = hk_boot::cmdline().is_some_and(|line| line.contains("workbench-test"));
     let debug_test = hk_boot::cmdline()
         .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
@@ -71,6 +73,20 @@ pub fn run(
         if display_test {
             // 显示自检只需要 Display 服务与客户端。
             return matches!(name, "hk-server-display" | "hk-server-display-test");
+        }
+        if holydoc_resize_test {
+            // 缩放自检：Display 与保持运行的 HolyDoc，加文档服务链。
+            return matches!(
+                name,
+                "hk-server-display"
+                    | "hk-server-holydoc"
+                    | "hk-server-holyfs"
+                    | "hk-server-vfs"
+                    | "hk-server-virtio"
+                    | "hk-server-block"
+                    | "hk-server-device"
+                    | "hk-server-input"
+            );
         }
         if holydoc_test {
             // HolyDoc 自检需要 Display、文档服务与提供磁盘文档的 HolyFS 链。

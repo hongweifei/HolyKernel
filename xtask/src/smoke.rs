@@ -112,6 +112,9 @@ pub enum SmokeMode {
     /// HolyDoc 文档窗口
     #[value(name = "holydoc")]
     Holydoc,
+    /// HolyDoc 窗口最大化缩放与重排
+    #[value(name = "holydocresize")]
+    HolyDocResize,
     /// Workbench 文档浏览与编辑
     #[value(name = "workbench")]
     Workbench,
@@ -168,6 +171,7 @@ impl SmokeMode {
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
             Self::Holydoc => Some("vfs.fs=holyfs holydoc-test"),
+            Self::HolyDocResize => Some("vfs.fs=holyfs holydoc-resize-test input-driver"),
             Self::Workbench => Some("vfs.fs=holyfs workbench-test"),
             Self::Debug => Some("debug-test"),
             Self::DebugFault => Some("debug-crash"),
@@ -382,6 +386,8 @@ impl SmokeMode {
                 "hk-server-display: drag 1",
                 "hk-server-display: taskbar 1",
                 "hk-server-display: resize 1 464x348",
+                "hk-server-display: surface resize 1 464x348",
+                "hk-server-pointer-test: resize 464x348",
                 "hk-server-display: maximize 1 1280x748",
                 "hk-server-display: restore 1 464x348",
                 "hk-server-display: minimize 1",
@@ -415,6 +421,15 @@ impl SmokeMode {
                 "hk-server-holydoc: scroll ",
                 "hk-server-holydoc: back H:/System",
                 "hk-server-holydoc: done",
+            ],
+            Self::HolyDocResize => &[
+                "hk-server-display: composite ok",
+                "hk-server-holydoc: ready 1",
+                "hk-server-display: maximize 1 1280x748",
+                "hk-server-holydoc: resize 1280x748",
+                "hk-server-display: surface resize 1 1280x748",
+                "hk-server-holydoc: resize pixel ok",
+                "hk-server-holydoc: resize done",
             ],
             Self::Workbench => &[
                 "hk-server-display: composite ok",
@@ -491,6 +506,7 @@ impl SmokeMode {
             | Self::InputDriver
             | Self::Pointer
             | Self::Holydoc
+            | Self::HolyDocResize
             | Self::Workbench
             | Self::Debug
             | Self::DebugFault
@@ -529,6 +545,7 @@ impl SmokeMode {
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
+            Self::HolyDocResize => "build/serial-holydocresize.log",
             Self::Workbench => "build/serial-workbench.log",
             Self::Debug => "build/serial-debug.log",
             Self::DebugFault => "build/serial-debugfault.log",
@@ -622,7 +639,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::InputDriver {
         command.args(["-device", "virtio-keyboard-pci"]);
     }
-    if mode == SmokeMode::Pointer {
+    if matches!(mode, SmokeMode::Pointer | SmokeMode::HolyDocResize) {
         command.args(["-device", "virtio-tablet-pci"]);
     }
     if matches!(
@@ -633,6 +650,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             | SmokeMode::Terminal
             | SmokeMode::InputDriver
             | SmokeMode::Pointer
+            | SmokeMode::HolyDocResize
     ) {
         command
             .arg("-qmp")
@@ -709,12 +727,20 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         // 还原后窗口右上方约在 (958,236) 的关闭按钮。
         inject_pointer(&socket, 0x5FCC, 0x25C2)?;
     }
+    if mode == SmokeMode::HolyDocResize {
+        wait_for(&log, "hk-server-holydoc: ready 1", Duration::from_secs(30))?;
+        // 760x520 窗口位于 260,114；标题栏最大化按钮约在 (995,126)。
+        inject_pointer(&socket, 0x6380, 0x1429)?;
+    }
     let udp_echo = udp.map(|socket| thread::spawn(move || serve_udp_echo(socket)));
     if let Some(listener) = echo {
         serve_tcp_echo(listener)?;
     }
 
-    let timeout = if matches!(mode, SmokeMode::Holydoc | SmokeMode::Workbench) {
+    let timeout = if matches!(
+        mode,
+        SmokeMode::Holydoc | SmokeMode::HolyDocResize | SmokeMode::Workbench
+    ) {
         HOLYDOC_TIMEOUT
     } else {
         TIMEOUT
@@ -880,7 +906,11 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
     let disk = if matches!(
         mode,
-        SmokeMode::HolyFs | SmokeMode::Holydoc | SmokeMode::Workbench | SmokeMode::CheckpointServer
+        SmokeMode::HolyFs
+            | SmokeMode::Holydoc
+            | SmokeMode::HolyDocResize
+            | SmokeMode::Workbench
+            | SmokeMode::CheckpointServer
     ) {
         crate::disk::seed_holy_docs(disk)?
     } else {
