@@ -12,7 +12,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let offset = frame.arg1();
         let length = frame.arg2() as usize;
         let packed = frame.arg3();
-        let Some((_, capability, backing)) = self.capability_at(index, number) else {
+        let Some((capability_handle, capability, backing)) = self.capability_at(index, number)
+        else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -55,7 +56,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 return Switch::Continue;
             }
         };
-        frame.set_result(self.install_region(index, handle, virt, length));
+        frame.set_result(self.install_region(index, handle, capability_handle, virt, length));
         Switch::Continue
     }
 

@@ -10,6 +10,41 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.install_extra_handle(index, handle)
     }
 
+    /// 复制父任务的 capability/Region 元数据到 fork 子任务。
+    pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
+        let entries: Vec<(Handle, Handle, u64, usize)> = self.tasks[parent]
+            .regions
+            .iter()
+            .flatten()
+            .map(|region| (region.handle, region.capability, region.virt, region.len))
+            .collect();
+        let parent_tcb = self.tasks[parent].tcb;
+        let child_tcb = self.tasks[child].tcb;
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+        for (region_handle, capability_handle, virt, len) in entries {
+            let Ok(capability) =
+                self.kernel
+                    .duplicate_handle(parent_tcb, capability_handle, rights)
+            else {
+                continue;
+            };
+            let Ok(region) =
+                self.kernel
+                    .fork_region(parent_tcb, region_handle, hk_hal::VirtAddr::new(virt))
+            else {
+                let _ = self.kernel.close_handle(child_tcb, capability);
+                continue;
+            };
+            let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
+            let Ok(child_region) = self.kernel.create_region(child_tcb, region, rights) else {
+                let _ = self.kernel.close_handle(child_tcb, capability);
+                continue;
+            };
+            self.install_capability(child, capability);
+            self.install_region(child, child_region, capability, virt, len);
+        }
+    }
+
     pub(crate) fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
         let slot = self.tasks[index].extra.len();
         self.tasks[index].extra.push(Some(handle));
@@ -56,6 +91,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         handle: Handle,
+        capability: Handle,
         virt: u64,
         len: usize,
     ) -> u64 {
@@ -64,7 +100,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .position(Option::is_none)
             .unwrap_or(self.tasks[index].regions.len());
-        let map = RegionMap { handle, virt, len };
+        let map = RegionMap {
+            handle,
+            capability,
+            virt,
+            len,
+        };
         if slot == self.tasks[index].regions.len() {
             self.tasks[index].regions.push(Some(map));
         } else {

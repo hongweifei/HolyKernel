@@ -60,6 +60,7 @@ pub(crate) struct CapabilityMap {
 
 pub(crate) struct RegionMap {
     pub handle: Handle,
+    pub capability: Handle,
     pub virt: u64,
     pub len: usize,
 }

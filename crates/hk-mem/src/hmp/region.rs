@@ -116,6 +116,34 @@ impl Region {
         Ok(())
     }
 
+    /// 为 fork 创建子 Region：复制范围与权利，可写页标 COW，并映射到给定地址。
+    pub fn forked(&self, virt: VirtAddr) -> Result<Self, HmpError> {
+        let flags = if self.rights.contains(Rights::WRITE) {
+            self.flags | RegionFlags::COW
+        } else {
+            self.flags
+        };
+        let mut region = Self {
+            id: RegionId::new(NEXT_REGION_ID.fetch_add(1, Ordering::Relaxed)),
+            capability: self.capability,
+            kind: self.kind,
+            offset: self.offset,
+            len: self.len,
+            rights: self.rights,
+            flags,
+            virt: None,
+        };
+        region.map(virt)?;
+        Ok(region)
+    }
+
+    /// 标记可写 Region 为 COW。
+    pub fn mark_cow(&mut self) {
+        if self.rights.contains(Rights::WRITE) {
+            self.flags.insert(RegionFlags::COW);
+        }
+    }
+
     /// 解除虚拟映射，返回原虚拟地址。
     pub fn unmap(&mut self) -> Result<VirtAddr, HmpError> {
         self.virt.take().ok_or(HmpError::NotMapped)
@@ -264,6 +292,25 @@ mod tests {
         );
         assert_eq!(region.unmap(), Ok(VirtAddr::new(0x40_0000)));
         assert_eq!(region.unmap(), Err(HmpError::NotMapped));
+    }
+
+    #[test]
+    fn fork_copies_region_and_marks_cow() {
+        let capability = capability(CapabilityKind::Anonymous, 0x2000);
+        let region = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
+        )
+        .expect("Region");
+        let child = region
+            .forked(VirtAddr::new(0x50_0000))
+            .expect("forked Region");
+        assert_eq!(child.virt(), Some(VirtAddr::new(0x50_0000)));
+        assert!(child.flags().contains(RegionFlags::COW));
+        assert_eq!(child.capability(), region.capability());
     }
 
     #[test]

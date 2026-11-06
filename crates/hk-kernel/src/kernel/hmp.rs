@@ -1,6 +1,7 @@
 //! HMP 对象创建与解析。
 
 use super::*;
+use hk_hal::VirtAddr;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
 
 impl Kernel {
@@ -77,5 +78,34 @@ impl Kernel {
             Arc::new(KernelObject::new(ObjectPayload::Ledger(Mutex::new(ledger)))),
             rights,
         )
+    }
+
+    /// 为 fork 复制 Region 元数据，并映射到子任务的虚拟地址。
+    pub fn fork_region(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        virt: VirtAddr,
+    ) -> Result<Region, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Region)?;
+        let region = object.region().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Region,
+        })?;
+        region
+            .lock()
+            .forked(virt)
+            .map_err(|_| KernelError::WrongKind {
+                expected: ObjectKind::Region,
+            })
+    }
+
+    /// 把可写 Region 标记为 COW。
+    pub fn mark_region_cow(&self, thread: TcbId, handle: Handle) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Region)?;
+        let region = object.region().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Region,
+        })?;
+        region.lock().mark_cow();
+        Ok(())
     }
 }

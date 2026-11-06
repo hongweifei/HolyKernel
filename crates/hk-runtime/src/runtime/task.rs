@@ -438,6 +438,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         task.arena = arena;
         task.leader = child_index;
         self.tasks.push(task);
+        self.fork_regions(index, child_index);
         let _ = self.kernel.activate(child);
 
         frame.set_result(child_index as u64 + 1);
