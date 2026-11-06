@@ -57,6 +57,8 @@ pub fn run(
     let checkpoint_test = hk_boot::cmdline().is_some_and(|line| line.contains("checkpoint-test"));
     let checkpoint_srv_test =
         hk_boot::cmdline().is_some_and(|line| line.contains("checkpoint-srv-test"));
+    let rng_test = hk_boot::cmdline().is_some_and(|line| line.contains("rng-test"));
+    let vcon_test = hk_boot::cmdline().is_some_and(|line| line.contains("vcon-test"));
     let desktop = hk_boot::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
@@ -65,6 +67,14 @@ pub fn run(
         if dbg_test {
             // 调试客户端自检只装载客户端本身，结果经 Root 控制读取。
             return name == "hk-server-dbg";
+        }
+        if rng_test {
+            // 熵源自检只需要设备管理器与 virtio 驱动服务。
+            return matches!(name, "hk-server-device" | "hk-server-virtio");
+        }
+        if vcon_test {
+            // 控制台自检只需要设备管理器与 virtio 驱动服务。
+            return matches!(name, "hk-server-device" | "hk-server-virtio");
         }
         if console_test {
             // 控制台自检使用最小服务集，避免其他常驻服务让空闲判定永不成立。

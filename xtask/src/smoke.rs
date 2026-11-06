@@ -97,6 +97,12 @@ pub enum SmokeMode {
     /// Console 服务与内核输入自检
     #[value(name = "console")]
     Console,
+    /// virtio-rng 熵源驱动
+    #[value(name = "rng")]
+    Rng,
+    /// virtio-console 驱动与宿主回显
+    #[value(name = "vcon")]
+    Vcon,
     /// Display 服务帧缓冲映射与测试图案
     #[value(name = "display")]
     Display,
@@ -166,6 +172,8 @@ impl SmokeMode {
             Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
             Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
             Self::Console => Some("console-test"),
+            Self::Rng => Some("rng-test"),
+            Self::Vcon => Some("vcon-test"),
             Self::Display => Some("theme=light ui.scale=2 display-test"),
             Self::Terminal => Some("terminal-test"),
             Self::InputDriver => Some("input-test input-driver terminal-test"),
@@ -353,6 +361,14 @@ impl SmokeMode {
                 "hk-server-netsock: dns ok",
             ],
             Self::Console => &["hk-server-console-test: got hello"],
+            Self::Rng => &[
+                "hk-server-virtio: entropy ok",
+                "hk-server-virtio: rng ready",
+            ],
+            Self::Vcon => &[
+                "hk-server-virtio: console ready",
+                "hk-server-virtio: console echo ok",
+            ],
             Self::Display => &[
                 "hk-server-display: font scalable 32",
                 "hk-server-display: theme light",
@@ -504,6 +520,8 @@ impl SmokeMode {
             | Self::NetZerocopy
             | Self::NetSocket
             | Self::Console
+            | Self::Rng
+            | Self::Vcon
             | Self::Display
             | Self::Terminal
             | Self::InputDriver
@@ -543,6 +561,8 @@ impl SmokeMode {
             Self::NetZerocopy => "build/serial-netzerocopy.log",
             Self::NetSocket => "build/serial-netsocket.log",
             Self::Console => "build/serial-console.log",
+            Self::Rng => "build/serial-rng.log",
+            Self::Vcon => "build/serial-vcon.log",
             Self::Display => "build/serial-display.log",
             Self::Terminal => "build/serial-terminal.log",
             Self::InputDriver => "build/serial-inputdriver.log",
@@ -615,6 +635,21 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         None
     };
 
+    let vcon = if mode == SmokeMode::Vcon {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|error| Failure::new(format!("绑定 vcon echo 失败：{error}")))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| Failure::new(format!("设置 vcon echo 非阻塞失败：{error}")))?;
+        let port = listener
+            .local_addr()
+            .map_err(|error| Failure::new(format!("读取 vcon echo 端口失败：{error}")))?
+            .port();
+        Some((listener, port))
+    } else {
+        None
+    };
+
     let mut command = Command::new("qemu-system-x86_64");
     if Path::new("/dev/kvm").exists() {
         command.args(["-accel", "kvm", "-cpu", "host"]);
@@ -638,6 +673,18 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         command
             .args(["-netdev", "user,id=net0"])
             .args(["-device", "virtio-net-pci,netdev=net0"]);
+    }
+    if mode == SmokeMode::Rng {
+        command
+            .args(["-object", "rng-random,id=rng0,filename=/dev/urandom"])
+            .args(["-device", "virtio-rng-pci,rng=rng0"]);
+    }
+    if let Some((_, port)) = &vcon {
+        command
+            .arg("-chardev")
+            .arg(format!("socket,id=vcon,host=127.0.0.1,port={port}"))
+            .args(["-device", "virtio-serial-pci,max_ports=1"])
+            .args(["-device", "virtconsole,chardev=vcon"]);
     }
     if mode == SmokeMode::InputDriver {
         command.args(["-device", "virtio-keyboard-pci"]);
@@ -665,6 +712,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
+
+    let vcon_peer = vcon.map(|(listener, _)| thread::spawn(move || serve_vcon_echo(listener)));
 
     if mode == SmokeMode::Input {
         thread::sleep(Duration::from_secs(3));
@@ -764,6 +813,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if let Some(handle) = udp_echo {
         let _ = handle.join();
     }
+    if let Some(handle) = vcon_peer {
+        handle
+            .join()
+            .map_err(|_| Failure::new("vcon echo 线程崩溃"))??;
+    }
 
     let expected = mode.expected();
     let read_deadline = Instant::now() + Duration::from_secs(1);
@@ -817,6 +871,65 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     ) {
         verify_ext4(&disk)?;
     }
+    Ok(())
+}
+
+/// 接受 QEMU 的 virtio-console 连接，等待测试行并回显确认。
+fn serve_vcon_echo(listener: TcpListener) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() > deadline {
+                    return Err(Failure::new("QEMU 未连接 vcon echo"));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(Failure::new(format!("vcon echo accept 失败：{error}"))),
+        }
+    };
+    stream
+        .set_nonblocking(false)
+        .map_err(|error| Failure::new(format!("设置 vcon echo 阻塞失败：{error}")))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| Failure::new(format!("设置 vcon echo 超时失败：{error}")))?;
+
+    let mut seen = Vec::new();
+    let mut buffer = [0_u8; 64];
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => return Err(Failure::new("vcon echo 连接提前关闭")),
+            Ok(length) => {
+                seen.extend_from_slice(&buffer[..length]);
+                if seen
+                    .windows(b"vcon hello\n".len())
+                    .any(|window| window == b"vcon hello\n")
+                {
+                    break;
+                }
+                if seen.len() > 4096 {
+                    return Err(Failure::new("vcon echo 收到过多数据"));
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if Instant::now() > deadline {
+                    return Err(Failure::new("等待 vcon guest 写入超时"));
+                }
+            }
+            Err(error) => return Err(Failure::new(format!("vcon echo 读取失败：{error}"))),
+        }
+    }
+    stream
+        .write_all(b"vcon-ack\n")
+        .map_err(|error| Failure::new(format!("vcon echo 写回失败：{error}")))?;
     Ok(())
 }
 
