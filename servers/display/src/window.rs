@@ -2,9 +2,10 @@
 
 use core::cell::Cell;
 
+use hk_canvas::{Rect, Surface as Canvas};
 use hk_server_api::display::TITLE_MAX;
 
-use crate::resize::{Edges, Rect};
+use crate::resize::{Edges, Rect as Frame};
 use crate::surface::Surface;
 use crate::theme::scale;
 
@@ -204,7 +205,7 @@ pub(crate) struct Resize {
     pub(crate) edge: Edges,
     pub(crate) start_x: usize,
     pub(crate) start_y: usize,
-    pub(crate) original: Rect,
+    pub(crate) original: Frame,
     pub(crate) resized: bool,
 }
 
@@ -220,7 +221,7 @@ pub(crate) struct Drag {
 
 #[cfg(target_os = "none")]
 pub(crate) struct Screen {
-    base: *mut u32,
+    surface: Canvas<'static>,
     fb: *mut u32,
     pub(crate) width: usize,
     pub(crate) height: usize,
@@ -237,8 +238,10 @@ impl Screen {
         height: usize,
         stride: usize,
     ) -> Self {
+        // SAFETY: 后备缓冲由启动时按 width×height、行跨度 stride 映射。
+        let surface = unsafe { Canvas::from_raw(back, width, height, stride) };
         Self {
-            base: back,
+            surface,
             fb,
             width,
             height,
@@ -278,7 +281,7 @@ impl Screen {
             // SAFETY: 后备缓冲与帧缓冲已分离，区域已裁剪。
             unsafe {
                 core::ptr::copy_nonoverlapping(
-                    self.base.add(row * self.stride + left),
+                    self.surface.base().add(row * self.stride + left),
                     self.fb.add(row * self.stride + left),
                     count,
                 );
@@ -287,73 +290,33 @@ impl Screen {
     }
 
     pub(crate) fn put(&self, x: usize, y: usize, color: u32) {
-        if x >= self.width || y >= self.height {
-            return;
-        }
-        // SAFETY: 坐标已裁剪到后备缓冲范围内。
-        unsafe {
-            self.base.add(y * self.stride + x).write(color);
-        }
+        self.surface.put(x as i32, y as i32, color);
     }
 
     pub(crate) fn get(&self, x: usize, y: usize) -> u32 {
-        if x >= self.width || y >= self.height {
-            return 0;
-        }
-        // SAFETY: 坐标已裁剪到后备缓冲范围内。
-        unsafe { self.base.add(y * self.stride + x).read() }
+        self.surface.get(x as i32, y as i32).unwrap_or(0)
     }
 
     /// 把指定颜色按比例混入后备缓冲。
     pub(crate) fn blend(&self, x: usize, y: usize, color: u32, ratio: u32) {
-        if x >= self.width || y >= self.height || ratio > 255 {
+        if ratio > 255 {
             return;
         }
-        // SAFETY: 坐标已裁剪到后备缓冲范围内。
-        let pixel = unsafe { self.base.add(y * self.stride + x) };
-        // SAFETY: 坐标已裁剪，像素位于后备缓冲内。
-        let from = unsafe { pixel.read() };
-        let inverse = 255 - ratio;
-        let red = (((from >> 16) & 0xFF) * inverse + ((color >> 16) & 0xFF) * ratio) / 255;
-        let green = (((from >> 8) & 0xFF) * inverse + ((color >> 8) & 0xFF) * ratio) / 255;
-        let blue = ((from & 0xFF) * inverse + (color & 0xFF) * ratio) / 255;
-        // SAFETY: 同一后备缓冲像素，坐标有效。
-        unsafe { pixel.write((red << 16) | (green << 8) | blue) };
+        self.surface.blend(x as i32, y as i32, color, ratio as u8);
     }
 
     /// 用单色填充一行。
     pub(crate) fn fill_row(&self, x: usize, y: usize, width: usize, color: u32) {
-        if y >= self.height || width == 0 {
-            return;
-        }
-        let left = x.min(self.width);
-        let right = x.saturating_add(width).min(self.width);
-        if left >= right {
-            return;
-        }
-        // SAFETY: 行范围已裁剪到帧缓冲内；批量写入避免逐像素 volatile。
-        unsafe {
-            let row = core::slice::from_raw_parts_mut(
-                self.base.add(y * self.stride + left),
-                right - left,
-            );
-            row.fill(color);
-        }
+        let width = width.min(i32::MAX as usize);
+        self.surface
+            .fill(Rect::new(x as i32, y as i32, width as i32, 1), color);
     }
 
     /// 从客户端表面整行拷贝到帧缓冲。
     pub(crate) fn copy_row(&self, x: usize, y: usize, count: usize, source: *const u32) {
-        if y >= self.height || count == 0 {
-            return;
-        }
-        let left = x.min(self.width);
-        let count = count.min(self.width - left);
-        if count == 0 {
-            return;
-        }
-        // SAFETY: 源行由调用方按表面尺寸裁剪；目标行已裁剪到帧缓冲。
+        // SAFETY: 源行由调用方按表面尺寸裁剪。
         unsafe {
-            core::ptr::copy_nonoverlapping(source, self.base.add(y * self.stride + left), count);
+            self.surface.copy_row(x as i32, y as i32, count, source);
         }
     }
 }

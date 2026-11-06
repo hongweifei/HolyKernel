@@ -1,5 +1,6 @@
 //! Display 合成：桌面、窗口、光标与 damage 区域重绘。
 
+use hk_canvas::mix;
 use hk_font::Font;
 
 use crate::theme::{scale, theme};
@@ -31,17 +32,6 @@ const CURSOR_BITS: [u8; CURSOR_HEIGHT] = [
     0b1000_1100,
     0b0000_0110,
 ];
-
-/// 按 `ratio/255` 混合两个颜色。
-#[cfg(target_os = "none")]
-fn blend(from: u32, to: u32, ratio: u32) -> u32 {
-    let channel = |shift: u32| {
-        let a = (from >> shift) & 0xFF;
-        let b = (to >> shift) & 0xFF;
-        ((a * (255 - ratio) + b * ratio) / 255) & 0xFF
-    };
-    (channel(16) << 16) | (channel(8) << 8) | channel(0)
-}
 
 /// 窗口投影边距（随界面缩放）。
 #[cfg(target_os = "none")]
@@ -90,8 +80,8 @@ fn window_radius(screen: &Screen, window: &Window) -> usize {
 #[cfg(target_os = "none")]
 fn desktop_color(height: usize, row: usize) -> u32 {
     let palette = theme();
-    let ratio = (row * 255 / height.max(1)) as u32;
-    blend(palette.desktop_top, palette.desktop_bottom, ratio)
+    let ratio = (row * 255 / height.max(1)) as u8;
+    mix(palette.desktop_top, palette.desktop_bottom, ratio)
 }
 
 /// 读取窗口表面中的一个像素。
