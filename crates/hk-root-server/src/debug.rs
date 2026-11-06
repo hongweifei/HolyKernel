@@ -26,7 +26,11 @@ struct Record {
     vector: u64,
     error: u64,
     address: u64,
-    frames: Vec<u64>,
+    rip: u64,
+    rbp: u64,
+    rsp: u64,
+    backtrace: Vec<u64>,
+    stack: Vec<u64>,
 }
 
 static SYMBOLS: Mutex<Vec<Symbol>> = Mutex::new(Vec::new());
@@ -76,35 +80,6 @@ pub fn install_symbols(bytes: &[u8]) {
     *SYMBOLS.lock() = symbols;
 }
 
-/// 追加原生镜像携带的符号；同名地址保留已有条目。
-pub fn add_symbols<I>(symbols: I)
-where
-    I: IntoIterator<Item = (u64, String)>,
-{
-    let mut cache = SYMBOLS.lock();
-    let mut added: Vec<Symbol> = symbols
-        .into_iter()
-        .filter_map(|(address, name)| {
-            if cache
-                .binary_search_by_key(&address, |symbol| symbol.address)
-                .is_ok()
-            {
-                return None;
-            }
-            Some(Symbol {
-                address,
-                name: Box::leak(name.into_boxed_str()),
-            })
-        })
-        .collect();
-    if added.is_empty() {
-        return;
-    }
-    cache.append(&mut added);
-    cache.sort_by_key(|symbol| symbol.address);
-    cache.dedup_by(|left, right| left.address == right.address);
-}
-
 /// 把地址解析为 `名字+偏移`。
 pub fn lookup(address: u64) -> Option<(&'static str, u64)> {
     let symbols = SYMBOLS.lock();
@@ -114,11 +89,6 @@ pub fn lookup(address: u64) -> Option<(&'static str, u64)> {
     }
     let symbol = &symbols[index - 1];
     Some((symbol.name, address - symbol.address))
-}
-
-/// 判断地址是否落在某个符号的起始附近。
-pub fn is_code(address: u64) -> bool {
-    lookup(address).is_some_and(|(_, offset)| offset < 0x4000)
 }
 
 /// 符号化一个地址。
@@ -151,10 +121,10 @@ pub fn symbolize_list(argument: &str) -> String {
     text
 }
 
-/// 记录一次用户异常。
+/// 记录一次用户异常；只保存原始现场，符号化由用户态调试服务完成。
 pub fn record<M: Memory>(task: &str, context: FaultContext, memory: &M) {
-    let mut frames = Vec::new();
-    frames.push(context.rip);
+    let mut backtrace = Vec::new();
+    backtrace.push(context.rip);
 
     let mut rbp = context.rbp;
     for _ in 0..MAX_FRAMES.saturating_sub(1) {
@@ -170,24 +140,23 @@ pub fn record<M: Memory>(task: &str, context: FaultContext, memory: &M) {
         if ret == 0 {
             break;
         }
-        push(&mut frames, ret);
+        push(&mut backtrace, ret);
         if next <= rbp {
             break;
         }
         rbp = next;
     }
 
+    let mut stack = Vec::new();
     let mut address = context.rsp;
     for _ in 0..STACK_WORDS {
-        if frames.len() >= MAX_FRAMES || !memory.mapped(address) {
+        if !memory.mapped(address) {
             break;
         }
         let Some(word) = read_u64(memory, address) else {
             break;
         };
-        if is_code(word) {
-            push(&mut frames, word);
-        }
+        stack.push(word);
         address = address.wrapping_add(8);
     }
 
@@ -197,25 +166,47 @@ pub fn record<M: Memory>(task: &str, context: FaultContext, memory: &M) {
         vector: context.vector,
         error: context.error,
         address: context.address,
-        frames,
+        rip: context.rip,
+        rbp: context.rbp,
+        rsp: context.rsp,
+        backtrace,
+        stack,
     });
 }
 
-/// 格式化最近一次异常与符号化回溯。
+/// 输出最近一次异常的原始现场；格式化与符号化在用户态完成。
 pub fn last_text() -> String {
     let guard = LAST.lock();
     let Some(record) = guard.as_ref() else {
-        return String::from("无异常记录\n");
+        return String::from("none\n");
     };
     let mut text = format!(
-        "任务：{}\n异常：{}（向量 {}，错误码 {:#x}）\n",
-        record.task, record.kind, record.vector, record.error
+        "task={}\nkind={}\nvector={}\nerror={:#x}\naddress={:#x}\nrip={:#x}\nrbp={:#x}\nrsp={:#x}\n",
+        record.task,
+        record.kind,
+        record.vector,
+        record.error,
+        record.address,
+        record.rip,
+        record.rbp,
+        record.rsp
     );
-    text.push_str(&format!("cr2={:#x}\n", record.address));
-    for (index, frame) in record.frames.iter().enumerate() {
-        text.push_str(&format!("  #{index} {}\n", symbolize(*frame)));
-    }
+    text.push_str("backtrace=");
+    push_hex_list(&mut text, &record.backtrace);
+    text.push('\n');
+    text.push_str("stack=");
+    push_hex_list(&mut text, &record.stack);
+    text.push('\n');
     text
+}
+
+fn push_hex_list(text: &mut String, values: &[u64]) {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            text.push(' ');
+        }
+        text.push_str(&format!("{value:#x}"));
+    }
 }
 
 fn read_u64<M: Memory>(memory: &M, address: u64) -> Option<u64> {

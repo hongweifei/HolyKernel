@@ -234,6 +234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-debug"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-driver-virtio"
 version = "0.1.0"
 dependencies = [
@@ -489,6 +496,7 @@ dependencies = [
 name = "hk-server-dbg"
 version = "0.1.0"
 dependencies = [
+ "hk-debug",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -497,6 +505,7 @@ dependencies = [
 name = "hk-server-debug"
 version = "0.1.0"
 dependencies = [
+ "hk-debug",
  "hk-font",
  "hk-server-api",
  "hk-server-build",
@@ -654,6 +663,7 @@ dependencies = [
 name = "hk-server-shell"
 version = "0.1.0"
 dependencies = [
+ "hk-debug",
  "hk-server-api",
  "hk-server-build",
  "hk-shell",
@@ -713,6 +723,7 @@ dependencies = [
 name = "hk-server-workbench"
 version = "0.1.0"
 dependencies = [
+ "hk-debug",
  "hk-font",
  "hk-server-api",
  "hk-server-build",
@@ -1145,6 +1156,7 @@ dependencies = [
  "hk-fs-holyfs",
  "hk-hal",
  "hk-image",
+ "hk-server-build",
  "hk-vfs",
  "toml",
  "xmas-elf",

@@ -82,7 +82,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         debug::install_symbols(bytes);
     }
 
-    /// 记录一次用户异常并做符号化回溯。
+    /// 记录一次用户异常；只保存原始现场。
     pub fn record_fault(&self, cpu: usize, context: FaultContext) {
         let task = self
             .current_task_name(cpu)
@@ -93,7 +93,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         }
     }
 
-    /// 返回最近一次异常的符号化回溯。
+    /// 返回最近一次异常的原始现场。
     pub fn last_fault(&self) -> String {
         debug::last_text()
     }

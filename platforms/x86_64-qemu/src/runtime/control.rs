@@ -10,9 +10,9 @@ use alloc::vec::Vec;
 use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART,
-    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
-    ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_CHECKPOINT, ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_LOOKUP, ROOT_OP_REPLACE,
+    ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START,
+    ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
@@ -117,8 +117,51 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
         }
         ROOT_OP_SCRIPT => script(loader, &request.argument),
         ROOT_OP_SYMBOLIZE => runtime::host().symbolize_list(&request.argument),
+        ROOT_OP_LOOKUP => lookup(loader, &request.argument),
         ROOT_OP_FAULT => runtime::host().last_fault(),
         _ => String::from("未知控制操作\n"),
+    }
+}
+
+fn lookup(loader: &Loader<'_>, argument: &str) -> String {
+    let (service, rest) = argument.split_once(' ').unwrap_or((argument, ""));
+    let addresses: Vec<u64> = rest
+        .split_whitespace()
+        .filter_map(|token| u64::from_str_radix(token.trim_start_matches("0x"), 16).ok())
+        .collect();
+    let module_bytes = if service.is_empty() {
+        None
+    } else {
+        module_for(loader, service)
+    };
+    let mut text = String::new();
+    for address in addresses {
+        let found = if service.is_empty() {
+            hk_root_server::debug::lookup(address)
+                .map(|(name, offset)| (offset, String::from(name)))
+        } else {
+            module_bytes.and_then(|bytes| hk_root_server::loader::lookup_symbol(bytes, address))
+        };
+        match found {
+            Some((offset, name)) => text.push_str(&format!("{offset:x} {name}\n")),
+            None => text.push_str("none\n"),
+        }
+    }
+    text
+}
+
+/// 按任务名查找模块；fork 子任务名带 `-fork` 后缀，逐层回退到父服务。
+fn module_for<'a>(loader: &Loader<'a>, mut name: &str) -> Option<&'a [u8]> {
+    loop {
+        if let Some(module) = loader
+            .info
+            .server_modules
+            .iter()
+            .find(|module| hk_root_server::loader::service_name(module.name) == name)
+        {
+            return loader.info.module_bytes(module);
+        }
+        name = name.strip_suffix("-fork")?;
     }
 }
 

@@ -27,7 +27,7 @@ use hk_server_api::console::{CONSOLE_PING, CONSOLE_PONG, Client};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART,
+    ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART,
     ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
     ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
@@ -117,7 +117,7 @@ impl ShellHost for UserHost {
     fn extension(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
             "mounts" => Some(mount_text(self.endpoint)),
-            "debug" => Some(root_text(ROOT_OP_FAULT, "")),
+            "debug" => Some(hk_debug::fault_text()),
             "replace" => Some(root_text(ROOT_OP_REPLACE, args)),
             "checkpoint" => Some(root_text(ROOT_OP_CHECKPOINT, args)),
             "restore-checkpoint" => Some(root_text(ROOT_OP_RESTORE_CHECKPOINT, args)),

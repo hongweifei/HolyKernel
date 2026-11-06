@@ -1,0 +1,13 @@
+[package]
+name = "hk-debug"
+description = "用户态符号查询与异常回溯格式化"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+
+[lints]
+workspace = true

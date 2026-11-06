@@ -4,9 +4,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 
-use hk_server_api::root::{
-    ROOT_OP_FAULT, ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call,
-};
+use hk_server_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
 use hk_server_api::{handle_count, kernel_stats, service_endpoint, ticks, tsc_frequency};
 
 /// Root 控制结果缓冲长度。
@@ -72,7 +70,7 @@ impl Page {
             Self::Services => root(ROOT_OP_SERVICES),
             Self::Trace => root(ROOT_OP_TRACE),
             Self::Stats => root(ROOT_OP_STATS),
-            Self::Fault => root(ROOT_OP_FAULT),
+            Self::Fault => hk_debug::fault_text(),
         }
     }
 }

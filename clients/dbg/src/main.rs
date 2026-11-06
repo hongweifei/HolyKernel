@@ -7,12 +7,24 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
+extern crate alloc;
+
+#[cfg(target_os = "none")]
+use hk_server_api::heap::FreeHeap;
+#[cfg(target_os = "none")]
 use hk_server_api::root::{
-    ROOT_OP_FAULT, ROOT_OP_HANDLES, ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE,
-    call,
+    ROOT_OP_HANDLES, ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, write};
+
+/// 服务堆大小。
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 64 * 1024;
+
+#[cfg(target_os = "none")]
+#[global_allocator]
+static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]
@@ -45,7 +57,8 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     print("services", ROOT_OP_SERVICES);
     print("trace", ROOT_OP_TRACE);
     print("stats", ROOT_OP_STATS);
-    print("fault", ROOT_OP_FAULT);
+    write(b"hk-server-dbg: fault\n");
+    write(hk_debug::fault_text().as_bytes());
     write(b"hk-server-dbg: done\n");
     exit(0)
 }

@@ -178,7 +178,7 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-image" => IMPL_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-driver-virtio" | "hk-drivers" | "hk-net" | "hk-vfs" | "hk-block" | "hk-fs-ext4"
-        | "hk-fs-holyfs-vfs" => USERSPACE_LIB_FORBIDDEN,
+        | "hk-fs-holyfs-vfs" | "hk-debug" => USERSPACE_LIB_FORBIDDEN,
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,
         _ => &[],

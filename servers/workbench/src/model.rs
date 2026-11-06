@@ -10,7 +10,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use hk_server_api::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_ADMIN, decode_entries};
-use hk_server_api::root::{ROOT_OP_FAULT, call as root_call};
 use hk_server_api::{civil_time, kernel_stats, service_endpoint, ticks};
 
 /// 编辑器缓冲上限。
@@ -413,26 +412,16 @@ impl Model {
 
     /// 读取最近一次用户异常回溯。
     pub(crate) fn debug(&mut self) -> usize {
-        let mut buffer = [0_u8; 4096];
-        match root_call(ROOT_OP_FAULT, "", &mut buffer) {
-            Ok(length) => {
-                let text =
-                    String::from_utf8_lossy(&buffer[..length.min(buffer.len())]).into_owned();
-                let mut lines = 0;
-                for line in text.lines().take(12) {
-                    self.log(&format!("debug | {line}"));
-                    lines += 1;
-                }
-                if lines == 0 {
-                    self.log("debug | 没有异常记录");
-                }
-                lines
-            }
-            Err(code) => {
-                self.log(&format!("debug 不可用：{code}"));
-                0
-            }
+        let text = hk_debug::fault_text();
+        let mut lines = 0;
+        for line in text.lines().take(12) {
+            self.log(&format!("debug | {line}"));
+            lines += 1;
         }
+        if lines == 0 {
+            self.log("debug | 没有异常记录");
+        }
+        lines
     }
 
     /// 创建临时文档。

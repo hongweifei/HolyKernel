@@ -169,6 +169,8 @@ pub const ROOT_OP_REPLACE: u64 = 11;
 pub const ROOT_OP_CHECKPOINT: u64 = 12;
 /// Root 控制：恢复 Native Task 检查点。
 pub const ROOT_OP_RESTORE_CHECKPOINT: u64 = 13;
+/// Root 控制：按服务与地址批量查询符号；服务为空时查内核符号。
+pub const ROOT_OP_LOOKUP: u64 = 14;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

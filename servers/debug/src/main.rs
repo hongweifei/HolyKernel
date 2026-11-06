@@ -146,6 +146,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let fault_test = cmdline.contains("debug-crash");
     let test = fault_test || cmdline.contains("debug-test");
     if test {
+        let base =
+            u64::from_str_radix(env!("HK_IMAGE_BASE").trim_start_matches("0x"), 16).unwrap_or(0);
         for page in Page::ALL {
             let text = page.fetch();
             show(
@@ -203,18 +205,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             );
             write(b"\n");
         }
-        if let Ok(length) = hk_server_api::root::call(
-            hk_server_api::root::ROOT_OP_SYMBOLIZE,
-            "0x1b00000",
-            &mut symbol,
-        ) {
+        if let Some((name, offset)) = hk_debug::lookup("hk-server-debug", base) {
             write(b"hk-server-debug: service symbol ");
-            write(
-                core::str::from_utf8(&symbol[..length])
-                    .unwrap_or("?")
-                    .trim_end()
-                    .as_bytes(),
-            );
+            write(format!("{base:#018x} {name}+0x{offset:x}").as_bytes());
             write(b"\n");
         }
         write(b"hk-server-debug: done\n");

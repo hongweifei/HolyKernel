@@ -113,11 +113,6 @@ where
     let image = hk_image::Image::parse(spec.bytes).ok_or(LoadError::Image(ImageError::Parse))?;
     let task = image.task().ok_or(LoadError::Image(ImageError::Parse))?;
     let entry = load_into(spec.bytes, memory).map_err(LoadError::Image)?;
-    crate::debug::add_symbols(
-        image
-            .symbols()
-            .map(|symbol| (symbol.address, String::from(symbol.name))),
-    );
     let stack_size = if task.stack_size == 0 {
         spec.stack_size
     } else {
@@ -146,6 +141,24 @@ fn map_region<M: UserMemory>(memory: &mut M, base: u64, size: u64) -> Result<(),
             .ok_or(LoadError::OutOfMemory)?;
     }
     Ok(())
+}
+
+/// 在原生镜像中按地址查找最近的符号；返回符号偏移与名字。
+///
+/// 只读取启动模块携带的符号表，不把用户态符号写入内核常驻状态。
+pub fn lookup_symbol(bytes: &[u8], address: u64) -> Option<(u64, String)> {
+    let image = hk_image::Image::parse(bytes)?;
+    let mut best: Option<(u64, &str)> = None;
+    for symbol in image.symbols() {
+        if symbol.address > address {
+            continue;
+        }
+        if best.is_none_or(|(base, _)| symbol.address >= base) {
+            best = Some((symbol.address, symbol.name));
+        }
+    }
+    let (base, name) = best?;
+    Some((address - base, String::from(name)))
 }
 
 /// 取模块路径的最后一段。

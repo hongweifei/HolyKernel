@@ -11,6 +11,7 @@ name = "hk-server-dbg"
 path = "src/main.rs"
 
 [dependencies]
+hk-debug = { version = "0.1.0", path = "../../crates/hk-debug" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 
 [build-dependencies]
