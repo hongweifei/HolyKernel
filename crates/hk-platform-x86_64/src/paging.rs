@@ -132,6 +132,14 @@ impl PageTable {
         self.root
     }
 
+    /// 返回同一页表根的共享句柄；用于同地址空间的新线程。
+    pub fn share(&self) -> Self {
+        Self {
+            direct_map: self.direct_map,
+            root: self.root,
+        }
+    }
+
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
     pub fn create_user(&self, allocator: &mut FrameAllocator) -> Result<Self, PagingError> {
         let root = allocator.allocate().ok_or(PagingError::OutOfFrames)?;

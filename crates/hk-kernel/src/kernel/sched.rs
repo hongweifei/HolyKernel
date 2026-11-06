@@ -114,6 +114,11 @@ impl Kernel {
         self.wake(thread);
     }
 
+    /// 挂起线程，等待用户态运行库唤醒。
+    pub fn park(&self, thread: TcbId) -> Result<(), KernelError> {
+        self.block(thread, BlockReason::Park)
+    }
+
     pub(crate) fn block(&self, thread: TcbId, reason: BlockReason) -> Result<(), KernelError> {
         {
             let mut threads = self.threads.lock();

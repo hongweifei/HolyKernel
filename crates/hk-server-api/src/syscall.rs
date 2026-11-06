@@ -249,6 +249,36 @@ pub fn fork() -> u64 {
     unsafe { syscall_call(SYS_FORK, 0, 0, 0, 0).value }
 }
 
+/// 在同一地址空间创建线程，返回线程编号；失败时返回 `u64::MAX`。
+pub fn thread_create(entry: u64, stack_top: u64, argument: u64, tls: u64) -> u64 {
+    // SAFETY: 入口与栈都在本进程已映射的用户地址空间内。
+    unsafe { syscall_call(SYS_THREAD_CREATE, entry, stack_top, argument, tls).value }
+}
+
+/// 等待线程退出；成功返回 0。
+pub fn thread_join(thread: u64) -> u64 {
+    // SAFETY: 线程编号来自 `thread_create`；目标存活时内核阻塞本线程。
+    unsafe { syscall_call(SYS_THREAD_JOIN, thread, 0, 0, 0).value }
+}
+
+/// 设置当前线程的 TLS 基址。
+pub fn thread_set_tls(tls: u64) -> u64 {
+    // SAFETY: 只写当前 CPU 的线程指针寄存器。
+    unsafe { syscall_call(SYS_THREAD_SET_TLS, tls, 0, 0, 0).value }
+}
+
+/// 在共享内存字上等待；值已变化时立即返回 `FUTEX_CHANGED`。
+pub fn futex_wait(address: u64, expected: u32) -> u64 {
+    // SAFETY: 地址来自本进程共享内存；内核只读取该字。
+    unsafe { syscall_call(SYS_FUTEX_WAIT, address, u64::from(expected), 0, 0).value }
+}
+
+/// 唤醒共享内存字上的等待者，返回唤醒数量。
+pub fn futex_wake(address: u64, count: u32) -> u64 {
+    // SAFETY: 地址来自本进程共享内存；内核只按地址匹配等待者。
+    unsafe { syscall_call(SYS_FUTEX_WAKE, address, u64::from(count), 0, 0).value }
+}
+
 /// 读取单调时间戳（TSC）。
 pub fn tsc() -> u64 {
     // SAFETY: 只读计数器，不携带参数。

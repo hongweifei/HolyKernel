@@ -26,7 +26,7 @@ pub use timer::{
 };
 pub use user::{
     FaultAction, FaultHook, exception_name, fault_address, leave_user, resume_user, set_fault_hook,
-    user_frame,
+    set_thread_pointer, user_frame,
 };
 
 /// 内核代码段选择子。

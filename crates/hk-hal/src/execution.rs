@@ -7,6 +7,9 @@ pub trait UserContext: Copy {
 
     /// 设置服务入口的首个参数。
     fn set_start_argument(&mut self, argument: u64);
+
+    /// 构造同地址空间新线程的入口现场。
+    fn for_thread(entry: u64, stack_top: u64, argument: u64) -> Self;
 }
 
 /// 系统调用帧的寄存器视图。

@@ -17,6 +17,10 @@ impl UserVspace for PageTable {
         PageTable::fork_user(self)
     }
 
+    fn share_user(&self) -> Option<Self> {
+        Some(PageTable::share(self))
+    }
+
     fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
         self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_MMIO)
     }

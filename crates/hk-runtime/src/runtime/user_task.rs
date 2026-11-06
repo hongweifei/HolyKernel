@@ -6,6 +6,10 @@ use super::*;
 pub struct UserTask<C> {
     /// 线程控制块。
     pub tcb: TcbId,
+    /// 所属进程的主线程槽位；主线程指向自身。
+    pub leader: usize,
+    /// 线程指针（TLS 基址）。
+    pub tls: u64,
     /// 任务名称。
     pub name: String,
     /// 父任务 TCB 编号。
@@ -57,6 +61,8 @@ impl<C> UserTask<C> {
     ) -> Self {
         Self {
             tcb,
+            leader: 0,
+            tls: 0,
             name: name.to_string(),
             parent,
             handles,

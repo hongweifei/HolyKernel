@@ -13,14 +13,16 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE,
-    SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME,
-    SYS_DMA_SYNC, SYS_EXIT, SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO, SYS_FRAME_MAP,
-    SYS_FRAME_UNMAP, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT,
-    SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
-    SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY,
-    SYS_RECV_DATA_TRY, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_SERVICE_ENDPOINT, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_CONSOLE_READ,
+    SYS_CONSOLE_SUBSCRIBE, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC,
+    SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO,
+    SYS_FRAME_MAP, SYS_FRAME_UNMAP, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT,
+    SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND,
+    SYS_KERNEL_STATS, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA,
+    SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY,
+    SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
+    SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS,
+    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -66,6 +68,10 @@ pub struct UserRuntime<C, P> {
     endpoints: Vec<Option<ObjectId>>,
     notifications: Vec<Option<ObjectId>>,
     checkpoints: Vec<(String, Checkpoint<C>)>,
+    /// 等待线程退出的 (目标 TCB, 等待者 TCB)。
+    joiners: Vec<(TcbId, TcbId)>,
+    /// 共享内存字上的等待者：(进程主线程槽位, 地址, 线程)。
+    futex_waiters: Vec<(usize, u64, TcbId)>,
     current: [Option<usize>; MAX_CPUS],
     pending_exits: Vec<(String, u64)>,
     last_finish: Option<u64>,
@@ -88,9 +94,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         root: u64,
         endpoints: Vec<Option<ObjectId>>,
         notifications: Vec<Option<ObjectId>>,
-        tasks: Vec<UserTask<C>>,
+        mut tasks: Vec<UserTask<C>>,
         platform: P,
     ) -> Self {
+        for (index, task) in tasks.iter_mut().enumerate() {
+            task.leader = index;
+        }
         Self {
             kernel,
             root,
@@ -98,6 +107,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             endpoints,
             notifications,
             checkpoints: Vec::new(),
+            joiners: Vec::new(),
+            futex_waiters: Vec::new(),
             current: [None; MAX_CPUS],
             pending_exits: Vec::new(),
             last_finish: None,
@@ -208,7 +219,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 tcb: task.tcb.get(),
                 name: task.name.clone(),
                 parent: task.parent,
-                endpoint: index as u64 + 1,
+                endpoint: task.leader as u64 + 1,
                 state: state_name(self.kernel.state_of(task.tcb)),
                 pending: pending_name(task.pending),
                 handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
@@ -229,9 +240,43 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     fn endpoint_of(&self, tcb: TcbId) -> u64 {
         self.tasks
             .iter()
-            .position(|task| task.tcb == tcb)
-            .map(|index| index as u64 + 1)
+            .find(|task| task.tcb == tcb)
+            .map(|task| task.leader as u64 + 1)
             .unwrap_or(0)
+    }
+
+    /// 返回槽位所属进程的主线程槽位。
+    fn leader_of(&self, index: usize) -> usize {
+        self.tasks.get(index).map_or(index, |task| task.leader)
+    }
+
+    /// 唤醒等待目标线程退出的线程。
+    fn wake_joiners(&mut self, target: TcbId) {
+        let mut kept = Vec::new();
+        for (exited, joiner) in core::mem::take(&mut self.joiners) {
+            if exited == target {
+                self.kernel.wake_thread(joiner);
+            } else {
+                kept.push((exited, joiner));
+            }
+        }
+        self.joiners = kept;
+    }
+
+    /// 退出主线程名下的全部线程。
+    fn exit_threads(&mut self, leader: usize) {
+        for index in 0..self.tasks.len() {
+            if index == leader || self.tasks[index].exited || self.tasks[index].leader != leader {
+                continue;
+            }
+            let tcb = self.tasks[index].tcb;
+            self.release_grants(index);
+            let _ = self.kernel.exit(tcb);
+            self.tasks[index].exited = true;
+            self.tasks[index].exit_code = 0;
+            self.tasks[index].pending = Pending::None;
+            self.wake_joiners(tcb);
+        }
     }
 
     fn install_handle(&mut self, index: usize, message: &Message) -> u64 {

@@ -22,6 +22,14 @@ impl UserContext for MockContext {
     fn set_start_argument(&mut self, argument: u64) {
         self.rdi = argument;
     }
+
+    fn for_thread(entry: u64, _stack_top: u64, argument: u64) -> Self {
+        Self {
+            rax: entry,
+            rdi: argument,
+            ..Self::default()
+        }
+    }
 }
 
 impl SyscallFrame for MockContext {

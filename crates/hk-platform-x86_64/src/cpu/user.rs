@@ -58,6 +58,21 @@ pub fn fault_address() -> u64 {
     }
     value
 }
+/// 设置线程指针（IA32_FS_BASE），供每个线程使用独立 TLS。
+pub fn set_thread_pointer(tls: u64) {
+    const IA32_FS_BASE: u32 = 0xC000_0100;
+    // SAFETY: 只写当前 CPU 的 FS 基址 MSR，不改变其他机器状态。
+    unsafe {
+        asm!(
+            "wrmsr",
+            in("ecx") IA32_FS_BASE,
+            in("eax") tls as u32,
+            in("edx") (tls >> 32) as u32,
+            options(nostack, preserves_flags)
+        );
+    }
+}
+
 /// 构造用户态初始现场：入口、栈顶与首个参数。
 pub fn user_frame(entry: u64, stack_top: u64, argument: u64) -> InterruptFrame {
     InterruptFrame {
@@ -102,6 +117,10 @@ impl hk_hal::UserContext for InterruptFrame {
 
     fn set_start_argument(&mut self, argument: u64) {
         self.rdi = argument;
+    }
+
+    fn for_thread(entry: u64, stack_top: u64, argument: u64) -> Self {
+        user_frame(entry, stack_top, argument)
     }
 }
 

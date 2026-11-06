@@ -202,6 +202,14 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.fork(parent, child)
     }
 
+    fn share_vspace(&self, parent: usize, child: usize) -> bool {
+        USER_VSPACES.share(parent, child)
+    }
+
+    fn set_thread_pointer(&self, tls: u64) {
+        cpu::set_thread_pointer(tls);
+    }
+
     fn timestamp(&self) -> u64 {
         hk_platform_x86_64::timing::rdtsc()
     }

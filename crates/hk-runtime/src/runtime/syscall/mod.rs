@@ -7,6 +7,7 @@ mod frame;
 mod framebuffer;
 mod ipc;
 mod task;
+mod thread;
 
 const MAX_USER_DATA: usize = 64 * 1024;
 
@@ -62,6 +63,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_FORK => self.fork_task(index, tcb, frame),
+            SYS_THREAD_CREATE => self.thread_create(index, tcb, frame),
+            SYS_THREAD_JOIN => self.thread_join(index, tcb, frame),
+            SYS_THREAD_SET_TLS => self.thread_set_tls(index, frame),
+            SYS_FUTEX_WAIT => self.futex_wait(index, tcb, frame),
+            SYS_FUTEX_WAKE => self.futex_wake(index, frame),
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;
@@ -73,6 +79,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.kernel.exit(tcb);
                 self.tasks[index].exited = true;
                 self.tasks[index].exit_code = code;
+                self.wake_joiners(tcb);
+                if self.tasks[index].leader == index {
+                    self.exit_threads(index);
+                }
                 Switch::Exit
             }
             SYS_PCI_READ => {

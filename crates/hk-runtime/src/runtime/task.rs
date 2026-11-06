@@ -96,6 +96,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             arena_size,
         );
         task.device_factory = device_factory;
+        task.leader = index;
         self.tasks.push(task);
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
@@ -124,6 +125,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             || task.grants.iter().flatten().next().is_some()
         {
             return Err(String::from("任务持有设备或共享 Frame"));
+        }
+        if self
+            .tasks
+            .iter()
+            .enumerate()
+            .any(|(other, entry)| other != index && !entry.exited && entry.leader == index)
+        {
+            return Err(String::from("任务仍有线程"));
         }
         let context = task.context;
         let parent = task.parent;
@@ -222,6 +231,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             arena_size,
         );
         task.arena.set_used(checkpoint.arena_used);
+        task.leader = slot;
         self.tasks[slot] = task;
         let _ = self.kernel.activate(tcb);
         Ok(slot)
@@ -310,6 +320,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             arena.size(),
         );
         task.arena = arena;
+        task.leader = child_index;
         self.tasks.push(task);
         let _ = self.kernel.activate(child);
 
@@ -443,6 +454,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         self.platform.activate(index);
+        self.platform.set_thread_pointer(self.tasks[index].tls);
         self.resumes[cpu] = self.resumes[cpu].saturating_add(1);
         Step::Resume {
             index,
@@ -458,8 +470,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return None;
         }
 
-        let exited_endpoint = index as u64 + 1;
         let exited_tcb = self.tasks[index].tcb;
+        self.wake_joiners(exited_tcb);
+        if self.tasks[index].leader != index {
+            return None;
+        }
+
+        let exited_endpoint = index as u64 + 1;
         for other in 0..self.tasks.len() {
             if other == index || self.tasks[other].exited {
                 continue;
@@ -549,6 +566,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
+        self.wake_joiners(tcb);
+        if self.tasks[index].leader == index {
+            self.exit_threads(index);
+        }
         true
     }
 
@@ -568,6 +589,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
         self.current[cpu] = None;
+        self.wake_joiners(tcb);
+        if self.tasks[index].leader == index {
+            self.exit_threads(index);
+        }
         true
     }
 

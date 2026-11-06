@@ -12,6 +12,10 @@ pub trait UserVspace: Sized {
     fn root(&self) -> u64;
     /// 复制为写时复制子地址空间。
     fn fork_user(&self) -> Option<Self>;
+    /// 返回同一地址空间的共享句柄；不支持时返回 `None`。
+    fn share_user(&self) -> Option<Self> {
+        None
+    }
     /// 在地址空间中映射一段设备 MMIO；不支持时返回 `false`。
     fn map_mmio(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
@@ -93,6 +97,25 @@ impl<T: UserVspace> VspaceRegistry<T> {
             .get(slot)
             .and_then(Option::as_ref)
             .is_some_and(|table| table.unmap_dma(virt, len))
+    }
+
+    /// 让子任务与父任务共享同一地址空间。
+    pub fn share(&self, parent: usize, child: usize) -> bool {
+        let mut tables = self.tables.lock();
+        let shared = {
+            let Some(table) = tables.get(parent).and_then(Option::as_ref) else {
+                return false;
+            };
+            let Some(shared) = table.share_user() else {
+                return false;
+            };
+            shared
+        };
+        if tables.len() <= child {
+            tables.resize_with(child + 1, || None);
+        }
+        tables[child] = Some(shared);
+        true
     }
 
     /// 把父任务地址空间分叉为子任务写时复制副本。

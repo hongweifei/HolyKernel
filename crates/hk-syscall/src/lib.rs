@@ -172,6 +172,19 @@ pub const ROOT_OP_RESTORE_CHECKPOINT: u64 = 13;
 /// Root 控制：按服务与地址批量查询符号；服务为空时查内核符号。
 pub const ROOT_OP_LOOKUP: u64 = 14;
 
+/// 在同一地址空间创建线程。
+pub const SYS_THREAD_CREATE: u64 = 48;
+/// 等待线程退出。
+pub const SYS_THREAD_JOIN: u64 = 49;
+/// 设置当前线程的 TLS 基址。
+pub const SYS_THREAD_SET_TLS: u64 = 50;
+/// 在共享内存字上等待。
+pub const SYS_FUTEX_WAIT: u64 = 51;
+/// 唤醒共享内存字上的等待者。
+pub const SYS_FUTEX_WAKE: u64 = 52;
+/// `SYS_FUTEX_WAIT`：值已变化，无需等待。
+pub const FUTEX_CHANGED: u64 = 1;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 

@@ -87,6 +87,12 @@ pub trait UserPlatform {
     fn fork(&self, _parent: usize, _child: usize) -> bool {
         false
     }
+    /// 让子任务与父任务共享同一用户地址空间。
+    fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
+        false
+    }
+    /// 设置当前 CPU 的线程指针（TLS 基址）。
+    fn set_thread_pointer(&self, _tls: u64) {}
     /// 返回单调时间戳；无计时能力时为 0。
     fn timestamp(&self) -> u64 {
         0

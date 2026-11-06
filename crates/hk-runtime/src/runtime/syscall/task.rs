@@ -2,7 +2,9 @@ use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn allocate(&mut self, index: usize, size: usize, align: usize) -> Option<u64> {
-        let start = self.tasks[index].arena.allocate(size, align)?;
+        // 线程共享进程 Arena，避免每个线程各自占用一段未映射的地址空间。
+        let slot = self.leader_of(index);
+        let start = self.tasks[slot].arena.allocate(size, align)?;
         self.platform.zero(start, size);
         Some(start)
     }
