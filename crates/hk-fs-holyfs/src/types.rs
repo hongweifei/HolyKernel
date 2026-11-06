@@ -170,7 +170,7 @@ pub struct RevisionRecord {
     pub moment: u64,
     /// 修订标志。
     pub flags: RevisionFlags,
-    /// 明文内容哈希；0 表示尚未计算。
+    /// 明文内容哈希；内容修订写入时计算。
     pub content_hash: u64,
     /// extent 数量。
     pub extent_count: u16,

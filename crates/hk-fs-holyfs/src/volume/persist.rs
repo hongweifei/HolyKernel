@@ -13,13 +13,12 @@ use super::Volume;
 
 impl<D: BlockDevice> Volume<D> {
     pub(super) fn persist(&mut self) -> Result<(), HolyError> {
-        let mut old_roots = vec![self.superblock.document_tree, self.superblock.revision_tree];
-        if self.superblock.tag_tree != 0 {
-            old_roots.push(self.superblock.tag_tree);
-        }
-        if self.superblock.snapshot_tree != 0 {
-            old_roots.push(self.superblock.snapshot_tree);
-        }
+        let mut old_roots = vec![
+            self.superblock.document_tree,
+            self.superblock.revision_tree,
+            self.superblock.tag_tree,
+            self.superblock.snapshot_tree,
+        ];
         old_roots.extend(
             self.revisions
                 .values()

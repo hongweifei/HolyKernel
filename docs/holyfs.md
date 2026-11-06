@@ -219,7 +219,7 @@ flowchart LR
 ### 完整性与修复
 
 - Superblock、Document Table、Revision Table、Tag Table、Snapshot Table、Allocation Group Table、集合项带 CRC32C。
-- 修订内容带 ContentHash；写入时计算，整文档读取与 `Check` 时校验；旧卷 hash 为 0 时跳过校验。
+- 修订内容带 ContentHash；写入时计算，整文档读取与 `Check` 时始终校验。
 - `Check` 只读校验文档/修订/集合项/标签/快照引用、extent 范围、元数据树 CRC 与内容哈希，并统计泄漏块。
 - `Scrub` 校验后回收已分配但不可达的 extent；`Repair` 额外补记可达但位图未标记的块。两者需要 ADMIN 卷令牌。
 - 校验失败或 I/O 错误时返回 `Damaged` 或 `Corrupt`，不自动修改内容。

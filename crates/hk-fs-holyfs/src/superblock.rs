@@ -53,9 +53,9 @@ pub struct Superblock {
     pub document_tree: u64,
     /// 修订表树根。
     pub revision_tree: u64,
-    /// 标签表树根；0 表示旧卷没有标签。
+    /// 标签表树根；必须非零。
     pub tag_tree: u64,
-    /// 快照表树根；0 表示旧卷没有快照。
+    /// 快照表树根；必须非零。
     pub snapshot_tree: u64,
     /// 下一个快照编号。
     pub next_snapshot: u64,
@@ -173,7 +173,7 @@ impl Superblock {
         let revision_tree =
             u64::from_le_bytes(bytes[96..104].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_tag =
-            u32::from_le_bytes(bytes[52..56].try_into().map_err(|_| HolyError::Corrupt)?).max(1);
+            u32::from_le_bytes(bytes[52..56].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_document =
             DocId::from_le_bytes(bytes[104..120].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_revision =
@@ -181,12 +181,10 @@ impl Superblock {
         let snapshot_tree =
             u64::from_le_bytes(bytes[132..140].try_into().map_err(|_| HolyError::Corrupt)?);
         let next_snapshot =
-            u64::from_le_bytes(bytes[140..148].try_into().map_err(|_| HolyError::Corrupt)?).max(1);
+            u64::from_le_bytes(bytes[140..148].try_into().map_err(|_| HolyError::Corrupt)?);
         let snapshot_checksum =
             u32::from_le_bytes(bytes[148..152].try_into().map_err(|_| HolyError::Corrupt)?);
-        if (snapshot_tree != 0 || next_snapshot != 1)
-            && crc32c(&bytes[132..148]) != snapshot_checksum
-        {
+        if crc32c(&bytes[132..148]) != snapshot_checksum {
             return Err(HolyError::Corrupt);
         }
         let quota_checksum =
@@ -210,10 +208,16 @@ impl Superblock {
         if total_blocks == 0
             || bitmap_blocks == 0
             || bitmap_end > total_blocks
+            || document_tree == 0
+            || revision_tree == 0
+            || tag_tree == 0
+            || snapshot_tree == 0
             || document_tree >= total_blocks
             || revision_tree >= total_blocks
-            || (tag_tree != 0 && tag_tree >= total_blocks)
-            || (snapshot_tree != 0 && snapshot_tree >= total_blocks)
+            || tag_tree >= total_blocks
+            || snapshot_tree >= total_blocks
+            || next_tag == 0
+            || next_snapshot == 0
         {
             return Err(HolyError::Corrupt);
         }

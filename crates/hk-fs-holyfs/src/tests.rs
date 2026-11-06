@@ -33,6 +33,17 @@ fn creates_writes_and_reads_files() {
 }
 
 #[test]
+fn verifies_empty_content_hash() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "empty", DocumentKind::Content)
+        .expect("创建");
+    assert!(fs.read_document_id(document).expect("读空文档").is_empty());
+    assert_eq!(fs.check().expect("校验").leaked_blocks, 0);
+}
+
+#[test]
 fn appends_and_reads_large_file() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();

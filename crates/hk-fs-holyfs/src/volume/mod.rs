@@ -163,7 +163,7 @@ impl<D: BlockDevice> Volume<D> {
         }
         let mut tags = BTreeMap::new();
         let mut tag_members: BTreeMap<u32, BTreeSet<DocId>> = BTreeMap::new();
-        if superblock.tag_tree != 0 {
+        {
             let tree = load_tree(&store, superblock.tag_tree)?;
             for (key, value) in tree {
                 if key.len() == 5 && key[0] == 0 {

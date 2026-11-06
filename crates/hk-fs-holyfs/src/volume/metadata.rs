@@ -54,6 +54,9 @@ impl<D: BlockDevice> Volume<D> {
         };
         let mut record = RevisionRecord::empty(revision, document, None);
         record.payload = revision_kind;
+        if kind == DocumentKind::Content {
+            record.content_hash = crate::hash::content_hash(&[]);
+        }
         self.revisions.insert(revision, record);
         self.documents.insert(
             document,

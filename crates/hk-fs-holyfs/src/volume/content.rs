@@ -116,7 +116,7 @@ impl<D: BlockDevice> Volume<D> {
         if size > 0 {
             self.read_extents(revision, 0, &mut buffer)?;
         }
-        if revision.content_hash != 0 && content_hash(&buffer) != revision.content_hash {
+        if content_hash(&buffer) != revision.content_hash {
             return Err(HolyError::Damaged);
         }
         Ok(buffer)
@@ -275,7 +275,7 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     fn dedup_lookup(&self, hash: u64, size: u64) -> Option<Vec<Extent>> {
-        if hash == 0 || size == 0 {
+        if size == 0 {
             return None;
         }
         let extents = self.dedup.get(&(hash, size))?;
@@ -283,7 +283,7 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     fn dedup_insert(&mut self, hash: u64, size: u64, extents: &[Extent]) {
-        if hash == 0 || size == 0 || extents.is_empty() {
+        if size == 0 || extents.is_empty() {
             return;
         }
         self.dedup
@@ -295,8 +295,7 @@ impl<D: BlockDevice> Volume<D> {
     pub(super) fn rebuild_dedup(&mut self) {
         self.dedup.clear();
         for revision in self.revisions.values() {
-            if revision.content_hash == 0
-                || revision.size == 0
+            if revision.size == 0
                 || !matches!(revision.payload, PayloadKind::Content | PayloadKind::Both)
                 || revision.extents().len() > MAX_EXTENTS
             {

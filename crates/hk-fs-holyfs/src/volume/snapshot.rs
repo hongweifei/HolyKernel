@@ -201,7 +201,7 @@ impl SnapshotRecord {
             moment,
             root_document,
             root_revision,
-            next_tag: next_tag.max(1),
+            next_tag,
             documents,
             tags,
             tag_members,
@@ -239,9 +239,6 @@ pub(super) fn load<D: BlockDevice>(
     root: u64,
 ) -> Result<BTreeMap<u64, SnapshotRecord>, HolyError> {
     let mut snapshots = BTreeMap::new();
-    if root == 0 {
-        return Ok(snapshots);
-    }
     let tree = load_tree(store, root)?;
     let mut chunks: BTreeMap<u64, BTreeMap<u32, Vec<u8>>> = BTreeMap::new();
     for (key, value) in tree {

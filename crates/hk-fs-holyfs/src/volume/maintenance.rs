@@ -250,11 +250,9 @@ impl<D: BlockDevice> Volume<D> {
         if capacity > 0 && capacity - revision.size >= BLOCK_SIZE as u64 {
             return Err(HolyError::Corrupt);
         }
-        if revision.content_hash != 0 {
-            let content = self.revision_content(revision)?;
-            if content_hash(&content) != revision.content_hash {
-                return Err(HolyError::Damaged);
-            }
+        let content = self.revision_content(revision)?;
+        if content_hash(&content) != revision.content_hash {
+            return Err(HolyError::Damaged);
         }
         Ok(())
     }
