@@ -19,12 +19,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
+        let Ok(charge) = self.tasks[index].ledger.charge(aligned) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
         let Some(range) = self.platform.dma_window(aligned as usize) else {
+            let _ = self.tasks[index].ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
             self.platform.dma_free(range);
+            let _ = self.tasks[index].ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -37,11 +43,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
+                let _ = self.tasks[index].ledger.release(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         };
-        frame.set_result(self.install_capability(index, handle));
+        frame.set_result(self.install_capability(index, handle, charge));
         Switch::Continue
     }
 

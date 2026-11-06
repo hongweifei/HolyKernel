@@ -40,7 +40,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 continue;
             };
-            self.install_capability(child, capability);
+            let Ok((_, size)) = self
+                .kernel
+                .capability(child_tcb, capability)
+                .map(|(capability, _)| (capability.clone(), capability.size()))
+            else {
+                let _ = self.kernel.close_handle(child_tcb, capability);
+                let _ = self.kernel.close_handle(child_tcb, child_region);
+                continue;
+            };
+            let Ok(charge) = self.tasks[child].ledger.charge(size) else {
+                let _ = self.kernel.close_handle(child_tcb, capability);
+                let _ = self.kernel.close_handle(child_tcb, child_region);
+                continue;
+            };
+            self.install_capability(child, capability, charge);
             self.install_region(child, child_region, capability, virt, len);
         }
     }
@@ -51,13 +65,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         (EXTRA_HANDLE_BASE + slot + 1) as u64
     }
 
-    pub(crate) fn install_capability(&mut self, index: usize, handle: Handle) -> u64 {
+    pub(crate) fn install_capability(
+        &mut self,
+        index: usize,
+        handle: Handle,
+        charge: Charge,
+    ) -> u64 {
         let slot = self.tasks[index]
             .capabilities
             .iter()
             .position(Option::is_none)
             .unwrap_or(self.tasks[index].capabilities.len());
-        let map = CapabilityMap { handle };
+        let map = CapabilityMap { handle, charge };
         if slot == self.tasks[index].capabilities.len() {
             self.tasks[index].capabilities.push(Some(map));
         } else {
@@ -144,7 +163,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(handle)
     }
 
-    pub(crate) fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
+    pub(crate) fn install_grant(
+        &mut self,
+        index: usize,
+        handle: Handle,
+        charge: Option<hk_mem::hmp::Charge>,
+    ) -> u64 {
         let slot = self.tasks[index]
             .grants
             .iter()
@@ -152,8 +176,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or(self.tasks[index].grants.len());
         if slot == self.tasks[index].grants.len() {
             self.tasks[index].grants.push(Some(handle));
+            self.tasks[index].grant_charges.push(charge);
         } else {
             self.tasks[index].grants[slot] = Some(handle);
+            self.tasks[index].grant_charges[slot] = charge;
         }
         (GRANT_HANDLE_BASE + slot + 1) as u64
     }
@@ -194,15 +220,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             if let Some(slot) = number
                 .checked_sub(CAPABILITY_HANDLE_BASE + 1)
                 .and_then(|slot| self.tasks[index].capabilities.get_mut(slot))
+                && let Some(map) = slot.take()
             {
-                *slot = None;
+                let _ = self.tasks[index].ledger.release(map.charge);
             }
         } else if number >= GRANT_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(GRANT_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].grants.get_mut(slot))
+            let slot = number.checked_sub(GRANT_HANDLE_BASE + 1);
+            if let Some(slot) = slot
+                && slot < self.tasks[index].grants.len()
             {
-                *slot = None;
+                self.tasks[index].grants[slot] = None;
+                if let Some(charge) = self.tasks[index].grant_charges[slot].take() {
+                    let _ = self.tasks[index].ledger.release(charge);
+                }
             }
         } else if number >= EXTRA_HANDLE_BASE {
             if let Some(slot) = self.tasks[index]

@@ -20,7 +20,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        grant.dma = self.platform.dma_window(DMA_WINDOW_BYTES);
+        let Ok(charge) = self.tasks[index].ledger.charge(DMA_WINDOW_BYTES as u64) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(range) = self.platform.dma_window(DMA_WINDOW_BYTES) else {
+            let _ = self.tasks[index].ledger.release(charge);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        grant.dma = Some(range);
         match self.kernel.create_device_grant_authorized(
             tcb,
             factory,
@@ -28,10 +37,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::TRANSFER,
         ) {
             Ok(handle) => {
-                frame.set_result(self.install_grant(index, handle));
+                frame.set_result(self.install_grant(index, handle, Some(charge)));
                 Switch::Continue
             }
             Err(_) => {
+                self.platform.dma_free(range);
+                let _ = self.tasks[index].ledger.release(charge);
                 frame.set_result(u64::MAX);
                 Switch::Continue
             }
@@ -148,6 +159,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = self.tasks[index].grants.get(slot).copied().flatten() else {
             return u64::MAX;
         };
+        let charge = self.tasks[index]
+            .grant_charges
+            .get_mut(slot)
+            .and_then(Option::take);
         self.release_bindings(index, handle);
         self.release_dma_mappings(index, handle);
         self.tasks[index]
@@ -161,6 +176,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         match self.kernel.close_handle(tcb, handle) {
             Ok(()) => {
                 self.tasks[index].grants[slot] = None;
+                if let Some(charge) = charge {
+                    let _ = self.tasks[index].ledger.release(charge);
+                }
                 0
             }
             Err(_) => u64::MAX,

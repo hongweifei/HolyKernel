@@ -464,15 +464,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let tcb = self.tasks[index].tcb;
         self.release_all_dma_mappings(index);
         self.tasks[index].dma_used.clear();
-        for handle in core::mem::take(&mut self.tasks[index].grants)
+        let charges = core::mem::take(&mut self.tasks[index].grant_charges);
+        for (handle, charge) in core::mem::take(&mut self.tasks[index].grants)
             .into_iter()
-            .flatten()
+            .zip(charges)
         {
-            self.release_bindings(index, handle);
-            if let Ok(grant) = self.kernel.device_grant(tcb, handle)
-                && let Some(range) = grant.dma
-            {
-                self.platform.dma_free(range);
+            if let Some(handle) = handle {
+                self.release_bindings(index, handle);
+                if let Ok(grant) = self.kernel.device_grant(tcb, handle)
+                    && let Some(range) = grant.dma
+                {
+                    self.platform.dma_free(range);
+                }
+            }
+            if let Some(charge) = charge {
+                let _ = self.tasks[index].ledger.release(charge);
             }
         }
     }

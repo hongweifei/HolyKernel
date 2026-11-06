@@ -12,6 +12,7 @@ use hk_checkpoint::Page;
 use hk_hal::{CivilTime, DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
+use hk_mem::hmp::Charge;
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CAPABILITY_COMMIT,
@@ -57,6 +58,7 @@ const DMA_WINDOW_BYTES: usize = 256 * 1024;
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
     pub handle: Handle,
+    pub charge: Charge,
 }
 
 pub(crate) struct RegionMap {

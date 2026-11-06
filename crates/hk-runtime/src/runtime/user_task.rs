@@ -1,6 +1,7 @@
 //! 用户任务条目：现场、句柄映射与 Arena。
 
 use super::*;
+use hk_mem::hmp::Ledger;
 
 /// 用户任务。
 pub struct UserTask<C> {
@@ -24,10 +25,14 @@ pub struct UserTask<C> {
     pub(crate) capabilities: Vec<Option<CapabilityMap>>,
     /// 本任务持有的 Region。
     pub(crate) regions: Vec<Option<RegionMap>>,
+    /// 本任务的内存记账。
+    pub(crate) ledger: Ledger,
     /// 自动虚拟地址窗口。
     pub(crate) user_window: UserWindow,
     /// 本任务持有的 DeviceGrant 句柄。
     pub grants: Vec<Option<Handle>>,
+    /// DeviceGrant DMA 窗口记账。
+    pub grant_charges: Vec<Option<hk_mem::hmp::Charge>>,
     /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
     pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
     /// DeviceGrant 句柄到已分配 DMA 字节数的映射。
@@ -74,8 +79,10 @@ impl<C> UserTask<C> {
             extra: Vec::new(),
             capabilities: Vec::new(),
             regions: Vec::new(),
+            ledger: Ledger::create(u64::MAX),
             user_window: UserWindow::new(),
             grants: Vec::new(),
+            grant_charges: Vec::new(),
             bound_irqs: Vec::new(),
             dma_used: Vec::new(),
             dma_mappings: Vec::new(),
