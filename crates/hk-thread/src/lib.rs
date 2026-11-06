@@ -13,7 +13,7 @@ use hk_async::SleepTicks;
 use hk_server_api::{alloc, exit, thread_create, thread_join, thread_set_tls};
 
 /// 最小线程栈尺寸。
-const MIN_STACK: usize = 16 * 1024;
+pub const MIN_STACK: usize = 16 * 1024;
 
 /// 新线程的返回值。
 pub struct JoinHandle {
@@ -45,12 +45,17 @@ pub fn spawn_raw(
     if stack.is_null() {
         return None;
     }
-    let thread = thread_create(
-        entry as *const () as u64,
-        stack as u64 + size as u64 - 8,
-        argument,
-        0,
-    );
+    spawn_at(entry, stack as u64 + size as u64, argument)
+}
+
+/// 用调用方提供的栈创建线程；栈必须常驻到线程退出。
+pub fn spawn_at(
+    entry: extern "C" fn(u64) -> !,
+    stack_top: u64,
+    argument: u64,
+) -> Option<JoinHandle> {
+    let top = (stack_top & !0xF).checked_sub(8)?;
+    let thread = thread_create(entry as *const () as u64, top, argument, 0);
     (thread != u64::MAX).then_some(JoinHandle { thread })
 }
 

@@ -55,7 +55,13 @@ impl Pool {
         let pointer = pool as *const Pool as u64;
         let mut handles = pool.workers.lock();
         for _ in 0..workers {
-            match hk_thread::spawn_raw(worker, pointer, stack_size) {
+            let handle = hk_thread::spawn_raw(worker, pointer, stack_size).or_else(|| {
+                // Arena 已满时改用服务堆分配栈；栈随线程常驻到进程退出。
+                let size = stack_size.max(hk_thread::MIN_STACK);
+                let stack = Vec::leak(alloc::vec![0_u8; size]);
+                hk_thread::spawn_at(worker, stack.as_ptr() as u64 + stack.len() as u64, pointer)
+            });
+            match handle {
                 Some(handle) => handles.push(handle),
                 None => {
                     drop(handles);
