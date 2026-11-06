@@ -119,6 +119,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .is_some_and(|runtime| runtime.write_user(address, data))
     }
 
+    /// 处理匿名能力的按需零页缺页。
+    pub fn anonymous_fault(&self, cpu: usize, address: u64) -> bool {
+        self.runtime
+            .lock()
+            .as_mut()
+            .is_some_and(|runtime| runtime.anonymous_fault(cpu, address))
+    }
+
     /// 返回任务数量。
     pub fn task_count(&self) -> usize {
         self.runtime
