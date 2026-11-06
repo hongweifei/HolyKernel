@@ -196,7 +196,7 @@ flowchart LR
 - 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
 - Workbench：编辑/浏览/构建/运行/调试一体化。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
-- Checkpoint Server：Native Task 快照与恢复。
+- Checkpoint Server：Native Task 快照与恢复。原型已落地：`checkpoint <任务>` 暂停非当前任务并保存寄存器、Arena 用量与 VSpace，`restore-checkpoint <任务>` 在同一任务槽重建 TCB；VSpace 保留在 Root 内存，设备/Frame 持有任务暂不支持，快照尚未落 HolyFS。`smoke --mode checkpoint` 验证。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
 - Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
 - Sprite/Font 编辑器。

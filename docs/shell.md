@@ -146,6 +146,7 @@ holy> debug app
 | `run` | 运行原生应用或指定 POSIX 程序 |
 | `debug` | 连接 Debug Server；栈回溯、符号、checkpoint |
 | `replace` | 用另一原生镜像热替换服务（`replace <服务> <镜像>`） |
+| `checkpoint` / `restore-checkpoint` | Native Task 检查点与恢复 |
 | `snapshot` / `restore` | Checkpoint Server 快照/恢复 |
 | `trace` | 打开/关闭 trace，查看事件 |
 | `theme` | 切换显示主题 |
