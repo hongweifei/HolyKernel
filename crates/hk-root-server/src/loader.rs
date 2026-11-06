@@ -32,6 +32,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-input",
     "hk-server-pointer-test",
     "hk-server-holydoc",
+    "hk-server-workbench",
     "hk-server-debug",
     "hk-server-display-restart-test",
     "hk-server-checkpoint",

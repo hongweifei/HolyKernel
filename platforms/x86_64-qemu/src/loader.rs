@@ -46,6 +46,7 @@ pub fn run(
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
     let holydoc_test = hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-test"));
+    let workbench_test = hk_boot::cmdline().is_some_and(|line| line.contains("workbench-test"));
     let debug_test = hk_boot::cmdline()
         .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
     let display_restart_test =
@@ -84,6 +85,19 @@ pub fn run(
                     | "hk-server-device"
             );
         }
+        if workbench_test {
+            // 工作台自检需要 Display、工作台与 HolyFS 文档链。
+            return matches!(
+                name,
+                "hk-server-display"
+                    | "hk-server-workbench"
+                    | "hk-server-holyfs"
+                    | "hk-server-vfs"
+                    | "hk-server-virtio"
+                    | "hk-server-block"
+                    | "hk-server-device"
+            );
+        }
         if debug_test {
             // Debug 自检只需要 Display 与调试服务。
             return matches!(name, "hk-server-display" | "hk-server-debug");
@@ -114,7 +128,7 @@ pub fn run(
             );
         }
         if desktop {
-            // 图形桌面：Display + Console + Input/Device + 块驱动 + VFS 文档 + HolyDoc 欢迎页。
+            // 图形桌面：Display + Console + Input/Device + 块驱动 + VFS 文档 + HolyDoc/Workbench。
             return matches!(
                 name,
                 "hk-server-display"
@@ -126,6 +140,7 @@ pub fn run(
                     | "hk-server-vfs"
                     | "hk-server-path"
                     | "hk-server-holydoc"
+                    | "hk-server-workbench"
                     | "hk-server-shell"
             );
         }
@@ -161,6 +176,7 @@ pub fn run(
             name,
             "hk-server-netstat"
                 | "hk-server-holydoc"
+                | "hk-server-workbench"
                 | "hk-server-debug"
                 | "hk-server-shell"
                 | "hk-server-display-restart-test"
@@ -198,6 +214,7 @@ pub fn run(
             "hk-server-vfs" => 5,
             "hk-server-path" => 6,
             "hk-server-holydoc" => 7,
+            "hk-server-workbench" => 7,
             "hk-server-console" => 8,
             "hk-server-shell" => 9,
             _ => 9,

@@ -710,6 +710,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-workbench"
+version = "0.1.0"
+dependencies = [
+ "hk-font",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-shell"
 version = "0.1.0"
 

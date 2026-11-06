@@ -191,7 +191,7 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 
 - **Display Server**：合成器；原生 surface、Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。
 - **HolyDoc Server**：活文档渲染、链接、代码块、表单。
-- **Workbench**：编辑、浏览、构建、运行、调试一体化应用。
+- **Workbench**：编辑、浏览、构建、运行、调试一体化应用。已落地 `hk-server-workbench`：surface/window 三栏窗口，左侧加载 `H:` 文档树，中间整篇读写 Holy 文档并支持保存，底部输出构建统计、`@exec` 运行结果与异常回溯；`smoke --mode workbench` 验证。
 - **Toolchain Server**：系统内编译/链接/打包/缓存。
 - **Compatibility Server**：按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额。
 - **Wayland Server / XWayland**：Linux Wayland/X11 客户端适配到 surface/seat。

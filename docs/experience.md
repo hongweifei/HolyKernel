@@ -83,6 +83,7 @@ Workbench 是原生一体化应用：
 - 操作：打开、编辑、保存、构建、运行、调试、检查点、恢复。
 - 与 POSIX 环境互通：可打开 VFS 路径，可启动 POSIX 程序；默认命令行走 HolyShell，POSIX 通过 `posix` 入口。
 - 内置 HolyShell 面板：每个面板是一个 Native Task/Session，拥有独立命名空间、历史与当前 Task；原生命令、结构化输出、构建/调试/检查点命令。
+- 已落地初始版本（`hk-server-workbench`）：表面/窗口经 Display 协议创建，三栏展示 `H:` 文档树、编辑器与输出；文档整篇读写，支持选中打开、字符编辑与保存；构建统计行与指令，运行求值 `@exec`，调试读取 Root 的最近异常回溯；`smoke --mode workbench` 验证。后续接入 Toolchain、Checkpoint 与多窗口面板。
 
 ---
 

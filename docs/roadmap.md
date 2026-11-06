@@ -195,7 +195,7 @@ flowchart LR
 - Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；镜像构建生成内核与服务符号表，用户异常记录现场并经 Root 控制 `symbolize`/`fault` 输出符号化回溯；`smoke --mode debug` 验证各视图与符号解析。
 - 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
 - 多来源 UI 路线：surface/seat 合成器；Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；详见 [ADR-0015](adr/0015-compatibility-server.md)。已落地原生 surface/seat 协议：表面与窗口分离、表面 damage、输入区域、统一焦点与剪贴板；所有原生客户端已统一到 surface/window 协议。
-- Workbench：编辑/浏览/构建/运行/调试一体化。**在 surface/seat 抽象之后接入。**
+- Workbench：编辑/浏览/构建/运行/调试一体化。已落地初始版本：`hk-server-workbench` 以 surface/window 协议创建三栏窗口，左侧按 `H:` 盘符加载文档树，中间编辑器整篇读写 Holy 文档并支持保存，底部输出构建统计、`@exec` 运行结果与最近用户异常回溯；`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。原型已落地：`checkpoint <任务>` 暂停非当前任务并保存寄存器、Arena 用量与 VSpace，`restore-checkpoint <任务>` 在同一任务槽重建 TCB；`hk-server-checkpoint` 服务提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。VSpace 保留在 Root 内存，设备/Frame 持有任务暂不支持，快照尚未落 HolyFS。`smoke --mode checkpoint/checkpointsrv` 验证。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
@@ -349,7 +349,7 @@ flowchart LR
 - 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
 - 当前代码：crate 分层与完整清单见 [Crate 分层](crates.md)；常驻服务在 `servers/`，自检客户端在 `clients/`，演示服务在 `demos/`，平台在 `platforms/`，构建与镜像工具在 `xtask/`。
 - M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
-- 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与 `H:` 卷文档浏览）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
+- 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与 `H:` 卷文档浏览、Workbench 文档工作台）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
 
 ---
 

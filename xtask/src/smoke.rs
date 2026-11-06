@@ -112,6 +112,9 @@ pub enum SmokeMode {
     /// HolyDoc 文档窗口
     #[value(name = "holydoc")]
     Holydoc,
+    /// Workbench 文档浏览与编辑
+    #[value(name = "workbench")]
+    Workbench,
     /// Debug 内核统计窗口
     #[value(name = "debug")]
     Debug,
@@ -165,6 +168,7 @@ impl SmokeMode {
             Self::InputDriver => Some("input-test input-driver terminal-test"),
             Self::Pointer => Some("pointer-test input-driver"),
             Self::Holydoc => Some("vfs.fs=holyfs holydoc-test"),
+            Self::Workbench => Some("vfs.fs=holyfs workbench-test"),
             Self::Debug => Some("debug-test"),
             Self::DebugFault => Some("debug-crash"),
             Self::Dbg => Some("dbg-test"),
@@ -406,6 +410,18 @@ impl SmokeMode {
                 "hk-server-holydoc: back H:/System",
                 "hk-server-holydoc: done",
             ],
+            Self::Workbench => &[
+                "hk-server-display: composite ok",
+                "hk-server-workbench: ready 1",
+                "hk-server-workbench: documents ",
+                "hk-server-workbench: open H:/Welcome",
+                "hk-server-workbench: save ok",
+                "hk-server-workbench: build ok",
+                "hk-server-workbench: run 2",
+                "hk-server-workbench: debug ",
+                "hk-server-workbench: purge ok",
+                "hk-server-workbench: done",
+            ],
             Self::Debug => &[
                 "hk-server-display: composite ok",
                 "hk-server-debug: font scalable 16",
@@ -468,6 +484,7 @@ impl SmokeMode {
             | Self::InputDriver
             | Self::Pointer
             | Self::Holydoc
+            | Self::Workbench
             | Self::Debug
             | Self::DebugFault
             | Self::Dbg
@@ -505,6 +522,7 @@ impl SmokeMode {
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
+            Self::Workbench => "build/serial-workbench.log",
             Self::Debug => "build/serial-debug.log",
             Self::DebugFault => "build/serial-debugfault.log",
             Self::Dbg => "build/serial-dbg.log",
@@ -571,6 +589,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     };
 
     let mut command = Command::new("qemu-system-x86_64");
+    if Path::new("/dev/kvm").exists() {
+        command.args(["-accel", "kvm", "-cpu", "host"]);
+    }
     command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
         .arg(&iso)
@@ -686,7 +707,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         serve_tcp_echo(listener)?;
     }
 
-    let timeout = if mode == SmokeMode::Holydoc {
+    let timeout = if matches!(mode, SmokeMode::Holydoc | SmokeMode::Workbench) {
         HOLYDOC_TIMEOUT
     } else {
         TIMEOUT
@@ -840,14 +861,20 @@ fn wait_for(log: &Path, token: &str, timeout: Duration) -> Result<()> {
 
 /// 生成新的测试磁盘。
 fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
-    let path = workspace::root().join("build/test-disk.img");
+    let path = workspace::root().join(format!(
+        "build/test-disk{}.img",
+        std::env::var("HK_ISO_SUFFIX").unwrap_or_default()
+    ));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| Failure::new(format!("创建 {} 失败：{error}", parent.display())))?;
     }
     let blocks = crate::disk::DISK_BYTES / SECTOR_SIZE as u64;
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
-    let disk = if matches!(mode, SmokeMode::HolyFs | SmokeMode::Holydoc) {
+    let disk = if matches!(
+        mode,
+        SmokeMode::HolyFs | SmokeMode::Holydoc | SmokeMode::Workbench
+    ) {
         crate::disk::seed_holy_docs(disk)?
     } else {
         hk_fs_ext4::format_with_wall_clock(disk, HostClock)
