@@ -85,6 +85,9 @@ pub const SYS_CALL: u64 = 0x29;
 /// 回复最近一次调用。
 pub const SYS_REPLY: u64 = 0x2A;
 
+/// 回复最近一次调用并转移一个句柄。
+pub const SYS_REPLY_HANDLE: u64 = 0x32;
+
 /// 置位通知位。
 pub const SYS_NOTIFY: u64 = 0x2B;
 
@@ -154,6 +157,15 @@ pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
 
 /// 创建按需装入的匿名能力。
 pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
+
+/// 查询任务 Ledger 的用量、配额、峰值与压力。
+pub const SYS_LEDGER_INFO: u64 = 0x4F;
+
+/// Provider 缺页请求标签。
+pub const PROVIDER_FAULT: u64 = 0x5052_4F56;
+
+/// Provider 提供页回复标签。
+pub const PROVIDER_PROVIDE: u64 = 0x5052_4F50;
 
 // === 设备与中断 0x50-0x5F ===
 
@@ -406,7 +418,7 @@ mod tests {
         const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
         const { assert!(SYS_SEND >= 0x20 && SYS_SERVICE_ENDPOINT < 0x30) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
-        const { assert!(SYS_ALLOC >= 0x40 && SYS_CAPABILITY_CREATE_LAZY < 0x50) };
+        const { assert!(SYS_ALLOC >= 0x40 && SYS_LEDGER_INFO < 0x50) };
         const { assert!(SYS_PCI_READ >= 0x50 && SYS_MSI_BIND < 0x60) };
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
@@ -436,6 +448,7 @@ mod tests {
             SYS_RECV_DATA_HANDLE_TRY,
             SYS_CALL,
             SYS_REPLY,
+            SYS_REPLY_HANDLE,
             SYS_NOTIFY,
             SYS_WAIT_NOTIFY,
             SYS_WAIT_NOTIFY_TRY,
@@ -457,6 +470,7 @@ mod tests {
             SYS_CAPABILITY_EXPORT,
             SYS_CAPABILITY_BIND_PROVIDER,
             SYS_CAPABILITY_CREATE_LAZY,
+            SYS_LEDGER_INFO,
             SYS_PCI_READ,
             SYS_PCI_WRITE,
             SYS_DEVICE_GRANT_CREATE,

@@ -357,6 +357,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 复制当前任务：页表写时复制、句柄与通知映射；子任务返回 0。
     pub(crate) fn fork_task(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        if !self.populate_lazy_regions(index) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let child_index = self.tasks.len();
         if !self.platform.fork(index, child_index) {
             frame.set_result(u64::MAX);
@@ -805,6 +809,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         context.set_sender(endpoint);
                     }
                     None => blocked_again = true,
+                }
+            }
+            Pending::ProviderFault { page } => {
+                let tcb = self.tasks[index].tcb;
+                if let Some(message) = self.kernel.take_reply(tcb) {
+                    let Some(handle) = message.handles[0] else {
+                        self.tasks[index].pending = Pending::ProviderFault { page };
+                        self.current[cpu] = None;
+                        return true;
+                    };
+                    match self.kernel.capability(tcb, handle) {
+                        Ok((_, Some(range))) if range.len() >= hk_hal::PAGE_SIZE as u64 => {
+                            if !self.platform.map_dma(
+                                index,
+                                page,
+                                range.start().get(),
+                                hk_hal::PAGE_SIZE,
+                            ) {
+                                blocked_again = true;
+                            }
+                        }
+                        _ => blocked_again = true,
+                    }
+                } else {
+                    blocked_again = true;
                 }
             }
             Pending::None | Pending::Send { .. } => {}

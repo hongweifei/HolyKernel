@@ -71,7 +71,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_CALL => self.call(index, tcb, frame),
             SYS_REPLY => {
-                let result = self.reply(index, tcb, frame);
+                let result = self.reply(index, tcb, frame, false);
+                frame.set_result(result);
+                Switch::Continue
+            }
+            SYS_REPLY_HANDLE => {
+                let result = self.reply(index, tcb, frame, true);
                 frame.set_result(result);
                 Switch::Continue
             }
@@ -246,6 +251,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPABILITY_COMMIT => self.capability_commit(index, tcb, frame),
             SYS_CAPABILITY_EXPORT => self.capability_export(index, tcb, frame),
             SYS_CAPABILITY_BIND_PROVIDER => self.capability_bind_provider(index, tcb, frame),
+            SYS_LEDGER_INFO => self.ledger_info(index, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
             SYS_BOOT_CMDLINE => {

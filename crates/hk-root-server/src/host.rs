@@ -127,6 +127,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .is_some_and(|runtime| runtime.anonymous_fault(cpu, address))
     }
 
+    /// 把缺页请求转给绑定 Provider。
+    pub fn provider_fault(&self, cpu: usize, address: u64) -> bool {
+        self.runtime
+            .lock()
+            .as_mut()
+            .is_some_and(|runtime| runtime.provider_fault(cpu, address))
+    }
+
     /// 返回任务数量。
     pub fn task_count(&self) -> usize {
         self.runtime

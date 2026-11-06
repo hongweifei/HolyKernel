@@ -608,6 +608,12 @@ fn preempt(frame: &InterruptFrame) -> bool {
 fn fault(frame: &mut InterruptFrame) -> FaultAction {
     if frame.vector == 14
         && frame.error & 0b1 == 0
+        && RUNTIME.provider_fault(cpu::cpu_index(), cpu::fault_address())
+    {
+        return FaultAction::Block;
+    }
+    if frame.vector == 14
+        && frame.error & 0b1 == 0
         && RUNTIME.anonymous_fault(cpu::cpu_index(), cpu::fault_address())
     {
         return FaultAction::Resume;

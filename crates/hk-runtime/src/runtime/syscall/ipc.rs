@@ -148,13 +148,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    pub(crate) fn reply(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> u64 {
+    pub(crate) fn reply(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+        with_handle: bool,
+    ) -> u64 {
         let Some(token) = self.tasks[index].reply.take() else {
             return u64::MAX;
         };
         let mut words = [0; 8];
         words[0] = frame.arg1();
-        let message = Message::new(frame.arg0()).with_words(words);
+        let mut message = Message::new(frame.arg0()).with_words(words);
+        if with_handle {
+            let transferred = frame.arg2() as usize;
+            let Some(handle) = self.handle_at(index, transferred) else {
+                return u64::MAX;
+            };
+            message.handles[0] = Some(handle);
+        }
         match self.kernel.reply(tcb, token, message) {
             Ok(()) => 0,
             Err(_) => u64::MAX,

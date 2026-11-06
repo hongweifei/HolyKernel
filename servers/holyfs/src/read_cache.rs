@@ -5,7 +5,7 @@
 //! (盘符, 文档, head 修订) 校验，文档产生新修订后自动失效。
 
 use hk_fs_holyfs::{DocId, DocumentKind, HolyError, HolyFs};
-use hk_server_api::{map_new_lazy, yield_now};
+use hk_server_api::{capability_bind_provider, map_new_lazy, service_endpoint, yield_now};
 use hk_worker::Pool;
 
 use crate::volumes::ServiceDisk;
@@ -118,9 +118,13 @@ impl ReadCache {
         if self.virt != 0 {
             return true;
         }
-        let Some((_handle, _region, virt)) = map_new_lazy(MAX_CACHE) else {
+        let Some((handle, _region, virt)) = map_new_lazy(MAX_CACHE) else {
             return false;
         };
+        let provider = service_endpoint("hk-server-memory");
+        if provider != 0 {
+            let _ = capability_bind_provider(handle, provider);
+        }
         self.virt = virt;
         true
     }

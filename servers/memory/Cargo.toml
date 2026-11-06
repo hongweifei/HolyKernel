@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-memory"
+description = "HolyKernel Memory Server：匿名能力与缺页 Provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-memory"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-syscall = { version = "0.1.0", path = "../../crates/hk-syscall" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+
+[lints]
+workspace = true

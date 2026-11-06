@@ -72,8 +72,7 @@ impl Kernel {
         capability: Handle,
         endpoint: Handle,
     ) -> Result<(), KernelError> {
-        let (object, _) =
-            self.resolve(thread, capability, Rights::ADMIN, ObjectKind::Capability)?;
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
         self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
         object.set_capability_provider(endpoint);
         Ok(())

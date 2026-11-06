@@ -243,6 +243,12 @@ pub fn call(endpoint: u64, label: u64, word: u64) -> (u64, u64, u64) {
     (result.value, result.word, result.sender)
 }
 
+/// 回复最近一次收到的调用并转移一个能力句柄；成功返回 0。
+pub fn reply_handle(label: u64, word: u64, handle: u64) -> u64 {
+    // SAFETY: 内核校验回复令牌与句柄；句柄随回复转移给调用者。
+    unsafe { syscall_call(SYS_REPLY_HANDLE, label, word, handle, 0).value }
+}
+
 /// 回复最近一次收到的调用；成功返回 0。
 pub fn reply(label: u64, word: u64) -> u64 {
     // SAFETY: 内核校验回复令牌；没有待回复调用时返回失败。

@@ -710,3 +710,70 @@ fn lazy_anonymous_capability_maps_without_backing() {
     assert!(runtime.anonymous_fault(0, hk_hal::user::AUTO_WINDOW_BASE));
     let _ = runtime.finish(0, index);
 }
+
+#[test]
+fn provider_fault_blocks_caller() {
+    let mut runtime = runtime();
+    let Step::Resume {
+        index: _,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE));
+    assert_eq!(runtime.tasks()[0].pending, "provider-fault");
+
+    let Step::Resume {
+        index: provider,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Provider 应可运行");
+    };
+    assert_eq!(provider, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 4096;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let page = context.rax;
+    assert_ne!(page, u64::MAX);
+
+    context.rax = SYS_REPLY_HANDLE;
+    context.rdi = 0;
+    context.rsi = 0;
+    context.rdx = page;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("缺页任务应恢复");
+    };
+    assert_eq!(index, 0);
+    assert_eq!(context.rax, 0);
+    let _ = runtime.finish(0, index);
+}

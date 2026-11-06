@@ -16,6 +16,7 @@ pub const BOOT_SERVICES: &[&str] = &[
     "hk-server-device",
     "hk-server-spin",
     "hk-server-virtio",
+    "hk-server-memory",
     "hk-server-holyfs",
     "hk-server-vfs",
     "hk-server-path",

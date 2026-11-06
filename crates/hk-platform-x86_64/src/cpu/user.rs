@@ -33,6 +33,8 @@ pub enum FaultAction {
     Resume,
     /// 终止当前任务并返回调度器。
     Exit,
+    /// 当前任务已阻塞，返回调度器。
+    Block,
 }
 
 /// 用户态异常 hook。

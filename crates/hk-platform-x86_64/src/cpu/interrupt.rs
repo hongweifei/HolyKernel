@@ -48,7 +48,7 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     {
         match action {
             FaultAction::Resume => return,
-            FaultAction::Exit => leave_user(),
+            FaultAction::Exit | FaultAction::Block => leave_user(),
         }
     }
 

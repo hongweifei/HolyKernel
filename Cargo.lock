@@ -663,6 +663,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-memory"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
 name = "hk-server-net"
 version = "0.1.0"
 dependencies = [

@@ -2,9 +2,12 @@
 
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
+use hk_ipc::Message;
 use hk_mem::hmp::{Capability, CapabilityKind, FrameLease, Region, RegionFlags};
 
 use super::*;
+
+use hk_syscall::PROVIDER_FAULT;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn region_map(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
@@ -133,6 +136,99 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         self.install_region(index, region_handle, capability_handle, virt, len);
+        true
+    }
+
+    /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。
+    pub fn provider_fault(&mut self, cpu: usize, address: u64) -> bool {
+        let Some(index) = self.current[cpu] else {
+            return false;
+        };
+        if self.leader_of(index) != index {
+            return false;
+        }
+        let tcb = self.tasks[index].tcb;
+        let Some((slot, virt, _length)) =
+            self.tasks[index]
+                .regions
+                .iter()
+                .enumerate()
+                .find_map(|(slot, region)| {
+                    let region = region.as_ref()?;
+                    let end = region.virt.checked_add(region.len as u64)?;
+                    (address >= region.virt && address < end).then_some((
+                        slot,
+                        region.virt,
+                        region.len,
+                    ))
+                })
+        else {
+            return false;
+        };
+        let Some(region) = self.tasks[index].regions[slot].as_ref() else {
+            return false;
+        };
+        let capability_handle = region.capability;
+        let Ok((capability, backing)) = self.kernel.capability(tcb, capability_handle) else {
+            return false;
+        };
+        if backing.is_some() {
+            return false;
+        }
+        let Ok(Some(provider)) = self.kernel.capability_provider(tcb, capability_handle) else {
+            return false;
+        };
+        let page = hk_hal::PAGE_SIZE as u64;
+        let page_address = virt + (address.saturating_sub(virt) / page) * page;
+        let offset = page_address.saturating_sub(virt);
+        if offset >= capability.size() {
+            return false;
+        }
+        let mut words = [0_u64; 8];
+        words[0] = offset;
+        words[1] = page;
+        words[2] = address;
+        let message = Message::new(PROVIDER_FAULT).with_words(words);
+        if self.kernel.call(tcb, provider, message).is_err() {
+            return false;
+        }
+        self.tasks[index].pending = Pending::ProviderFault { page: page_address };
+        self.current[cpu] = None;
+        true
+    }
+
+    /// 在 fork 前把惰性 Region 的页装入父地址空间。
+    pub(crate) fn populate_lazy_regions(&mut self, index: usize) -> bool {
+        let tcb = self.tasks[index].tcb;
+        let ranges: alloc::vec::Vec<(u64, usize)> = self.tasks[index]
+            .regions
+            .iter()
+            .flatten()
+            .filter_map(|region| {
+                let (_, backing) = self.kernel.capability(tcb, region.capability).ok()?;
+                backing.is_none().then_some((region.virt, region.len))
+            })
+            .collect();
+        if ranges.is_empty() {
+            return true;
+        }
+        let Some(cpu) = self
+            .current
+            .iter()
+            .position(|current| *current == Some(index))
+        else {
+            return false;
+        };
+        let page = hk_hal::PAGE_SIZE as u64;
+        for (virt, len) in ranges {
+            let mut offset = 0;
+            while offset < len as u64 {
+                if !self.anonymous_fault(cpu, virt + offset) {
+                    return false;
+                }
+                offset += page;
+            }
+        }
         true
     }
 

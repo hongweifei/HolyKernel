@@ -185,6 +185,35 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn ledger_info(&mut self, index: usize, frame: &mut C) -> Switch {
+        let out = frame.arg0();
+        let capacity = frame.arg1() as usize;
+        if out == 0 || capacity < 32 {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let (charged, limit, peak, pressure) = {
+            let ledger = &self.tasks[index].ledger;
+            (
+                ledger.charged(),
+                ledger.limit(),
+                ledger.peak(),
+                ledger.pressure(),
+            )
+        };
+        let mut bytes = [0_u8; 32];
+        bytes[..8].copy_from_slice(&charged.to_le_bytes());
+        bytes[8..16].copy_from_slice(&limit.to_le_bytes());
+        bytes[16..24].copy_from_slice(&peak.to_le_bytes());
+        bytes[24..].copy_from_slice(&pressure.to_le_bytes());
+        frame.set_result(if self.platform.write_user(out, &bytes) {
+            32
+        } else {
+            u64::MAX
+        });
+        Switch::Continue
+    }
+
     pub(crate) fn capability_phys(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

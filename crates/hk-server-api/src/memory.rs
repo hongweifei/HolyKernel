@@ -3,8 +3,9 @@
 use crate::syscall_call;
 use crate::{
     SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
-    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
-    SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN,
+    SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_LEDGER_INFO, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 /// Revision 能力。
@@ -163,8 +164,47 @@ pub fn capability_commit(capability: u64) -> Option<u64> {
     (version != u64::MAX).then_some(version)
 }
 
+/// 任务内存账本快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LedgerInfo {
+    /// 已记账字节数。
+    pub charged: u64,
+    /// 配额字节数。
+    pub limit: u64,
+    /// 峰值字节数。
+    pub peak: u64,
+    /// 压力百分比。
+    pub pressure: u64,
+}
+
+/// 查询当前任务的内存账本。
+pub fn ledger_info() -> Option<LedgerInfo> {
+    let mut bytes = [0_u8; 32];
+    // SAFETY: 缓冲区属于本进程；内核校验长度后写入账本快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_LEDGER_INFO,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    if result != 32 {
+        return None;
+    }
+    Some(LedgerInfo {
+        charged: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        limit: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        pressure: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+    })
+}
+
 /// 创建按需装入的匿名能力。
 pub fn capability_create_lazy(length: usize) -> Option<u64> {
+    // SAFETY: 内核校验长度后创建匿名能力并返回句柄。
     let handle = unsafe {
         syscall_call(
             SYS_CAPABILITY_CREATE_LAZY,
