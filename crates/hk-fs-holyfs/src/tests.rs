@@ -2,6 +2,7 @@
 
 use alloc::rc::Rc;
 use alloc::vec;
+use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
@@ -133,6 +134,171 @@ impl BlockDevice for Shared {
 
     fn flush(&mut self) -> Result<(), BlockError> {
         Ok(())
+    }
+}
+
+struct FaultState {
+    fail_write: Option<usize>,
+    short_write: Option<usize>,
+    fail_flush: Option<usize>,
+    writes: usize,
+    flushes: usize,
+    dead: bool,
+}
+
+struct FaultDisk {
+    inner: Rc<RefCell<MemoryDisk>>,
+    state: Rc<RefCell<FaultState>>,
+}
+
+impl FaultDisk {
+    fn new(
+        inner: Rc<RefCell<MemoryDisk>>,
+        fail_write: Option<usize>,
+        short_write: Option<usize>,
+        fail_flush: Option<usize>,
+    ) -> (Self, Rc<RefCell<FaultState>>) {
+        let state = Rc::new(RefCell::new(FaultState {
+            fail_write,
+            short_write,
+            fail_flush,
+            writes: 0,
+            flushes: 0,
+            dead: false,
+        }));
+        (
+            Self {
+                inner,
+                state: Rc::clone(&state),
+            },
+            state,
+        )
+    }
+}
+
+impl BlockDevice for FaultDisk {
+    fn block_size(&self) -> usize {
+        SECTOR_SIZE
+    }
+
+    fn capacity_blocks(&self) -> u64 {
+        self.inner.borrow().capacity_blocks()
+    }
+
+    fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        self.inner.borrow().read_blocks(block, buffer)
+    }
+
+    fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        let index = {
+            let mut state = self.state.borrow_mut();
+            if state.dead {
+                return Err(BlockError::Io);
+            }
+            let index = state.writes;
+            state.writes += 1;
+            index
+        };
+        let mut state = self.state.borrow_mut();
+        if state.fail_write == Some(index) {
+            state.dead = true;
+            return Err(BlockError::Io);
+        }
+        if state.short_write == Some(index) {
+            state.dead = true;
+            let half = (data.len() / 2 / SECTOR_SIZE) * SECTOR_SIZE;
+            if half == 0 {
+                return Err(BlockError::Io);
+            }
+            let written = self.inner.borrow_mut().write_blocks(block, &data[..half])?;
+            return Ok(written);
+        }
+        drop(state);
+        self.inner.borrow_mut().write_blocks(block, data)
+    }
+
+    fn flush(&mut self) -> Result<(), BlockError> {
+        let mut state = self.state.borrow_mut();
+        if state.dead {
+            return Err(BlockError::Io);
+        }
+        let index = state.flushes;
+        state.flushes += 1;
+        if state.fail_flush == Some(index) {
+            state.dead = true;
+            return Err(BlockError::Io);
+        }
+        drop(state);
+        self.inner.borrow_mut().flush()
+    }
+}
+
+fn crash_base() -> Vec<u8> {
+    format(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE))
+        .expect("格式")
+        .into_data()
+}
+
+fn crash_case(
+    base: &[u8],
+    fail_write: Option<usize>,
+    short_write: Option<usize>,
+    fail_flush: Option<usize>,
+) {
+    let raw = MemoryDisk::from_data(base.to_vec(), SECTOR_SIZE).expect("内存盘");
+    let inner = Rc::new(RefCell::new(raw));
+    let (disk, state) = FaultDisk::new(inner.clone(), fail_write, short_write, fail_flush);
+    let result = {
+        let mut fs = HolyFs::mount(disk).expect("挂载");
+        let root = fs.root();
+        let document = fs
+            .create(root, "crash", DocumentKind::Content)
+            .expect("创建");
+        fs.write_range(document, 0, b"crash-data")
+            .and_then(|_| fs.sync())
+    };
+    assert!(result.is_err(), "故障点未触发失败");
+    assert!(state.borrow().dead);
+    let data = Rc::try_unwrap(inner)
+        .ok()
+        .expect("故障盘仍被引用")
+        .into_inner()
+        .into_data();
+    let fs = HolyFs::mount(MemoryDisk::from_data(data, SECTOR_SIZE).expect("内存盘"))
+        .expect("故障后重新挂载");
+    let root = fs.root();
+    match fs.lookup(root, "crash") {
+        Ok(document) => {
+            assert_eq!(fs.read_document_id(document).expect("读"), b"crash-data");
+        }
+        Err(HolyError::NotFound) => {}
+        Err(error) => panic!("故障恢复后引用损坏：{error:?}"),
+    }
+    fs.check().expect("故障恢复后校验");
+}
+
+#[test]
+fn boot_survives_write_and_flush_faults() {
+    let base = crash_base();
+    let raw = MemoryDisk::from_data(base.clone(), SECTOR_SIZE).expect("内存盘");
+    let inner = Rc::new(RefCell::new(raw));
+    let (disk, state) = FaultDisk::new(inner, None, None, None);
+    let mut fs = HolyFs::mount(disk).expect("计数挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "probe", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(document, 0, b"crash-data").expect("写");
+    fs.sync().expect("提交");
+    let writes = state.borrow().writes;
+    let flushes = state.borrow().flushes;
+    drop(fs);
+    for index in 0..writes {
+        crash_case(&base, Some(index), None, None);
+        crash_case(&base, None, Some(index), None);
+    }
+    for index in 0..flushes {
+        crash_case(&base, None, None, Some(index));
     }
 }
 

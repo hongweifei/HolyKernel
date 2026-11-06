@@ -475,6 +475,7 @@ flowchart LR
 | 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
 | Hosted 基准：顺序/随机 IO、去重、压缩、快照、流式写预算门禁 | 已实现 |
+| 崩溃一致性：写入失败、短写、flush 失败矩阵与重挂载恢复 | 已实现 |
 | ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |
 
 ### 代码组织
@@ -515,7 +516,7 @@ crates/hk-fs-holyfs-vfs/src/lib.rs
 | 层级 | 测试 |
 | --- | --- |
 | Hosted 单元 | 分配组、COW 表、修订链、集合索引、快照固定与恢复 |
-| Hosted 模拟 | 断电点矩阵、短写、坏块、flush 失败、GC 并发、压缩边界 |
+| Hosted 模拟 | 已实现写失败、短写与 flush 失败矩阵；坏块、GC 并发与压缩边界待补 |
 | VFS 适配 | 路径映射、偏移读写、句柄、挂载与卸载、POSIX 元数据合成 |
 | QEMU | 卷接入、写入、重启、校验、快照恢复 |
 | 并发 | 多读者单写、集合并发变更、Restore 与在途写、GC 宽限期 |

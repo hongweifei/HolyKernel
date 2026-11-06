@@ -127,10 +127,14 @@ impl<D: BlockDevice> Store<D> {
             return Err(HolyError::Corrupt);
         }
         let sectors = (BLOCK_SIZE / self.device.block_size()) as u64;
-        self.device
+        let length = self
+            .device
             .read_blocks(block * sectors, buffer)
-            .map(|_| ())
-            .map_err(map_io)
+            .map_err(map_io)?;
+        if length != buffer.len() {
+            return Err(HolyError::Io);
+        }
+        Ok(())
     }
 
     pub(crate) fn write_block(
@@ -142,10 +146,14 @@ impl<D: BlockDevice> Store<D> {
             return Err(HolyError::NoSpace);
         }
         let sectors = (BLOCK_SIZE / self.device.block_size()) as u64;
-        self.device
+        let length = self
+            .device
             .write_blocks(block * sectors, buffer)
-            .map(|_| ())
-            .map_err(map_io)
+            .map_err(map_io)?;
+        if length != buffer.len() {
+            return Err(HolyError::Io);
+        }
+        Ok(())
     }
 
     pub(crate) fn read_bytes(&self, offset: u64, buffer: &mut [u8]) -> Result<(), HolyError> {
@@ -160,9 +168,13 @@ impl<D: BlockDevice> Store<D> {
             if direct {
                 let chunk = (remaining.min(IO_CHUNK) / block_size) * block_size;
                 let sectors = position / block_size as u64;
-                self.device
+                let length = self
+                    .device
                     .read_blocks(sectors, &mut buffer[done..done + chunk])
                     .map_err(map_io)?;
+                if length != chunk {
+                    return Err(HolyError::Io);
+                }
                 done += chunk;
                 position += chunk as u64;
             } else {
@@ -189,9 +201,13 @@ impl<D: BlockDevice> Store<D> {
             if direct {
                 let chunk = (remaining.min(IO_CHUNK) / block_size) * block_size;
                 let sectors = position / block_size as u64;
-                self.device
+                let length = self
+                    .device
                     .write_blocks(sectors, &data[done..done + chunk])
                     .map_err(map_io)?;
+                if length != chunk {
+                    return Err(HolyError::Io);
+                }
                 done += chunk;
                 position += chunk as u64;
             } else {
