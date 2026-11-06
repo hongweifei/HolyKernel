@@ -196,7 +196,7 @@ flowchart LR
 - 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
 - 多来源 UI 路线：surface/seat 合成器；Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；详见 [ADR-0015](adr/0015-compatibility-server.md)。
 - Workbench：编辑/浏览/构建/运行/调试一体化。**在 surface/seat 抽象之后接入。**
-- Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。**归入 M7，从 `H:/Apps` 构建到 `H:/System/Apps`。**
+- Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
 - Checkpoint Server：Native Task 快照与恢复。原型已落地：`checkpoint <任务>` 暂停非当前任务并保存寄存器、Arena 用量与 VSpace，`restore-checkpoint <任务>` 在同一任务槽重建 TCB；`hk-server-checkpoint` 服务提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。VSpace 保留在 Root 内存，设备/Frame 持有任务暂不支持，快照尚未落 HolyFS。`smoke --mode checkpoint/checkpointsrv` 验证。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
 - Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
@@ -213,12 +213,11 @@ flowchart LR
 
 ---
 
-## 10. M7 — POSIX 核心与 Toolchain
+## 10. M7 — POSIX 核心
 
 ### 交付
 
 - Compatibility Server supervisor：按 personality 选择 POSIX/Linux/Harmony，管理 rootfs、命名空间与配额。
-- Toolchain Server：从 `H:/Apps/<App>` 构建 `image.hkx` 与资源到 `H:/System/Apps/<App>`，隐藏链接与打包细节，按内容哈希缓存。
 - POSIX Server：PID 表、fd 表、进程组、会话、cwd/root。
 - musl 移植：C 运行时、stdio、malloc、pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 薄兼容层。
 - ELF 加载器与动态链接。
