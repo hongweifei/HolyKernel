@@ -23,6 +23,8 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 #[cfg(target_os = "none")]
+use hk_async::{NotificationWait, SleepTicks, block_on, join2};
+#[cfg(target_os = "none")]
 use hk_coroutine::{Coroutine, State, suspend};
 #[cfg(target_os = "none")]
 use hk_server_api::block::BLOCK_SHUTDOWN;
@@ -31,10 +33,14 @@ use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, recv, send,
-    send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
-    write, write_u64, yield_now,
+    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv,
+    self_notification, send, send_handle, service_endpoint, thread_create, thread_join, tsc,
+    tsc_frequency, wait_notify, wait_notify_try, write, write_u64, yield_now,
 };
+
+/// 异步自检使用的通知位。
+#[cfg(target_os = "none")]
+const ASYNC_BIT: u64 = 1 << 40;
 
 /// 协程共享的执行轨迹。
 #[cfg(target_os = "none")]
@@ -93,6 +99,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo coroutine ok\n");
         } else {
             write(b"hk-server-demo coroutine fail\n");
+            exit(1)
+        }
+        if verify_async() {
+            write(b"hk-server-demo async ok\n");
+        } else {
+            write(b"hk-server-demo async fail\n");
             exit(1)
         }
 
@@ -443,6 +455,39 @@ fn verify_coroutines() -> bool {
         return false;
     }
     COROUTINE_TRACE.load(Ordering::Relaxed) == 1111
+}
+
+/// 线程入口：置位父线程的通知。
+#[cfg(target_os = "none")]
+extern "C" fn async_worker(notification: u64) -> ! {
+    notify(notification, ASYNC_BIT);
+    exit(0)
+}
+
+/// 验证执行器同时等待通知位与 tick。
+#[cfg(target_os = "none")]
+fn verify_async() -> bool {
+    const STACK: usize = 64 * 1024;
+    let stack = alloc(STACK, 16);
+    if stack.is_null() {
+        return false;
+    }
+    let parent = self_notification();
+    let thread = thread_create(
+        async_worker as *const () as u64,
+        stack as u64 + STACK as u64 - 8,
+        parent,
+        0,
+    );
+    if thread == u64::MAX {
+        return false;
+    }
+    let (bits, ()) = block_on(join2(
+        NotificationWait::new(parent, ASYNC_BIT),
+        SleepTicks::new(1),
+    ));
+    let joined = thread_join(thread) == 0;
+    joined && bits & ASYNC_BIT != 0
 }
 
 hk_server_api::server_boilerplate!();

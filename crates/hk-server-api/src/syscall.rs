@@ -230,6 +230,12 @@ pub fn wait_notify(target: u64, mask: u64) -> u64 {
     unsafe { syscall_call(SYS_WAIT_NOTIFY, target, mask, 0, 0).value }
 }
 
+/// 非阻塞检查通知位；没有待处理位时返回 0。
+pub fn wait_notify_try(target: u64, mask: u64) -> u64 {
+    // SAFETY: 目标编号由内核分配；没有通知位时立即返回。
+    unsafe { syscall_call(SYS_WAIT_NOTIFY_TRY, target, mask, 0, 0).value }
+}
+
 /// 调用端点并阻塞等待回复，返回标签、消息字与服务端点。
 pub fn call(endpoint: u64, label: u64, word: u64) -> (u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；内核在服务回复后唤醒本任务。

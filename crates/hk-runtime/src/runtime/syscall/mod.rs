@@ -56,6 +56,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_WAIT_NOTIFY => self.wait_notify(index, tcb, frame),
+            SYS_WAIT_NOTIFY_TRY => {
+                let number = frame.arg0() as usize;
+                let mask = frame.arg1();
+                let result = match self.notification_handle(index, number) {
+                    Some(handle) => self.kernel.try_wait(tcb, handle, mask).ok().flatten(),
+                    None => None,
+                };
+                frame.set_result(result.unwrap_or(0));
+                Switch::Continue
+            }
             SYS_CALL => self.call(index, tcb, frame),
             SYS_REPLY => {
                 let result = self.reply(index, tcb, frame);

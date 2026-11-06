@@ -305,6 +305,25 @@ impl Kernel {
         Ok(())
     }
 
+    /// 非阻塞检查通知位；没有待处理位时返回 `None`。
+    pub fn try_wait(
+        &self,
+        thread: TcbId,
+        notification_handle: Handle,
+        mask: u64,
+    ) -> Result<Option<u64>, KernelError> {
+        let (object, _) = self.resolve(
+            thread,
+            notification_handle,
+            Rights::READ,
+            ObjectKind::Notification,
+        )?;
+        let notification = object.notification().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Notification,
+        })?;
+        Ok(notification.try_wait(mask))
+    }
+
     /// 等待通知位；没有待处理位时阻塞并返回 `None`。
     pub fn wait(
         &self,

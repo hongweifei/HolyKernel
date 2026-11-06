@@ -183,6 +183,9 @@ pub const SYS_FUTEX_WAKE: u64 = 52;
 /// `SYS_FUTEX_WAIT`：值已变化，无需等待。
 pub const FUTEX_CHANGED: u64 = 1;
 
+/// 非阻塞检查通知位；没有待处理位时返回 0。
+pub const SYS_WAIT_NOTIFY_TRY: u64 = 54;
+
 /// 注册端点接收内核投递的原始异常现场。
 pub const SYS_FAULT_SUBSCRIBE: u64 = 53;
 

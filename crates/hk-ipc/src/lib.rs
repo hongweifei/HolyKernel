@@ -299,6 +299,17 @@ impl Notification {
         self.pending.load(Ordering::Acquire) & mask
     }
 
+    /// 非阻塞等待通知位；没有待处理位时返回 `None`。
+    pub fn try_wait(&self, mask: u64) -> Option<u64> {
+        let _slot = self.waiter.lock();
+        let pending = self.pending.load(Ordering::Acquire) & mask;
+        if pending == 0 {
+            return None;
+        }
+        self.pending.fetch_and(!mask, Ordering::AcqRel);
+        Some(pending)
+    }
+
     /// 清除通知位。
     pub fn clear(&self, bits: u64) {
         self.pending.fetch_and(!bits, Ordering::AcqRel);
