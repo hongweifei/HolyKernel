@@ -29,11 +29,11 @@
 | M3  | 句柄与内存      | Handle duplicate/close、COW、SMP、调度                  | G2：句柄模型冻结       |
 | M4  | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs     | G3：VFS 接口冻结     |
 | M5  | 网络         | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS | —               |
-| M6  | 原生 UI      | Display Server、HolyDoc、Console、输入、字体/主题          | —               |
-| M7  | POSIX 核心   | POSIX Server、musl、hk-abi/hk-crt、fork/exec/wait、文件  | G4：POSIX ABI 冻结 |
-| M8  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、mmap、POSIX socket        | —               |
-| M9  | Linux ABI 兼容 | personality、Linux ABI Server、ELF、/proc、vDSO、兼容测试 | G5：Linux ABI 冻结 |
-| M10 | 多架构与测试     | AArch64/RISC-V、POSIX/Linux ABI 套件、性能                | G6：平台抽象冻结       |
+| M6  | 原生 UI      | Display Server、surface/seat、HolyDoc、Console、输入、字体/主题 | —               |
+| M7  | POSIX 核心与 Toolchain | Compatibility Server、POSIX personality、musl、hk-abi/hk-crt、fork/exec/wait、文件、Toolchain Server | G4：POSIX ABI 冻结 |
+| M8  | POSIX 扩展   | pthreads、信号、pipe、AF_UNIX、SCM_RIGHTS、memfd/shm、mmap、POSIX socket | —               |
+| M9  | Linux ABI 兼容 | Linux personality、ELF/glibc/musl、/proc、vDSO、Wayland/XWayland | G5：Linux ABI 冻结 |
+| M10 | 多架构、鸿蒙与测试 | AArch64/RISC-V、Harmony personality、OpenHarmony 用户态、HDI、兼容测试 | G6：平台抽象冻结       |
 | M11 | 1.0        | 硬化、fuzz、发布镜像、真机                                    | G7：1.0          |
 
 ```mermaid
@@ -194,8 +194,9 @@ flowchart LR
 - 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
 - Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；镜像构建生成内核与服务符号表，用户异常记录现场并经 Root 控制 `symbolize`/`fault` 输出符号化回溯；`smoke --mode debug` 验证各视图与符号解析。
 - 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
-- Workbench：编辑/浏览/构建/运行/调试一体化。
-- Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
+- 多来源 UI 路线：surface/seat 合成器；Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；详见 [ADR-0015](adr/0015-compatibility-server.md)。
+- Workbench：编辑/浏览/构建/运行/调试一体化。**在 surface/seat 抽象之后接入。**
+- Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。**归入 M7，从 `H:/Apps` 构建到 `H:/System/Apps`。**
 - Checkpoint Server：Native Task 快照与恢复。原型已落地：`checkpoint <任务>` 暂停非当前任务并保存寄存器、Arena 用量与 VSpace，`restore-checkpoint <任务>` 在同一任务槽重建 TCB；`hk-server-checkpoint` 服务提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。VSpace 保留在 Root 内存，设备/Frame 持有任务暂不支持，快照尚未落 HolyFS。`smoke --mode checkpoint/checkpointsrv` 验证。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
 - Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
@@ -212,10 +213,12 @@ flowchart LR
 
 ---
 
-## 10. M7 — POSIX 核心
+## 10. M7 — POSIX 核心与 Toolchain
 
 ### 交付
 
+- Compatibility Server supervisor：按 personality 选择 POSIX/Linux/Harmony，管理 rootfs、命名空间与配额。
+- Toolchain Server：从 `H:/Apps/<App>` 构建 `image.hkx` 与资源到 `H:/System/Apps/<App>`，隐藏链接与打包细节，按内容哈希缓存。
 - POSIX Server：PID 表、fd 表、进程组、会话、cwd/root。
 - musl 移植：C 运行时、stdio、malloc、pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 薄兼容层。
 - ELF 加载器与动态链接。
@@ -266,7 +269,8 @@ flowchart LR
 
 - 每任务 ABI personality：Native/POSIX 走 `int 0x80`，Linux 走 `syscall`；内核只转发原始 syscall。
 - Linux ABI Server：ELF/`PT_INTERP`、auxv、TLS/FS/GS、信号帧、`clone`/futex、`mmap`、`epoll`/`ioctl`、socket、`/proc`/`/sys` 最小视图与 vDSO。
-- x86_64 静态 musl/glibc 二进制 → 动态 glibc 二进制；BusyBox、coreutils 与语言运行时按阶段接入。
+- x86_64 静态 musl/glibc 二进制 → 动态 glibc/musl 二进制；`ld-linux`/`ld-musl`、符号版本、IFUNC、TLS、`dlopen` 与 NSS；BusyBox、coreutils 与语言运行时按阶段接入。
+- Wayland Server + XWayland：Linux Wayland/X11 应用接入 Holy surface/seat；X11 经 XWayland 接入。
 - `hk-compat` 兼容测试矩阵与 syscall 覆盖表；`hk-port` sysroot/工具链与 `holybuild` 打包。
 - 兼容层安全边界：独立 VSpace/Native Task、Handle 权限、最小 `/proc` 视图与 fuzz。
 
@@ -277,6 +281,7 @@ flowchart LR
 3. `/proc/self/maps`、`/proc/self/stat`、auxv、vDSO 与 TLS 语义正确。
 4. `hk-compat` P1/P2 syscall 覆盖与真实应用回归通过；ABI Server 重启可恢复。
 5. 源码兼容（L1）目标应用零修改重编译；静态自带 libc 走 `hk-abi` 后端。
+6. Wayland `wl_shm` 最小客户端与一个 X11 客户端经 XWayland 显示到 Holy surface。
 
 ---
 
@@ -286,7 +291,8 @@ flowchart LR
 
 - `hk-platform-aarch64`、`hk-platform-riscv64` 与 QEMU 启动目录。
 - AArch64/RISC-V 的 Root Server、VFS、POSIX、Network、Linux ABI、HolyFS 全栈。
-- POSIX/Linux ABI 测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
+- Harmony personality：OpenHarmony standard-system 用户态、`init`/`samgr`/`appexecfwk`/ArkUI 最小应用、KAL/HDI display/input/storage/network 适配。
+- POSIX/Linux ABI 与 Harmony 兼容测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
 - 性能基准与预算复核。
 - 服务器重启矩阵（含 Network Server、HolyFS）。
 - HolyFS COW 事务、GC、check/repair、scrub、性能优化与 `H:` 盘符启动。
@@ -297,8 +303,9 @@ flowchart LR
 2. AArch64/RISC-V 上 HolyShell 与 `posix` coreutils 运行。
 3. POSIX 测试子集在 x86_64 与 AArch64 通过。
 4. 服务器崩溃/重启矩阵通过。
-5. QEMU 接入 HolyFS `H:` 卷并运行文档测试。
-6. 性能预算达标或记录例外 ADR。
+5. Harmony personality 启动 OpenHarmony `init`/`samgr`/`appexecfwk`，最小 ArkUI 应用通过 HDI 显示到 Holy surface。
+6. QEMU 接入 HolyFS `H:` 卷并运行文档测试。
+7. 性能预算达标或记录例外 ADR。
 
 ---
 

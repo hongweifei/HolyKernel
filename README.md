@@ -68,6 +68,7 @@ flowchart TB
 | **网络**             | 用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket                          |
 | **Holy 命令**          | HolyShell 与 Holy 命令是主路径；POSIX 工具通过兼容环境使用                                  |
 | **Holy 原生体验**        | HolyDoc UI、Workbench、系统内 Toolchain、Checkpoint、符号化调试                        |
+| **多来源兼容**          | Compatibility Server 托管 POSIX/Linux/Harmony；Wayland/XWayland 与 HDI 表面进入同一合成器 |
 | **原生服务可选**          | HolyDoc、真彩 UI 作为用户态服务；HolyFS 以卷与 `H:` 盘符提供 Holy 文档                |
 | **多架构**             | x86_64 / AArch64 / RISC-V / Hosted 共享同一套内核与服务器                               |
 | **现代工程**            | Rust、CI、确定性模拟、故障注入、可观测性                                                      |
@@ -85,7 +86,7 @@ flowchart TB
 | [执行模型](docs/execution.md) | TCB、调度、Endpoint、Notification、句柄 IPC |
 | [权限模型](docs/permissions.md) | HandleTable、rights、epoch 撤销、配额、审计 |
 | [POSIX 与 libc](docs/posix.md) | POSIX Server、musl 移植、ABI shim、进程/线程/信号、ELF |
-| [应用兼容与 Linux ABI](docs/compat.md) | 源码兼容、动态 musl ABI、Linux ELF、ABI 兼容层、移植工具链 |
+| [应用兼容与 Compatibility Server](docs/compat.md) | POSIX/Linux/Harmony personality、glibc/musl 动态库、Linux ELF、移植工具链 |
 | [服务器](docs/servers.md) | Root Server、设备管理、驱动、VFS、POSIX、网络、重启 |
 | [网络](docs/network.md) | Network Server、TCP/IP、DHCP、DNS、POSIX socket |
 | [HolyShell 与 Holy 命令](docs/shell.md) | 原生命令、结构化管道、POSIX 兼容入口 |
