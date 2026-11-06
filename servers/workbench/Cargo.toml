@@ -11,6 +11,7 @@ name = "hk-server-workbench"
 path = "src/main.rs"
 
 [dependencies]
+hk-canvas = { version = "0.1.0", path = "../../crates/hk-canvas" }
 hk-font = { version = "0.1.0", path = "../../crates/hk-font" }
 hk-debug = { version = "0.1.0", path = "../../crates/hk-debug" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
