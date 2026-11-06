@@ -80,7 +80,8 @@ fn limine_dir() -> PathBuf {
 
 fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<PathBuf> {
     let root = workspace::root();
-    let staging = root.join("build/iso");
+    let suffix = std::env::var("HK_ISO_SUFFIX").unwrap_or_default();
+    let staging = root.join(format!("build/iso{suffix}"));
     if staging.exists() {
         fs::remove_dir_all(&staging)
             .map_err(|error| Failure::new(format!("清理 {} 失败：{error}", staging.display())))?;
@@ -121,7 +122,7 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     fs::write(boot.join("limine.conf"), limine_config(cmdline))
         .map_err(|error| Failure::new(format!("写入 limine.conf 失败：{error}")))?;
 
-    let iso = root.join("build/holy-x86_64.iso");
+    let iso = root.join(format!("build/holy-x86_64{suffix}.iso"));
     let status = Command::new("xorriso")
         .current_dir(&staging)
         .args([
