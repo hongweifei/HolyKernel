@@ -34,6 +34,12 @@
 | **Toolchain Server** | 系统内编译/链接/打包/缓存 |
 | **Workbench** | 编辑/浏览/构建/运行/调试一体化原生应用 |
 | **Checkpoint Server** | Native Task/Server 快照与恢复 |
+| **Compatibility Server** | 按应用选择 POSIX/Linux/Harmony personality 的用户态 supervisor |
+| **Personality** | 应用的运行时/ABI 域：POSIX、Linux 或 Harmony；各自独立 VSpace |
+| **Surface / Seat** | 合成器表面与输入焦点/键盘/指针/剪贴板契约 |
+| **Wayland / XWayland** | Linux Wayland 客户端与 X11 兼容桥接 |
+| **Harmony Personality** | OpenHarmony 用户态 + Holy KAL/HDI 适配 |
+| **HDI** | OpenHarmony 硬件驱动接口；Display/Input/Storage/Network 后端 |
 | **FunSeg** | 地址到符号/源码的映射缓存，用于栈回溯与 HolyDoc 链接 |
 | **Home / Once** | 可执行启动/首次运行文档 |
 

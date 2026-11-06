@@ -20,6 +20,7 @@
 | [0012](0012-musl-dynamic-abi.md) | musl 动态 ABI 兼容 | 已接受 |
 | [0013](0013-net-stack.md) | virtio-net 与 smoltcp 网络栈 | 已接受 |
 | [0014](0014-native-image.md) | 原生任务镜像 | 已接受 |
+| [0015](0015-compatibility-server.md) | Compatibility Server 与多来源 UI | 已接受 |
 
 ## 模板
 

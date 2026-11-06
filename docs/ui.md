@@ -2,9 +2,9 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-里程碑：原生 UI 在 **M6** 先行交付；Console 先提供原生终端协议，POSIX 终端在 **M7** 接入。
+里程碑：原生 UI 在 **M6** 先行交付；surface/seat 抽象在 M6 收尾，Linux Wayland/XWayland 与鸿蒙 HDI 在兼容层稳定后接入，详见 [ADR-0015](adr/0015-compatibility-server.md)；POSIX 终端在 **M7** 接入。
 
-UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入，**HolyDoc Server** 渲染活文档。界面采用现代真彩色：32 位 RGBA、sRGB、主题、alpha 合成与可缩放字体；文本优先与串口回退继续保留。
+UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入，**HolyDoc Server** 渲染活文档。界面采用现代真彩色：32 位 RGBA、sRGB、主题、alpha 合成与可缩放字体；文本优先与串口回退继续保留。Display 同时是 surface/seat 合成器：原生窗口直接接入，Linux Wayland/X11 与鸿蒙应用通过独立适配器接入。
 
 ---
 
@@ -21,6 +21,8 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 7. **最小权限**：Display Server 只获得 Framebuffer 与 Input DeviceGrant。
 8. **可重启**：Display Server 崩溃后由 Root Server 重启；客户端重连。
 9. **可降级**：文本回退使用串口/VGA 文本模式。
+10. **多来源合成**：原生 surface、Wayland、XWayland 与鸿蒙 ArkUI 表面进入同一场景图。
+11. **统一 seat**：焦点、键盘、指针、触摸、剪贴板与拖放由兼容层统一映射。
 
 ### 构件
 
@@ -30,6 +32,9 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - **Font Stack**：TrueType/OpenType 解析、栅格化、缓存；位图回退。
 - **Input Driver**：virtio-input / PS/2。
 - **Framebuffer Driver**：BootInfo 帧缓冲或设备驱动。
+- **Surface/Seat 协议**：buffer、damage、commit、输入区域、焦点与剪贴板；原生与外来表面共用。
+- **Wayland Server / XWayland**：Linux Wayland 应用与 X11 应用适配。
+- **Harmony Bridge**：OpenHarmony 图形/窗口 HDI 到 Holy surface/seat 的适配。
 
 ### 已落地
 
@@ -85,6 +90,27 @@ flowchart LR
 - HolyDoc Server 把文档节点树渲染为 RGBA 图层。
 - Font Stack 提供可缩放字体与位图回退；字体缓存按 (family, size, weight) 索引。
 - 输入事件由 Input Driver 通过 Notification/Endpoint 交给 Display Server。
+
+### 2.1 多来源合成（路线）
+
+```mermaid
+flowchart LR
+    Native["Holy 原生应用"] --> Surface["Surface / Seat"]
+    Wayland["Wayland 应用"] --> WS["Wayland Server"]
+    X11["X11 应用"] --> XW["XWayland"]
+    Harmony["鸿蒙 ArkUI 应用"] --> HB["Harmony Bridge"]
+    WS --> Surface
+    XW --> Surface
+    HB --> Surface
+    Surface --> Comp["Holy Compositor"]
+    Comp --> FB["Framebuffer / 后端"]
+```
+
+- Display 消费 surface/seat；外来应用通过适配器提交缓冲，Framebuffer 授权由 Display 持有。
+- Wayland 与 XWayland 依赖 POSIX/Linux ABI；X11 通过 XWayland 接入。
+- Harmony Bridge 对接 OpenHarmony 的 Render Service/Window Manager/HDI，表面经 HDI 进入 Holy surface。
+- 各适配器是独立服务，受 Handle、配额与能力声明约束；崩溃只影响对应适配器。
+- 当前 M6 只实现原生 surface；外来应用在兼容层成熟后按上述适配器接入。
 
 ---
 
@@ -162,8 +188,9 @@ pub struct Window {
 - Display Server 管理焦点、z 序、移动/缩放、标题栏、阴影与装饰。
 - 窗口缓冲区为 RGBA；合成器按 alpha 混合。
 - Workbench 使用多窗口：编辑器、HolyDoc、调试面板、构建输出各自独立。
-- 输入事件：键盘、鼠标、滚轮、焦点、窗口关闭。
+- 输入事件：键盘、鼠标、滚轮、触摸、焦点、窗口关闭。
 - 快捷键由 Display Server 处理：切换窗口、全屏、关闭。
+- 统一 seat 由 surface 协议暴露；Wayland/XWayland 与 Harmony Bridge 把各自输入映射到同一焦点与剪贴板。
 - POSIX Console Service 将终端输入转换为 `termios` 事件。
 
 ---

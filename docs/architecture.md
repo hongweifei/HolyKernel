@@ -56,12 +56,13 @@ flowchart TB
 
 1. **最小内核**：内核包含线程、地址空间、句柄、IPC、内存与中断机制。
 2. **句柄安全**：资源通过 Handle 访问；duplicate 收窄、close 失效、IPC 通过 TRANSFER 转移、epoch 撤销、Task/服务器配额。
-3. **用户态服务器**：驱动、文件系统、POSIX 兼容层、显示服务运行在用户态。
-4. **POSIX.1 兼容**：POSIX Server + musl + `hk-abi` 提供应用接口。
-5. **故障隔离**：服务器崩溃后由 Root Server 重启；内核保持最小可信基。
-6. **多架构**：x86_64、AArch64、RISC-V、Hosted 共享同一套内核与服务器语义。
-7. **可观察**：trace、性能计数、句柄审计、服务器重启记录。
-8. **可测试**：确定性模拟、故障注入、POSIX 测试套件。
+3. **用户态服务器**：驱动、文件系统、兼容层、显示服务运行在用户态。
+4. **多 personality 兼容**：Compatibility Server 按 POSIX/Linux/Harmony personality 运行应用；musl 与 glibc 分域隔离。
+5. **多来源 UI**：原生 surface、Wayland/XWayland 与 Harmony HDI 表面进入同一合成器。
+6. **故障隔离**：服务器崩溃后由 Root Server 重启；内核保持最小可信基。
+7. **多架构**：x86_64、AArch64、RISC-V、Hosted 共享同一套内核与服务器语义。
+8. **可观察**：trace、性能计数、句柄审计、服务器重启记录。
+9. **可测试**：确定性模拟、故障注入、POSIX 测试套件。
 
 ### 2.2 范围
 
@@ -202,7 +203,10 @@ sequenceDiagram
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 | FS Backend Endpoint、Frame |
 | **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
+| **Compatibility Server** | 按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额 | POSIX/Linux/Harmony 实现 Endpoint、VFS/Display Handle |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | VSpace/TCB、VFS/Network Endpoint |
+| **Wayland Server / XWayland** | Linux Wayland/X11 客户端表面与 seat 适配 | Surface/Seat、POSIX Endpoint |
+| **Harmony Server** | OpenHarmony 用户态、KAL/HDI 适配 | Surface/Seat、VFS/Network Handle |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略 | Net Endpoint、Socket Handle |
 | **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、VFS 适配层、Document Handle |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI | Framebuffer、Input |
@@ -219,6 +223,10 @@ sequenceDiagram
 ---
 
 ## 8. POSIX 兼容层
+
+- 兼容层由 **Compatibility Server** 统一编排：POSIX、Linux 与 Harmony 是独立 personality，各自运行在独立 Native Task/VSpace。
+- glibc 通过 Linux ABI 运行；musl 提供源码移植与动态 ABI；每个进程归属一个 libc 域。详见 [应用兼容](compat.md) 与 [ADR-0015](adr/0015-compatibility-server.md)。
+- 图形应用通过 surface/seat 接入 Display；Linux GUI 使用 Wayland + XWayland，鸿蒙使用 OpenHarmony HDI 适配，X11 经 XWayland 接入。
 
 ```mermaid
 flowchart LR
@@ -379,6 +387,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 - [网络](network.md)
 - [POSIX 与 libc](posix.md)
 - [应用兼容与 Linux ABI](compat.md)
+- [ADR-0015：Compatibility Server 与多来源 UI](adr/0015-compatibility-server.md)
 - [服务器](servers.md)
 - [VFS](vfs.md)
 - [HolyFS 文件系统](holyfs.md)

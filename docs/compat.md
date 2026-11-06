@@ -1,8 +1,8 @@
-# 应用兼容与 Linux ABI
+# 应用兼容、Linux ABI 与 Compatibility Server
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-目标：让 POSIX 应用**源码基本不改**即可重编译运行；让常见 Linux ELF **二进制直接运行**；对依赖 Linux 内核的系统级软件提供 VM/容器兜底。兼容层位于用户态，内核只提供通用的 ABI 转发机制。
+目标：让 POSIX 应用**源码基本不改**即可重编译运行；让常见 Linux ELF（含 glibc/musl 动态库）**二进制直接运行**；复用 OpenHarmony 用户态代码承载鸿蒙应用；对依赖 Linux 内核的系统级软件提供 VM/容器兜底。兼容层位于用户态，由 **Compatibility Server** 按 personality 组织，内核只提供通用的 ABI 转发机制。
 
 ---
 
@@ -12,9 +12,11 @@
 
 1. **L1 源码兼容**：应用源码零修改或极少修改，使用 `hk-abi` + musl 重新编译。
 2. **L2 二进制兼容**：未修改的 Linux x86_64 ELF 可直接执行，包括静态与动态 glibc/musl 程序。
-3. **L3 兜底**：systemd、Docker、内核模块、GPU/专有驱动等通过轻量 VM 或容器运行。
-4. **可移植工具链**：sysroot、头文件、CMake/Meson/Autotools toolchain、打包工具。
-5. **可测试**：兼容性矩阵覆盖 syscall、真实应用与回归。
+3. **L3 鸿蒙源码移植**：复用 OpenHarmony standard-system 用户态，通过 Holy KAL/HDI 适配承载 ArkUI 应用。
+4. **L4 兜底**：systemd、Docker、内核模块、GPU/专有驱动等通过轻量 VM 或容器运行。
+5. **可移植工具链**：sysroot、头文件、CMake/Meson/Autotools toolchain、打包工具。
+6. **动态 libc**：同一桌面可同时托管 musl 与 glibc 应用，每个进程归属一个 libc 域。
+7. **可测试**：兼容性矩阵覆盖 syscall、真实应用与回归。
 
 ### 非目标（1.0）
 
@@ -33,9 +35,10 @@
 | L1 | POSIX 源码 | 重新编译 | musl + `hk-abi` + POSIX Server |
 | L1.5 | 动态 musl ELF | 无需重新编译 | 上游 musl ABI + Holy `ld-musl`/`libc.so` + `hk-abi` |
 | L2 | Linux ELF | 无需重新编译 | Linux ABI Server + Linux personality |
-| L3 | 强 Linux 依赖 | 无需修改 | 轻量 VM/容器兜底 |
+| L3 | 鸿蒙应用 | OpenHarmony 用户态 | Harmony personality + KAL/HDI 适配 |
+| L4 | 强 Linux 依赖 | 无需修改 | 轻量 VM/容器兜底 |
 
-优先级：L1 覆盖大多数 POSIX CLI、语言运行时与服务端程序；L1.5 覆盖动态 musl 生态（Alpine 等）；L2 覆盖 glibc 与静态 Linux 二进制；L3 只处理必须依赖 Linux 内核的软件。
+优先级：L1 覆盖大多数 POSIX CLI、语言运行时与服务端程序；L1.5 覆盖动态 musl 生态（Alpine 等）；L2 覆盖 glibc 与静态/动态 Linux 二进制；L3 复用 OpenHarmony 承载鸿蒙应用；L4 只处理必须依赖 Linux 内核的软件。
 
 ---
 
@@ -44,20 +47,42 @@
 ```mermaid
 flowchart TB
     Native["Holy 原生应用"] -->|Handle / Endpoint| NativeSvc["VFS · Network · Display · Device"]
-    Posix["POSIX 应用"] -->|musl + hk-abi| POSIX["POSIX Server"]
+    Posix["POSIX 应用"] -->|musl + hk-abi| POSIX["POSIX Personality"]
     Dynamic["动态 musl ELF"] -->|ld-musl / libc.so| HolyMusl["Holy musl ABI"] --> POSIX
     Linux["Linux ELF"] -->|syscall instruction| Kernel["内核：personality + 转发"]
-    Kernel -->|foreign syscall| LinuxABI["Linux ABI Server"]
+    Kernel -->|foreign syscall| LinuxABI["Linux Personality / ABI Server"]
+    Harmony["OpenHarmony 用户态"] -->|KAL / HDI| HarmonyP["Harmony Personality"]
     LinuxABI -->|POSIX 请求| POSIX
+    HarmonyP -->|POSIX / 图形 / 输入| POSIX
     POSIX --> NativeSvc
     LinuxABI -->|文件 / socket / 终端| NativeSvc
     LinuxABI -->|ELF / vDSO / 信号| Linux
+    HarmonyP -->|surface / seat| NativeSvc
 ```
 
-- **内核**：每任务维护 `Personality { Native, Posix, Linux }`；Native 走现有 `int 0x80`，Linux 走 `syscall` 指令；内核只做上下文保存、转发与返回，不解析 Linux syscall。
-- **Linux ABI Server**：实现 Linux syscall 语义、ELF/动态加载器辅助、信号帧、`/proc`/`/sys` 视图与设备 ioctl；通过 POSIX Server、VFS、Network、Display、Device 完成实际工作。
-- **POSIX Server**：既服务 L1/L1.5 应用，也作为 L2 的内部后端；进程、fd、信号、cwd 等状态集中管理。
-- **L3**：独立 VM/容器服务，不在内核或 ABI Server 中模拟完整 Linux 内核。
+- **内核**：每任务维护 `Personality { Native, Posix, Linux }`；Native 走现有 `int 0x80`，Linux 走 `syscall` 指令；Harmony 用户态通过 POSIX/Linux personality 启动。内核保存上下文并把 Linux syscall 转发给 Linux personality。
+- **Compatibility Server**：用户态 supervisor，按应用声明选择 personality；负责命名空间、rootfs、启动与资源配额，运行在内核可信基之外。
+- **Linux Personality**：实现 Linux syscall 语义、ELF/动态加载器辅助、信号帧、`/proc`/`/sys` 视图与设备 ioctl；通过 POSIX Server、VFS、Network、Display、Device 完成实际工作。
+- **POSIX Personality**：既服务 L1/L1.5 应用，也作为 L2/L3 的内部后端；进程、fd、信号、cwd 等状态集中管理。
+- **Harmony Personality**：复用 OpenHarmony standard-system 用户态（ArkUI、Render Service、Window Manager、`samgr`、`appexecfwk`、`dsoftbus`），通过 KAL/HDI 适配到 Holy 的 POSIX、surface/seat、VFS 与 Network。
+- **L4**：独立 VM/容器服务承载强 Linux 依赖软件；Linux ABI Server 聚焦用户态 ABI。
+
+### 3.1 Compatibility Server 与 libc 域
+
+- 一个桌面可以同时运行多个 personality，但每个应用只属于一个 libc 域：
+  - `musl`：`hk-abi`/`hk-crt` 源码移植，或 L1.5 动态 ABI；
+  - `glibc`：未修改二进制，通过 Linux personality 的 `ld-linux` 与 Linux syscall；
+  - `Harmony`：OpenHarmony 用户态及其 libc/runtime。
+- **libc 域隔离**：musl 与 glibc 各自维护 TLS、allocator、符号版本与 `dlopen` 命名空间；glibc `.so` 由 glibc 进程加载，musl `.so` 由 musl 进程加载。
+- Compatibility Server 按 ELF `PT_INTERP`/manifest 选择 personality；未知类型返回明确错误。
+- 所有 personality 通过 Handle 访问 VFS/Network/Display/Device；Framebuffer 与设备 MMIO 由对应服务持有授权。
+
+### 3.2 Harmony / OpenHarmony
+
+- 基线选择 OpenHarmony standard-system 用户态；ArkUI、Render Service、Window Manager 与 `appexecfwk` 可直接复用。LiteOS-M/LiteOS-A 小系统作为轻量设备参考。
+- 需要补齐的适配层：`init`/`samgr` 启动、POSIX/Linux 兼容 syscall、musl 运行时、HDF/HDI 的 display/input/storage/network 后端、`dsoftbus`/socket、权限与包安装。
+- 图形路径：OpenHarmony Render Service → HDI display → Holy surface；输入 HDI → Holy seat。Harmony 表面通过 HDI 进入合成器，与 Wayland/X11 表面并列。
+- 这是**源码级移植**：`.hap` 由 Harmony personality 承载，ArkUI 复用 OpenHarmony 实现；商业 HarmonyOS 闭源组件按可获得的 OpenHarmony 代码范围复用。
 
 ---
 
@@ -137,7 +162,8 @@ flowchart TB
 ### 6.2 应用自带 libc
 
 - 允许静态链接自有 libc，但必须实现 `hk-abi` 后端；musl 为一等支持，其他 libc 为 best-effort。详见 [POSIX 与 libc](posix.md#44-应用自带-libc)。
-- 动态链接统一使用系统 musl；不建议应用自带动态 libc。
+- 动态链接按 personality 选择：musl 应用使用系统 `ld-musl`/`libc.so`；glibc 应用使用 Linux personality 的 `ld-linux` 与 glibc 库。每个进程归属一个 libc 域。
+- 同一应用链接一种 libc；glibc `.so` 由 glibc 进程加载，musl `.so` 由 musl 进程加载。
 
 ### 6.3 动态 musl ABI 兼容（L1.5）
 
@@ -175,12 +201,26 @@ ABI 契约：
 - 运行时：Python/Node/Go 等语言运行时按 syscall 覆盖逐步接入；Go 需重点验证 raw syscall、`clone`、信号与 `/proc`。
 - 服务端软件：优先支持 nginx、sqlite、Redis 等可作为 L2 验证目标。
 
+### 6.5 glibc 动态库兼容（L2）
+
+目标：未修改的 glibc 动态 ELF 直接运行其自带 `ld-linux-x86-64.so.2`，由 Linux personality 提供 syscall 与内核视图；glibc 通过 Linux ABI 运行（ADR-0015）。
+
+- **加载器**：`PT_INTERP`、`AT_PHDR`/`AT_BASE`/`AT_ENTRY`/`AT_RANDOM`、`/etc/ld.so.cache`、`/etc/ld.so.conf`、`RPATH`/`RUNPATH`、`LD_LIBRARY_PATH`/`LD_PRELOAD`。
+- **符号**：glibc 符号版本（`.gnu.version`）、默认/兼容版本、IFUNC 解析、弱符号、`__libc_start_main`。
+- **TLS**：`arch_prctl(ARCH_SET_FS)`、TCB、静态 TLS、动态 TLS、`dlopen` 后的 TLS 分配。
+- **动态加载**：`dlopen`/`dlclose`/`dlsym`/`dladdr`、依赖图、命名空间隔离、`RTLD_LOCAL`/`RTLD_GLOBAL`。
+- **运行时服务**：NSS（`/etc/nsswitch.conf`、`libnss_*`）、locale、iconv、resolver、`/proc/self/*`、`/sys` 最小视图。
+- **内存与线程**：`mmap` 布局、`brk`、`mremap`、`clone`/`clone3`、futex、`rseq`、信号栈与 `ucontext`。
+- **边界**：glibc `.so` 由 glibc personality 加载，musl personality 加载 musl 库。静态 glibc 走同一 Linux ABI，并使用 Linux syscall。
+
+验收：glibc 版 `hello`、`ls`、`cat`、`sh`、`python` 动态运行；`ldd`、`dlopen`、NSS、TLS、信号与 pthread 回归通过。
+
 ---
 
 ## 7. 安全模型
 
-- Linux ABI Server 是用户态高权限组件，但不进入内核可信基；崩溃可重启。
-- 每个兼容应用运行在独立 Native Task/VSpace；fd、Socket、Frame 权限由 Handle 管理。
+- Compatibility Server 是用户态 supervisor，按 personality 启动应用；各 ABI 实现运行在内核可信基之外，崩溃可重启。
+- 每个兼容应用运行在独立 Native Task/VSpace；fd、Socket、Frame 权限由 Handle 管理。musl/glibc/Harmony 的 libc 域彼此隔离。
 - `/proc`、`/sys` 只暴露兼容所需的最小视图，不泄露宿主服务内部句柄。
 - 监听端口、raw socket、设备访问与 `ptrace` 需要显式 ADMIN 权限。
 - 对 syscall 参数做边界与类型校验；解析器与 ELF 加载器有 fuzz 目标。
@@ -203,7 +243,8 @@ ABI 契约：
 | --- | --- |
 | 单元 | syscall 参数/错误码、ELF 解析、auxv、信号帧、`/proc` 格式 |
 | 静态二进制 | BusyBox、coreutils、hello（musl/glibc） |
-| 动态二进制 | glibc `ls`/`cat`/`sh`、动态加载器、库搜索 |
+| 动态二进制 | glibc `ls`/`cat`/`sh`、`ld-linux`、`ld-musl`、符号版本、IFUNC、库搜索 |
+| 鸿蒙移植 | OpenHarmony `init`/`samgr`/`appexecfwk`、最小 ArkUI 应用、HDI display/input |
 | 语言运行时 | Lua、Python、Node、Go（分批） |
 | 服务端 | sqlite、Redis、nginx（按优先级） |
 | 系统调用 | Linux syscall 覆盖表与回归；LTP 子集 |
@@ -221,9 +262,10 @@ ABI 契约：
 
 ## 10. 路线图
 
-- **M8 — POSIX 扩展**：同时交付动态 musl ABI 兼容（L1.5）。
-- **M9 — Linux ABI 兼容**：personality、syscall 转发、Linux ABI Server、glibc 与静态二进制、`/proc`/`/sys`、vDSO、兼容测试。
-- **M10 — 多架构与测试**：把 Linux ABI 兼容层扩展到 AArch64/RISC-V（按优先级），跑同一套兼容测试。
+- **M7 — POSIX 核心与 Toolchain**：Compatibility Server supervisor、POSIX personality、musl 源码移植、ELF 基础；Toolchain Server 从 `H:/Apps` 构建 `H:/System/Apps` 应用包。
+- **M8 — POSIX 扩展**：动态 musl ABI（L1.5）、Unix socket/`SCM_RIGHTS`、`memfd`/shm、`epoll`、pthread/信号；这些也是 Wayland 的前置。
+- **M9 — Linux ABI 兼容**：Linux personality、syscall 转发、`ld-linux`/glibc 静态与动态、`/proc`/`/sys`、vDSO、Wayland Server + XWayland。
+- **M10 — 多架构、鸿蒙与测试**：AArch64/RISC-V；OpenHarmony standard-system 用户态的 Harmony personality + KAL/HDI 适配。
 - **M11 — 1.0**：硬化、fuzz、发布镜像、真机验证。
 
 VFS、Network、UI、POSIX 的既有里程碑不变：M5 网络、M6 原生 UI、M7 POSIX 核心、M8 POSIX 扩展。
@@ -253,3 +295,4 @@ VFS、Network、UI、POSIX 的既有里程碑不变：M5 网络、M6 原生 UI�
 - [路线图](roadmap.md)
 - [ADR-0011：Linux 二进制 ABI 兼容层](adr/0011-linux-abi.md)
 - [ADR-0012：musl 动态 ABI 兼容](adr/0012-musl-dynamic-abi.md)
+- [ADR-0015：Compatibility Server 与多来源 UI](adr/0015-compatibility-server.md)

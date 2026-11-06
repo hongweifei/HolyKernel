@@ -135,15 +135,31 @@ pub struct ServiceManifest {
 
 ---
 
-## 7. POSIX Server（兼容环境）
+## 7. Compatibility Server 与 POSIX
+
+Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Linux 或 Harmony personality，并为每个应用配置 Native Task/VSpace、rootfs、命名空间与 Handle 配额。
+
+### 7.1 POSIX Personality
 
 - 维护 PID 表、父子关系、进程组、会话、fd 表、信号状态。
 - 处理 `fork`/`exec`/`wait`、`kill`、`sigaction`、`pthread_create` 等请求。
 - 通过 VFS 执行文件操作；通过 Network Server 创建 socket。
 - 通过内核 Handle 创建/操作 VSpace、TCB、Frame。
-- POSIX Server 是可信基的一部分；崩溃后 Root Server 重启，POSIX 应用按策略恢复或终止。
+- POSIX Personality 运行在内核可信基之外；崩溃后 Root Server 重启，POSIX 应用按策略恢复或终止。
 
-详见 [POSIX 与 libc](posix.md)。
+### 7.2 Linux Personality
+
+- 未修改的 Linux ELF 走 `syscall` 入口，由 Linux ABI 实现转发；支持 `ld-linux`、glibc 静态/动态、musl 动态与 `/proc`/`/sys`/vDSO。
+- glibc 与 musl 分属不同 libc 域；glibc `.so` 由 glibc 进程加载，musl `.so` 由 musl 进程加载。
+- 图形应用通过 Wayland Server / XWayland 接入 surface/seat；Framebuffer 授权由 Display 持有。
+
+### 7.3 Harmony Personality
+
+- 复用 OpenHarmony standard-system 用户态：`init`、`samgr`、`appexecfwk`、ArkUI、Render Service、Window Manager、`dsoftbus`。
+- 通过 KAL 适配 Holy 的 POSIX/Linux syscall；通过 HDI 适配 display/input/storage/network 到 Holy surface/seat、VFS 与 Network。
+- 这是源码级移植：`.hap` 由 Harmony personality 承载，表面经 HDI 进入 Holy surface/seat，与 Wayland/X11 表面并列。
+
+详见 [POSIX 与 libc](posix.md)、[应用兼容](compat.md) 与 [ADR-0015](adr/0015-compatibility-server.md)。
 
 ---
 
@@ -173,10 +189,13 @@ pub struct ServiceManifest {
 
 ## 10. Display Server 与 HolyDoc
 
-- **Display Server**：帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。
+- **Display Server**：合成器；原生 surface、Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。
 - **HolyDoc Server**：活文档渲染、链接、代码块、表单。
 - **Workbench**：编辑、浏览、构建、运行、调试一体化应用。
 - **Toolchain Server**：系统内编译/链接/打包/缓存。
+- **Compatibility Server**：按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额。
+- **Wayland Server / XWayland**：Linux Wayland/X11 客户端适配到 surface/seat。
+- **Harmony Server**：OpenHarmony standard-system 用户态 + KAL/HDI 适配。
 - **Checkpoint Server**：`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议，委托 Root 控制保存与恢复 Native Task；`hk-server-checkpoint-test` 自检客户端验证保存、恢复与列表。
 - **Debug Server**：分页 Task/资源/trace 视图与最近异常符号化回溯；`hk-server-dbg` 客户端输出同样的视图。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
