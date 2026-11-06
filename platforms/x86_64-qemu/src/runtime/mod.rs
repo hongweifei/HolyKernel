@@ -406,7 +406,6 @@ pub fn restore_checkpoint_service(services: &mut ServiceTable, name: &str) -> St
     match RUNTIME.restore_checkpoint(name) {
         Ok(_) => {
             services.mark_running(name);
-            RUNTIME.run(services);
             format!("已恢复：{name}\n")
         }
         Err(error) => format!("恢复失败：{error}\n"),

@@ -30,6 +30,8 @@ pub const SERVERS: &[&str] = &[
     "hk-server-debug",
     "hk-server-dbg",
     "hk-server-display-restart-test",
+    "hk-server-checkpoint",
+    "hk-server-checkpoint-test",
 ];
 
 /// 随镜像打包的 HolyShell 脚本。

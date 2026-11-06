@@ -130,6 +130,9 @@ pub enum SmokeMode {
     /// Native Task 检查点与恢复
     #[value(name = "checkpoint")]
     Checkpoint,
+    /// Checkpoint Server 服务与客户端
+    #[value(name = "checkpointsrv")]
+    CheckpointServer,
 }
 
 impl SmokeMode {
@@ -172,6 +175,7 @@ impl SmokeMode {
             Self::Checkpoint => Some(
                 "checkpoint-test shell-test help;checkpoint hk-server-echo;restore-checkpoint hk-server-echo;tasks",
             ),
+            Self::CheckpointServer => Some("checkpoint-srv-test"),
         }
     }
 
@@ -426,6 +430,13 @@ impl SmokeMode {
             ],
             Self::Hotswap => &["已替换：hk-server-echo", "hk-server-fault: 触发用户页错误"],
             Self::Checkpoint => &["已检查点：hk-server-echo", "已恢复：hk-server-echo"],
+            Self::CheckpointServer => &[
+                "hk-server-checkpoint: ready",
+                "hk-server-checkpoint-test: saved ",
+                "hk-server-checkpoint-test: restored ",
+                "hk-server-checkpoint-test: listed ",
+                "hk-server-checkpoint-test: done",
+            ],
         }
     }
 
@@ -456,6 +467,7 @@ impl SmokeMode {
             | Self::Dbg
             | Self::Hotswap
             | Self::Checkpoint
+            | Self::CheckpointServer
             | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -493,6 +505,7 @@ impl SmokeMode {
             Self::DisplayRestart => "build/serial-displayrestart.log",
             Self::Hotswap => "build/serial-hotswap.log",
             Self::Checkpoint => "build/serial-checkpoint.log",
+            Self::CheckpointServer => "build/serial-checkpointsrv.log",
         }
     }
 

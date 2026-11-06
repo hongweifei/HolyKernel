@@ -453,6 +453,22 @@ name = "hk-server-build"
 version = "0.1.0"
 
 [[package]]
+name = "hk-server-checkpoint"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-server-checkpoint-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-console"
 version = "0.1.0"
 dependencies = [

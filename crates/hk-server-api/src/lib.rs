@@ -7,6 +7,7 @@
 
 mod arch;
 pub mod block;
+pub mod checkpoint;
 pub mod console;
 pub mod device;
 pub mod display;

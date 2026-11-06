@@ -21,6 +21,8 @@ use crate::shell::Loader;
 
 /// 只有这个服务可以执行启动/重启/脚本读取。
 const CONTROL_SHELL: &str = "hk-server-shell";
+/// Checkpoint Server 可以保存/恢复任务。
+const CONTROL_CHECKPOINT: &str = "hk-server-checkpoint";
 
 /// 队列中待处理请求。
 struct Request {
@@ -46,16 +48,14 @@ pub fn request(op: u64, argument: &str, caller: &str) -> u64 {
     state.next = state.next.wrapping_add(1);
     let id = state.next;
 
-    if matches!(
+    let shell = caller == CONTROL_SHELL;
+    let checkpoint = caller == CONTROL_CHECKPOINT || shell;
+    let shell_operation = matches!(
         op,
-        ROOT_OP_START
-            | ROOT_OP_RESTART
-            | ROOT_OP_REPLACE
-            | ROOT_OP_CHECKPOINT
-            | ROOT_OP_RESTORE_CHECKPOINT
-            | ROOT_OP_SCRIPT
-    ) && caller != CONTROL_SHELL
-    {
+        ROOT_OP_START | ROOT_OP_RESTART | ROOT_OP_REPLACE | ROOT_OP_SCRIPT
+    );
+    let checkpoint_operation = matches!(op, ROOT_OP_CHECKPOINT | ROOT_OP_RESTORE_CHECKPOINT);
+    if (shell_operation && !shell) || (checkpoint_operation && !checkpoint) {
         push_result(state, id, b"permission denied\n".to_vec());
         return id;
     }
