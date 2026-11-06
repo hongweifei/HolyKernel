@@ -54,6 +54,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let arena = self.tasks[leader].arena;
+        let ledger_limit = self.tasks[leader].ledger.limit();
         let name = format!("{}-thread{}", self.tasks[leader].name, child_index - leader);
         let mut task = UserTask::new(
             child,
@@ -64,6 +65,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             C::for_thread(entry, stack_top, argument),
             0,
             0,
+            ledger_limit,
         );
         task.arena = arena;
         task.leader = leader;

@@ -80,6 +80,10 @@ pub trait UserPlatform {
     }
     /// 返回任务槽位的 Arena 基址与大小。
     fn arena_layout(&self, slot: usize) -> (u64, u64);
+    /// 返回任务槽位的内存配额字节数；无限制时返回 `u64::MAX`。
+    fn memory_limit(&self, _slot: usize) -> u64 {
+        u64::MAX
+    }
     /// 切换到任务槽位的地址空间。
     fn activate(&self, _slot: usize) {}
     /// 返回任务槽位的页表根；没有地址空间时为 0。

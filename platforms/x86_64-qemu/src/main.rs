@@ -134,7 +134,7 @@ extern "C" fn kmain() -> ! {
     hk_platform_x86_64::paging::reserve_cow_pages(&mut allocator, 512);
     hk_platform_x86_64::paging::reserve_user_table_pages(&mut allocator, 64);
     hk_platform_x86_64::paging::reserve_restore_pages(&mut allocator, 2048);
-    if let Some(dma) = allocator.allocate_contiguous(64 * 1024 * 1024) {
+    if let Some(dma) = allocator.allocate_contiguous(hk_platform_x86_64::dma::POOL_BYTES) {
         hk_platform_x86_64::dma::init(dma);
     }
 

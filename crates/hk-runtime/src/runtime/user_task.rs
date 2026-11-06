@@ -67,6 +67,7 @@ impl<C> UserTask<C> {
         context: C,
         arena_base: u64,
         arena_size: u64,
+        ledger_limit: u64,
     ) -> Self {
         Self {
             tcb,
@@ -79,7 +80,7 @@ impl<C> UserTask<C> {
             extra: Vec::new(),
             capabilities: Vec::new(),
             regions: Vec::new(),
-            ledger: Ledger::create(u64::MAX),
+            ledger: Ledger::create(ledger_limit),
             user_window: UserWindow::new(),
             grants: Vec::new(),
             grant_charges: Vec::new(),

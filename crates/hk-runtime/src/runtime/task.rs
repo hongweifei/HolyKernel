@@ -94,6 +94,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             arena_base,
             arena_size,
+            self.platform.memory_limit(index),
         );
         task.device_factory = device_factory;
         task.leader = index;
@@ -318,6 +319,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             arena_base,
             arena_size,
+            self.platform.memory_limit(slot),
         );
         task.arena.set_used(arena_used);
         task.leader = slot;
@@ -425,6 +427,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context.set_result(0);
         let name = format!("{}-fork", self.tasks[index].name);
         let arena = self.tasks[index].arena;
+        let ledger_limit = self.tasks[index].ledger.limit();
         let mut task = UserTask::new(
             child,
             &name,
@@ -434,6 +437,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             arena.base(),
             arena.size(),
+            ledger_limit,
         );
         task.arena = arena;
         task.leader = child_index;

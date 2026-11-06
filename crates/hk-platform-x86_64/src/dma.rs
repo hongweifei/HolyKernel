@@ -5,6 +5,9 @@
 use hk_hal::PhysRange;
 use hk_mem::DmaPool;
 
+/// DMA 池字节数。
+pub const POOL_BYTES: usize = 64 * 1024 * 1024;
+
 /// 全局 DMA 池。
 pub static DMA: DmaPool = DmaPool::new();
 

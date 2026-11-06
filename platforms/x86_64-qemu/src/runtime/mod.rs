@@ -192,6 +192,10 @@ impl UserPlatform for X86Platform {
         (ARENA_BASE + slot as u64 * ARENA_STRIDE, ARENA_SIZE)
     }
 
+    fn memory_limit(&self, _slot: usize) -> u64 {
+        hk_platform_x86_64::dma::POOL_BYTES as u64
+    }
+
     fn activate(&self, slot: usize) {
         USER_VSPACES.activate(slot);
     }

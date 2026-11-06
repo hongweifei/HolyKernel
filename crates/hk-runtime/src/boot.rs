@@ -86,6 +86,7 @@ where
             context,
             arena_base,
             arena_size,
+            platform.memory_limit(index),
         );
         task.device_factory = factory;
         tasks.push(task);
