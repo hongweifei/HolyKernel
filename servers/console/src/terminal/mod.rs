@@ -6,7 +6,7 @@ mod style;
 
 use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };

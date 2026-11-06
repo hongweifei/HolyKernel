@@ -14,13 +14,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_server_api::checkpoint::{
+use hk_proto::checkpoint::{
     CHECKPOINT_LIST, CHECKPOINT_RESTORE, CHECKPOINT_RESULT, CHECKPOINT_SAVE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
+use hk_proto::holy::{DocId, DocumentKind, HolyClient, decode_entries};
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{DocId, DocumentKind, HolyClient, decode_entries};
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{
     ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE,

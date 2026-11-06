@@ -230,6 +230,7 @@ name = "hk-block"
 version = "0.1.0"
 dependencies = [
  "hk-async",
+ "hk-proto",
  "hk-server-api",
 ]
 
@@ -273,6 +274,7 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-hal",
+ "hk-proto",
  "hk-server-api",
  "spin",
  "virtio-drivers",
@@ -444,6 +446,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-proto"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-syscall",
+]
+
+[[package]]
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
@@ -500,6 +510,7 @@ dependencies = [
 name = "hk-server-checkpoint"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -508,6 +519,7 @@ dependencies = [
 name = "hk-server-checkpoint-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -518,6 +530,7 @@ version = "0.1.0"
 dependencies = [
  "hk-canvas",
  "hk-font",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -526,6 +539,7 @@ dependencies = [
 name = "hk-server-console-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -546,6 +560,7 @@ dependencies = [
  "hk-canvas",
  "hk-debug",
  "hk-font",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -556,6 +571,7 @@ version = "0.1.0"
 dependencies = [
  "hk-async",
  "hk-coroutine",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-sync",
@@ -578,6 +594,7 @@ version = "0.1.0"
 dependencies = [
  "hk-canvas",
  "hk-font",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -586,6 +603,7 @@ dependencies = [
 name = "hk-server-display-restart-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -594,6 +612,7 @@ dependencies = [
 name = "hk-server-display-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -602,6 +621,7 @@ dependencies = [
 name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-worker",
@@ -629,6 +649,7 @@ version = "0.1.0"
 dependencies = [
  "hk-canvas",
  "hk-font",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-worker",
@@ -642,6 +663,7 @@ dependencies = [
  "hk-block",
  "hk-fs",
  "hk-fs-holyfs",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-worker",
@@ -653,6 +675,7 @@ version = "0.1.0"
 dependencies = [
  "hk-driver-virtio",
  "hk-hal",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -661,6 +684,7 @@ dependencies = [
 name = "hk-server-latency"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -679,6 +703,7 @@ name = "hk-server-net"
 version = "0.1.0"
 dependencies = [
  "hk-net",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -687,6 +712,7 @@ dependencies = [
 name = "hk-server-netsock"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -695,6 +721,7 @@ dependencies = [
 name = "hk-server-netstat"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -705,6 +732,7 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-fs",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
@@ -714,6 +742,7 @@ dependencies = [
 name = "hk-server-pointer-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -723,6 +752,7 @@ name = "hk-server-shell"
 version = "0.1.0"
 dependencies = [
  "hk-debug",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-shell",
@@ -740,6 +770,7 @@ dependencies = [
 name = "hk-server-terminal-test"
 version = "0.1.0"
 dependencies = [
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -752,6 +783,7 @@ dependencies = [
  "hk-fs",
  "hk-fs-ext4",
  "hk-hal",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
@@ -764,6 +796,7 @@ dependencies = [
  "hk-block",
  "hk-driver-virtio",
  "hk-hal",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -774,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "hk-driver-virtio",
  "hk-hal",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -785,6 +819,7 @@ dependencies = [
  "hk-canvas",
  "hk-debug",
  "hk-font",
+ "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]

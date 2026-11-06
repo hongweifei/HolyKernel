@@ -1,6 +1,6 @@
 //! 行编辑、回显与按行交付。
 
-use hk_server_api::console::CONSOLE_READ_LINE;
+use hk_proto::console::CONSOLE_READ_LINE;
 use hk_server_api::{send_data, write};
 
 use crate::terminal::Terminal;

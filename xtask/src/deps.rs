@@ -72,6 +72,26 @@ const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
 /// 服务禁止依赖的类别。
 const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server", "hk-platform-"];
 
+/// 服务线协议层禁止依赖的类别：只允许内核面与 ABI 常量。
+///
+/// 服务二进制不是库 crate，无法被依赖，因此这里不列 `hk-server-*`。
+const PROTO_FORBIDDEN: &[&str] = &[
+    "hk-block",
+    "hk-canvas",
+    "hk-checkpoint",
+    "hk-debug",
+    "hk-driver",
+    "hk-fs-",
+    "hk-kernel",
+    "hk-net",
+    "hk-platform-",
+    "hk-root-server",
+    "hk-runtime",
+    "hk-vfs",
+    "hk-x86_64",
+    "hk-hosted",
+];
+
 /// 零依赖 crate：保持纯契约或纯库。
 const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall"];
 
@@ -167,6 +187,7 @@ fn rules(name: &str) -> &'static [&'static str] {
             "hk-handle",
             "hk-kernel",
             "hk-mem",
+            "hk-proto",
             "hk-runtime",
             "hk-root-server",
             "hk-platform-",
@@ -185,6 +206,7 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-fs" => CONTRACT_FORBIDDEN,
         "hk-image" => IMPL_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
+        "hk-proto" => PROTO_FORBIDDEN,
         "hk-driver-virtio" | "hk-drivers" | "hk-net" | "hk-vfs" | "hk-block" | "hk-fs-ext4"
         | "hk-fs-holyfs-vfs" | "hk-debug" | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" => LIB_FORBIDDEN,

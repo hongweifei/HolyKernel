@@ -7,7 +7,9 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{call, echo::ENDPOINT_ECHO, exit, tsc, tsc_frequency, write, write_u64};
+use hk_proto::echo::ENDPOINT_ECHO;
+#[cfg(target_os = "none")]
+use hk_server_api::{call, exit, tsc, tsc_frequency, write, write_u64};
 
 /// 测量轮数。
 #[cfg(target_os = "none")]

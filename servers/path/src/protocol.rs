@@ -1,12 +1,12 @@
 //! Path 请求处理与回复编码。
 
-use hk_server_api::send_data;
-use hk_server_api::vfs::{
+use hk_proto::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_BUFFER, OP_STAT, OP_SYNC,
     OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_BUFFER, OPEN_CREATE, OPEN_READ,
     OPEN_WRITE, Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK,
     STATUS_PERMISSION, VFS_RESPONSE, encode_response,
 };
+use hk_server_api::send_data;
 use hk_vfs::{FileType, OpenFlags, Vfs, VfsError};
 
 use crate::sessions::Session;

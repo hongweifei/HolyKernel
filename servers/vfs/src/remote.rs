@@ -9,11 +9,11 @@ use hk_fs::{
     Backend, Caps, DocId, DocumentInfo, DocumentKind, EntryInfo, Error, RevisionFlags, RevisionId,
     RevisionInfo,
 };
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId as WireDocId, DocumentKind as WireKind, HolyClient, KIND_COLLECTION,
     RevisionId as WireRevisionId, VolumeView, decode_entries, decode_revisions,
 };
-use hk_server_api::vfs::{
+use hk_proto::vfs::{
     STATUS_DAMAGED, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
     STATUS_READ_ONLY, STATUS_STALE,
 };

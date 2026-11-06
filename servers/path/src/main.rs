@@ -11,13 +11,13 @@ extern crate alloc;
 use alloc::vec;
 
 #[cfg(target_os = "none")]
+use hk_proto::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
+#[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, write};
 

@@ -10,7 +10,7 @@ mod wire;
 
 pub use wire::{Request, decode_request, encode_request};
 
-pub use crate::vfs::{STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE};
+pub use crate::status::{STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE};
 pub use client::HolyClient;
 pub use codec::{
     DocIds, DocumentView, DriveView, Drives, Entries, Entry, MaintenanceView, QuotaView,

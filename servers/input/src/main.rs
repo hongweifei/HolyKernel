@@ -22,13 +22,13 @@ use hk_driver_virtio::{Device, Input, probe};
 #[cfg(target_os = "none")]
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
+use hk_proto::input::{
+    INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
+};
+#[cfg(target_os = "none")]
 use hk_server_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::input::{
-    INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
-};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, recv_handle, self_notification, send, service_endpoint,

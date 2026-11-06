@@ -3,7 +3,7 @@
 use alloc::format;
 
 use hk_font::Font;
-use hk_server_api::display::DISPLAY_SHUTDOWN;
+use hk_proto::display::DISPLAY_SHUTDOWN;
 use hk_server_api::{exit, send, write, write_u64};
 
 use crate::model::Model;

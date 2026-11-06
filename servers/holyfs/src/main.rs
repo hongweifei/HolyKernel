@@ -20,11 +20,11 @@ use hk_fs_holyfs::{
     HolyError, HolyFs, VOLUME_H, VOLUME_I, VolumeId, format_with_volume_id, is_formatted,
 };
 #[cfg(target_os = "none")]
+use hk_proto::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
+#[cfg(target_os = "none")]
+use hk_proto::vfs::{STATUS_INVALID, encode_response};
+#[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
-#[cfg(target_os = "none")]
-use hk_server_api::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
 

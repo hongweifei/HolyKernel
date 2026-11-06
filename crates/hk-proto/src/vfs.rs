@@ -1,6 +1,7 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
-use crate::{
+use crate::status::RESPONSE_HEADER;
+use hk_server_api::{
     CapabilityKind, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle,
     handle_duplicate, map_new, recv_data_from, region_unmap, send_data, send_handle,
     service_endpoint,
@@ -54,31 +55,14 @@ pub const OPEN_WRITE: u64 = 1 << 1;
 /// 不存在时创建。
 pub const OPEN_CREATE: u64 = 1 << 2;
 
-/// 成功。
-pub const STATUS_OK: u8 = 0;
-/// 未找到。
-pub const STATUS_NOT_FOUND: u8 = 1;
-/// 参数非法。
-pub const STATUS_INVALID: u8 = 2;
-/// 后端错误。
-pub const STATUS_ERROR: u8 = 3;
-/// 服务不可用。
-pub const STATUS_IO: u8 = 4;
-/// 权限不足。
-pub const STATUS_PERMISSION: u8 = 5;
-/// 已存在。
-pub const STATUS_EXISTS: u8 = 6;
-/// 期望值或令牌代际已过期。
-pub const STATUS_STALE: u8 = 7;
-/// 卷已损坏并进入只读。
-pub const STATUS_DAMAGED: u8 = 8;
-/// 卷当前只读。
-pub const STATUS_READ_ONLY: u8 = 9;
+pub use crate::status::{
+    Response, STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO,
+    STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
+    decode_response, encode_response,
+};
 
 /// 请求头：op + path_len + arg0 + arg1。
 const REQUEST_HEADER: usize = 1 + 2 + 8 + 8;
-/// 响应头：status + data_len。
-const RESPONSE_HEADER: usize = 3;
 
 /// 单条 VFS 协议消息的缓冲上限。
 const BUFFER: usize = 64 * 1024;
@@ -94,14 +78,6 @@ pub struct Request<'a> {
     /// 第二个参数（offset、size 等）。
     pub arg1: u64,
     /// 附加数据。
-    pub data: &'a [u8],
-}
-
-/// 解码后的响应。
-pub struct Response<'a> {
-    /// 状态码。
-    pub status: u8,
-    /// 数据。
     pub data: &'a [u8],
 }
 
@@ -152,37 +128,6 @@ pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
         arg0,
         arg1,
         data: &bytes[path_end..],
-    })
-}
-
-/// 编码响应。
-pub fn encode_response(buffer: &mut [u8], status: u8, data: &[u8]) -> Option<usize> {
-    if data.len() > u16::MAX as usize {
-        return None;
-    }
-    let end = RESPONSE_HEADER.checked_add(data.len())?;
-    if end > buffer.len() {
-        return None;
-    }
-    buffer[0] = status;
-    buffer[1..3].copy_from_slice(&(data.len() as u16).to_le_bytes());
-    buffer[3..end].copy_from_slice(data);
-    Some(end)
-}
-
-/// 解码响应。
-pub fn decode_response(bytes: &[u8]) -> Option<Response<'_>> {
-    if bytes.len() < RESPONSE_HEADER {
-        return None;
-    }
-    let length = u16::from_le_bytes([bytes[1], bytes[2]]) as usize;
-    let end = RESPONSE_HEADER.checked_add(length)?;
-    if end > bytes.len() {
-        return None;
-    }
-    Some(Response {
-        status: bytes[0],
-        data: &bytes[RESPONSE_HEADER..end],
     })
 }
 

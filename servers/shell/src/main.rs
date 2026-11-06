@@ -22,7 +22,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_server_api::console::{CONSOLE_PING, CONSOLE_PONG, Client};
+use hk_proto::console::{CONSOLE_PING, CONSOLE_PONG, Client};
+#[cfg(target_os = "none")]
+use hk_proto::vfs::list_mounts;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
@@ -31,8 +33,6 @@ use hk_server_api::root::{
     ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
     ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
-#[cfg(target_os = "none")]
-use hk_server_api::vfs::list_mounts;
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, fault_subscribe, recv_data_try, send_data, write, write_u64, yield_now};
 #[cfg(target_os = "none")]

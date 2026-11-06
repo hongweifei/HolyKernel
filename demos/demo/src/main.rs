@@ -27,19 +27,19 @@ use hk_async::{NotificationWait, SleepTicks, block_on, join2};
 #[cfg(target_os = "none")]
 use hk_coroutine::{Coroutine, State, suspend};
 #[cfg(target_os = "none")]
-use hk_server_api::block::BLOCK_SHUTDOWN;
+use hk_proto::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
-use hk_server_api::echo::{WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
+use hk_proto::echo::{ENDPOINT_ECHO, WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
 #[cfg(target_os = "none")]
-use hk_server_api::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
+use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
 #[cfg(target_os = "none")]
 use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    alloc, boot_cmdline, call, echo::ENDPOINT_ECHO, exit, futex_wait, futex_wake, notify, recv,
-    recv_data_try, self_notification, send, send_handle, service_endpoint, thread_create,
-    thread_join, tsc, tsc_frequency, wait_notify, write, write_u64, yield_now,
+    alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv, recv_data_try,
+    self_notification, send, send_handle, service_endpoint, thread_create, thread_join, tsc,
+    tsc_frequency, wait_notify, write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。

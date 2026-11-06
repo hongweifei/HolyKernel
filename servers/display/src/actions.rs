@@ -1,7 +1,7 @@
 //! 窗口操作：最小化、最大化、关闭、焦点切换与按键路由。
 
 use hk_font::Font;
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
     pack_window_size,
 };

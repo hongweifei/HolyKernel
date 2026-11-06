@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_server_api::holy::{HolyClient, decode_drives};
+use hk_proto::holy::{HolyClient, decode_drives};
 use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 

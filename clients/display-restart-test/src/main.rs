@@ -6,7 +6,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::display::{DISPLAY_RESTART, DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
+use hk_proto::display::{DISPLAY_RESTART, DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, send, service_endpoint, ticks, write, write_u64, yield_now};
 

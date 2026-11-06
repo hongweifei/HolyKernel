@@ -22,14 +22,14 @@ use hk_fs_ext4::{Ext4Backend, WallClock};
 #[cfg(target_os = "none")]
 use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId as WireDocId, HOLY_REQUEST, HOLY_RESPONSE, HolyClient, VolumeView, decode_drives,
     decode_request,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::vfs::encode_response;
+use hk_proto::vfs::encode_response;
+#[cfg(target_os = "none")]
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, send_data, write, yield_now};
 #[cfg(target_os = "none")]
@@ -108,12 +108,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         let Some(request) = decode_request(&request[..length.min(request.len())]) else {
-            reply(
-                sender,
-                hk_server_api::vfs::STATUS_INVALID,
-                &[],
-                &mut response,
-            );
+            reply(sender, hk_proto::vfs::STATUS_INVALID, &[], &mut response);
             continue;
         };
         let (status, written) =

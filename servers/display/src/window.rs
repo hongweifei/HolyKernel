@@ -3,7 +3,7 @@
 use core::cell::Cell;
 
 use hk_canvas::{Rect, Surface as Canvas};
-use hk_server_api::display::TITLE_MAX;
+use hk_proto::display::TITLE_MAX;
 
 use crate::resize::{Edges, Rect as Frame};
 use crate::surface::Surface;

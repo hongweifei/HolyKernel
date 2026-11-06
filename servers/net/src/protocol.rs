@@ -4,10 +4,10 @@ use alloc::vec::Vec;
 use core::net::Ipv4Addr;
 
 use hk_net::{DnsQueryType, IpAddress, SocketId, Stack};
-use hk_server_api::net::{
+use hk_proto::net::{
     NET_NOTIFY_TX, NET_POLL, NET_RX_REFILL, NET_TX, NET_TX_FRAME, NetStatus, net_tx_word,
 };
-use hk_server_api::socket::{
+use hk_proto::socket::{
     SOCK_CLOSE, SOCK_CONNECT, SOCK_ERROR, SOCK_KIND_TCP, SOCK_KIND_UDP, SOCK_OPEN,
     SOCK_PAYLOAD_MAX, SOCK_RECV, SOCK_RESOLVE, SOCK_RESPONSE, SOCK_SEND, SOCK_UDP_RECV,
     SOCK_UDP_SEND,

@@ -1,29 +1,20 @@
-//! 服务协议、客户端与运行时辅助。
+//! 内核提供给用户态服务的通用面。
 //!
-//! 本 crate 描述系统调用参数与返回约定、设备/网络/显示/控制台/输入等线协议，
-//! 并提供服务发现与入口样板；具体入口指令由 `arch` 按架构提供。
+//! 本 crate 描述系统调用参数与返回约定、HMP 能力与 Region 封装、Root 控制、
+//! 设备授权与运行时样板；服务线协议与固定缓冲客户端在 `hk-proto`。
 
 #![no_std]
 
 mod arch;
-pub mod block;
-pub mod checkpoint;
-pub mod console;
 pub mod device;
-pub mod display;
-pub mod echo;
 pub mod format;
 pub mod framebuffer;
 pub mod heap;
-pub mod holy;
-pub mod input;
 pub mod memory;
 pub mod memory_manager;
-pub mod net;
 pub mod root;
 pub mod runtime;
-pub mod socket;
-pub mod vfs;
+pub mod syscall;
 
 pub use hk_syscall::{
     CapabilityKind, DISPLAY_SERVICE, FAULT_EVENT, RIGHT_ADMIN, RIGHT_EXECUTE, RIGHT_READ,
@@ -56,7 +47,6 @@ macro_rules! server_boilerplate {
 
 pub(crate) use arch::call as syscall_call;
 
-mod syscall;
 pub use memory::*;
 pub use memory_manager::*;
 pub use syscall::*;

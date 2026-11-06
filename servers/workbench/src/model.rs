@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_server_api::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_ADMIN, decode_entries};
+use hk_proto::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_ADMIN, decode_entries};
 use hk_server_api::{civil_time, kernel_stats, service_endpoint, ticks};
 
 /// 编辑器缓冲上限。
@@ -468,7 +468,7 @@ impl Model {
     pub(crate) fn create_document(&mut self, name: &str) -> Result<u128, u8> {
         let root = self.client.root()?;
         self.client
-            .create(root, name, hk_server_api::holy::DocumentKind::Content)
+            .create(root, name, hk_proto::holy::DocumentKind::Content)
             .map(DocId::get)
     }
 

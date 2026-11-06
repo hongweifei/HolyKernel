@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use hk_fs::{Backend, DocId};
-use hk_server_api::holy::VolumeView;
+use hk_proto::holy::VolumeView;
 
 /// 一个盘符上的原生后端。
 pub(crate) struct Drive {

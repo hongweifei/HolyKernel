@@ -6,7 +6,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::socket::{Client, SocketKind};
+use hk_proto::socket::{Client, SocketKind};
 #[cfg(target_os = "none")]
 use hk_server_api::{boot_cmdline, exit, tsc, tsc_frequency, write, yield_now};
 

@@ -22,15 +22,15 @@ use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_font::Font;
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT,
     SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED,
     WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_key, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
+use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::input::{Decoder, Key};
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, close_handle, exit, fault_subscribe, kernel_stats, map_new, recv, recv_data,

@@ -7,17 +7,17 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::console::{
+use hk_proto::console::{
     CONSOLE_CLEAR, CONSOLE_PING, CONSOLE_PONG, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN,
     CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE, SURFACE_FRAME_DONE, unpack_key,
     unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::input::{Decoder, Key};
+use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     console_read, exit, recv_data_try, send, send_data, service_endpoint, write, write_u64,
@@ -43,7 +43,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-console: window ");
         write_u64(terminal.window());
         write(b"\n");
-        hk_server_api::display::set_title(terminal.display(), terminal.window(), "Console");
+        hk_proto::display::set_title(terminal.display(), terminal.window(), "Console");
     }
 
     let mut ever_attached = terminal.is_some();
@@ -74,7 +74,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 write(b"hk-server-console: window ");
                 write_u64(terminal.window());
                 write(b"\n");
-                hk_server_api::display::set_title(terminal.display(), terminal.window(), "Console");
+                hk_proto::display::set_title(terminal.display(), terminal.window(), "Console");
                 ever_attached = true;
             }
         }

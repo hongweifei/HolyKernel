@@ -8,10 +8,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId, HolyClient, STATUS_NOT_FOUND, STATUS_PERMISSION, decode_doc_ids, decode_tags, decode_u32,
 };
-use hk_server_api::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO};
+use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO};
 
 /// 处理标签扩展命令；不是标签命令时返回 `None`。
 pub(crate) fn extension(endpoint: u64, name: &str, args: &str) -> Option<String> {

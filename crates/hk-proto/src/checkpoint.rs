@@ -1,6 +1,6 @@
 //! Checkpoint Server 协议：保存、恢复与列出 Native Task 检查点。
 
-use crate::{recv_data_from, send_data};
+use hk_server_api::{recv_data_from, send_data};
 
 /// 服务名。
 pub const CHECKPOINT_SERVICE: &str = "hk-server-checkpoint";

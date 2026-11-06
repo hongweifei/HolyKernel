@@ -7,7 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{DocumentKind, HolyClient, STATUS_NOT_FOUND};
+use hk_proto::holy::{DocumentKind, HolyClient, STATUS_NOT_FOUND};
 #[cfg(target_os = "none")]
 use hk_server_api::yield_now;
 

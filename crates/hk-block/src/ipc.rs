@@ -15,7 +15,7 @@ use core::cell::RefCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{AsyncBlockDevice, BlockDevice, BlockError, SECTOR_SIZE};
-use hk_server_api::block::{
+use hk_proto::block::{
     BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, BUFFER_LEN,
     BUFFER_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR,
     STATUS_INVALID, STATUS_OK, STATUS_RANGE, attach_length, attach_slot, attach_word,

@@ -3,7 +3,7 @@
 //! 请求与响应都以字节载荷编码，句柄与状态放在首个 `u64`。客户端只依赖本
 //! crate，供用户态服务使用；内核与 Shell 不感知该协议。
 
-use crate::{recv_data_try, send_data, service_endpoint, ticks, yield_now};
+use hk_server_api::{recv_data_try, send_data, service_endpoint, ticks, yield_now};
 
 /// 打开 socket；载荷为 [`SocketKind`]。
 pub const SOCK_OPEN: u64 = 0x800;

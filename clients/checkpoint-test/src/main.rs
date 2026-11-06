@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::checkpoint::{CHECKPOINT_SERVICE, list, restore, save};
+use hk_proto::checkpoint::{CHECKPOINT_SERVICE, list, restore, save};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, runtime::wait_service, write};
 

@@ -3,8 +3,8 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use hk_server_api::display::DISPLAY_SHUTDOWN;
-use hk_server_api::holy::{
+use hk_proto::display::DISPLAY_SHUTDOWN;
+use hk_proto::holy::{
     DocumentKind, HolyClient, QuotaView, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
     STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_drives, decode_snapshots, decode_tags,
 };

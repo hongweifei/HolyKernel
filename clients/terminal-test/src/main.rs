@@ -3,11 +3,11 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 #[cfg(target_os = "none")]
-use hk_server_api::console::{
+use hk_proto::console::{
     CONSOLE_READ_LINE, CONSOLE_READ_REQUEST, CONSOLE_SHUTDOWN, CONSOLE_WRITE, CONSOLE_WRITE_ACK,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
+use hk_proto::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, write, yield_now};
 

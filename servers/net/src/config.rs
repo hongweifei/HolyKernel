@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::net::Ipv4Addr;
 
-use hk_server_api::net::NET_CONFIG_MAX_DNS;
+use hk_proto::net::NET_CONFIG_MAX_DNS;
 
 /// 是否启用共享帧路径。
 #[cfg(target_os = "none")]

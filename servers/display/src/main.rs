@@ -16,7 +16,7 @@ mod surface;
 #[cfg(target_os = "none")]
 use hk_font::Font;
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_RESIZE, DISPLAY_RESTART, DISPLAY_SET_TITLE,
     DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD,
     SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE, SURFACE_DESTROY,
@@ -25,11 +25,11 @@ use hk_server_api::display::{
     unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::framebuffer;
-#[cfg(target_os = "none")]
-use hk_server_api::input::{
+use hk_proto::input::{
     INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, unpack_pointer, unpack_wheel,
 };
+#[cfg(target_os = "none")]
+use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, capability_phys, capability_pin, close_handle, console_read, exit, map_attach,

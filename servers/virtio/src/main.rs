@@ -24,7 +24,7 @@ use hk_driver_virtio::{Block, Device, probe};
 #[cfg(target_os = "none")]
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_server_api::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
+use hk_proto::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
     DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_RNG, DEVICE_GRANT, DEVICE_NONE,

@@ -6,7 +6,7 @@
 
 pub use hk_syscall::{CONSOLE_NOTIFY_INPUT, CONSOLE_NOTIFY_MESSAGE};
 
-use crate::{notify, recv_data_from, send, send_data};
+use hk_server_api::{notify, recv_data_from, send, send_data};
 
 /// Console 服务名。
 pub const CONSOLE_SERVICE: &str = "hk-server-console";
@@ -38,7 +38,7 @@ pub struct Client {
 impl Client {
     /// 等待 Console 服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let console = crate::runtime::wait_service(CONSOLE_SERVICE)?;
+        let console = hk_server_api::runtime::wait_service(CONSOLE_SERVICE)?;
         Some(Self { endpoint, console })
     }
 

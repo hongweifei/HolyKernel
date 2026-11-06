@@ -3,7 +3,7 @@
 #![cfg(target_os = "none")]
 
 use hk_fs::{DocId, DocumentKind, Error as FsError, RevisionId};
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId as WireDocId, DocumentView, KIND_COLLECTION, KIND_CONTENT, OP_ACQUIRE, OP_CREATE,
     OP_DOCUMENT_ID, OP_DRIVES, OP_ENUMERATE_ID, OP_GRANT, OP_READ_ID, OP_READ_REVISION,
     OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS_ID, OP_REVOKE, OP_ROOT, OP_SYNC,
@@ -12,7 +12,7 @@ use hk_server_api::holy::{
     VolumeView, decode_doc_id, decode_u64, encode_doc_id, encode_document, encode_drive,
     encode_entry, encode_revision, encode_revision_id, encode_token,
 };
-use hk_server_api::vfs::{
+use hk_proto::vfs::{
     STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
     STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
 };
@@ -343,7 +343,7 @@ fn encode_token_response(body: &mut [u8], token: u64) -> (u8, usize) {
 }
 
 fn encode_volume_response(body: &mut [u8], view: VolumeView) -> (u8, usize) {
-    match hk_server_api::holy::encode_volume(body, view) {
+    match hk_proto::holy::encode_volume(body, view) {
         Some(length) => (STATUS_OK, length),
         None => (STATUS_ERROR, 0),
     }
@@ -352,11 +352,8 @@ fn encode_volume_response(body: &mut [u8], view: VolumeView) -> (u8, usize) {
 fn encode_drives(body: &mut [u8], drives: alloc::vec::Vec<(u8, VolumeView)>) -> (u8, usize) {
     let mut length = 0;
     for (letter, volume) in drives {
-        let Some(end) = encode_drive(
-            body,
-            length,
-            hk_server_api::holy::DriveView { letter, volume },
-        ) else {
+        let Some(end) = encode_drive(body, length, hk_proto::holy::DriveView { letter, volume })
+        else {
             return (STATUS_ERROR, 0);
         };
         length = end;

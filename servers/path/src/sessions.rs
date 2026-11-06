@@ -57,7 +57,7 @@ impl Sessions {
     }
 
     pub(crate) fn attach_mapping(&mut self, sender: u64, handle: u64, length: usize) -> bool {
-        if length == 0 || length > hk_server_api::vfs::VFS_BUFFER_LEN {
+        if length == 0 || length > hk_proto::vfs::VFS_BUFFER_LEN {
             return false;
         }
         let Some((region, virt)) = map_attach(handle) else {

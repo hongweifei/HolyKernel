@@ -11,6 +11,7 @@ name = "hk-server-display-restart-test"
 path = "src/main.rs"
 
 [dependencies]
+hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 
 [build-dependencies]

@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::console::Client;
+use hk_proto::console::Client;
 #[cfg(target_os = "none")]
 use hk_server_api::{boot_cmdline, exit, write};
 

@@ -14,15 +14,15 @@ use hk_driver_virtio::{Device, probe};
 #[cfg(target_os = "none")]
 use hk_hal::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
-#[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::net::{
+use hk_proto::net::{
     NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_IRQ,
     NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX_REFILL, NET_SHUTDOWN, NET_TX, NET_TX_DONE,
     NET_TX_FRAME, net_rx_index, net_tx_index, net_tx_length,
 };
+#[cfg(target_os = "none")]
+use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
+#[cfg(target_os = "none")]
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, msi_bind, recv_data_try, recv_handle, self_notification, send,

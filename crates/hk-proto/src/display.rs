@@ -70,7 +70,7 @@ pub fn set_title(display: u64, window: u64, title: &str) {
         length -= 1;
     }
     buffer[8..8 + length].copy_from_slice(&title.as_bytes()[..length]);
-    let _ = crate::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
+    let _ = hk_server_api::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
 }
 
 /// 把表面坐标矩形编码为 4 个小端 u16。

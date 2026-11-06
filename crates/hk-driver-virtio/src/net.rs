@@ -8,7 +8,7 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_server_api::net::{NET_SHARED_RX, NET_SHARED_TX};
+use hk_proto::net::{NET_SHARED_RX, NET_SHARED_TX};
 use spin::Mutex;
 use virtio_drivers::device::net::VirtIONetRaw;
 use virtio_drivers::transport::pci::PciTransport;

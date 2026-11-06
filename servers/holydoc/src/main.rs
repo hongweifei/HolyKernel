@@ -31,15 +31,15 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN,
     DISPLAY_WHEEL, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE,
     pack_size, pack_window_size, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
+use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::input::{Decoder, Key};
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, close_handle, exit, map_new, recv, recv_data_try, region_unmap, send,

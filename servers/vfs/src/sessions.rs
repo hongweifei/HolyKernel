@@ -3,7 +3,7 @@
 use alloc::collections::BTreeMap;
 
 use hk_fs::{DocId, HandleRights, RevisionId, Token, TokenTable};
-use hk_server_api::vfs::{STATUS_NOT_FOUND, STATUS_STALE};
+use hk_proto::vfs::{STATUS_NOT_FOUND, STATUS_STALE};
 
 /// 文档令牌表。
 #[cfg(target_os = "none")]
@@ -82,7 +82,7 @@ impl Sessions {
         token: u64,
         drive: u8,
     ) -> Result<u64, u8> {
-        use hk_server_api::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_PERMISSION};
+        use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_PERMISSION};
 
         if from == to {
             return Err(STATUS_INVALID);

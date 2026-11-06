@@ -1,7 +1,7 @@
 //! 共享帧路径：分配、DMA 登记、附加与收发搬运。
 
 use hk_driver_virtio::{Network, register_mapping};
-use hk_server_api::net::{
+use hk_proto::net::{
     NET_MAPPING_ATTACH, NET_MAPPING_ROLE_RX, NET_MAPPING_ROLE_TX, NET_RX, NET_RX_FRAME,
     NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, net_mapping_word, net_rx_word,
 };

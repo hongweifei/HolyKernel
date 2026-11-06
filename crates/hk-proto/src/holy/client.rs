@@ -1,7 +1,7 @@
 //! 固定缓冲 Holy 文档客户端。
 
-use crate::vfs::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
-use crate::{recv_data_from, send_data, service_endpoint};
+use crate::status::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
+use hk_server_api::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
     DocumentView, MaintenanceView, QuotaView, VolumeView, decode_doc_id, decode_document,

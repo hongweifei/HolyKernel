@@ -3,7 +3,7 @@
 #![cfg(target_os = "none")]
 
 use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, Quota, RevisionId};
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId as WireDocId, DocumentView, DriveView, KIND_COLLECTION, KIND_CONTENT, MaintenanceView,
     OP_ABORT_STAGING, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_COMMIT_STAGING,
     OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN,
@@ -19,7 +19,7 @@ use hk_server_api::holy::{
     encode_maintenance, encode_quota, encode_revision, encode_revision_id, encode_snapshot,
     encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
-use hk_server_api::vfs::{
+use hk_proto::vfs::{
     STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
     STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
 };
@@ -524,7 +524,7 @@ pub(crate) fn handle(
             let quota = drive.quota();
             encode_quota_response(
                 body,
-                hk_server_api::holy::QuotaView {
+                hk_proto::holy::QuotaView {
                     documents: quota.documents,
                     bytes: quota.bytes,
                     revisions: quota.revisions,
@@ -673,7 +673,7 @@ fn encode_token_response(body: &mut [u8], token: u64) -> (u8, usize) {
     }
 }
 
-fn encode_quota_response(body: &mut [u8], view: hk_server_api::holy::QuotaView) -> (u8, usize) {
+fn encode_quota_response(body: &mut [u8], view: hk_proto::holy::QuotaView) -> (u8, usize) {
     match encode_quota(body, view) {
         Some(length) => (STATUS_OK, length),
         None => (STATUS_ERROR, 0),

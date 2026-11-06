@@ -7,7 +7,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_KEY, DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD,
     SEAT_SET_CLIPBOARD, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE,
     SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, pack_size, pack_surface_rect, unpack_key,
@@ -29,10 +29,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let first_surface = create_surface(display, endpoint, 320, 200, 0x0033_99FF, 0x0008_1018);
     let first = create_window(display, endpoint, first_surface);
-    hk_server_api::display::set_title(display, first, "Window 1");
+    hk_proto::display::set_title(display, first, "Window 1");
     let second_surface = create_surface(display, endpoint, 280, 180, 0x00FF_9933, 0x0020_1008);
     let second = create_window(display, endpoint, second_surface);
-    hk_server_api::display::set_title(display, second, "Window 2");
+    hk_proto::display::set_title(display, second, "Window 2");
 
     // 第一个窗口只提交一块局部 damage，验证按区域重绘。
     let _ = send_data(

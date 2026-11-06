@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::display::{
+use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
     SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size,
     pack_window_size, set_title, unpack_window_size,

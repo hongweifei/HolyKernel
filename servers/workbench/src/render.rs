@@ -5,7 +5,7 @@ use alloc::string::String;
 
 use hk_canvas::{Rect, Surface, text_width};
 use hk_font::Font;
-use hk_server_api::holy::KIND_COLLECTION;
+use hk_proto::holy::KIND_COLLECTION;
 
 use crate::model::{Focus, Model, line_column};
 

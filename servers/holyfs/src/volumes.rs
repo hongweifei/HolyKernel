@@ -11,7 +11,7 @@ use hk_block::{BlockDevice, DiskSlice};
 use hk_fs_holyfs::{
     DocId, HolyError, HolyFs, VolumeId, format_with_volume_id, is_formatted, volume_id_for_drive,
 };
-use hk_server_api::vfs::{
+use hk_proto::vfs::{
     STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
     STATUS_STALE,
 };

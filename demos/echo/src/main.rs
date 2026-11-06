@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_server_api::echo::{
+use hk_proto::echo::{
     WORK_DONE, WORK_REQUEST, WORK_RESPONSE, WORK_ROUNDS, WORK_STATS, WORK_STATS_RESPONSE,
 };
 #[cfg(target_os = "none")]

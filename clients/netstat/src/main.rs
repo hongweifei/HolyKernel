@@ -7,7 +7,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::net::{
+use hk_proto::net::{
     ArpTable, NET_ARP_BYTES, NET_ARP_REQUEST, NET_ARP_RESPONSE, NET_CONFIG_BYTES,
     NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_STATUS_BYTES, NET_STATUS_REQUEST,
     NET_STATUS_RESPONSE, NetConfig, NetStatus,

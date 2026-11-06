@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_server_api::holy::{
+use hk_proto::holy::{
     DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, decode_doc_ids, decode_entries, decode_tags,
 };
 use hk_server_api::{service_endpoint, write, write_u64};

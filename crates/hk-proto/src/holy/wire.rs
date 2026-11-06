@@ -1,9 +1,9 @@
 //! 线上请求标签、操作码、权利位与记录长度。
 
 /// 请求标签。
-pub const HOLY_REQUEST: u64 = 0x800;
+pub const HOLY_REQUEST: u64 = 0xF00;
 /// 响应标签。
-pub const HOLY_RESPONSE: u64 = 0x801;
+pub const HOLY_RESPONSE: u64 = 0xF01;
 
 /// 按 DocPath 枚举集合。
 pub const OP_ENUMERATE: u8 = 1;

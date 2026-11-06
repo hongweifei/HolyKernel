@@ -3,7 +3,7 @@
 use alloc::format;
 
 use hk_canvas::Surface;
-use hk_server_api::display::{SURFACE_COMMIT, SURFACE_FRAME_DONE, set_title};
+use hk_proto::display::{SURFACE_COMMIT, SURFACE_FRAME_DONE, set_title};
 use hk_server_api::{recv, send};
 
 use crate::document::DocView;

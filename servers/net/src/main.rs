@@ -13,9 +13,7 @@ use core::net::Ipv4Addr;
 #[cfg(target_os = "none")]
 use hk_net::{DnsQueryType, Stack};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
-use hk_server_api::net::{
+use hk_proto::net::{
     ArpRecord, ArpTable, NET_ARP_BYTES, NET_ARP_MAX, NET_ARP_REQUEST, NET_ARP_RESPONSE,
     NET_CONFIG_BYTES, NET_CONFIG_MAX_DNS, NET_CONFIG_REQUEST, NET_CONFIG_RESPONSE, NET_FRAME_MAX,
     NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL_DONE, NET_RX,
@@ -23,10 +21,12 @@ use hk_server_api::net::{
     NetConfig, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::socket::{
+use hk_proto::socket::{
     SOCK_CLOSE, SOCK_CONNECT, SOCK_OPEN, SOCK_RECV, SOCK_RESOLVE, SOCK_SEND, SOCK_UDP_RECV,
     SOCK_UDP_SEND,
 };
+#[cfg(target_os = "none")]
+use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     exit, notify, recv_data, recv_data_handle, send, send_data, tsc, tsc_frequency, write,
