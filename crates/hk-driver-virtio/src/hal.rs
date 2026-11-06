@@ -60,6 +60,11 @@ pub fn bind(grant: u64, descriptor: DeviceGrant) {
     *GRANT_DESC.lock() = Some(descriptor);
 }
 
+/// 当前驱动实例的设备授权描述。
+pub fn grant_descriptor() -> Option<DeviceGrant> {
+    *GRANT_DESC.lock()
+}
+
 /// `virtio-drivers` 在当前任务内的 HAL 实现。
 pub struct HalImpl;
 
