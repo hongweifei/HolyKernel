@@ -224,6 +224,17 @@ impl Notification {
 - 阻塞语义仍由内核对象承担；执行器负责把多个等待点组合到同一线程。
 - 执行器不持有内核资源，服务退出时随线程一起消失。
 
+### 5.4 线程与同步库
+
+`hk-thread` 提供线程生命周期：`spawn`/`spawn_raw` 从 Arena 分配栈并调用 `SYS_THREAD_CREATE`，`JoinHandle::join` 等待退出，`sleep_ticks` 经执行器等待 tick。
+
+`hk-sync` 在共享内存字与 futex 上提供 `Mutex`、`Condvar`、`RwLock` 与 `Once`：
+
+- 无竞争时只做原子比较交换，发生竞争才挂起线程。
+- `Condvar::wait` 释放互斥量、等待序号变化后重新加锁；`notify_one`/`notify_all` 递增序号并唤醒。
+- 读写锁用互斥量保护读计数与写者状态，写者等待时新读者让出。
+- 线程在退出前必须释放守卫；带着守卫退出会让锁保持占用。
+
 ---
 
 ## 6. 同步
