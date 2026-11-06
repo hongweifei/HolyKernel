@@ -21,7 +21,13 @@ static GRANT_DESC: Mutex<Option<DeviceGrant>> = Mutex::new(None);
 static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
 static ALLOCATIONS: Mutex<Vec<Allocation>> = Mutex::new(Vec::new());
 static FRAMES: Mutex<Vec<FrameRegion>> = Mutex::new(Vec::new());
-static MMIO: Mutex<Vec<Option<u64>>> = Mutex::new(Vec::new());
+static MMIO: Mutex<Vec<MmioMapping>> = Mutex::new(Vec::new());
+
+struct MmioMapping {
+    grant: u64,
+    index: usize,
+    virt: u64,
+}
 
 struct Shared {
     phys: u64,
@@ -63,6 +69,11 @@ pub fn bind(grant: u64, descriptor: DeviceGrant) {
 /// 当前驱动实例的设备授权描述。
 pub fn grant_descriptor() -> Option<DeviceGrant> {
     *GRANT_DESC.lock()
+}
+
+/// 当前驱动实例的设备授权句柄。
+pub fn grant_handle() -> u64 {
+    GRANT.load(Ordering::Acquire)
 }
 
 /// `virtio-drivers` 在当前任务内的 HAL 实现。
@@ -206,17 +217,19 @@ unsafe impl Hal for HalImpl {
 }
 
 /// 返回指定 MMIO BAR 的自动映射地址；首次访问时映射并缓存。
+///
+/// 同一进程可能持有多个设备授权，因此缓存以 `(授权, BAR)` 为键。
 pub(crate) fn mmio_virt(grant: u64, descriptor: &DeviceGrant, index: usize) -> Option<u64> {
     let mut mmio = MMIO.lock();
-    if let Some(Some(virt)) = mmio.get(index) {
-        return Some(*virt);
+    if let Some(mapping) = mmio
+        .iter()
+        .find(|mapping| mapping.grant == grant && mapping.index == index)
+    {
+        return Some(mapping.virt);
     }
     descriptor.mmio.get(index).copied().flatten()?;
     let virt = device_map(grant, index as u64)?;
-    while mmio.len() <= index {
-        mmio.push(None);
-    }
-    mmio[index] = Some(virt);
+    mmio.push(MmioMapping { grant, index, virt });
     Some(virt)
 }
 

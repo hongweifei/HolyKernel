@@ -7,11 +7,12 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use hk_block::{AsyncBlockDevice, BlockDevice, BlockError};
+use hk_hal::DeviceGrant;
 use spin::Mutex;
 use virtio_drivers::device::blk::{BlkReq, BlkResp, SECTOR_SIZE, VirtIOBlk};
 use virtio_drivers::transport::pci::PciTransport;
 
-use crate::hal::HalImpl;
+use crate::hal::{self, HalImpl};
 
 /// 一条已提交、等待设备完成的请求。
 struct Pending {
@@ -27,6 +28,8 @@ struct Pending {
 pub struct Block {
     block: Mutex<VirtIOBlk<HalImpl, PciTransport>>,
     pending: Mutex<Vec<Pending>>,
+    grant: u64,
+    descriptor: DeviceGrant,
 }
 
 impl Block {
@@ -34,11 +37,19 @@ impl Block {
         Self {
             block: Mutex::new(block),
             pending: Mutex::new(Vec::new()),
+            grant: hal::grant_handle(),
+            descriptor: hal::grant_descriptor().expect("probe 未绑定设备授权"),
         }
+    }
+
+    /// 切回本设备的授权；同一进程里的多个设备共享 HAL 状态。
+    fn activate(&self) {
+        hal::bind(self.grant, self.descriptor);
     }
 
     /// 启用设备中断；完成时设备会向授权 IRQ 线发信号。
     pub fn enable_interrupts(&self) {
+        self.activate();
         self.block.lock().enable_interrupts();
     }
 
@@ -52,6 +63,7 @@ impl Block {
         if length == 0 || !length.is_multiple_of(SECTOR_SIZE) {
             return Err(BlockError::InvalidLength);
         }
+        self.activate();
         let mut request = Box::new(BlkReq::default());
         let mut response = Box::new(BlkResp::default());
         let token = {
@@ -85,10 +97,12 @@ impl BlockDevice for Block {
     }
 
     fn capacity_blocks(&self) -> u64 {
+        self.activate();
         self.block.lock().capacity()
     }
 
     fn read_blocks(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        self.activate();
         self.block
             .lock()
             .read_blocks(block as usize, buffer)
@@ -97,6 +111,7 @@ impl BlockDevice for Block {
     }
 
     fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        self.activate();
         self.block
             .lock()
             .write_blocks(block as usize, data)
@@ -105,6 +120,7 @@ impl BlockDevice for Block {
     }
 
     fn flush(&mut self) -> Result<(), BlockError> {
+        self.activate();
         self.block.lock().flush().map_err(map_error)
     }
 }
@@ -123,6 +139,7 @@ impl AsyncBlockDevice for Block {
     }
 
     fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)> {
+        self.activate();
         let token = self.block.lock().peek_used()?;
         let mut pending = self.pending.lock();
         let index = pending.iter().position(|entry| entry.token == token)?;
@@ -148,6 +165,7 @@ impl AsyncBlockDevice for Block {
     }
 
     fn ack_interrupt(&mut self) {
+        self.activate();
         self.block.lock().ack_interrupt();
     }
 }
