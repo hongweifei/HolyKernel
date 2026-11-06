@@ -203,6 +203,7 @@ impl Notification {
 - `SYS_FUTEX_WAIT(address, expected)` 与 `SYS_FUTEX_WAKE(address, count)` 以共享内存字为键挂起与唤醒线程，地址按进程归属区分。
 - 线程共享页表与 Arena；创建时把当前句柄对象授予新 TCB，之后新开的句柄只对所属线程可见。
 - IPC 的接收者身份由进程主线程承担；线程专注计算、共享内存与 futex 同步。
+- `SYS_FAULT_SUBSCRIBE(endpoint)` 注册异常出口；内核把原始现场作为 `FAULT_EVENT` 投递给订阅端点，不保存异常内容，由 `hk-debug`/Debug Server 缓存与符号化。
 
 ### 5.2 协程
 
