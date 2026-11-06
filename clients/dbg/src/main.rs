@@ -50,8 +50,17 @@ fn print(title: &str, op: u64) {
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(_endpoint: u64) -> ! {
+pub extern "C" fn _start(endpoint: u64) -> ! {
+    let _ = hk_server_api::fault_subscribe(endpoint);
     write(b"hk-server-dbg: ready\n");
+    let mut events = [0_u8; 2048];
+    for _ in 0..64 {
+        let (label, _word, _sender, length) = hk_server_api::recv_data_try(endpoint, &mut events);
+        if label != 0 {
+            hk_debug::ingest(label, &events[..length]);
+        }
+        let _ = hk_server_api::yield_now();
+    }
     print("tasks", ROOT_OP_TASKS);
     print("handles", ROOT_OP_HANDLES);
     print("services", ROOT_OP_SERVICES);

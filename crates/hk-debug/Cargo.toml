@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+spin = "0.9"
 
 [lints]
 workspace = true

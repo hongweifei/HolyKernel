@@ -16,7 +16,12 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_server_api::root::{ROOT_OP_FAULT, ROOT_OP_LOOKUP, call};
+use hk_server_api::FAULT_EVENT;
+use hk_server_api::root::{ROOT_OP_LOOKUP, call};
+use spin::Mutex;
+
+/// 最近一次由内核投递的异常现场。
+static LAST: Mutex<Option<String>> = Mutex::new(None);
 
 /// Root 控制缓冲长度：一次批量查询足以容纳数十个符号名。
 const CONTROL_BUFFER: usize = 16 * 1024;
@@ -100,9 +105,21 @@ pub fn symbolize(service: &str, address: u64) -> String {
     }
 }
 
+/// 接收内核投递的异常事件；供服务事件循环调用。
+pub fn ingest(label: u64, data: &[u8]) {
+    if label != FAULT_EVENT {
+        return;
+    }
+    let text = String::from_utf8_lossy(data).into_owned();
+    *LAST.lock() = Some(text);
+}
+
 /// 读取并格式化最近一次用户异常。
 pub fn fault_text() -> String {
-    let raw = raw_fault();
+    let raw = match LAST.lock().as_ref() {
+        Some(text) => text.clone(),
+        None => return String::from("无异常记录\n"),
+    };
     if raw.trim() == "none" {
         return String::from("无异常记录\n");
     }
@@ -153,14 +170,6 @@ pub fn fault_text() -> String {
         text.push_str(&format!("  #{index} {line}\n"));
     }
     text
-}
-
-fn raw_fault() -> String {
-    let mut buffer = [0_u8; CONTROL_BUFFER];
-    match call(ROOT_OP_FAULT, "", &mut buffer) {
-        Ok(length) => String::from_utf8_lossy(&buffer[..length.min(buffer.len())]).into_owned(),
-        Err(code) => format!("Root 控制失败：{code}\n"),
-    }
 }
 
 struct Fault {

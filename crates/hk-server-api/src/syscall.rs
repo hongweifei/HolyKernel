@@ -261,6 +261,12 @@ pub fn thread_join(thread: u64) -> u64 {
     unsafe { syscall_call(SYS_THREAD_JOIN, thread, 0, 0, 0).value }
 }
 
+/// 注册端点接收内核投递的原始异常现场；成功返回 0。
+pub fn fault_subscribe(endpoint: u64) -> u64 {
+    // SAFETY: 端点编号由内核分配；内核校验句柄后登记订阅。
+    unsafe { syscall_call(SYS_FAULT_SUBSCRIBE, endpoint, 0, 0, 0).value }
+}
+
 /// 设置当前线程的 TLS 基址。
 pub fn thread_set_tls(tls: u64) -> u64 {
     // SAFETY: 只写当前 CPU 的线程指针寄存器。

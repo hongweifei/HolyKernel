@@ -34,7 +34,7 @@ use hk_server_api::root::{
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::list_mounts;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_try, send_data, write, write_u64, yield_now};
+use hk_server_api::{exit, fault_subscribe, recv_data_try, send_data, write, write_u64, yield_now};
 #[cfg(target_os = "none")]
 use hk_shell::{
     Command, RuntimeStats, ServiceInfo, Session, ShellHost, ShellIo, TaskInfo, TraceEvent,
@@ -117,7 +117,10 @@ impl ShellHost for UserHost {
     fn extension(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
             "mounts" => Some(mount_text(self.endpoint)),
-            "debug" => Some(hk_debug::fault_text()),
+            "debug" => {
+                pump_faults(self.endpoint);
+                Some(hk_debug::fault_text())
+            }
             "replace" => Some(root_text(ROOT_OP_REPLACE, args)),
             "checkpoint" => Some(root_text(ROOT_OP_CHECKPOINT, args)),
             "restore-checkpoint" => Some(root_text(ROOT_OP_RESTORE_CHECKPOINT, args)),
@@ -204,6 +207,19 @@ fn run_command(io: &ConsoleIo, host: &mut UserHost, session: &mut Session, line:
     false
 }
 
+/// 取走已投递的异常事件，交给用户态调试存储。
+#[cfg(target_os = "none")]
+fn pump_faults(endpoint: u64) {
+    let mut buffer = [0_u8; 2048];
+    loop {
+        let (label, _word, _sender, length) = recv_data_try(endpoint, &mut buffer);
+        if label == 0 {
+            break;
+        }
+        hk_debug::ingest(label, &buffer[..length]);
+    }
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -216,6 +232,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-shell: console handshake timeout\n");
         exit(1)
     }
+    let _ = fault_subscribe(endpoint);
 
     let io = ConsoleIo { console };
     let mut host = UserHost { endpoint };
@@ -246,6 +263,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     io.write("HolyShell（用户态）\n");
 
     loop {
+        pump_faults(endpoint);
         io.write("hk> ");
         let line = io.read_line();
         let line = line.trim();

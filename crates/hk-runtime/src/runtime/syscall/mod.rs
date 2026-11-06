@@ -68,6 +68,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_THREAD_SET_TLS => self.thread_set_tls(index, frame),
             SYS_FUTEX_WAIT => self.futex_wait(index, tcb, frame),
             SYS_FUTEX_WAKE => self.futex_wake(index, frame),
+            SYS_FAULT_SUBSCRIBE => self.fault_subscribe(index, frame),
             SYS_YIELD => {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;

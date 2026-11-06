@@ -13,16 +13,16 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME, SYS_CONSOLE_READ,
-    SYS_CONSOLE_SUBSCRIBE, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC,
-    SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_UNMAP, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT,
-    SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND,
-    SYS_KERNEL_STATS, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA,
-    SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY,
-    SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS,
-    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
+    FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME,
+    SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO,
+    SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FAULT_SUBSCRIBE,
+    SYS_FORK, SYS_FRAME_ALLOC, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_UNMAP,
+    SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE,
+    SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS, SYS_NOTIFY,
+    SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE,
+    SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
+    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN,
+    SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -72,6 +72,8 @@ pub struct UserRuntime<C, P> {
     joiners: Vec<(TcbId, TcbId)>,
     /// 共享内存字上的等待者：(进程主线程槽位, 地址, 线程)。
     futex_waiters: Vec<(usize, u64, TcbId)>,
+    /// 异常事件订阅者：(任务槽位, 端点句柄)。
+    fault_subscribers: Vec<(usize, Handle)>,
     current: [Option<usize>; MAX_CPUS],
     pending_exits: Vec<(String, u64)>,
     last_finish: Option<u64>,
@@ -109,6 +111,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             checkpoints: Vec::new(),
             joiners: Vec::new(),
             futex_waiters: Vec::new(),
+            fault_subscribers: Vec::new(),
             current: [None; MAX_CPUS],
             pending_exits: Vec::new(),
             last_finish: None,
@@ -167,6 +170,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 取走待同步的服务退出记录。
     pub fn take_exits(&mut self) -> Vec<(String, u64)> {
         core::mem::take(&mut self.pending_exits)
+    }
+
+    /// 把原始异常现场投递给所有订阅者；失效的订阅会被移除。
+    ///
+    /// 内核只保留订阅关系，不保存异常内容；订阅者自行缓存与符号化。
+    pub fn deliver_fault_event(&mut self, payload: &[u8]) {
+        let alive: Vec<bool> = self.tasks.iter().map(|task| !task.exited).collect();
+        let message = Message {
+            label: FAULT_EVENT,
+            words: [0; hk_ipc::MAX_MESSAGE_WORDS],
+            data: Vec::from(payload),
+            handles: [None; hk_ipc::MAX_MESSAGE_HANDLES],
+        };
+        let subscribers = core::mem::take(&mut self.fault_subscribers);
+        for (slot, handle) in subscribers {
+            if !alive.get(slot).copied().unwrap_or(false) {
+                continue;
+            }
+            let tcb = self.tasks[slot].tcb;
+            if self.kernel.handle_id(tcb, handle).is_ok() {
+                let _ = self.kernel.send(tcb, handle, message.clone());
+                self.fault_subscribers.push((slot, handle));
+            }
+        }
     }
 
     /// 返回 Root 线程编号。

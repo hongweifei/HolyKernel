@@ -17,6 +17,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .flatten()
     }
 
+    /// 登记端点接收内核投递的原始异常现场。
+    pub(crate) fn fault_subscribe(&mut self, index: usize, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !self
+            .fault_subscribers
+            .iter()
+            .any(|(slot, existing)| *slot == index && *existing == handle)
+        {
+            self.fault_subscribers.push((index, handle));
+        }
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     /// 把随消息收到的句柄加入任务额外句柄表，返回编号；没有句柄时为 0。
     pub(crate) fn close_handle(&mut self, index: usize, tcb: TcbId, endpoint: usize) -> u64 {
         let Some(handle) = self.handle_at(index, endpoint) else {

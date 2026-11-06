@@ -1,7 +1,7 @@
-//! 符号表与用户异常回溯。
+//! 符号表与用户异常现场格式化。
 //!
-//! 平台提供符号表字节、异常现场与用户内存访问；本模块负责解析、记录与
-//! 格式化，保持调试能力与具体架构无关。
+//! 平台提供符号表字节、异常现场与用户内存访问；本模块负责解析与生成原始
+//! 现场文本。异常内容不驻留内核，由订阅者（用户态调试服务）保存与符号化。
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -20,21 +20,7 @@ struct Symbol {
     name: &'static str,
 }
 
-struct Record {
-    task: String,
-    kind: &'static str,
-    vector: u64,
-    error: u64,
-    address: u64,
-    rip: u64,
-    rbp: u64,
-    rsp: u64,
-    backtrace: Vec<u64>,
-    stack: Vec<u64>,
-}
-
 static SYMBOLS: Mutex<Vec<Symbol>> = Mutex::new(Vec::new());
-static LAST: Mutex<Option<Record>> = Mutex::new(None);
 
 /// 异常现场。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,8 +107,8 @@ pub fn symbolize_list(argument: &str) -> String {
     text
 }
 
-/// 记录一次用户异常；只保存原始现场，符号化由用户态调试服务完成。
-pub fn record<M: Memory>(task: &str, context: FaultContext, memory: &M) {
+/// 生成一次用户异常的原始现场文本；符号化由用户态调试服务完成。
+pub fn format_record<M: Memory>(task: &str, context: FaultContext, memory: &M) -> String {
     let mut backtrace = Vec::new();
     backtrace.push(context.rip);
 
@@ -160,42 +146,22 @@ pub fn record<M: Memory>(task: &str, context: FaultContext, memory: &M) {
         address = address.wrapping_add(8);
     }
 
-    *LAST.lock() = Some(Record {
-        task: String::from(task),
-        kind: context.kind,
-        vector: context.vector,
-        error: context.error,
-        address: context.address,
-        rip: context.rip,
-        rbp: context.rbp,
-        rsp: context.rsp,
-        backtrace,
-        stack,
-    });
-}
-
-/// 输出最近一次异常的原始现场；格式化与符号化在用户态完成。
-pub fn last_text() -> String {
-    let guard = LAST.lock();
-    let Some(record) = guard.as_ref() else {
-        return String::from("none\n");
-    };
     let mut text = format!(
         "task={}\nkind={}\nvector={}\nerror={:#x}\naddress={:#x}\nrip={:#x}\nrbp={:#x}\nrsp={:#x}\n",
-        record.task,
-        record.kind,
-        record.vector,
-        record.error,
-        record.address,
-        record.rip,
-        record.rbp,
-        record.rsp
+        task,
+        context.kind,
+        context.vector,
+        context.error,
+        context.address,
+        context.rip,
+        context.rbp,
+        context.rsp
     );
     text.push_str("backtrace=");
-    push_hex_list(&mut text, &record.backtrace);
+    push_hex_list(&mut text, &backtrace);
     text.push('\n');
     text.push_str("stack=");
-    push_hex_list(&mut text, &record.stack);
+    push_hex_list(&mut text, &stack);
     text.push('\n');
     text
 }

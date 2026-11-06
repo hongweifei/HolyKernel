@@ -38,7 +38,9 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
+use hk_server_api::{
+    exit, fault_subscribe, frame_alloc, recv, recv_data, send, send_handle, write, write_u64,
+};
 
 #[cfg(target_os = "none")]
 use model::{EditorKey, Focus, Model, VISIBLE_LINES, line_text};
@@ -57,8 +59,13 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 fn commit(endpoint: u64, display: u64, surface: u64) {
     let _ = send(display, SURFACE_COMMIT, surface);
+    let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender) = recv(endpoint);
+        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, &buffer[..length]);
+            continue;
+        }
         if label == SURFACE_FRAME_DONE && word == surface {
             return;
         }
@@ -298,6 +305,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let font = Font::new(16);
     let pixels = SURFACE_VIRT as *mut u32;
+    let _ = fault_subscribe(endpoint);
     let mut model = Box::new(Model::new(endpoint));
     show(&model, &font, pixels, endpoint, display, surface, window);
     write(b"hk-server-workbench: ready ");
@@ -317,8 +325,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut decoder = Decoder::new();
+    let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender) = recv(endpoint);
+        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, &buffer[..length]);
+            continue;
+        }
         let redraw = match label {
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);

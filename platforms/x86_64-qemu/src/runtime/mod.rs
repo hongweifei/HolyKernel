@@ -491,7 +491,7 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
         cpu::fault_address(),
         frame.rip
     ));
-    RUNTIME.record_fault(
+    RUNTIME.deliver_fault(
         cpu::cpu_index(),
         hk_root_server::debug::FaultContext {
             kind: cpu::exception_name(frame.vector),

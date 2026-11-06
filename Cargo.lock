@@ -242,6 +242,7 @@ name = "hk-debug"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "spin",
 ]
 
 [[package]]

@@ -82,20 +82,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         debug::install_symbols(bytes);
     }
 
-    /// 记录一次用户异常；只保存原始现场。
-    pub fn record_fault(&self, cpu: usize, context: FaultContext) {
+    /// 把用户异常原始现场投递给已订阅的端点。
+    pub fn deliver_fault(&self, cpu: usize, context: FaultContext) {
         let task = self
             .current_task_name(cpu)
             .unwrap_or_else(|| String::from("?"));
-        let guard = self.runtime.lock();
-        if let Some(runtime) = guard.as_ref() {
-            debug::record(&task, context, &RuntimeMemory(runtime));
+        let mut guard = self.runtime.lock();
+        if let Some(runtime) = guard.as_mut() {
+            let text = {
+                let memory = RuntimeMemory(runtime);
+                debug::format_record(&task, context, &memory)
+            };
+            runtime.deliver_fault_event(text.as_bytes());
         }
-    }
-
-    /// 返回最近一次异常的原始现场。
-    pub fn last_fault(&self) -> String {
-        debug::last_text()
     }
 
     /// 符号化地址列表。

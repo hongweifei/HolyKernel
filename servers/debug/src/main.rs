@@ -30,7 +30,10 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, frame_alloc, kernel_stats, recv, send, send_handle, write, write_u64};
+use hk_server_api::{
+    exit, fault_subscribe, frame_alloc, kernel_stats, recv, recv_data, recv_data_try, send,
+    send_handle, write, write_u64,
+};
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use pages::Page;
@@ -49,8 +52,13 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 fn commit(endpoint: u64, display: u64, surface: u64) {
     let _ = send(display, SURFACE_COMMIT, surface);
+    let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender) = recv(endpoint);
+        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, &buffer[..length]);
+            continue;
+        }
         if label == SURFACE_FRAME_DONE && word == surface {
             return;
         }
@@ -145,6 +153,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     let fault_test = cmdline.contains("debug-crash");
     let test = fault_test || cmdline.contains("debug-test");
+    let _ = fault_subscribe(endpoint);
     if test {
         let base =
             u64::from_str_radix(env!("HK_IMAGE_BASE").trim_start_matches("0x"), 16).unwrap_or(0);
@@ -166,12 +175,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
             }
             let mut fault = Page::Fault.fetch();
+            let mut buffer = [0_u8; 2048];
             for _ in 0..100_000 {
+                let (label, _word, _sender, length) = recv_data_try(endpoint, &mut buffer);
+                if label == hk_server_api::FAULT_EVENT {
+                    hk_debug::ingest(label, &buffer[..length]);
+                }
+                fault = Page::Fault.fetch();
                 if fault.contains("异常：") {
                     break;
                 }
                 let _ = hk_server_api::yield_now();
-                fault = Page::Fault.fetch();
             }
             show(
                 Page::Fault,
@@ -216,8 +230,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut keys = Decoder::new();
+    let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender) = recv(endpoint);
+        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, &buffer[..length]);
+            continue;
+        }
         match label {
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);
