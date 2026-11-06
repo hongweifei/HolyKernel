@@ -193,6 +193,17 @@ impl Notification {
 
 内核只提供 TCB、VSpace、Endpoint、Notification、Frame 与 Handle；POSIX 语义在用户态完成。
 
+### 5.1 原生线程
+
+同地址空间线程已经落地，运行库提供以下系统调用：
+
+- `SYS_THREAD_CREATE(entry, stack_top, argument, tls)` 在进程 VSpace 内创建 TCB 并返回线程编号；栈与 TLS 块由调用方从 Arena 分配。
+- `SYS_THREAD_JOIN(thread)` 等待线程退出；等待期间当前线程由内核挂起，目标退出时唤醒。
+- `SYS_THREAD_SET_TLS(tls)` 设置当前线程的 TLS 基址；每次调度切换时运行库写入线程指针寄存器（x86_64 为 `IA32_FS_BASE`）。
+- `SYS_FUTEX_WAIT(address, expected)` 与 `SYS_FUTEX_WAKE(address, count)` 以共享内存字为键挂起与唤醒线程，地址按进程归属区分。
+- 线程共享页表与 Arena；创建时把当前句柄对象授予新 TCB，之后新开的句柄只对所属线程可见。
+- IPC 的接收者身份由进程主线程承担；线程专注计算、共享内存与 futex 同步。
+
 ---
 
 ## 6. 同步

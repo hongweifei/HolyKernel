@@ -220,10 +220,10 @@ sequenceDiagram
 
 ## 6. 线程
 
-- pthreads 映射到内核 TCB；每个线程拥有独立栈与 TLS。
-- `pthread_create` 由 musl 分配栈/TLS，通过 `hk-abi` 与 POSIX Server 创建 TCB。
-- `pthread_join` 通过 Notification/Endpoint 等待线程退出。
-- `pthread_mutex`/`cond`/`rwlock` 使用 futex 语义：共享 Frame + Notification。
+- 原生基础已落地：`SYS_THREAD_CREATE`/`SYS_THREAD_JOIN`/`SYS_THREAD_SET_TLS` 提供同地址空间线程、TLS 与等待，`SYS_FUTEX_WAIT`/`SYS_FUTEX_WAKE` 提供共享内存等待。
+- pthreads 映射到内核 TCB；每个线程拥有独立栈与 TLS，由 musl 分配后调用原生线程接口创建 TCB。
+- `pthread_join` 通过原生线程等待线程退出。
+- `pthread_mutex`/`cond`/`rwlock` 使用 futex 语义：共享 Frame + 原生 futex 等待/唤醒。
 - `pthread_cancel` 通过取消点与异常展开实现；musl 维护取消状态。
 - `pthread_key` 由 musl 的 TLS/析构表管理。
 
