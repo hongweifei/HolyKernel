@@ -1,0 +1,13 @@
+[package]
+name = "hk-canvas"
+description = "HolyKernel 像素绘制原语：表面、裁剪、填充、混合与文本"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lovyangfx-fonts = { version = "0.2", default-features = false }
+
+[lints]
+workspace = true

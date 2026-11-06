@@ -242,6 +242,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-canvas"
+version = "0.1.0"
+dependencies = [
+ "lovyangfx-fonts",
+]
+
+[[package]]
 name = "hk-checkpoint"
 version = "0.1.0"
 dependencies = [
@@ -283,6 +290,7 @@ dependencies = [
 name = "hk-font"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "lovyangfx-fonts",
  "spin",
  "ttf-parser",
@@ -485,6 +493,7 @@ version = "0.1.0"
 name = "hk-server-checkpoint"
 version = "0.1.0"
 dependencies = [
+ "hk-block",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -501,6 +510,7 @@ dependencies = [
 name = "hk-server-console"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "hk-server-api",
  "hk-server-build",
  "lovyangfx-fonts",
@@ -527,6 +537,7 @@ dependencies = [
 name = "hk-server-debug"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "hk-debug",
  "hk-font",
  "hk-server-api",
@@ -558,6 +569,7 @@ dependencies = [
 name = "hk-server-display"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "hk-font",
  "hk-server-api",
  "hk-server-build",
@@ -608,6 +620,7 @@ dependencies = [
 name = "hk-server-holydoc"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "hk-server-api",
  "hk-server-build",
  "hk-worker",
@@ -752,6 +765,7 @@ dependencies = [
 name = "hk-server-workbench"
 version = "0.1.0"
 dependencies = [
+ "hk-canvas",
  "hk-debug",
  "hk-font",
  "hk-server-api",

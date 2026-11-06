@@ -303,6 +303,18 @@ impl Font {
     }
 }
 
+impl hk_canvas::GlyphSource for Font {
+    fn advance(&self, character: char) -> i32 {
+        Font::advance(self, character)
+    }
+
+    fn for_each_pixel(&self, character: char, draw: impl FnMut(i32, i32)) {
+        if let Some(glyph) = self.glyph(character) {
+            glyph.for_each_pixel(draw);
+        }
+    }
+}
+
 struct Edge {
     x0: f32,
     y0: f32,
