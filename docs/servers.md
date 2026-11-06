@@ -116,6 +116,7 @@ pub struct ServiceManifest {
 
 - 驱动运行在用户态；通过 DeviceGrant 映射 MMIO、分配 DMA Frame、绑定 IRQ。
 - 中断通过 IRQHandler → Notification 交付驱动线程。
+- virtio-blk 完成走中断：驱动实现 `AsyncBlockDevice::ack_interrupt` 读取并清除设备中断状态，服务用 `serve_with_wait` 在有在途请求时等待通知而不是让出轮询；未绑定 IRQ 时自动回退轮询。
 - 驱动崩溃后由 Device Manager 或 Root Server 重启；设备状态重新初始化。
 
 ---
