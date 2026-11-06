@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 hk-drivers = { version = "0.1.0", path = "../../crates/hk-drivers" }
+hk-image = { version = "0.1.0", path = "../../crates/hk-image" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 
 [build-dependencies]

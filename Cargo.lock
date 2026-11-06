@@ -349,6 +349,7 @@ name = "hk-handle"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "hk-syscall",
 ]
 
 [[package]]
@@ -409,6 +410,7 @@ dependencies = [
  "hk-hal",
  "hk-handle",
  "hk-platform-hosted",
+ "hk-syscall",
  "spin",
 ]
 
@@ -565,6 +567,7 @@ name = "hk-server-device"
 version = "0.1.0"
 dependencies = [
  "hk-drivers",
+ "hk-image",
  "hk-server-api",
  "hk-server-build",
 ]

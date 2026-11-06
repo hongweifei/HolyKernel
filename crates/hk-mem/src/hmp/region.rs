@@ -14,17 +14,17 @@ bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct RegionFlags: u32 {
         /// 写时复制。
-        const COW = 1 << 0;
+        const COW = hk_syscall::REGION_FLAG_COW;
         /// guard 页。
-        const GUARD = 1 << 1;
+        const GUARD = hk_syscall::REGION_FLAG_GUARD;
         /// 固定驻留。
-        const PINNED = 1 << 2;
+        const PINNED = hk_syscall::REGION_FLAG_PINNED;
         /// 只读共享。
-        const SEALED = 1 << 3;
+        const SEALED = hk_syscall::REGION_FLAG_SEALED;
         /// fork 时不复制。
-        const DONT_FORK = 1 << 4;
+        const DONT_FORK = hk_syscall::REGION_FLAG_DONT_FORK;
         /// 可按需增长。
-        const GROW = 1 << 5;
+        const GROW = hk_syscall::REGION_FLAG_GROW;
     }
 }
 

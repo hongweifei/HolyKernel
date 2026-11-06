@@ -6,40 +6,17 @@ use hk_handle::ObjectId;
 
 use super::{HmpError, ProviderId};
 
+pub use hk_syscall::CapabilityKind;
+
 static NEXT_CAPABILITY_ID: AtomicU64 = AtomicU64::new(1);
 
-/// 可映射对象的类型。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CapabilityKind {
-    /// 文档修订。
-    Revision,
-    /// 显示表面。
-    Surface,
-    /// 原生任务镜像区域。
-    TaskImage,
-    /// 显存/DMA 分配。
-    DeviceAllocation,
-    /// 匿名内存。
-    Anonymous,
-    /// 物理页。
-    Frame,
+/// 能力类型对类型化操作的判定；编码与名称来自 ABI。
+trait CapabilityKindExt {
+    fn supports(self, operation: CapabilityOp) -> bool;
 }
 
-impl CapabilityKind {
-    /// 返回名称。
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Revision => "revision",
-            Self::Surface => "surface",
-            Self::TaskImage => "task-image",
-            Self::DeviceAllocation => "device-allocation",
-            Self::Anonymous => "anonymous",
-            Self::Frame => "frame",
-        }
-    }
-
-    /// 判断该类型是否支持一项类型化操作。
-    pub const fn supports(self, operation: CapabilityOp) -> bool {
+impl CapabilityKindExt for CapabilityKind {
+    fn supports(self, operation: CapabilityOp) -> bool {
         match operation {
             CapabilityOp::Map => true,
             CapabilityOp::Commit => matches!(self, Self::Revision),
@@ -156,7 +133,7 @@ impl Capability {
     }
 
     /// 判断是否支持一项类型化操作。
-    pub const fn allows(&self, operation: CapabilityOp) -> bool {
+    pub fn allows(&self, operation: CapabilityOp) -> bool {
         self.kind.supports(operation)
     }
 

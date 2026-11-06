@@ -403,9 +403,9 @@ pub fn self_notification() -> u64 {
 }
 
 /// 复制句柄并收窄权限，返回新句柄编号。
-pub fn handle_duplicate(number: u64, rights: u64) -> u64 {
+pub fn handle_duplicate(number: u64, rights: u32) -> u64 {
     // SAFETY: 内核校验句柄与权限后复制。
-    unsafe { syscall_call(SYS_HANDLE_DUPLICATE, number, rights, 0, 0).value }
+    unsafe { syscall_call(SYS_HANDLE_DUPLICATE, number, u64::from(rights), 0, 0).value }
 }
 
 /// 读取平台启动命令行；未提供时返回 `None`。

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 bitflags = { version = "2.6", default-features = false }
+hk-syscall = { version = "0.1.0", path = "../hk-syscall" }
 
 [lints]
 workspace = true

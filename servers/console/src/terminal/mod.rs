@@ -11,7 +11,7 @@ use hk_server_api::display::{
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    CAPABILITY_SURFACE, close_handle, map_new, recv_data_try, region_unmap, send, send_handle,
+    CapabilityKind, close_handle, map_new, recv_data_try, region_unmap, send, send_handle,
     service_endpoint, write, yield_now,
 };
 
@@ -373,7 +373,7 @@ impl Terminal {
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
         let bytes = width * height * 4;
-        let Some((handle, region, virt)) = map_new(CAPABILITY_SURFACE, bytes) else {
+        let Some((handle, region, virt)) = map_new(CapabilityKind::Surface, bytes) else {
             write(b"hk-server-console: resize frame failed\n");
             return;
         };
@@ -430,7 +430,8 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     if display == 0 {
         return None;
     }
-    let (handle, surface_region, surface_virt) = map_new(CAPABILITY_SURFACE, WIDTH * HEIGHT * 4)?;
+    let (handle, surface_region, surface_virt) =
+        map_new(CapabilityKind::Surface, WIDTH * HEIGHT * 4)?;
     if send_handle(
         display,
         SURFACE_CREATE,

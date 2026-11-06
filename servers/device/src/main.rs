@@ -11,9 +11,7 @@ use hk_drivers::grant::{DEVICE_GRANT_BYTES, DeviceGrant, from_device};
 #[cfg(target_os = "none")]
 use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
 #[cfg(target_os = "none")]
-#[used]
-#[unsafe(link_section = ".hk_service")]
-static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::device();
+hk_image::declare_service_role!(SERVICE_ROLE, hk_image::ServiceRole::device());
 
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]

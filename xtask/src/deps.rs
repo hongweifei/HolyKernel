@@ -72,6 +72,9 @@ const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
 /// 服务禁止依赖的类别。
 const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server", "hk-platform-"];
 
+/// 零依赖 crate：保持纯契约或纯库。
+const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall"];
+
 /// 检查所有工作区 crate 的常规依赖方向。
 pub fn run() -> Result<()> {
     let root = workspace::root();
@@ -130,9 +133,12 @@ fn check(path: &Path, violations: &mut Vec<String>) -> Result<()> {
         return Ok(());
     };
 
-    if name == "hk-shell" {
+    if ZERO_DEPENDENCY.contains(&name) {
         for dependency in dependencies.keys() {
-            violations.push(format!("  hk-shell 必须零依赖，但依赖了 {dependency}"));
+            violations.push(format!(
+                "  {name} 必须零依赖，但依赖了 {dependency}（{}）",
+                path.display()
+            ));
         }
         return Ok(());
     }
@@ -158,7 +164,9 @@ fn rules(name: &str) -> &'static [&'static str] {
             IMPL_FORBIDDEN
         }
         "hk-server-api" => &[
+            "hk-handle",
             "hk-kernel",
+            "hk-mem",
             "hk-runtime",
             "hk-root-server",
             "hk-platform-",

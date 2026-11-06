@@ -145,15 +145,15 @@ bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Rights: u32 {
         /// 读取对象、接收消息、等待通知、查询状态。
-        const READ = 1 << 0;
+        const READ = hk_syscall::RIGHT_READ;
         /// 修改对象、发送消息、映射可写 Frame。
-        const WRITE = 1 << 1;
+        const WRITE = hk_syscall::RIGHT_WRITE;
         /// 执行代码、映射可执行 Frame。
-        const EXECUTE = 1 << 2;
+        const EXECUTE = hk_syscall::RIGHT_EXECUTE;
         /// 通过 IPC 转移句柄。
-        const TRANSFER = 1 << 3;
+        const TRANSFER = hk_syscall::RIGHT_TRANSFER;
         /// 配置对象、duplicate、revoke_all。
-        const ADMIN = 1 << 4;
+        const ADMIN = hk_syscall::RIGHT_ADMIN;
     }
 }
 

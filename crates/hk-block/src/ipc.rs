@@ -22,7 +22,7 @@ use hk_server_api::block::{
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
-    CAPABILITY_ANONYMOUS, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle,
+    CapabilityKind, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle,
     handle_duplicate, map_attach, map_new, recv_data_handle, recv_data_handle_try, region_unmap,
     send, send_data, send_handle, service_endpoint, yield_now,
 };
@@ -172,7 +172,8 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].capability.is_none() {
-            let Some((number, region, virt)) = map_new(CAPABILITY_ANONYMOUS, BUFFER_LEN) else {
+            let Some((number, region, virt)) = map_new(CapabilityKind::Anonymous, BUFFER_LEN)
+            else {
                 return Err(STATUS_ERROR);
             };
             self.slots[slot].capability = Some(number);

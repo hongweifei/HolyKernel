@@ -62,10 +62,6 @@ pub(crate) fn read_image(path: &Path) -> Result<Vec<u8>> {
 /// 镜像内的符号表模块名。
 pub(crate) const SYMBOL_MODULE: &str = "kernel.sym";
 
-/// 服务角色元数据魔数。
-const SERVICE_ROLE_MAGIC: u32 = 0x484B_5352;
-/// 设备管理角色位。
-const SERVICE_ROLE_DEVICE: u32 = 1;
 /// 默认用户栈大小。
 const USER_STACK_SIZE: u32 = 512 * 1024;
 /// 默认 Arena 大小。
@@ -127,7 +123,7 @@ pub(crate) fn native_image(path: &Path) -> Result<Vec<u8>> {
             name,
         })
         .collect();
-    let capabilities = if role & SERVICE_ROLE_DEVICE != 0 {
+    let capabilities = if role & hk_image::ServiceRole::DEVICE != 0 {
         vec![CapabilityData {
             kind: CAP_DEVICE,
             rights: 3,
@@ -180,16 +176,10 @@ fn collect_symbols(binary: &Path, prefix: &str) -> Result<Vec<(u64, String)>> {
 
 fn service_role(file: &ElfFile<'_>) -> u32 {
     for section in file.section_iter() {
-        if section.get_name(file).ok() != Some(".hk_service") {
+        if section.get_name(file).ok() != Some(hk_image::SERVICE_ROLE_SECTION) {
             continue;
         }
-        let data = section.raw_data(file);
-        if let [a, b, c, d, e, f, g, h, ..] = data {
-            let magic = u32::from_le_bytes([*a, *b, *c, *d]);
-            if magic == SERVICE_ROLE_MAGIC {
-                return u32::from_le_bytes([*e, *f, *g, *h]);
-            }
-        }
+        return hk_image::ServiceRole::parse(section.raw_data(file));
     }
     0
 }

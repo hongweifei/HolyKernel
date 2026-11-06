@@ -1,51 +1,48 @@
 //! HMP 类型化能力与 Region 映射的系统调用封装。
 
-use crate::syscall_call;
-use crate::{
-    SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
-    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN,
-    SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC, SYS_LEDGER_INFO,
-    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
+use hk_syscall::{
+    CapabilityKind, REGION_FLAG_COW, REGION_FLAG_GUARD, REGION_FLAG_PINNED, REGION_FLAG_SEALED,
+    RIGHT_EXECUTE, RIGHT_READ, RIGHT_WRITE, SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT,
+    SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS,
+    SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC,
+    SYS_LEDGER_INFO, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
+
+use crate::syscall_call;
 
 /// Memory Server 分配请求。
 pub const MEMORY_ALLOC: u64 = 0x4D45_4D41;
 /// Memory Server 分配成功回复。
 pub const MEMORY_ALLOCATED: u64 = 0x4D45_4D42;
 
-/// Revision 能力。
-pub const CAPABILITY_REVISION: u8 = 0;
-/// Surface 能力。
-pub const CAPABILITY_SURFACE: u8 = 1;
-/// TaskImage 能力。
-pub const CAPABILITY_TASK_IMAGE: u8 = 2;
-/// DeviceAllocation 能力。
-pub const CAPABILITY_DEVICE_ALLOCATION: u8 = 3;
-/// Anonymous 能力。
-pub const CAPABILITY_ANONYMOUS: u8 = 4;
-/// Frame 能力。
-pub const CAPABILITY_FRAME: u8 = 5;
-
 /// Region 可读。
-pub const REGION_READ: u32 = 1 << 0;
+pub const REGION_READ: u32 = RIGHT_READ;
 /// Region 可写。
-pub const REGION_WRITE: u32 = 1 << 1;
+pub const REGION_WRITE: u32 = RIGHT_WRITE;
 /// Region 可执行。
-pub const REGION_EXECUTE: u32 = 1 << 2;
+pub const REGION_EXECUTE: u32 = RIGHT_EXECUTE;
 /// Region 写时复制。
-pub const REGION_COW: u32 = 1 << 0;
+pub const REGION_COW: u32 = REGION_FLAG_COW;
 /// Region guard。
-pub const REGION_GUARD: u32 = 1 << 1;
+pub const REGION_GUARD: u32 = REGION_FLAG_GUARD;
 /// Region 固定驻留。
-pub const REGION_PINNED: u32 = 1 << 2;
+pub const REGION_PINNED: u32 = REGION_FLAG_PINNED;
 /// Region 只读共享。
-pub const REGION_SEALED: u32 = 1 << 3;
+pub const REGION_SEALED: u32 = REGION_FLAG_SEALED;
 
 /// 创建类型化能力，返回能力句柄。
-pub fn capability_create(kind: u8, length: usize) -> Option<u64> {
+pub fn capability_create(kind: CapabilityKind, length: usize) -> Option<u64> {
     // SAFETY: 内核校验类型与长度后分配常驻物理页。
-    let handle =
-        unsafe { syscall_call(SYS_CAPABILITY_CREATE, kind as u64, length as u64, 0, 0).value };
+    let handle = unsafe {
+        syscall_call(
+            SYS_CAPABILITY_CREATE,
+            u64::from(kind.as_u8()),
+            length as u64,
+            0,
+            0,
+        )
+        .value
+    };
     (handle != u64::MAX).then_some(handle)
 }
 
@@ -113,7 +110,7 @@ pub fn capability_phys(capability: u64) -> Option<(u64, u64)> {
 }
 
 /// 创建能力并建立完整映射，返回 `(capability, region, virt)`。
-pub fn map_new(kind: u8, length: usize) -> Option<(u64, u64, u64)> {
+pub fn map_new(kind: CapabilityKind, length: usize) -> Option<(u64, u64, u64)> {
     let length = length.checked_add(4095)? & !4095;
     let capability = capability_create(kind, length)?;
     let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
@@ -227,7 +224,7 @@ pub fn capability_create_lazy(length: usize) -> Option<u64> {
     let handle = unsafe {
         syscall_call(
             SYS_CAPABILITY_CREATE_LAZY,
-            CAPABILITY_ANONYMOUS as u64,
+            u64::from(CapabilityKind::Anonymous.as_u8()),
             length as u64,
             0,
             0,

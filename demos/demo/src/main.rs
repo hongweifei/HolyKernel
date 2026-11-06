@@ -37,7 +37,7 @@ use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    ENDPOINT_ECHO, alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv,
+    alloc, boot_cmdline, call, echo::ENDPOINT_ECHO, exit, futex_wait, futex_wake, notify, recv,
     recv_data_try, self_notification, send, send_handle, service_endpoint, thread_create,
     thread_join, tsc, tsc_frequency, wait_notify, write, write_u64, yield_now,
 };

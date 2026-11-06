@@ -42,8 +42,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CAPABILITY_SURFACE, close_handle, exit, fault_subscribe, map_new, recv, recv_data,
-    region_unmap, send, send_handle, write, write_u64,
+    CapabilityKind, close_handle, exit, fault_subscribe, map_new, recv, recv_data, region_unmap,
+    send, send_handle, write, write_u64,
 };
 
 #[cfg(target_os = "none")]
@@ -292,7 +292,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width * height * 4;
-    let Some((handle, mut surface_region, surface_virt)) = map_new(CAPABILITY_SURFACE, bytes)
+    let Some((handle, mut surface_region, surface_virt)) = map_new(CapabilityKind::Surface, bytes)
     else {
         write(b"hk-server-workbench: frame alloc failed\n");
         exit(2)
@@ -362,7 +362,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     false
                 } else {
                     let bytes = new_width * new_height * 4;
-                    let Some((handle, region, virt)) = map_new(CAPABILITY_SURFACE, bytes) else {
+                    let Some((handle, region, virt)) = map_new(CapabilityKind::Surface, bytes)
+                    else {
                         write(b"hk-server-workbench: resize frame failed\n");
                         continue;
                     };

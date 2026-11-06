@@ -7,15 +7,15 @@
 //! | --- | --- |
 //! | `0x00-0x0F` | 进程与线程 |
 //! | `0x10-0x1F` | 句柄 |
-//! | `0x20-0x2F` | IPC 与通知 |
-//! | `0x30-0x3F` | 同步 |
+//! | `0x20-0x3F` | IPC、通知与同步 |
 //! | `0x40-0x4F` | 内存与共享 Frame |
 //! | `0x50-0x5F` | 设备与中断 |
 //! | `0x60-0x6F` | 时间与系统信息 |
 //! | `0x70-0x7F` | 控制台与帧缓冲 |
 //! | `0x80-0x8F` | Root 与调试控制 |
 //!
-//! 只包含编号与端点约定，不依赖任何平台；寄存器映射由平台层实现。
+//! 只包含系统调用编号、跨边界共享常量与编码，不依赖任何 crate 或平台；寄存器
+//! 映射由平台层实现，服务协议与服务策略放在各自的用户态库。
 
 #![no_std]
 
@@ -50,7 +50,7 @@ pub const SYS_HANDLE_COUNT: u64 = 0x11;
 /// 复制句柄。
 pub const SYS_HANDLE_DUPLICATE: u64 = 0x12;
 
-// === IPC 与通知 0x20-0x2F ===
+// === IPC、通知与同步 0x20-0x3F ===
 
 /// 向端点发送消息。
 pub const SYS_SEND: u64 = 0x20;
@@ -88,12 +88,6 @@ pub const SYS_REPLY: u64 = 0x2A;
 /// 回复最近一次调用并转移一个句柄。
 pub const SYS_REPLY_HANDLE: u64 = 0x32;
 
-/// 为 Memory Provider 分配一个物理页。
-pub const SYS_FRAME_ALLOC: u64 = 0x33;
-
-/// Memory Server 名称。
-pub const MEMORY_SERVICE: &str = "hk-server-memory";
-
 /// 置位通知位。
 pub const SYS_NOTIFY: u64 = 0x2B;
 
@@ -124,6 +118,47 @@ pub const FUTEX_CHANGED: u64 = 1;
 
 /// 在任务 Arena 内分配内存。
 pub const SYS_ALLOC: u64 = 0x40;
+
+/// 为 Memory Provider 分配一个物理页。
+pub const SYS_FRAME_ALLOC: u64 = 0x46;
+
+/// 类型化能力的 ABI 编码；内核与用户态共用同一组判别值。
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapabilityKind {
+    /// 文档修订。
+    Revision = 0,
+    /// 显示表面。
+    Surface = 1,
+    /// 原生任务镜像区域。
+    TaskImage = 2,
+    /// 显存/DMA 分配。
+    DeviceAllocation = 3,
+    /// 匿名内存。
+    Anonymous = 4,
+    /// 物理页。
+    Frame = 5,
+}
+
+impl CapabilityKind {
+    /// 把 ABI 编码还原为能力类型；未知编码返回 `None`。
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => Self::Revision,
+            1 => Self::Surface,
+            2 => Self::TaskImage,
+            3 => Self::DeviceAllocation,
+            4 => Self::Anonymous,
+            5 => Self::Frame,
+            _ => return None,
+        })
+    }
+
+    /// 返回 ABI 编码。
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
 
 /// 创建类型化能力并分配常驻物理页。
 pub const SYS_CAPABILITY_CREATE: u64 = 0x41;
@@ -166,12 +201,6 @@ pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
 /// 查询任务 Ledger 的用量、配额、峰值与压力。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
-
-/// Provider 缺页请求标签。
-pub const PROVIDER_FAULT: u64 = 0x5052_4F56;
-
-/// Provider 提供页回复标签。
-pub const PROVIDER_PROVIDE: u64 = 0x5052_4F50;
 
 // === 设备与中断 0x50-0x5F ===
 
@@ -280,17 +309,28 @@ pub const ROOT_OP_CHECKPOINT_READ: u64 = 15;
 /// Root 控制：写入检查点镜像片段；参数为 `任务 总长`。
 pub const ROOT_OP_CHECKPOINT_WRITE: u64 = 16;
 
+// === 服务名与内核投递标签 ===
+
+/// Memory Server 名称；只有该服务可以申请物理页。
+pub const MEMORY_SERVICE: &str = "hk-server-memory";
+
+/// 显示服务名称；只有该服务可以访问帧缓冲。
+pub const DISPLAY_SERVICE: &str = "hk-server-display";
+
 /// 内核投递原始异常现场使用的消息标签。
 pub const FAULT_EVENT: u64 = 0xD00;
+
+/// 内核发给 Provider 的缺页请求标签。
+pub const PROVIDER_FAULT: u64 = 0x5052_4F56;
+
+/// Provider 回复缺页请求的标签。
+pub const PROVIDER_PROVIDE: u64 = 0x5052_4F50;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 
 /// 帧缓冲描述符魔数。
 pub const FRAMEBUFFER_MAGIC: u32 = 0x484B_4642;
-
-/// 显示服务名称；只有该服务可以访问帧缓冲。
-pub const DISPLAY_SERVICE: &str = "hk-server-display";
 
 /// 像素格式编码：32 位 RGB。
 pub const PIXEL_FORMAT_RGB32: u32 = 0;
@@ -377,42 +417,28 @@ pub const CONSOLE_NOTIFY_INPUT: u64 = 1 << 0;
 pub const CONSOLE_NOTIFY_MESSAGE: u64 = 1 << 1;
 
 /// 句柄权限位：读取。
-pub const RIGHT_READ: u64 = 1;
+pub const RIGHT_READ: u32 = 1 << 0;
 /// 句柄权限位：写入。
-pub const RIGHT_WRITE: u64 = 2;
+pub const RIGHT_WRITE: u32 = 1 << 1;
 /// 句柄权限位：执行。
-pub const RIGHT_EXECUTE: u64 = 4;
+pub const RIGHT_EXECUTE: u32 = 1 << 2;
 /// 句柄权限位：转移。
-pub const RIGHT_TRANSFER: u64 = 8;
+pub const RIGHT_TRANSFER: u32 = 1 << 3;
 /// 句柄权限位：管理。
-pub const RIGHT_ADMIN: u64 = 16;
+pub const RIGHT_ADMIN: u32 = 1 << 4;
 
-/// echo 服务的端点编号。
-pub const ENDPOINT_ECHO: u64 = 2;
-
-/// 服务角色元数据，链接到镜像的 `.hk_service` 段。
-#[repr(C)]
-pub struct ServiceRole {
-    /// 固定魔数。
-    pub magic: u32,
-    /// 角色位图。
-    pub role: u32,
-}
-
-impl ServiceRole {
-    /// 元数据魔数。
-    pub const MAGIC: u32 = 0x484B_5352;
-    /// 设备管理服务角色。
-    pub const DEVICE: u32 = 1;
-
-    /// 构建设备管理服务角色。
-    pub const fn device() -> Self {
-        Self {
-            magic: Self::MAGIC,
-            role: Self::DEVICE,
-        }
-    }
-}
+/// Region 标志位：写时复制。
+pub const REGION_FLAG_COW: u32 = 1 << 0;
+/// Region 标志位：guard 页。
+pub const REGION_FLAG_GUARD: u32 = 1 << 1;
+/// Region 标志位：固定驻留。
+pub const REGION_FLAG_PINNED: u32 = 1 << 2;
+/// Region 标志位：只读共享。
+pub const REGION_FLAG_SEALED: u32 = 1 << 3;
+/// Region 标志位：fork 时不复制。
+pub const REGION_FLAG_DONT_FORK: u32 = 1 << 4;
+/// Region 标志位：可按需增长。
+pub const REGION_FLAG_GROW: u32 = 1 << 5;
 
 #[cfg(test)]
 mod tests {
@@ -422,13 +448,31 @@ mod tests {
     fn syscall_numbers_stay_in_their_groups() {
         const { assert!(SYS_THREAD_SET_TLS < 0x10) };
         const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
-        const { assert!(SYS_SEND >= 0x20 && SYS_SERVICE_ENDPOINT < 0x30) };
+        const { assert!(SYS_SEND >= 0x20 && SYS_REPLY_HANDLE < 0x40) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
         const { assert!(SYS_ALLOC >= 0x40 && SYS_LEDGER_INFO < 0x50) };
+        const { assert!(SYS_FRAME_ALLOC >= 0x40 && SYS_FRAME_ALLOC < 0x50) };
         const { assert!(SYS_PCI_READ >= 0x50 && SYS_MSI_BIND < 0x60) };
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
+    }
+
+    #[test]
+    fn capability_kind_roundtrips_through_abi_encoding() {
+        let kinds = [
+            CapabilityKind::Revision,
+            CapabilityKind::Surface,
+            CapabilityKind::TaskImage,
+            CapabilityKind::DeviceAllocation,
+            CapabilityKind::Anonymous,
+            CapabilityKind::Frame,
+        ];
+        for (index, kind) in kinds.iter().enumerate() {
+            assert_eq!(kind.as_u8() as usize, index);
+            assert_eq!(CapabilityKind::from_u8(index as u8), Some(*kind));
+        }
+        assert_eq!(CapabilityKind::from_u8(6), None);
     }
 
     #[test]

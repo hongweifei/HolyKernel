@@ -25,7 +25,10 @@ pub mod runtime;
 pub mod socket;
 pub mod vfs;
 
-pub use hk_syscall::*;
+pub use hk_syscall::{
+    CapabilityKind, DISPLAY_SERVICE, FAULT_EVENT, RIGHT_ADMIN, RIGHT_EXECUTE, RIGHT_READ,
+    RIGHT_TRANSFER, RIGHT_WRITE,
+};
 
 /// 生成服务入口样板：内核态 panic 处理器与宿主占位 `main`。
 ///

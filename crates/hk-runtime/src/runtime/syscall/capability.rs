@@ -9,7 +9,7 @@ use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn capability_create(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let Some(kind) = capability_kind(frame.arg0() as u8) else {
+        let Some(kind) = CapabilityKind::from_u8(frame.arg0() as u8) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -127,7 +127,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         frame: &mut C,
     ) -> Switch {
         let length = frame.arg1() as usize;
-        if length == 0 || capability_kind(frame.arg0() as u8) != Some(CapabilityKind::Anonymous) {
+        if length == 0
+            || CapabilityKind::from_u8(frame.arg0() as u8) != Some(CapabilityKind::Anonymous)
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -249,17 +251,5 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
         }
         Switch::Continue
-    }
-}
-
-fn capability_kind(value: u8) -> Option<CapabilityKind> {
-    match value {
-        0 => Some(CapabilityKind::Revision),
-        1 => Some(CapabilityKind::Surface),
-        2 => Some(CapabilityKind::TaskImage),
-        3 => Some(CapabilityKind::DeviceAllocation),
-        4 => Some(CapabilityKind::Anonymous),
-        5 => Some(CapabilityKind::Frame),
-        _ => None,
     }
 }

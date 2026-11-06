@@ -14,12 +14,12 @@ pub mod loader;
 mod registry;
 pub mod service;
 
+pub use hk_image::ServiceRole;
 pub use hk_kernel::{TraceCategory, TraceEvent};
 pub use hk_runtime::{
     Arena, Pending, RootServer, RuntimeStats, Service, ServiceSpec, Step, Switch, TaskInfo,
     UserPlatform, UserRuntime, UserTask,
 };
-pub use hk_syscall::ServiceRole;
 pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};
 pub use service::RestartPolicy;

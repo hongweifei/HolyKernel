@@ -6,8 +6,8 @@ use hk_server_api::net::{
     NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, net_mapping_word, net_rx_word,
 };
 use hk_server_api::{
-    CAPABILITY_ANONYMOUS, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
-    dma_map_capability, handle_duplicate, map_new, send, send_data, send_handle, write,
+    CapabilityKind, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, dma_map_capability,
+    handle_duplicate, map_new, send, send_data, send_handle, write,
 };
 
 /// 解析是否启用共享帧路径。
@@ -42,7 +42,8 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 #[cfg(target_os = "none")]
 fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
     for (index, mapping_virt) in virts.iter_mut().enumerate() {
-        let Some((handle, _region, virt)) = map_new(CAPABILITY_ANONYMOUS, NET_SHARED_LEN) else {
+        let Some((handle, _region, virt)) = map_new(CapabilityKind::Anonymous, NET_SHARED_LEN)
+        else {
             return false;
         };
         *mapping_virt = virt;

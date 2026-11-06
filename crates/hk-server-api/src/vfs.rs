@@ -1,7 +1,7 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
 use crate::{
-    CAPABILITY_ANONYMOUS, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle,
+    CapabilityKind, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle,
     handle_duplicate, map_new, recv_data_from, region_unmap, send_data, send_handle,
     service_endpoint,
 };
@@ -269,7 +269,8 @@ impl VfsClient {
             return Ok(endpoint);
         }
         if self.capability.is_none() {
-            let Some((capability, region, virt)) = map_new(CAPABILITY_ANONYMOUS, VFS_BUFFER_LEN)
+            let Some((capability, region, virt)) =
+                map_new(CapabilityKind::Anonymous, VFS_BUFFER_LEN)
             else {
                 return Err(STATUS_IO);
             };

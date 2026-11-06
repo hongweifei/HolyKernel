@@ -28,14 +28,17 @@ pub(crate) const CAPABILITY_LEN: usize = 1 + 4 + 2;
 pub(crate) const SYMBOL_LEN: usize = 8 + 2;
 pub(crate) const DEPENDENCY_LEN: usize = 2 + 2;
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn push_u16(bytes: &mut alloc::vec::Vec<u8>, value: u16) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn push_u32(bytes: &mut alloc::vec::Vec<u8>, value: u32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn push_u64(bytes: &mut alloc::vec::Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
@@ -58,14 +61,17 @@ pub(crate) fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
     ))
 }
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(not(target_os = "none"))]
 pub(crate) fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
     bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
 }

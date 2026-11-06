@@ -188,7 +188,7 @@ where
     let source = module.unwrap_or(name);
     let role = loader.role(source);
     let device_authority =
-        services.device_authority(name) || role & hk_syscall::ServiceRole::DEVICE != 0;
+        services.device_authority(name) || role & hk_image::ServiceRole::DEVICE != 0;
     let priority = loader.priority(source);
     if let Err(error) = host.start(name, device_authority, priority, context, parent) {
         return format!("启动失败：{error}\n");
