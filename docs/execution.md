@@ -214,6 +214,15 @@ impl Notification {
 - 协程把等待点组织成顺序代码；真正的阻塞仍由 Endpoint、Notification 或 futex 承担。
 - 同一线程同一时刻只运行一个协程；跨线程并发使用请让每个线程各自持有协程集合。
 
+### 5.3 异步执行器
+
+`hk-async` 提供用户态单线程执行器：`block_on` 轮询 future，未就绪时让出 CPU；`block_on_with` 允许调用方替换让出策略。组合子提供 `join2`，内建 `NotificationWait` 与 `SleepTicks` 完成源。
+
+- future 只做非阻塞检查：通知位走 `SYS_WAIT_NOTIFY_TRY`，时间走 `SYS_TICKS`，块完成走请求标签的 `poll`。
+- `Waker` 记录唤醒标志；标志已置位时跳过让出并立即重试，避免丢失唤醒。
+- 阻塞语义仍由内核对象承担；执行器负责把多个等待点组合到同一线程。
+- 执行器不持有内核资源，服务退出时随线程一起消失。
+
 ---
 
 ## 6. 同步
@@ -282,10 +291,33 @@ pub struct CivilTime { ... }
 - 民用时间交给需要日历语义的服务；ext4 后端只在磁盘格式边界换算为 ext4 时间戳。
 - Hosted 平台用虚拟时钟推进模拟民用时间。
 - POSIX 时间通过 POSIX Server 与 libc 暴露。
+- 调度 tick 在预算切片之间停止并重新启动；shell 命令在调度循环之外执行，嵌套运行服务前会重新装载 tick，定时器与异步等待在重启后的服务里也能推进。
 
 ---
 
-## 9. 保证
+## 9. 系统调用编号
+
+系统调用号按子系统分段，每段预留扩展空间；编号发布后保持稳定，新调用在所属段内顺序追加。
+
+| 区间 | 子系统 | 主要调用 |
+| --- | --- | --- |
+| `0x00-0x0F` | 进程与线程 | `EXIT`、`YIELD`、`FORK`、`THREAD_CREATE`/`THREAD_JOIN`/`THREAD_SET_TLS` |
+| `0x10-0x1F` | 句柄 | `HANDLE_CLOSE`/`HANDLE_COUNT`/`HANDLE_DUPLICATE` |
+| `0x20-0x2F` | IPC 与通知 | `SEND*`、`RECV*`、`CALL`、`REPLY`、`NOTIFY`、`WAIT_NOTIFY*`、`SELF_NOTIFICATION`、`SERVICE_ENDPOINT` |
+| `0x30-0x3F` | 同步 | `FUTEX_WAIT`/`FUTEX_WAKE` |
+| `0x40-0x4F` | 内存与共享 Frame | `ALLOC`、`FRAME_*`、`DMA_ALLOC`/`DMA_MAP_FRAME`/`DMA_SYNC` |
+| `0x50-0x5F` | 设备与中断 | `PCI_READ`/`PCI_WRITE`、`DEVICE_*`、`IRQ_BIND` |
+| `0x60-0x6F` | 时间与系统信息 | `TICKS`、`TSC*`、`CIVIL_TIME`、`BOOT_CMDLINE`、`KERNEL_STATS` |
+| `0x70-0x7F` | 控制台与帧缓冲 | `WRITE`、`CONSOLE_*`、`FRAMEBUFFER_*` |
+| `0x80-0x8F` | Root 与调试控制 | `ROOT_CONTROL`/`ROOT_RESULT`、`FAULT_SUBSCRIBE` |
+
+- 发送/接收变体在同一段内相邻排列，分派表按区间即可定位子系统。
+- `ROOT_OP_*` 是 `SYS_ROOT_CONTROL` 请求内的二级操作码，与系统调用号分开编号。
+- 段内保留号用于扩展；编号跨段不复用，单元测试锁定分组与唯一性。
+
+---
+
+## 10. 保证
 
 1. 任意时刻，一个 TCB 最多在一个 CPU 上运行。
 2. 每个 TCB 绑定一个 VSpace，并引用 Task 的 HandleTable。
@@ -300,7 +332,7 @@ pub struct CivilTime { ... }
 
 ---
 
-## 10. 测试策略
+## 11. 测试策略
 
 | 层级 | 测试 |
 | --- | --- |
@@ -314,7 +346,7 @@ pub struct CivilTime { ... }
 
 ---
 
-## 11. 相关文档
+## 12. 相关文档
 
 - [总体架构](architecture.md)
 - [权限模型](permissions.md)
