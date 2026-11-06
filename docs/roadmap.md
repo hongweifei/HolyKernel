@@ -158,7 +158,7 @@ flowchart LR
 2. tmpfs/devfs/procfs 挂载与访问正常。
 3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
 4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类、独立驱动服务与 `hk-server-net`，`smoke --mode net` 校验 MAC、Net Endpoint 握手、DHCP 租约、`ping 10.0.2.2`、TCP 回显与 UDP 回显；`hk-net` TCP/DNS API 已有双栈主机测试（含 A/AAAA/失败/超时），QEMU `net` 模式已连接宿主 echo 验证 TCP 握手/回显，并用 `net.dns=localhost` 验证 DNS 解析；内核 `send` 改为异步入队避免双向发送死锁，网络驱动改为非阻塞收发去掉 TX 自旋；Device Manager 缓存授权避免运行期改写 BAR 干扰在用设备，DNS 已纳入默认 `net` 冒烟；`net` 命令经用户态 `hk-server-netstat` 查询接口、收发统计、路由、ARP 邻居与原生配置（`hk-shell` 保持核心命令集，扩展点转交服务）；virtio-net 按 `Always` 重启，Network Server 检测端点变化并重新握手恢复链路（`smoke --mode netrestart`）；共享 Frame 收发环落地（驱动分配并登记 DMA 帧，RX/TX 零拷贝，`net.zerocopy` + `smoke --mode netzerocopy`）；原生 Socket Handle API 落地（`hk-server-api::socket` 客户端 + `hk-server-netsock` 用户态自检，`smoke --mode netsocket`）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
+5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类、独立驱动服务与 `hk-server-net`，`smoke --mode net` 校验 MAC、Net Endpoint 握手、DHCP 租约、`ping 10.0.2.2`、TCP 回显与 UDP 回显；`hk-net` TCP/DNS API 已有双栈主机测试（含 A/AAAA/失败/超时），QEMU `net` 模式已连接宿主 echo 验证 TCP 握手/回显，并用 `net.dns=localhost` 验证 DNS 解析；内核 `send` 改为异步入队避免双向发送死锁，网络驱动改为非阻塞收发去掉 TX 自旋；Device Manager 缓存授权避免运行期改写 BAR 干扰在用设备，DNS 已纳入默认 `net` 冒烟；`net` 命令经用户态 `hk-server-netstat` 查询接口、收发统计、路由、ARP 邻居与原生配置（`hk-shell` 保持核心命令集，扩展点转交服务）；virtio-net 按 `Always` 重启，Network Server 检测端点变化并重新握手恢复链路（`smoke --mode netrestart`）；共享 Frame 收发环落地（驱动分配并登记 DMA 帧，RX/TX 零拷贝，`net.zerocopy` + `smoke --mode netzerocopy`）；原生 Socket Handle API 落地（`hk-proto::socket` 客户端 + `hk-server-netsock` 用户态自检，`smoke --mode netsocket`）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
 
 ---
 
@@ -168,7 +168,7 @@ flowchart LR
 
 - virtio-net 驱动服务：复用 `virtio-drivers` `VirtIONetRaw`，DeviceGrant、RX/TX 队列、IRQ Notification、共享 Frame 收发环。
 - Network Server：基于 `smoltcp` 的 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP、DNS；自定义 PHY 适配 Net Endpoint。
-- 原生 Socket Handle 与 Endpoint/Notification 收发；`net` 命令查看接口、ARP/路由、连接与统计。Socket API（TCP/UDP/DNS）经 `hk-server-api::socket` 提供给用户态服务。
+- 原生 Socket Handle 与 Endpoint/Notification 收发；`net` 命令查看接口、ARP/路由、连接与统计。Socket API（TCP/UDP/DNS）经 `hk-proto::socket` 提供给用户态服务。
 - 静态地址与 DHCP 配置；支持启动参数 `net.dhcp=off`/`net.ip=`/`net.gw=`/`net.resolver=` 的 Holy 原生引导配置，并以 `smoke --mode netstatic` 验证；原生配置对象 `H:/Network/Config.hd`，经 Network Server Endpoint 读写；POSIX 兼容环境的 `/etc/network`、`/etc/hosts`、`/etc/resolv.conf` 由 POSIX 桥从原生配置投影，不是配置源头。
 - 包路径使用共享 Frame，驱动与协议栈避免逐包复制；为后续 POSIX socket 复用同一 Socket Handle。
 

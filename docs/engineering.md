@@ -16,7 +16,7 @@ HolyKernel/
 │   ├── 基础类型           hk-base（地址、架构、启动信息）
 │   ├── 内核 ABI 与对象    hk-syscall hk-hal hk-handle hk-ipc hk-mem hk-kernel
 │   ├── 内核库             hk-boot hk-acpi hk-framebuffer hk-smp hk-test hk-drivers
-│   ├── 用户态库           hk-server-api hk-block hk-net hk-fs hk-vfs
+│   ├── 用户态库           hk-server-api hk-proto hk-block hk-net hk-fs hk-vfs
 │   │                      hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
 │   │                      hk-driver-virtio hk-server-build
 │   ├── 运行时             hk-runtime（用户任务、syscall 分派、RootServer 原语）
