@@ -169,7 +169,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             message.handles[0] = Some(handle);
         }
         match self.kernel.reply(tcb, token, message) {
-            Ok(()) => 0,
+            Ok(()) => {
+                if with_handle {
+                    self.clear_handle(index, frame.arg2() as usize);
+                }
+                0
+            }
             Err(_) => u64::MAX,
         }
     }

@@ -21,6 +21,8 @@ pub struct UserTask<C> {
     pub notifications: Vec<Option<Handle>>,
     /// 随消息接收的额外句柄。
     pub extra: Vec<Option<Handle>>,
+    /// 额外句柄对应的容量记账。
+    pub(crate) extra_charges: Vec<Option<hk_mem::hmp::Charge>>,
     /// 本任务持有的类型化能力。
     pub(crate) capabilities: Vec<Option<CapabilityMap>>,
     /// 本任务持有的 Region。
@@ -76,6 +78,7 @@ impl<C> UserTask<C> {
             handles,
             notifications,
             extra: Vec::new(),
+            extra_charges: Vec::new(),
             capabilities: Vec::new(),
             regions: Vec::new(),
             ledger: Ledger::create(ledger_limit),

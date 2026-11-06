@@ -13,10 +13,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let rights = Rights::from_bits_truncate(frame.arg1() as u32);
         match self.kernel.duplicate_handle(tcb, handle, rights) {
-            Ok(copy) => {
-                let number = self.install_extra_handle(index, copy);
-                frame.set_result(number);
-            }
+            Ok(copy) => match self.install_extra_capability(index, copy) {
+                Some(number) => frame.set_result(number),
+                None => frame.set_result(u64::MAX),
+            },
             Err(_) => frame.set_result(u64::MAX),
         }
         Switch::Continue

@@ -7,7 +7,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = message.handles[0] else {
             return 0;
         };
-        self.install_extra_handle(index, handle)
+        self.install_extra_capability(index, handle).unwrap_or(0)
+    }
+
+    /// 安装一个额外能力句柄并记录容量记账。
+    pub(crate) fn install_extra_capability(&mut self, index: usize, handle: Handle) -> Option<u64> {
+        let tcb = self.tasks[index].tcb;
+        let Ok((capability, _)) = self.kernel.capability(tcb, handle) else {
+            return Some(self.install_extra_handle(index, handle));
+        };
+        let Ok(charge) = self.tasks[index].ledger.charge(capability.size()) else {
+            let _ = self.kernel.close_handle(tcb, handle);
+            return None;
+        };
+        let number = self.install_extra_handle(index, handle);
+        let slot = number as usize - EXTRA_HANDLE_BASE - 1;
+        self.tasks[index].extra_charges[slot] = Some(charge);
+        Some(number)
     }
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
@@ -62,6 +78,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
         let slot = self.tasks[index].extra.len();
         self.tasks[index].extra.push(Some(handle));
+        self.tasks[index].extra_charges.push(None);
         (EXTRA_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -235,11 +252,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 }
             }
         } else if number >= EXTRA_HANDLE_BASE {
-            if let Some(slot) = self.tasks[index]
-                .extra
-                .get_mut(number - EXTRA_HANDLE_BASE - 1)
-            {
-                *slot = None;
+            let slot = number - EXTRA_HANDLE_BASE - 1;
+            if let Some(handle) = self.tasks[index].extra.get_mut(slot) {
+                *handle = None;
+                if let Some(charge) = self.tasks[index]
+                    .extra_charges
+                    .get_mut(slot)
+                    .and_then(Option::take)
+                {
+                    let _ = self.tasks[index].ledger.release(charge);
+                }
             }
         } else if let Some(slot) = number
             .checked_sub(1)
