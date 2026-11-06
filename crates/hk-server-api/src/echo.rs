@@ -11,5 +11,7 @@ pub const WORK_RESPONSE: u64 = 0xE01;
 pub const WORK_STATS: u64 = 0xE02;
 /// 并发统计回复：`word` 为观测到的最大同时运行任务数。
 pub const WORK_STATS_RESPONSE: u64 = 0xE03;
+/// 工作线程完成通知：`word` 为任务 id，由服务自己发给自己的端点。
+pub const WORK_DONE: u64 = 0xE04;
 /// 每个计算任务的忙等轮数。
 pub const WORK_ROUNDS: u64 = 2_000_000;

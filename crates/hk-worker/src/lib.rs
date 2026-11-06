@@ -28,6 +28,7 @@ pub struct Pool {
     queue: Mutex<VecDeque<Job>>,
     ready: Condvar,
     completed: Mutex<VecDeque<(u64, u64)>>,
+    wake: Mutex<Option<(u64, u64)>>,
     stopped: AtomicBool,
     workers: Mutex<Vec<JoinHandle>>,
 }
@@ -49,6 +50,7 @@ impl Pool {
             queue: Mutex::new(VecDeque::new()),
             ready: Condvar::new(),
             completed: Mutex::new(VecDeque::new()),
+            wake: Mutex::new(None),
             stopped: AtomicBool::new(false),
             workers: Mutex::new(Vec::new()),
         }));
@@ -93,6 +95,13 @@ impl Pool {
         self.completed.lock().pop_front()
     }
 
+    /// 设置完成唤醒：每个任务完成后向 `endpoint` 发送 `label`，参数为任务 id。
+    ///
+    /// 服务主线程可以继续阻塞在接收上，由唤醒消息通知它回收完成结果。
+    pub fn set_wake(&self, endpoint: u64, label: u64) {
+        *self.wake.lock() = Some((endpoint, label));
+    }
+
     /// 关闭池并等待工作线程退出。
     ///
     /// 必须在主线程调用，工作线程内调用会等待自身。
@@ -128,6 +137,10 @@ extern "C" fn worker(pointer: u64) -> ! {
         };
         let result = job();
         pool.completed.lock().push_back((id, result));
+        let wake = *pool.wake.lock();
+        if let Some((endpoint, label)) = wake {
+            let _ = hk_server_api::send(endpoint, label, id);
+        }
     }
     hk_server_api::exit(0)
 }

@@ -18,15 +18,12 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "none")]
 use hk_server_api::echo::{
-    WORK_REQUEST, WORK_RESPONSE, WORK_ROUNDS, WORK_STATS, WORK_STATS_RESPONSE,
+    WORK_DONE, WORK_REQUEST, WORK_RESPONSE, WORK_ROUNDS, WORK_STATS, WORK_STATS_RESPONSE,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    exit, handle_count, notify, recv_data_handle_try, recv_handle, reply, send, write, write_u64,
-    yield_now,
-};
+use hk_server_api::{exit, handle_count, notify, recv_handle, reply, send, write, write_u64};
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
 
@@ -61,35 +58,25 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-echo: worker pool fail\n");
         exit(1)
     };
+    pool.set_wake(endpoint, WORK_DONE);
     let mut pending: Vec<(u64, u64)> = Vec::new();
     let mut free: Vec<u64> = Vec::new();
-    let mut scratch = [0_u8; 64];
 
     loop {
-        while let Some((id, result)) = pool.try_next() {
-            let slot = id as usize;
-            if let Some((sender, label)) = pending.get(slot).copied()
-                && label != 0
-            {
-                let _ = send(sender, WORK_RESPONSE, result);
-                pending[slot] = (0, 0);
-                free.push(id);
+        let (label, word, sender, handle) = recv_handle(endpoint);
+        if label == WORK_DONE {
+            while let Some((id, result)) = pool.try_next() {
+                let slot = id as usize;
+                if let Some((sender, label)) = pending.get(slot).copied()
+                    && label != 0
+                {
+                    let _ = send(sender, WORK_RESPONSE, result);
+                    pending[slot] = (0, 0);
+                    free.push(id);
+                }
             }
+            continue;
         }
-
-        let in_flight = pending.len() - free.len();
-        let (label, word, sender, handle) = if in_flight == 0 {
-            recv_handle(endpoint)
-        } else {
-            let (label, word, sender, _length, handle) =
-                recv_data_handle_try(endpoint, &mut scratch, 0);
-            if label == 0 {
-                yield_now();
-                continue;
-            }
-            (label, word, sender, handle)
-        };
-
         if label == WORK_REQUEST {
             let id = match free.pop() {
                 Some(id) => id,
