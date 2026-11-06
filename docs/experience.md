@@ -148,7 +148,7 @@ sequenceDiagram
 ```
 
 - Native Task/Server 可 checkpoint：VSpace 映射、Frame 内容、HandleTable 状态、TCB 寄存器、Arena。
-- 已落地：捕获用户页内容（零页省略）并序列化为版本化快照；默认在 Root 内存恢复，`checkpoint.disk` 可写 `H:/Checkpoints` 分块，磁盘读取仍受 HolyFS 多块读取限制；设备、共享 Frame、COW 与线程任务暂不支持。
+- 已落地：捕获用户页内容（零页省略）并序列化为版本化快照；默认在 Root 内存恢复，`checkpoint.disk` 可写 `H:/Checkpoints` 分块并读回；设备、共享 Frame、COW 与线程任务暂不支持。
 - 目标：快照写入 VFS；恢复时重建 Task 与 Handle。
 - 用于快速重启、调试回放、升级前备份。
 - POSIX 进程采用进程语义；Checkpoint 由 POSIX Server 按策略提供。
