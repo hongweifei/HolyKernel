@@ -346,7 +346,7 @@ pub struct CivilTime { ... }
 | `0x20-0x2F` | IPC 与通知 | `SEND*`、`RECV*`、`CALL`、`REPLY`、`NOTIFY`、`WAIT_NOTIFY*`、`SELF_NOTIFICATION`、`SERVICE_ENDPOINT` |
 | `0x30-0x3F` | 同步 | `FUTEX_WAIT`/`FUTEX_WAKE` |
 | `0x40-0x4F` | 内存与共享 Frame | `ALLOC`、`FRAME_*`、`DMA_ALLOC`/`DMA_MAP_FRAME`/`DMA_SYNC` |
-| `0x50-0x5F` | 设备与中断 | `PCI_READ`/`PCI_WRITE`、`DEVICE_*`、`IRQ_BIND` |
+| `0x50-0x5F` | 设备与中断 | `PCI_READ`/`PCI_WRITE`、`DEVICE_*`、`IRQ_BIND`/`MSI_BIND` |
 | `0x60-0x6F` | 时间与系统信息 | `TICKS`、`TSC*`、`CIVIL_TIME`、`BOOT_CMDLINE`、`KERNEL_STATS` |
 | `0x70-0x7F` | 控制台与帧缓冲 | `WRITE`、`CONSOLE_*`、`FRAMEBUFFER_*` |
 | `0x80-0x8F` | Root 与调试控制 | `ROOT_CONTROL`/`ROOT_RESULT`、`FAULT_SUBSCRIBE` |

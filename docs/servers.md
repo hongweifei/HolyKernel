@@ -96,6 +96,7 @@ pub struct ServiceManifest {
 - 服务镜像通过 `.hk_service` 段声明角色，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
 - 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务已接入 virtio-blk，完成容量查询、读、写与 flush 验证；Block Server 保留 RAM disk 后端与块协议。
 - Device Manager 常驻并等待驱动的设备授权申请（`DEVICE_REQUEST`），驱动重启后重新枚举并下发 DeviceGrant。
+- MSI/MSI-X：`hk-driver-virtio` 已实现 PCI MSI-X 表编程（capability 解析、表项写入、关闭 INTx、virtio 队列向量路由），内核提供 `SYS_MSI_BIND`：只记录通知目标，不建立 IOAPIC 路由。当前未在服务中启用——在 QEMU virtio-net 上启用后目标向量被高频重复投递、DHCP 超时，驱动仍走 INTx；下一步需要专用向量并核对 `virtio_notify` 与中断次数的对应关系。
 - 维护设备树与驱动绑定；设备移除时关闭 Handle。
 - 通过 Endpoint 向 VFS 与 POSIX Server报告设备状态。
 
