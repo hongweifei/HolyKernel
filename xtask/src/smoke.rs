@@ -298,6 +298,7 @@ impl SmokeMode {
             ],
             Self::Net => &[
                 "hk-server-virtio-net: mac=",
+                "hk-server-virtio-net: irq intx",
                 "hk-server-net: ready",
                 "hk-server-net: ping ok",
                 "hk-server-net: tcp ok",

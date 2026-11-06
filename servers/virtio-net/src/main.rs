@@ -25,8 +25,8 @@ use hk_server_api::net::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, exit, irq_bind, recv_data_try, recv_handle, self_notification, send, send_data,
-    service_endpoint, wait_notify, write, yield_now,
+    device_info, exit, irq_bind, msi_bind, recv_data_try, recv_handle, self_notification, send,
+    send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
 };
 
 #[cfg(target_os = "none")]
@@ -126,7 +126,20 @@ fn wait_for_grant(endpoint: u64) -> GrantWait {
 fn serve(endpoint: u64, grant: u64, network: &mut hk_driver_virtio::Network, peer: &mut u64) -> ! {
     network.enable_interrupts();
     let notification = self_notification();
-    let bound = irq_bind(grant, notification, NET_NOTIFY_IRQ) == 0;
+    let msi = hk_driver_virtio::msi::enable();
+    let bound = if msi.is_some() {
+        msi_bind(grant, notification, NET_NOTIFY_IRQ) == 0
+    } else {
+        irq_bind(grant, notification, NET_NOTIFY_IRQ) == 0
+    };
+    match msi {
+        Some(msi) => {
+            write(b"hk-server-virtio-net: irq msi vector=");
+            write_u64(u64::from(msi.vector));
+            write(b"\n");
+        }
+        None => write(b"hk-server-virtio-net: irq intx\n"),
+    }
     let zerocopy = zerocopy_enabled();
     let mut shared = false;
     if !zerocopy {

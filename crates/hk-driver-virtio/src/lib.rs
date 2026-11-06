@@ -11,8 +11,10 @@ extern crate alloc;
 mod blk;
 mod hal;
 mod input;
+pub mod msi;
 pub mod msix;
 mod net;
+mod pci_config;
 
 use core::fmt;
 
@@ -24,8 +26,9 @@ use virtio_drivers::transport::pci::bus::PciRoot;
 use virtio_drivers::transport::pci::virtio_device_type;
 
 pub use blk::Block;
-pub use hal::register_mapping;
+pub use hal::{grant_descriptor, register_mapping};
 pub use input::Input;
+pub use msi::Msi;
 pub use msix::Msix;
 pub use net::Network;
 pub use virtio_drivers::transport::DeviceType as VirtioDeviceType;
