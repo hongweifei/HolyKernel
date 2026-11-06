@@ -17,6 +17,21 @@ pub const REVISION_RECORD_SIZE: usize = 272;
 /// 集合项编码长度。
 pub const ENTRY_RECORD_SIZE: usize = 24;
 
+/// 卷配额；0 表示不限。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Quota {
+    /// 文档数。
+    pub documents: u64,
+    /// 逻辑内容字节数。
+    pub bytes: u64,
+    /// 修订数。
+    pub revisions: u64,
+    /// 快照数。
+    pub snapshots: u64,
+    /// 标签数。
+    pub tags: u64,
+}
+
 /// 维护扫描结果。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MaintenanceReport {

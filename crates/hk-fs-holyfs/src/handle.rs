@@ -275,6 +275,21 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow().dedup_hits()
     }
 
+    /// 返回卷配额。
+    pub fn quota(&self) -> crate::Quota {
+        self.state.borrow().quota()
+    }
+
+    /// 设置卷配额并提交。
+    pub fn set_quota(&mut self, quota: crate::Quota) -> Result<(), HolyError> {
+        self.state.borrow_mut().set_quota(quota)
+    }
+
+    /// 返回当前配额使用量。
+    pub fn quota_used(&self) -> crate::Quota {
+        self.state.borrow().quota_used()
+    }
+
     #[cfg(test)]
     pub(crate) fn allocate_leak(&mut self, count: u64) -> Result<u64, HolyError> {
         self.state.borrow_mut().allocate_leak(count)

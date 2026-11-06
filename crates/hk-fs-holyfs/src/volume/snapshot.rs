@@ -274,6 +274,7 @@ impl<D: BlockDevice> Volume<D> {
     /// 固定当前文档表、标签视图与根修订。
     pub(crate) fn snapshot(&mut self, name: &str) -> Result<u64, HolyError> {
         validate_name(name)?;
+        self.check_quota(0, 0, 0, 1, 0)?;
         let root = self.documents.get(&DocId::ROOT).ok_or(HolyError::Corrupt)?;
         let id = self.next_snapshot;
         self.next_snapshot = self.next_snapshot.saturating_add(1);

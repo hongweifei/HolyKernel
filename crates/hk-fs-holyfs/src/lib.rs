@@ -32,7 +32,7 @@ pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
 pub use superblock::{BLOCK_SIZE, VOLUME_H, VOLUME_I, volume_id_for_drive};
 pub use types::{
     DocumentInfo, DocumentKind, DocumentRecord, EntryInfo, EntryRecord, Extent, MaintenanceReport,
-    PayloadKind, RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
+    PayloadKind, Quota, RevisionFlags, RevisionInfo, RevisionRecord, SnapshotInfo,
 };
 
 /// 格式化块设备为 HolyFS。

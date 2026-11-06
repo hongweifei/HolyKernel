@@ -4,8 +4,9 @@ use crate::vfs::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_resp
 use crate::{recv_data_from, send_data, service_endpoint};
 
 use super::codec::{
-    DocumentView, MaintenanceView, VolumeView, decode_doc_id, decode_document, decode_maintenance,
-    decode_revision_id, decode_token, decode_u32, decode_u64, decode_volume, kind_code,
+    DocumentView, MaintenanceView, QuotaView, VolumeView, decode_doc_id, decode_document,
+    decode_maintenance, decode_quota, decode_revision_id, decode_token, decode_u32, decode_u64,
+    decode_volume, encode_quota, kind_code,
 };
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::encode_request;
@@ -13,12 +14,12 @@ use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
     OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT,
     OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
-    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_READ, OP_READ_ID,
+    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID,
     OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE,
     OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB,
-    OP_SEAL, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
-    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID,
-    OP_WRITE_TOKEN, REQUEST, RESPONSE,
+    OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
+    OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -312,6 +313,20 @@ impl HolyClient {
     /// 显式销毁文档及其修订链。
     pub fn purge(&mut self, token: u64, document: DocId) -> Result<(), u8> {
         self.exchange(OP_PURGE, "", token, 0, &document.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 查询卷配额。
+    pub fn quota(&mut self, token: u64) -> Result<QuotaView, u8> {
+        let length = self.exchange(OP_QUOTA, "", token, 0, &[])?;
+        decode_quota(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 设置卷配额。
+    pub fn set_quota(&mut self, token: u64, quota: QuotaView) -> Result<(), u8> {
+        let mut bytes = [0_u8; 40];
+        encode_quota(&mut bytes, quota).ok_or(STATUS_INVALID)?;
+        self.exchange(OP_SET_QUOTA, "", token, 0, &bytes)
             .map(|_| ())
     }
 

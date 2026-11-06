@@ -2,21 +2,21 @@
 
 #![cfg(target_os = "none")]
 
-use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, RevisionId};
+use hk_fs_holyfs::{DocumentInfo, DocumentKind, HolyError, Quota, RevisionId};
 use hk_server_api::holy::{
     DocId as WireDocId, DocumentView, DriveView, KIND_COLLECTION, KIND_CONTENT, MaintenanceView,
     OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG,
     OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
     OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
-    OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR,
-    OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT,
-    OP_SCRUB, OP_SEAL, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
-    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
-    OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, Request,
-    RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView, decode_doc_id,
-    decode_u64, encode_doc_id, encode_document, encode_drive, encode_entry, encode_maintenance,
-    encode_revision, encode_revision_id, encode_snapshot, encode_tag, encode_token, encode_u32,
-    encode_u64, encode_volume,
+    OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
+    OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
+    OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG,
+    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
+    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_ADMIN, RIGHT_INSPECT, RIGHT_READ,
+    RIGHT_WRITE, Request, RevisionId as WireRevisionId, RevisionView, SnapshotView, VolumeView,
+    decode_doc_id, decode_quota, decode_u64, encode_doc_id, encode_document, encode_drive,
+    encode_entry, encode_maintenance, encode_quota, encode_revision, encode_revision_id,
+    encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
 use hk_server_api::vfs::{
     STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_OK,
@@ -145,6 +145,8 @@ pub(crate) fn handle(
             | OP_SEAL
             | OP_PRUNE
             | OP_PURGE
+            | OP_QUOTA
+            | OP_SET_QUOTA
     ) && let Err(status) = sessions.volume(sender, letter).check(
         request.arg0,
         drive.volume_id(),
@@ -443,6 +445,35 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
+        OP_QUOTA => {
+            let quota = drive.quota();
+            encode_quota_response(
+                body,
+                hk_server_api::holy::QuotaView {
+                    documents: quota.documents,
+                    bytes: quota.bytes,
+                    revisions: quota.revisions,
+                    snapshots: quota.snapshots,
+                    tags: quota.tags,
+                },
+            )
+        }
+        OP_SET_QUOTA => {
+            let Some(view) = decode_quota(request.data) else {
+                return (STATUS_INVALID, 0);
+            };
+            let quota = Quota {
+                documents: view.documents,
+                bytes: view.bytes,
+                revisions: view.revisions,
+                snapshots: view.snapshots,
+                tags: view.tags,
+            };
+            match drive.set_quota(quota) {
+                Ok(()) => (STATUS_OK, 0),
+                Err(error) => (status(error), 0),
+            }
+        }
         OP_TAGS => encode_tags(body, drive.tags()),
         OP_TAG_MEMBERS => match drive.tag_members(request.arg0 as u32) {
             Ok(documents) => encode_doc_id_list(body, &documents),
@@ -562,6 +593,13 @@ fn doc_from(bytes: &[u8]) -> Option<hk_fs_holyfs::DocId> {
 
 fn encode_token_response(body: &mut [u8], token: u64) -> (u8, usize) {
     match encode_token(body, token) {
+        Some(length) => (STATUS_OK, length),
+        None => (STATUS_ERROR, 0),
+    }
+}
+
+fn encode_quota_response(body: &mut [u8], view: hk_server_api::holy::QuotaView) -> (u8, usize) {
+    match encode_quota(body, view) {
         Some(length) => (STATUS_OK, length),
         None => (STATUS_ERROR, 0),
     }

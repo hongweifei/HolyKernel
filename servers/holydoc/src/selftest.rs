@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use hk_server_api::display::DISPLAY_SHUTDOWN;
 use hk_server_api::holy::{
-    DocumentKind, HolyClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
+    DocumentKind, HolyClient, QuotaView, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
     STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_drives, decode_snapshots, decode_tags,
 };
 use hk_server_api::{exit, send, write, write_u64};
@@ -283,6 +283,29 @@ pub(crate) fn verify_retention(endpoint: u64) -> bool {
     sealed && pruned && content_ok && purged && clean && released
 }
 
+/// 验证配额查询与设置。
+pub(crate) fn verify_quota(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+        return false;
+    };
+    let Ok(original) = client.quota(admin) else {
+        return false;
+    };
+    let target = QuotaView {
+        documents: 1024,
+        bytes: 16 * 1024 * 1024,
+        revisions: 4096,
+        snapshots: 64,
+        tags: 64,
+    };
+    let set = client.set_quota(admin, target).is_ok();
+    let read = client.quota(admin) == Ok(target);
+    let restored = client.set_quota(admin, original).is_ok();
+    let released = client.release_volume(admin).is_ok();
+    set && read && restored && released
+}
+
 /// 执行脚本化的导航、滚动与退出。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -324,6 +347,11 @@ pub(crate) fn run(
         write(b"hk-server-holydoc: retention ok\n");
     } else {
         write(b"hk-server-holydoc: retention failed\n");
+    }
+    if verify_quota(endpoint) {
+        write(b"hk-server-holydoc: quota ok\n");
+    } else {
+        write(b"hk-server-holydoc: quota failed\n");
     }
     if let Some((x, y, target)) = view.first_link() {
         write(b"hk-server-holydoc: click ");

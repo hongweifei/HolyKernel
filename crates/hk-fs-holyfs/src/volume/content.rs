@@ -76,6 +76,8 @@ impl<D: BlockDevice> Volume<D> {
         if end > MAX_CONTENT_BYTES {
             return Err(HolyError::NoSpace);
         }
+        let new_size = head.size.max(end);
+        self.check_quota(0, new_size.saturating_sub(head.size), 1, 0, 0)?;
         if offset == head.size && head.size.is_multiple_of(BLOCK_SIZE as u64) {
             self.append_content(document, &head, offset, data)?;
         } else {
@@ -93,6 +95,7 @@ impl<D: BlockDevice> Volume<D> {
             return Err(HolyError::IsDirectory);
         }
         let head = *self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        self.check_quota(0, size.saturating_sub(head.size), 1, 0, 0)?;
         let mut content = vec![0_u8; size as usize];
         let copy = head.size.min(size) as usize;
         if copy > 0 {
@@ -133,6 +136,7 @@ impl<D: BlockDevice> Volume<D> {
             return Err(HolyError::IsDirectory);
         }
         let head = *self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
+        self.check_quota(0, (content.len() as u64).saturating_sub(head.size), 1, 0, 0)?;
         self.replace_content(document, &head, content)?;
         let record = self.documents.get(&document).ok_or(HolyError::Corrupt)?;
         Ok(record.head)

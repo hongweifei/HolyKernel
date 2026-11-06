@@ -15,6 +15,7 @@ impl<D: BlockDevice> Volume<D> {
     /// 创建标签。
     pub(crate) fn create_tag(&mut self, name: &str) -> Result<u32, HolyError> {
         validate_name(name)?;
+        self.check_quota(0, 0, 0, 0, 1)?;
         if self.tags.values().any(|existing| existing == name) {
             return Err(HolyError::Exists);
         }

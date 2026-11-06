@@ -105,6 +105,10 @@ pub const OP_SEAL: u8 = 48;
 pub const OP_PRUNE: u8 = 49;
 /// 显式销毁文档及其修订链。
 pub const OP_PURGE: u8 = 50;
+/// 查询卷配额。
+pub const OP_QUOTA: u8 = 51;
+/// 设置卷配额。
+pub const OP_SET_QUOTA: u8 = 52;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;
@@ -225,3 +229,5 @@ pub(super) const VOLUME_LEN: usize = 16 + 8 + 8 + 16;
 pub(super) const DRIVE_LEN: usize = 1 + VOLUME_LEN;
 /// 维护报告：9 个 u64 统计字段。
 pub(super) const MAINTENANCE_LEN: usize = 9 * 8;
+/// 配额视图：5 个 u64 限制字段。
+pub(super) const QUOTA_LEN: usize = 5 * 8;

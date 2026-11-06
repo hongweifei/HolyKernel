@@ -6,7 +6,7 @@ HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空�
 
 Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、修订保留/GC、流式写、压缩与配额在后续版本落地。
+已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组与流式写/压缩在后续版本落地；修订保留/GC、内容去重与配额已实现。
 
 ---
 
@@ -213,7 +213,7 @@ flowchart LR
 
 - 卷按固定大小的分配组组织空间；每组维护位图与连续空闲段摘要，分配优先组内连续 run。
 - 文档支持多 extent；子修订共享未改动的 extent，写入只分配改动区间。
-- 卷配额覆盖文档数、字节数、修订数、快照数与标签数；`Stage` 预留配额，`Commit` 记账，`Abort` 释放。
+- 卷配额覆盖文档数、逻辑字节数、修订数、快照数与标签数；创建、写入、快照与标签操作前检查，配额持久化在 Superblock。
 - 释放 extent 时向块层发送 `Discard`，保持介质回收效率。
 
 ### 完整性与修复
@@ -263,6 +263,8 @@ flowchart LR
 | `Seal(revision)`                      | 封存修订，不参与自动裁剪；需要 ADMIN 令牌 |
 | `Prune(document, keep_last)`          | 保留最近未封存修订、封存与快照固定修订，随后 GC；需要 ADMIN 令牌 |
 | `Purge(document)`                     | 显式销毁文档、集合项、标签关系与修订链；快照固定时返回 `Pinned` |
+| `Quota(volume)`                       | 查询文档数、字节数、修订数、快照数与标签数配额；需要 ADMIN 令牌 |
+| `SetQuota(volume, quota)`             | 更新并持久化配额；需要 ADMIN 令牌 |
 
 ### Collection
 
@@ -396,7 +398,7 @@ sequenceDiagram
 - **去重**：ContentHash + 大小索引，相同内容共享 extent；索引在挂载、GC、裁剪与销毁后根据现有修订重建。
 - **压缩**：按修订或 extent 选择 LZ4/Zstd；读取透明解压。
 - **加密**：按修订加密内容与元数据；密钥由卷配置提供（规划）。
-- **配额**：文档数、字节数、修订数、快照数、标签数；在 `Stage` 预留、`Commit` 记账。
+- **配额**：文档数、逻辑字节、修订数、快照数与标签数；操作前检查，`Quota`/`SetQuota` 在线管理。
 - **在线校验**：`Check`、`Repair`、`Scrub` 在卷运行时工作。
 - **性能**：分配组、连续 extent、共享基线、文档缓存、group commit、多队列 DMA。
 
@@ -463,7 +465,8 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组 | 规划 |
-| 流式写、压缩、配额 | 规划 |
+| 流式写、压缩 | 规划 |
+| 配额：文档数、逻辑字节、修订数、快照数、标签数，Superblock 持久化 | 已实现 |
 | 内容去重：ContentHash 索引、extent 共享 | 已实现 |
 | 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
@@ -486,6 +489,7 @@ crates/hk-fs-holyfs/src/
 │   ├── mod.rs      卷状态、挂载与提交入口
 │   ├── maintenance.rs Check/Scrub/Repair
 │   ├── retention.rs Seal/Prune/Purge 与 GC
+│   ├── quota.rs    配额检查与持久化
 │   ├── content.rs  内容读写与内容修订
 │   ├── metadata.rs 集合项、路径解析与文档视图
 │   ├── tags.rs     标签与成员关系

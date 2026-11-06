@@ -8,7 +8,7 @@ use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
 
 use crate::error::HolyError;
 use crate::types::DocumentKind;
-use crate::{HolyFs, VOLUME_H, VOLUME_I, format, format_with_volume_id};
+use crate::{HolyFs, Quota, VOLUME_H, VOLUME_I, format, format_with_volume_id};
 
 const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
 
@@ -238,6 +238,63 @@ fn purge_removes_document_and_rejects_snapshot_pins() {
     assert_eq!(fs.lookup(root, "doc"), Err(HolyError::NotFound));
     assert!(fs.read_range(document, 0, &mut [0_u8; 4]).is_err());
     assert_eq!(fs.check().expect("复检").leaked_blocks, 0);
+}
+
+#[test]
+fn enforces_quota_limits() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    fs.set_quota(Quota {
+        documents: 2,
+        bytes: 4,
+        revisions: 100,
+        snapshots: 1,
+        tags: 1,
+    })
+    .expect("配额");
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    assert_eq!(
+        fs.create(root, "other", DocumentKind::Content),
+        Err(HolyError::Quota)
+    );
+    assert_eq!(fs.write_range(document, 0, b"12345"), Err(HolyError::Quota));
+    assert_eq!(fs.write_range(document, 0, b"1234").expect("写"), 4);
+    assert_eq!(fs.create_tag("one").expect("标签"), 1);
+    assert_eq!(fs.create_tag("two"), Err(HolyError::Quota));
+    assert!(fs.snapshot("one").is_ok());
+    assert_eq!(fs.snapshot("two"), Err(HolyError::Quota));
+}
+
+#[test]
+fn quota_enforces_revision_limit() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    fs.set_quota(Quota {
+        revisions: 3,
+        ..Quota::default()
+    })
+    .expect("配额");
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    assert_eq!(fs.write_range(document, 0, b"x"), Err(HolyError::Quota));
+}
+
+#[test]
+fn quota_survives_remount() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("挂载");
+        fs.set_quota(Quota {
+            documents: 8,
+            bytes: 4096,
+            revisions: 64,
+            snapshots: 2,
+            tags: 3,
+        })
+        .expect("配额");
+    }
+    let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    assert_eq!(fs.quota().documents, 8);
+    assert_eq!(fs.quota().bytes, 4096);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use super::ids::{DocId, DocumentKind, RevisionId};
 use super::wire::{
     DOC_LEN, DOCUMENT_LEN, DRIVE_LEN, ENTRY_HEADER, KIND_COLLECTION, KIND_CONTENT, MAINTENANCE_LEN,
-    REVISION_ID_LEN, REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
+    QUOTA_LEN, REVISION_ID_LEN, REVISION_LEN, SNAPSHOT_HEADER, TAG_HEADER, TOKEN_LEN, VOLUME_LEN,
 };
 
 /// 集合项视图。
@@ -128,7 +128,10 @@ pub fn decode_maintenance(bytes: &[u8]) -> Option<MaintenanceView> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MaintenanceView, decode_maintenance, encode_maintenance};
+    use super::{
+        MaintenanceView, QuotaView, decode_maintenance, decode_quota, encode_maintenance,
+        encode_quota,
+    };
 
     #[test]
     fn round_trips_maintenance_report() {
@@ -147,6 +150,73 @@ mod tests {
         assert_eq!(encode_maintenance(&mut bytes, view), Some(72));
         assert_eq!(decode_maintenance(&bytes), Some(view));
     }
+
+    #[test]
+    fn round_trips_quota() {
+        let quota = QuotaView {
+            documents: 1,
+            bytes: 2,
+            revisions: 3,
+            snapshots: 4,
+            tags: 5,
+        };
+        let mut bytes = [0_u8; 40];
+        assert_eq!(encode_quota(&mut bytes, quota), Some(40));
+        assert_eq!(decode_quota(&bytes), Some(quota));
+    }
+}
+
+/// 配额视图；0 表示不限。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QuotaView {
+    /// 文档数。
+    pub documents: u64,
+    /// 逻辑内容字节数。
+    pub bytes: u64,
+    /// 修订数。
+    pub revisions: u64,
+    /// 快照数。
+    pub snapshots: u64,
+    /// 标签数。
+    pub tags: u64,
+}
+
+/// 编码配额。
+pub fn encode_quota(out: &mut [u8], quota: QuotaView) -> Option<usize> {
+    if out.len() < QUOTA_LEN {
+        return None;
+    }
+    let values = [
+        quota.documents,
+        quota.bytes,
+        quota.revisions,
+        quota.snapshots,
+        quota.tags,
+    ];
+    for (index, value) in values.iter().enumerate() {
+        let offset = index * 8;
+        out[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+    Some(QUOTA_LEN)
+}
+
+/// 解码配额。
+pub fn decode_quota(bytes: &[u8]) -> Option<QuotaView> {
+    if bytes.len() != QUOTA_LEN {
+        return None;
+    }
+    let mut values = [0_u64; 5];
+    for (index, value) in values.iter_mut().enumerate() {
+        let offset = index * 8;
+        *value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().ok()?);
+    }
+    Some(QuotaView {
+        documents: values[0],
+        bytes: values[1],
+        revisions: values[2],
+        snapshots: values[3],
+        tags: values[4],
+    })
 }
 
 /// 盘符视图。

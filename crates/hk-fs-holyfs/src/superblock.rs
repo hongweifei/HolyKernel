@@ -13,7 +13,7 @@ pub const SUPERBLOCK_B: u64 = 1;
 /// 块位图起始块号。
 pub const BITMAP_START: u64 = 2;
 /// 超级块有效字节数。
-pub const SUPERBLOCK_SIZE: usize = 160;
+pub const SUPERBLOCK_SIZE: usize = 224;
 /// 文件系统魔数。
 pub const MAGIC: u64 = 0x484F_4C59_4653_3031;
 /// 格式版本。
@@ -65,6 +65,16 @@ pub struct Superblock {
     pub next_document: DocId,
     /// 下一个修订身份。
     pub next_revision: u64,
+    /// 文档数配额；0 表示不限。
+    pub quota_documents: u64,
+    /// 逻辑内容字节配额；0 表示不限。
+    pub quota_bytes: u64,
+    /// 修订数配额；0 表示不限。
+    pub quota_revisions: u64,
+    /// 快照数配额；0 表示不限。
+    pub quota_snapshots: u64,
+    /// 标签数配额；0 表示不限。
+    pub quota_tags: u64,
 }
 
 impl Superblock {
@@ -85,6 +95,11 @@ impl Superblock {
             next_tag: 1,
             next_document: DocId::new(DocId::ROOT.get() + 1),
             next_revision: RevisionId::ROOT.get() + 1,
+            quota_documents: 0,
+            quota_bytes: 0,
+            quota_revisions: 0,
+            quota_snapshots: 0,
+            quota_tags: 0,
         }
     }
 
@@ -108,10 +123,17 @@ impl Superblock {
         bytes[120..128].copy_from_slice(&self.next_revision.to_le_bytes());
         bytes[132..140].copy_from_slice(&self.snapshot_tree.to_le_bytes());
         bytes[140..148].copy_from_slice(&self.next_snapshot.to_le_bytes());
+        bytes[152..160].copy_from_slice(&self.quota_documents.to_le_bytes());
+        bytes[160..168].copy_from_slice(&self.quota_bytes.to_le_bytes());
+        bytes[168..176].copy_from_slice(&self.quota_revisions.to_le_bytes());
+        bytes[176..184].copy_from_slice(&self.quota_snapshots.to_le_bytes());
+        bytes[184..192].copy_from_slice(&self.quota_tags.to_le_bytes());
         let checksum = crc32c(&bytes[..128]);
         bytes[128..132].copy_from_slice(&checksum.to_le_bytes());
         let snapshot_checksum = crc32c(&bytes[132..148]);
         bytes[148..152].copy_from_slice(&snapshot_checksum.to_le_bytes());
+        let quota_checksum = crc32c(&bytes[152..192]);
+        bytes[192..196].copy_from_slice(&quota_checksum.to_le_bytes());
         bytes
     }
 
@@ -167,6 +189,21 @@ impl Superblock {
         {
             return Err(HolyError::Corrupt);
         }
+        let quota_checksum =
+            u32::from_le_bytes(bytes[192..196].try_into().map_err(|_| HolyError::Corrupt)?);
+        if crc32c(&bytes[152..192]) != quota_checksum {
+            return Err(HolyError::Corrupt);
+        }
+        let quota_documents =
+            u64::from_le_bytes(bytes[152..160].try_into().map_err(|_| HolyError::Corrupt)?);
+        let quota_bytes =
+            u64::from_le_bytes(bytes[160..168].try_into().map_err(|_| HolyError::Corrupt)?);
+        let quota_revisions =
+            u64::from_le_bytes(bytes[168..176].try_into().map_err(|_| HolyError::Corrupt)?);
+        let quota_snapshots =
+            u64::from_le_bytes(bytes[176..184].try_into().map_err(|_| HolyError::Corrupt)?);
+        let quota_tags =
+            u64::from_le_bytes(bytes[184..192].try_into().map_err(|_| HolyError::Corrupt)?);
         let bitmap_end = bitmap_start
             .checked_add(u64::from(bitmap_blocks))
             .ok_or(HolyError::Corrupt)?;
@@ -195,6 +232,11 @@ impl Superblock {
             next_tag,
             next_document,
             next_revision,
+            quota_documents,
+            quota_bytes,
+            quota_revisions,
+            quota_snapshots,
+            quota_tags,
         })
     }
 }
