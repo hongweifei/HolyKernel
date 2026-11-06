@@ -21,9 +21,9 @@ mod render;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
-    DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, set_title,
-    unpack_key,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
+    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
+    set_title, unpack_key,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -47,11 +47,11 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 提交并等待显示服务完成合成。
 #[cfg(target_os = "none")]
-fn commit(endpoint: u64, display: u64, window: u64) {
-    let _ = send(display, DISPLAY_COMMIT, window);
+fn commit(endpoint: u64, display: u64, surface: u64) {
+    let _ = send(display, SURFACE_COMMIT, surface);
     loop {
         let (label, word, _sender) = recv(endpoint);
-        if label == DISPLAY_FRAME_DONE && word == window {
+        if label == SURFACE_FRAME_DONE && word == surface {
             return;
         }
     }
@@ -67,12 +67,13 @@ fn show(
     pixels: *mut u32,
     endpoint: u64,
     display: u64,
+    surface: u64,
     window: u64,
 ) {
     let title = format!("Debug: {}", page.title());
     set_title(display, window, &title);
     render(text, page.title(), scroll, font, pixels);
-    commit(endpoint, display, window);
+    commit(endpoint, display, surface);
 }
 
 /// 服务入口。
@@ -92,7 +93,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     if send_handle(
         display,
-        DISPLAY_CREATE_WINDOW,
+        SURFACE_CREATE,
         pack_size(WIDTH as u32, HEIGHT as u32),
         handle,
     ) == u64::MAX
@@ -100,8 +101,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-debug: create failed\n");
         exit(3)
     }
+    let (label, surface, _sender) = recv(endpoint);
+    if label != SURFACE_CREATED || surface == 0 {
+        write(b"hk-server-debug: surface rejected\n");
+        exit(4)
+    }
+    let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
-    if label != DISPLAY_WINDOW_CREATED || window == 0 {
+    if label != WINDOW_CREATED || window == 0 {
         write(b"hk-server-debug: window rejected\n");
         exit(4)
     }
@@ -120,7 +127,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut text = page.fetch();
     let mut scroll = 0;
     show(
-        page, &text, scroll, &font, pixels, endpoint, display, window,
+        page, &text, scroll, &font, pixels, endpoint, display, surface, window,
     );
 
     let stats = kernel_stats();
@@ -141,7 +148,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if test {
         for page in Page::ALL {
             let text = page.fetch();
-            show(page, &text, 0, &font, pixels, endpoint, display, window);
+            show(
+                page, &text, 0, &font, pixels, endpoint, display, surface, window,
+            );
             write(b"hk-server-debug: view ");
             write(page.slug().as_bytes());
             write(b"\n");
@@ -170,6 +179,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 pixels,
                 endpoint,
                 display,
+                surface,
                 window,
             );
             if fault.contains("[hk-server-debug]") {
@@ -277,7 +287,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 if update {
                     show(
-                        page, &text, scroll, &font, pixels, endpoint, display, window,
+                        page, &text, scroll, &font, pixels, endpoint, display, surface, window,
                     );
                 }
             }

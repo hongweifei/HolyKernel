@@ -5,14 +5,6 @@
 
 pub use hk_syscall::DISPLAY_SERVICE;
 
-/// 创建窗口；`word` 打包宽高，随消息转移表面 Frame 句柄。
-pub const DISPLAY_CREATE_WINDOW: u64 = 0xA00;
-/// 窗口已创建；`word` 为窗口编号。
-pub const DISPLAY_WINDOW_CREATED: u64 = 0xA01;
-/// 提交窗口表面；`word` 为窗口编号。
-pub const DISPLAY_COMMIT: u64 = 0xA02;
-/// 一帧已合成；`word` 为窗口编号。
-pub const DISPLAY_FRAME_DONE: u64 = 0xA03;
 /// 请求显示服务退出（用于自检收尾）。
 pub const DISPLAY_SHUTDOWN: u64 = 0xA04;
 /// 键盘事件；`word` 为打包的窗口编号与字节，发给焦点窗口的客户端。
@@ -30,6 +22,38 @@ pub const DISPLAY_RESTART: u64 = 0xA0A;
 /// 鼠标滚轮；`word` 打包窗口编号与有符号增量，发给焦点窗口的客户端。
 pub const DISPLAY_WHEEL: u64 = 0xA0B;
 
+/// 创建表面；`word` 打包宽高，随消息转移表面 Frame 句柄。
+pub const SURFACE_CREATE: u64 = 0xA10;
+/// 表面已创建；`word` 为表面编号。
+pub const SURFACE_CREATED: u64 = 0xA11;
+/// 标记表面 damage；`word` 为表面编号，载荷为 [`SURFACE_RECT_BYTES`] 字节矩形。
+pub const SURFACE_DAMAGE: u64 = 0xA12;
+/// 设置表面输入区域；`word` 为表面编号，载荷为矩形，空矩形表示整个表面。
+pub const SURFACE_SET_INPUT_REGION: u64 = 0xA13;
+/// 提交表面；`word` 为表面编号。
+pub const SURFACE_COMMIT: u64 = 0xA14;
+/// 表面一帧已合成；`word` 为表面编号。
+pub const SURFACE_FRAME_DONE: u64 = 0xA15;
+/// 销毁表面；`word` 为表面编号。
+pub const SURFACE_DESTROY: u64 = 0xA16;
+/// 把表面挂到窗口；`word` 为表面编号，回复 [`WINDOW_CREATED`]。
+pub const WINDOW_CREATE: u64 = 0xA17;
+/// 窗口已创建；`word` 为窗口编号。
+pub const WINDOW_CREATED: u64 = 0xA18;
+/// 设置焦点窗口；`word` 为窗口编号。
+pub const SEAT_FOCUS: u64 = 0xA19;
+/// 写入剪贴板；载荷为 UTF-8 文本。
+pub const SEAT_SET_CLIPBOARD: u64 = 0xA1A;
+/// 请求剪贴板；回复 [`SEAT_CLIPBOARD`]。
+pub const SEAT_GET_CLIPBOARD: u64 = 0xA1B;
+/// 剪贴板内容；载荷为 UTF-8 文本。
+pub const SEAT_CLIPBOARD: u64 = 0xA1C;
+
+/// 表面矩形载荷长度。
+pub const SURFACE_RECT_BYTES: usize = 8;
+/// 表面编号 + 矩形载荷长度。
+pub const SURFACE_PAYLOAD_BYTES: usize = 16;
+
 /// 窗口标题最大字节数。
 pub const TITLE_MAX: usize = 32;
 
@@ -44,6 +68,53 @@ pub fn set_title(display: u64, window: u64, title: &str) {
 
 /// 客户端映射窗口表面使用的用户虚拟地址。
 pub const SURFACE_VIRT: u64 = 0x5000_0000;
+
+/// 把表面坐标矩形编码为 4 个小端 u16。
+pub const fn pack_rect(x: u16, y: u16, width: u16, height: u16) -> [u8; SURFACE_RECT_BYTES] {
+    [
+        x as u8,
+        (x >> 8) as u8,
+        y as u8,
+        (y >> 8) as u8,
+        width as u8,
+        (width >> 8) as u8,
+        height as u8,
+        (height >> 8) as u8,
+    ]
+}
+
+/// 从载荷解出表面坐标矩形；长度不足时返回 `None`。
+pub fn unpack_rect(bytes: &[u8]) -> Option<(u16, u16, u16, u16)> {
+    if bytes.len() < SURFACE_RECT_BYTES {
+        return None;
+    }
+    let word = |offset: usize| u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+    Some((word(0), word(2), word(4), word(6)))
+}
+
+/// 打包表面编号与矩形，用于 damage 与输入区域请求。
+pub fn pack_surface_rect(
+    surface: u64,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+) -> [u8; SURFACE_PAYLOAD_BYTES] {
+    let mut bytes = [0_u8; SURFACE_PAYLOAD_BYTES];
+    bytes[..8].copy_from_slice(&surface.to_le_bytes());
+    bytes[8..].copy_from_slice(&pack_rect(x, y, width, height));
+    bytes
+}
+
+/// 从载荷解出表面编号与矩形。
+pub fn unpack_surface_rect(bytes: &[u8]) -> Option<(u64, u16, u16, u16, u16)> {
+    if bytes.len() < SURFACE_PAYLOAD_BYTES {
+        return None;
+    }
+    let surface = u64::from_le_bytes(bytes[..8].try_into().ok()?);
+    let (x, y, width, height) = unpack_rect(&bytes[8..])?;
+    Some((surface, x, y, width, height))
+}
 
 /// 把宽高打包进一个消息字。
 pub const fn pack_size(width: u32, height: u32) -> u64 {

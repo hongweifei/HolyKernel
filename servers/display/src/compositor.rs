@@ -98,19 +98,19 @@ fn desktop_color(height: usize, row: usize) -> u32 {
 #[cfg(target_os = "none")]
 pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
     let source_x = x
-        .checked_mul(window.surface_width)
+        .checked_mul(window.surface.width)
         .and_then(|value| value.checked_div(window.width))
-        .map_or(0, |value| value.min(window.surface_width.saturating_sub(1)));
+        .map_or(0, |value| value.min(window.surface.width.saturating_sub(1)));
     let source_y = y
-        .checked_mul(window.surface_height)
+        .checked_mul(window.surface.height)
         .and_then(|value| value.checked_div(window.height))
         .map_or(0, |value| {
-            value.min(window.surface_height.saturating_sub(1))
+            value.min(window.surface.height.saturating_sub(1))
         });
     // SAFETY: 表面是客户端转移过来的共享 Frame，长度已在创建时校验。
     unsafe {
-        (window.virt as *const u32)
-            .add(source_y * window.surface_width + source_x)
+        (window.surface.virt as *const u32)
+            .add(source_y * window.surface.width + source_x)
             .read_volatile()
     }
 }
@@ -336,8 +336,8 @@ fn paint_window(
     let body_bottom = (window_y + title_height() + window.height).min(bottom);
     if body_left < body_right
         && body_top < body_bottom
-        && window.width == window.surface_width
-        && window.height == window.surface_height
+        && window.width == window.surface.width
+        && window.height == window.surface.height
     {
         let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
@@ -355,14 +355,15 @@ fn paint_window(
             let source_row = row - (window_y + title_height());
             // SAFETY: 表面按 surface_width×surface_height 映射，坐标已裁剪到窗口内。
             let source = unsafe {
-                (window.virt as *const u32).add(source_row * window.surface_width + source_x)
+                (window.surface.virt as *const u32)
+                    .add(source_row * window.surface.width + source_x)
             };
             screen.copy_row(row_left, row, count, source);
         }
     } else {
         let width = window.width.max(1);
         let height = window.height.max(1);
-        let x_step = (window.surface_width as u64 * 65536 / width as u64) as usize;
+        let x_step = (window.surface.width as u64 * 65536 / width as u64) as usize;
         let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
             let distance = window_bottom.saturating_sub(1).saturating_sub(row);
@@ -376,15 +377,15 @@ fn paint_window(
             }
             let source_row = row - (window_y + title_height());
             let source_y =
-                (source_row as u64 * window.surface_height as u64 / height as u64) as usize;
+                (source_row as u64 * window.surface.height as u64 / height as u64) as usize;
             // SAFETY: 采样坐标已按表面尺寸缩放。
             let source =
-                unsafe { (window.virt as *const u32).add(source_y * window.surface_width) };
+                unsafe { (window.surface.virt as *const u32).add(source_y * window.surface.width) };
             let start_x = row_left - window_x;
             let mut column_source =
-                ((start_x as u64 * window.surface_width as u64 * 65536) / width as u64) as usize;
+                ((start_x as u64 * window.surface.width as u64 * 65536) / width as u64) as usize;
             for column in row_left..row_right {
-                let sample = (column_source >> 16).min(window.surface_width - 1);
+                let sample = (column_source >> 16).min(window.surface.width - 1);
                 // SAFETY: sample < surface_width。
                 let color = unsafe { source.add(sample).read() };
                 screen.put(column, row, color);

@@ -5,8 +5,9 @@
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
-    DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size, set_title,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
+    SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
+    set_title,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, frame_alloc, recv, send, send_handle, write, write_u64};
@@ -55,25 +56,25 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
-    if send_handle(
-        display,
-        DISPLAY_CREATE_WINDOW,
-        pack_size(WIDTH, HEIGHT),
-        handle,
-    ) == u64::MAX
-    {
+    if send_handle(display, SURFACE_CREATE, pack_size(WIDTH, HEIGHT), handle) == u64::MAX {
         write(b"hk-server-pointer-test: create failed\n");
         exit(3)
     }
+    let (label, surface, _sender) = recv(endpoint);
+    if label != SURFACE_CREATED || surface == 0 {
+        write(b"hk-server-pointer-test: surface rejected\n");
+        exit(4)
+    }
+    let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
-    if label != DISPLAY_WINDOW_CREATED || window == 0 {
+    if label != WINDOW_CREATED || window == 0 {
         write(b"hk-server-pointer-test: window rejected\n");
         exit(4)
     }
     set_title(display, window, "Pointer");
-    let _ = send(display, DISPLAY_COMMIT, window);
-    let (label, _word, _sender) = recv(endpoint);
-    if label != DISPLAY_FRAME_DONE {
+    let _ = send(display, SURFACE_COMMIT, surface);
+    let (label, word, _sender) = recv(endpoint);
+    if label != SURFACE_FRAME_DONE || word != surface {
         write(b"hk-server-pointer-test: no frame\n");
         exit(5)
     }

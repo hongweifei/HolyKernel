@@ -5,6 +5,7 @@ use core::cell::Cell;
 use hk_server_api::display::TITLE_MAX;
 
 use crate::resize::{Edges, Rect};
+use crate::surface::Surface;
 use crate::theme::scale;
 
 /// 最多同时合成的窗口数。
@@ -183,15 +184,12 @@ pub(crate) fn resize_border() -> usize {
 #[derive(Clone, Copy)]
 pub(crate) struct Window {
     pub(crate) id: u64,
+    pub(crate) slot: usize,
+    pub(crate) surface: Surface,
     pub(crate) x: usize,
     pub(crate) y: usize,
     pub(crate) width: usize,
     pub(crate) height: usize,
-    pub(crate) surface_width: usize,
-    pub(crate) surface_height: usize,
-    pub(crate) virt: u64,
-    pub(crate) handle: u64,
-    pub(crate) client: u64,
     pub(crate) title: [u8; TITLE_MAX],
     pub(crate) title_length: usize,
     pub(crate) restore: Option<(usize, usize, usize, usize)>,
@@ -443,10 +441,27 @@ pub(crate) fn window_at(
         .filter(|window| !window.minimized)
         .copied()
         .find(|window| {
-            x >= window.x
-                && x < window.x + window.width
-                && y >= window.y
-                && y < window.y + window.height + title_height()
+            if x < window.x
+                || x >= window.x + window.width
+                || y < window.y
+                || y >= window.y + window.height + title_height()
+            {
+                return false;
+            }
+            let body_top = window.y + title_height();
+            if y < body_top {
+                // 标题栏与装饰属于服务端，始终接受输入。
+                return true;
+            }
+            let surface_x = (x - window.x)
+                .checked_mul(window.surface.width)
+                .and_then(|value| value.checked_div(window.width.max(1)))
+                .unwrap_or(0);
+            let surface_y = (y - body_top)
+                .checked_mul(window.surface.height)
+                .and_then(|value| value.checked_div(window.height.max(1)))
+                .unwrap_or(0);
+            window.surface.input_contains(surface_x, surface_y)
         })
 }
 

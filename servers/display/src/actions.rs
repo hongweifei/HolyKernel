@@ -137,12 +137,13 @@ pub(crate) fn close_window(
     };
     windows[slot] = None;
     let bytes = window
-        .surface_width
-        .saturating_mul(window.surface_height)
+        .surface
+        .width
+        .saturating_mul(window.surface.height)
         .saturating_mul(4);
-    let _ = frame_unmap(window.virt, bytes);
-    let _ = close_handle(window.handle);
-    let _ = send(window.client, DISPLAY_CLOSE, id);
+    let _ = frame_unmap(window.surface.virt, bytes);
+    let _ = close_handle(window.surface.handle);
+    let _ = send(window.surface.client, DISPLAY_CLOSE, id);
 
     let previous = *focus;
     if previous == id {
@@ -174,14 +175,22 @@ pub(crate) fn close_window(
 /// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
 pub(crate) fn route_key(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, byte: u8) {
     if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
-        let _ = send(window.client, DISPLAY_KEY, pack_key(window.id, byte));
+        let _ = send(
+            window.surface.client,
+            DISPLAY_KEY,
+            pack_key(window.id, byte),
+        );
     }
 }
 
 /// 把滚轮增量转发给焦点窗口的客户端；没有焦点时丢弃。
 pub(crate) fn route_wheel(windows: &[Option<Window>; MAX_WINDOWS], focus: u64, delta: i32) {
     if let Some(window) = windows.iter().flatten().find(|window| window.id == focus) {
-        let _ = send(window.client, DISPLAY_WHEEL, pack_wheel(window.id, delta));
+        let _ = send(
+            window.surface.client,
+            DISPLAY_WHEEL,
+            pack_wheel(window.id, delta),
+        );
     }
 }
 

@@ -8,14 +8,20 @@
 
 #[cfg(any(target_os = "none", test))]
 mod resize;
+#[cfg(any(target_os = "none", test))]
+mod seat;
+#[cfg(any(target_os = "none", test))]
+mod surface;
 
 #[cfg(target_os = "none")]
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_FRAME_DONE,
-    DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, DISPLAY_WINDOW_CREATED, TITLE_MAX,
-    pack_click_at, unpack_size,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN,
+    SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD, SURFACE_COMMIT,
+    SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE, SURFACE_DESTROY, SURFACE_FRAME_DONE,
+    SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE, WINDOW_CREATED, pack_click_at, unpack_size,
+    unpack_surface_rect,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
@@ -25,8 +31,8 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, recv_data_handle_try,
-    send, tsc, tsc_frequency, write, write_u64, yield_now,
+    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
+    recv_data_handle_try, send, send_data, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -43,6 +49,13 @@ use compositor::{
     CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, damage_taskbar, damage_title, damage_window,
     draw_desktop, move_window, resize_window, surface_pixel,
 };
+
+#[cfg(target_os = "none")]
+use resize::Rect;
+#[cfg(target_os = "none")]
+use seat::Seat;
+#[cfg(target_os = "none")]
+use surface::{MAX_SURFACES, Surface, scale};
 
 #[cfg(target_os = "none")]
 mod theme;
@@ -117,6 +130,209 @@ fn report_full_redraw(label: &[u8], cycles: u64) {
     });
 }
 
+/// 创建表面：校验共享 Frame、映射到表面槽并登记。
+#[cfg(target_os = "none")]
+fn create_surface(
+    windows: &[Option<Window>; MAX_WINDOWS],
+    surfaces: &mut [Option<Surface>; MAX_SURFACES],
+    next_id: &mut u64,
+    client: u64,
+    width: u32,
+    height: u32,
+    handle: u64,
+) -> Option<u64> {
+    let width = width as usize;
+    let height = height as usize;
+    if handle == 0 || width == 0 || height == 0 {
+        if handle != 0 {
+            let _ = close_handle(handle);
+        }
+        write(b"hk-server-display: create invalid\n");
+        return None;
+    }
+    let free = |slot: &usize| {
+        surfaces[*slot].is_none() && !windows.iter().flatten().any(|window| window.slot == *slot)
+    };
+    let Some(slot) = (0..MAX_SURFACES).find(free) else {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: create full\n");
+        return None;
+    };
+    let bytes = width as u64 * height as u64 * 4;
+    let Some((_, frame_length)) = frame_info(handle) else {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: create no-frame\n");
+        return None;
+    };
+    if frame_length < bytes {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: create short-frame\n");
+        return None;
+    }
+    let id = *next_id;
+    let virt = WINDOW_BASE + (slot as u64) * WINDOW_STRIDE;
+    let mapped = frame_map(handle, virt);
+    if mapped < bytes {
+        let _ = close_handle(handle);
+        write(b"hk-server-display: create map-failed ");
+        write_u64(mapped);
+        write(b"/");
+        write_u64(bytes);
+        write(b"\n");
+        return None;
+    }
+    surfaces[slot] = Some(Surface::new(id, client, slot, width, height, virt, handle));
+    *next_id += 1;
+    Some(id)
+}
+
+/// 丢弃未绑定表面的缓冲。
+#[cfg(target_os = "none")]
+fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u64) {
+    if let Some(slot) = surfaces.iter().position(|entry| {
+        entry
+            .as_ref()
+            .is_some_and(|surface| surface.id == surface_id)
+    }) && let Some(surface) = surfaces[slot].take()
+    {
+        let bytes = surface
+            .width
+            .saturating_mul(surface.height)
+            .saturating_mul(4);
+        let _ = frame_unmap(surface.virt, bytes);
+        let _ = close_handle(surface.handle);
+    }
+}
+
+/// 把表面绑定到窗口：分配窗口槽、放置几何并提升焦点。
+#[cfg(target_os = "none")]
+#[allow(clippy::too_many_arguments)]
+fn attach_window(
+    screen: &Screen,
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    surfaces: &mut [Option<Surface>; MAX_SURFACES],
+    surface_id: u64,
+    next_id: &mut u64,
+    focus: &mut u64,
+    font: &Font,
+    pointer: Option<(usize, usize)>,
+) -> Option<u64> {
+    let slot = surfaces.iter().position(|entry| {
+        entry
+            .as_ref()
+            .is_some_and(|surface| surface.id == surface_id)
+    })?;
+    let Some(surface) = surfaces[slot].take() else {
+        return None;
+    };
+    let Some(window_slot) = windows.iter().position(Option::is_none) else {
+        surfaces[slot] = Some(surface);
+        write(b"hk-server-display: create full\n");
+        return None;
+    };
+    let id = *next_id;
+    let width = surface.width;
+    let height = surface.height;
+    let offset = (id as usize - 1) * 16;
+    let x = screen
+        .width
+        .saturating_sub(width)
+        .saturating_div(2)
+        .saturating_add(offset)
+        .min(screen.width.saturating_sub(width));
+    let desktop_height = screen.height.saturating_sub(taskbar_height());
+    let y = desktop_height
+        .saturating_sub(height + title_height())
+        .saturating_div(2)
+        .saturating_add(offset)
+        .min(desktop_height.saturating_sub(height + title_height()));
+    let previous = *focus;
+    windows[window_slot] = Some(Window {
+        id,
+        slot: surface.slot,
+        surface,
+        x,
+        y,
+        width,
+        height,
+        title: [0; TITLE_MAX],
+        title_length: 0,
+        restore: None,
+        minimized: false,
+    });
+    *next_id += 1;
+    *focus = id;
+    raise(windows, id);
+    if let Some(window) = windows
+        .iter()
+        .flatten()
+        .find(|window| window.id == id)
+        .copied()
+    {
+        damage_window(screen, windows, *focus, font, pointer, &window);
+    }
+    damage_title(screen, windows, *focus, font, pointer, previous);
+    damage_taskbar(screen, windows, *focus, font, pointer);
+    Some(id)
+}
+
+/// 在未绑定表面或已绑定窗口上记录 damage。
+#[cfg(target_os = "none")]
+fn mark_surface_damage(
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    surfaces: &mut [Option<Surface>; MAX_SURFACES],
+    surface_id: u64,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    if let Some(window) = windows
+        .iter_mut()
+        .flatten()
+        .find(|window| window.surface.id == surface_id)
+    {
+        window.surface.mark_damage(x, y, width, height);
+        return true;
+    }
+    if let Some(surface) = surfaces
+        .iter_mut()
+        .flatten()
+        .find(|surface| surface.id == surface_id)
+    {
+        surface.mark_damage(x, y, width, height);
+        return true;
+    }
+    false
+}
+
+/// 设置未绑定表面或已绑定窗口的输入区域。
+#[cfg(target_os = "none")]
+fn set_surface_input_region(
+    windows: &mut [Option<Window>; MAX_WINDOWS],
+    surfaces: &mut [Option<Surface>; MAX_SURFACES],
+    surface_id: u64,
+    region: crate::resize::Rect,
+) -> bool {
+    if let Some(window) = windows
+        .iter_mut()
+        .flatten()
+        .find(|window| window.surface.id == surface_id)
+    {
+        window.surface.set_input_region(region);
+        return true;
+    }
+    if let Some(surface) = surfaces
+        .iter_mut()
+        .flatten()
+        .find(|surface| surface.id == surface_id)
+    {
+        surface.set_input_region(region);
+        return true;
+    }
+    false
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -179,13 +395,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut windows: [Option<Window>; MAX_WINDOWS] = [None; MAX_WINDOWS];
-    let mut next_id = 1_u64;
+    let mut surfaces: [Option<Surface>; MAX_SURFACES] = [None; MAX_SURFACES];
+    let mut next_window_id = 1_u64;
+    let mut next_surface_id = 1_u64;
     let mut focus = 0_u64;
     let mut driver_input = false;
-    let mut pointer: Option<(usize, usize)> = None;
+    let mut seat = Seat::new();
     let mut drag: Option<Drag> = None;
     let mut resize: Option<Resize> = None;
-    damage_taskbar(&screen, &windows, focus, &font, pointer);
+    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
 
     let mut benchmarked = false;
     let benchmark_at = tsc().saturating_add(tsc_frequency().saturating_mul(2));
@@ -198,7 +416,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             let mut best = u64::MAX;
             for _ in 0..3 {
                 best = best.min(measure_full_redraw(
-                    &screen, &windows, focus, &font, pointer,
+                    &screen,
+                    &windows,
+                    focus,
+                    &font,
+                    seat.pointer,
                 ));
             }
             report_full_redraw(b"full redraw min ", best);
@@ -207,7 +429,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if !driver_input {
             while let Some(byte) = console_read() {
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font, pointer);
+                    cycle_focus(&screen, &mut windows, &mut focus, &font, seat.pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -220,99 +442,188 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         match label {
-            DISPLAY_CREATE_WINDOW => {
+            SURFACE_CREATE => {
                 let (width, height) = unpack_size(word);
-                if handle == 0 || width == 0 || height == 0 {
-                    if handle != 0 {
-                        let _ = close_handle(handle);
-                    }
-                    write(b"hk-server-display: create invalid\n");
-                    let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
-                    continue;
-                }
-                let Some(slot) = windows.iter().position(Option::is_none) else {
-                    let _ = close_handle(handle);
-                    write(b"hk-server-display: create full\n");
-                    let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
-                    continue;
-                };
-                let bytes = width as u64 * height as u64 * 4;
-                let Some((_, frame_length)) = frame_info(handle) else {
-                    let _ = close_handle(handle);
-                    write(b"hk-server-display: create no-frame\n");
-                    let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
-                    continue;
-                };
-                if frame_length < bytes {
-                    let _ = close_handle(handle);
-                    write(b"hk-server-display: create short-frame\n");
-                    let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
-                    continue;
-                }
-                let id = next_id;
-                let virt = WINDOW_BASE + (slot as u64) * WINDOW_STRIDE;
-                let mapped = frame_map(handle, virt);
-                if mapped < bytes {
-                    let _ = close_handle(handle);
-                    write(b"hk-server-display: create map-failed ");
-                    write_u64(mapped);
-                    write(b"/");
-                    write_u64(bytes);
-                    write(b"\n");
-                    let _ = send(sender, DISPLAY_WINDOW_CREATED, 0);
-                    continue;
-                }
-                let offset = (id as usize - 1) * 16;
-                let width = width as usize;
-                let height = height as usize;
-                let x = screen
-                    .width
-                    .saturating_sub(width)
-                    .saturating_div(2)
-                    .saturating_add(offset)
-                    .min(screen.width.saturating_sub(width));
-                let desktop_height = screen.height.saturating_sub(taskbar_height());
-                let y = desktop_height
-                    .saturating_sub(height + title_height())
-                    .saturating_div(2)
-                    .saturating_add(offset)
-                    .min(desktop_height.saturating_sub(height + title_height()));
-                let previous = focus;
-                windows[slot] = Some(Window {
-                    id,
-                    x,
-                    y,
+                let surface = create_surface(
+                    &windows,
+                    &mut surfaces,
+                    &mut next_surface_id,
+                    sender,
                     width,
                     height,
-                    surface_width: width,
-                    surface_height: height,
-                    virt,
                     handle,
-                    client: sender,
-                    title: [0; TITLE_MAX],
-                    title_length: 0,
-                    restore: None,
-                    minimized: false,
+                );
+                let _ = send(sender, SURFACE_CREATED, surface.unwrap_or(0));
+            }
+            WINDOW_CREATE => {
+                let window = attach_window(
+                    &screen,
+                    &mut windows,
+                    &mut surfaces,
+                    word,
+                    &mut next_window_id,
+                    &mut focus,
+                    &font,
+                    seat.pointer,
+                );
+                let _ = send(sender, WINDOW_CREATED, window.unwrap_or(0));
+            }
+            SURFACE_DAMAGE => {
+                if let Some((surface, x, y, width, height)) =
+                    unpack_surface_rect(&payload[..length.min(payload.len())])
+                {
+                    let _ = mark_surface_damage(
+                        &mut windows,
+                        &mut surfaces,
+                        surface,
+                        x as usize,
+                        y as usize,
+                        width as usize,
+                        height as usize,
+                    );
+                }
+            }
+            SURFACE_SET_INPUT_REGION => {
+                if let Some((surface, x, y, width, height)) =
+                    unpack_surface_rect(&payload[..length.min(payload.len())])
+                {
+                    let region = Rect {
+                        x: x as usize,
+                        y: y as usize,
+                        width: width as usize,
+                        height: height as usize,
+                    };
+                    let _ = set_surface_input_region(&mut windows, &mut surfaces, surface, region);
+                }
+            }
+            SURFACE_COMMIT => {
+                let slot = windows.iter().position(|window| {
+                    window
+                        .as_ref()
+                        .is_some_and(|window| window.surface.id == word)
                 });
-                next_id += 1;
-                focus = id;
-                raise(&mut windows, id);
+                let Some(slot) = slot else {
+                    if let Some(surface) = surfaces
+                        .iter_mut()
+                        .flatten()
+                        .find(|surface| surface.id == word)
+                    {
+                        let _ = surface.take_damage();
+                    }
+                    let _ = send(sender, SURFACE_FRAME_DONE, word);
+                    continue;
+                };
+                let damage = windows[slot]
+                    .as_mut()
+                    .and_then(|window| window.surface.take_damage());
+                let Some(window) = windows[slot] else {
+                    continue;
+                };
+                match damage {
+                    Some(damage) => {
+                        let body = scale(
+                            damage,
+                            window.surface.width,
+                            window.surface.height,
+                            window.width,
+                            window.height,
+                        );
+                        if body.width > 0 && body.height > 0 {
+                            compose_region(
+                                &screen,
+                                &windows,
+                                focus,
+                                &font,
+                                seat.pointer,
+                                window.x + body.x,
+                                window.y + title_height() + body.y,
+                                body.width,
+                                body.height,
+                            );
+                        }
+                        write(b"hk-server-display: surface ");
+                        write_u64(word);
+                        write(b" ok\n");
+                    }
+                    None => {
+                        damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
+                        let expected = surface_pixel(&window, 0, 0);
+                        let actual = screen.get(window.x, window.y + title_height());
+                        if expected != actual {
+                            write(b"hk-server-display: composite mismatch\n");
+                        } else {
+                            write(b"hk-server-display: composite ok ");
+                            write_u64(window.id);
+                            write(b" ");
+                            write_u64(window.width as u64);
+                            write(b"x");
+                            write_u64(window.height as u64);
+                            write(b"\n");
+                        }
+                    }
+                }
+                let _ = send(sender, SURFACE_FRAME_DONE, word);
+            }
+            SURFACE_DESTROY => {
+                discard_surface(&mut surfaces, word);
                 if let Some(window) = windows
                     .iter()
                     .flatten()
-                    .find(|window| window.id == id)
+                    .find(|window| window.surface.id == word)
                     .copied()
                 {
-                    damage_window(&screen, &windows, focus, &font, pointer, &window);
+                    close_window(
+                        &screen,
+                        &mut windows,
+                        &mut focus,
+                        &font,
+                        seat.pointer,
+                        window.id,
+                    );
                 }
-                damage_title(&screen, &windows, focus, &font, pointer, previous);
-                damage_taskbar(&screen, &windows, focus, &font, pointer);
-                let _ = send(sender, DISPLAY_WINDOW_CREATED, id);
+            }
+            SEAT_FOCUS => {
+                let id = word;
+                if windows.iter().flatten().any(|window| window.id == id) {
+                    let previous = focus;
+                    raise(&mut windows, id);
+                    focus = id;
+                    if let Some(window) = windows
+                        .iter()
+                        .flatten()
+                        .find(|window| window.id == id)
+                        .copied()
+                    {
+                        damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
+                    }
+                    damage_title(&screen, &windows, focus, &font, seat.pointer, previous);
+                    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
+                    write(b"hk-server-display: focus ");
+                    write_u64(id);
+                    write(b"\n");
+                }
+            }
+            SEAT_SET_CLIPBOARD => {
+                let text = &payload[..length.min(payload.len())];
+                if seat.set_clipboard(sender, text) {
+                    write(b"hk-server-display: clipboard set ");
+                    write_u64(sender);
+                    write(b"\n");
+                }
+            }
+            SEAT_GET_CLIPBOARD => {
+                let text = seat.clipboard();
+                let _ = send_data(sender, SEAT_CLIPBOARD, text);
+                write(b"hk-server-display: clipboard get ");
+                write_u64(seat.clipboard_owner());
+                write(b" ");
+                write_u64(text.len() as u64);
+                write(b"\n");
             }
             INPUT_POINTER => {
                 let (x, y) = unpack_pointer(word);
                 let next = pointer_position(x, y, screen.width, screen.height);
-                if let Some(previous) = pointer {
+                if let Some(previous) = seat.pointer {
                     compose_region(
                         &screen,
                         &windows,
@@ -396,13 +707,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         }
                     }
                 }
-                pointer = Some(next);
+                seat.pointer = Some(next);
                 compose_region(
                     &screen,
                     &windows,
                     focus,
                     &font,
-                    pointer,
+                    seat.pointer,
                     next.0,
                     next.1,
                     CURSOR_WIDTH + 1,
@@ -432,7 +743,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 drag = None;
                 resize = None;
-                if let Some((x, y)) = pointer {
+                if let Some((x, y)) = seat.pointer {
                     if y >= taskbar_top(screen.height) {
                         if let Some(id) = taskbar_at(&windows, x, y, screen.width, screen.height) {
                             let old_focus = focus;
@@ -449,16 +760,23 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 .find(|window| window.id == id)
                                 .copied()
                             {
-                                damage_window(&screen, &windows, focus, &font, pointer, &window);
+                                damage_window(
+                                    &screen,
+                                    &windows,
+                                    focus,
+                                    &font,
+                                    seat.pointer,
+                                    &window,
+                                );
                             }
-                            damage_title(&screen, &windows, focus, &font, pointer, old_focus);
-                            damage_taskbar(&screen, &windows, focus, &font, pointer);
+                            damage_title(&screen, &windows, focus, &font, seat.pointer, old_focus);
+                            damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
                             compose_region(
                                 &screen,
                                 &windows,
                                 focus,
                                 &font,
-                                pointer,
+                                seat.pointer,
                                 x,
                                 y,
                                 CURSOR_WIDTH + 1,
@@ -478,7 +796,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 &mut focus,
                                 &font,
-                                pointer,
+                                seat.pointer,
                                 window.id,
                             );
                             continue;
@@ -489,7 +807,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 &mut focus,
                                 &font,
-                                pointer,
+                                seat.pointer,
                                 window.id,
                             );
                             continue;
@@ -500,7 +818,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 focus,
                                 &font,
-                                pointer,
+                                seat.pointer,
                                 window.id,
                             );
                             continue;
@@ -514,16 +832,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             .find(|window| window.id == id)
                             .copied()
                         {
-                            damage_window(&screen, &windows, focus, &font, pointer, &window);
+                            damage_window(&screen, &windows, focus, &font, seat.pointer, &window);
                         }
-                        damage_title(&screen, &windows, focus, &font, pointer, old_focus);
-                        damage_taskbar(&screen, &windows, focus, &font, pointer);
+                        damage_title(&screen, &windows, focus, &font, seat.pointer, old_focus);
+                        damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
                         compose_region(
                             &screen,
                             &windows,
                             focus,
                             &font,
-                            pointer,
+                            seat.pointer,
                             x,
                             y,
                             CURSOR_WIDTH + 1,
@@ -558,11 +876,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             if let Some(window) =
                                 windows.iter().flatten().find(|window| window.id == id)
                             {
-                                let _ = send(window.client, DISPLAY_CLICK, id);
+                                let _ = send(window.surface.client, DISPLAY_CLICK, id);
                                 let body_x = x.saturating_sub(window.x) as u32;
                                 let body_y = y.saturating_sub(window.y + title_height()) as u32;
                                 let _ = send(
-                                    window.client,
+                                    window.surface.client,
                                     DISPLAY_CLICK_AT,
                                     pack_click_at(id, body_x, body_y),
                                 );
@@ -575,7 +893,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 driver_input = true;
                 let byte = word as u8;
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, &font, pointer);
+                    cycle_focus(&screen, &mut windows, &mut focus, &font, seat.pointer);
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -600,8 +918,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         window.title[..count].copy_from_slice(&text[..count]);
                         window.title_length = count;
                     }
-                    damage_title(&screen, &windows, focus, &font, pointer, id);
-                    damage_taskbar(&screen, &windows, focus, &font, pointer);
+                    damage_title(&screen, &windows, focus, &font, seat.pointer, id);
+                    damage_taskbar(&screen, &windows, focus, &font, seat.pointer);
                     let titled = windows
                         .iter()
                         .flatten()
@@ -625,35 +943,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                 }
             }
-            DISPLAY_COMMIT => {
-                let Some(window) = windows
-                    .iter()
-                    .flatten()
-                    .find(|window| window.id == word)
-                    .copied()
-                else {
-                    continue;
-                };
-                damage_window(&screen, &windows, focus, &font, pointer, &window);
-                let expected = surface_pixel(&window, 0, 0);
-                let actual = screen.get(window.x, window.y + title_height());
-                if expected != actual {
-                    write(b"hk-server-display: composite mismatch\n");
-                    let _ = send(sender, DISPLAY_FRAME_DONE, window.id);
-                    continue;
-                }
-                write(b"hk-server-display: composite ok ");
-                write_u64(window.id);
-                write(b" ");
-                write_u64(window.width as u64);
-                write(b"x");
-                write_u64(window.height as u64);
-                write(b"\n");
-                let _ = send(sender, DISPLAY_FRAME_DONE, window.id);
-            }
             DISPLAY_SHUTDOWN => {
                 for window in windows.iter().flatten() {
-                    let _ = close_handle(window.handle);
+                    let _ = close_handle(window.surface.handle);
                 }
                 write(b"hk-server-display: bye\n");
                 exit(0)

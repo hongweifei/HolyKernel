@@ -5,7 +5,8 @@ mod render;
 mod style;
 
 use hk_server_api::display::{
-    DISPLAY_COMMIT, DISPLAY_CREATE_WINDOW, DISPLAY_SERVICE, DISPLAY_WINDOW_CREATED, pack_size,
+    DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
+    WINDOW_CREATED, pack_size,
 };
 use hk_server_api::{
     frame_alloc, recv_data_try, send, send_handle, service_endpoint, write, yield_now,
@@ -86,6 +87,7 @@ impl Utf8 {
 /// 图形终端状态。
 pub(crate) struct Terminal {
     display: u64,
+    surface: u64,
     window: u64,
     pixels: *mut u32,
     grid: Grid,
@@ -285,7 +287,7 @@ impl Terminal {
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
         render::refresh(self.pixels, &self.grid, self.row, self.column, &self.font);
-        let _ = send(self.display, DISPLAY_COMMIT, self.window);
+        let _ = send(self.display, SURFACE_COMMIT, self.surface);
     }
 
     /// 解除共享表面映射，准备重建窗口。
@@ -327,29 +329,19 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     }
     if send_handle(
         display,
-        DISPLAY_CREATE_WINDOW,
+        SURFACE_CREATE,
         pack_size(WIDTH as u32, HEIGHT as u32),
         handle,
     ) == u64::MAX
     {
         return None;
     }
-    // 只等待窗口创建回复；显示服务启动期间可能已有其他消息到达。
-    let mut payload = [0_u8; 8];
-    let mut window = 0_u64;
-    for _ in 0..4096 {
-        let (label, word, _sender, _size) = recv_data_try(endpoint, &mut payload);
-        if label == DISPLAY_WINDOW_CREATED {
-            window = word;
-            break;
-        }
-        let _ = yield_now();
-    }
-    if window == 0 {
-        return None;
-    }
+    let surface = wait_reply(endpoint, SURFACE_CREATED)?;
+    let _ = send(display, WINDOW_CREATE, surface);
+    let window = wait_reply(endpoint, WINDOW_CREATED)?;
     Some(Terminal {
         display,
+        surface,
         window,
         pixels: SURFACE as *mut u32,
         grid: [[Cell::BLANK; COLUMNS]; ROWS],
@@ -363,4 +355,17 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         utf8_seen: false,
         cjk_seen: false,
     })
+}
+
+/// 等待指定标签的回复；显示服务启动期间可能已有其他消息到达。
+fn wait_reply(endpoint: u64, expected: u64) -> Option<u64> {
+    let mut payload = [0_u8; 8];
+    for _ in 0..4096 {
+        let (label, word, _sender, _size) = recv_data_try(endpoint, &mut payload);
+        if label == expected {
+            return (word != 0).then_some(word);
+        }
+        let _ = yield_now();
+    }
+    None
 }

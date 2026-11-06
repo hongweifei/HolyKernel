@@ -30,8 +30,8 @@ use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
 use hk_server_api::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_CREATE_WINDOW, DISPLAY_KEY,
-    DISPLAY_SHUTDOWN, DISPLAY_WHEEL, DISPLAY_WINDOW_CREATED, SURFACE_VIRT, pack_size,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
+    SURFACE_CREATE, SURFACE_CREATED, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
     unpack_click_at, unpack_key, unpack_wheel,
 };
 #[cfg(target_os = "none")]
@@ -74,7 +74,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     if send_handle(
         display,
-        DISPLAY_CREATE_WINDOW,
+        SURFACE_CREATE,
         pack_size(WIDTH as u32, HEIGHT as u32),
         handle,
     ) == u64::MAX
@@ -82,8 +82,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-holydoc: create failed\n");
         exit(3)
     }
+    let (label, surface, _sender) = recv(endpoint);
+    if label != SURFACE_CREATED || surface == 0 {
+        write(b"hk-server-holydoc: surface rejected\n");
+        exit(4)
+    }
+    let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
-    if label != DISPLAY_WINDOW_CREATED || window == 0 {
+    if label != WINDOW_CREATED || window == 0 {
         write(b"hk-server-holydoc: window rejected\n");
         exit(4)
     }
@@ -97,7 +103,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };
-    apply(&view, &font, pixels, endpoint, display, window);
+    apply(&view, &font, pixels, endpoint, display, surface, window);
     write(b"hk-server-holydoc: ready ");
     write_u64(window);
     write(b"\n");
@@ -124,6 +130,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             pixels,
             endpoint,
             display,
+            surface,
             window,
             loaded.documents,
         );
@@ -214,7 +221,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         _ => false,
                     };
                     if redraw {
-                        apply(&view, &font, pixels, endpoint, display, window);
+                        apply(&view, &font, pixels, endpoint, display, surface, window);
                     }
                 }
             }
@@ -222,7 +229,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let (_, delta) = unpack_wheel(word);
                 if delta != 0 {
                     view.scroll_by(-(delta as isize) * 3);
-                    apply(&view, &font, pixels, endpoint, display, window);
+                    apply(&view, &font, pixels, endpoint, display, surface, window);
                 }
             }
             DISPLAY_CLICK_AT => {
@@ -230,7 +237,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 if let Some(target) = view.link_at(x, y) {
                     view.select(&target);
                     view.open(&docs, &target);
-                    apply(&view, &font, pixels, endpoint, display, window);
+                    apply(&view, &font, pixels, endpoint, display, surface, window);
                 }
             }
             DISPLAY_CLICK => {}

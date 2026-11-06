@@ -341,6 +341,7 @@ pub(crate) fn run(
     pixels: *mut u32,
     endpoint: u64,
     display: u64,
+    surface: u64,
     window: u64,
     loaded: usize,
 ) -> ! {
@@ -389,31 +390,31 @@ pub(crate) fn run(
         write(target.as_bytes());
         write(b"\n");
         if view.link_at(x, y).is_some() && view.open(docs, &target) {
-            apply(view, font, pixels, endpoint, display, window);
+            apply(view, font, pixels, endpoint, display, surface, window);
         }
     }
     if loaded > 0
         && let Some(target) = docs.resolve("H:/System/Overview")
         && view.open(docs, &target)
     {
-        apply(view, font, pixels, endpoint, display, window);
+        apply(view, font, pixels, endpoint, display, surface, window);
     }
     view.scroll_by(5);
-    apply(view, font, pixels, endpoint, display, window);
+    apply(view, font, pixels, endpoint, display, surface, window);
     write(b"hk-server-holydoc: scroll ");
     write_u64(view.scroll as u64);
     write(b"\n");
     if view.back(docs) {
-        apply(view, font, pixels, endpoint, display, window);
+        apply(view, font, pixels, endpoint, display, surface, window);
     }
     if view.advance(docs) {
-        apply(view, font, pixels, endpoint, display, window);
+        apply(view, font, pixels, endpoint, display, surface, window);
     }
     if view.select_link(true) {
-        apply(view, font, pixels, endpoint, display, window);
+        apply(view, font, pixels, endpoint, display, surface, window);
     }
     if view.open_selected(docs) {
-        apply(view, font, pixels, endpoint, display, window);
+        apply(view, font, pixels, endpoint, display, surface, window);
     }
     write(b"hk-server-holydoc: done\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);

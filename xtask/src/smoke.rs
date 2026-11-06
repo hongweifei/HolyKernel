@@ -344,7 +344,11 @@ impl SmokeMode {
                 "hk-server-display: ready",
                 "hk-server-display: title ok",
                 "hk-server-display: composite ok",
+                "hk-server-display: surface ",
+                "hk-server-display: clipboard set",
+                "hk-server-display: clipboard get",
                 "hk-server-display: focus 1",
+                "hk-server-display-test: clipboard holy",
                 "hk-server-display-test: ready",
                 "hk-server-display-test: key 97 win 1",
                 "hk-server-display-test: done",
@@ -622,21 +626,29 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "exit\n")?;
     }
     if mode == SmokeMode::Console {
-        thread::sleep(Duration::from_secs(5));
+        wait_for(
+            &log,
+            "hk-server-console-test: type a line",
+            Duration::from_secs(15),
+        )?;
         inject(&socket, "hello\n")?;
     }
     if mode == SmokeMode::Display {
-        thread::sleep(Duration::from_secs(5));
+        wait_for(
+            &log,
+            "hk-server-display-test: ready",
+            Duration::from_secs(15),
+        )?;
         inject_key(&socket, "tab")?;
         thread::sleep(Duration::from_millis(300));
         inject(&socket, "a")?;
     }
     if mode == SmokeMode::Terminal {
-        thread::sleep(Duration::from_secs(5));
+        wait_for(&log, "hk-server-console: sgr ok", Duration::from_secs(15))?;
         inject(&socket, "hi\n")?;
     }
     if mode == SmokeMode::InputDriver {
-        thread::sleep(Duration::from_secs(5));
+        wait_for(&log, "hk-server-input: ready", Duration::from_secs(15))?;
         inject(&socket, "hi\n")?;
     }
     if mode == SmokeMode::Pointer {
