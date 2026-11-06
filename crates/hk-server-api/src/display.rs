@@ -61,7 +61,10 @@ pub const TITLE_MAX: usize = 32;
 pub fn set_title(display: u64, window: u64, title: &str) {
     let mut buffer = [0_u8; 8 + TITLE_MAX];
     buffer[..8].copy_from_slice(&window.to_le_bytes());
-    let length = title.len().min(TITLE_MAX);
+    let mut length = title.len().min(TITLE_MAX);
+    while !title.is_char_boundary(length) {
+        length -= 1;
+    }
     buffer[8..8 + length].copy_from_slice(&title.as_bytes()[..length]);
     let _ = crate::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
 }

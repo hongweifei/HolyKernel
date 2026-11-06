@@ -254,31 +254,27 @@ fn paint_window(
         let origin_y = window_y as i32 + 4 * font_scale;
         let text_end = (window_x + window.width) as i32;
         let mut pen_x = window_x as i32 + 4 * font_scale;
-        for &byte in &window.title[..window.title_length] {
-            if !(0x20..0x7F).contains(&byte) {
-                pen_x += 8 * font_scale;
-                continue;
-            }
-            let Some(glyph) = font.glyph(byte as char) else {
-                pen_x += 8 * font_scale;
-                continue;
-            };
-            let advance = glyph.metric().xadvance;
+        let title = core::str::from_utf8(&window.title[..window.title_length])
+            .expect("窗口标题必须是完整 UTF-8");
+        for character in title.chars() {
+            let advance = font.advance(character);
             if pen_x + advance > text_end {
                 break;
             }
-            glyph.for_each_pixel(|x, y| {
-                let pixel_x = pen_x + x;
-                let pixel_y = origin_y + y;
-                if pixel_x >= left as i32
-                    && pixel_x < right as i32
-                    && pixel_y >= top as i32
-                    && pixel_y < bottom as i32
-                    && pixel_y < (window_y + title_height()) as i32
-                {
-                    screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
-                }
-            });
+            if let Some(glyph) = font.glyph(character) {
+                glyph.for_each_pixel(|x, y| {
+                    let pixel_x = pen_x + x;
+                    let pixel_y = origin_y + y;
+                    if pixel_x >= left as i32
+                        && pixel_x < right as i32
+                        && pixel_y >= top as i32
+                        && pixel_y < bottom as i32
+                        && pixel_y < (window_y + title_height()) as i32
+                    {
+                        screen.put(pixel_x as usize, pixel_y as usize, palette.title_text);
+                    }
+                });
+            }
             pen_x += advance;
         }
         let (close_x, close_y) = close_button_origin(window);
@@ -464,38 +460,33 @@ fn paint_taskbar(
         let font_scale = scale() as i32;
         let mut pen_x = button_x as i32 + 6 * font_scale;
         let text_end = (button_x + button_width) as i32 - 6 * font_scale;
-        let title: &[u8] = if window.title_length == 0 {
-            b"window"
+        let title = if window.title_length == 0 {
+            "window"
         } else {
-            &window.title[..window.title_length]
+            core::str::from_utf8(&window.title[..window.title_length])
+                .expect("窗口标题必须是完整 UTF-8")
         };
-        for &byte in title {
-            if !(0x20..0x7F).contains(&byte) {
-                pen_x += 8 * font_scale;
-                continue;
-            }
-            let Some(glyph) = font.glyph(byte as char) else {
-                pen_x += 8 * font_scale;
-                continue;
-            };
-            let advance = glyph.metric().xadvance;
+        for character in title.chars() {
+            let advance = font.advance(character);
             if pen_x + advance > text_end {
                 break;
             }
-            let origin_y = button_top as i32 + 2 * font_scale;
-            glyph.for_each_pixel(|x, y| {
-                let pixel_x = pen_x + x;
-                let pixel_y = origin_y + y;
-                if pixel_x >= left as i32
-                    && pixel_x < right as i32
-                    && pixel_y >= top as i32
-                    && pixel_y < bottom as i32
-                    && pixel_y >= bar_top as i32
-                    && pixel_y < screen.height as i32
-                {
-                    screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
-                }
-            });
+            if let Some(glyph) = font.glyph(character) {
+                let origin_y = button_top as i32 + 2 * font_scale;
+                glyph.for_each_pixel(|x, y| {
+                    let pixel_x = pen_x + x;
+                    let pixel_y = origin_y + y;
+                    if pixel_x >= left as i32
+                        && pixel_x < right as i32
+                        && pixel_y >= top as i32
+                        && pixel_y < bottom as i32
+                        && pixel_y >= bar_top as i32
+                        && pixel_y < screen.height as i32
+                    {
+                        screen.put(pixel_x as usize, pixel_y as usize, palette.taskbar_text);
+                    }
+                });
+            }
             pen_x += advance;
         }
     }

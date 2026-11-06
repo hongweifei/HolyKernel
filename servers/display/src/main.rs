@@ -914,7 +914,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     if let Some(window) =
                         windows.iter_mut().flatten().find(|window| window.id == id)
                     {
-                        let count = text.len().min(TITLE_MAX);
+                        let mut count = text.len().min(TITLE_MAX);
+                        while count > 0 && core::str::from_utf8(&text[..count]).is_err() {
+                            count -= 1;
+                        }
                         window.title[..count].copy_from_slice(&text[..count]);
                         window.title_length = count;
                     }
