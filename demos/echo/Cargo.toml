@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-worker = { version = "0.1.0", path = "../../crates/hk-worker" }
 
 [build-dependencies]
 hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
