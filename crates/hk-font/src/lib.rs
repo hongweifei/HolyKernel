@@ -425,25 +425,6 @@ impl Font {
     }
 }
 
-impl hk_canvas::GlyphSource for Font {
-    fn advance(&self, character: char) -> i32 {
-        Font::advance(self, character)
-    }
-
-    fn with_glyph(&self, character: char, mut plot: impl FnMut(&hk_canvas::GlyphMask<'_>)) {
-        if let Some(glyph) = self.glyph(character) {
-            plot(&hk_canvas::GlyphMask {
-                width: glyph.width(),
-                height: glyph.height(),
-                left: glyph.left(),
-                top: glyph.top(),
-                stride: glyph.stride(),
-                coverage: glyph.coverage(),
-            });
-        }
-    }
-}
-
 #[cfg(feature = "scalable")]
 struct Edge {
     x0: f32,
@@ -647,7 +628,6 @@ fn lerp(from: (f32, f32), to: (f32, f32), t: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::println;
 
     #[test]
     fn rasterizes_latin_glyph() {
@@ -712,67 +692,6 @@ mod tests {
         assert_eq!(font.max_height(), 16);
         for character in [' ', 'A', '中', '?'] {
             assert!(font.has_glyph(character), "{character} 应有字形");
-        }
-    }
-
-    /// 对比覆盖率位图绘制与逐像素绘制的吞吐，手动运行：
-    /// `cargo test -p hk-font --release -- --ignored --nocapture bench_text_throughput`
-    #[test]
-    #[ignore = "性能测量"]
-    fn bench_text_throughput() {
-        use hk_canvas::Surface;
-        use std::time::Instant;
-
-        const WIDTH: usize = 800;
-        const HEIGHT: usize = 600;
-        const ROUNDS: usize = 20;
-        const LINES: usize = 20;
-
-        let font = Font::new(16);
-        let samples = [
-            ("中文", "渲染性能测量用的是整行汉字与标点，覆盖位图字形路径"),
-            ("ASCII", "Rendering throughput measurement for bitmap path."),
-            (
-                "混排",
-                "HolyKernel 渲染性能测量 performance measurement 混排",
-            ),
-        ];
-        let mut pixels = std::vec![0_u32; WIDTH * HEIGHT];
-
-        for (name, text) in samples {
-            let glyphs = (ROUNDS * LINES * text.chars().count()) as u128;
-            let mut masked = u128::MAX;
-            let mut pixelwise = u128::MAX;
-            for _ in 0..ROUNDS {
-                let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
-                let start = Instant::now();
-                for row in 0..LINES {
-                    let mut pen = 4;
-                    surface.draw_text(&mut pen, 8 + row as i32 * 20, text, 0xFF_FFFF, &font);
-                }
-                masked = masked.min(start.elapsed().as_nanos());
-
-                let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
-                let start = Instant::now();
-                for row in 0..LINES {
-                    let mut pen = 4;
-                    for character in text.chars() {
-                        if let Some(glyph) = font.glyph(character) {
-                            let y = 8 + row as i32 * 20;
-                            glyph.for_each_pixel(|x, offset_y| {
-                                surface.put(pen + x, y + offset_y, 0xFF_FFFF);
-                            });
-                        }
-                        pen += font.advance(character);
-                    }
-                }
-                pixelwise = pixelwise.min(start.elapsed().as_nanos());
-            }
-            println!(
-                "{name}：按行位图 {} ns/字符，逐像素 {} ns/字符",
-                masked / glyphs,
-                pixelwise / glyphs
-            );
         }
     }
 }

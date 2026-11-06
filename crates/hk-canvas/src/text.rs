@@ -1,4 +1,6 @@
-//! 文本绘制：字形覆盖率位图、字符串排版与像素落位。
+//! 文本绘制：字形覆盖率位图与字符串落位。
+
+use hk_font::{Font, Glyph};
 
 use crate::surface::{Rect, Surface};
 
@@ -35,22 +37,10 @@ impl GlyphMask<'_> {
     }
 }
 
-/// 字形来源。
-///
-/// 实现者提供字符的前进宽度与覆盖率位图。缺失字形的字符不会触发回调，
-/// 调用方据此把该字符当作空白处理。
-pub trait GlyphSource {
-    /// 字符的水平前进宽度（像素）。
-    fn advance(&self, character: char) -> i32;
-
-    /// 取出字符的字形位图。
-    fn with_glyph(&self, character: char, plot: impl FnMut(&GlyphMask<'_>));
-}
-
 impl Surface<'_> {
     /// 绘制覆盖率位图。
     ///
-    /// 每行按覆盖率切段：连续全覆盖的区间按矩形填充，半覆盖区间逐像素混合，
+    /// 每个像素行按覆盖率切段：连续全覆盖的区间按矩形填充，半覆盖区间逐像素混合，
     /// 透明像素跳过。位图与表面的交集由裁剪矩形决定。
     pub fn draw_mask(&self, x: i32, y: i32, color: u32, mask: &GlyphMask<'_>) {
         let clip = self.clip();
@@ -81,6 +71,34 @@ impl Surface<'_> {
         }
     }
 
+    /// 在 `(x, y)` 绘制一个字符。
+    pub fn draw_glyph(&self, x: i32, y: i32, color: u32, character: char, font: &Font) {
+        if let Some(glyph) = font.glyph(character) {
+            self.draw_font_glyph(x, y, color, &glyph);
+        }
+    }
+
+    /// 从 `pen` 起绘制一串文本；绘制后 `pen` 前进到文本末尾。
+    pub fn draw_text(&self, pen: &mut i32, y: i32, text: &str, color: u32, font: &Font) {
+        for character in text.chars() {
+            self.draw_glyph(*pen, y, color, character, font);
+            *pen = (*pen).saturating_add(font.advance(character));
+        }
+    }
+
+    /// 绘制字体字形，把覆盖率数据描述成位图后交给 [`Surface::draw_mask`]。
+    fn draw_font_glyph(&self, x: i32, y: i32, color: u32, glyph: &Glyph<'_>) {
+        let mask = GlyphMask {
+            width: glyph.width(),
+            height: glyph.height(),
+            left: glyph.left(),
+            top: glyph.top(),
+            stride: glyph.stride(),
+            coverage: glyph.coverage(),
+        };
+        self.draw_mask(x, y, color, &mask);
+    }
+
     /// 绘制一段非零覆盖率：连续 255 按行填充，其余逐像素混合。
     fn draw_run(&self, coverage: &[u8], start: usize, end: usize, left: i32, y: i32, color: u32) {
         let mut index = start;
@@ -103,39 +121,23 @@ impl Surface<'_> {
                 while index < end && coverage[index] != 255 {
                     index += 1;
                 }
-                for offset in begin..index {
-                    let value = coverage[offset];
-                    if value != 0 {
-                        self.blend(left.saturating_add(offset as i32), y, color, value);
+                for (offset, value) in coverage[begin..index].iter().enumerate() {
+                    if *value != 0 {
+                        self.blend(
+                            left.saturating_add((begin + offset) as i32),
+                            y,
+                            color,
+                            *value,
+                        );
                     }
                 }
             }
         }
     }
-
-    /// 在 `(x, y)` 绘制一个字形。
-    pub fn draw_glyph(&self, x: i32, y: i32, color: u32, character: char, font: &impl GlyphSource) {
-        font.with_glyph(character, |mask| self.draw_mask(x, y, color, mask));
-    }
-
-    /// 从 `pen` 起绘制一串文本；绘制后 `pen` 前进到文本末尾。
-    pub fn draw_text(
-        &self,
-        pen: &mut i32,
-        y: i32,
-        text: &str,
-        color: u32,
-        font: &impl GlyphSource,
-    ) {
-        for character in text.chars() {
-            self.draw_glyph(*pen, y, color, character, font);
-            *pen = (*pen).saturating_add(font.advance(character));
-        }
-    }
 }
 
 /// 文本按字宽累计的像素宽度。
-pub fn text_width(font: &impl GlyphSource, text: &str) -> i32 {
+pub fn text_width(font: &Font, text: &str) -> i32 {
     text.chars().fold(0, |total, character| {
         total.saturating_add(font.advance(character))
     })

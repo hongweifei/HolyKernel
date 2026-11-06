@@ -1,66 +1,25 @@
 //! 像素原语与文本绘制的单元测试。
 
-use crate::{GlyphMask, GlyphSource, Rect, Surface, mix, text_width};
+use hk_font::Font;
 
-/// `A` 的 2×2 覆盖率：左上与右下。
-const A_COVERAGE: [u8; 4] = [255, 0, 0, 255];
+use crate::{GlyphMask, Rect, Surface, mix, text_width};
+
 /// `B` 的 2×1 覆盖率：右侧一半覆盖。
 const B_COVERAGE: [u8; 2] = [0, 128];
-/// `中` 的 3×3 覆盖率：上中、左中、右下。
-const ZHONG_COVERAGE: [u8; 9] = [0, 255, 0, 255, 0, 0, 0, 0, 255];
-
-/// 点阵测试字体：只覆盖 `A`、`B` 与 `中`。
-struct TestFont;
-
-impl GlyphSource for TestFont {
-    fn advance(&self, character: char) -> i32 {
-        match character {
-            'A' | 'B' => 2,
-            '中' => 3,
-            _ => 1,
-        }
-    }
-
-    fn with_glyph(&self, character: char, mut plot: impl FnMut(&GlyphMask<'_>)) {
-        let (coverage, width, height) = match character {
-            'A' => (&A_COVERAGE[..], 2, 2),
-            'B' => (&B_COVERAGE[..], 2, 1),
-            '中' => (&ZHONG_COVERAGE[..], 3, 3),
-            _ => return,
-        };
-        plot(&GlyphMask {
-            width,
-            height,
-            left: 0,
-            top: 0,
-            stride: width,
-            coverage,
-        });
-    }
-}
 
 fn surface(pixels: &mut [u32], width: usize, height: usize) -> Surface<'_> {
     Surface::from_slice(pixels, width, height)
 }
 
-/// 带原点的 1×1 字形，用于验证位图偏移。
-struct ShiftedFont;
-
-impl GlyphSource for ShiftedFont {
-    fn advance(&self, _: char) -> i32 {
-        1
-    }
-
-    fn with_glyph(&self, _: char, mut plot: impl FnMut(&GlyphMask<'_>)) {
-        const COVERAGE: [u8; 1] = [255];
-        plot(&GlyphMask {
-            width: 1,
-            height: 1,
-            left: 1,
-            top: 2,
-            stride: 1,
-            coverage: &COVERAGE,
-        });
+/// 以覆盖率数据描述一个覆盖整个位图的字形。
+fn mask<'a>(coverage: &'a [u8], width: usize, height: usize, left: i32, top: i32) -> GlyphMask<'a> {
+    GlyphMask {
+        width,
+        height,
+        left,
+        top,
+        stride: width,
+        coverage,
     }
 }
 
@@ -220,48 +179,127 @@ fn blit_respects_both_clips() {
 }
 
 #[test]
-fn draw_text_advances_by_glyph_width() {
-    let mut pixels = [0_u32; 64];
-    let canvas = surface(&mut pixels, 8, 8);
+fn draw_text_advances_by_font_metrics() {
+    let font = Font::monospace(16);
+    let mut pixels = [0_u32; 32 * 32];
+    let canvas = surface(&mut pixels, 32, 32);
     let mut pen = 0;
-    canvas.draw_text(&mut pen, 0, "AB中", 0xFF_FFFF, &TestFont);
-    assert_eq!(pen, 7);
-    assert_eq!(canvas.get(0, 0), Some(0xFF_FFFF));
-    assert_eq!(canvas.get(1, 1), Some(0xFF_FFFF));
-    assert_eq!(canvas.get(2, 0), Some(0));
-    assert_eq!(canvas.get(3, 0), Some(0x80_8080));
-    assert_eq!(canvas.get(5, 0), Some(0xFF_FFFF));
-    assert_eq!(canvas.get(4, 1), Some(0xFF_FFFF));
-    assert_eq!(canvas.get(6, 2), Some(0xFF_FFFF));
-    assert_eq!(text_width(&TestFont, "AB中"), 7);
+    canvas.draw_text(&mut pen, 0, "A中", 0xFF_FFFF, &font);
+    assert_eq!(pen, 24);
+    assert_eq!(text_width(&font, "A中"), 24);
+    let painted = (0..16).any(|row| (0..24).any(|column| canvas.get(column, row) != Some(0)));
+    assert!(painted, "文本应绘制出像素");
+}
+
+#[test]
+fn draw_glyph_paints_inside_cell() {
+    let font = Font::monospace(16);
+    let mut pixels = [0_u32; 32 * 32];
+    let canvas = surface(&mut pixels, 32, 32);
+    canvas.draw_glyph(0, 0, 0xFF_FFFF, '中', &font);
+    let painted = (0..16).any(|row| (0..16).any(|column| canvas.get(column, row) != Some(0)));
+    assert!(painted, "字形应落在 16×16 单元格内");
+    let outside = (0..32).any(|row| (16..32).any(|column| canvas.get(column, row) != Some(0)));
+    assert!(!outside, "半宽之外的列不应有像素");
 }
 
 #[test]
 fn draw_mask_blends_partial_coverage() {
     let mut pixels = [0_u32; 4];
     let canvas = surface(&mut pixels, 2, 1);
-    canvas.draw_glyph(0, 0, 0xFF_FFFF, 'B', &TestFont);
+    canvas.draw_mask(0, 0, 0xFF_FFFF, &mask(&B_COVERAGE, 2, 1, 0, 0));
     assert_eq!(canvas.get(0, 0), Some(0));
     assert_eq!(canvas.get(1, 0), Some(0x80_8080));
 }
 
 #[test]
-fn draw_glyph_respects_clip() {
+fn draw_mask_respects_clip() {
+    const COVERAGE: [u8; 2] = [255, 255];
     let mut pixels = [0_u32; 9];
     let canvas = surface(&mut pixels, 3, 3);
     let narrow = canvas.clipped(Rect::new(0, 0, 1, 3));
-    narrow.draw_glyph(0, 0, 0xFF, '中', &TestFont);
-    assert_eq!(canvas.get(1, 0), Some(0));
+    narrow.draw_mask(0, 1, 0xFF, &mask(&COVERAGE, 2, 1, 0, 0));
     assert_eq!(canvas.get(0, 1), Some(0xFF));
+    assert_eq!(canvas.get(1, 1), Some(0), "裁剪外不应绘制");
 }
 
 #[test]
-fn draw_glyph_offsets_by_mask_origin() {
+fn draw_mask_applies_origin() {
+    const COVERAGE: [u8; 1] = [255];
     let mut pixels = [0_u32; 9];
     let canvas = surface(&mut pixels, 3, 3);
-    canvas.draw_glyph(0, 0, 0xFF, 'x', &ShiftedFont);
+    canvas.draw_mask(0, 0, 0xFF, &mask(&COVERAGE, 1, 1, 1, 2));
     assert_eq!(canvas.get(1, 2), Some(0xFF));
     assert_eq!(canvas.get(0, 0), Some(0));
+}
+
+#[test]
+fn draw_mask_fills_full_coverage_runs() {
+    const COVERAGE: [u8; 8] = [255, 255, 255, 255, 255, 255, 255, 255];
+    let mut pixels = [0_u32; 8];
+    let canvas = surface(&mut pixels, 8, 1);
+    canvas.draw_mask(0, 0, 0xFF_FFFF, &mask(&COVERAGE, 8, 1, 0, 0));
+    assert_eq!(pixels, [0xFF_FFFF; 8]);
+}
+
+/// 对比覆盖率位图绘制与逐像素绘制的吞吐，手动运行：
+/// `cargo test -p hk-canvas --release -- --ignored --nocapture bench_text_throughput`
+#[test]
+#[ignore = "性能测量"]
+fn bench_text_throughput() {
+    use std::time::Instant;
+
+    const WIDTH: usize = 800;
+    const HEIGHT: usize = 600;
+    const ROUNDS: usize = 20;
+    const LINES: usize = 20;
+
+    let font = Font::new(16);
+    let samples = [
+        ("中文", "渲染性能测量用的是整行汉字与标点，覆盖位图字形路径"),
+        ("ASCII", "Rendering throughput measurement for bitmap path."),
+        (
+            "混排",
+            "HolyKernel 渲染性能测量 performance measurement 混排",
+        ),
+    ];
+    let mut pixels = std::vec![0_u32; WIDTH * HEIGHT];
+
+    for (name, text) in samples {
+        let glyphs = (ROUNDS * LINES * text.chars().count()) as u128;
+        let mut masked = u128::MAX;
+        let mut pixelwise = u128::MAX;
+        for _ in 0..ROUNDS {
+            let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
+            let start = Instant::now();
+            for row in 0..LINES {
+                let mut pen = 4;
+                surface.draw_text(&mut pen, 8 + row as i32 * 20, text, 0xFF_FFFF, &font);
+            }
+            masked = masked.min(start.elapsed().as_nanos());
+
+            let surface = Surface::from_slice(&mut pixels, WIDTH, HEIGHT);
+            let start = Instant::now();
+            for row in 0..LINES {
+                let mut pen = 4;
+                for character in text.chars() {
+                    if let Some(glyph) = font.glyph(character) {
+                        let y = 8 + row as i32 * 20;
+                        glyph.for_each_pixel(|x, offset_y| {
+                            surface.put(pen + x, y + offset_y, 0xFF_FFFF);
+                        });
+                    }
+                    pen += font.advance(character);
+                }
+            }
+            pixelwise = pixelwise.min(start.elapsed().as_nanos());
+        }
+        std::println!(
+            "{name}：按行位图 {} ns/字符，逐像素 {} ns/字符",
+            masked / glyphs,
+            pixelwise / glyphs
+        );
+    }
 }
 
 #[test]

@@ -11,7 +11,6 @@ default = ["scalable"]
 scalable = ["dep:ttf-parser"]
 
 [dependencies]
-hk-canvas = { version = "0.1.0", path = "../hk-canvas" }
 libm = "0.2"
 lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
 spin = "0.9"
