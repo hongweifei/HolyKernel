@@ -31,10 +31,14 @@ use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yi
 #[cfg(target_os = "none")]
 mod holy;
 #[cfg(target_os = "none")]
+mod read_cache;
+#[cfg(target_os = "none")]
 mod sessions;
 #[cfg(target_os = "none")]
 mod volumes;
 
+#[cfg(target_os = "none")]
+use read_cache::ReadCache;
 #[cfg(target_os = "none")]
 use sessions::Sessions;
 #[cfg(target_os = "none")]
@@ -67,6 +71,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let enabled = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs") || line.contains("checkpoint-srv-test"));
     let mut volumes = Volumes::new();
+    let mut cache = ReadCache::new(hk_worker::Pool::start_with_stack(1, 64 * 1024));
     if enabled {
         if let Some(disk) = open_disk(endpoint) {
             let mut probe = [0_u8; 512];
@@ -121,6 +126,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             let (status, written) = holy::handle(
                 &mut volumes,
                 &mut sessions,
+                &mut cache,
                 sender,
                 endpoint,
                 &request,
@@ -158,6 +164,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             let (status, written) = holy::handle(
                 &mut volumes,
                 &mut sessions,
+                &mut cache,
                 sender,
                 endpoint,
                 &request,

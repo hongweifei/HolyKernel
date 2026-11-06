@@ -24,6 +24,7 @@ use hk_server_api::vfs::{
     STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
 };
 
+use crate::read_cache::ReadCache;
 use crate::sessions::Sessions;
 use crate::volumes::{VolumeInfo, Volumes, parse_drive};
 
@@ -42,6 +43,7 @@ pub(crate) fn sync(volumes: &mut Volumes, letter: u8) -> u8 {
 pub(crate) fn handle(
     volumes: &mut Volumes,
     sessions: &mut Sessions,
+    cache: &mut ReadCache,
     sender: u64,
     endpoint: u64,
     request: &Request<'_>,
@@ -245,6 +247,18 @@ pub(crate) fn handle(
                 return (STATUS_INVALID, 0);
             };
             let length = (request.arg1 as usize).min(body.len());
+            match cache.read(
+                drive,
+                letter,
+                document,
+                None,
+                request.arg0,
+                &mut body[..length],
+            ) {
+                Ok(Some(read)) => return (STATUS_OK, read),
+                Ok(None) => {}
+                Err(error) => return (status(error), 0),
+            }
             match drive.read_range(document, request.arg0, &mut body[..length]) {
                 Ok(read) => (STATUS_OK, read),
                 Err(error) => (status(error), 0),
@@ -263,6 +277,18 @@ pub(crate) fn handle(
                 return (STATUS_INVALID, 0);
             };
             let length = (request.arg1 as usize).min(body.len());
+            match cache.read(
+                drive,
+                letter,
+                document,
+                Some(revision),
+                request.arg0,
+                &mut body[..length],
+            ) {
+                Ok(Some(read)) => return (STATUS_OK, read),
+                Ok(None) => {}
+                Err(error) => return (status(error), 0),
+            }
             match drive.read_range_at(
                 document,
                 RevisionId::new(revision),
@@ -368,6 +394,18 @@ pub(crate) fn handle(
                 return (STATUS_INVALID, 0);
             };
             let length = (length as usize).min(body.len());
+            match cache.read(
+                drive,
+                letter,
+                token.document,
+                Some(token.revision.get()),
+                request.arg1,
+                &mut body[..length],
+            ) {
+                Ok(Some(read)) => return (STATUS_OK, read),
+                Ok(None) => {}
+                Err(error) => return (status(error), 0),
+            }
             match drive.read_range_at(
                 token.document,
                 token.revision,
