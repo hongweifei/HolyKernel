@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+bitflags = { version = "2.6", default-features = false }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
 spin = "0.9"

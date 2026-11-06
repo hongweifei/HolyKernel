@@ -10,6 +10,7 @@ extern crate alloc;
 pub mod dma;
 pub mod frame_pool;
 pub mod frames;
+pub mod hmp;
 pub mod iommu;
 pub mod vspace_registry;
 

@@ -405,6 +405,7 @@ dependencies = [
 name = "hk-mem"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
  "hk-hal",
  "hk-handle",
  "hk-platform-hosted",
@@ -462,6 +463,7 @@ dependencies = [
  "hk-handle",
  "hk-ipc",
  "hk-kernel",
+ "hk-mem",
  "hk-syscall",
  "spin",
 ]

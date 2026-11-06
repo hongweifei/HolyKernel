@@ -2,6 +2,7 @@
 //!
 //! 对象表与线程表由自旋锁保护；按对象、调度、IPC、trace 与视图查询拆分。
 
+mod hmp;
 mod ipc;
 mod object;
 mod sched;

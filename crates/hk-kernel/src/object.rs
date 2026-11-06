@@ -2,9 +2,10 @@
 
 use alloc::sync::Arc;
 
-use hk_hal::DeviceGrant;
+use hk_hal::{DeviceGrant, PhysRange};
 use hk_handle::{Object, ObjectHeader, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
+use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
 use hk_mem::{Frame, Untyped, VSpace};
 use spin::Mutex;
 
@@ -24,6 +25,19 @@ pub enum ObjectPayload {
     DeviceGrant(DeviceGrant),
     /// 设备授权工厂。
     DeviceGrantFactory,
+    /// 物理容量能力。
+    Capacity(Mutex<Capacity>),
+    /// 类型化能力。
+    Capability {
+        /// 能力描述。
+        capability: Capability,
+        /// 常驻物理页。
+        backing: Option<Frame>,
+    },
+    /// 虚拟映射。
+    Region(Mutex<Region>),
+    /// 配额与记账。
+    Ledger(Mutex<Ledger>),
 }
 
 impl ObjectPayload {
@@ -37,6 +51,10 @@ impl ObjectPayload {
             Self::Untyped(_) => ObjectKind::Untyped,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
+            Self::Capacity(_) => ObjectKind::Capacity,
+            Self::Capability { .. } => ObjectKind::Capability,
+            Self::Region(_) => ObjectKind::Region,
+            Self::Ledger(_) => ObjectKind::Ledger,
         }
     }
 }
@@ -110,6 +128,48 @@ impl KernelObject {
     pub fn device_grant(&self) -> Option<&DeviceGrant> {
         match &self.payload {
             ObjectPayload::DeviceGrant(grant) => Some(grant),
+            _ => None,
+        }
+    }
+
+    /// 返回物理容量能力。
+    pub fn capacity(&self) -> Option<&Mutex<Capacity>> {
+        match &self.payload {
+            ObjectPayload::Capacity(capacity) => Some(capacity),
+            _ => None,
+        }
+    }
+
+    /// 返回类型化能力。
+    pub fn capability(&self) -> Option<&Capability> {
+        match &self.payload {
+            ObjectPayload::Capability { capability, .. } => Some(capability),
+            _ => None,
+        }
+    }
+
+    /// 返回类型化能力的常驻物理区间。
+    pub fn capability_backing(&self) -> Option<PhysRange> {
+        match &self.payload {
+            ObjectPayload::Capability { backing, .. } => backing
+                .as_ref()
+                .map(|frame| PhysRange::new(frame.phys(), frame.len() as u64)),
+            _ => None,
+        }
+    }
+
+    /// 返回虚拟映射。
+    pub fn region(&self) -> Option<&Mutex<Region>> {
+        match &self.payload {
+            ObjectPayload::Region(region) => Some(region),
+            _ => None,
+        }
+    }
+
+    /// 返回配额与记账。
+    pub fn ledger(&self) -> Option<&Mutex<Ledger>> {
+        match &self.payload {
+            ObjectPayload::Ledger(ledger) => Some(ledger),
             _ => None,
         }
     }

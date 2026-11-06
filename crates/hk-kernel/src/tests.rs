@@ -3,6 +3,10 @@
 use hk_hal::{DeviceGrant, MmioRange, PAGE_SIZE, PciAddress, PhysAddr, PhysRange};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
+use hk_mem::hmp::{
+    Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, Ledger, LedgerId, Region,
+    RegionFlags,
+};
 
 use crate::{Kernel, Priority, TcbId, ThreadState, TraceCategory};
 
@@ -32,6 +36,43 @@ fn creates_objects_and_grants_handles() {
         kernel.handle_id(worker, endpoint).expect("端点句柄"),
         kernel.handle_id(worker, notification).expect("通知句柄")
     );
+}
+
+#[test]
+fn creates_hmp_objects() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+
+    let capacity = Capacity::new(
+        CapacityId::new(1),
+        PhysRange::new(PhysAddr::new(0x10_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::System,
+        0,
+    )
+    .expect("Capacity");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, 0x2000, PAGE_SIZE, None).expect("Capability");
+    let region =
+        Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
+    let ledger = Ledger::new(LedgerId::new(1), 0x10_000);
+
+    kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    kernel
+        .create_capability(worker, capability, None, rights)
+        .expect("创建 Capability");
+    kernel
+        .create_region(worker, region, rights)
+        .expect("创建 Region");
+    kernel
+        .create_ledger(worker, ledger, rights)
+        .expect("创建 Ledger");
+
+    assert_eq!(kernel.live_objects(), 4);
+    assert_eq!(kernel.handles_live(worker), Some(4));
 }
 
 #[test]
