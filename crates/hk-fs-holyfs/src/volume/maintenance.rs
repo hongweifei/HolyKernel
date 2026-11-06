@@ -30,6 +30,7 @@ impl<D: BlockDevice> Volume<D> {
             return Err(HolyError::Corrupt);
         }
         report.repaired_blocks = self.release_leaks(&reachable)?;
+        self.rebuild_dedup();
         Ok(report)
     }
 
@@ -48,6 +49,7 @@ impl<D: BlockDevice> Volume<D> {
             self.store.write_bitmap()?;
             self.store.flush()?;
         }
+        self.rebuild_dedup();
         report.repaired_blocks = repaired;
         Ok(report)
     }

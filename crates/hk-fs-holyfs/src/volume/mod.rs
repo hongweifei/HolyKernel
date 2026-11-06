@@ -45,6 +45,8 @@ pub(crate) struct Volume<D: BlockDevice> {
     next_tag: u32,
     snapshots: BTreeMap<u64, snapshot::SnapshotRecord>,
     next_snapshot: u64,
+    dedup: BTreeMap<(u64, u64), Vec<Extent>>,
+    dedup_hits: u64,
     epoch: u64,
     dirty: bool,
 }
@@ -87,6 +89,8 @@ impl<D: BlockDevice> Volume<D> {
             next_tag: 1,
             snapshots: BTreeMap::new(),
             next_snapshot: 1,
+            dedup: BTreeMap::new(),
+            dedup_hits: 0,
             epoch: 1,
             dirty: true,
         };
@@ -201,7 +205,7 @@ impl<D: BlockDevice> Volume<D> {
             .next_back()
             .map_or(1, |id| id.saturating_add(1))
             .max(superblock.next_snapshot);
-        Ok(Self {
+        let mut volume = Self {
             store,
             superblock,
             active_slot,
@@ -213,9 +217,13 @@ impl<D: BlockDevice> Volume<D> {
             next_tag: superblock.next_tag,
             snapshots,
             next_snapshot,
+            dedup: BTreeMap::new(),
+            dedup_hits: 0,
             epoch: 1,
             dirty: false,
-        })
+        };
+        volume.rebuild_dedup();
+        Ok(volume)
     }
 
     pub(crate) fn sync(&mut self) -> Result<(), HolyError> {
@@ -236,6 +244,10 @@ impl<D: BlockDevice> Volume<D> {
 
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    pub(crate) fn dedup_hits(&self) -> u64 {
+        self.dedup_hits
     }
 
     fn head(&self, document: DocId) -> Result<&RevisionRecord, HolyError> {

@@ -393,7 +393,7 @@ sequenceDiagram
 - **快照与恢复**：COW 根固定；快照零拷贝；`Restore` 原子切换根、标签根与代数。
 - **标签**：Tag Table 是唯一索引，包含 tag → members 与 doc → tags 两个方向；快照固定标签根。
 - **流式写**：`Stage`/`WriteRange`/`Commit` 支持大文档；`Append` 共享基线 extent。
-- **去重**：ContentHash 相同的内容共享 extent；加密卷使用 keyed hash（规划）。
+- **去重**：ContentHash + 大小索引，相同内容共享 extent；索引在挂载、GC、裁剪与销毁后根据现有修订重建。
 - **压缩**：按修订或 extent 选择 LZ4/Zstd；读取透明解压。
 - **加密**：按修订加密内容与元数据；密钥由卷配置提供（规划）。
 - **配额**：文档数、字节数、修订数、快照数、标签数；在 `Stage` 预留、`Commit` 记账。
@@ -463,7 +463,8 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组 | 规划 |
-| 流式写、压缩、去重、配额 | 规划 |
+| 流式写、压缩、配额 | 规划 |
+| 内容去重：ContentHash 索引、extent 共享 | 已实现 |
 | 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
 | ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |

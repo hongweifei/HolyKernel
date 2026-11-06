@@ -270,6 +270,11 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow_mut().purge(document)
     }
 
+    /// 内容去重命中次数。
+    pub fn dedup_hits(&self) -> u64 {
+        self.state.borrow().dedup_hits()
+    }
+
     #[cfg(test)]
     pub(crate) fn allocate_leak(&mut self, count: u64) -> Result<u64, HolyError> {
         self.state.borrow_mut().allocate_leak(count)

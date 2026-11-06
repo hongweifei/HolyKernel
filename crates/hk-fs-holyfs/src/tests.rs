@@ -241,6 +241,48 @@ fn purge_removes_document_and_rejects_snapshot_pins() {
 }
 
 #[test]
+fn dedups_identical_content() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let first = fs
+        .create(root, "first", DocumentKind::Content)
+        .expect("创建");
+    let second = fs
+        .create(root, "second", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(first, 0, b"same-content").expect("写一");
+    fs.write_range(second, 0, b"same-content").expect("写二");
+    assert!(fs.dedup_hits() >= 1);
+    let mut buffer = [0_u8; 16];
+    assert_eq!(fs.read_range(second, 0, &mut buffer).expect("读"), 12);
+    assert_eq!(&buffer[..12], b"same-content");
+    assert_eq!(fs.check().expect("复检").leaked_blocks, 0);
+}
+
+#[test]
+fn rebuilds_dedup_index_on_mount() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("挂载");
+        let root = fs.root();
+        let document = fs
+            .create(root, "first", DocumentKind::Content)
+            .expect("创建");
+        fs.write_range(document, 0, b"persisted-content")
+            .expect("写");
+        fs.sync().expect("提交");
+    }
+    let mut fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "second", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(document, 0, b"persisted-content")
+        .expect("写");
+    assert!(fs.dedup_hits() >= 1);
+}
+
+#[test]
 fn detects_content_hash_damage() {
     let disk = Rc::new(RefCell::new(formatted()));
     {

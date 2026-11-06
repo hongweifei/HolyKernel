@@ -9,7 +9,7 @@ use crate::error::HolyError;
 use crate::hash::content_hash;
 use crate::ids::{DocId, RevisionId};
 use crate::superblock::BLOCK_SIZE;
-use crate::types::{DocumentKind, Extent, MAX_EXTENTS, RevisionRecord};
+use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionRecord};
 
 use super::{MAX_CONTENT_BYTES, Volume};
 
@@ -195,6 +195,11 @@ impl<D: BlockDevice> Volume<D> {
         data: &[u8],
     ) -> Result<(), HolyError> {
         let hash = self.append_hash(head, data)?;
+        let size = offset + data.len() as u64;
+        if let Some(extents) = self.dedup_lookup(hash, size) {
+            self.dedup_hits = self.dedup_hits.saturating_add(1);
+            return self.insert_content_revision(document, head, extents, size, hash);
+        }
         let blocks = data.len().div_ceil(BLOCK_SIZE) as u64;
         let start = self.store.allocate_blocks(blocks)?;
         self.store.write_bytes(start * BLOCK_SIZE as u64, data)?;
@@ -215,7 +220,8 @@ impl<D: BlockDevice> Volume<D> {
             self.store.free_blocks(start, blocks);
             return self.rewrite_content(document, head, offset, data);
         }
-        self.insert_content_revision(document, head, extents, offset + data.len() as u64, hash)
+        self.dedup_insert(hash, size, &extents);
+        self.insert_content_revision(document, head, extents, size, hash)
     }
 
     fn rewrite_content(
@@ -244,6 +250,11 @@ impl<D: BlockDevice> Volume<D> {
         content: &[u8],
     ) -> Result<(), HolyError> {
         let hash = content_hash(content);
+        let size = content.len() as u64;
+        if let Some(extents) = self.dedup_lookup(hash, size) {
+            self.dedup_hits = self.dedup_hits.saturating_add(1);
+            return self.insert_content_revision(document, head, extents, size, hash);
+        }
         let blocks = content.len().div_ceil(BLOCK_SIZE) as u64;
         let extents = if blocks == 0 {
             Vec::new()
@@ -255,7 +266,42 @@ impl<D: BlockDevice> Volume<D> {
                 blocks: blocks as u32,
             }]
         };
-        self.insert_content_revision(document, head, extents, content.len() as u64, hash)
+        self.dedup_insert(hash, size, &extents);
+        self.insert_content_revision(document, head, extents, size, hash)
+    }
+
+    fn dedup_lookup(&self, hash: u64, size: u64) -> Option<Vec<Extent>> {
+        if hash == 0 || size == 0 {
+            return None;
+        }
+        let extents = self.dedup.get(&(hash, size))?;
+        (extents.len() <= MAX_EXTENTS).then(|| extents.clone())
+    }
+
+    fn dedup_insert(&mut self, hash: u64, size: u64, extents: &[Extent]) {
+        if hash == 0 || size == 0 || extents.is_empty() {
+            return;
+        }
+        self.dedup
+            .entry((hash, size))
+            .or_insert_with(|| extents.to_vec());
+    }
+
+    /// 从当前修订集重建去重索引；GC 或裁剪后调用。
+    pub(super) fn rebuild_dedup(&mut self) {
+        self.dedup.clear();
+        for revision in self.revisions.values() {
+            if revision.content_hash == 0
+                || revision.size == 0
+                || !matches!(revision.payload, PayloadKind::Content | PayloadKind::Both)
+                || revision.extents().len() > MAX_EXTENTS
+            {
+                continue;
+            }
+            self.dedup
+                .entry((revision.content_hash, revision.size))
+                .or_insert_with(|| revision.extents().to_vec());
+        }
     }
 
     fn insert_content_revision(
