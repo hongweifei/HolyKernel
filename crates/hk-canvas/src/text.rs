@@ -1,8 +1,9 @@
 //! 文本绘制：字形覆盖率位图与字符串落位。
 
-use hk_font::{Font, Glyph};
+use hk_font::{Font, Glyph, default_font};
 
-use crate::surface::{Rect, Surface};
+use crate::rect::Rect;
+use crate::surface::Surface;
 
 /// 连续全覆盖区间改用矩形填充的最短长度；更短的区间逐像素写入更划算。
 const FILL_MIN_RUN: usize = 4;
@@ -78,12 +79,74 @@ impl Surface<'_> {
         }
     }
 
+    /// 用内置字体绘制一个字符。
+    pub fn draw_glyph_default(&self, x: i32, y: i32, color: u32, character: char) {
+        self.draw_glyph(x, y, color, character, default_font());
+    }
+
     /// 从 `pen` 起绘制一串文本；绘制后 `pen` 前进到文本末尾。
     pub fn draw_text(&self, pen: &mut i32, y: i32, text: &str, color: u32, font: &Font) {
         for character in text.chars() {
             self.draw_glyph(*pen, y, color, character, font);
             *pen = (*pen).saturating_add(font.advance(character));
         }
+    }
+
+    /// 用内置字体绘制一串文本；绘制后 `pen` 前进到文本末尾。
+    pub fn draw_text_default(&self, pen: &mut i32, y: i32, text: &str, color: u32) {
+        self.draw_text(pen, y, text, color, default_font());
+    }
+
+    /// 从 `pen` 起绘制文本，到达 `right` 后停止。
+    pub fn draw_text_clipped(
+        &self,
+        pen: &mut i32,
+        y: i32,
+        text: &str,
+        right: i32,
+        color: u32,
+        font: &Font,
+    ) {
+        for character in text.chars() {
+            if *pen >= right {
+                break;
+            }
+            self.draw_glyph(*pen, y, color, character, font);
+            *pen = (*pen).saturating_add(font.advance(character));
+        }
+    }
+
+    /// 从 `pen` 起绘制文本，总宽超过 `max_width` 时截断并以省略号结尾。
+    pub fn draw_text_ellipsis(
+        &self,
+        pen: &mut i32,
+        y: i32,
+        text: &str,
+        max_width: i32,
+        color: u32,
+        font: &Font,
+    ) {
+        if text_width(font, text) <= max_width {
+            self.draw_text(pen, y, text, color, font);
+            return;
+        }
+        let ellipsis = '…';
+        let ellipsis_width = font.advance(ellipsis);
+        if max_width < ellipsis_width {
+            return;
+        }
+        let mut used = 0;
+        for character in text.chars() {
+            let advance = font.advance(character);
+            if used + advance + ellipsis_width > max_width {
+                break;
+            }
+            self.draw_glyph(*pen, y, color, character, font);
+            *pen = (*pen).saturating_add(advance);
+            used += advance;
+        }
+        self.draw_glyph(*pen, y, color, ellipsis, font);
+        *pen = (*pen).saturating_add(ellipsis_width);
     }
 
     /// 绘制字体字形，把覆盖率数据描述成位图后交给 [`Surface::draw_mask`]。
@@ -141,4 +204,9 @@ pub fn text_width(font: &Font, text: &str) -> i32 {
     text.chars().fold(0, |total, character| {
         total.saturating_add(font.advance(character))
     })
+}
+
+/// 按内置字体的字宽累计文本像素宽度。
+pub fn text_width_default(text: &str) -> i32 {
+    text_width(default_font(), text)
 }

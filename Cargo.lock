@@ -246,7 +246,6 @@ name = "hk-canvas"
 version = "0.1.0"
 dependencies = [
  "hk-font",
- "libm",
 ]
 
 [[package]]

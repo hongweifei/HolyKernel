@@ -3,6 +3,8 @@
 //! 默认构建包含可缩放字体：内置 Adwaita Sans（SIL OFL 1.1），缺少字形时回退到
 //! `efont_cn_16` 位图字体并按目标字号缩放，栅格化使用固定缓冲与 4×4 超采样。
 //! 关闭 `scalable` 特性后只保留位图字体，用于不需要 TrueType 的早期启动链路。
+//!
+//! [`default_font`] 提供首次使用时初始化并常驻的 16 像素字体，供不指定字体的通用排版复用。
 
 #![no_std]
 
@@ -11,7 +13,7 @@ extern crate std;
 
 use lovyangfx_fonts::Font as BitmapFont;
 use lovyangfx_fonts::fonts::efont_cn_16;
-use spin::{Mutex, MutexGuard};
+use spin::{Mutex, MutexGuard, Once};
 #[cfg(feature = "scalable")]
 use ttf_parser::{Face, OutlineBuilder};
 
@@ -220,6 +222,16 @@ pub struct Font {
     state: Mutex<State>,
 }
 
+/// 内置默认字体，首次使用时初始化并常驻。
+static DEFAULT: Once<Font> = Once::new();
+
+/// 返回内置默认字体：16 像素可缩放字体，缺字形时回退到内置位图字体。
+///
+/// 所有调用共享同一份字形缓存，适合不指定字体的通用文本绘制。
+pub fn default_font() -> &'static Font {
+    DEFAULT.call_once(|| Font::new(16))
+}
+
 impl Font {
     /// 以像素字号构造可缩放字体，缺字形时回退到内置位图字体。
     ///
@@ -341,7 +353,8 @@ impl Font {
     }
 
     fn fill(&self, character: char) -> bool {
-        let key = (u64::from(self.size) << 32) | u64::from(character as u32);
+        let kind = u64::from(self.has_scalable());
+        let key = (kind << 48) | (u64::from(self.size) << 32) | u64::from(character as u32);
         let mut state = self.state.lock();
         if let Some(cached) = cache_get(key) {
             for row in 0..cached.height {
