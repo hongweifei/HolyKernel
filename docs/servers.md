@@ -84,7 +84,7 @@ pub struct ServiceManifest {
 - 监督循环按有界步进调度，避免持续 yield 的服务阻塞重启时机。
 - 提供管理接口：`start`、`stop`、`restart`、`status`、`list`。
 - 热替换：`replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生镜像启动同名服务；服务表与设备授权保留，端点和句柄重新分配，客户端按端点变化重连。
-- 检查点原型：`checkpoint <任务>` 暂停非当前任务并保存寄存器、Arena 用量与 VSpace，`restore-checkpoint <任务>` 在同一任务槽重建 TCB 并恢复原地址空间；持有设备或共享 Frame 的任务暂不支持，快照保存在 Root 内存。
+- 检查点：`checkpoint <任务>` 暂停非当前任务并捕获寄存器、Arena 用量与用户页内容，随后释放原 VSpace；`restore-checkpoint <任务>` 在同一任务槽按快照重建 VSpace 与 TCB。持有设备、共享 Frame 或 COW 页的任务暂不支持；快照目前只在内存中，尚未落 HolyFS。
 - Root Server 自身崩溃时，内核按配置停机或重启。
 
 ---
