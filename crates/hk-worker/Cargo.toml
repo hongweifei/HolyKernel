@@ -1,0 +1,15 @@
+[package]
+name = "hk-worker"
+description = "HolyKernel 服务内工作线程池"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+hk-sync = { version = "0.1.0", path = "../hk-sync" }
+hk-thread = { version = "0.1.0", path = "../hk-thread" }
+
+[lints]
+workspace = true

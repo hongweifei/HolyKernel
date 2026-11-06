@@ -436,6 +436,7 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
+ "hk-checkpoint",
  "hk-hal",
  "hk-image",
  "hk-kernel",
@@ -584,6 +585,7 @@ version = "0.1.0"
 dependencies = [
  "hk-server-api",
  "hk-server-build",
+ "hk-worker",
 ]
 
 [[package]]
@@ -804,6 +806,15 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-fs",
+]
+
+[[package]]
+name = "hk-worker"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-sync",
+ "hk-thread",
 ]
 
 [[package]]

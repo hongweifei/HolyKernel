@@ -11,6 +11,7 @@ pub mod checkpoint;
 pub mod console;
 pub mod device;
 pub mod display;
+pub mod echo;
 pub mod format;
 pub mod framebuffer;
 pub mod heap;
