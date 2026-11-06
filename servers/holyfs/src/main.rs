@@ -65,7 +65,7 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
     let enabled = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("vfs.fs=holyfs"));
+        .is_some_and(|line| line.contains("vfs.fs=holyfs") || line.contains("checkpoint-srv-test"));
     let mut volumes = Volumes::new();
     if enabled {
         if let Some(disk) = open_disk(endpoint) {

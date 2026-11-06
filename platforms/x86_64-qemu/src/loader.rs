@@ -121,10 +121,17 @@ pub fn run(
             return name == "hk-server-echo";
         }
         if checkpoint_srv_test {
-            // Checkpoint Server 自检：服务、目标任务与客户端。
+            // Checkpoint Server 自检：服务、目标任务、客户端与 HolyFS 落盘链路。
             return matches!(
                 name,
-                "hk-server-echo" | "hk-server-path" | "hk-server-checkpoint" | "hk-server-checkpoint-test"
+                "hk-server-echo"
+                    | "hk-server-path"
+                    | "hk-server-checkpoint"
+                    | "hk-server-checkpoint-test"
+                    | "hk-server-device"
+                    | "hk-server-virtio"
+                    | "hk-server-block"
+                    | "hk-server-holyfs"
             );
         }
         if desktop {

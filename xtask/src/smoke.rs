@@ -879,7 +879,7 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
     let disk = MemoryDisk::new(blocks, SECTOR_SIZE);
     let disk = if matches!(
         mode,
-        SmokeMode::HolyFs | SmokeMode::Holydoc | SmokeMode::Workbench
+        SmokeMode::HolyFs | SmokeMode::Holydoc | SmokeMode::Workbench | SmokeMode::CheckpointServer
     ) {
         crate::disk::seed_holy_docs(disk)?
     } else {

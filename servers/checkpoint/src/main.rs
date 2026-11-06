@@ -55,8 +55,9 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-checkpoint: ready\n");
     let mut cmdline = [0_u8; 128];
-    let disk = hk_server_api::boot_cmdline(&mut cmdline)
-        .is_some_and(|line| line.contains("checkpoint.disk"));
+    let disk = hk_server_api::boot_cmdline(&mut cmdline).is_some_and(|line| {
+        line.contains("checkpoint.disk") || line.contains("checkpoint-srv-test")
+    });
     let mut names: Vec<String> = Vec::new();
     let mut payload = [0_u8; 128];
     loop {
@@ -277,7 +278,9 @@ fn collection(client: &mut HolyClient) -> Option<DocId> {
             if let Ok(collection) = client.resolve(root, COLLECTION) {
                 return Some(collection);
             }
-            return client.create(root, COLLECTION, DocumentKind::Collection).ok();
+            return client
+                .create(root, COLLECTION, DocumentKind::Collection)
+                .ok();
         }
         let _ = hk_server_api::yield_now();
     }
@@ -290,9 +293,7 @@ fn document(client: &mut HolyClient, collection: DocId, name: &str) -> Option<Do
     if let Ok(document) = client.resolve(collection, name) {
         return Some(document);
     }
-    client
-        .create(collection, name, DocumentKind::Content)
-        .ok()
+    client.create(collection, name, DocumentKind::Content).ok()
 }
 
 #[cfg(target_os = "none")]
