@@ -135,11 +135,81 @@ fn draw_cursor(screen: &Screen, x: usize, y: usize) {
     }
 }
 
+/// 像素到窗口圆角轮廓的距离；`None` 表示落在窗口形状内。
+#[cfg(target_os = "none")]
+fn shadow_distance(x: usize, y: usize, window: &Window, radius: usize) -> Option<usize> {
+    let window_right = window.x.saturating_add(window.width);
+    let window_bottom = window
+        .y
+        .saturating_add(title_height())
+        .saturating_add(window.height);
+    let dx = if x < window.x {
+        window.x - x
+    } else if x >= window_right {
+        x - window_right + 1
+    } else {
+        0
+    };
+    let dy = if y < window.y {
+        window.y - y
+    } else if y >= window_bottom {
+        y - window_bottom + 1
+    } else {
+        0
+    };
+    if radius == 0 {
+        return (dx > 0 || dy > 0).then(|| dx.max(dy));
+    }
+    let corner_x = if x < window.x + radius {
+        Some(window.x + radius)
+    } else if x + radius >= window_right {
+        Some(window_right - 1 - radius)
+    } else {
+        None
+    };
+    let corner_y = if y < window.y + radius {
+        Some(window.y + radius)
+    } else if y + radius >= window_bottom {
+        Some(window_bottom - 1 - radius)
+    } else {
+        None
+    };
+    if let (Some(center_x), Some(center_y)) = (corner_x, corner_y) {
+        let offset_x = x.abs_diff(center_x);
+        let offset_y = y.abs_diff(center_y);
+        let distance = sqrt_floor(offset_x * offset_x + offset_y * offset_y);
+        return (distance > radius).then(|| distance - radius);
+    }
+    (dx > 0 || dy > 0).then(|| dx.max(dy))
+}
+
+/// 按到窗口轮廓的距离绘制一个投影像素。
+#[cfg(target_os = "none")]
+fn blend_shadow(
+    screen: &Screen,
+    x: usize,
+    y: usize,
+    window: &Window,
+    radius: usize,
+    margin: usize,
+    color: u32,
+) {
+    let Some(distance) = shadow_distance(x, y, window, radius) else {
+        return;
+    };
+    if distance == 0 || distance > margin {
+        return;
+    }
+    let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
+    screen.blend(x, y, color, ratio);
+}
+
 /// 绘制窗口外沿的柔和投影。
 #[cfg(target_os = "none")]
 fn paint_shadow(
     screen: &Screen,
     window: &Window,
+    radius: usize,
     left: usize,
     top: usize,
     right: usize,
@@ -167,42 +237,19 @@ fn paint_shadow(
     }
 
     for row in shadow_top..shadow_bottom {
-        let dy = if row < window.y {
-            window.y - row
-        } else if row >= window_bottom {
-            row - window_bottom + 1
-        } else {
-            0
-        };
-        if dy == 0 && row >= window.y && row < window_bottom {
-            // 与窗口同高的行只扫描左右两条边带，不遍历窗口内部。
-            for column in shadow_left..window.x.min(shadow_right) {
-                let dx = window.x - column;
-                let distance = dx.max(dy);
-                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
-                screen.blend(column, row, palette.shadow, ratio);
+        if row >= window.y && row < window_bottom {
+            // 与窗口同高的行只在两侧边带和圆角区取投影，中间必定落在窗口形状内。
+            let left_end = (window.x + radius).min(shadow_right);
+            for column in shadow_left..left_end {
+                blend_shadow(screen, column, row, window, radius, margin, palette.shadow);
             }
-            for column in window_right.max(shadow_left)..shadow_right {
-                let dx = column - window_right + 1;
-                let distance = dx.max(dy);
-                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
-                screen.blend(column, row, palette.shadow, ratio);
+            let right_start = window_right.saturating_sub(radius).max(shadow_left);
+            for column in right_start..shadow_right {
+                blend_shadow(screen, column, row, window, radius, margin, palette.shadow);
             }
         } else {
             for column in shadow_left..shadow_right {
-                let dx = if column < window.x {
-                    window.x - column
-                } else if column >= window_right {
-                    column - window_right + 1
-                } else {
-                    0
-                };
-                let distance = dx.max(dy);
-                if distance == 0 || distance > margin {
-                    continue;
-                }
-                let ratio = ((margin + 1 - distance) * 140 / (margin + 1)) as u32;
-                screen.blend(column, row, palette.shadow, ratio);
+                blend_shadow(screen, column, row, window, radius, margin, palette.shadow);
             }
         }
     }
@@ -224,11 +271,13 @@ fn paint_window(
     if window.minimized {
         return;
     }
-    paint_shadow(screen, window, left, top, right, bottom);
+    let window_y = window.y;
+    let radius = window_radius(screen, window)
+        .min(window.width / 2)
+        .min((title_height() + window.height) / 2);
+    paint_shadow(screen, window, radius, left, top, right, bottom);
     let palette = theme();
     let window_x = window.x;
-    let window_y = window.y;
-    let radius = window_radius(screen, window);
 
     let title_left = window_x.max(left);
     let title_right = (window_x + window.width).min(right);
