@@ -31,6 +31,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
+use hk_canvas::Surface;
+#[cfg(target_os = "none")]
 use hk_server_api::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
     SURFACE_CREATE, SURFACE_CREATED, SURFACE_VIRT, WINDOW_CREATE, WINDOW_CREATED, pack_size,
@@ -113,7 +115,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     docs.add_builtin();
     let font: &'static Font<'static> = Box::leak(Box::new(efont_cn_16()));
     let pixels = SURFACE_VIRT as *mut u32;
-    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new()) else {
+    let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new(), font) else {
         write(b"hk-server-holydoc: welcome missing\n");
         exit(5)
     };
@@ -129,7 +131,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     };
 
     window::update_title(display, window, &view);
-    submit_render(pool, font, &view);
+    submit_render(pool, &view);
     wait_render(pool);
     present_render(endpoint, display, surface);
     write(b"hk-server-holydoc: render worker ok\n");
@@ -153,8 +155,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         .is_some_and(|line| line.contains("holydoc-test"));
     if test {
         // 工作线程渲染必须与主线程渲染逐像素一致。
-        render::render(&view, font, pixels);
-        submit_render(pool, font, &view);
+        // SAFETY: 表面帧已映射，长度为 WIDTH * HEIGHT。
+        let frame = unsafe { Surface::from_raw(pixels, WIDTH, HEIGHT, WIDTH) };
+        render::render(&view, &frame);
+        submit_render(pool, &view);
         wait_render(pool);
         // SAFETY: 表面与渲染缓冲都已映射，长度均为 WIDTH * HEIGHT。
         let direct = unsafe { core::slice::from_raw_parts(pixels, WIDTH * HEIGHT) };
@@ -168,7 +172,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         selftest::run(
             &mut view,
             &mut docs,
-            font,
             pixels,
             endpoint,
             display,
@@ -189,7 +192,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             render_pending = false;
             if render_dirty {
                 render_dirty = false;
-                submit_render(pool, font, &view);
+                submit_render(pool, &view);
                 render_pending = true;
             }
         }
@@ -314,7 +317,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             if render_pending {
                 render_dirty = true;
             } else {
-                submit_render(pool, font, &view);
+                submit_render(pool, &view);
                 render_pending = true;
             }
         }
@@ -323,10 +326,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 /// 把当前视图快照交给渲染线程。
 #[cfg(target_os = "none")]
-fn submit_render(pool: &Pool, font: &'static Font<'static>, view: &DocView) {
+fn submit_render(pool: &Pool, view: &DocView) {
     let snapshot = view.clone();
     let _ = pool.submit(0, move || {
-        render::render(&snapshot, font, RENDER_VIRT as *mut u32);
+        // SAFETY: 渲染缓冲在启动时映射，长度为 WIDTH * HEIGHT。
+        let frame = unsafe { Surface::from_raw(RENDER_VIRT as *mut u32, WIDTH, HEIGHT, WIDTH) };
+        render::render(&snapshot, &frame);
         0
     });
 }

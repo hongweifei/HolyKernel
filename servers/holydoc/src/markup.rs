@@ -3,11 +3,13 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use hk_canvas::GlyphSource;
+
 use crate::document::{DocSet, Run, Style};
 
-/// 判断字符宽度（8×16 字体，非 ASCII 视为双宽）。
-pub(crate) fn char_width(character: char) -> usize {
-    if u32::from(character) > 0x7F { 16 } else { 8 }
+/// 返回字符在该字体下的前进宽度。
+pub(crate) fn char_width(font: &impl GlyphSource, character: char) -> usize {
+    font.advance(character).max(0) as usize
 }
 
 /// 从 `@title(...)` 提取页面标题。

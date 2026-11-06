@@ -5,6 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_server_api::write;
+use lovyangfx_fonts::Font;
 
 use crate::exec::exec;
 use crate::markup::{call, char_width, doc_name, parse_inline, split_args, title_of};
@@ -265,6 +266,7 @@ pub(crate) struct DocView {
     pub(crate) history: Vec<String>,
     pub(crate) forward: Vec<String>,
     pub(crate) selected: Option<String>,
+    pub(crate) font: &'static Font<'static>,
 }
 
 impl DocView {
@@ -274,6 +276,7 @@ impl DocView {
         id: &str,
         history: Vec<String>,
         forward: Vec<String>,
+        font: &'static Font<'static>,
     ) -> Option<Self> {
         let entry = set.page(id)?;
         let document = entry.document;
@@ -285,6 +288,7 @@ impl DocView {
             history,
             forward,
             selected: None,
+            font,
         };
         for raw in entry.body.lines() {
             let line = raw.trim_end();
@@ -388,7 +392,7 @@ impl DocView {
         let mut x = 0;
         for run in runs {
             for character in run.text.chars() {
-                let width = char_width(character);
+                let width = char_width(self.font, character);
                 if x + width > CONTENT_WIDTH && x > 0 {
                     self.lines.push(Line {
                         runs: core::mem::take(&mut current),
@@ -439,7 +443,7 @@ impl DocView {
         self.forward.clear();
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &entry.id, history, forward) {
+        match Self::load(set, &entry.id, history, forward, self.font) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: open ");
@@ -459,7 +463,7 @@ impl DocView {
         self.forward.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &previous, history, forward) {
+        match Self::load(set, &previous, history, forward, self.font) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: back ");
@@ -479,7 +483,7 @@ impl DocView {
         self.history.push(self.id.clone());
         let history = core::mem::take(&mut self.history);
         let forward = core::mem::take(&mut self.forward);
-        match Self::load(set, &next, history, forward) {
+        match Self::load(set, &next, history, forward, self.font) {
             Some(view) => {
                 *self = view;
                 write(b"hk-server-holydoc: forward ");
@@ -562,7 +566,7 @@ impl DocView {
         let mut pen = MARGIN;
         for run in &line.runs {
             for character in run.text.chars() {
-                let width = char_width(character);
+                let width = char_width(self.font, character);
                 if let Some(target) = &run.target
                     && x as usize >= pen
                     && (x as usize) < pen + width
@@ -584,7 +588,7 @@ impl DocView {
                     if let Some(target) = &run.target {
                         return Some(((pen + 4) as u32, (y + 8) as u32, target.clone()));
                     }
-                    pen += char_width(character);
+                    pen += char_width(self.font, character);
                 }
             }
             y += LINE_HEIGHT;
