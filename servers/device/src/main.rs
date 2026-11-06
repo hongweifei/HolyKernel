@@ -18,8 +18,8 @@ static SERVICE_ROLE: hk_server_api::ServiceRole = hk_server_api::ServiceRole::de
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
-    DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_GRANT,
-    DEVICE_NONE, DEVICE_REQUEST,
+    DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_INPUT,
+    DEVICE_CLASS_NETWORK, DEVICE_CLASS_RNG, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
@@ -107,10 +107,18 @@ fn class_matches(device: Device, requested: u64) -> bool {
         DEVICE_CLASS_ANY => true,
         DEVICE_CLASS_BLOCK => device.class == 0x01,
         DEVICE_CLASS_NETWORK => device.class == 0x02,
-        // virtio-input：现代设备号 0x1052，过渡设备号 0x1012。
-        DEVICE_CLASS_INPUT => device.vendor == 0x1AF4 && matches!(device.device, 0x1052 | 0x1012),
+        // 过渡设备号并不总等于 `0x1000 + virtio 设备号`，这里显式列出。
+        DEVICE_CLASS_INPUT => virtio_device(device, 0x1012, 0x1052),
+        DEVICE_CLASS_RNG => virtio_device(device, 0x1005, 0x1044),
+        DEVICE_CLASS_CONSOLE => virtio_device(device, 0x1003, 0x1043),
         _ => false,
     }
+}
+
+/// 判断设备是否为指定 virtio 设备（过渡号与现代号）。
+#[cfg(target_os = "none")]
+fn virtio_device(device: Device, legacy: u16, modern: u16) -> bool {
+    device.vendor == 0x1AF4 && (device.device == legacy || device.device == modern)
 }
 
 /// 把缓存授权编码并交给申请者。

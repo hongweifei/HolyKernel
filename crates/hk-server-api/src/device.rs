@@ -15,3 +15,7 @@ pub const DEVICE_CLASS_BLOCK: u64 = 1;
 pub const DEVICE_CLASS_NETWORK: u64 = 2;
 /// 输入设备。
 pub const DEVICE_CLASS_INPUT: u64 = 3;
+/// 熵源设备。
+pub const DEVICE_CLASS_RNG: u64 = 4;
+/// 控制台设备。
+pub const DEVICE_CLASS_CONSOLE: u64 = 5;
