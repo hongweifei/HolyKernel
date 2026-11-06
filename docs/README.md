@@ -8,7 +8,7 @@
 2. [总体架构](architecture.md) — 内核对象、IPC、服务器、启动、安全模型。
 3. [执行模型](execution.md) — TCB、调度、Endpoint、Notification、Handle。
 4. [权限模型](permissions.md) — HandleTable、rights、epoch 撤销、配额、审计。
-5. [内存模型](memory.md) — Untyped、Frame、VSpace、COW、DMA。
+5. [内存模型（HMP）](hmp.md) — Region 统一映射、类型化能力、Provider、Ledger。
 6. [服务器](servers.md) — Root Server、设备管理、驱动、VFS、POSIX、网络、重启。
 7. [网络](network.md) — Network Server、TCP/IP、DHCP、DNS、POSIX socket。
 8. [HolyShell 与 Holy 命令](shell.md) — 原生命令、结构化管道、POSIX 兼容入口。
@@ -33,7 +33,7 @@ docs/
 ├── architecture.md      总体架构
 ├── execution.md         TCB、调度、IPC、Handle
 ├── permissions.md       HandleTable、rights、epoch、配额、审计
-├── memory.md            Untyped、Frame、VSpace、COW、DMA
+├── hmp.md               Holy Memory Plane：原生对象、Region、Provider、Ledger
 ├── servers.md           Root Server、设备管理、驱动、VFS、POSIX
 ├── network.md           Network Server、TCP/IP、DHCP、DNS、socket
 ├── shell.md             HolyShell、Holy 命令、结构化管道、POSIX bridge

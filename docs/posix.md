@@ -351,7 +351,7 @@ flowchart LR
 - [VFS](vfs.md)
 - [HolyFS 文件系统](holyfs.md)
 - [服务器](servers.md)
-- [内存模型](memory.md)
+- [内存模型（HMP）](hmp.md)
 - [执行模型](execution.md)
 - [工程策略](engineering.md)
 - [应用兼容与 Linux ABI](compat.md)

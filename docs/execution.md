@@ -390,7 +390,7 @@ pub struct CivilTime { ... }
 
 - [总体架构](architecture.md)
 - [权限模型](permissions.md)
-- [内存模型](memory.md)
+- [内存模型（HMP）](hmp.md)
 - [POSIX 与 libc](posix.md)
 - [服务器](servers.md)
 - [平台与启动](platforms.md)

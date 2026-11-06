@@ -215,5 +215,5 @@ pub enum VfsRequest {
 - [服务器](servers.md)
 - [POSIX 与 libc](posix.md)
 - [HolyFS 文件系统](holyfs.md)
-- [内存模型](memory.md)
+- [内存模型（HMP）](hmp.md)
 - [工程策略](engineering.md)

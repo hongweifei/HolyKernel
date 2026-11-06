@@ -2,7 +2,7 @@
 
 状态：**设计中** · 版本：`0.1.0-design`
 
-本文描述 HolyKernel 的微内核模型、句柄与 IPC、服务器划分、POSIX 兼容层与启动流程。细节分别见 [内存](memory.md)、[执行](execution.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)、[VFS](vfs.md)、[UI](ui.md)、[平台](platforms.md)。
+本文描述 HolyKernel 的微内核模型、句柄与 IPC、服务器划分、POSIX 兼容层与启动流程。细节分别见 [内存（HMP）](hmp.md)、[执行](execution.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)、[VFS](vfs.md)、[UI](ui.md)、[平台](platforms.md)。
 
 ---
 
@@ -30,7 +30,7 @@ flowchart TB
         VSpace["VSpace"]
         HandleTable["HandleTable / Handle"]
         IPC["Endpoint / Notification"]
-        Frame["Frame / Untyped"]
+        Memory["Capacity / Frame / Region"]
         IRQ["IRQHandler"]
     end
     PosixApps --> POSIX
@@ -68,7 +68,7 @@ flowchart TB
 
 **1.0 聚焦**
 
-- 微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler
+- 微内核：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Frame、Region、IRQHandler
 - Root Server、Device Manager、virtio-blk/input/net 驱动
 - VFS Server与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
 - POSIX.1 服务器 + musl + `hk-abi`/`hk-crt`
@@ -105,16 +105,17 @@ flowchart TB
 | 对象 | 职责 | 关键操作 |
 | --- | --- | --- |
 | **TCB** | 线程控制块；引用 Task 的 HandleTable | 配置、启动、挂起、恢复、绑定 VSpace |
-| **VSpace** | 地址空间 | 映射 Frame、解除映射、保护、查询 |
+| **VSpace** | 地址空间 | 映射 Region、解除映射、保护、查询 |
 | **HandleTable** | 每 Task 的句柄表 | 查找、duplicate、close、转移 |
 | **Endpoint** | 同步 IPC | send、recv、call、reply、句柄传递 |
 | **Notification** | 异步事件 | signal、wait、poll、clear |
-| **Frame** | 物理内存帧 | 映射、共享、DMA、缓存维护 |
-| **Untyped** | 未类型化内存 | retype 为 TCB/VSpace/Frame/Endpoint |
+| **Capacity** | 物理容量能力；页大小、配额与用途 | 分配 Frame、拆分、配额 |
+| **Frame** | 连续物理页 | 映射、共享、DMA、缓存维护 |
+| **Region** | 原生对象到 VSpace 的映射 | map、unmap、protect、COW |
 | **IRQHandler** | 中断句柄 | 平台路由、Notification 唤醒、ack/EOI |
 | **DeviceGrant** | 设备句柄集合；内核对象、镜像角色元数据、设备授权工厂、MMIO 映射、DMA 窗口子分配与 IRQ 通知绑定已建立 | 独立 virtio 驱动服务使用 |
 
-内核对象由 Untyped 内存创建；每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
+内核对象由内核堆分配；Capacity 管理物理容量，Frame 是物理页能力，Region 是原生对象的唯一映射。每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
 
 ### 4.1 Native Task
 
@@ -122,15 +123,15 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    Untyped["Untyped 内存"] -->|retype| TCB["TCB"]
-    Untyped -->|retype| VSpace["VSpace"]
-    Untyped -->|retype| Frame["Frame"]
-    TCB -->|references| HandleTable["HandleTable"]
+    Capacity["Capacity 物理容量"] -->|分配| Frame["Frame"]
+    TCB["TCB"] -->|references| HandleTable["HandleTable"]
     HandleTable -->|Handle| TCB
     HandleTable -->|Handle| VSpace
+    HandleTable -->|Handle| Region["Region"]
     HandleTable -->|Handle| Endpoint["Endpoint"]
     HandleTable -->|Handle| IRQ["IRQHandler"]
-    VSpace -->|map| Frame
+    VSpace -->|map| Region
+    Region -->|references| Frame
 ```
 
 ---
@@ -183,12 +184,12 @@ sequenceDiagram
 
 - **TCB**：线程上下文、优先级、亲和性、状态；绑定 VSpace，并引用 Task 的 HandleTable。
 - **调度**：抢占式、优先级 + 轮转、每 CPU run queue、SMP、tickless。
-- **VSpace**：每进程独立页表；内核高半区、用户空间、共享 Frame 映射。
-- **Untyped**：启动时由 BootInfo 提供；retype 为内核对象与 Frame。
-- **COW**：`fork` 通过只读映射与页错误 Endpoint 实现；POSIX Server处理写时复制。
-- **DMA**：用户态驱动获得 Frame 与 DeviceGrant；IOMMU 可选。
+- **VSpace**：每进程独立页表；内核高半区、用户空间、Region 映射。
+- **HMP**：Capacity 管物理容量，Frame 管物理页；Revision/Surface/TaskImage/DeviceAllocation/Anonymous 以类型化能力暴露，Mappable 是统一能力接口，Region 是唯一映射；Provider 按类型提供契约，Ledger 记账。
+- **COW**：`fork` 复制 Region 表并标 COW；匿名页走内核快速路径，文件/设备页由 Provider 处理。
+- **DMA**：用户态驱动获得 Frame、DeviceAllocation 与 DeviceGrant；IOMMU 可选。
 
-详见 [内存模型](memory.md)、[执行模型](execution.md)。
+详见 [HMP 内存模型](hmp.md)、[执行模型](execution.md)。
 
 ---
 
@@ -196,7 +197,7 @@ sequenceDiagram
 
 | 服务器 | 职责 | 关键句柄 |
 | --- | --- | --- |
-| **Root Server** | 启动、监督、重启、句柄分配 | 初始 Untyped、HandleTable、Endpoint |
+| **Root Server** | 启动、监督、重启、句柄分配 | 初始 Capacity、HandleTable、Endpoint |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
@@ -279,7 +280,7 @@ sequenceDiagram
     participant App as /sbin/init
 
     FW->>K: 载入内核 + BootInfo + 服务器镜像
-    K->>K: 初始化 Untyped、VSpace、TCB、IPC
+    K->>K: 初始化 Capacity、VSpace、TCB、IPC
     K->>Root: 启动 Root Task（初始句柄）
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
@@ -296,7 +297,7 @@ sequenceDiagram
 
 关键点：
 
-- 内核只创建 Root Task，并把初始 Untyped/Endpoint 句柄与 HandleTable 交给它。
+- 内核只创建 Root Task，并把初始 Capacity/Endpoint 句柄与 HandleTable 交给它。
 - Root Server 启动设备管理器、VFS、Network Server、HolyShell 与可选原生服务。
 - POSIX 兼容环境的根文件系统为 ext2/ext4；HolyFS 卷作为数据卷接入。
 - HolyShell 是默认命令行；POSIX Server 是可选兼容环境。
@@ -351,7 +352,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 
 ## 14. 关键保证
 
-1. 内核只包含机制：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler。
+1. 内核只包含机制：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Frame、Region、IRQHandler。
 2. 所有资源访问通过 Handle；内核维护对象引用与句柄复制树。
 3. 每进程独立 VSpace；内核地址空间与用户地址空间分离。
 4. 跨服务器调用通过 Endpoint；异步事件通过 Notification。
@@ -381,7 +382,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 ## 16. 相关文档
 
 - [章程](charter.md)
-- [内存模型](memory.md)
+- [内存模型（HMP）](hmp.md)
 - [执行模型](execution.md)
 - [权限模型](permissions.md)
 - [网络](network.md)

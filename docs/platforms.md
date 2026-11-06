@@ -213,7 +213,7 @@ sequenceDiagram
 
 - [总体架构](architecture.md)
 - [执行模型](execution.md)
-- [内存模型](memory.md)
+- [内存模型（HMP）](hmp.md)
 - [服务器](servers.md)
 - [网络](network.md)
 - [HolyFS 文件系统](holyfs.md)

@@ -2,7 +2,7 @@
 
 - 状态：**已接受**
 - 日期：2026-11-03
-- 关联：[总体架构](../architecture.md)、[执行模型](../execution.md)、[内存模型](../memory.md)
+- 关联：[总体架构](../architecture.md)、[执行模型](../execution.md)、[内存模型](../hmp.md)
 
 ## 背景
 

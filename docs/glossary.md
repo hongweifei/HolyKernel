@@ -43,6 +43,25 @@
 | **FunSeg** | 地址到符号/源码的映射缓存，用于栈回溯与 HolyDoc 链接 |
 | **Home / Once** | 可执行启动/首次运行文档 |
 
+### 1.1 Holy Memory Plane（HMP）
+
+| 术语 | 定义 |
+| --- | --- |
+| **HMP** | Holy Memory Plane；以 Region 统一映射、类型化能力承载身份的内存平面 |
+| **Capacity** | Root Server 授予的物理容量能力；声明页大小、配额与用途 |
+| **Region** | 类型化能力在 VSpace 中的唯一映射视图；带权利、COW、guard、pin 等标志 |
+| **Provider** | 缺页、回写、驱逐的 Endpoint 服务；契约按类型定义 |
+| **Ledger** | 容量、常驻、配额、压力的显式记账对象 |
+| **类型化能力** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 各自以独立 Handle 类型暴露 |
+| **Mappable** | 内核可见的统一能力接口；类型化能力实现它，由 Region 引用 |
+| **Provider 契约** | 每类能力对应的 fault/commit/scanout/pin/export/swap 协议 |
+| **TaskImage** | Native Task 镜像中的代码/数据区域；通常 sealed |
+| **DeviceAllocation** | 显存/DMA 内存分配；MMIO 寄存器由 DeviceGrant 映射 |
+| **Anonymous** | 由 MemoryManager 提供后备、页面初始为零的匿名内存 |
+| **sealed** | 只读共享、拒绝写入的对象/Region 状态 |
+| **pin** | 固定 Frame，保持驻留；用于 DMA、scanout |
+| **provenance** | 内存对象的原生来源：Revision/Surface/TaskImage/Device/Anonymous |
+
 ## 2. 服务器
 
 | 术语 | 定义 |
