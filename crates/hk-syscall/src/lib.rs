@@ -1,147 +1,211 @@
 //! 内核与服务器共享的系统调用 ABI。
 //!
+//! 系统调用号按子系统分段，每段预留扩展空间；编号发布后保持稳定，新调用在
+//! 所属段内顺序追加。
+//!
+//! | 区间 | 子系统 |
+//! | --- | --- |
+//! | `0x00-0x0F` | 进程与线程 |
+//! | `0x10-0x1F` | 句柄 |
+//! | `0x20-0x2F` | IPC 与通知 |
+//! | `0x30-0x3F` | 同步 |
+//! | `0x40-0x4F` | 内存与共享 Frame |
+//! | `0x50-0x5F` | 设备与中断 |
+//! | `0x60-0x6F` | 时间与系统信息 |
+//! | `0x70-0x7F` | 控制台与帧缓冲 |
+//! | `0x80-0x8F` | Root 与调试控制 |
+//!
 //! 只包含编号与端点约定，不依赖任何平台；寄存器映射由平台层实现。
 
 #![no_std]
 
-/// 退出服务。
-pub const SYS_EXIT: u64 = 0;
+// === 进程与线程 0x00-0x0F ===
 
-/// 把一段 UTF-8 文本写入内核控制台。
-pub const SYS_WRITE: u64 = 1;
+/// 退出服务。
+pub const SYS_EXIT: u64 = 0x00;
 
 /// 让出 CPU。
-pub const SYS_YIELD: u64 = 2;
-
-/// 向端点发送消息。
-pub const SYS_SEND: u64 = 3;
-
-/// 从端点接收消息。
-pub const SYS_RECV: u64 = 4;
-
-/// 读取 PCI 配置空间。
-pub const SYS_PCI_READ: u64 = 5;
-
-/// 读取调度 tick 计数。
-pub const SYS_TICKS: u64 = 6;
-
-/// 在任务 Arena 内分配内存。
-pub const SYS_ALLOC: u64 = 7;
-
-/// 关闭端点句柄。
-pub const SYS_HANDLE_CLOSE: u64 = 8;
-
-/// 查询在用句柄数。
-pub const SYS_HANDLE_COUNT: u64 = 9;
-
-/// 发送消息并转移一个句柄。
-pub const SYS_SEND_HANDLE: u64 = 10;
-
-/// 置位通知位。
-pub const SYS_NOTIFY: u64 = 11;
-
-/// 等待通知位。
-pub const SYS_WAIT_NOTIFY: u64 = 12;
-
-/// 调用端点并等待回复。
-pub const SYS_CALL: u64 = 13;
-
-/// 回复最近一次调用。
-pub const SYS_REPLY: u64 = 14;
+pub const SYS_YIELD: u64 = 0x01;
 
 /// 复制当前任务。
-pub const SYS_FORK: u64 = 15;
+pub const SYS_FORK: u64 = 0x02;
 
-/// 读取单调时间戳（TSC）。
-pub const SYS_TSC: u64 = 16;
+/// 在同一地址空间创建线程。
+pub const SYS_THREAD_CREATE: u64 = 0x03;
 
-/// 读取时间戳频率。
-pub const SYS_TSC_FREQ: u64 = 17;
+/// 等待线程退出。
+pub const SYS_THREAD_JOIN: u64 = 0x04;
 
-/// 发送带字节载荷的消息。
-pub const SYS_SEND_DATA: u64 = 18;
+/// 设置当前线程的 TLS 基址。
+pub const SYS_THREAD_SET_TLS: u64 = 0x05;
 
-/// 接收带字节载荷的消息。
-pub const SYS_RECV_DATA: u64 = 19;
+// === 句柄 0x10-0x1F ===
 
-/// 写入 PCI 配置空间。
-pub const SYS_PCI_WRITE: u64 = 20;
+/// 关闭端点句柄。
+pub const SYS_HANDLE_CLOSE: u64 = 0x10;
 
-/// 创建 DeviceGrant 对象。
-pub const SYS_DEVICE_GRANT_CREATE: u64 = 21;
-
-/// 把 DeviceGrant 的 MMIO 范围映射到当前任务。
-pub const SYS_DEVICE_MAP: u64 = 22;
-
-/// 分配一致性 DMA 缓冲并映射到当前任务。
-pub const SYS_DMA_ALLOC: u64 = 23;
-
-/// 把设备中断绑定到通知。
-pub const SYS_IRQ_BIND: u64 = 24;
-
-/// 同步 DMA 缓冲缓存。
-pub const SYS_DMA_SYNC: u64 = 26;
-
-/// 接收带字节载荷的消息，并指定期望的发送端点。
-pub const SYS_RECV_DATA_FROM: u64 = 27;
-
-/// 按服务名查询当前任务端点。
-pub const SYS_SERVICE_ENDPOINT: u64 = 28;
-
-/// 查询 DeviceGrant 编码描述。
-pub const SYS_DEVICE_INFO: u64 = 29;
-
-/// 读取民用时间。
-pub const SYS_CIVIL_TIME: u64 = 30;
-
-/// 读取平台启动命令行。
-pub const SYS_BOOT_CMDLINE: u64 = 31;
-
-/// 分配共享 Frame 并映射。
-pub const SYS_FRAME_ALLOC: u64 = 32;
-
-/// 把 Frame 映射到调用者地址空间。
-pub const SYS_FRAME_MAP: u64 = 33;
-
-/// 解除 Frame 映射。
-pub const SYS_FRAME_UNMAP: u64 = 34;
-
-/// 查询 Frame 的物理地址与长度。
-pub const SYS_FRAME_INFO: u64 = 35;
+/// 查询在用句柄数。
+pub const SYS_HANDLE_COUNT: u64 = 0x11;
 
 /// 复制句柄。
-pub const SYS_HANDLE_DUPLICATE: u64 = 36;
+pub const SYS_HANDLE_DUPLICATE: u64 = 0x12;
+
+// === IPC 与通知 0x20-0x2F ===
+
+/// 向端点发送消息。
+pub const SYS_SEND: u64 = 0x20;
+
+/// 发送消息并转移一个句柄。
+pub const SYS_SEND_HANDLE: u64 = 0x21;
+
+/// 发送带字节载荷的消息。
+pub const SYS_SEND_DATA: u64 = 0x22;
+
+/// 从端点接收消息。
+pub const SYS_RECV: u64 = 0x23;
+
+/// 接收带字节载荷的消息。
+pub const SYS_RECV_DATA: u64 = 0x24;
+
+/// 接收带字节载荷的消息，并指定期望的发送端点。
+pub const SYS_RECV_DATA_FROM: u64 = 0x25;
 
 /// 接收带字节载荷的消息，并把随消息收到的句柄编号打包返回。
-pub const SYS_RECV_DATA_HANDLE: u64 = 37;
-
-/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
-pub const SYS_DMA_MAP_FRAME: u64 = 38;
+pub const SYS_RECV_DATA_HANDLE: u64 = 0x26;
 
 /// 非阻塞接收带字节载荷的消息；无消息时返回 0。
-pub const SYS_RECV_DATA_TRY: u64 = 39;
-
-/// 非阻塞读取一个控制台字节；无输入时返回 `u64::MAX`。
-pub const SYS_CONSOLE_READ: u64 = 40;
-/// 注册为控制台输入订阅者。
-pub const SYS_CONSOLE_SUBSCRIBE: u64 = 41;
-
-/// 查询帧缓冲描述；仅显示服务可用。
-pub const SYS_FRAMEBUFFER_INFO: u64 = 42;
-
-/// 把帧缓冲映射到调用者地址空间；仅显示服务可用。
-pub const SYS_FRAMEBUFFER_MAP: u64 = 43;
+pub const SYS_RECV_DATA_TRY: u64 = 0x27;
 
 /// 非阻塞接收带字节载荷与句柄的消息；无消息时返回 0。
-pub const SYS_RECV_DATA_HANDLE_TRY: u64 = 44;
+pub const SYS_RECV_DATA_HANDLE_TRY: u64 = 0x28;
+
+/// 调用端点并等待回复。
+pub const SYS_CALL: u64 = 0x29;
+
+/// 回复最近一次调用。
+pub const SYS_REPLY: u64 = 0x2A;
+
+/// 置位通知位。
+pub const SYS_NOTIFY: u64 = 0x2B;
+
+/// 等待通知位。
+pub const SYS_WAIT_NOTIFY: u64 = 0x2C;
+
+/// 非阻塞检查通知位；没有待处理位时返回 0。
+pub const SYS_WAIT_NOTIFY_TRY: u64 = 0x2D;
+
+/// 返回当前任务自己的通知编号。
+pub const SYS_SELF_NOTIFICATION: u64 = 0x2E;
+
+/// 按服务名查询当前任务端点。
+pub const SYS_SERVICE_ENDPOINT: u64 = 0x2F;
+
+// === 同步 0x30-0x3F ===
+
+/// 在共享内存字上等待。
+pub const SYS_FUTEX_WAIT: u64 = 0x30;
+
+/// 唤醒共享内存字上的等待者。
+pub const SYS_FUTEX_WAKE: u64 = 0x31;
+
+/// `SYS_FUTEX_WAIT`：值已变化，无需等待。
+pub const FUTEX_CHANGED: u64 = 1;
+
+// === 内存与共享 Frame 0x40-0x4F ===
+
+/// 在任务 Arena 内分配内存。
+pub const SYS_ALLOC: u64 = 0x40;
+
+/// 分配共享 Frame 并映射。
+pub const SYS_FRAME_ALLOC: u64 = 0x41;
+
+/// 把 Frame 映射到调用者地址空间。
+pub const SYS_FRAME_MAP: u64 = 0x42;
+
+/// 解除 Frame 映射。
+pub const SYS_FRAME_UNMAP: u64 = 0x43;
+
+/// 查询 Frame 的物理地址与长度。
+pub const SYS_FRAME_INFO: u64 = 0x44;
+
+/// 分配一致性 DMA 缓冲并映射到当前任务。
+pub const SYS_DMA_ALLOC: u64 = 0x45;
+
+/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
+pub const SYS_DMA_MAP_FRAME: u64 = 0x46;
+
+/// 同步 DMA 缓冲缓存。
+pub const SYS_DMA_SYNC: u64 = 0x47;
+
+// === 设备与中断 0x50-0x5F ===
+
+/// 读取 PCI 配置空间。
+pub const SYS_PCI_READ: u64 = 0x50;
+
+/// 写入 PCI 配置空间。
+pub const SYS_PCI_WRITE: u64 = 0x51;
+
+/// 创建 DeviceGrant 对象。
+pub const SYS_DEVICE_GRANT_CREATE: u64 = 0x52;
+
+/// 把 DeviceGrant 的 MMIO 范围映射到当前任务。
+pub const SYS_DEVICE_MAP: u64 = 0x53;
+
+/// 查询 DeviceGrant 编码描述。
+pub const SYS_DEVICE_INFO: u64 = 0x54;
+
+/// 把设备中断绑定到通知。
+pub const SYS_IRQ_BIND: u64 = 0x55;
+
+// === 时间与系统信息 0x60-0x6F ===
+
+/// 读取调度 tick 计数。
+pub const SYS_TICKS: u64 = 0x60;
+
+/// 读取单调时间戳（TSC）。
+pub const SYS_TSC: u64 = 0x61;
+
+/// 读取时间戳频率。
+pub const SYS_TSC_FREQ: u64 = 0x62;
+
+/// 读取民用时间。
+pub const SYS_CIVIL_TIME: u64 = 0x63;
+
+/// 读取平台启动命令行。
+pub const SYS_BOOT_CMDLINE: u64 = 0x64;
+
 /// 只读内核运行统计：线程/对象/就绪线程/trace 事件计数。
-pub const SYS_KERNEL_STATS: u64 = 45;
+pub const SYS_KERNEL_STATS: u64 = 0x65;
+
+// === 控制台与帧缓冲 0x70-0x7F ===
+
+/// 把一段 UTF-8 文本写入内核控制台。
+pub const SYS_WRITE: u64 = 0x70;
+
+/// 非阻塞读取一个控制台字节；无输入时返回 `u64::MAX`。
+pub const SYS_CONSOLE_READ: u64 = 0x71;
+
+/// 注册为控制台输入订阅者。
+pub const SYS_CONSOLE_SUBSCRIBE: u64 = 0x72;
+
+/// 查询帧缓冲描述；仅显示服务可用。
+pub const SYS_FRAMEBUFFER_INFO: u64 = 0x73;
+
+/// 把帧缓冲映射到调用者地址空间；仅显示服务可用。
+pub const SYS_FRAMEBUFFER_MAP: u64 = 0x74;
+
+// === Root 与调试控制 0x80-0x8F ===
 
 /// Root Server 控制请求；返回请求编号。
-pub const SYS_ROOT_CONTROL: u64 = 46;
+pub const SYS_ROOT_CONTROL: u64 = 0x80;
 
 /// 读取 Root Server 控制结果；未完成时返回 `u64::MAX`。
-pub const SYS_ROOT_RESULT: u64 = 47;
+pub const SYS_ROOT_RESULT: u64 = 0x81;
+
+/// 注册端点接收内核投递的原始异常现场。
+pub const SYS_FAULT_SUBSCRIBE: u64 = 0x82;
+
+// === Root 控制操作码（`SYS_ROOT_CONTROL` 请求内的二级编号）===
 
 /// Root 控制：任务视图。
 pub const ROOT_OP_TASKS: u64 = 1;
@@ -169,25 +233,6 @@ pub const ROOT_OP_CHECKPOINT: u64 = 12;
 pub const ROOT_OP_RESTORE_CHECKPOINT: u64 = 13;
 /// Root 控制：按服务与地址批量查询符号；服务为空时查内核符号。
 pub const ROOT_OP_LOOKUP: u64 = 14;
-
-/// 在同一地址空间创建线程。
-pub const SYS_THREAD_CREATE: u64 = 48;
-/// 等待线程退出。
-pub const SYS_THREAD_JOIN: u64 = 49;
-/// 设置当前线程的 TLS 基址。
-pub const SYS_THREAD_SET_TLS: u64 = 50;
-/// 在共享内存字上等待。
-pub const SYS_FUTEX_WAIT: u64 = 51;
-/// 唤醒共享内存字上的等待者。
-pub const SYS_FUTEX_WAKE: u64 = 52;
-/// `SYS_FUTEX_WAIT`：值已变化，无需等待。
-pub const FUTEX_CHANGED: u64 = 1;
-
-/// 非阻塞检查通知位；没有待处理位时返回 0。
-pub const SYS_WAIT_NOTIFY_TRY: u64 = 54;
-
-/// 注册端点接收内核投递的原始异常现场。
-pub const SYS_FAULT_SUBSCRIBE: u64 = 53;
 
 /// 内核投递原始异常现场使用的消息标签。
 pub const FAULT_EVENT: u64 = 0xD00;
@@ -296,9 +341,6 @@ pub const RIGHT_TRANSFER: u64 = 8;
 /// 句柄权限位：管理。
 pub const RIGHT_ADMIN: u64 = 16;
 
-/// 返回当前任务自己的通知编号。
-pub const SYS_SELF_NOTIFICATION: u64 = 25;
-
 /// echo 服务的端点编号。
 pub const ENDPOINT_ECHO: u64 = 2;
 
@@ -329,6 +371,83 @@ impl ServiceRole {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn syscall_numbers_stay_in_their_groups() {
+        const { assert!(SYS_THREAD_SET_TLS < 0x10) };
+        const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
+        const { assert!(SYS_SEND >= 0x20 && SYS_SERVICE_ENDPOINT < 0x30) };
+        const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
+        const { assert!(SYS_ALLOC >= 0x40 && SYS_DMA_SYNC < 0x50) };
+        const { assert!(SYS_PCI_READ >= 0x50 && SYS_IRQ_BIND < 0x60) };
+        const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
+        const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
+        const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
+    }
+
+    #[test]
+    fn syscall_numbers_are_unique() {
+        let numbers = [
+            SYS_EXIT,
+            SYS_YIELD,
+            SYS_FORK,
+            SYS_THREAD_CREATE,
+            SYS_THREAD_JOIN,
+            SYS_THREAD_SET_TLS,
+            SYS_HANDLE_CLOSE,
+            SYS_HANDLE_COUNT,
+            SYS_HANDLE_DUPLICATE,
+            SYS_SEND,
+            SYS_SEND_HANDLE,
+            SYS_SEND_DATA,
+            SYS_RECV,
+            SYS_RECV_DATA,
+            SYS_RECV_DATA_FROM,
+            SYS_RECV_DATA_HANDLE,
+            SYS_RECV_DATA_TRY,
+            SYS_RECV_DATA_HANDLE_TRY,
+            SYS_CALL,
+            SYS_REPLY,
+            SYS_NOTIFY,
+            SYS_WAIT_NOTIFY,
+            SYS_WAIT_NOTIFY_TRY,
+            SYS_SELF_NOTIFICATION,
+            SYS_SERVICE_ENDPOINT,
+            SYS_FUTEX_WAIT,
+            SYS_FUTEX_WAKE,
+            SYS_ALLOC,
+            SYS_FRAME_ALLOC,
+            SYS_FRAME_MAP,
+            SYS_FRAME_UNMAP,
+            SYS_FRAME_INFO,
+            SYS_DMA_ALLOC,
+            SYS_DMA_MAP_FRAME,
+            SYS_DMA_SYNC,
+            SYS_PCI_READ,
+            SYS_PCI_WRITE,
+            SYS_DEVICE_GRANT_CREATE,
+            SYS_DEVICE_MAP,
+            SYS_DEVICE_INFO,
+            SYS_IRQ_BIND,
+            SYS_TICKS,
+            SYS_TSC,
+            SYS_TSC_FREQ,
+            SYS_CIVIL_TIME,
+            SYS_BOOT_CMDLINE,
+            SYS_KERNEL_STATS,
+            SYS_WRITE,
+            SYS_CONSOLE_READ,
+            SYS_CONSOLE_SUBSCRIBE,
+            SYS_FRAMEBUFFER_INFO,
+            SYS_FRAMEBUFFER_MAP,
+            SYS_ROOT_CONTROL,
+            SYS_ROOT_RESULT,
+            SYS_FAULT_SUBSCRIBE,
+        ];
+        let mut sorted = numbers;
+        sorted.sort_unstable();
+        assert!(sorted.windows(2).all(|pair| pair[0] != pair[1]));
+    }
 
     #[test]
     fn framebuffer_descriptor_roundtrip() {
