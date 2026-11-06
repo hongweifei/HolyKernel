@@ -9,6 +9,15 @@ use crate::error::{HolyError, map_io};
 use crate::superblock::{BITMAP_START, BLOCK_SIZE, SUPERBLOCK_A, SUPERBLOCK_B, Superblock};
 
 const IO_CHUNK: usize = 60 * 1024;
+/// 每个分配组的块数。
+pub(crate) const GROUP_BLOCKS: u64 = 1024;
+
+struct Group {
+    start: u64,
+    end: u64,
+    free: u64,
+    hint: u64,
+}
 
 pub(crate) struct Store<D: BlockDevice> {
     device: D,
@@ -18,6 +27,8 @@ pub(crate) struct Store<D: BlockDevice> {
     data_start: u64,
     bitmap: Vec<u8>,
     next_hint: u64,
+    groups: Vec<Group>,
+    group_hint: usize,
 }
 
 impl<D: BlockDevice> Store<D> {
@@ -41,6 +52,8 @@ impl<D: BlockDevice> Store<D> {
             data_start,
             bitmap: vec![0_u8; bitmap_blocks as usize * BLOCK_SIZE],
             next_hint: data_start,
+            groups: Vec::new(),
+            group_hint: 0,
         };
         let zero = [0_u8; BLOCK_SIZE];
         store.write_block(SUPERBLOCK_A, &zero)?;
@@ -51,6 +64,7 @@ impl<D: BlockDevice> Store<D> {
         for block in 0..data_start {
             store.mark(block, true);
         }
+        store.rebuild_groups();
         store.write_bitmap()?;
         Ok(store)
     }
@@ -77,6 +91,8 @@ impl<D: BlockDevice> Store<D> {
             data_start: superblock.bitmap_start + u64::from(superblock.bitmap_blocks),
             bitmap: vec![0_u8; superblock.bitmap_blocks as usize * BLOCK_SIZE],
             next_hint: superblock.bitmap_start + u64::from(superblock.bitmap_blocks),
+            groups: Vec::new(),
+            group_hint: 0,
         };
         if store.data_start > store.total_blocks {
             return Err(HolyError::Corrupt);
@@ -86,6 +102,7 @@ impl<D: BlockDevice> Store<D> {
             store.read_block(store.bitmap_start + index as u64, &mut block)?;
             store.bitmap[index * BLOCK_SIZE..(index + 1) * BLOCK_SIZE].copy_from_slice(&block);
         }
+        store.rebuild_groups();
         Ok(store)
     }
 
@@ -194,21 +211,17 @@ impl<D: BlockDevice> Store<D> {
         if count == 0 {
             return Ok(0);
         }
-        let Some(end) = self.next_hint.checked_add(count) else {
-            return Err(HolyError::NoSpace);
-        };
-        if end <= self.total_blocks {
-            let mut run = self.next_hint;
-            while run < end && !self.block_allocated(run) {
-                run += 1;
-            }
-            if run == end {
-                let start = self.next_hint;
-                for block in start..end {
-                    self.mark(block, true);
+        if count <= GROUP_BLOCKS {
+            for offset in 0..self.groups.len() {
+                let index = (self.group_hint + offset) % self.groups.len();
+                if self.groups[index].free < count {
+                    continue;
                 }
-                self.next_hint = end;
-                return Ok(start);
+                if let Some(start) = self.find_run(index, count) {
+                    self.allocate_run(start, count);
+                    self.group_hint = (index + 1) % self.groups.len();
+                    return Ok(start);
+                }
             }
         }
         let mut scan = self.data_start;
@@ -217,10 +230,7 @@ impl<D: BlockDevice> Store<D> {
             while scan + run < self.total_blocks && !self.block_allocated(scan + run) {
                 run += 1;
                 if run == count {
-                    for block in scan..scan + count {
-                        self.mark(block, true);
-                    }
-                    self.next_hint = scan + count;
+                    self.allocate_run(scan, count);
                     return Ok(scan);
                 }
             }
@@ -234,9 +244,20 @@ impl<D: BlockDevice> Store<D> {
             return;
         }
         for block in start..start.saturating_add(count).min(self.total_blocks) {
+            if !self.block_allocated(block) {
+                continue;
+            }
             self.mark(block, false);
+            let index = self.group_index(block);
+            if let Some(group) = self.group_for(block) {
+                group.free = group.free.saturating_add(1);
+                group.hint = group.hint.min(block);
+            }
+            if let Some(index) = index {
+                self.group_hint = index;
+            }
+            self.next_hint = self.next_hint.min(block);
         }
-        self.next_hint = self.next_hint.min(start);
     }
 
     pub(crate) fn block_allocated(&self, block: u64) -> bool {
@@ -248,7 +269,92 @@ impl<D: BlockDevice> Store<D> {
     }
 
     pub(crate) fn set_allocated(&mut self, block: u64, allocated: bool) {
+        if self.block_allocated(block) == allocated {
+            return;
+        }
         self.mark(block, allocated);
+        if let Some(group) = self.group_for(block) {
+            if allocated {
+                group.free = group.free.saturating_sub(1);
+            } else {
+                group.free = group.free.saturating_add(1);
+                group.hint = group.hint.min(block);
+            }
+        }
+    }
+
+    fn rebuild_groups(&mut self) {
+        self.groups.clear();
+        let mut start = self.data_start;
+        while start < self.total_blocks {
+            let end = (start + GROUP_BLOCKS).min(self.total_blocks);
+            let mut free = 0;
+            let mut hint = end;
+            for block in start..end {
+                if !self.block_allocated(block) {
+                    free += 1;
+                    if hint == end {
+                        hint = block;
+                    }
+                }
+            }
+            self.groups.push(Group {
+                start,
+                end,
+                free,
+                hint,
+            });
+            start = end;
+        }
+        self.group_hint = 0;
+    }
+
+    fn find_run(&self, index: usize, count: u64) -> Option<u64> {
+        let group = self.groups.get(index)?;
+        let mut run = 0;
+        let mut start = 0;
+        for block in group.start..group.end {
+            if self.block_allocated(block) {
+                run = 0;
+            } else {
+                if run == 0 {
+                    start = block;
+                }
+                run += 1;
+                if run == count {
+                    return Some(start);
+                }
+            }
+        }
+        None
+    }
+
+    fn allocate_run(&mut self, start: u64, count: u64) {
+        let end = start.saturating_add(count).min(self.total_blocks);
+        for block in start..end {
+            if self.block_allocated(block) {
+                continue;
+            }
+            self.mark(block, true);
+            if let Some(group) = self.group_for(block) {
+                group.free = group.free.saturating_sub(1);
+                if group.hint == block {
+                    group.hint = block.saturating_add(1).min(group.end);
+                }
+            }
+        }
+        self.next_hint = end;
+    }
+
+    fn group_for(&mut self, block: u64) -> Option<&mut Group> {
+        let index = self.group_index(block)?;
+        self.groups.get_mut(index)
+    }
+
+    fn group_index(&self, block: u64) -> Option<usize> {
+        let offset = block.checked_sub(self.data_start)?;
+        let index = usize::try_from(offset / GROUP_BLOCKS).ok()?;
+        (index < self.groups.len()).then_some(index)
     }
 
     fn mark(&mut self, block: u64, allocated: bool) {
@@ -292,4 +398,29 @@ impl<D: BlockDevice> Store<D> {
 pub(crate) fn bitmap_blocks_for(total_blocks: u64) -> Result<u32, HolyError> {
     let blocks = total_blocks.div_ceil((BLOCK_SIZE * 8) as u64);
     u32::try_from(blocks.max(1)).map_err(|_| HolyError::NoSpace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GROUP_BLOCKS, Store};
+    use hk_block::{MemoryDisk, SECTOR_SIZE};
+
+    #[test]
+    fn allocates_contiguous_runs_and_reuses_freed_space() {
+        let mut store = Store::format(MemoryDisk::new(32768, SECTOR_SIZE)).expect("格式");
+        let start = store.allocate_blocks(8).expect("分配");
+        for block in start..start + 8 {
+            assert!(store.block_allocated(block));
+        }
+        store.free_blocks(start, 8);
+        assert_eq!(store.allocate_blocks(8).expect("复用"), start);
+    }
+
+    #[test]
+    fn spans_groups_when_current_group_is_full() {
+        let mut store = Store::format(MemoryDisk::new(32768, SECTOR_SIZE)).expect("格式");
+        let first = store.allocate_blocks(GROUP_BLOCKS - 2).expect("第一组");
+        let second = store.allocate_blocks(4).expect("跨组");
+        assert!(second >= first + GROUP_BLOCKS - 2);
+    }
 }

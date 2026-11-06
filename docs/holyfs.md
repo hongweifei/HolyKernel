@@ -6,7 +6,7 @@ HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空�
 
 Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组与流式写/压缩在后续版本落地；修订保留/GC、内容去重与配额已实现。
+已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、流式写、压缩、修订保留/GC、内容去重与配额已实现。
 
 ---
 
@@ -211,7 +211,7 @@ flowchart LR
 
 ### 空间与配额
 
-- 卷按固定大小的分配组组织空间；每组维护位图与连续空闲段摘要，分配优先组内连续 run。
+- 卷按固定大小（1024 块）的分配组组织空间；组状态从位图重建，分配优先组内连续 run，组满或碎片化时切换下一组。
 - 文档支持多 extent；子修订共享未改动的 extent，写入只分配改动区间。
 - 卷配额覆盖文档数、逻辑字节数、修订数、快照数与标签数；创建、写入、快照与标签操作前检查，配额持久化在 Superblock。
 - 释放 extent 时向块层发送 `Discard`，保持介质回收效率。
@@ -347,15 +347,14 @@ Superblock 字段：
 | tag_table       | 标签表根                |
 | snapshot_table  | 快照表根                |
 | next_snapshot   | 下一个快照编号             |
-| group_table     | 分配组表根               |
 | quota           | 文档数、字节数、修订数、快照数、标签数 |
 | checksum        | CRC32C              |
 
 - 全部表以 COW 树存储；Superblock 保存根，提交只切换根。
-- 挂载时校验 magic、版本、feature flags、卷身份、各表根、分配组表与 Superblock CRC；校验通过后选择 generation 最新的有效槽。
+- 挂载时校验 magic、版本、feature flags、卷身份、各表根与 Superblock CRC；校验通过后选择 generation 最新的有效槽。
 - 文档记录保存 DocId、head、校验和；修订记录保存 RevisionId、DocId、parent、payload 根、ContentHash、size、moment、flags 与校验和。
 - 集合项保存在集合修订的 EntryIndex 中；索引按名字哈希排序，项内保存名字、DocId、类型、标志与校验和。
-- 分配组按固定容量划分；组表记录每组位图、连续空闲段摘要与分配提示。
+- 分配组按 1024 块划分；从位图重建每组空闲数与分配提示，块分配优先组内连续 run。
 - 块大小 4 KiB；字段小端；格式版本与 feature flags 决定兼容边界。
 
 ---
@@ -468,7 +467,7 @@ flowchart LR
 | 快照：创建/枚举/恢复/释放，固定文档表、标签视图与根修订 | 已实现 |
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
-| 分配组 | 规划 |
+| 分配组：组内连续分配、组提示、位图重建 | 已实现 |
 | 流式写：Stage/WriteRange/Commit/Abort、基线校验 | 已实现 |
 | 压缩：RLE 游程编码、`COMPRESSED` 修订标志、透明解压 | 已实现 |
 | 配额：文档数、逻辑字节、修订数、快照数、标签数，Superblock 持久化 | 已实现 |
