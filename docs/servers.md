@@ -94,7 +94,7 @@ pub struct ServiceManifest {
 - 枚举 PCI（ECAM）或 DTB 设备。
 - 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO，`SYS_CAPABILITY_CREATE` 创建 DeviceAllocation 能力并用 `SYS_DMA_MAP_CAPABILITY` 绑定授权 IOMMU 域，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
 - 服务镜像通过 `.hk_service` 段声明角色，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
-- 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务已接入 virtio-blk，完成容量查询、读、写与 flush 验证；Block Server 保留 RAM disk 后端与块协议。
+- 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务同时承载小块设备：virtio-blk（容量查询、读、写与 flush）、virtio-rng（启动自检与熵源请求）与 virtio-console（字节流读写与宿主回显自检）；同一服务按 `(授权, BAR)` 缓存 MMIO，并在每次设备操作前切回对应授权。Block Server 保留 RAM disk 后端与块协议。
 - Device Manager 常驻并等待驱动的设备授权申请（`DEVICE_REQUEST`），驱动重启后重新枚举并下发 DeviceGrant。
 - MSI：`hk-driver-virtio` 已实现 PCI MSI capability 编程（32/64 位地址、逐向量屏蔽、单消息使能与 INTx 关闭），布局推导有宿主单测；内核提供 `SYS_MSI_BIND`：只记录通知目标，不建立 IOAPIC 路由。网络驱动优先尝试 MSI，失败自动回退 INTx。QEMU 的 virtio-pci 只暴露 MSI-X capability（实测能力表为 `0x11` 加若干 virtio 能力），所以当前实测走 INTx，MSI 留给支持它的设备。
 - MSI-X：表编程、virtio 队列向量路由与 INTx 关闭已实现（`msix` 模块），但在 QEMU virtio-net 上启用后目标向量被高频重复投递、DHCP 超时，因此服务不启用；下一步用专用向量并核对 `virtio_notify` 与中断次数的对应关系。
@@ -108,7 +108,7 @@ pub struct ServiceManifest {
 | 驱动 | 设备 | 接口 |
 | --- | --- | --- |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint：read/write/flush/capacity |
-| **virtio 驱动** | virtio 设备类别；当前接入块设备 | Block Endpoint：read/write/flush/capacity |
+| **virtio 驱动** | virtio-blk / virtio-rng / virtio-console | Block Endpoint；熵源请求；控制台字节流 |
 | **AHCI** | SATA 块设备 | Block Endpoint |
 | **virtio-net** | 网络设备 | Net Endpoint：tx/rx |
 | **virtio-input** | 键盘/鼠标 | Input Endpoint |
