@@ -3,7 +3,7 @@
 use core::sync::atomic::{AtomicBool, AtomicU64};
 
 use super::*;
-use hk_hal::VirtAddr;
+use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
 
 impl Kernel {
@@ -28,7 +28,7 @@ impl Kernel {
         &self,
         thread: TcbId,
         capability: Capability,
-        backing: Option<hk_mem::Frame>,
+        backing: Option<hk_mem::Backing>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
         self.register(

@@ -1,7 +1,8 @@
 //! 微内核。
 //!
-//! 内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame 与 Untyped
-//! 机制；调度、IPC 分派与对象回收在 [`Kernel`] 中组合，策略位于用户态服务器。
+//! 内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Capability、
+//! Region 与 Capacity 机制；调度、IPC 分派与对象回收在 [`Kernel`] 中组合，
+//! 策略位于用户态服务器。
 //!
 //! Hosted 目标把线程体交给仿真器执行（`hk-sim`）；内核只维护可运行队列、阻塞
 //! 原因与 IPC 状态。

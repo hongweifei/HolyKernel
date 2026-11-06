@@ -6,7 +6,7 @@ use crate::arch::Arch;
 /// 物理内存区域类别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegionKind {
-    /// 可分配给 Untyped 的可用内存。
+    /// 可分配的可用内存。
     Usable,
     /// 保留区域，不对内核与服务器开放。
     Reserved,

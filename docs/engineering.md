@@ -126,7 +126,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 ### 单元
 
-- 内核：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped。
+- 内核：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region。
 - 服务器：Root Server 状态机、VFS 路径/缓存、ext2、POSIX fd/信号。
 - 网络：ARP/IPv4/IPv6、TCP 状态机、UDP、DHCP、DNS、socket 表。
 - HolyFS：对象表、修订链、集合关系、allocator、checksum、COW 事务、压缩、快照、VFS 适配层。

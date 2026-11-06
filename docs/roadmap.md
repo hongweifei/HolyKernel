@@ -77,7 +77,7 @@ flowchart LR
 ### 交付
 
 - `hk-hal`：CPU、MMU、IRQ、Timer、SMP、Console、DMA。
-- `hk-kernel`：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped。
+- `hk-kernel`：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、Ledger。
 - `hk-ipc`：send/recv/call/reply、Notification、句柄传递。
 - `hk-handle`：HandleTable、duplicate/close、IPC 转移。
 - Hosted 模拟器：虚拟 CPU、虚拟时钟、虚拟 VSpace。
@@ -122,7 +122,7 @@ flowchart LR
 ### 交付
 
 - HandleTable、duplicate/close、IPC 转移。
-- Untyped retype、Frame 共享、VSpace 映射、COW、Fault Endpoint。
+- Capacity、Capability、Region 映射、COW、Fault Endpoint。
 - SMP 启动、per-CPU、IPI、抢占调度、tickless。
 - 用户态线程创建/退出、通知与等待。
 - HandleTable 审计与 trace。
@@ -346,7 +346,7 @@ flowchart LR
 
 ## 16. 当前状态
 
-- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Untyped/Frame/VSpace 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
+- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Capacity/Capability/Region 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
 - 当前代码：crate 分层与完整清单见 [Crate 分层](crates.md)；常驻服务在 `servers/`，自检客户端在 `clients/`，演示服务在 `demos/`，平台在 `platforms/`，构建与镜像工具在 `xtask/`。
 - M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
 - 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与 `H:` 卷文档浏览、Workbench 文档工作台）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。

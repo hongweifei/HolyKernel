@@ -399,16 +399,11 @@ fn transfers_handles_over_ipc() {
         .grant(server, endpoint_id, Rights::READ | Rights::WRITE)
         .expect("授予服务端句柄");
 
-    let untyped = kernel
-        .create_untyped(
-            client,
-            PhysRange::new(PhysAddr::new(0x10_0000), 0x10_000),
-            Rights::READ | Rights::WRITE,
-        )
-        .expect("创建 Untyped");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
     let frame = kernel
-        .allocate_frame(client, untyped, PAGE_SIZE, Rights::READ | Rights::TRANSFER)
-        .expect("切分页帧");
+        .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
+        .expect("创建能力");
 
     assert!(
         kernel

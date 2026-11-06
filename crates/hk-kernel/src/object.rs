@@ -6,22 +6,16 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use hk_hal::{DeviceGrant, PhysRange};
 use hk_handle::{Object, ObjectHeader, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
+use hk_mem::Backing;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
-use hk_mem::{Frame, Untyped, VSpace};
 use spin::Mutex;
 
 /// 内核对象的负载。
 pub enum ObjectPayload {
-    /// 地址空间。
-    VSpace(VSpace),
     /// 同步 IPC 端点。
     Endpoint(Endpoint),
     /// 异步事件通知。
     Notification(Notification),
-    /// 物理页帧。
-    Frame(Frame),
-    /// 未类型化内存。
-    Untyped(Mutex<Untyped>),
     /// 设备授权。
     DeviceGrant(DeviceGrant),
     /// 设备授权工厂。
@@ -33,7 +27,7 @@ pub enum ObjectPayload {
         /// 能力描述。
         capability: Capability,
         /// 常驻物理页。
-        backing: Option<Frame>,
+        backing: Option<Backing>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// Revision 版本。
@@ -49,11 +43,8 @@ impl ObjectPayload {
     /// 返回负载对应的对象类别。
     pub const fn kind(&self) -> ObjectKind {
         match self {
-            Self::VSpace(_) => ObjectKind::VSpace,
             Self::Endpoint(_) => ObjectKind::Endpoint,
             Self::Notification(_) => ObjectKind::Notification,
-            Self::Frame(_) => ObjectKind::Frame,
-            Self::Untyped(_) => ObjectKind::Untyped,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
             Self::Capacity(_) => ObjectKind::Capacity,
@@ -79,22 +70,9 @@ impl KernelObject {
         Self { header, payload }
     }
 
-    /// 以已有对象头创建对象，用于页帧等自带头的负载。
-    pub fn with_header(header: Arc<ObjectHeader>, payload: ObjectPayload) -> Self {
-        Self { header, payload }
-    }
-
     /// 返回对象类别。
     pub fn kind(&self) -> ObjectKind {
         self.payload.kind()
-    }
-
-    /// 返回地址空间负载。
-    pub fn vspace(&self) -> Option<&VSpace> {
-        match &self.payload {
-            ObjectPayload::VSpace(vspace) => Some(vspace),
-            _ => None,
-        }
     }
 
     /// 返回端点负载。
@@ -109,22 +87,6 @@ impl KernelObject {
     pub fn notification(&self) -> Option<&Notification> {
         match &self.payload {
             ObjectPayload::Notification(notification) => Some(notification),
-            _ => None,
-        }
-    }
-
-    /// 返回页帧负载。
-    pub fn frame(&self) -> Option<&Frame> {
-        match &self.payload {
-            ObjectPayload::Frame(frame) => Some(frame),
-            _ => None,
-        }
-    }
-
-    /// 返回未类型化内存负载。
-    pub fn untyped(&self) -> Option<&Mutex<Untyped>> {
-        match &self.payload {
-            ObjectPayload::Untyped(untyped) => Some(untyped),
             _ => None,
         }
     }
@@ -158,7 +120,7 @@ impl KernelObject {
         match &self.payload {
             ObjectPayload::Capability { backing, .. } => backing
                 .as_ref()
-                .map(|frame| PhysRange::new(frame.phys(), frame.len() as u64)),
+                .map(|backing| PhysRange::new(backing.phys(), backing.len() as u64)),
             _ => None,
         }
     }

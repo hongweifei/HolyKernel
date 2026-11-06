@@ -102,12 +102,13 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
 | **Endpoint** | 同步 IPC；发送/接收、阻塞、句柄传递 |
 | **Notification** | 异步事件；位信号、等待、清除 |
-| **Frame** | 物理内存帧；映射、共享、DMA |
-| **Untyped** | 未类型化内存；retype 为内核对象 |
+| **Capacity** | 物理容量；页大小、配额与 Frame 分配 |
+| **Capability** | 类型化能力；Revision/Surface/TaskImage/Device/Anonymous/Frame |
+| **Region** | 类型化能力在 VSpace 中的映射 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint、EOI |
 | **DeviceGrant** | 设备 MMIO / DMA / IRQ 句柄集合 |
 
-内核范围：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
+内核范围：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
 
 ---
 

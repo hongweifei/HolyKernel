@@ -120,7 +120,7 @@ sequenceDiagram
     participant Net as Network Server
     participant POSIX as POSIX Server
     FW->>K: 载入内核 + BootInfo + 服务器模块
-    K->>K: 初始化 Untyped、VSpace、TCB、IPC
+    K->>K: 初始化 Capacity、VSpace、TCB、IPC
     K->>Root: 启动 Root Task（初始句柄）
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
@@ -133,7 +133,7 @@ sequenceDiagram
     end
 ```
 
-- 内核只创建 Root Task，并把初始 Untyped/HandleTable/Endpoint 交给它。
+- 内核只创建 Root Task，并把初始 Capacity/HandleTable/Endpoint 交给它。
 - Root Server 按服务清单启动服务器，分配最小 Handle；HolyShell 是默认命令行。
 - POSIX Server 是可选兼容环境，启用时启动 `/sbin/init`。
 - 服务器镜像由 bootloader 作为模块提供；Root Server 加载原生任务镜像（HKX）。
@@ -184,7 +184,7 @@ sequenceDiagram
 | --- | --- |
 | `boot` | 内核启动、Root Server、服务器加载 |
 | `ipc` | Endpoint、Notification、Handle 传递 |
-| `memory` | Untyped、VSpace、COW、DMA |
+| `memory` | Capacity、Capability、Region、COW、DMA |
 | `irq` | IRQHandler、Notification、SMP IPI |
 | `vfs` | 挂载、路径解析、ext2 读写 |
 | `shell` | HolyShell、Holy 命令、结构化管道、`posix` 入口 |

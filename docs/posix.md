@@ -278,7 +278,7 @@ flowchart LR
 ## 10. 内存
 
 - `brk`/`sbrk`：POSIX Server 扩展进程 heap；映射新 Frame。
-- `mmap`：文件映射通过 VFS 页缓存；匿名映射通过 Untyped；共享映射通过 Frame。
+- `mmap`：文件映射通过 VFS 页缓存；匿名映射通过 Anonymous Capability；共享映射通过 Capability/Region。
 - `mprotect`：更新 VSpace 权限。
 - `munmap`：解除映射并释放 Frame 引用。
 - `fork` COW：页错误通过 Fault Endpoint 交给 POSIX Server。

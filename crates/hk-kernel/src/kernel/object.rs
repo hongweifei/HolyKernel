@@ -1,17 +1,6 @@
 use super::*;
 
 impl Kernel {
-    /// 在指定线程的句柄表中创建 Untyped 对象。
-    pub fn create_untyped(
-        &self,
-        thread: TcbId,
-        region: PhysRange,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        let payload = ObjectPayload::Untyped(Mutex::new(Untyped::new(region)));
-        self.register(thread, Arc::new(KernelObject::new(payload)), rights)
-    }
-
     /// 在指定线程的句柄表中创建端点。
     pub fn create_endpoint(&self, thread: TcbId, rights: Rights) -> Result<Handle, KernelError> {
         let payload = ObjectPayload::Endpoint(hk_ipc::Endpoint::new());
@@ -69,17 +58,6 @@ impl Kernel {
         self.register(thread, Arc::new(KernelObject::new(payload)), rights)
     }
 
-    /// 在指定线程的句柄表中创建地址空间。
-    pub fn create_vspace(
-        &self,
-        thread: TcbId,
-        mmu: &dyn Mmu,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        let payload = ObjectPayload::VSpace(VSpace::new(mmu.create_vspace()));
-        self.register(thread, Arc::new(KernelObject::new(payload)), rights)
-    }
-
     /// 解析 DeviceGrant 对象。
     pub fn device_grant(&self, thread: TcbId, handle: Handle) -> Result<DeviceGrant, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::DeviceGrant)?;
@@ -89,54 +67,6 @@ impl Kernel {
             .ok_or(KernelError::WrongKind {
                 expected: ObjectKind::DeviceGrant,
             })
-    }
-
-    /// 从 Untyped 切分页帧并授予句柄。
-    pub fn allocate_frame(
-        &self,
-        thread: TcbId,
-        untyped: Handle,
-        len: usize,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        let (object, _) = self.resolve(thread, untyped, Rights::WRITE, ObjectKind::Untyped)?;
-        let frame = {
-            let untyped = object.untyped().ok_or(KernelError::WrongKind {
-                expected: ObjectKind::Untyped,
-            })?;
-            untyped.lock().retype_frame(len)?
-        };
-        let header = frame.header_arc().clone();
-        let payload = ObjectPayload::Frame(frame);
-        self.register(
-            thread,
-            Arc::new(KernelObject::with_header(header, payload)),
-            rights,
-        )
-    }
-
-    /// 用物理区间创建 Frame 对象并授予句柄。
-    pub fn create_frame(
-        &self,
-        thread: TcbId,
-        range: PhysRange,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        let frame = hk_mem::Frame::new(range.start(), range.len() as usize);
-        self.register(
-            thread,
-            Arc::new(KernelObject::new(ObjectPayload::Frame(frame))),
-            rights,
-        )
-    }
-
-    /// 解析 Frame 对象，返回物理区间。
-    pub fn frame(&self, thread: TcbId, handle: Handle) -> Result<PhysRange, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
-        let frame = object.frame().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Frame,
-        })?;
-        Ok(PhysRange::new(frame.phys(), frame.len() as u64))
     }
 
     /// 复制句柄并收窄权限。

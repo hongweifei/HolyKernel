@@ -3,7 +3,6 @@
 use core::fmt;
 
 use hk_handle::{HandleError, ObjectId, ObjectKind};
-use hk_mem::MemError;
 
 use crate::tcb::TcbId;
 
@@ -12,8 +11,6 @@ use crate::tcb::TcbId;
 pub enum KernelError {
     /// 句柄操作失败。
     Handle(HandleError),
-    /// 内存对象操作失败。
-    Memory(MemError),
     /// 线程编号不存在。
     UnknownThread(TcbId),
     /// 对象已析构，注册表项失效。
@@ -37,7 +34,6 @@ impl fmt::Display for KernelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Handle(error) => write!(formatter, "句柄错误：{error}"),
-            Self::Memory(error) => write!(formatter, "内存错误：{error}"),
             Self::UnknownThread(id) => write!(formatter, "线程 {} 不存在", id.get()),
             Self::StaleObject(id) => write!(formatter, "对象 {} 已析构", id.get()),
             Self::WrongKind { expected } => {
@@ -55,7 +51,6 @@ impl core::error::Error for KernelError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Handle(error) => Some(error),
-            Self::Memory(error) => Some(error),
             _ => None,
         }
     }
@@ -64,11 +59,5 @@ impl core::error::Error for KernelError {
 impl From<HandleError> for KernelError {
     fn from(error: HandleError) -> Self {
         Self::Handle(error)
-    }
-}
-
-impl From<MemError> for KernelError {
-    fn from(error: MemError) -> Self {
-        Self::Memory(error)
     }
 }

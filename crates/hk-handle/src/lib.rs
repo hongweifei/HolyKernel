@@ -43,14 +43,8 @@ fn allocate_object_id() -> ObjectId {
 pub enum ObjectKind {
     /// 线程控制块。
     Tcb,
-    /// 地址空间。
-    VSpace,
     /// 句柄表。
     HandleTable,
-    /// 未类型化内存。
-    Untyped,
-    /// 物理页帧。
-    Frame,
     /// 同步 IPC 端点。
     Endpoint,
     /// 异步事件通知。
@@ -76,10 +70,7 @@ impl ObjectKind {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Tcb => "tcb",
-            Self::VSpace => "vspace",
             Self::HandleTable => "handle-table",
-            Self::Untyped => "untyped",
-            Self::Frame => "frame",
             Self::Endpoint => "endpoint",
             Self::Notification => "notification",
             Self::IrqHandler => "irq-handler",
@@ -513,10 +504,10 @@ mod tests {
         );
         assert_eq!(
             table
-                .resolve_kind(handle, Rights::READ, ObjectKind::Frame)
+                .resolve_kind(handle, Rights::READ, ObjectKind::Capability)
                 .err(),
             Some(HandleError::WrongType {
-                expected: ObjectKind::Frame
+                expected: ObjectKind::Capability
             })
         );
     }

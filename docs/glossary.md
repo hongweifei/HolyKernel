@@ -11,7 +11,7 @@
 | 术语 | 定义 |
 | --- | --- |
 | **HolyKernel (HK)** | 句柄型微内核 + 用户态服务器 + POSIX.1 兼容层 |
-| **Microkernel** | 只提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Untyped、IRQHandler 的内核 |
+| **Microkernel** | 只提供 TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、IRQHandler 的内核 |
 | **TCB** | 线程控制块；上下文、优先级、亲和性、状态 |
 | **VSpace** | 进程地址空间；页表根、映射、保护 |
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
@@ -23,7 +23,7 @@
 | **Endpoint** | 同步 IPC 通道；send/recv/call/reply、句柄传递 |
 | **Notification** | 异步位通知；中断下半部、事件完成 |
 | **Frame** | 物理内存帧；映射、共享、DMA |
-| **Untyped** | 未类型化内存；retype 为内核对象 |
+| **Capacity** | 物理容量能力；分配 Frame、配额与页大小 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint/Notification |
 | **DeviceGrant** | 设备 MMIO/DMA/IRQ 句柄集合 |
 | **Fault Endpoint** | 页错误与异常交付出口 |
@@ -143,7 +143,7 @@
 
 ## 6. 命名约定
 
-- 内核类型：`Tcb`、`VSpace`、`HandleTable`、`Handle`、`Endpoint`、`Notification`、`Frame`、`Untyped`。
+- 内核类型：`Tcb`、`VSpace`、`HandleTable`、`Handle`、`Endpoint`、`Notification`、`Capacity`、`Capability`、`Region`、`Ledger`。
 - 服务器：`hk-root-server`、`hk-vfs`、`hk-posix-server`、`hk-network`、`hk-holyfs`、`hk-display`、`hk-holydoc`。
 - libc：musl 为主；`hk-abi`/`hk-crt` 提供 shim 与启动；`hk-libc` 薄兼容层；C ABI 符号使用标准 POSIX 名称。
 - 路径：POSIX 风格 `/usr/bin/sh`；根文件系统由 ext2/ext4 Server 提供；HolyFS 提供 Holy 卷与 `H:` 盘符。
