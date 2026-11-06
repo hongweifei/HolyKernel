@@ -18,10 +18,12 @@ fn shared_queue_round_trips_and_recycles() {
     let mut tx_area = vec![0_u8; 8192];
     let mut queue = FrameQueue::new();
     queue.enable_shared(
-        rx_area.as_mut_ptr() as u64,
-        tx_area.as_mut_ptr() as u64,
+        vec![rx_area.as_mut_ptr() as u64],
+        vec![
+            tx_area.as_mut_ptr() as u64,
+            tx_area.as_mut_ptr() as u64 + 4096,
+        ],
         4096,
-        2,
     );
 
     rx_area[..6].copy_from_slice(&[1, 2, 3, 4, 5, 6]);

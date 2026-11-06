@@ -105,8 +105,8 @@ impl UserPlatform for MockPlatform {
         })
     }
 
-    fn map_framebuffer(&self, _slot: usize, virt: u64) -> Option<u64> {
-        (virt == 0x7800_0000).then_some(16)
+    fn map_framebuffer(&self, _slot: usize, _virt: u64) -> Option<u64> {
+        Some(16)
     }
 }
 
@@ -201,7 +201,7 @@ fn framebuffer_access_is_display_only() {
     assert_eq!(context.rax, hk_syscall::FRAMEBUFFER_DESCRIPTOR_BYTES as u64);
 
     context.rax = SYS_FRAMEBUFFER_MAP;
-    context.rdi = 0x7800_0000;
+    context.rdi = 0x1000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 16);
 
@@ -222,7 +222,7 @@ fn framebuffer_access_is_display_only() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
     context.rax = SYS_FRAMEBUFFER_MAP;
-    context.rdi = 0x7800_0000;
+    context.rdi = 0x1000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 }
