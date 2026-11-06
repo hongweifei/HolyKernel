@@ -404,7 +404,7 @@ sequenceDiagram
 - **加密**：按修订加密内容与元数据；密钥由卷配置提供（规划）。
 - **配额**：文档数、逻辑字节、修订数、快照数与标签数；操作前检查，`Quota`/`SetQuota` 在线管理。
 - **在线校验**：`Check`、`Repair`、`Scrub` 在卷运行时工作。
-- **性能**：分配组、连续 extent、共享基线、文档缓存、group commit、多队列 DMA。
+- **性能**：分配组、连续 extent、共享基线、group commit（排空排队 Sync 后每盘一次提交）、整文档读缓存与顺序预取；多队列 DMA 待补。
 
 ---
 
@@ -469,6 +469,8 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组：组内连续分配、组提示、位图重建 | 已实现 |
+| Group commit：排空排队 Sync，每盘统一提交一次 | 已实现 |
+| 读缓存：小文档整文件缓存与区间读取预取 | 已实现 |
 | 流式写：Stage/WriteRange/Commit/Abort、基线校验 | 已实现 |
 | 压缩：RLE 游程编码、`COMPRESSED` 修订标志、透明解压 | 已实现 |
 | 配额：文档数、逻辑字节、修订数、快照数、标签数，Superblock 持久化 | 已实现 |

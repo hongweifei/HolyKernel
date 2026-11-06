@@ -8,6 +8,8 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 use alloc::vec;
+#[cfg(target_os = "none")]
+use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
 use hk_block::ipc::ClientDisk;
@@ -20,11 +22,11 @@ use hk_fs_holyfs::{
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::holy::{HOLY_REQUEST, HOLY_RESPONSE, decode_request};
+use hk_server_api::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
 #[cfg(target_os = "none")]
 use hk_server_api::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, send_data, write, yield_now};
+use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
 
 #[cfg(target_os = "none")]
 mod holy;
@@ -95,29 +97,84 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut sessions = Sessions::new();
-    let mut request = vec![0_u8; 64 * 1024];
+    let mut packet = vec![0_u8; 64 * 1024];
     let mut body = vec![0_u8; 64 * 1024 - 4];
     let mut response = vec![0_u8; 64 * 1024];
+    let mut pending: Vec<(u8, u64)> = Vec::new();
 
     loop {
         let (label, _word, sender, length, frame_handle) =
-            recv_data_handle(endpoint, &mut request, 0);
+            recv_data_handle(endpoint, &mut packet, 0);
         if label != HOLY_REQUEST || frame_handle != 0 {
             continue;
         }
-        let Some(request) = decode_request(&request[..length.min(request.len())]) else {
+        let Some(request) = decode_request(&packet[..length.min(packet.len())]) else {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let (status, written) = holy::handle(
-            &mut volumes,
-            &mut sessions,
-            sender,
-            endpoint,
-            &request,
-            &mut body,
-        );
-        reply(sender, status, &body[..written], &mut response);
+        if request.op != OP_SYNC {
+            let (status, written) = holy::handle(
+                &mut volumes,
+                &mut sessions,
+                sender,
+                endpoint,
+                &request,
+                &mut body,
+            );
+            reply(sender, status, &body[..written], &mut response);
+            continue;
+        }
+
+        let letter = if request.drive == 0 {
+            b'H'
+        } else {
+            request.drive
+        };
+        pending.push((letter, sender));
+        loop {
+            let (label, _word, sender, length, frame_handle) =
+                recv_data_handle_try(endpoint, &mut packet, 0);
+            if label != HOLY_REQUEST || frame_handle != 0 {
+                break;
+            }
+            let Some(request) = decode_request(&packet[..length.min(packet.len())]) else {
+                reply(sender, STATUS_INVALID, &[], &mut response);
+                continue;
+            };
+            if request.op == OP_SYNC {
+                let letter = if request.drive == 0 {
+                    b'H'
+                } else {
+                    request.drive
+                };
+                pending.push((letter, sender));
+                continue;
+            }
+            let (status, written) = holy::handle(
+                &mut volumes,
+                &mut sessions,
+                sender,
+                endpoint,
+                &request,
+                &mut body,
+            );
+            reply(sender, status, &body[..written], &mut response);
+        }
+
+        let mut committed: Vec<(u8, u8)> = Vec::new();
+        for (letter, _) in &pending {
+            if committed.iter().any(|(done, _)| done == letter) {
+                continue;
+            }
+            committed.push((*letter, holy::sync(&mut volumes, *letter)));
+        }
+        for (letter, sender) in pending.drain(..) {
+            let status = committed
+                .iter()
+                .find(|(done, _)| *done == letter)
+                .map_or(1, |(_, status)| *status);
+            reply(sender, status, &[], &mut response);
+        }
     }
 }
 

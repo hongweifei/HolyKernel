@@ -14,6 +14,9 @@ use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags
 
 use super::{MAX_CONTENT_BYTES, Volume};
 
+const CACHE_ENTRY_LIMIT: usize = 64 * 1024;
+const CACHE_TOTAL_LIMIT: usize = 256 * 1024;
+
 #[derive(Clone)]
 pub(super) struct DedupEntry {
     pub(super) extents: Vec<Extent>,
@@ -36,6 +39,11 @@ impl<D: BlockDevice> Volume<D> {
             return Ok(0);
         }
         let length = buffer.len().min((revision.size - offset) as usize);
+        if revision.size as usize <= CACHE_ENTRY_LIMIT {
+            let content = self.read_content(revision)?;
+            buffer[..length].copy_from_slice(&content[offset as usize..offset as usize + length]);
+            return Ok(length);
+        }
         if let Err(error) = self.read_extents(revision, offset, &mut buffer[..length]) {
             self.note_error(&error);
             return Err(error);
@@ -62,6 +70,11 @@ impl<D: BlockDevice> Volume<D> {
             return Ok(0);
         }
         let length = buffer.len().min((revision.size - offset) as usize);
+        if revision.size as usize <= CACHE_ENTRY_LIMIT {
+            let content = self.read_content(revision)?;
+            buffer[..length].copy_from_slice(&content[offset as usize..offset as usize + length]);
+            return Ok(length);
+        }
         if let Err(error) = self.read_extents(revision, offset, &mut buffer[..length]) {
             self.note_error(&error);
             return Err(error);
@@ -246,11 +259,30 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     fn read_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
-        let result = self.read_content_inner(revision);
-        if let Err(error) = &result {
-            self.note_error(error);
+        let key = (revision.document, revision.id);
+        if let Some(content) = self.content_cache.borrow().get(&key).cloned() {
+            return Ok(content);
         }
-        result
+        match self.read_content_inner(revision) {
+            Ok(content) => {
+                if content.len() <= CACHE_ENTRY_LIMIT {
+                    let mut cache = self.content_cache.borrow_mut();
+                    let used = self.cache_bytes.get();
+                    if used.saturating_add(content.len()) > CACHE_TOTAL_LIMIT {
+                        cache.clear();
+                        self.cache_bytes.set(0);
+                    }
+                    cache.insert(key, content.clone());
+                    self.cache_bytes
+                        .set(self.cache_bytes.get().saturating_add(content.len()));
+                }
+                Ok(content)
+            }
+            Err(error) => {
+                self.note_error(&error);
+                Err(error)
+            }
+        }
     }
 
     fn read_content_inner(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
@@ -418,6 +450,8 @@ impl<D: BlockDevice> Volume<D> {
     /// 从当前修订集重建去重索引；GC 或裁剪后调用。
     pub(super) fn rebuild_dedup(&mut self) {
         self.dedup.clear();
+        self.content_cache.borrow_mut().clear();
+        self.cache_bytes.set(0);
         for revision in self.revisions.values() {
             if revision.size == 0
                 || !matches!(revision.payload, PayloadKind::Content | PayloadKind::Both)

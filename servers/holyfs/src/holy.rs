@@ -27,6 +27,17 @@ use hk_server_api::vfs::{
 use crate::sessions::Sessions;
 use crate::volumes::{VolumeInfo, Volumes, parse_drive};
 
+/// 对一个盘符执行一次提交；供 group commit 统一刷写。
+pub(crate) fn sync(volumes: &mut Volumes, letter: u8) -> u8 {
+    let Some(drive) = volumes.get_mut(letter) else {
+        return STATUS_NOT_FOUND;
+    };
+    match drive.sync() {
+        Ok(()) => STATUS_OK,
+        Err(error) => status(error),
+    }
+}
+
 /// 处理原生文档请求，返回状态与响应字节数。
 pub(crate) fn handle(
     volumes: &mut Volumes,

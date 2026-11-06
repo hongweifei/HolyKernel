@@ -15,7 +15,7 @@ mod tags;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 
 use hk_block::BlockDevice;
 
@@ -55,6 +55,8 @@ pub(crate) struct Volume<D: BlockDevice> {
     epoch: u64,
     dirty: bool,
     damaged: Cell<bool>,
+    content_cache: RefCell<BTreeMap<(DocId, RevisionId), Vec<u8>>>,
+    cache_bytes: Cell<usize>,
 }
 
 impl<D: BlockDevice> Volume<D> {
@@ -102,6 +104,8 @@ impl<D: BlockDevice> Volume<D> {
             epoch: 1,
             dirty: true,
             damaged: Cell::new(false),
+            content_cache: RefCell::new(BTreeMap::new()),
+            cache_bytes: Cell::new(0),
         };
         volume.documents.insert(
             DocId::ROOT,
@@ -233,6 +237,8 @@ impl<D: BlockDevice> Volume<D> {
             epoch: 1,
             dirty: false,
             damaged: Cell::new(false),
+            content_cache: RefCell::new(BTreeMap::new()),
+            cache_bytes: Cell::new(0),
         };
         volume.rebuild_dedup();
         Ok(volume)
