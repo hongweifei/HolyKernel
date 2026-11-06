@@ -41,10 +41,11 @@ pub(crate) fn compress(data: &[u8]) -> Option<Vec<u8>> {
             }
             index += next;
         }
-        let length = index - start;
+        let length = (index - start).min(255);
         stream.push(LITERAL);
         stream.push(length as u8);
-        stream.extend_from_slice(&data[start..index]);
+        stream.extend_from_slice(&data[start..start + length]);
+        index = start + length;
     }
     let total = HEADER + stream.len();
     if total >= data.len() {
@@ -117,7 +118,19 @@ pub(crate) fn decompress_into(payload: &[u8], output: &mut [u8]) -> Result<(), H
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::{compress, decompress};
+
+    #[test]
+    fn round_trips_long_literal_runs() {
+        let mut data = Vec::new();
+        data.extend(core::iter::repeat_n(0x5A, 128));
+        data.extend((0..700).map(|index| ((index * 37) % 251) as u8));
+        data.extend(core::iter::repeat_n(0x5A, 128));
+        let payload = compress(&data).expect("压缩");
+        assert_eq!(decompress(&payload, data.len()).expect("解压"), data);
+    }
 
     #[test]
     fn round_trips_repetitive_data() {

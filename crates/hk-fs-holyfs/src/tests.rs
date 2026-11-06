@@ -18,15 +18,85 @@ fn formatted() -> MemoryDisk {
 }
 
 #[test]
+fn writes_compressed_documents_after_sync() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    for index in 0..4u64 {
+        let name = alloc::format!("sync{index}");
+        let document = fs.create(root, &name, DocumentKind::Content).expect("创建");
+        let mut data = Vec::with_capacity(16 * 1024);
+        for offset in 0..16 * 1024 {
+            if offset % 103 < 50 {
+                data.push(0x5A);
+            } else {
+                data.push((((offset as u64 + index * 17) * 37) % 251) as u8);
+            }
+        }
+        fs.write_range(document, 0, &data).expect("写");
+        fs.sync().expect("提交");
+        let mut buffer = vec![0_u8; data.len()];
+        fs.read_range(document, 0, &mut buffer).expect("读");
+        assert_eq!(buffer, data);
+    }
+}
+
+#[test]
+fn persists_compressed_multiblock_content() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    let mut data = Vec::with_capacity(16 * 1024);
+    for index in 0..16 * 1024 {
+        if index % 103 < 50 {
+            data.push(0x5A);
+        } else {
+            data.push(((index as u64 * 37) % 251) as u8);
+        }
+    }
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
+        let root = fs.root();
+        let document = fs
+            .create(root, "compressed", DocumentKind::Content)
+            .expect("创建");
+        fs.write_range(document, 0, &data).expect("写");
+        fs.sync().expect("提交");
+    }
+    let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    let root = fs.root();
+    let document = fs.lookup(root, "compressed").expect("查找");
+    let mut buffer = vec![0_u8; data.len()];
+    fs.read_range(document, 0, &mut buffer).expect("读");
+    assert_eq!(buffer, data);
+}
+
+#[test]
+fn reads_compressed_multiblock_content() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "compressed", DocumentKind::Content)
+        .expect("创建");
+    let mut data = Vec::with_capacity(16 * 1024);
+    for index in 0..16 * 1024 {
+        if index % 103 < 50 {
+            data.push(0x5A);
+        } else {
+            data.push(((index as u64 * 37) % 251) as u8);
+        }
+    }
+    fs.write_range(document, 0, &data).expect("写");
+    let mut buffer = vec![0_u8; data.len()];
+    fs.read_range(document, 0, &mut buffer).expect("读");
+    assert_eq!(buffer, data);
+}
+
+#[test]
 fn writes_multiple_binary_chunks() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
     let mut documents = Vec::new();
     for index in 0..8u64 {
         let name = alloc::format!("bin{index}");
-        let document = fs
-            .create(root, &name, DocumentKind::Content)
-            .expect("创建");
+        let document = fs.create(root, &name, DocumentKind::Content).expect("创建");
         let data: Vec<u8> = (0..16 * 1024)
             .map(|offset| (((offset as u64 + index * 17) * 37) % 251) as u8)
             .collect();
