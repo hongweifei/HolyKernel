@@ -169,14 +169,15 @@ impl Notification {
 - Frame 是匿名内核对象 `{ phys, len }`，通过 Handle 访问。
 - 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace，句柄权限决定只读/可写/可转移。
 - 内核提供 `SYS_FRAME_ALLOC`、`SYS_FRAME_MAP`、`SYS_FRAME_UNMAP`、`SYS_FRAME_INFO`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_FRAME`。
-- `SYS_FRAME_ALLOC(length, virt)` 从 DMA 池分配连续物理页、创建 Frame、映射到 `virt` 并返回帧句柄编号；`SYS_FRAME_INFO` 返回物理地址与长度，供驱动建立 DMA。
+- `SYS_FRAME_ALLOC(length, virt, out)` 从 DMA 池分配连续物理页、创建 Frame 并映射；`virt` 非零时按调用方地址映射，`virt` 为零时从任务私有的 Frame 虚拟窗口自动分配并把所选地址写入 `out`。`SYS_FRAME_MAP` 同样支持 `virt = 0` 自动选择映射地址；`SYS_FRAME_UNMAP` 归还该窗口区间。`SYS_FRAME_INFO` 返回物理地址与长度，供驱动建立 DMA。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_FRAME_MAP` 映射同一物理页。
 - 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享帧，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应帧。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动把帧物理地址登记给 virtio HAL，设备 DMA 直接读写帧。`BLOCK_DETACH` 按槽位或整体解除映射并关闭驱动侧句柄。
 - VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_FRAME`/`OP_WRITE_FRAME` 用 8 字节参数携带长度，文件内容直接读写客户端共享帧；服务端按发送者维护帧映射，重连时解除旧映射并关闭旧句柄，`VFS_DETACH` 清理帧与会话文件句柄。
 - 块客户端登记 VFS 客户端帧；当后端把该帧作为缓冲区时，块客户端临时 attach 同一物理帧并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据帧切回自有帧。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把帧物理区间映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
 - Frame 的最后一个句柄释放时通过平台回调把物理区间归还 DMA 池；任务退出关闭句柄、客户端 detach 后回收。
-- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、渲染缓冲与驱动共享帧都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
+- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、背缓冲与驱动共享帧都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
+- 每个任务的用户虚拟窗口为 `0x5000_0000`–`0x7800_0000`，自动分配的 Frame 映射从窗口内按页分配并回收；帧缓冲固定在窗口之后的协议地址。
 
 ---
 
@@ -248,10 +249,10 @@ impl Notification {
 
 ### 5.6 渲染工作线程
 
-`hk-server-holydoc` 把整页绘制交给一个工作线程：主线程收到事件后更新视图并投递快照，工作线程绘制到第二块映射帧，完成后主线程把像素拷进表面并提交。渲染期间主线程继续收事件，多次更新会合并为最后一帧。
+`hk-server-holydoc` 把整页绘制交给一个工作线程：主线程收到事件后更新视图并投递快照，工作线程直接绘制到窗口表面，完成后主线程提交该表面。渲染期间主线程继续收事件，多次更新会合并为最后一帧。
 
-- 工作线程只接触主线程交出的视图快照与映射帧，不碰 IPC 与窗口句柄。
-- 自检模式下先主线程直绘、再工作线程绘制，逐像素比对两条路径。
+- 工作线程只接触主线程交出的视图快照与窗口表面，不碰 IPC 与窗口句柄。
+- 自检模式下工作线程绘制后由主线程提交，并校验首像素非空。
 
 ### 5.7 HolyFS 读路径解压
 
