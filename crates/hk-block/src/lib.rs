@@ -7,12 +7,19 @@ extern crate alloc;
 #[cfg(feature = "ipc")]
 pub mod ipc;
 
+use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
 /// 标准块大小。
 pub const SECTOR_SIZE: usize = 512;
+
+/// 单次批量 I/O 的默认分块。
+pub const IO_CHUNK: usize = 60 * 1024;
+
+/// 单次批量 I/O 的推荐上限。
+pub const IO_BULK: usize = 480 * 1024;
 
 /// 块设备错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +30,8 @@ pub enum BlockError {
     InvalidLength,
     /// 只读设备。
     ReadOnly,
+    /// 设备队列已满；回收完成后再提交。
+    Busy,
     /// 后端 I/O 错误。
     Io,
 }
@@ -33,6 +42,7 @@ impl fmt::Display for BlockError {
             Self::OutOfRange => "块范围越界",
             Self::InvalidLength => "块长度非法",
             Self::ReadOnly => "只读块设备",
+            Self::Busy => "块设备队列已满",
             Self::Io => "块设备 I/O 错误",
         })
     }
@@ -62,6 +72,94 @@ pub trait BlockDevice {
         self.capacity_blocks()
             .saturating_mul(self.block_size() as u64)
     }
+
+    /// 读取一段连续区间；实现可以按 [`IO_CHUNK`] 拆分并重叠提交。
+    fn read_blocks_bulk(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        bulk_read(self, block, buffer)
+    }
+
+    /// 写入一段连续区间；实现可以按 [`IO_CHUNK`] 拆分并重叠提交。
+    fn write_blocks_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        bulk_write(self, block, data)
+    }
+}
+
+fn bulk_read<D: BlockDevice + ?Sized>(
+    device: &D,
+    block: u64,
+    buffer: &mut [u8],
+) -> Result<usize, BlockError> {
+    let block_size = device.block_size();
+    if block_size == 0 || buffer.is_empty() || !buffer.len().is_multiple_of(block_size) {
+        return Err(BlockError::InvalidLength);
+    }
+    let mut done = 0;
+    while done < buffer.len() {
+        let chunk = ((buffer.len() - done).min(IO_CHUNK) / block_size) * block_size;
+        if chunk == 0 {
+            return Err(BlockError::InvalidLength);
+        }
+        let sectors = block + (done / block_size) as u64;
+        let transferred = device.read_blocks(sectors, &mut buffer[done..done + chunk])?;
+        if transferred != chunk {
+            return Err(BlockError::Io);
+        }
+        done += chunk;
+    }
+    Ok(done)
+}
+
+fn bulk_write<D: BlockDevice + ?Sized>(
+    device: &mut D,
+    block: u64,
+    data: &[u8],
+) -> Result<usize, BlockError> {
+    let block_size = device.block_size();
+    if block_size == 0 || data.is_empty() || !data.len().is_multiple_of(block_size) {
+        return Err(BlockError::InvalidLength);
+    }
+    let mut done = 0;
+    while done < data.len() {
+        let chunk = ((data.len() - done).min(IO_CHUNK) / block_size) * block_size;
+        if chunk == 0 {
+            return Err(BlockError::InvalidLength);
+        }
+        let sectors = block + (done / block_size) as u64;
+        let transferred = device.write_blocks(sectors, &data[done..done + chunk])?;
+        if transferred != chunk {
+            return Err(BlockError::Io);
+        }
+        done += chunk;
+    }
+    Ok(done)
+}
+
+/// 异步块设备：提交后立即返回，完成通过 [`AsyncBlockDevice::poll_complete`] 回收。
+///
+/// `submit_*` 接受的缓冲区在对应完成被回收前不能被调用方访问或释放。
+pub trait AsyncBlockDevice: BlockDevice {
+    /// 提交读取；返回设备级令牌，用于匹配完成。
+    fn submit_read(&mut self, block: u64, buffer: &mut [u8]) -> Result<u64, BlockError>;
+
+    /// 提交写入；返回设备级令牌，用于匹配完成。
+    fn submit_write(&mut self, block: u64, data: &[u8]) -> Result<u64, BlockError>;
+
+    /// 回收一个完成；没有完成时返回 `None`。
+    fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)>;
+}
+
+impl<D: AsyncBlockDevice + ?Sized> AsyncBlockDevice for &mut D {
+    fn submit_read(&mut self, block: u64, buffer: &mut [u8]) -> Result<u64, BlockError> {
+        (**self).submit_read(block, buffer)
+    }
+
+    fn submit_write(&mut self, block: u64, data: &[u8]) -> Result<u64, BlockError> {
+        (**self).submit_write(block, data)
+    }
+
+    fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)> {
+        (**self).poll_complete()
+    }
 }
 
 impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
@@ -83,6 +181,14 @@ impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
 
     fn flush(&mut self) -> Result<(), BlockError> {
         (**self).flush()
+    }
+
+    fn read_blocks_bulk(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        (**self).read_blocks_bulk(block, buffer)
+    }
+
+    fn write_blocks_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        (**self).write_blocks_bulk(block, data)
     }
 }
 
@@ -141,6 +247,16 @@ impl<D: BlockDevice> BlockDevice for DiskSlice<D> {
     fn flush(&mut self) -> Result<(), BlockError> {
         self.inner.flush()
     }
+
+    fn read_blocks_bulk(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        self.check(block, buffer.len())?;
+        self.inner.read_blocks_bulk(self.start + block, buffer)
+    }
+
+    fn write_blocks_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        self.check(block, data.len())?;
+        self.inner.write_blocks_bulk(self.start + block, data)
+    }
 }
 
 impl<D: BlockDevice> DiskSlice<D> {
@@ -158,10 +274,15 @@ impl<D: BlockDevice> DiskSlice<D> {
     }
 }
 
+/// 单个设备同时挂起的完成上限。
+const MAX_COMPLETIONS: usize = 64;
+
 /// 内存块设备。
 pub struct MemoryDisk {
     data: Vec<u8>,
     block_size: usize,
+    completions: VecDeque<(u64, Result<usize, BlockError>)>,
+    next_token: u64,
 }
 
 impl MemoryDisk {
@@ -171,6 +292,8 @@ impl MemoryDisk {
         Self {
             data: vec![0; length],
             block_size,
+            completions: VecDeque::new(),
+            next_token: 0,
         }
     }
 
@@ -179,7 +302,12 @@ impl MemoryDisk {
         if block_size == 0 || !data.len().is_multiple_of(block_size) {
             return None;
         }
-        Some(Self { data, block_size })
+        Some(Self {
+            data,
+            block_size,
+            completions: VecDeque::new(),
+            next_token: 0,
+        })
     }
 
     /// 返回底层字节。
@@ -199,6 +327,16 @@ impl MemoryDisk {
             return Err(BlockError::OutOfRange);
         }
         Ok(start)
+    }
+
+    fn finish(&mut self, result: Result<usize, BlockError>) -> Result<u64, BlockError> {
+        if self.completions.len() >= MAX_COMPLETIONS {
+            return Err(BlockError::Busy);
+        }
+        let token = self.next_token;
+        self.next_token = self.next_token.wrapping_add(1);
+        self.completions.push_back((token, result));
+        Ok(token)
     }
 }
 
@@ -225,6 +363,30 @@ impl BlockDevice for MemoryDisk {
 
     fn flush(&mut self) -> Result<(), BlockError> {
         Ok(())
+    }
+
+    fn read_blocks_bulk(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
+        self.read_blocks(block, buffer)
+    }
+
+    fn write_blocks_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        self.write_blocks(block, data)
+    }
+}
+
+impl AsyncBlockDevice for MemoryDisk {
+    fn submit_read(&mut self, block: u64, buffer: &mut [u8]) -> Result<u64, BlockError> {
+        let result = self.read_blocks(block, buffer);
+        self.finish(result)
+    }
+
+    fn submit_write(&mut self, block: u64, data: &[u8]) -> Result<u64, BlockError> {
+        let result = self.write_blocks(block, data);
+        self.finish(result)
+    }
+
+    fn poll_complete(&mut self) -> Option<(u64, Result<usize, BlockError>)> {
+        self.completions.pop_front()
     }
 }
 
@@ -278,5 +440,37 @@ mod tests {
         assert_eq!(disk.capacity_blocks(), 2);
         assert_eq!(disk.into_data(), data);
         assert!(MemoryDisk::from_data(vec![0; 3], SECTOR_SIZE).is_none());
+    }
+
+    #[test]
+    fn bulk_io_spans_multiple_chunks() {
+        let mut disk = MemoryDisk::new(512, SECTOR_SIZE);
+        let data = vec![0x3C_u8; IO_CHUNK * 2];
+        assert_eq!(
+            disk.write_blocks_bulk(0, &data).expect("批量写"),
+            data.len()
+        );
+        let mut buffer = vec![0_u8; data.len()];
+        assert_eq!(
+            disk.read_blocks_bulk(0, &mut buffer).expect("批量读"),
+            data.len()
+        );
+        assert_eq!(buffer, data);
+        assert_eq!(
+            disk.read_blocks_bulk(0, &mut buffer[..3]),
+            Err(BlockError::InvalidLength)
+        );
+    }
+
+    #[test]
+    fn async_submissions_complete_in_order() {
+        let mut disk = MemoryDisk::new(8, SECTOR_SIZE);
+        let mut first = [0_u8; SECTOR_SIZE];
+        let a = disk.submit_read(0, &mut first).expect("提交一");
+        let b = disk.submit_write(1, &[0x22; SECTOR_SIZE]).expect("提交二");
+        assert_ne!(a, b);
+        assert!(matches!(disk.poll_complete(), Some((token, Ok(_))) if token == a));
+        assert!(matches!(disk.poll_complete(), Some((token, Ok(_))) if token == b));
+        assert!(disk.poll_complete().is_none());
     }
 }

@@ -35,7 +35,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-block: ram disk ready\n".as_bytes());
     let mut disk = MemoryDisk::new(BLOCKS, SECTOR_SIZE);
-    serve(endpoint, &mut disk, None, None);
+    serve(endpoint, &mut disk);
     exit(0)
 }
 

@@ -28,7 +28,7 @@ impl<D: BlockDevice> BlockBackend<D> {
     fn translate(error: BlockError) -> VfsError {
         match error {
             BlockError::OutOfRange => VfsError::InvalidOffset,
-            BlockError::InvalidLength | BlockError::Io => VfsError::Backend,
+            BlockError::InvalidLength | BlockError::Busy | BlockError::Io => VfsError::Backend,
             BlockError::ReadOnly => VfsError::ReadOnly,
         }
     }

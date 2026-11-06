@@ -310,7 +310,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        match self.kernel.try_recv_from(tcb, handle, None) {
+        let expected = self.tcb_of_endpoint(frame.arg3());
+        match self.kernel.try_recv_from(tcb, handle, expected) {
             Ok(Some(received)) => {
                 let number = self.install_handle(index, &received.message);
                 self.deliver_data_handle(index, frame, &received, buffer, capacity, number)

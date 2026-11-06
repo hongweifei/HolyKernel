@@ -74,17 +74,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write_u64(block.capacity_blocks());
             write(b"\n");
             reply_not_ready(wait.pending);
-            serve_with_hook(
-                endpoint,
-                block.as_mut(),
-                None,
-                None,
-                |virt, phys, length, frame| {
-                    if dma_map_frame(grant_handle, frame, length) != u64::MAX {
-                        hk_driver_virtio::register_frame(virt, phys, length);
-                    }
-                },
-            );
+            serve_with_hook(endpoint, block.as_mut(), |virt, phys, length, frame| {
+                if dma_map_frame(grant_handle, frame, length) != u64::MAX {
+                    hk_driver_virtio::register_frame(virt, phys, length);
+                }
+            });
             // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
             exit(1)
         }
@@ -152,7 +146,7 @@ fn reply_not_ready(pending: Option<u64>) {
         return;
     };
     let mut response = [0_u8; 8];
-    if let Some(length) = encode_response(&mut response, STATUS_ERROR, &[]) {
+    if let Some(length) = encode_response(&mut response, 0, STATUS_ERROR, &[]) {
         let _ = send_data(sender, BLOCK_RESPONSE, &response[..length]);
     }
 }
