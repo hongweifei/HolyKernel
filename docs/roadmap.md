@@ -197,7 +197,7 @@ flowchart LR
 - 多来源 UI 路线：surface/seat 合成器；Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；详见 [ADR-0015](adr/0015-compatibility-server.md)。已落地原生 surface/seat 协议：表面与窗口分离、表面 damage、输入区域、统一焦点与剪贴板；所有原生客户端已统一到 surface/window 协议。
 - Workbench：编辑/浏览/构建/运行/调试一体化。已落地初始版本：`hk-server-workbench` 以 surface/window 协议创建三栏窗口，左侧按 `H:` 盘符加载文档树，中间编辑器整篇读写 Holy 文档并支持保存，底部输出构建统计、`@exec` 运行结果与最近用户异常回溯；`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
 - Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
-- Checkpoint Server：Native Task 快照与恢复。已落地：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容并释放原 VSpace；`restore-checkpoint <任务>` 在同一任务槽按页快照重建 VSpace 与 TCB；`hk-server-checkpoint` 服务提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。设备/共享 Frame/COW 任务暂不支持，快照尚未落 HolyFS。`smoke --mode checkpoint/checkpointsrv` 验证。
+- Checkpoint Server：Native Task 快照与恢复。已落地：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容（零页省略），序列化为版本化快照并释放原 VSpace；`restore-checkpoint <任务>` 在同一任务槽按快照重建 VSpace 与 TCB；`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。默认快照在内存；`checkpoint.disk` 启用 `H:/Checkpoints` 分块落盘（保存已实现，读取仍受 HolyFS 多块压缩读取问题限制）。设备/共享 Frame/COW/线程任务暂不支持。`smoke --mode checkpoint/checkpointsrv` 验证。
 - HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
 - Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
 - Sprite/Font 编辑器。
