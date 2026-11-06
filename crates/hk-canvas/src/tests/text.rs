@@ -2,7 +2,9 @@
 
 use hk_font::Font;
 
-use crate::{Surface, text_width, text_width_default};
+use crate::{
+    Surface, default_font, default_font_scaled, default_monospace, text_width, text_width_default,
+};
 
 use super::{canvas, mask};
 
@@ -24,7 +26,7 @@ fn draw_text_advances_by_font_metrics() {
 
 #[test]
 fn draw_text_default_matches_explicit_default_font() {
-    let font = hk_font::default_font();
+    let font = default_font();
     let mut explicit_pixels = [0_u32; 64 * 16];
     let explicit = canvas(&mut explicit_pixels, 64, 16);
     let mut explicit_pen = 0;
@@ -52,10 +54,24 @@ fn draw_glyph_default_paints_without_a_font_argument() {
 
 #[test]
 fn default_font_is_initialized_once() {
-    assert!(core::ptr::eq(
-        hk_font::default_font(),
-        hk_font::default_font()
-    ));
+    assert!(core::ptr::eq(default_font(), default_font()));
+}
+
+#[test]
+fn default_monospace_keeps_fixed_grid_metrics() {
+    let font = default_monospace();
+    assert!(core::ptr::eq(font, default_monospace()));
+    assert_eq!(font.advance('A'), 8);
+    assert_eq!(font.advance('中'), 16);
+}
+
+#[test]
+fn default_font_scaled_covers_ui_scale() {
+    assert!(core::ptr::eq(default_font_scaled(1), default_font()));
+    let large = default_font_scaled(2);
+    assert!(core::ptr::eq(large, default_font_scaled(2)));
+    assert_eq!(large.size(), 32);
+    assert!(large.has_scalable());
 }
 
 #[test]
