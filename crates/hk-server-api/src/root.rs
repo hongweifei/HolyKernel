@@ -6,9 +6,10 @@
 use crate::{syscall_call, yield_now};
 
 pub use hk_syscall::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_LOOKUP, ROOT_OP_REPLACE, ROOT_OP_RESTART,
-    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
-    ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE, SYS_ROOT_CONTROL, SYS_ROOT_RESULT,
+    ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE, ROOT_OP_HANDLES,
+    ROOT_OP_LOOKUP, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT,
+    ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS,
+    ROOT_OP_TRACE, SYS_ROOT_CONTROL, SYS_ROOT_CONTROL_DATA, SYS_ROOT_RESULT,
 };
 
 /// 控制结果未就绪。
@@ -33,7 +34,40 @@ pub fn call(op: u64, argument: &str, out: &mut [u8]) -> Result<usize, u64> {
     if id == u64::MAX {
         return Err(1);
     }
+    wait_result(id, out)
+}
 
+/// 发起带字节载荷的控制请求并等待结果。
+///
+/// `argument` 与 `data` 被拼接后交给内核；载荷上限为 16 KiB。
+pub fn call_data(op: u64, argument: &str, data: &[u8], out: &mut [u8]) -> Result<usize, u64> {
+    const PAYLOAD: usize = 20 * 1024;
+    let name_len = argument.len();
+    if name_len > 128 || data.len() > PAYLOAD - name_len {
+        return Err(1);
+    }
+    let mut buffer = [0_u8; PAYLOAD];
+    buffer[..name_len].copy_from_slice(argument.as_bytes());
+    buffer[name_len..name_len + data.len()].copy_from_slice(data);
+    let packed = ((data.len() as u64) << 16) | name_len as u64;
+    // SAFETY: 缓冲区属于本任务；内核校验长度后复制。
+    let id = unsafe {
+        syscall_call(
+            SYS_ROOT_CONTROL_DATA,
+            op,
+            buffer.as_ptr() as u64,
+            packed,
+            0,
+        )
+        .value
+    };
+    if id == u64::MAX {
+        return Err(1);
+    }
+    wait_result(id, out)
+}
+
+fn wait_result(id: u64, out: &mut [u8]) -> Result<usize, u64> {
     loop {
         // SAFETY: 输出缓冲区属于本任务；内核只写入其范围。
         let result = unsafe {

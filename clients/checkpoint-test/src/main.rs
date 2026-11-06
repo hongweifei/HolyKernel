@@ -10,7 +10,7 @@ use hk_server_api::{exit, runtime::wait_service, write};
 
 /// 被检查点的任务。
 #[cfg(target_os = "none")]
-const TARGET: &str = "hk-server-echo";
+const TARGET: &str = "hk-server-path";
 
 /// 服务入口：保存、恢复并列出检查点。
 #[cfg(target_os = "none")]

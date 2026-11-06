@@ -370,6 +370,15 @@ impl PageTable {
         }
     }
 
+    /// 清空一个物理帧。
+    pub fn zero_phys(&self, phys: PhysAddr) {
+        let target = (self.direct_map + phys.get()) as *mut u8;
+        // SAFETY: 物理帧位于 direct map 内，长度为整页。
+        unsafe {
+            core::ptr::write_bytes(target, 0, PAGE_SIZE);
+        }
+    }
+
     /// 切换到该页表。
     pub fn activate(&self) {
         // SAFETY: 根物理地址来自页表或帧分配器；写入 CR3 只影响当前 CPU。

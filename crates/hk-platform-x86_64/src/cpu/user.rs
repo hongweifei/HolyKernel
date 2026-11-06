@@ -111,6 +111,8 @@ pub fn resume_user(frame: &InterruptFrame) {
 }
 
 impl hk_hal::UserContext for InterruptFrame {
+    const SAVED_BYTES: usize = 22 * 8;
+
     fn resume(&self) {
         resume_user(self);
     }
@@ -121,6 +123,16 @@ impl hk_hal::UserContext for InterruptFrame {
 
     fn for_thread(entry: u64, stack_top: u64, argument: u64) -> Self {
         user_frame(entry, stack_top, argument)
+    }
+
+    fn save(&self, out: &mut [u8]) {
+        let encoded = self.encode();
+        let length = encoded.len().min(out.len());
+        out[..length].copy_from_slice(&encoded[..length]);
+    }
+
+    fn load(bytes: &[u8]) -> Option<Self> {
+        Self::decode(bytes)
     }
 }
 

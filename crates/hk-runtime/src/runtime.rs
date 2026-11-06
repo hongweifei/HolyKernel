@@ -54,13 +54,27 @@ pub(crate) struct FrameMap {
     pub handle: Handle,
 }
 
-/// 保存的 Native Task 现场；VSpace 已释放，页内容保存在快照中。
+/// 保存的 Native Task 现场；VSpace 已释放，页内容保存在序列化镜像中。
 pub(crate) struct Checkpoint<C> {
     pub(crate) slot: usize,
     pub(crate) context: C,
     pub(crate) parent: Option<u64>,
     pub(crate) arena_used: u64,
-    pub(crate) pages: Vec<Page>,
+    pub(crate) image: Vec<u8>,
+}
+
+/// 捕获但仍未终止的检查点现场。
+pub struct CheckpointCapture<C> {
+    /// 原任务槽位。
+    pub slot: usize,
+    /// 寄存器现场。
+    pub context: C,
+    /// 父任务槽位。
+    pub parent: Option<u64>,
+    /// Arena 已用字节数。
+    pub arena_used: u64,
+    /// 用户页。
+    pub pages: Vec<Page>,
 }
 
 /// 用户态任务运行时。

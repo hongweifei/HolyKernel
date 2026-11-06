@@ -24,7 +24,7 @@ pub struct Page {
     pub virt: u64,
     /// 原始页表属性位。
     pub flags: u64,
-    /// 页内容。
+    /// 页内容；空表示整页为零。
     pub data: Vec<u8>,
 }
 
@@ -48,27 +48,19 @@ pub struct Snapshot {
 impl Snapshot {
     /// 编码为自描述字节流。
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&MAGIC);
-        push_u32(&mut out, VERSION);
-        push_u32(&mut out, self.slot);
-        push_bytes(&mut out, self.name.as_bytes());
-        push_bytes(&mut out, &self.context);
-        match self.parent {
-            Some(parent) => {
-                out.push(1);
-                push_u64(&mut out, parent);
-            }
-            None => out.push(0),
-        }
-        push_u64(&mut out, self.arena_used);
-        push_u32(&mut out, self.pages.len() as u32);
-        for page in &self.pages {
-            push_u64(&mut out, page.virt);
-            push_u64(&mut out, page.flags);
-            push_bytes(&mut out, &page.data);
-        }
-        out
+        encode_parts(
+            self.slot,
+            &self.name,
+            &self.context,
+            self.parent,
+            self.arena_used,
+            &self.pages,
+        )
+    }
+
+    /// 返回编码后的字节数。
+    pub fn encoded_size(&self) -> usize {
+        encoded_size(self.name.len(), self.context.len(), &self.pages)
     }
 
     /// 从字节流解码；格式不匹配或截断时返回 `None`。
@@ -109,6 +101,46 @@ impl Snapshot {
             pages,
         })
     }
+}
+
+/// 直接编码各部分，避免构造拥有页列表的临时快照。
+pub fn encode_parts(
+    slot: u32,
+    name: &str,
+    context: &[u8],
+    parent: Option<u64>,
+    arena_used: u64,
+    pages: &[Page],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(encoded_size(name.len(), context.len(), pages));
+    out.extend_from_slice(&MAGIC);
+    push_u32(&mut out, VERSION);
+    push_u32(&mut out, slot);
+    push_bytes(&mut out, name.as_bytes());
+    push_bytes(&mut out, context);
+    match parent {
+        Some(parent) => {
+            out.push(1);
+            push_u64(&mut out, parent);
+        }
+        None => out.push(0),
+    }
+    push_u64(&mut out, arena_used);
+    push_u32(&mut out, pages.len() as u32);
+    for page in pages {
+        push_u64(&mut out, page.virt);
+        push_u64(&mut out, page.flags);
+        push_bytes(&mut out, &page.data);
+    }
+    out
+}
+
+fn encoded_size(name: usize, context: usize, pages: &[Page]) -> usize {
+    let mut size = 4 + 4 + 4 + 4 + name + 4 + context + 1 + 8 + 8 + 4;
+    for page in pages {
+        size += 8 + 8 + 4 + page.data.len();
+    }
+    size
 }
 
 fn push_u32(out: &mut Vec<u8>, value: u32) {

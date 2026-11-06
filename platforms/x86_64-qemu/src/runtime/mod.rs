@@ -17,7 +17,7 @@ use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
 
 mod control;
-use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_RESULT};
+use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_CONTROL_DATA, SYS_ROOT_RESULT};
 
 /// 看门狗两次快照之间的墙钟间隔。
 const WATCHDOG_INTERVAL_MS: u64 = 3_000;
@@ -259,6 +259,9 @@ impl UserPlatform for X86Platform {
             table.user_pages(|virt, flags, phys| {
                 let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
                 table.read_phys(hk_hal::PhysAddr::new(phys), &mut data);
+                if data.iter().all(|byte| *byte == 0) {
+                    data.clear();
+                }
                 pages.push(Page { virt, flags, data });
             });
             if pages.is_empty() { None } else { Some(pages) }
@@ -280,7 +283,11 @@ impl UserPlatform for X86Platform {
             let Some(frame) = paging::take_restore_frame() else {
                 return false;
             };
-            table.write_phys(frame, &page.data);
+            if page.data.is_empty() {
+                table.zero_phys(frame);
+            } else {
+                table.write_phys(frame, &page.data);
+            }
             let flags = paging::restore_flags(page.flags);
             if table
                 .map_with(
@@ -475,26 +482,42 @@ pub fn restart_service(
     with_tick(|| hk_root_server::service::restart(&RUNTIME, services, loader, name, parent))
 }
 
-/// 保存 Native Task 检查点。
-pub fn checkpoint_service(services: &mut ServiceTable, name: &str) -> String {
+/// 保存 Native Task 检查点并返回序列化快照。
+pub fn checkpoint_service(services: &mut ServiceTable, name: &str) -> Vec<u8> {
     match RUNTIME.checkpoint(name) {
-        Ok(_) => {
+        Ok(size) => {
             services.mark_exited(name, 0);
-            format!("已检查点：{name}\n")
+            format!("已检查点：{name} {size}\n").into_bytes()
         }
-        Err(error) => format!("检查点失败：{error}\n"),
+        Err(error) => format!("检查点失败：{error}\n").into_bytes(),
     }
 }
 
-/// 恢复 Native Task 检查点。
-pub fn restore_checkpoint_service(services: &mut ServiceTable, name: &str) -> String {
+/// 恢复内存中的 Native Task 检查点。
+pub fn restore_checkpoint_service(services: &mut ServiceTable, name: &str) -> Vec<u8> {
     match RUNTIME.restore_checkpoint(name) {
         Ok(_) => {
             services.mark_running(name);
-            format!("已恢复：{name}\n")
+            format!("已恢复：{name}\n").into_bytes()
         }
-        Err(error) => format!("恢复失败：{error}\n"),
+        Err(error) => format!("恢复失败：{error}\n").into_bytes(),
     }
+}
+
+/// 从序列化快照恢复 Native Task。
+pub fn restore_checkpoint_bytes(services: &mut ServiceTable, bytes: &[u8]) -> Vec<u8> {
+    match RUNTIME.restore_image(bytes) {
+        Ok((name, _slot)) => {
+            services.mark_running(&name);
+            format!("已恢复：{name}\n").into_bytes()
+        }
+        Err(error) => format!("恢复失败：{error}\n").into_bytes(),
+    }
+}
+
+/// 读取内存快照的一段镜像。
+pub fn checkpoint_chunk(name: &str, offset: u64, length: usize) -> Vec<u8> {
+    RUNTIME.checkpoint_chunk(name, offset, length).unwrap_or_default()
 }
 
 /// 用另一原生镜像热替换服务。
@@ -514,6 +537,30 @@ pub fn replace_service(
 }
 
 fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
+    if frame.number() == SYS_ROOT_CONTROL_DATA {
+        let packed = frame.arg2() as usize;
+        let name_len = packed & 0xFFFF;
+        let data_len = packed >> 16;
+        if name_len > 128 || data_len > 64 * 1024 {
+            frame.set_result(u64::MAX);
+            return SyscallAction::Continue;
+        }
+        let mut buffer = alloc::vec![0_u8; name_len + data_len];
+        if !RUNTIME.read_user(frame.arg1(), &mut buffer) {
+            frame.set_result(u64::MAX);
+            return SyscallAction::Continue;
+        }
+        let Ok(name) = core::str::from_utf8(&buffer[..name_len]) else {
+            frame.set_result(u64::MAX);
+            return SyscallAction::Continue;
+        };
+        let data = buffer[name_len..].to_vec();
+        let caller = RUNTIME
+            .current_task_name(cpu::cpu_index())
+            .unwrap_or_default();
+        frame.set_result(control::request_data(frame.arg0(), name, data, &caller));
+        return SyscallAction::Continue;
+    }
     if frame.number() == SYS_ROOT_CONTROL {
         let length = frame.arg2() as usize;
         let mut argument = [0_u8; 128];

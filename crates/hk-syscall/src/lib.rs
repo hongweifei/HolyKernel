@@ -205,6 +205,9 @@ pub const SYS_ROOT_RESULT: u64 = 0x81;
 /// 注册端点接收内核投递的原始异常现场。
 pub const SYS_FAULT_SUBSCRIBE: u64 = 0x82;
 
+/// 带字节载荷的 Root 控制请求。
+pub const SYS_ROOT_CONTROL_DATA: u64 = 0x83;
+
 // === Root 控制操作码（`SYS_ROOT_CONTROL` 请求内的二级编号）===
 
 /// Root 控制：任务视图。
@@ -233,6 +236,10 @@ pub const ROOT_OP_CHECKPOINT: u64 = 12;
 pub const ROOT_OP_RESTORE_CHECKPOINT: u64 = 13;
 /// Root 控制：按服务与地址批量查询符号；服务为空时查内核符号。
 pub const ROOT_OP_LOOKUP: u64 = 14;
+/// Root 控制：读取检查点镜像片段；参数为 `任务 偏移`。
+pub const ROOT_OP_CHECKPOINT_READ: u64 = 15;
+/// Root 控制：写入检查点镜像片段；参数为 `任务 总长`。
+pub const ROOT_OP_CHECKPOINT_WRITE: u64 = 16;
 
 /// 内核投递原始异常现场使用的消息标签。
 pub const FAULT_EVENT: u64 = 0xD00;
@@ -443,6 +450,7 @@ mod tests {
             SYS_ROOT_CONTROL,
             SYS_ROOT_RESULT,
             SYS_FAULT_SUBSCRIBE,
+            SYS_ROOT_CONTROL_DATA,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

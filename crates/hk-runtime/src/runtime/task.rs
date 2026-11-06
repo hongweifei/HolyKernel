@@ -102,8 +102,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Ok(endpoint)
     }
 
-    /// 暂停任务并保存现场；VSpace 留在原槽位等待恢复。
+    /// 捕获任务、序列化现场并终止任务。
     pub fn checkpoint(&mut self, name: &str) -> Result<usize, String> {
+        let capture = self.capture_checkpoint(name)?;
+        let mut context = alloc::vec![0_u8; C::SAVED_BYTES];
+        capture.context.save(&mut context);
+        let image = hk_checkpoint::encode_parts(
+            capture.slot as u32,
+            name,
+            &context,
+            capture.parent,
+            capture.arena_used,
+            &capture.pages,
+        );
+        let size = image.len();
+        self.commit_checkpoint(name, capture, image)?;
+        Ok(size)
+    }
+
+    /// 捕获任务现场但暂不终止任务。
+    pub fn capture_checkpoint(&mut self, name: &str) -> Result<CheckpointCapture<C>, String> {
         let Some(index) = self
             .tasks
             .iter()
@@ -126,13 +144,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             return Err(String::from("任务持有设备或共享 Frame"));
         }
-        if self
+        if let Some((_, entry)) = self
             .tasks
             .iter()
             .enumerate()
-            .any(|(other, entry)| other != index && !entry.exited && entry.leader == index)
+            .find(|(other, entry)| *other != index && !entry.exited && entry.leader == index)
         {
-            return Err(String::from("任务仍有线程"));
+            let mut message = String::from("任务仍有线程：");
+            message.push_str(&entry.name);
+            return Err(message);
         }
         let context = task.context;
         let parent = task.parent;
@@ -141,22 +161,38 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .platform
             .capture_pages(index)
             .ok_or_else(|| String::from("无法捕获地址空间"))?;
+        Ok(CheckpointCapture {
+            slot: index,
+            context,
+            parent,
+            arena_used,
+            pages,
+        })
+    }
+
+    /// 终止任务、释放原 VSpace，并保存序列化镜像。
+    pub fn commit_checkpoint(
+        &mut self,
+        name: &str,
+        capture: CheckpointCapture<C>,
+        image: Vec<u8>,
+    ) -> Result<usize, String> {
         if !self.terminate(name, 0) {
             return Err(String::from("无法暂停任务"));
         }
-        self.platform.release_pages(index);
+        self.platform.release_pages(capture.slot);
         self.checkpoints.retain(|(saved, _)| saved != name);
         self.checkpoints.push((
             String::from(name),
             Checkpoint {
-                slot: index,
-                context,
-                parent,
-                arena_used,
-                pages,
+                slot: capture.slot,
+                context: capture.context,
+                parent: capture.parent,
+                arena_used: capture.arena_used,
+                image,
             },
         ));
-        Ok(index)
+        Ok(capture.slot)
     }
 
     /// 用保存的现场在同一任务槽恢复 TCB 与地址空间。
@@ -165,13 +201,55 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Err(String::from("检查点不存在"));
         };
         let (saved, checkpoint) = self.checkpoints.remove(position);
-        let slot = checkpoint.slot;
-        if self.tasks.get(slot).is_none_or(|task| !task.exited) {
+        let Some(snapshot) = hk_checkpoint::Snapshot::decode(&checkpoint.image) else {
             self.checkpoints.push((saved, checkpoint));
-            return Err(String::from("任务槽不可用"));
+            return Err(String::from("快照损坏"));
+        };
+        let result = self.restore_parts(
+            name,
+            checkpoint.slot,
+            checkpoint.context,
+            checkpoint.parent,
+            checkpoint.arena_used,
+            &snapshot.pages,
+        );
+        if result.is_err() {
+            self.checkpoints.push((saved, checkpoint));
         }
-        if !self.platform.restore_pages(slot, &checkpoint.pages) {
-            self.checkpoints.push((saved, checkpoint));
+        result
+    }
+
+    /// 按快照重建任务槽中的地址空间与 TCB。
+    pub fn restore_parts(
+        &mut self,
+        name: &str,
+        slot: usize,
+        context: C,
+        parent: Option<u64>,
+        arena_used: u64,
+        pages: &[Page],
+    ) -> Result<usize, String> {
+        if self
+            .current
+            .iter()
+            .flatten()
+            .any(|current| *current == slot)
+        {
+            return Err(String::from("任务正在 CPU 上执行"));
+        }
+        let (task_name, exited) = {
+            let Some(task) = self.tasks.get(slot) else {
+                return Err(String::from("任务槽不存在"));
+            };
+            (task.name.clone(), task.exited)
+        };
+        if task_name != name {
+            return Err(String::from("任务槽已被其他任务占用"));
+        }
+        if !exited && !self.terminate(&task_name, 0) {
+            return Err(String::from("无法暂停任务"));
+        }
+        if !self.platform.restore_pages(slot, pages) {
             return Err(String::from("无法重建地址空间"));
         }
 
@@ -234,18 +312,48 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let mut task = UserTask::new(
             tcb,
             name,
-            checkpoint.parent,
+            parent,
             handles,
             notifications,
-            checkpoint.context,
+            context,
             arena_base,
             arena_size,
         );
-        task.arena.set_used(checkpoint.arena_used);
+        task.arena.set_used(arena_used);
         task.leader = slot;
         self.tasks[slot] = task;
         let _ = self.kernel.activate(tcb);
         Ok(slot)
+    }
+
+    /// 从序列化镜像重建任务；返回任务名与槽位。
+    pub fn restore_image(&mut self, image: &[u8]) -> Result<(String, usize), String> {
+        let Some(snapshot) = hk_checkpoint::Snapshot::decode(image) else {
+            return Err(String::from("快照损坏"));
+        };
+        let Some(context) = C::load(&snapshot.context) else {
+            return Err(String::from("寄存器现场损坏"));
+        };
+        let slot = self.restore_parts(
+            &snapshot.name,
+            snapshot.slot as usize,
+            context,
+            snapshot.parent,
+            snapshot.arena_used,
+            &snapshot.pages,
+        )?;
+        Ok((snapshot.name, slot))
+    }
+
+    /// 读取已保存快照的一段镜像。
+    pub fn checkpoint_chunk(&self, name: &str, offset: u64, length: usize) -> Option<Vec<u8>> {
+        let (_, checkpoint) = self
+            .checkpoints
+            .iter()
+            .find(|(saved, _)| saved == name)?;
+        let start = usize::try_from(offset).ok()?.min(checkpoint.image.len());
+        let end = start.saturating_add(length).min(checkpoint.image.len());
+        Some(checkpoint.image[start..end].to_vec())
     }
 
     /// 复制当前任务：页表写时复制、句柄与通知映射；子任务返回 0。

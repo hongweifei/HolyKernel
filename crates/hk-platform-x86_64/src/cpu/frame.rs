@@ -1,5 +1,7 @@
 //! 中断与异常现场。
 
+use alloc::vec::Vec;
+
 /// 中断与异常现场。
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -68,3 +70,58 @@ const _: () = {
     assert!(core::mem::offset_of!(InterruptFrame, rsp) == 160);
     assert!(core::mem::offset_of!(InterruptFrame, ss) == 168);
 };
+
+/// 现场字段数。
+const FRAME_WORDS: usize = 22;
+
+impl InterruptFrame {
+    /// 编码为 22 个小端 u64。
+    pub fn encode(&self) -> Vec<u8> {
+        let words = [
+            self.rax, self.rbx, self.rcx, self.rdx, self.rsi, self.rdi, self.rbp, self.r8, self.r9,
+            self.r10, self.r11, self.r12, self.r13, self.r14, self.r15, self.vector, self.error,
+            self.rip, self.cs, self.rflags, self.rsp, self.ss,
+        ];
+        let mut out = Vec::with_capacity(FRAME_WORDS * 8);
+        for word in words {
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+        out
+    }
+
+    /// 从 22 个小端 u64 解码。
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != FRAME_WORDS * 8 {
+            return None;
+        }
+        let mut words = [0_u64; FRAME_WORDS];
+        for (index, word) in words.iter_mut().enumerate() {
+            let start = index * 8;
+            *word = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
+        }
+        Some(Self {
+            rax: words[0],
+            rbx: words[1],
+            rcx: words[2],
+            rdx: words[3],
+            rsi: words[4],
+            rdi: words[5],
+            rbp: words[6],
+            r8: words[7],
+            r9: words[8],
+            r10: words[9],
+            r11: words[10],
+            r12: words[11],
+            r13: words[12],
+            r14: words[13],
+            r15: words[14],
+            vector: words[15],
+            error: words[16],
+            rip: words[17],
+            cs: words[18],
+            rflags: words[19],
+            rsp: words[20],
+            ss: words[21],
+        })
+    }
+}

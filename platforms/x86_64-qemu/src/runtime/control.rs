@@ -10,9 +10,10 @@ use alloc::vec::Vec;
 use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_LOOKUP, ROOT_OP_REPLACE, ROOT_OP_RESTART,
-    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
-    ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE, ROOT_OP_HANDLES,
+    ROOT_OP_LOOKUP, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT,
+    ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS,
+    ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
@@ -29,7 +30,17 @@ struct Request {
     id: u64,
     op: u64,
     argument: String,
+    data: Vec<u8>,
 }
+
+/// 正在接收的检查点镜像。
+struct Restore {
+    name: String,
+    total: usize,
+    data: Vec<u8>,
+}
+
+static RESTORE: Mutex<Option<Restore>> = Mutex::new(None);
 
 /// 控制队列与结果。
 #[derive(Default)]
@@ -43,6 +54,15 @@ static CONTROL: Mutex<Option<ControlState>> = Mutex::new(None);
 
 /// 投递请求并返回请求编号。
 pub fn request(op: u64, argument: &str, caller: &str) -> u64 {
+    enqueue(op, argument, Vec::new(), caller)
+}
+
+/// 投递带字节载荷的请求并返回请求编号。
+pub fn request_data(op: u64, argument: &str, data: Vec<u8>, caller: &str) -> u64 {
+    enqueue(op, argument, data, caller)
+}
+
+fn enqueue(op: u64, argument: &str, data: Vec<u8>, caller: &str) -> u64 {
     let mut guard = CONTROL.lock();
     let state = guard.get_or_insert_with(ControlState::default);
     state.next = state.next.wrapping_add(1);
@@ -54,7 +74,13 @@ pub fn request(op: u64, argument: &str, caller: &str) -> u64 {
         op,
         ROOT_OP_START | ROOT_OP_RESTART | ROOT_OP_REPLACE | ROOT_OP_SCRIPT
     );
-    let checkpoint_operation = matches!(op, ROOT_OP_CHECKPOINT | ROOT_OP_RESTORE_CHECKPOINT);
+    let checkpoint_operation = matches!(
+        op,
+        ROOT_OP_CHECKPOINT
+            | ROOT_OP_RESTORE_CHECKPOINT
+            | ROOT_OP_CHECKPOINT_READ
+            | ROOT_OP_CHECKPOINT_WRITE
+    );
     if (shell_operation && !shell) || (checkpoint_operation && !checkpoint) {
         push_result(state, id, b"permission denied\n".to_vec());
         return id;
@@ -64,6 +90,7 @@ pub fn request(op: u64, argument: &str, caller: &str) -> u64 {
         id,
         op,
         argument: String::from(argument),
+        data,
     });
     id
 }
@@ -93,15 +120,70 @@ pub fn process(loader: &mut Loader<'_>, services: &mut ServiceTable) {
             state.requests.remove(0)
         };
 
-        let text = execute(&request, loader, services);
+        let bytes = execute(&request, loader, services);
         let mut guard = CONTROL.lock();
         if let Some(state) = guard.as_mut() {
-            push_result(state, request.id, text.into_bytes());
+            push_result(state, request.id, bytes);
         }
     }
 }
 
-fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTable) -> String {
+fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTable) -> Vec<u8> {
+    match request.op {
+        ROOT_OP_CHECKPOINT => runtime::checkpoint_service(services, &request.argument),
+        ROOT_OP_RESTORE_CHECKPOINT => {
+            runtime::restore_checkpoint_service(services, &request.argument)
+        }
+        ROOT_OP_CHECKPOINT_READ => checkpoint_read(&request.argument),
+        ROOT_OP_CHECKPOINT_WRITE => {
+            checkpoint_write(&request.argument, &request.data, services)
+        }
+        _ => execute_text(request, loader, services).into_bytes(),
+    }
+}
+
+fn checkpoint_read(argument: &str) -> Vec<u8> {
+    let Some((name, offset)) = argument.split_once(' ') else {
+        return Vec::new();
+    };
+    let Ok(offset) = offset.parse::<u64>() else {
+        return Vec::new();
+    };
+    runtime::checkpoint_chunk(name, offset, 16 * 1024)
+}
+
+fn checkpoint_write(argument: &str, chunk: &[u8], services: &mut ServiceTable) -> Vec<u8> {
+    let Some((name, total)) = argument.split_once(' ') else {
+        return "恢复失败：参数错误\n".as_bytes().to_vec();
+    };
+    let Ok(total) = total.parse::<usize>() else {
+        return "恢复失败：参数错误\n".as_bytes().to_vec();
+    };
+    if total == 0 || total > 64 * 1024 * 1024 {
+        return "恢复失败：快照长度非法\n".as_bytes().to_vec();
+    }
+
+    let mut guard = RESTORE.lock();
+    let restore = guard.get_or_insert_with(|| Restore {
+        name: String::from(name),
+        total,
+        data: Vec::with_capacity(total),
+    });
+    if restore.name != name || restore.total != total {
+        *guard = None;
+        return "恢复失败：分块不匹配\n".as_bytes().to_vec();
+    }
+    restore.data.extend_from_slice(chunk);
+    if restore.data.len() < total {
+        return format!("已接收：{}/{}\n", restore.data.len(), total).into_bytes();
+    }
+    let data = core::mem::take(&mut restore.data);
+    *guard = None;
+    drop(guard);
+    runtime::restore_checkpoint_bytes(services, &data)
+}
+
+fn execute_text(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTable) -> String {
     match request.op {
         ROOT_OP_TASKS => hk_shell::format::format_tasks(&tasks(), None),
         ROOT_OP_HANDLES => hk_shell::format::format_handles(&tasks()),
@@ -111,10 +193,6 @@ fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTab
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
         ROOT_OP_REPLACE => runtime::replace_service(loader, services, &request.argument),
-        ROOT_OP_CHECKPOINT => runtime::checkpoint_service(services, &request.argument),
-        ROOT_OP_RESTORE_CHECKPOINT => {
-            runtime::restore_checkpoint_service(services, &request.argument)
-        }
         ROOT_OP_SCRIPT => script(loader, &request.argument),
         ROOT_OP_SYMBOLIZE => runtime::host().symbolize_list(&request.argument),
         ROOT_OP_LOOKUP => lookup(loader, &request.argument),

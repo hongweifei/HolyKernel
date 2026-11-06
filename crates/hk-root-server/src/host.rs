@@ -6,11 +6,14 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_checkpoint::Page;
 use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
-use hk_runtime::runtime::{Step, Switch, TaskInfo, UserPlatform, UserRuntime};
+use hk_runtime::runtime::{
+    CheckpointCapture, Step, Switch, TaskInfo, UserPlatform, UserRuntime,
+};
 
 use crate::ServiceTable;
 use crate::debug::{self, FaultContext};
@@ -139,13 +142,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         self.runtime.lock().as_ref().map_or(0, UserRuntime::root)
     }
 
-    /// 保存一个未在 CPU 上执行的任务现场。
+    /// 捕获并保存任务检查点，返回镜像字节数。
     pub fn checkpoint(&self, name: &str) -> Result<usize, String> {
         self.runtime
             .lock()
             .as_mut()
             .ok_or_else(|| String::from("运行时未初始化"))?
             .checkpoint(name)
+    }
+
+    /// 捕获一个未在 CPU 上执行的任务现场。
+    pub fn capture_checkpoint(&self, name: &str) -> Result<CheckpointCapture<C>, String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .capture_checkpoint(name)
+    }
+
+    /// 终止任务并保存检查点镜像。
+    pub fn commit_checkpoint(
+        &self,
+        name: &str,
+        capture: CheckpointCapture<C>,
+        image: Vec<u8>,
+    ) -> Result<usize, String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .commit_checkpoint(name, capture, image)
     }
 
     /// 从保存的现场恢复任务。
@@ -155,6 +181,41 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .as_mut()
             .ok_or_else(|| String::from("运行时未初始化"))?
             .restore_checkpoint(name)
+    }
+
+    /// 从序列化镜像重建任务。
+    pub fn restore_image(&self, image: &[u8]) -> Result<(String, usize), String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .restore_image(image)
+    }
+
+    /// 按快照重建任务。
+    #[allow(clippy::too_many_arguments)]
+    pub fn restore_parts(
+        &self,
+        name: &str,
+        slot: usize,
+        context: C,
+        parent: Option<u64>,
+        arena_used: u64,
+        pages: &[Page],
+    ) -> Result<usize, String> {
+        self.runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))?
+            .restore_parts(name, slot, context, parent, arena_used, pages)
+    }
+
+    /// 读取快照镜像片段。
+    pub fn checkpoint_chunk(&self, name: &str, offset: u64, length: usize) -> Option<Vec<u8>> {
+        self.runtime
+            .lock()
+            .as_ref()?
+            .checkpoint_chunk(name, offset, length)
     }
 
     /// 终止一个未在 CPU 上执行的任务。

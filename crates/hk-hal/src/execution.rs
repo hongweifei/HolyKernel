@@ -2,6 +2,9 @@
 
 /// 用户态执行现场。
 pub trait UserContext: Copy {
+    /// 序列化现场所需的字节数；`0` 表示不支持序列化。
+    const SAVED_BYTES: usize = 0;
+
     /// 以保存的现场恢复用户态执行，返回时线程已阻塞或退出。
     fn resume(&self);
 
@@ -10,6 +13,14 @@ pub trait UserContext: Copy {
 
     /// 构造同地址空间新线程的入口现场。
     fn for_thread(entry: u64, stack_top: u64, argument: u64) -> Self;
+
+    /// 把现场写入 `out`；默认不支持。
+    fn save(&self, _out: &mut [u8]) {}
+
+    /// 从字节恢复现场；默认不支持。
+    fn load(_bytes: &[u8]) -> Option<Self> {
+        None
+    }
 }
 
 /// 系统调用帧的寄存器视图。

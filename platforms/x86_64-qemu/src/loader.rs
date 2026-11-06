@@ -124,7 +124,7 @@ pub fn run(
             // Checkpoint Server 自检：服务、目标任务与客户端。
             return matches!(
                 name,
-                "hk-server-echo" | "hk-server-checkpoint" | "hk-server-checkpoint-test"
+                "hk-server-echo" | "hk-server-path" | "hk-server-checkpoint" | "hk-server-checkpoint-test"
             );
         }
         if desktop {

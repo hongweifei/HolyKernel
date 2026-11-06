@@ -18,6 +18,29 @@ fn formatted() -> MemoryDisk {
 }
 
 #[test]
+fn writes_multiple_binary_chunks() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let mut documents = Vec::new();
+    for index in 0..8u64 {
+        let name = alloc::format!("bin{index}");
+        let document = fs
+            .create(root, &name, DocumentKind::Content)
+            .expect("创建");
+        let data: Vec<u8> = (0..16 * 1024)
+            .map(|offset| (((offset as u64 + index * 17) * 37) % 251) as u8)
+            .collect();
+        fs.write_range(document, 0, &data).expect("写");
+        documents.push((document, data));
+    }
+    for (document, data) in documents {
+        let mut buffer = vec![0_u8; data.len()];
+        fs.read_range(document, 0, &mut buffer).expect("读");
+        assert_eq!(buffer, data);
+    }
+}
+
+#[test]
 fn creates_writes_and_reads_files() {
     let mut fs = HolyFs::mount(formatted()).expect("挂载");
     let root = fs.root();
