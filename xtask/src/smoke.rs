@@ -396,6 +396,7 @@ impl SmokeMode {
                 "hk-server-holydoc: drives ok",
                 "hk-server-holydoc: document H:/Welcome",
                 "hk-server-holydoc: document H:/System/Overview",
+                "hk-server-holydoc: render worker ok",
                 "hk-server-holydoc: ready 1",
                 "hk-server-holydoc: doc H:/Welcome",
                 "hk-server-holydoc: drive docs ",
