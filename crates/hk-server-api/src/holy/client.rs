@@ -13,12 +13,12 @@ use super::wire::{
     DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ACQUIRE, OP_ACQUIRE_VOLUME,
     OP_ATTACH_DRIVE, OP_CHECK, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT,
     OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID,
-    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN,
-    OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
-    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SNAPSHOT, OP_SNAPSHOTS,
-    OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID,
-    OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, REQUEST,
-    RESPONSE,
+    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_READ, OP_READ_ID,
+    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE,
+    OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB,
+    OP_SEAL, OP_SNAPSHOT, OP_SNAPSHOTS, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
+    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID,
+    OP_WRITE_TOKEN, REQUEST, RESPONSE,
 };
 
 /// 固定缓冲 Holy 文档客户端。
@@ -290,6 +290,29 @@ impl HolyClient {
     pub fn scrub(&mut self, token: u64) -> Result<MaintenanceView, u8> {
         let length = self.exchange(OP_SCRUB, "", token, 0, &[])?;
         decode_maintenance(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 封存修订。
+    pub fn seal(&mut self, token: u64, revision: RevisionId) -> Result<(), u8> {
+        self.exchange(OP_SEAL, "", token, 0, &revision.to_le_bytes())
+            .map(|_| ())
+    }
+
+    /// 裁剪文档修订链并回收旧块。
+    pub fn prune(
+        &mut self,
+        token: u64,
+        document: DocId,
+        keep_last: u64,
+    ) -> Result<MaintenanceView, u8> {
+        let length = self.exchange(OP_PRUNE, "", token, keep_last, &document.to_le_bytes())?;
+        decode_maintenance(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
+    }
+
+    /// 显式销毁文档及其修订链。
+    pub fn purge(&mut self, token: u64, document: DocId) -> Result<(), u8> {
+        self.exchange(OP_PURGE, "", token, 0, &document.to_le_bytes())
+            .map(|_| ())
     }
 
     /// 获取文档令牌。

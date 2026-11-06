@@ -199,6 +199,48 @@ fn scrub_reclaims_leaked_blocks() {
 }
 
 #[test]
+fn prune_keeps_recent_and_sealed_revisions() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    fs.write_range(document, 0, b"one").expect("写一");
+    let first = fs.document_info(document).expect("元数据").head;
+    fs.write_range(document, 0, b"two").expect("写二");
+    fs.write_range(document, 0, b"three").expect("写三");
+    let third = fs.document_info(document).expect("元数据").head;
+    fs.seal(first).expect("封存");
+    let report = fs.prune(document, 1).expect("裁剪");
+    assert!(report.repaired_blocks > 0);
+    assert_eq!(fs.document_info(document).expect("元数据").head, third);
+    let revisions = fs.revisions_of(document).expect("修订链");
+    assert_eq!(revisions.len(), 1);
+    assert_eq!(revisions[0].id, third);
+    let mut buffer = [0_u8; 8];
+    assert_eq!(
+        fs.read_range_at(document, first, 0, &mut buffer)
+            .expect("旧修订"),
+        3
+    );
+    assert_eq!(&buffer[..3], b"one");
+    assert_eq!(fs.check().expect("复检").leaked_blocks, 0);
+}
+
+#[test]
+fn purge_removes_document_and_rejects_snapshot_pins() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    fs.write_range(document, 0, b"data").expect("写");
+    let snapshot = fs.snapshot("pin").expect("快照");
+    assert_eq!(fs.purge(document), Err(HolyError::Pinned));
+    fs.forget(snapshot).expect("释放快照");
+    fs.purge(document).expect("销毁");
+    assert_eq!(fs.lookup(root, "doc"), Err(HolyError::NotFound));
+    assert!(fs.read_range(document, 0, &mut [0_u8; 4]).is_err());
+    assert_eq!(fs.check().expect("复检").leaked_blocks, 0);
+}
+
+#[test]
 fn detects_content_hash_damage() {
     let disk = Rc::new(RefCell::new(formatted()));
     {

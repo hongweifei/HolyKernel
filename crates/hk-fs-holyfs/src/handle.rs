@@ -251,6 +251,25 @@ impl<D: BlockDevice> HolyFs<D> {
         self.state.borrow_mut().repair()
     }
 
+    /// 封存修订。
+    pub fn seal(&mut self, revision: RevisionId) -> Result<(), HolyError> {
+        self.state.borrow_mut().seal(revision)
+    }
+
+    /// 裁剪文档修订链并回收旧块。
+    pub fn prune(
+        &mut self,
+        document: DocId,
+        keep_last: u64,
+    ) -> Result<crate::MaintenanceReport, HolyError> {
+        self.state.borrow_mut().prune(document, keep_last)
+    }
+
+    /// 显式销毁文档及其修订链。
+    pub fn purge(&mut self, document: DocId) -> Result<(), HolyError> {
+        self.state.borrow_mut().purge(document)
+    }
+
     #[cfg(test)]
     pub(crate) fn allocate_leak(&mut self, count: u64) -> Result<u64, HolyError> {
         self.state.borrow_mut().allocate_leak(count)

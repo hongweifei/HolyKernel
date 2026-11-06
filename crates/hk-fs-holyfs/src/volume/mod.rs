@@ -6,6 +6,7 @@ mod content;
 mod maintenance;
 mod metadata;
 mod persist;
+mod retention;
 mod snapshot;
 mod tags;
 

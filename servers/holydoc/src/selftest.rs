@@ -246,6 +246,43 @@ pub(crate) fn verify_maintenance(endpoint: u64) -> bool {
         && released
 }
 
+/// 验证封存、裁剪、GC 与显式销毁。
+pub(crate) fn verify_retention(endpoint: u64) -> bool {
+    let mut client = Box::new(HolyClient::new(endpoint));
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.create(root, "RetentionProbe", DocumentKind::Content) else {
+        return false;
+    };
+    let Ok(first) = client.write_id(document, 0, b"one") else {
+        return false;
+    };
+    if client.write_id(document, 0, b"two").is_err()
+        || client.write_id(document, 0, b"three").is_err()
+    {
+        return false;
+    }
+    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+        return false;
+    };
+    let sealed = client.seal(admin, first).is_ok();
+    let pruned = client
+        .prune(admin, document, 1)
+        .is_ok_and(|report| report.repaired_blocks > 0);
+    let mut buffer = [0_u8; 8];
+    let content_ok = client
+        .read_id(document, 0, &mut buffer)
+        .is_ok_and(|length| &buffer[..length] == b"three");
+    let purged = client.purge(admin, document).is_ok()
+        && client.resolve(root, "RetentionProbe") == Err(STATUS_NOT_FOUND);
+    let clean = client
+        .check(admin)
+        .is_ok_and(|report| report.leaked_blocks == 0);
+    let released = client.release_volume(admin).is_ok();
+    sealed && pruned && content_ok && purged && clean && released
+}
+
 /// 执行脚本化的导航、滚动与退出。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -282,6 +319,11 @@ pub(crate) fn run(
         write(b"hk-server-holydoc: maintenance ok\n");
     } else {
         write(b"hk-server-holydoc: maintenance failed\n");
+    }
+    if verify_retention(endpoint) {
+        write(b"hk-server-holydoc: retention ok\n");
+    } else {
+        write(b"hk-server-holydoc: retention failed\n");
     }
     if let Some((x, y, target)) = view.first_link() {
         write(b"hk-server-holydoc: click ");

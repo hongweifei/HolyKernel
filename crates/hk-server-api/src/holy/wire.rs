@@ -99,6 +99,12 @@ pub const OP_CHECK: u8 = 45;
 pub const OP_REPAIR: u8 = 46;
 /// 校验并回收泄漏块。
 pub const OP_SCRUB: u8 = 47;
+/// 封存修订。
+pub const OP_SEAL: u8 = 48;
+/// 裁剪修订链并回收旧块。
+pub const OP_PRUNE: u8 = 49;
+/// 显式销毁文档及其修订链。
+pub const OP_PURGE: u8 = 50;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;

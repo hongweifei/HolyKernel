@@ -192,8 +192,8 @@ flowchart LR
 
 ### 修订保留
 
-- 卷默认保留最近 16 条未封存修订与全部封存修订；配额按卷配置。
-- `Seal(revision)` 把修订标记为保留；`Prune(handle, keep_last, expected)` 生成新的基线修订，保留最近 `keep_last` 条未封存修订与全部封存修订，旧修订随后回收。
+- `Prune(document, keep_last)` 显式保留最近 `keep_last` 条未封存修订、全部封存修订与快照固定修订；其余旧修订由随后的 GC 回收。
+- `Seal(revision)` 把修订标记为保留，使其不参与自动裁剪。
 - 历史保持单链；`Checkout` 提供只读视图；派生新文档通过 `Clone` 生成独立 DocId（规划）。
 - `Purge` 是显式销毁；快照固定时返回 `Pinned`，释放快照后可再次 `Purge`。
 
@@ -260,6 +260,9 @@ flowchart LR
 | `Snapshots(volume)`                   | 枚举快照                       |
 | `Forget(volume, snapshot)`            | 释放快照固定                     |
 | `Check` / `Repair` / `Scrub`          | 在线校验、修复与回收；需要卷 ADMIN 令牌 |
+| `Seal(revision)`                      | 封存修订，不参与自动裁剪；需要 ADMIN 令牌 |
+| `Prune(document, keep_last)`          | 保留最近未封存修订、封存与快照固定修订，随后 GC；需要 ADMIN 令牌 |
+| `Purge(document)`                     | 显式销毁文档、集合项、标签关系与修订链；快照固定时返回 `Pinned` |
 
 ### Collection
 
@@ -459,8 +462,9 @@ flowchart LR
 | 快照：创建/枚举/恢复/释放，固定文档表、标签视图与根修订 | 已实现 |
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
-| 分配组、修订保留/GC | 规划 |
+| 分配组 | 规划 |
 | 流式写、压缩、去重、配额 | 规划 |
+| 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
 | ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |
 
@@ -480,6 +484,7 @@ crates/hk-fs-holyfs/src/
 ├── volume/         卷状态、内容、元数据、标签与提交
 │   ├── mod.rs      卷状态、挂载与提交入口
 │   ├── maintenance.rs Check/Scrub/Repair
+│   ├── retention.rs Seal/Prune/Purge 与 GC
 │   ├── content.rs  内容读写与内容修订
 │   ├── metadata.rs 集合项、路径解析与文档视图
 │   ├── tags.rs     标签与成员关系
