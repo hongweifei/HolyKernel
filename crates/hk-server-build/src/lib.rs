@@ -6,14 +6,7 @@
 
 use std::path::PathBuf;
 
-/// 所有服务共享的镜像区起始地址。
-///
-/// 256 MiB：低于固定映射（网络 768 MiB、surface 1.25 GiB 等），也低于
-/// x86_64 小代码模型的 2 GiB 上限。
-pub const IMAGE_BASE: u64 = 0x1000_0000;
-
-/// 共享镜像区的结束地址（不含）。
-pub const IMAGE_LIMIT: u64 = 0x1100_0000;
+pub use hk_hal::user::{IMAGE_BASE, IMAGE_LIMIT};
 
 /// 为当前包生成链接脚本。
 ///
@@ -103,5 +96,5 @@ SECTIONS
 const _: () = {
     assert!(IMAGE_BASE.is_multiple_of(0x1000));
     assert!(IMAGE_LIMIT > IMAGE_BASE);
-    assert!(IMAGE_LIMIT <= 0x3000_0000);
+    assert!(IMAGE_LIMIT <= hk_hal::user::AUTO_WINDOW_BASE);
 };

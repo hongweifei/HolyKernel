@@ -63,12 +63,6 @@ const UDP_LOCAL_PORT: u16 = 40001;
 /// 对外报告的接口 MTU。
 #[cfg(target_os = "none")]
 const MTU: u16 = 1500;
-/// Network Server 侧共享接收帧虚拟基址。
-#[cfg(target_os = "none")]
-const SERVER_RX_BASE: u64 = 0x3000_0000;
-/// Network Server 侧共享发送帧虚拟基址。
-#[cfg(target_os = "none")]
-const SERVER_TX_BASE: u64 = 0x3010_0000;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 5_000;
 #[cfg(target_os = "none")]

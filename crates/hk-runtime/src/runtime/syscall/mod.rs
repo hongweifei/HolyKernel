@@ -120,7 +120,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_DMA_ALLOC => {
                 let grant_number = frame.arg0() as usize;
                 let length = frame.arg1() as usize;
-                let virt = frame.arg2();
+                let out = frame.arg2();
                 let Some(handle) = self.grant_at(index, grant_number) else {
                     frame.set_result(0);
                     return Switch::Continue;
@@ -140,20 +140,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .iter()
                     .find(|(bound, _)| *bound == handle)
                     .map_or(0, |(_, used)| *used);
-                if length == 0
-                    || aligned > range.len().saturating_sub(used)
-                    || !virt.is_multiple_of(page)
-                    || !self.platform.map_dma(
-                        index,
-                        virt,
-                        range.start().get() + used,
-                        aligned as usize,
-                    )
-                {
+                if length == 0 || aligned > range.len().saturating_sub(used) || out == 0 {
+                    frame.set_result(0);
+                    return Switch::Continue;
+                }
+                let Some(virt) = self.tasks[index].user_window.allocate(aligned as usize) else {
+                    frame.set_result(0);
+                    return Switch::Continue;
+                };
+                if !self.platform.write_user(out, &virt.to_le_bytes()) {
+                    self.tasks[index].user_window.release(virt);
                     frame.set_result(0);
                     return Switch::Continue;
                 }
                 let phys = range.start().get() + used;
+                if !self.platform.map_dma(index, virt, phys, aligned as usize) {
+                    self.tasks[index].user_window.release(virt);
+                    frame.set_result(0);
+                    return Switch::Continue;
+                }
                 let iova = hk_hal::Iova::new(phys);
                 let domain = hk_hal::IommuDomain::new(
                     (u32::from(grant.address.bus) << 8)
@@ -170,6 +175,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         )
                         .is_err()
                 {
+                    let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+                    self.tasks[index].user_window.release(virt);
                     frame.set_result(0);
                     return Switch::Continue;
                 }

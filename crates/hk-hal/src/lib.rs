@@ -23,6 +23,7 @@ pub mod physical;
 pub mod platform;
 pub mod power;
 pub mod time;
+pub mod user;
 pub mod user_memory;
 
 /// 支持的 CPU 数量上限。

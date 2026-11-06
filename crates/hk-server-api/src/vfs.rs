@@ -45,12 +45,6 @@ pub const OP_WRITE_FRAME: u8 = 15;
 
 /// 客户端共享帧长度。
 pub const VFS_FRAME_LEN: usize = 60 * 1024;
-/// 客户端共享帧在本任务中的固定映射地址。
-pub const VFS_FRAME_VIRT: u64 = 0x7000_0000;
-/// VFS 服务端映射客户端帧的起始地址。
-pub const VFS_SERVER_FRAME_BASE: u64 = 0x7100_0000;
-/// VFS 服务端每个客户端帧的地址间距。
-pub const VFS_SERVER_FRAME_STRIDE: u64 = 0x10000;
 
 /// 打开读权限。
 pub const OPEN_READ: u64 = 1 << 0;
@@ -199,6 +193,7 @@ pub struct VfsClient {
     request: [u8; BUFFER],
     response: [u8; BUFFER],
     frame: Option<u64>,
+    frame_virt: u64,
     attached: u64,
 }
 
@@ -209,7 +204,7 @@ impl Drop for VfsClient {
             if endpoint != 0 {
                 let _ = send_data(endpoint, VFS_DETACH, &[]);
             }
-            let _ = crate::frame_unmap(VFS_FRAME_VIRT, VFS_FRAME_LEN);
+            let _ = crate::frame_unmap(self.frame_virt, VFS_FRAME_LEN);
             let _ = crate::close_handle(number);
         }
     }
@@ -257,6 +252,7 @@ impl VfsClient {
             request: [0; BUFFER],
             response: [0; BUFFER],
             frame: None,
+            frame_virt: 0,
             attached: 0,
         }
     }
@@ -270,11 +266,11 @@ impl VfsClient {
             return Ok(endpoint);
         }
         if self.frame.is_none() {
-            let number = frame_alloc(VFS_FRAME_LEN, VFS_FRAME_VIRT);
-            if number == 0 || number == u64::MAX {
+            let Some((number, virt)) = frame_alloc(VFS_FRAME_LEN) else {
                 return Err(STATUS_IO);
-            }
+            };
             self.frame = Some(number);
+            self.frame_virt = virt;
         }
         let number = self.frame.ok_or(STATUS_IO)?;
         let duplicate = handle_duplicate(
@@ -294,8 +290,8 @@ impl VfsClient {
 
     /// 返回客户端共享帧。
     pub fn frame(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_FRAME_ALLOC 把 VFS_FRAME_LEN 字节映射到 VFS_FRAME_VIRT。
-        unsafe { core::slice::from_raw_parts_mut(VFS_FRAME_VIRT as *mut u8, VFS_FRAME_LEN) }
+        // SAFETY: SYS_FRAME_ALLOC 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
+        unsafe { core::slice::from_raw_parts_mut(self.frame_virt as *mut u8, VFS_FRAME_LEN) }
     }
 
     /// 从共享帧读取文件内容，返回字节数。

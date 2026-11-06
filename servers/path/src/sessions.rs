@@ -3,7 +3,6 @@
 use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_frame, unregister_client_frame};
-use hk_server_api::vfs::{VFS_SERVER_FRAME_BASE, VFS_SERVER_FRAME_STRIDE};
 use hk_server_api::{close_handle, frame_map, frame_unmap};
 use hk_vfs::{FileHandle, Vfs};
 
@@ -42,7 +41,6 @@ impl Session {
 pub(crate) struct Sessions {
     clients: BTreeMap<u64, Session>,
     frames: BTreeMap<u64, (u64, usize, u64)>,
-    next_frame: usize,
 }
 
 #[cfg(target_os = "none")]
@@ -51,7 +49,6 @@ impl Sessions {
         Self {
             clients: BTreeMap::new(),
             frames: BTreeMap::new(),
-            next_frame: 0,
         }
     }
 
@@ -63,8 +60,11 @@ impl Sessions {
         if length == 0 || length > hk_server_api::vfs::VFS_FRAME_LEN {
             return false;
         }
-        let virt = VFS_SERVER_FRAME_BASE + self.next_frame as u64 * VFS_SERVER_FRAME_STRIDE;
-        if frame_map(handle, virt) != length as u64 {
+        let Some((mapped, virt)) = frame_map(handle) else {
+            return false;
+        };
+        if mapped != length as u64 {
+            let _ = frame_unmap(virt, mapped as usize);
             return false;
         }
         if let Some((old_virt, old_len, old_handle)) =
@@ -75,7 +75,6 @@ impl Sessions {
             unregister_client_frame(old_virt);
         }
         register_client_frame(virt, handle, length);
-        self.next_frame += 1;
         true
     }
 

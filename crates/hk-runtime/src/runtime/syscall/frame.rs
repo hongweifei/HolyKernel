@@ -5,32 +5,24 @@ use super::*;
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn frame_alloc(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let length = frame.arg0() as usize;
-        let requested = frame.arg1();
-        let out = frame.arg2();
+        let out = frame.arg1();
         let page = hk_hal::PAGE_SIZE as u64;
-        if length == 0 || (requested != 0 && !requested.is_multiple_of(page)) {
+        if length == 0 || out == 0 {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(page) * page;
-        let virt = if requested == 0 {
-            let Some(virt) = self.tasks[index].frame_window.allocate(aligned as usize) else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            if out == 0 || !self.platform.write_user(out, &virt.to_le_bytes()) {
-                self.tasks[index].frame_window.release(virt);
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            }
-            virt
-        } else {
-            requested
+        let Some(virt) = self.tasks[index].user_window.allocate(aligned as usize) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
         };
+        if !self.platform.write_user(out, &virt.to_le_bytes()) {
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Some(range) = self.platform.dma_window(aligned as usize) else {
-            if requested == 0 {
-                self.tasks[index].frame_window.release(virt);
-            }
+            self.tasks[index].user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -42,9 +34,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Ok(handle) => handle,
             Err(_) => {
                 self.platform.dma_free(range);
-                if requested == 0 {
-                    self.tasks[index].frame_window.release(virt);
-                }
+                self.tasks[index].user_window.release(virt);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -55,9 +45,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             let _ = self.kernel.close_handle(tcb, handle);
             self.platform.dma_free(range);
-            if requested == 0 {
-                self.tasks[index].frame_window.release(virt);
-            }
+            self.tasks[index].user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -68,37 +56,29 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     pub(crate) fn frame_map(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
-        let requested = frame.arg1();
-        let out = frame.arg2();
+        let out = frame.arg1();
         let Some((_, range)) = self.frame_at(index, number) else {
             frame.set_result(0);
             return Switch::Continue;
         };
-        let virt = if requested == 0 {
-            let Some(virt) = self.tasks[index]
-                .frame_window
-                .allocate(range.len() as usize)
-            else {
-                frame.set_result(0);
-                return Switch::Continue;
-            };
-            if out == 0 || !self.platform.write_user(out, &virt.to_le_bytes()) {
-                self.tasks[index].frame_window.release(virt);
-                frame.set_result(0);
-                return Switch::Continue;
-            }
-            virt
-        } else {
-            requested
+        if out == 0 {
+            frame.set_result(0);
+            return Switch::Continue;
+        }
+        let Some(virt) = self.tasks[index].user_window.allocate(range.len() as usize) else {
+            frame.set_result(0);
+            return Switch::Continue;
         };
-        if !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
-            || !self
-                .platform
-                .map_dma(index, virt, range.start().get(), range.len() as usize)
+        if !self.platform.write_user(out, &virt.to_le_bytes()) {
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(0);
+            return Switch::Continue;
+        }
+        if !self
+            .platform
+            .map_dma(index, virt, range.start().get(), range.len() as usize)
         {
-            if requested == 0 {
-                self.tasks[index].frame_window.release(virt);
-            }
+            self.tasks[index].user_window.release(virt);
             frame.set_result(0);
         } else {
             frame.set_result(range.len());
@@ -111,7 +91,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let length = frame.arg1() as usize;
         let result = u64::from(self.platform.unmap_dma(index, virt, length));
         if result != 0 {
-            self.tasks[index].frame_window.release(virt);
+            self.tasks[index].user_window.release(virt);
         }
         frame.set_result(result);
         Switch::Continue

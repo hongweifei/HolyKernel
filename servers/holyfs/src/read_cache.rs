@@ -10,8 +10,6 @@ use hk_worker::Pool;
 
 use crate::volumes::ServiceDisk;
 
-/// 缓存帧的虚拟地址。
-const CACHE_VIRT: u64 = 0x6000_0000;
 /// 单篇缓存上限。
 const MAX_CACHE: usize = 2 * 1024 * 1024;
 
@@ -120,11 +118,10 @@ impl ReadCache {
         if self.virt != 0 {
             return true;
         }
-        let handle = frame_alloc(MAX_CACHE, CACHE_VIRT);
-        if handle == 0 || handle == u64::MAX {
+        let Some((_handle, virt)) = frame_alloc(MAX_CACHE) else {
             return false;
-        }
-        self.virt = CACHE_VIRT;
+        };
+        self.virt = virt;
         true
     }
 }

@@ -11,10 +11,8 @@
 use core::ptr::write_volatile;
 
 use hk_hal::irq::IRQ_VECTOR_BASE;
-use hk_server_api::{device_map, pci_read, pci_write};
+use hk_server_api::{pci_read, pci_write};
 
-/// 与 `hal.rs` 的 MMIO 映射基址保持一致。
-const MMIO_BASE: u64 = 0x6000_0000;
 /// MSI 目标：xAPIC 物理目的地模式，目标 APIC 为 0。
 const MSI_ADDRESS: u32 = 0xFEE0_0000;
 /// MSI-X capability 的 ID。
@@ -68,10 +66,7 @@ pub fn enable(grant: u64) -> Option<Msix> {
     if table_offset + 16 * u64::from(entries) > range.len {
         return None;
     }
-    let base = MMIO_BASE + bar as u64 * 0x1_0000;
-    if device_map(grant, bar as u64, base) != 0 {
-        return None;
-    }
+    let base = crate::hal::mmio_virt(grant, &descriptor, bar)?;
     let table = base + table_offset;
 
     for entry in 0..u64::from(entries) {
@@ -87,7 +82,7 @@ pub fn enable(grant: u64) -> Option<Msix> {
 
     write16(capability + 2, (control | 0x8000) & !0x4000);
     write_config(0x04, read(0x04) | 0x0400);
-    route_queues(&read, &descriptor);
+    route_queues(grant, &read, &descriptor);
     Some(Msix { entries, vector })
 }
 
@@ -110,7 +105,7 @@ fn find_capability(read: &impl Fn(u8) -> u32, id: u8) -> Option<u8> {
 /// 在 virtio common config 中把全部队列指向 MSI-X 表项 0。
 ///
 /// 队列未绑定表项时设备不会发中断；这里填的是表项索引，不是 CPU 向量。
-fn route_queues(read: &impl Fn(u8) -> u32, descriptor: &hk_hal::DeviceGrant) {
+fn route_queues(grant: u64, read: &impl Fn(u8) -> u32, descriptor: &hk_hal::DeviceGrant) {
     let Some(offset) = find_capability(read, 0x09) else {
         return;
     };
@@ -128,7 +123,10 @@ fn route_queues(read: &impl Fn(u8) -> u32, descriptor: &hk_hal::DeviceGrant) {
         return;
     }
     let config_offset = u64::from(read(offset + 8));
-    let common = MMIO_BASE + bar * 0x1_0000 + config_offset;
+    let Some(base) = crate::hal::mmio_virt(grant, descriptor, bar as usize) else {
+        return;
+    };
+    let common = base + config_offset;
     // SAFETY: common config 落在已授权的 MMIO BAR 内。
     unsafe {
         let count = core::ptr::read_volatile((common + 18) as *const u16);

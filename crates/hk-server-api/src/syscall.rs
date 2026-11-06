@@ -340,16 +340,38 @@ pub fn device_grant_create(encoded: &[u8]) -> u64 {
     }
 }
 
-/// 把 DeviceGrant 指定的 MMIO 范围映射到 `virt`。
-pub fn device_map(grant: u64, index: u64, virt: u64) -> u64 {
-    // SAFETY: 内核校验授权范围与目标地址。
-    unsafe { syscall_call(SYS_DEVICE_MAP, grant, index, virt, 0).value }
+/// 把 DeviceGrant 指定的 MMIO 范围映射到内核选择的虚拟地址。
+pub fn device_map(grant: u64, index: u64) -> Option<u64> {
+    let mut virt = 0_u64;
+    // SAFETY: `virt` 位于本栈帧；内核校验授权范围后写入映射地址。
+    let result = unsafe {
+        syscall_call(
+            SYS_DEVICE_MAP,
+            grant,
+            index,
+            &mut virt as *mut u64 as u64,
+            0,
+        )
+        .value
+    };
+    (result != u64::MAX && virt != 0).then_some(virt)
 }
 
-/// 从 DeviceGrant 的 DMA 窗口映射 `virt`，返回设备可见物理地址。
-pub fn dma_alloc(grant: u64, len: usize, virt: u64) -> u64 {
-    // SAFETY: 内核校验授权、长度与目标地址并完成映射。
-    unsafe { syscall_call(SYS_DMA_ALLOC, grant, len as u64, virt, 0).value }
+/// 从 DeviceGrant 的 DMA 窗口分配并映射，返回设备可见物理地址与用户虚拟地址。
+pub fn dma_alloc(grant: u64, len: usize) -> Option<(u64, u64)> {
+    let mut virt = 0_u64;
+    // SAFETY: `virt` 位于本栈帧；内核校验授权与长度后写入映射地址。
+    let phys = unsafe {
+        syscall_call(
+            SYS_DMA_ALLOC,
+            grant,
+            len as u64,
+            &mut virt as *mut u64 as u64,
+            0,
+        )
+        .value
+    };
+    (phys != 0 && virt != 0).then_some((phys, virt))
 }
 
 /// 把 DeviceGrant 的中断线绑定到通知位。
@@ -391,22 +413,16 @@ pub fn self_notification() -> u64 {
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
 }
 
-/// 分配共享 Frame 并映射到 `virt`，返回帧句柄编号。
-pub fn frame_alloc(length: usize, virt: u64) -> u64 {
-    // SAFETY: 内核校验长度与目标地址后分配并映射。
-    unsafe { syscall_call(SYS_FRAME_ALLOC, length as u64, virt, 0, 0).value }
-}
-
-/// 分配共享 Frame 并让内核选择虚拟地址，返回帧句柄编号与映射地址。
-pub fn frame_alloc_any(length: usize) -> Option<(u64, u64)> {
+/// 分配共享 Frame 并映射到内核选择的虚拟地址，返回帧句柄编号与映射地址。
+pub fn frame_alloc(length: usize) -> Option<(u64, u64)> {
     let mut virt = 0_u64;
     // SAFETY: `virt` 位于本栈帧；内核校验长度后写入所选地址。
     let handle = unsafe {
         syscall_call(
             SYS_FRAME_ALLOC,
             length as u64,
-            0,
             &mut virt as *mut u64 as u64,
+            0,
             0,
         )
         .value
@@ -414,18 +430,12 @@ pub fn frame_alloc_any(length: usize) -> Option<(u64, u64)> {
     (handle != u64::MAX && virt != 0).then_some((handle, virt))
 }
 
-/// 把 Frame 映射到调用者地址空间，返回长度。
-pub fn frame_map(number: u64, virt: u64) -> u64 {
-    // SAFETY: 内核校验帧句柄与目标地址。
-    unsafe { syscall_call(SYS_FRAME_MAP, number, virt, 0, 0).value }
-}
-
 /// 把 Frame 映射到内核选择的虚拟地址，返回映射长度与地址。
-pub fn frame_map_any(number: u64) -> Option<(u64, u64)> {
+pub fn frame_map(number: u64) -> Option<(u64, u64)> {
     let mut virt = 0_u64;
     // SAFETY: `virt` 位于本栈帧；内核校验帧句柄后写入所选地址。
     let mapped =
-        unsafe { syscall_call(SYS_FRAME_MAP, number, 0, &mut virt as *mut u64 as u64, 0).value };
+        unsafe { syscall_call(SYS_FRAME_MAP, number, &mut virt as *mut u64 as u64, 0, 0).value };
     (mapped != 0 && virt != 0).then_some((mapped, virt))
 }
 

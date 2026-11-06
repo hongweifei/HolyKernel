@@ -27,17 +27,17 @@ use hk_syscall::{
     SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
-use frame_window::FrameWindow;
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
+use user_window::UserWindow;
 
 /// 随消息接收的句柄编号起点。
 mod arena;
-mod frame_window;
 mod platform;
 mod state;
 mod syscall;
 mod task;
 mod user_task;
+mod user_window;
 mod view;
 
 pub use arena::Arena;

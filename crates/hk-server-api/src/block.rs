@@ -23,10 +23,6 @@ pub const BLOCK_DETACH: u64 = 0x607;
 
 /// 每个客户端可用的共享帧槽位数量。
 pub const FRAME_SLOTS: u32 = 8;
-/// 块客户端共享 Frame 的固定映射地址基址。
-pub const FRAME_VIRT: u64 = 0x7000_0000;
-/// 相邻槽位的地址间隔。
-pub const FRAME_STRIDE: u64 = 0x1_0000;
 /// 单个共享 Frame 的长度。
 pub const FRAME_LEN: usize = 60 * 1024;
 

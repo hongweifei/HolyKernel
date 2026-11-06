@@ -33,8 +33,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, exit, fault_subscribe, frame_alloc_any, frame_unmap, kernel_stats, recv,
-    recv_data, recv_data_try, send, send_handle, write, write_u64,
+    close_handle, exit, fault_subscribe, frame_alloc, frame_unmap, kernel_stats, recv, recv_data,
+    recv_data_try, send, send_handle, write, write_u64,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -102,7 +102,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width * height * 4;
-    let Some((handle, mut surface_virt)) = frame_alloc_any(bytes) else {
+    let Some((handle, mut surface_virt)) = frame_alloc(bytes) else {
         write(b"hk-server-debug: frame alloc failed\n");
         exit(2)
     };
@@ -256,7 +256,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 if new_width != width || new_height != height {
                     let bytes = new_width * new_height * 4;
-                    let Some((handle, virt)) = frame_alloc_any(bytes) else {
+                    let Some((handle, virt)) = frame_alloc(bytes) else {
                         write(b"hk-server-debug: resize frame failed\n");
                         continue;
                     };

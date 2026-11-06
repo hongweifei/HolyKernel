@@ -41,7 +41,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn map_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let grant_number = frame.arg0() as usize;
         let resource = frame.arg1() as usize;
-        let virt = frame.arg2();
+        let out = frame.arg2();
         let Some(handle) = self.grant_at(index, grant_number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -54,11 +54,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
-            || !self
-                .platform
-                .map_mmio(index, virt, range.base, range.len as usize)
+        let page = hk_hal::PAGE_SIZE as u64;
+        let aligned = range.len.div_ceil(page) * page;
+        if out == 0 {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(virt) = self.tasks[index].user_window.allocate(aligned as usize) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !self.platform.write_user(out, &virt.to_le_bytes()) {
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if !self
+            .platform
+            .map_mmio(index, virt, range.base, aligned as usize)
         {
+            self.tasks[index].user_window.release(virt);
             frame.set_result(u64::MAX);
         } else {
             frame.set_result(0);

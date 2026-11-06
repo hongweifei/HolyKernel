@@ -26,8 +26,8 @@ struct RxDesc {
 
 /// 共享环状态。
 struct SharedQueue {
-    rx_base: u64,
-    tx_base: u64,
+    rx: Vec<u64>,
+    tx: Vec<u64>,
     frame_len: usize,
     rx_ready: VecDeque<RxDesc>,
     rx_consumed: Vec<usize>,
@@ -53,15 +53,15 @@ impl FrameQueue {
         }
     }
 
-    /// 启用共享帧环；`tx_count` 个发送帧初始可用。
-    pub fn enable_shared(&mut self, rx_base: u64, tx_base: u64, frame_len: usize, tx_count: usize) {
+    /// 启用共享帧环。
+    pub fn enable_shared(&mut self, rx: Vec<u64>, tx: Vec<u64>, frame_len: usize) {
         let mut tx_free = VecDeque::new();
-        for index in 0..tx_count {
+        for index in 0..tx.len() {
             tx_free.push_back(index);
         }
         self.shared = Some(SharedQueue {
-            rx_base,
-            tx_base,
+            rx,
+            tx,
             frame_len,
             rx_ready: VecDeque::new(),
             rx_consumed: Vec::new(),
@@ -76,7 +76,8 @@ impl FrameQueue {
         if offset.saturating_add(length) > shared.frame_len {
             return None;
         }
-        let address = shared.rx_base + (index * shared.frame_len + offset) as u64;
+        let base = *shared.rx.get(index)?;
+        let address = base + offset as u64;
         // SAFETY: 描述由驱动在完成通知中给出，归还前该帧只读；长度已校验。
         Some(unsafe { core::slice::from_raw_parts(address as *const u8, length) })
     }
@@ -153,9 +154,9 @@ impl Device for FrameQueue {
             let shared = self.shared.as_mut()?;
             // 只查看队首，真正占用留到 `consume`；未使用的 token 不会泄漏帧。
             let index = *shared.tx_free.front()?;
+            let virt = shared.tx.get(index).copied()?;
             return Some(QueueTxToken::Shared(SharedTxToken {
-                base: shared.tx_base,
-                frame_len: shared.frame_len,
+                virt,
                 index,
                 free: &mut shared.tx_free,
                 pending: &mut shared.tx_pending,
@@ -182,15 +183,15 @@ impl FrameQueue {
         // 没有空闲发送帧时先不取走接收帧，避免丢包。
         let index = *shared.tx_free.front()?;
         let desc = shared.rx_ready.pop_front()?;
+        let virt = *shared.rx.get(desc.index)?;
         let rx = QueueRxToken::Shared(SharedRxToken {
-            base: shared.rx_base,
-            frame_len: shared.frame_len,
+            virt,
             desc,
             consumed: &mut shared.rx_consumed,
         });
+        let tx_virt = *shared.tx.get(index)?;
         let tx = QueueTxToken::Shared(SharedTxToken {
-            base: shared.tx_base,
-            frame_len: shared.frame_len,
+            virt: tx_virt,
             index,
             free: &mut shared.tx_free,
             pending: &mut shared.tx_pending,
@@ -246,8 +247,7 @@ impl TxToken for QueueTxToken<'_> {
 
 /// 共享接收 token。
 pub struct SharedRxToken<'a> {
-    base: u64,
-    frame_len: usize,
+    virt: u64,
     desc: RxDesc,
     consumed: &'a mut Vec<usize>,
 }
@@ -257,7 +257,7 @@ impl SharedRxToken<'_> {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        let address = self.base + (self.desc.index * self.frame_len + self.desc.offset) as u64;
+        let address = self.virt + self.desc.offset as u64;
         // SAFETY: 该帧由驱动注册并与协议栈共享；描述来自驱动的完成通知，
         // 在归还前协议栈独占读取。
         let bytes = unsafe { core::slice::from_raw_parts(address as *const u8, self.desc.len) };
@@ -274,8 +274,7 @@ impl Drop for SharedRxToken<'_> {
 
 /// 共享发送 token。
 pub struct SharedTxToken<'a> {
-    base: u64,
-    frame_len: usize,
+    virt: u64,
     index: usize,
     free: &'a mut VecDeque<usize>,
     pending: &'a mut Vec<(usize, usize)>,
@@ -290,7 +289,7 @@ impl SharedTxToken<'_> {
         if self.free.front().copied() == Some(self.index) {
             self.free.pop_front();
         }
-        let address = self.base + (self.index * self.frame_len + TX_HEADER) as u64;
+        let address = self.virt + TX_HEADER as u64;
         // SAFETY: 该帧已从空闲表取出，归还前独占写入；`TX_HEADER` 之外
         // 的空间由协议栈使用，驱动只在收到发送消息后读取。
         let bytes = unsafe { core::slice::from_raw_parts_mut(address as *mut u8, len) };

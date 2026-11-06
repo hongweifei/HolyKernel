@@ -33,10 +33,11 @@ pub(crate) fn handle(
 ) -> (u8, usize) {
     match request.op {
         OP_OPEN => {
-            let mut flags = OpenFlags::default();
-            flags.read = request.arg0 & OPEN_READ != 0;
-            flags.write = request.arg0 & OPEN_WRITE != 0;
-            flags.create = request.arg0 & OPEN_CREATE != 0;
+            let flags = OpenFlags {
+                read: request.arg0 & OPEN_READ != 0,
+                write: request.arg0 & OPEN_WRITE != 0,
+                create: request.arg0 & OPEN_CREATE != 0,
+            };
             match filesystem.open(request.path, flags) {
                 Ok(handle) => {
                     let id = session.insert(handle);

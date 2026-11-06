@@ -17,8 +17,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use crate::{AsyncBlockDevice, BlockDevice, BlockError, SECTOR_SIZE};
 use hk_server_api::block::{
     BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, FRAME_LEN,
-    FRAME_SLOTS, FRAME_STRIDE, FRAME_VIRT, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY,
-    STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE, attach_length, attach_slot, attach_word,
+    FRAME_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR,
+    STATUS_INVALID, STATUS_OK, STATUS_RANGE, attach_length, attach_slot, attach_word,
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
@@ -31,11 +31,7 @@ use hk_server_api::{
 const DIRECT_SLOT: usize = 0;
 /// 客户端自己管理的帧槽位起点。
 const OWN_SLOT_START: usize = 1;
-/// 服务端同时映射的帧上限。
-const MAX_SERVER_FRAMES: usize = 256;
-
 const CLIENT_FRAME_SLOTS: usize = 8;
-static NEXT_FRAME_VIRT: AtomicU64 = AtomicU64::new(0);
 static CLIENT_FRAME_VIRT: [AtomicU64; CLIENT_FRAME_SLOTS] =
     [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
 static CLIENT_FRAME_HANDLE: [AtomicU64; CLIENT_FRAME_SLOTS] =
@@ -115,10 +111,9 @@ impl Drop for BlockClient {
 impl BlockClient {
     /// 构造客户端。
     pub fn new(service: &str, own_endpoint: u64) -> Self {
-        let base = NEXT_FRAME_VIRT.fetch_add(FRAME_SLOTS as u64, Ordering::Relaxed);
         let slots = (0..FRAME_SLOTS as usize)
-            .map(|index| Slot {
-                virt: FRAME_VIRT + (base + index as u64) * FRAME_STRIDE,
+            .map(|_| Slot {
+                virt: 0,
                 frame: None,
                 attached: None,
                 inflight: false,
@@ -175,11 +170,11 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].frame.is_none() {
-            let number = frame_alloc(FRAME_LEN, self.slots[slot].virt);
-            if number == 0 || number == u64::MAX {
+            let Some((number, virt)) = frame_alloc(FRAME_LEN) else {
                 return Err(STATUS_ERROR);
-            }
+            };
             self.slots[slot].frame = Some(number);
+            self.slots[slot].virt = virt;
         }
         let number = self.slots[slot].frame.ok_or(STATUS_ERROR)?;
         if self.slots[slot].attached != Some(number) {
@@ -862,8 +857,6 @@ pub fn serve_with_wait<F, W>(
     let mut response = vec![0_u8; 64 * 1024];
     let mut frames: BTreeMap<(u64, u32), ServerFrame> = BTreeMap::new();
     let mut inflight: BTreeMap<u64, Pending> = BTreeMap::new();
-    let mut free_virt: Vec<usize> = Vec::new();
-    let mut next_virt = 0usize;
 
     loop {
         while let Some((token, result)) = disk.poll_complete() {
@@ -911,67 +904,40 @@ pub fn serve_with_wait<F, W>(
                 continue;
             }
             let key = (sender, slot);
-            let virt = match frames.get(&key) {
-                Some(frame) => frame.virt,
-                None => {
-                    let index = free_virt.pop().or_else(|| {
-                        if next_virt >= MAX_SERVER_FRAMES {
-                            None
-                        } else {
-                            let index = next_virt;
-                            next_virt += 1;
-                            Some(index)
-                        }
-                    });
-                    let Some(index) = index else {
-                        let _ = close_handle(received);
-                        continue;
-                    };
-                    FRAME_VIRT + index as u64 * FRAME_STRIDE
-                }
-            };
             let previous = frames.remove(&key);
             if let Some(old) = &previous {
                 let _ = frame_unmap(old.virt, old.len);
                 let _ = close_handle(old.handle);
             }
-            if frame_map(received, virt) == length as u64 {
-                if let Some((phys, _)) = frame_info(received) {
-                    hook(virt, phys, length, received);
-                }
-                frames.insert(
-                    key,
-                    ServerFrame {
-                        virt,
-                        len: length,
-                        handle: received,
-                        busy: false,
-                    },
-                );
-            } else {
+            let Some((mapped, virt)) = frame_map(received) else {
                 let _ = close_handle(received);
-                if let Some(old) = previous
-                    && let Some(index) = (old.virt - FRAME_VIRT)
-                        .checked_div(FRAME_STRIDE)
-                        .and_then(|index| usize::try_from(index).ok())
-                {
-                    free_virt.push(index);
-                }
+                continue;
+            };
+            if mapped != length as u64 {
+                let _ = frame_unmap(virt, mapped as usize);
+                let _ = close_handle(received);
+                continue;
             }
+            if let Some((phys, _)) = frame_info(received) {
+                hook(virt, phys, length, received);
+            }
+            frames.insert(
+                key,
+                ServerFrame {
+                    virt,
+                    len: length,
+                    handle: received,
+                    busy: false,
+                },
+            );
             continue;
         }
         if label == BLOCK_DETACH {
             if word == u64::MAX {
-                detach_sender(&mut frames, &mut free_virt, sender);
+                detach_sender(&mut frames, sender);
             } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
                 let _ = frame_unmap(frame.virt, frame.len);
                 let _ = close_handle(frame.handle);
-                if let Some(index) = (frame.virt - FRAME_VIRT)
-                    .checked_div(FRAME_STRIDE)
-                    .and_then(|index| usize::try_from(index).ok())
-                {
-                    free_virt.push(index);
-                }
             }
             continue;
         }
@@ -1071,11 +1037,7 @@ pub fn serve_with_wait<F, W>(
     }
 }
 
-fn detach_sender(
-    frames: &mut BTreeMap<(u64, u32), ServerFrame>,
-    free_virt: &mut Vec<usize>,
-    sender: u64,
-) {
+fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerFrame>, sender: u64) {
     let keys: Vec<(u64, u32)> = frames
         .keys()
         .filter(|(owner, _)| *owner == sender)
@@ -1085,12 +1047,6 @@ fn detach_sender(
         if let Some(frame) = frames.remove(&key) {
             let _ = frame_unmap(frame.virt, frame.len);
             let _ = close_handle(frame.handle);
-            if let Some(index) = (frame.virt - FRAME_VIRT)
-                .checked_div(FRAME_STRIDE)
-                .and_then(|index| usize::try_from(index).ok())
-            {
-                free_virt.push(index);
-            }
         }
     }
 }
@@ -1107,17 +1063,5 @@ fn status(error: BlockError) -> u8 {
 fn reply(sender: u64, tag: u32, status: u8, data: &[u8], response: &mut [u8]) {
     if let Some(length) = encode_response(response, tag, status, data) {
         let _ = send_data(sender, BLOCK_RESPONSE, &response[..length]);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frame_slot_addresses_are_disjoint() {
-        for index in 1..FRAME_SLOTS as u64 {
-            assert!(index * FRAME_STRIDE >= FRAME_LEN as u64);
-        }
     }
 }

@@ -488,6 +488,9 @@ dependencies = [
 [[package]]
 name = "hk-server-build"
 version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
 
 [[package]]
 name = "hk-server-checkpoint"

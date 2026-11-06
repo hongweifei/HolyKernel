@@ -8,6 +8,7 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use hk_server_api::net::{NET_SHARED_RX, NET_SHARED_TX};
 use spin::Mutex;
 use virtio_drivers::device::net::VirtIONetRaw;
 use virtio_drivers::transport::pci::PciTransport;
@@ -36,8 +37,8 @@ const TX_HEADER: usize = 32;
 /// 共享帧环布局。
 #[derive(Clone, Copy)]
 struct SharedLayout {
-    rx_base: u64,
-    tx_base: u64,
+    rx: [u64; NET_SHARED_RX],
+    tx: [u64; NET_SHARED_TX],
     frame_len: usize,
 }
 
@@ -190,12 +191,13 @@ impl Network {
     }
 
     /// 设置共享帧环布局。
-    pub fn set_shared_layout(&self, rx_base: u64, tx_base: u64, frame_len: usize) {
-        self.state.lock().shared = Some(SharedLayout {
-            rx_base,
-            tx_base,
-            frame_len,
-        });
+    pub fn set_shared_layout(
+        &self,
+        rx: [u64; NET_SHARED_RX],
+        tx: [u64; NET_SHARED_TX],
+        frame_len: usize,
+    ) {
+        self.state.lock().shared = Some(SharedLayout { rx, tx, frame_len });
     }
 
     /// 把一个共享帧提交为接收缓冲。
@@ -208,7 +210,9 @@ impl Network {
         let Some(shared) = state.shared else {
             return false;
         };
-        let address = shared.rx_base + (index * shared.frame_len) as u64;
+        let Some(address) = shared.rx.get(index).copied() else {
+            return false;
+        };
         // SAFETY: 帧由驱动分配并登记，提交期间不访问，直到完成通知。
         let slice =
             unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
@@ -233,7 +237,7 @@ impl Network {
             .shared_rx
             .get_mut(usize::from(token))
             .and_then(Option::take)?;
-        let address = shared.rx_base + (index * shared.frame_len) as u64;
+        let address = *shared.rx.get(index)?;
         // SAFETY: 该 token 对应此前提交的共享帧，直到本次完成前未被访问。
         let slice =
             unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
@@ -270,7 +274,9 @@ impl Network {
         let Some(shared) = state.shared else {
             return false;
         };
-        let address = shared.tx_base + (index * shared.frame_len) as u64;
+        let Some(address) = shared.tx.get(index).copied() else {
+            return false;
+        };
         // SAFETY: 帧由本侧持有并独占写入，直到 `transmit_complete`。
         let slice =
             unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };
@@ -309,7 +315,7 @@ impl Network {
             .iter()
             .position(|(entry, _)| *entry == token)?;
         let (_, index) = state.shared_tx.remove(position)?;
-        let address = shared.tx_base + (index * shared.frame_len) as u64;
+        let address = *shared.tx.get(index)?;
         // SAFETY: 该 token 对应此前提交的共享帧。
         let slice =
             unsafe { core::slice::from_raw_parts_mut(address as *mut u8, shared.frame_len) };

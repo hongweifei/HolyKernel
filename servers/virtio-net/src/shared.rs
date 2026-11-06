@@ -10,13 +10,6 @@ use hk_server_api::{
     handle_duplicate, send, send_data, send_handle, write,
 };
 
-/// 驱动侧共享接收帧虚拟基址。
-#[cfg(target_os = "none")]
-const SHARED_RX_BASE: u64 = 0x7000_0000;
-/// 驱动侧共享发送帧虚拟基址。
-#[cfg(target_os = "none")]
-const SHARED_TX_BASE: u64 = 0x7010_0000;
-
 /// 解析是否启用共享帧路径。
 #[cfg(target_os = "none")]
 pub(crate) fn zerocopy_enabled() -> bool {
@@ -27,23 +20,15 @@ pub(crate) fn zerocopy_enabled() -> bool {
 /// 分配共享帧、登记 DMA 并把副本句柄交给 Network Server；成功后提交接收缓冲。
 #[cfg(target_os = "none")]
 pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> bool {
-    if !attach_role(
-        peer,
-        grant,
-        NET_FRAME_ROLE_RX,
-        SHARED_RX_BASE,
-        NET_SHARED_RX,
-    ) || !attach_role(
-        peer,
-        grant,
-        NET_FRAME_ROLE_TX,
-        SHARED_TX_BASE,
-        NET_SHARED_TX,
-    ) {
+    let mut rx = [0_u64; NET_SHARED_RX];
+    let mut tx = [0_u64; NET_SHARED_TX];
+    if !attach_role(peer, grant, NET_FRAME_ROLE_RX, &mut rx)
+        || !attach_role(peer, grant, NET_FRAME_ROLE_TX, &mut tx)
+    {
         write("hk-server-virtio-net: shared frame attach failed\n".as_bytes());
         return false;
     }
-    network.set_shared_layout(SHARED_RX_BASE, SHARED_TX_BASE, NET_SHARED_FRAME);
+    network.set_shared_layout(rx, tx, NET_SHARED_FRAME);
     for index in 0..NET_SHARED_RX {
         if !network.submit_shared_rx(index) {
             write("hk-server-virtio-net: shared rx submit failed\n".as_bytes());
@@ -55,13 +40,12 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 }
 
 #[cfg(target_os = "none")]
-fn attach_role(peer: u64, grant: u64, role: u64, base: u64, count: usize) -> bool {
-    for index in 0..count {
-        let virt = base + (index * NET_SHARED_FRAME) as u64;
-        let handle = frame_alloc(NET_SHARED_FRAME, virt);
-        if handle == 0 || handle == u64::MAX {
+fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
+    for (index, frame_virt) in virts.iter_mut().enumerate() {
+        let Some((handle, virt)) = frame_alloc(NET_SHARED_FRAME) else {
             return false;
-        }
+        };
+        *frame_virt = virt;
         if let Some((phys, _)) = frame_info(handle) {
             register_frame(virt, phys, NET_SHARED_FRAME);
         }

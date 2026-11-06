@@ -227,9 +227,8 @@ impl Stack {
     }
 
     /// 启用共享帧环。
-    pub fn enable_shared(&mut self, rx_base: u64, tx_base: u64, frame_len: usize, tx_count: usize) {
-        self.device
-            .enable_shared(rx_base, tx_base, frame_len, tx_count);
+    pub fn enable_shared(&mut self, rx: Vec<u64>, tx: Vec<u64>, frame_len: usize) {
+        self.device.enable_shared(rx, tx, frame_len);
     }
 
     /// 注入一个共享接收帧；顺带观察 ARP 以便邻居视图继续可用。

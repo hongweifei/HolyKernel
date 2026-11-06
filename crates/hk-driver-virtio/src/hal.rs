@@ -12,17 +12,13 @@ use virtio_drivers::{BufferDirection, Hal, PhysAddr};
 
 /// 页大小。
 const PAGE: usize = 4096;
-/// DMA 虚拟基址。
-const DMA_BASE: u64 = 0x5000_0000;
-/// MMIO 虚拟基址。
-const MMIO_BASE: u64 = 0x6000_0000;
 
 static GRANT: AtomicU64 = AtomicU64::new(0);
-static NEXT_DMA: AtomicU64 = AtomicU64::new(DMA_BASE);
 static GRANT_DESC: Mutex<Option<DeviceGrant>> = Mutex::new(None);
 static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
 static FREE: Mutex<Vec<Free>> = Mutex::new(Vec::new());
 static FRAMES: Mutex<Vec<FrameRegion>> = Mutex::new(Vec::new());
+static MMIO: Mutex<Vec<Option<u64>>> = Mutex::new(Vec::new());
 
 struct Shared {
     phys: u64,
@@ -78,13 +74,11 @@ impl HalImpl {
             }
         }
         let len = pages.checked_mul(PAGE)?;
-        let virt = NEXT_DMA.fetch_add(len as u64, Ordering::AcqRel);
         let grant = GRANT.load(Ordering::Acquire);
         if grant == 0 {
             return None;
         }
-        let phys = dma_alloc(grant, len, virt);
-        (phys != 0).then_some((phys, virt))
+        dma_alloc(grant, len)
     }
 
     fn release_pages(pages: usize, phys: u64, virt: u64) {
@@ -121,9 +115,8 @@ unsafe impl Hal for HalImpl {
             if paddr < range.base || paddr.saturating_add(size as u64) > range.base + range.len {
                 continue;
             }
-            let virt = MMIO_BASE + index as u64 * 0x1_0000;
             let grant = GRANT.load(Ordering::Acquire);
-            let _ = device_map(grant, index as u64, virt);
+            let virt = mmio_virt(grant, &descriptor, index).expect("MMIO 映射失败");
             let pointer = virt + (paddr - range.base);
             return NonNull::new(pointer as *mut u8).expect("MMIO 指针");
         }
@@ -189,6 +182,21 @@ unsafe impl Hal for HalImpl {
             HalImpl::release_pages(entry.len.div_ceil(PAGE), entry.phys, entry.virt);
         }
     }
+}
+
+/// 返回指定 MMIO BAR 的自动映射地址；首次访问时映射并缓存。
+pub(crate) fn mmio_virt(grant: u64, descriptor: &DeviceGrant, index: usize) -> Option<u64> {
+    let mut mmio = MMIO.lock();
+    if let Some(Some(virt)) = mmio.get(index) {
+        return Some(*virt);
+    }
+    descriptor.mmio.get(index).copied().flatten()?;
+    let virt = device_map(grant, index as u64)?;
+    while mmio.len() <= index {
+        mmio.push(None);
+    }
+    mmio[index] = Some(virt);
+    Some(virt)
 }
 
 /// 通过系统调用访问 PCI 配置空间。

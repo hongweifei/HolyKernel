@@ -1,27 +1,27 @@
-//! 每个任务的自动 Frame 虚拟地址窗口。
+//! 每个任务的自动用户虚拟地址窗口。
 
 use alloc::vec::Vec;
 
 use hk_hal::PAGE_SIZE;
-use hk_syscall::{USER_FRAME_WINDOW_BASE, USER_FRAME_WINDOW_LIMIT};
+use hk_hal::user::{AUTO_WINDOW_BASE, AUTO_WINDOW_LIMIT};
 
 /// 一段已分配的虚拟区间。
 type Range = (u64, u64);
 
-/// 任务私有的 Frame 虚拟地址窗口。
-pub(crate) struct FrameWindow {
+/// 任务私有的自动虚拟地址窗口。
+pub(crate) struct UserWindow {
     next: u64,
     limit: u64,
     free: Vec<Range>,
     allocated: Vec<Range>,
 }
 
-impl FrameWindow {
+impl UserWindow {
     /// 以默认用户窗口构造。
     pub(crate) const fn new() -> Self {
         Self {
-            next: USER_FRAME_WINDOW_BASE,
-            limit: USER_FRAME_WINDOW_LIMIT,
+            next: AUTO_WINDOW_BASE,
+            limit: AUTO_WINDOW_LIMIT,
             free: Vec::new(),
             allocated: Vec::new(),
         }
@@ -96,11 +96,11 @@ fn align(length: usize) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::FrameWindow;
+    use super::UserWindow;
 
     #[test]
     fn allocates_page_aligned_ranges() {
-        let mut window = FrameWindow::with_window(0x1000_0000, 0x1001_0000);
+        let mut window = UserWindow::with_window(0x1000_0000, 0x1001_0000);
         let first = window.allocate(100).unwrap();
         let second = window.allocate(5000).unwrap();
         assert_eq!(first, 0x1000_0000);
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn reuses_released_ranges_and_coalesces() {
-        let mut window = FrameWindow::with_window(0x1000_0000, 0x1001_0000);
+        let mut window = UserWindow::with_window(0x1000_0000, 0x1001_0000);
         let first = window.allocate(0x1000).unwrap();
         let second = window.allocate(0x1000).unwrap();
         let third = window.allocate(0x1000).unwrap();
@@ -123,14 +123,14 @@ mod tests {
 
     #[test]
     fn ignores_unknown_releases() {
-        let mut window = FrameWindow::with_window(0x1000_0000, 0x1001_0000);
+        let mut window = UserWindow::with_window(0x1000_0000, 0x1001_0000);
         window.release(0x2000_0000);
         assert_eq!(window.allocate(0x1000), Some(0x1000_0000));
     }
 
     #[test]
     fn returns_none_when_window_is_exhausted() {
-        let mut window = FrameWindow::with_window(0x1000_0000, 0x1000_2000);
+        let mut window = UserWindow::with_window(0x1000_0000, 0x1000_2000);
         assert_eq!(window.allocate(0x1000), Some(0x1000_0000));
         assert_eq!(window.allocate(0x1000), Some(0x1000_1000));
         assert_eq!(window.allocate(0x1000), None);

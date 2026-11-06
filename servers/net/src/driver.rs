@@ -15,7 +15,7 @@ use hk_server_api::{
 };
 
 use crate::protocol::flush_tx;
-use crate::{POLL_WAIT_MS, SERVER_RX_BASE, SERVER_TX_BASE, Stats, WAIT_MS, now_ms};
+use crate::{POLL_WAIT_MS, Stats, WAIT_MS, now_ms};
 
 #[cfg(target_os = "none")]
 pub(crate) fn poll_once(
@@ -64,6 +64,8 @@ pub(crate) fn poll_once(
 #[cfg(target_os = "none")]
 pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bool {
     let mut buffer = [0_u8; 8];
+    let mut rx = [0_u64; NET_SHARED_RX];
+    let mut tx = [0_u64; NET_SHARED_TX];
     let mut rx_seen = 0_usize;
     let mut tx_seen = 0_usize;
     while rx_seen < NET_SHARED_RX || tx_seen < NET_SHARED_TX {
@@ -74,9 +76,9 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
         }
         let role = net_frame_role(word);
         let index = net_frame_index(word);
-        let (base, count) = match role {
-            NET_FRAME_ROLE_RX => (SERVER_RX_BASE, NET_SHARED_RX),
-            NET_FRAME_ROLE_TX => (SERVER_TX_BASE, NET_SHARED_TX),
+        let (virts, count) = match role {
+            NET_FRAME_ROLE_RX => (&mut rx, NET_SHARED_RX),
+            NET_FRAME_ROLE_TX => (&mut tx, NET_SHARED_TX),
             _ => {
                 let _ = close_handle(handle);
                 return false;
@@ -86,23 +88,27 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
             let _ = close_handle(handle);
             return false;
         }
-        let virt = base + (index * NET_SHARED_FRAME) as u64;
-        if frame_map(handle, virt) != NET_SHARED_FRAME as u64 {
+        if virts[index] != 0 {
             let _ = close_handle(handle);
             return false;
         }
+        let Some((mapped, virt)) = frame_map(handle) else {
+            let _ = close_handle(handle);
+            return false;
+        };
+        if mapped != NET_SHARED_FRAME as u64 {
+            let _ = hk_server_api::frame_unmap(virt, mapped as usize);
+            let _ = close_handle(handle);
+            return false;
+        }
+        virts[index] = virt;
         if role == NET_FRAME_ROLE_RX {
             rx_seen += 1;
         } else {
             tx_seen += 1;
         }
     }
-    stack.enable_shared(
-        SERVER_RX_BASE,
-        SERVER_TX_BASE,
-        NET_SHARED_FRAME,
-        NET_SHARED_TX,
-    );
+    stack.enable_shared(rx.to_vec(), tx.to_vec(), NET_SHARED_FRAME);
     write("hk-server-net: shared frames ready\n".as_bytes());
     true
 }

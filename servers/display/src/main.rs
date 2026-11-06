@@ -32,7 +32,7 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, frame_alloc_any, frame_info, frame_map_any, frame_unmap,
+    close_handle, console_read, exit, frame_alloc, frame_info, frame_map, frame_unmap,
     recv_data_handle_try, send, send_data, tsc, tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
@@ -167,7 +167,7 @@ fn create_surface(
         return None;
     }
     let id = *next_id;
-    let Some((mapped, virt)) = frame_map_any(handle) else {
+    let Some((mapped, virt)) = frame_map(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: create map-failed\n");
         return None;
@@ -272,7 +272,7 @@ fn replace_window_surface(
         window.surface.client,
         window.surface.slot,
     );
-    let Some((mapped, virt)) = frame_map_any(handle) else {
+    let Some((mapped, virt)) = frame_map(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
@@ -446,22 +446,21 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let mapped = framebuffer::map(framebuffer::MAP_ADDRESS);
-    if mapped == 0 {
+    let Some((_mapped, framebuffer_virt)) = framebuffer::map() else {
         write(b"hk-server-display: map failed\n");
         exit(2)
-    }
+    };
 
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let Some((_back_handle, back_virt)) = frame_alloc_any(bytes) else {
+    let Some((_back_handle, back_virt)) = frame_alloc(bytes) else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)
     };
     let screen = Screen::new(
         back_virt as *mut u32,
-        framebuffer::MAP_ADDRESS as *mut u32,
+        framebuffer_virt as *mut u32,
         width,
         height,
         framebuffer.stride as usize / 4,
