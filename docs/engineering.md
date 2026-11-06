@@ -170,7 +170,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - **类别**：`boot`、`ipc`、`sched`、`mem`、`handle`、`vfs`、`net`、`posix`、`server`、`ui`。
 - **服务器健康**：Root Server 记录服务状态、重启次数、最后错误。
 - **panic**：停世界、dump 寄存器、栈、当前 TCB、Handle、最近 trace。
-- **调试**：`cargo xtask debug` 生成 `build/holy.gdb` 并以 `-S` 启动 QEMU；`cargo xtask inspect` 查看原生镜像的 Task/Region/能力/符号；`cargo xtask symbolize <地址>` 离线解析内核与服务地址；`hk-dbg` 串口协议；Hosted `--trace`/`--seed`。
+- **调试**：`cargo xtask debug` 生成 `build/holy.gdb` 并以 `-S` 启动 QEMU；`cargo xtask inspect` 查看原生镜像的 Task/Region/能力/符号；`cargo xtask symbolize [--service <服务>] <地址>` 离线解析内核或服务地址（服务共享同一镜像区）；`hk-dbg` 串口协议；Hosted `--trace`/`--seed`。
 
 ---
 

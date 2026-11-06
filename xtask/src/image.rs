@@ -98,7 +98,7 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
     for service in SERVERS {
         let image = native_image(&binary_path(service, release))?;
-        check_image_slot(service, &image)?;
+        check_image_region(service, &image)?;
         let target = boot.join(format!("{service}{FILE_SUFFIX}"));
         fs::write(&target, image)
             .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", target.display())))?;
@@ -162,21 +162,17 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     Ok(iso)
 }
 
-fn check_image_slot(service: &str, image: &[u8]) -> Result<()> {
-    let base = hk_server_build::image_base(service).ok_or_else(|| {
-        Failure::new(format!(
-            "服务 {service} 未登记在 hk-server-build::SERVERS 中"
-        ))
-    })?;
-    let slot_end = base + hk_server_build::IMAGE_STRIDE;
+fn check_image_region(service: &str, image: &[u8]) -> Result<()> {
+    let base = hk_server_build::IMAGE_BASE;
+    let limit = hk_server_build::IMAGE_LIMIT;
     let parsed = hk_image::Image::parse(image)
         .ok_or_else(|| Failure::new(format!("服务 {service} 原生镜像无效")))?;
     for region in parsed.regions() {
         let start = region.virtual_address;
         let end = start.saturating_add(region.memory_size);
-        if start < base || end > slot_end {
+        if start < base || end > limit {
             return Err(Failure::new(format!(
-                "服务 {service} 超出镜像槽位：{start:#x}..{end:#x}，槽位 {base:#x}..{slot_end:#x}"
+                "服务 {service} 超出共享镜像区：{start:#x}..{end:#x}，区间 {base:#x}..{limit:#x}"
             )));
         }
     }

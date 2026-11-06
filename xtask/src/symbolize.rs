@@ -21,6 +21,13 @@ pub struct SymbolizeArguments {
 
 pub fn run(arguments: SymbolizeArguments) -> Result<()> {
     let address = parse_address(&arguments.address)?;
+    if arguments.service.is_none()
+        && (hk_server_build::IMAGE_BASE..hk_server_build::IMAGE_LIMIT).contains(&address)
+    {
+        return Err(Failure::new(format!(
+            "{address:#018x} 位于共享服务镜像区；请用 --service 指定服务"
+        )));
+    }
     let mut best: Option<(u64, String, String)> = None;
 
     if arguments.service.is_none() {

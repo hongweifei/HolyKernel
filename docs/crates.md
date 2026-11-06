@@ -61,25 +61,26 @@
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
 | 服务客户端与编解码 | `crates/hk-server-api/src/*` |
 | 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
-| 镜像服务清单与自动基址 | `crates/hk-server-build/src/lib.rs`（`xtask` 复用） |
+| 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
+| 服务链接基址 | `crates/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 默认启动服务白名单 | `crates/hk-root-server/src/loader.rs` |
 | 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
-新增服务时只需要改 `hk-server-build` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
+新增服务时只需要改 `xtask/src/catalog.rs` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
 
 ---
 
 ## 4. 新增服务清单
 
 1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-server-api` 与所需 L2 库；`[build-dependencies] hk-server-build`。
-2. `build.rs`：`hk_server_build::configure()`；镜像基址按 `SERVERS` 顺序自动分配。
+2. `build.rs`：`hk_server_build::configure()`；所有服务共享同一镜像区（各自独立 VSpace）。
 3. `src/main.rs`：
    - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
    - 实现 `_start(endpoint)`；
    - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
    - 服务发现使用 `hk_server_api::runtime::wait_service`。
-4. 加入 `hk-server-build` 的 `SERVERS`；`xtask` 的镜像清单直接复用该表。
+4. 加入 `xtask/src/catalog.rs` 的 `SERVERS`。
 5. 如需默认启动，加入 `hk-root-server` 的 `BOOT_SERVICES`，并在平台 loader 的模式过滤中处理。
 6. 协议与常量放入 `hk-server-api`，不放入内核或 `hk-shell`。
 7. 为可自动验证的行为新增 `xtask smoke` 模式。
