@@ -60,6 +60,7 @@
 | 内容 | 位置 |
 | --- | --- |
 | 系统调用编号与线协议常量 | `crates/hk-syscall/src/lib.rs` |
+| 用户虚拟布局与自动映射窗口 | `crates/hk-hal/src/user.rs` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、缓存与字体特性 | `crates/hk-font/src/lib.rs` |
 | Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
