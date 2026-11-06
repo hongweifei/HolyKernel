@@ -1,4 +1,4 @@
-//! ext4 文件系统后端：把 rsext4 接到 VFS 的 [`Backend`] 契约上。
+//! ext4 文件系统后端：把 rsext4 接到 VFS 的 `Backend` 契约上。
 //!
 //! 本 crate 用 [`hk_block::BlockDevice`] 作为底层设备，用 rsext4 处理 ext4
 //! 元数据、extent、日志与缓存；VFS 只看到节点、目录项与按偏移读写。

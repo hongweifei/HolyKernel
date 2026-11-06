@@ -82,7 +82,7 @@ flowchart TB
 | [章程](docs/charter.md) | 微内核模型、Native Task、句柄、POSIX 兼容层、工程承诺 |
 | [文档索引](docs/README.md) | 阅读顺序与全部文档地图 |
 | [总体架构](docs/architecture.md) | 内核对象、IPC、服务器、启动、安全模型 |
-| [内存模型](docs/memory.md) | Untyped、Frame、VSpace、COW、DMA |
+| [内存模型（HMP）](docs/hmp.md) | Region 统一映射、类型化能力、Provider、Ledger |
 | [执行模型](docs/execution.md) | TCB、调度、Endpoint、Notification、句柄 IPC |
 | [权限模型](docs/permissions.md) | HandleTable、rights、epoch 撤销、配额、审计 |
 | [POSIX 与 libc](docs/posix.md) | POSIX Server、musl 移植、ABI shim、进程/线程/信号、ELF |

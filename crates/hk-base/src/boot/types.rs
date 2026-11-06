@@ -178,9 +178,9 @@ pub struct BootModule {
 /// 平台无关的启动信息。
 #[derive(Clone, Copy, Debug)]
 pub struct BootInfo {
-    /// 魔数，必须等于 [`BOOT_INFO_MAGIC`]。
+    /// 魔数，必须等于 [`crate::boot::BOOT_INFO_MAGIC`]。
     pub magic: u64,
-    /// 版本，必须等于 [`BOOT_INFO_VERSION`]。
+    /// 版本，必须等于 [`crate::boot::BOOT_INFO_VERSION`]。
     pub version: u32,
     /// 启动架构。
     pub arch: Arch,

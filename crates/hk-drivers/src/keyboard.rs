@@ -1,6 +1,6 @@
 //! PS/2 键盘：i8042 初始化、扫描码解码与输入缓冲。
 //!
-//! 平台通过 [`PortIo`] 提供端口或 MMIO 访问；本模块不依赖架构。中断处理只
+//! 平台通过 `PortIo` 提供端口或 MMIO 访问；本模块不依赖架构。中断处理只
 //! 读取数据端口并把 ASCII 字节放入无锁环形缓冲。
 
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
