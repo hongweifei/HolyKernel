@@ -7,7 +7,7 @@ use core::cell::RefCell;
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
 
 use crate::error::HolyError;
-use crate::types::DocumentKind;
+use crate::types::{DocumentKind, RevisionFlags};
 use crate::{HolyFs, Quota, VOLUME_H, VOLUME_I, format, format_with_volume_id};
 
 const IMAGE_BLOCKS: u64 = (64 * 1024 * 1024) / SECTOR_SIZE as u64;
@@ -306,6 +306,39 @@ fn quota_survives_remount() {
     let fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
     assert_eq!(fs.quota().documents, 8);
     assert_eq!(fs.quota().bytes, 4096);
+}
+
+#[test]
+fn compresses_repetitive_content() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "compressed", DocumentKind::Content)
+        .expect("创建");
+    let data = vec![0x5A_u8; 8192];
+    fs.write_range(document, 0, &data).expect("写");
+    let revisions = fs.revisions_of(document).expect("修订");
+    assert!(revisions[0].flags.contains(RevisionFlags::COMPRESSED));
+    assert_eq!(fs.read_document_id(document).expect("读"), data);
+    assert_eq!(fs.check().expect("校验").leaked_blocks, 0);
+}
+
+#[test]
+fn compresses_after_append() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs
+        .create(root, "append", DocumentKind::Content)
+        .expect("创建");
+    fs.write_range(document, 0, &vec![0x41_u8; 4096])
+        .expect("写一");
+    fs.write_range(document, 4096, &vec![0x41_u8; 4096])
+        .expect("写二");
+    let revisions = fs.revisions_of(document).expect("修订");
+    assert!(revisions[0].flags.contains(RevisionFlags::COMPRESSED));
+    let content = fs.read_document_id(document).expect("读");
+    assert_eq!(content.len(), 8192);
+    assert!(content.iter().all(|byte| *byte == 0x41));
 }
 
 #[test]

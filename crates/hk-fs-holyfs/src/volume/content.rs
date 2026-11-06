@@ -5,13 +5,20 @@ use alloc::vec::Vec;
 
 use hk_block::BlockDevice;
 
+use crate::compress::{compress, decompress};
 use crate::error::HolyError;
 use crate::hash::content_hash;
 use crate::ids::{DocId, RevisionId};
 use crate::superblock::BLOCK_SIZE;
-use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionRecord};
+use crate::types::{DocumentKind, Extent, MAX_EXTENTS, PayloadKind, RevisionFlags, RevisionRecord};
 
 use super::{MAX_CONTENT_BYTES, Volume};
+
+#[derive(Clone)]
+pub(super) struct DedupEntry {
+    pub(super) extents: Vec<Extent>,
+    pub(super) compressed: bool,
+}
 
 impl<D: BlockDevice> Volume<D> {
     pub(crate) fn read_range(
@@ -78,7 +85,7 @@ impl<D: BlockDevice> Volume<D> {
         }
         let new_size = head.size.max(end);
         self.check_quota(0, new_size.saturating_sub(head.size), 1, 0, 0)?;
-        if offset == head.size && head.size.is_multiple_of(BLOCK_SIZE as u64) {
+        if head.size > 0 && offset == head.size && head.size.is_multiple_of(BLOCK_SIZE as u64) {
             self.append_content(document, &head, offset, data)?;
         } else {
             self.rewrite_content(document, &head, offset, data)?;
@@ -111,11 +118,7 @@ impl<D: BlockDevice> Volume<D> {
             return Err(HolyError::IsDirectory);
         }
         let revision = self.revisions.get(&record.head).ok_or(HolyError::Corrupt)?;
-        let size = revision.size as usize;
-        let mut buffer = vec![0_u8; size];
-        if size > 0 {
-            self.read_extents(revision, 0, &mut buffer)?;
-        }
+        let buffer = self.read_content(revision)?;
         if content_hash(&buffer) != revision.content_hash {
             return Err(HolyError::Damaged);
         }
@@ -148,6 +151,23 @@ impl<D: BlockDevice> Volume<D> {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<(), HolyError> {
+        if revision.flags.contains(RevisionFlags::COMPRESSED) {
+            let content = self.read_content(revision)?;
+            let start = offset as usize;
+            let end = start.checked_add(buffer.len()).ok_or(HolyError::Corrupt)?;
+            let content = content.get(start..end).ok_or(HolyError::Corrupt)?;
+            buffer.copy_from_slice(content);
+            return Ok(());
+        }
+        self.read_raw_extents(revision, offset, buffer)
+    }
+
+    fn read_raw_extents(
+        &self,
+        revision: &RevisionRecord,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<(), HolyError> {
         let mut position = 0_u64;
         let mut done = 0;
         for extent in revision.extents() {
@@ -172,13 +192,31 @@ impl<D: BlockDevice> Volume<D> {
         Ok(())
     }
 
-    /// 读取指定修订的完整内容，不校验哈希；供维护扫描使用。
-    pub(super) fn revision_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
-        let mut content = vec![0_u8; revision.size as usize];
-        if revision.size > 0 {
-            self.read_extents(revision, 0, &mut content)?;
+    fn read_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
+        let size = revision.size as usize;
+        if revision.flags.contains(RevisionFlags::COMPRESSED) {
+            let capacity: usize = revision
+                .extents()
+                .iter()
+                .map(|extent| extent.bytes() as usize)
+                .sum();
+            if capacity == 0 {
+                return Err(HolyError::Corrupt);
+            }
+            let mut payload = vec![0_u8; capacity];
+            self.read_raw_extents(revision, 0, &mut payload)?;
+            return decompress(&payload, size);
+        }
+        let mut content = vec![0_u8; size];
+        if size > 0 {
+            self.read_raw_extents(revision, 0, &mut content)?;
         }
         Ok(content)
+    }
+
+    /// 读取指定修订的完整内容，不校验哈希；供维护扫描使用。
+    pub(super) fn revision_content(&self, revision: &RevisionRecord) -> Result<Vec<u8>, HolyError> {
+        self.read_content(revision)
     }
 
     fn append_hash(&self, head: &RevisionRecord, data: &[u8]) -> Result<u64, HolyError> {
@@ -198,11 +236,21 @@ impl<D: BlockDevice> Volume<D> {
         offset: u64,
         data: &[u8],
     ) -> Result<(), HolyError> {
+        if head.flags.contains(RevisionFlags::COMPRESSED) {
+            return self.rewrite_content(document, head, offset, data);
+        }
         let hash = self.append_hash(head, data)?;
         let size = offset + data.len() as u64;
-        if let Some(extents) = self.dedup_lookup(hash, size) {
+        if let Some(entry) = self.dedup_lookup(hash, size) {
             self.dedup_hits = self.dedup_hits.saturating_add(1);
-            return self.insert_content_revision(document, head, extents, size, hash);
+            return self.insert_content_revision(
+                document,
+                head,
+                entry.extents,
+                size,
+                hash,
+                entry.compressed,
+            );
         }
         let blocks = data.len().div_ceil(BLOCK_SIZE) as u64;
         let start = self.store.allocate_blocks(blocks)?;
@@ -224,8 +272,8 @@ impl<D: BlockDevice> Volume<D> {
             self.store.free_blocks(start, blocks);
             return self.rewrite_content(document, head, offset, data);
         }
-        self.dedup_insert(hash, size, &extents);
-        self.insert_content_revision(document, head, extents, size, hash)
+        self.dedup_insert(hash, size, &extents, false);
+        self.insert_content_revision(document, head, extents, size, hash, false)
     }
 
     fn rewrite_content(
@@ -255,40 +303,55 @@ impl<D: BlockDevice> Volume<D> {
     ) -> Result<(), HolyError> {
         let hash = content_hash(content);
         let size = content.len() as u64;
-        if let Some(extents) = self.dedup_lookup(hash, size) {
+        if let Some(entry) = self.dedup_lookup(hash, size) {
             self.dedup_hits = self.dedup_hits.saturating_add(1);
-            return self.insert_content_revision(document, head, extents, size, hash);
+            return self.insert_content_revision(
+                document,
+                head,
+                entry.extents,
+                size,
+                hash,
+                entry.compressed,
+            );
         }
-        let blocks = content.len().div_ceil(BLOCK_SIZE) as u64;
+        let (payload, compressed) = match compress(content) {
+            Some(payload) => (payload, true),
+            None => (content.to_vec(), false),
+        };
+        let blocks = payload.len().div_ceil(BLOCK_SIZE) as u64;
         let extents = if blocks == 0 {
             Vec::new()
         } else {
             let start = self.store.allocate_blocks(blocks)?;
-            self.store.write_bytes(start * BLOCK_SIZE as u64, content)?;
+            self.store
+                .write_bytes(start * BLOCK_SIZE as u64, &payload)?;
             vec![Extent {
                 start,
                 blocks: blocks as u32,
             }]
         };
-        self.dedup_insert(hash, size, &extents);
-        self.insert_content_revision(document, head, extents, size, hash)
+        self.dedup_insert(hash, size, &extents, compressed);
+        self.insert_content_revision(document, head, extents, size, hash, compressed)
     }
 
-    fn dedup_lookup(&self, hash: u64, size: u64) -> Option<Vec<Extent>> {
+    fn dedup_lookup(&self, hash: u64, size: u64) -> Option<DedupEntry> {
         if size == 0 {
             return None;
         }
-        let extents = self.dedup.get(&(hash, size))?;
-        (extents.len() <= MAX_EXTENTS).then(|| extents.clone())
+        let entry = self.dedup.get(&(hash, size))?;
+        (entry.extents.len() <= MAX_EXTENTS).then(|| entry.clone())
     }
 
-    fn dedup_insert(&mut self, hash: u64, size: u64, extents: &[Extent]) {
+    fn dedup_insert(&mut self, hash: u64, size: u64, extents: &[Extent], compressed: bool) {
         if size == 0 || extents.is_empty() {
             return;
         }
         self.dedup
             .entry((hash, size))
-            .or_insert_with(|| extents.to_vec());
+            .or_insert_with(|| DedupEntry {
+                extents: extents.to_vec(),
+                compressed,
+            });
     }
 
     /// 从当前修订集重建去重索引；GC 或裁剪后调用。
@@ -303,7 +366,10 @@ impl<D: BlockDevice> Volume<D> {
             }
             self.dedup
                 .entry((revision.content_hash, revision.size))
-                .or_insert_with(|| revision.extents().to_vec());
+                .or_insert_with(|| DedupEntry {
+                    extents: revision.extents().to_vec(),
+                    compressed: revision.flags.contains(RevisionFlags::COMPRESSED),
+                });
         }
     }
 
@@ -314,6 +380,7 @@ impl<D: BlockDevice> Volume<D> {
         extents: Vec<Extent>,
         size: u64,
         content_hash: u64,
+        compressed: bool,
     ) -> Result<(), HolyError> {
         let revision = self.allocate_revision();
         let mut record = RevisionRecord::empty(revision, document, Some(head.id));
@@ -323,6 +390,10 @@ impl<D: BlockDevice> Volume<D> {
         }
         record.size = size;
         record.content_hash = content_hash;
+        if compressed {
+            record.flags =
+                RevisionFlags::from_bits(record.flags.bits() | RevisionFlags::COMPRESSED.bits());
+        }
         self.revisions.insert(revision, record);
         if let Some(document) = self.documents.get_mut(&document) {
             document.head = revision;

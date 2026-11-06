@@ -46,7 +46,7 @@ pub(crate) struct Volume<D: BlockDevice> {
     next_tag: u32,
     snapshots: BTreeMap<u64, snapshot::SnapshotRecord>,
     next_snapshot: u64,
-    dedup: BTreeMap<(u64, u64), Vec<Extent>>,
+    dedup: BTreeMap<(u64, u64), content::DedupEntry>,
     dedup_hits: u64,
     epoch: u64,
     dirty: bool,

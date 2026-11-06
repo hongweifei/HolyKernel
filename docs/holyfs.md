@@ -396,7 +396,7 @@ sequenceDiagram
 - **标签**：Tag Table 是唯一索引，包含 tag → members 与 doc → tags 两个方向；快照固定标签根。
 - **流式写**：`Stage`/`WriteRange`/`Commit` 支持大文档；`Append` 共享基线 extent。
 - **去重**：ContentHash + 大小索引，相同内容共享 extent；索引在挂载、GC、裁剪与销毁后根据现有修订重建。
-- **压缩**：按修订或 extent 选择 LZ4/Zstd；读取透明解压。
+- **压缩**：按修订尝试 RLE 游程编码，压缩更优时写 `COMPRESSED` 修订；读取透明解压，ContentHash 始终针对明文。
 - **加密**：按修订加密内容与元数据；密钥由卷配置提供（规划）。
 - **配额**：文档数、逻辑字节、修订数、快照数与标签数；操作前检查，`Quota`/`SetQuota` 在线管理。
 - **在线校验**：`Check`、`Repair`、`Scrub` 在卷运行时工作。
@@ -465,7 +465,8 @@ flowchart LR
 | 句柄令牌：acquire/grant/revoke/transfer | 已实现 |
 | 卷级令牌：VolumeId + 卷代绑定，恢复代际失效，快照操作鉴权 | 已实现 |
 | 分配组 | 规划 |
-| 流式写、压缩 | 规划 |
+| 流式写 | 规划 |
+| 压缩：RLE 游程编码、`COMPRESSED` 修订标志、透明解压 | 已实现 |
 | 配额：文档数、逻辑字节、修订数、快照数、标签数，Superblock 持久化 | 已实现 |
 | 内容去重：ContentHash 索引、extent 共享 | 已实现 |
 | 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
@@ -480,6 +481,7 @@ crates/hk-fs-holyfs/src/
 ├── ids.rs          DocId、RevisionId、VolumeId、HandleRights
 ├── types.rs        Document/Revision/Entry 记录与编码
 ├── error.rs        HolyError
+├── compress.rs     RLE 内容压缩
 ├── crc32c.rs       CRC32C
 ├── hash.rs         内容哈希
 ├── superblock.rs   卷布局、双超级块、校验

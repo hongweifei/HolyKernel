@@ -10,6 +10,7 @@ extern crate std;
 
 extern crate alloc;
 
+mod compress;
 mod crc32c;
 mod error;
 mod handle;

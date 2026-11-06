@@ -244,11 +244,16 @@ impl<D: BlockDevice> Volume<D> {
             previous_end = extent.end();
             capacity = capacity.saturating_add(extent.bytes());
         }
-        if revision.size > capacity {
-            return Err(HolyError::Corrupt);
-        }
-        if capacity > 0 && capacity - revision.size >= BLOCK_SIZE as u64 {
-            return Err(HolyError::Corrupt);
+        if !revision
+            .flags
+            .contains(crate::types::RevisionFlags::COMPRESSED)
+        {
+            if revision.size > capacity {
+                return Err(HolyError::Corrupt);
+            }
+            if capacity > 0 && capacity - revision.size >= BLOCK_SIZE as u64 {
+                return Err(HolyError::Corrupt);
+            }
         }
         let content = self.revision_content(revision)?;
         if content_hash(&content) != revision.content_hash {
