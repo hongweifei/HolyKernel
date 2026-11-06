@@ -32,8 +32,9 @@ use hk_server_api::input::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, console_read, exit, map_attach, map_create, map_phys, map_unmap,
-    recv_data_handle_try, send, send_data, tsc, tsc_frequency, write, write_u64, yield_now,
+    CAPABILITY_SURFACE, capability_phys, close_handle, console_read, exit, map_attach, map_new,
+    recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency, write, write_u64,
+    yield_now,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -156,7 +157,7 @@ fn create_surface(
         return None;
     };
     let bytes = width as u64 * height as u64 * 4;
-    let Some((_, frame_length)) = map_phys(handle) else {
+    let Some((_, frame_length)) = capability_phys(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: create no-frame\n");
         return None;
@@ -167,22 +168,20 @@ fn create_surface(
         return None;
     }
     let id = *next_id;
-    let Some((mapped, virt)) = map_attach(handle) else {
+    let Some((region, virt)) = map_attach(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: create map-failed\n");
         return None;
     };
-    if mapped < bytes {
-        let _ = map_unmap(virt, mapped as usize);
+    if capability_phys(handle).is_none_or(|(_, length)| length < bytes) {
+        let _ = region_unmap(region);
         let _ = close_handle(handle);
-        write(b"hk-server-display: create map-failed ");
-        write_u64(mapped);
-        write(b"/");
-        write_u64(bytes);
-        write(b"\n");
+        write(b"hk-server-display: create map-failed\n");
         return None;
     }
-    surfaces[slot] = Some(Surface::new(id, client, slot, width, height, virt, handle));
+    surfaces[slot] = Some(Surface::new(
+        id, client, slot, width, height, virt, region, handle,
+    ));
     *next_id += 1;
     Some(id)
 }
@@ -196,11 +195,7 @@ fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u
             .is_some_and(|surface| surface.id == surface_id)
     }) && let Some(surface) = surfaces[slot].take()
     {
-        let bytes = surface
-            .width
-            .saturating_mul(surface.height)
-            .saturating_mul(4);
-        let _ = map_unmap(surface.virt, bytes);
+        let _ = region_unmap(surface.region);
         let _ = close_handle(surface.handle);
     }
 }
@@ -248,7 +243,7 @@ fn replace_window_surface(
         return false;
     }
     let bytes = width as u64 * height as u64 * 4;
-    let Some((_, frame_length)) = map_phys(handle) else {
+    let Some((_, frame_length)) = capability_phys(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: resize no-frame\n");
         return false;
@@ -272,23 +267,24 @@ fn replace_window_surface(
         window.surface.client,
         window.surface.slot,
     );
-    let Some((mapped, virt)) = map_attach(handle) else {
+    let Some((region, virt)) = map_attach(handle) else {
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
     };
-    if mapped < bytes {
-        let _ = map_unmap(virt, mapped as usize);
+    if capability_phys(handle).is_none_or(|(_, length)| length < bytes) {
+        let _ = region_unmap(region);
         let _ = close_handle(handle);
         write(b"hk-server-display: resize map-failed\n");
         return false;
     }
     let old = window.surface;
     if let Some(window) = windows[index].as_mut() {
-        window.surface = Surface::new(surface_id, client, slot, width, height, virt, handle);
+        window.surface = Surface::new(
+            surface_id, client, slot, width, height, virt, region, handle,
+        );
     }
-    let old_bytes = old.width * old.height * 4;
-    let _ = map_unmap(old.virt, old_bytes);
+    let _ = region_unmap(old.region);
     let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {
         damage_window(screen, windows, focus, font, pointer, &window);
@@ -454,7 +450,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let Some((_back_handle, back_virt)) = map_create(bytes) else {
+    let Some((_back_handle, _back_region, back_virt)) = map_new(CAPABILITY_SURFACE, bytes) else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)
     };

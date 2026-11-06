@@ -10,8 +10,8 @@ use hk_server_api::net::{
     net_frame_index, net_frame_role, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
 };
 use hk_server_api::{
-    close_handle, map_attach, notify, recv_data_handle, recv_data_try, send, service_endpoint,
-    write, yield_now,
+    capability_phys, close_handle, map_attach, notify, recv_data_handle, recv_data_try,
+    region_unmap, send, service_endpoint, write, yield_now,
 };
 
 use crate::protocol::flush_tx;
@@ -92,12 +92,12 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
             let _ = close_handle(handle);
             return false;
         }
-        let Some((mapped, virt)) = map_attach(handle) else {
+        let Some((region, virt)) = map_attach(handle) else {
             let _ = close_handle(handle);
             return false;
         };
-        if mapped != NET_SHARED_FRAME as u64 {
-            let _ = hk_server_api::map_unmap(virt, mapped as usize);
+        if capability_phys(handle).is_none_or(|(_, length)| length != NET_SHARED_FRAME as u64) {
+            let _ = region_unmap(region);
             let _ = close_handle(handle);
             return false;
         }

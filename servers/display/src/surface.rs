@@ -19,6 +19,7 @@ pub(crate) struct Surface {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) virt: u64,
+    pub(crate) region: u64,
     pub(crate) handle: u64,
     /// 待提交的 damage 区域；`None` 表示整面。
     damage: Option<Rect>,
@@ -27,6 +28,7 @@ pub(crate) struct Surface {
 }
 
 impl Surface {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: u64,
         client: u64,
@@ -34,6 +36,7 @@ impl Surface {
         width: usize,
         height: usize,
         virt: u64,
+        region: u64,
         handle: u64,
     ) -> Self {
         Self {
@@ -43,6 +46,7 @@ impl Surface {
             width,
             height,
             virt,
+            region,
             handle,
             damage: None,
             input: None,
@@ -141,7 +145,7 @@ mod tests {
     use super::*;
 
     fn surface(width: usize, height: usize) -> Surface {
-        Surface::new(1, 0, 0, width, height, 0, 0)
+        Surface::new(1, 0, 0, width, height, 0, 0, 0)
     }
 
     #[test]

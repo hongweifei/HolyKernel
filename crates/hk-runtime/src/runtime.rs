@@ -14,17 +14,17 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CIVIL_TIME,
-    SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE, SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO,
-    SYS_DEVICE_MAP, SYS_DMA_ALLOC, SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FAULT_SUBSCRIBE,
-    SYS_FORK, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE,
-    SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS,
-    SYS_MAP_ATTACH, SYS_MAP_CREATE, SYS_MAP_PHYS, SYS_MAP_UNMAP, SYS_MSI_BIND, SYS_NOTIFY,
-    SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE,
-    SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND,
-    SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN,
-    SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY,
-    SYS_YIELD,
+    FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_BOOT_CMDLINE, SYS_CALL, SYS_CAPABILITY_CREATE,
+    SYS_CAPABILITY_PHYS, SYS_CIVIL_TIME, SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE,
+    SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_ALLOC,
+    SYS_DMA_MAP_CAPABILITY, SYS_DMA_SYNC, SYS_EXIT, SYS_FAULT_SUBSCRIBE, SYS_FORK,
+    SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE,
+    SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS, SYS_MSI_BIND,
+    SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM,
+    SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA,
+    SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -32,6 +32,7 @@ use user_window::UserWindow;
 
 /// 随消息接收的句柄编号起点。
 mod arena;
+mod handles;
 mod platform;
 mod state;
 mod syscall;
@@ -48,12 +49,19 @@ pub use view::{RuntimeStats, TaskInfo};
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;
 const GRANT_HANDLE_BASE: usize = 0x2000;
-const FRAME_HANDLE_BASE: usize = 0x3000;
+const CAPABILITY_HANDLE_BASE: usize = 0x3000;
+const REGION_HANDLE_BASE: usize = 0x4000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
 
 /// 任务持有的共享 Frame。
-pub(crate) struct FrameMap {
+pub(crate) struct CapabilityMap {
     pub handle: Handle,
+}
+
+pub(crate) struct RegionMap {
+    pub handle: Handle,
+    pub virt: u64,
+    pub len: usize,
 }
 
 /// 保存的 Native Task 现场；VSpace 已释放，页内容保存在序列化镜像中。
@@ -322,128 +330,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks[index].exit_code = 0;
             self.tasks[index].pending = Pending::None;
             self.wake_joiners(tcb);
-        }
-    }
-
-    fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
-        let Some(handle) = message.handles[0] else {
-            return 0;
-        };
-        self.install_extra_handle(index, handle)
-    }
-
-    fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index].extra.len();
-        self.tasks[index].extra.push(Some(handle));
-        (EXTRA_HANDLE_BASE + slot + 1) as u64
-    }
-
-    fn install_frame(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index]
-            .frames
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.tasks[index].frames.len());
-        let map = FrameMap { handle };
-        if slot == self.tasks[index].frames.len() {
-            self.tasks[index].frames.push(Some(map));
-        } else {
-            self.tasks[index].frames[slot] = Some(map);
-        }
-        (FRAME_HANDLE_BASE + slot + 1) as u64
-    }
-
-    fn frame_at(&self, index: usize, number: usize) -> Option<(Handle, hk_hal::PhysRange)> {
-        if number >= FRAME_HANDLE_BASE {
-            let map = self.tasks[index]
-                .frames
-                .get(number - FRAME_HANDLE_BASE - 1)?
-                .as_ref()?;
-            let range = self.kernel.frame(self.tasks[index].tcb, map.handle).ok()?;
-            return Some((map.handle, range));
-        }
-        let handle = self.tasks[index]
-            .extra
-            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)?
-            .as_ref()?;
-        let range = self.kernel.frame(self.tasks[index].tcb, *handle).ok()?;
-        Some((*handle, range))
-    }
-
-    fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if let Some(handle) = number
-            .checked_sub(GRANT_HANDLE_BASE + 1)
-            .and_then(|slot| self.tasks[index].grants.get(slot))
-            .copied()
-            .flatten()
-        {
-            return Some(handle);
-        }
-        let handle = self.tasks[index]
-            .extra
-            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)
-            .copied()
-            .flatten()?;
-        self.kernel
-            .device_grant(self.tasks[index].tcb, handle)
-            .ok()?;
-        Some(handle)
-    }
-
-    fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index]
-            .grants
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.tasks[index].grants.len());
-        if slot == self.tasks[index].grants.len() {
-            self.tasks[index].grants.push(Some(handle));
-        } else {
-            self.tasks[index].grants[slot] = Some(handle);
-        }
-        (GRANT_HANDLE_BASE + slot + 1) as u64
-    }
-
-    fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if number >= FRAME_HANDLE_BASE {
-            self.frame_at(index, number).map(|(handle, _)| handle)
-        } else if number >= GRANT_HANDLE_BASE {
-            self.grant_at(index, number)
-        } else if number >= EXTRA_HANDLE_BASE {
-            self.tasks[index]
-                .extra
-                .get(number - EXTRA_HANDLE_BASE - 1)
-                .copied()
-                .flatten()
-        } else {
-            self.tasks[index]
-                .handles
-                .get(number.wrapping_sub(1))
-                .copied()
-                .flatten()
-        }
-    }
-
-    fn clear_handle(&mut self, index: usize, number: usize) {
-        if number >= GRANT_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(GRANT_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].grants.get_mut(slot))
-            {
-                *slot = None;
-            }
-        } else if number >= EXTRA_HANDLE_BASE {
-            if let Some(slot) = self.tasks[index]
-                .extra
-                .get_mut(number - EXTRA_HANDLE_BASE - 1)
-            {
-                *slot = None;
-            }
-        } else if let Some(slot) = number
-            .checked_sub(1)
-            .and_then(|slot| self.tasks[index].handles.get_mut(slot))
-        {
-            *slot = None;
         }
     }
 }

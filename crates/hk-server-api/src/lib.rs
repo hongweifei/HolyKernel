@@ -17,6 +17,7 @@ pub mod framebuffer;
 pub mod heap;
 pub mod holy;
 pub mod input;
+pub mod memory;
 pub mod net;
 pub mod root;
 pub mod runtime;
@@ -52,4 +53,5 @@ macro_rules! server_boilerplate {
 pub(crate) use arch::call as syscall_call;
 
 mod syscall;
+pub use memory::*;
 pub use syscall::*;

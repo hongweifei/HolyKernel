@@ -42,8 +42,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, exit, map_create, map_unmap, recv, recv_data_try, send, send_handle, write,
-    write_u64, yield_now,
+    CAPABILITY_SURFACE, close_handle, exit, map_new, recv, recv_data_try, region_unmap, send,
+    send_handle, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
@@ -76,7 +76,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width * height * 4;
-    let Some((handle, mut surface_virt)) = map_create(bytes) else {
+    let Some((handle, mut surface_region, mut surface_virt)) = map_new(CAPABILITY_SURFACE, bytes)
+    else {
         write(b"hk-server-holydoc: frame alloc failed\n");
         exit(2)
     };
@@ -222,7 +223,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     render_dirty = false;
                 }
                 let new_bytes = new_width * new_height * 4;
-                let Some((handle, virt)) = map_create(new_bytes) else {
+                let Some((handle, region, virt)) = map_new(CAPABILITY_SURFACE, new_bytes) else {
                     write(b"hk-server-holydoc: resize frame failed\n");
                     continue;
                 };
@@ -237,12 +238,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     write(b"hk-server-holydoc: resize rejected\n");
                     continue;
                 }
-                let old_virt = surface_virt;
-                let old_bytes = width * height * 4;
+                let old_region = surface_region;
                 width = new_width;
                 height = new_height;
+                surface_region = region;
                 surface_virt = virt;
-                let _ = map_unmap(old_virt, old_bytes);
+                let _ = region_unmap(old_region);
                 let scroll = view.scroll;
                 let history = core::mem::take(&mut view.history);
                 let forward = core::mem::take(&mut view.forward);

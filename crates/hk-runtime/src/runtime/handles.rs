@@ -1,0 +1,180 @@
+//! 任务句柄表：额外句柄、能力、Region 与 DeviceGrant。
+
+use super::*;
+
+impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    pub(crate) fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
+        let Some(handle) = message.handles[0] else {
+            return 0;
+        };
+        self.install_extra_handle(index, handle)
+    }
+
+    pub(crate) fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index].extra.len();
+        self.tasks[index].extra.push(Some(handle));
+        (EXTRA_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn install_capability(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index]
+            .capabilities
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].capabilities.len());
+        let map = CapabilityMap { handle };
+        if slot == self.tasks[index].capabilities.len() {
+            self.tasks[index].capabilities.push(Some(map));
+        } else {
+            self.tasks[index].capabilities[slot] = Some(map);
+        }
+        (CAPABILITY_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn capability_at(
+        &self,
+        index: usize,
+        number: usize,
+    ) -> Option<(Handle, hk_mem::hmp::Capability, Option<hk_hal::PhysRange>)> {
+        let handle = if (CAPABILITY_HANDLE_BASE..REGION_HANDLE_BASE).contains(&number) {
+            self.tasks[index]
+                .capabilities
+                .get(number - CAPABILITY_HANDLE_BASE - 1)?
+                .as_ref()?
+                .handle
+        } else {
+            *self.tasks[index]
+                .extra
+                .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)?
+                .as_ref()?
+        };
+        let (capability, backing) = self.kernel.capability(self.tasks[index].tcb, handle).ok()?;
+        Some((handle, capability, backing))
+    }
+
+    pub(crate) fn install_region(
+        &mut self,
+        index: usize,
+        handle: Handle,
+        virt: u64,
+        len: usize,
+    ) -> u64 {
+        let slot = self.tasks[index]
+            .regions
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].regions.len());
+        let map = RegionMap { handle, virt, len };
+        if slot == self.tasks[index].regions.len() {
+            self.tasks[index].regions.push(Some(map));
+        } else {
+            self.tasks[index].regions[slot] = Some(map);
+        }
+        (REGION_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn region_at(
+        &self,
+        index: usize,
+        number: usize,
+    ) -> Option<(usize, Handle, u64, usize)> {
+        let slot = number.checked_sub(REGION_HANDLE_BASE + 1)?;
+        let map = self.tasks[index].regions.get(slot)?.as_ref()?;
+        Some((slot, map.handle, map.virt, map.len))
+    }
+
+    pub(crate) fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
+        if let Some(handle) = number
+            .checked_sub(GRANT_HANDLE_BASE + 1)
+            .and_then(|slot| self.tasks[index].grants.get(slot))
+            .copied()
+            .flatten()
+        {
+            return Some(handle);
+        }
+        let handle = self.tasks[index]
+            .extra
+            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)
+            .copied()
+            .flatten()?;
+        self.kernel
+            .device_grant(self.tasks[index].tcb, handle)
+            .ok()?;
+        Some(handle)
+    }
+
+    pub(crate) fn install_grant(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index]
+            .grants
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].grants.len());
+        if slot == self.tasks[index].grants.len() {
+            self.tasks[index].grants.push(Some(handle));
+        } else {
+            self.tasks[index].grants[slot] = Some(handle);
+        }
+        (GRANT_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
+        if number >= REGION_HANDLE_BASE {
+            self.region_at(index, number)
+                .map(|(_, handle, _, _)| handle)
+        } else if number >= CAPABILITY_HANDLE_BASE {
+            self.capability_at(index, number)
+                .map(|(handle, _, _)| handle)
+        } else if number >= GRANT_HANDLE_BASE {
+            self.grant_at(index, number)
+        } else if number >= EXTRA_HANDLE_BASE {
+            self.tasks[index]
+                .extra
+                .get(number - EXTRA_HANDLE_BASE - 1)
+                .copied()
+                .flatten()
+        } else {
+            self.tasks[index]
+                .handles
+                .get(number.wrapping_sub(1))
+                .copied()
+                .flatten()
+        }
+    }
+
+    pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
+        if number >= REGION_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(REGION_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].regions.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= CAPABILITY_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(CAPABILITY_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].capabilities.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= GRANT_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(GRANT_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].grants.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= EXTRA_HANDLE_BASE {
+            if let Some(slot) = self.tasks[index]
+                .extra
+                .get_mut(number - EXTRA_HANDLE_BASE - 1)
+            {
+                *slot = None;
+            }
+        } else if let Some(slot) = number
+            .checked_sub(1)
+            .and_then(|slot| self.tasks[index].handles.get_mut(slot))
+        {
+            *slot = None;
+        }
+    }
+}

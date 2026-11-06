@@ -413,69 +413,10 @@ pub fn self_notification() -> u64 {
     unsafe { syscall_call(SYS_SELF_NOTIFICATION, 0, 0, 0, 0).value }
 }
 
-/// 创建共享 Frame 并映射到内核选择的虚拟地址，返回帧句柄编号与映射地址。
-pub fn map_create(length: usize) -> Option<(u64, u64)> {
-    let mut virt = 0_u64;
-    // SAFETY: `virt` 位于本栈帧；内核校验长度后写入所选地址。
-    let handle = unsafe {
-        syscall_call(
-            SYS_MAP_CREATE,
-            length as u64,
-            &mut virt as *mut u64 as u64,
-            0,
-            0,
-        )
-        .value
-    };
-    (handle != u64::MAX && virt != 0).then_some((handle, virt))
-}
-
-/// 把 Frame 映射到内核选择的虚拟地址，返回映射长度与地址。
-pub fn map_attach(number: u64) -> Option<(u64, u64)> {
-    let mut virt = 0_u64;
-    // SAFETY: `virt` 位于本栈帧；内核校验帧句柄后写入所选地址。
-    let mapped =
-        unsafe { syscall_call(SYS_MAP_ATTACH, number, &mut virt as *mut u64 as u64, 0, 0).value };
-    (mapped != 0 && virt != 0).then_some((mapped, virt))
-}
-
-/// 解除 Frame 映射；成功返回 1。
-pub fn map_unmap(virt: u64, length: usize) -> u64 {
-    // SAFETY: 内核只解除调用者地址空间内的映射。
-    unsafe { syscall_call(SYS_MAP_UNMAP, virt, length as u64, 0, 0).value }
-}
-
-/// 查询 Frame 的物理地址与长度。
-pub fn map_phys(number: u64) -> Option<(u64, u64)> {
-    let mut bytes = [0_u8; 16];
-    // SAFETY: 缓冲区属于本进程；内核校验句柄与容量后写入。
-    let result = unsafe {
-        syscall_call(
-            SYS_MAP_PHYS,
-            number,
-            bytes.as_mut_ptr() as u64,
-            bytes.len() as u64,
-            0,
-        )
-    };
-    if result.value != 16 {
-        return None;
-    }
-    let phys = u64::from_le_bytes(bytes[..8].try_into().ok()?);
-    let length = u64::from_le_bytes(bytes[8..].try_into().ok()?);
-    Some((phys, length))
-}
-
 /// 复制句柄并收窄权限，返回新句柄编号。
 pub fn handle_duplicate(number: u64, rights: u64) -> u64 {
     // SAFETY: 内核校验句柄与权限后复制。
     unsafe { syscall_call(SYS_HANDLE_DUPLICATE, number, rights, 0, 0).value }
-}
-
-/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
-pub fn dma_map_frame(grant: u64, frame: u64, length: usize) -> u64 {
-    // SAFETY: 内核校验授权、帧句柄与长度后建立 IOMMU 映射。
-    unsafe { syscall_call(SYS_DMA_MAP_FRAME, grant, frame, length as u64, 0).value }
 }
 
 /// 读取平台启动命令行；未提供时返回 `None`。

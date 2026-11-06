@@ -27,8 +27,8 @@ use hk_server_api::device::DEVICE_CLASS_BLOCK;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    device_info, dma_map_frame, exit, irq_bind, recv_handle, self_notification, send, send_data,
-    service_endpoint, wait_notify, write, write_u64, yield_now,
+    device_info, dma_map_capability, exit, irq_bind, recv_handle, self_notification, send,
+    send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
 };
 
 /// 服务堆大小。
@@ -92,7 +92,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 endpoint,
                 block.as_mut(),
                 |virt, phys, length, frame| {
-                    if dma_map_frame(grant_handle, frame, length) != u64::MAX {
+                    if dma_map_capability(grant_handle, frame, length) != u64::MAX {
                         hk_driver_virtio::register_mapping(virt, phys, length);
                     }
                 },

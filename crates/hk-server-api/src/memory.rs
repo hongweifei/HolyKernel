@@ -1,0 +1,135 @@
+//! HMP 类型化能力与 Region 映射的系统调用封装。
+
+use crate::syscall_call;
+use crate::{
+    SYS_CAPABILITY_CREATE, SYS_CAPABILITY_PHYS, SYS_DMA_MAP_CAPABILITY, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_UNMAP,
+};
+
+/// Revision 能力。
+pub const CAPABILITY_REVISION: u8 = 0;
+/// Surface 能力。
+pub const CAPABILITY_SURFACE: u8 = 1;
+/// TaskImage 能力。
+pub const CAPABILITY_TASK_IMAGE: u8 = 2;
+/// DeviceAllocation 能力。
+pub const CAPABILITY_DEVICE_ALLOCATION: u8 = 3;
+/// Anonymous 能力。
+pub const CAPABILITY_ANONYMOUS: u8 = 4;
+/// Frame 能力。
+pub const CAPABILITY_FRAME: u8 = 5;
+
+/// Region 可读。
+pub const REGION_READ: u32 = 1 << 0;
+/// Region 可写。
+pub const REGION_WRITE: u32 = 1 << 1;
+/// Region 可执行。
+pub const REGION_EXECUTE: u32 = 1 << 2;
+/// Region 写时复制。
+pub const REGION_COW: u32 = 1 << 0;
+/// Region guard。
+pub const REGION_GUARD: u32 = 1 << 1;
+/// Region 固定驻留。
+pub const REGION_PINNED: u32 = 1 << 2;
+/// Region 只读共享。
+pub const REGION_SEALED: u32 = 1 << 3;
+
+/// 创建类型化能力，返回能力句柄。
+pub fn capability_create(kind: u8, length: usize) -> Option<u64> {
+    // SAFETY: 内核校验类型与长度后分配常驻物理页。
+    let handle =
+        unsafe { syscall_call(SYS_CAPABILITY_CREATE, kind as u64, length as u64, 0, 0).value };
+    (handle != u64::MAX).then_some(handle)
+}
+
+/// 把类型化能力的一段映射进当前 VSpace，返回 Region 句柄。
+pub fn region_map(
+    capability: u64,
+    offset: u64,
+    length: usize,
+    rights: u32,
+    flags: u32,
+) -> Option<u64> {
+    let packed = rights as u64 | ((flags as u64) << 32);
+    // SAFETY: 内核校验能力、范围、权利与标志后建立映射。
+    let region =
+        unsafe { syscall_call(SYS_REGION_MAP, capability, offset, length as u64, packed).value };
+    (region != u64::MAX && region != 0).then_some(region)
+}
+
+/// 查询 Region 的虚拟地址与长度。
+pub fn region_info(region: u64) -> Option<(u64, u64)> {
+    let mut bytes = [0_u8; 16];
+    // SAFETY: 缓冲区属于本进程；内核校验 Region 句柄后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_REGION_INFO,
+            region,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+    };
+    if result.value != 16 {
+        return None;
+    }
+    let virt = u64::from_le_bytes(bytes[..8].try_into().ok()?);
+    let length = u64::from_le_bytes(bytes[8..].try_into().ok()?);
+    Some((virt, length))
+}
+
+/// 解除 Region 映射；成功返回 1。
+pub fn region_unmap(region: u64) -> u64 {
+    // SAFETY: 内核校验 Region 句柄并解除映射。
+    unsafe { syscall_call(SYS_REGION_UNMAP, region, 0, 0, 0).value }
+}
+
+/// 查询类型化能力的物理地址与长度。
+pub fn capability_phys(capability: u64) -> Option<(u64, u64)> {
+    let mut bytes = [0_u8; 16];
+    // SAFETY: 缓冲区属于本进程；内核校验能力句柄后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_CAPABILITY_PHYS,
+            capability,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+    };
+    if result.value != 16 {
+        return None;
+    }
+    let phys = u64::from_le_bytes(bytes[..8].try_into().ok()?);
+    let length = u64::from_le_bytes(bytes[8..].try_into().ok()?);
+    Some((phys, length))
+}
+
+/// 创建能力并建立完整映射，返回 `(capability, region, virt)`。
+pub fn map_new(kind: u8, length: usize) -> Option<(u64, u64, u64)> {
+    let length = length.checked_add(4095)? & !4095;
+    let capability = capability_create(kind, length)?;
+    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
+    let (virt, _) = region_info(region)?;
+    Some((capability, region, virt))
+}
+
+/// 映射已有能力，返回 `(region, virt)`。
+pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
+    let (_, length) = capability_phys(capability)?;
+    let region = region_map(
+        capability,
+        0,
+        usize::try_from(length).ok()?,
+        REGION_READ | REGION_WRITE,
+        0,
+    )?;
+    let (virt, _) = region_info(region)?;
+    Some((region, virt))
+}
+
+/// 把类型化能力绑定到 DeviceGrant 的 IOMMU 域。
+pub fn dma_map_capability(grant: u64, capability: u64, length: usize) -> u64 {
+    // SAFETY: 内核校验授权、能力句柄与长度后建立 IOMMU 映射。
+    unsafe { syscall_call(SYS_DMA_MAP_CAPABILITY, grant, capability, length as u64, 0).value }
+}

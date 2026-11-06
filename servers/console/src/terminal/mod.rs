@@ -11,8 +11,8 @@ use hk_server_api::display::{
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    close_handle, map_create, map_unmap, recv_data_try, send, send_handle, service_endpoint, write,
-    yield_now,
+    CAPABILITY_SURFACE, close_handle, map_new, recv_data_try, region_unmap, send, send_handle,
+    service_endpoint, write, yield_now,
 };
 
 use ansi::{Ansi, Command, Event};
@@ -107,6 +107,7 @@ pub(crate) struct Terminal {
     surface: u64,
     window: u64,
     surface_virt: u64,
+    surface_region: u64,
     pixels: *mut u32,
     width: usize,
     height: usize,
@@ -361,7 +362,7 @@ impl Terminal {
 
     /// 解除共享表面映射，准备重建窗口。
     pub(crate) fn detach(&self) {
-        let _ = map_unmap(self.surface_virt, self.width * self.height * 4);
+        let _ = region_unmap(self.surface_region);
     }
 
     /// 按新的窗口内容尺寸重建表面并重排网格。
@@ -372,7 +373,7 @@ impl Terminal {
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
         let bytes = width * height * 4;
-        let Some((handle, virt)) = map_create(bytes) else {
+        let Some((handle, region, virt)) = map_new(CAPABILITY_SURFACE, bytes) else {
             write(b"hk-server-console: resize frame failed\n");
             return;
         };
@@ -387,17 +388,17 @@ impl Terminal {
             write(b"hk-server-console: resize rejected\n");
             return;
         }
-        let old_virt = self.surface_virt;
-        let old_bytes = self.width * self.height * 4;
+        let old_region = self.surface_region;
         self.width = width;
         self.height = height;
         self.surface_virt = virt;
+        self.surface_region = region;
         self.pixels = virt as *mut u32;
         self.columns = columns;
         self.rows = rows;
         self.row = self.row.min(rows.saturating_sub(1));
         self.column = self.column.min(columns.saturating_sub(1));
-        let _ = map_unmap(old_virt, old_bytes);
+        let _ = region_unmap(old_region);
         self.refresh();
     }
 
@@ -429,7 +430,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     if display == 0 {
         return None;
     }
-    let (handle, surface_virt) = map_create(WIDTH * HEIGHT * 4)?;
+    let (handle, surface_region, surface_virt) = map_new(CAPABILITY_SURFACE, WIDTH * HEIGHT * 4)?;
     if send_handle(
         display,
         SURFACE_CREATE,
@@ -448,6 +449,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         surface,
         window,
         surface_virt,
+        surface_region,
         pixels: surface_virt as *mut u32,
         width: WIDTH,
         height: HEIGHT,

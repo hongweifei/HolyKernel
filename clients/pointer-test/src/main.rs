@@ -10,7 +10,9 @@ use hk_server_api::display::{
     pack_window_size, set_title, unpack_window_size,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, map_create, map_unmap, recv, send, send_handle, write, write_u64};
+use hk_server_api::{
+    CAPABILITY_SURFACE, exit, map_new, recv, region_unmap, send, send_handle, write, write_u64,
+};
 
 /// 窗口宽度。
 #[cfg(target_os = "none")]
@@ -32,7 +34,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width as usize * height as usize * 4;
-    let Some((handle, mut surface_virt)) = map_create(bytes) else {
+    let Some((handle, mut surface_region, surface_virt)) = map_new(CAPABILITY_SURFACE, bytes)
+    else {
         write(b"hk-server-pointer-test: frame alloc failed\n");
         exit(2)
     };
@@ -70,7 +73,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let (_, new_width, new_height) = unpack_window_size(word);
                 if new_width != width || new_height != height {
                     let bytes = new_width as usize * new_height as usize * 4;
-                    let Some((handle, virt)) = map_create(bytes) else {
+                    let Some((handle, region, virt)) = map_new(CAPABILITY_SURFACE, bytes) else {
                         write(b"hk-server-pointer-test: resize frame failed\n");
                         exit(7)
                     };
@@ -84,13 +87,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         write(b"hk-server-pointer-test: resize rejected\n");
                         exit(7)
                     }
-                    let old_virt = surface_virt;
-                    let old_bytes = width as usize * height as usize * 4;
+                    let old_region = surface_region;
                     width = new_width;
                     height = new_height;
-                    surface_virt = virt;
+                    surface_region = region;
                     pixels = virt as *mut u32;
-                    let _ = map_unmap(old_virt, old_bytes);
+                    let _ = region_unmap(old_region);
                     paint(pixels, width, height);
                     let _ = send(display, SURFACE_COMMIT, surface);
                     write(b"hk-server-pointer-test: resize ");

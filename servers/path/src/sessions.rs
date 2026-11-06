@@ -3,7 +3,7 @@
 use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_mapping, unregister_client_mapping};
-use hk_server_api::{close_handle, map_attach, map_unmap};
+use hk_server_api::{capability_phys, close_handle, map_attach, region_unmap};
 use hk_vfs::{FileHandle, Vfs};
 
 #[cfg(target_os = "none")]
@@ -40,7 +40,7 @@ impl Session {
 #[cfg(target_os = "none")]
 pub(crate) struct Sessions {
     clients: BTreeMap<u64, Session>,
-    frames: BTreeMap<u64, (u64, usize, u64)>,
+    frames: BTreeMap<u64, (u64, u64, usize, u64)>,
 }
 
 #[cfg(target_os = "none")]
@@ -60,17 +60,17 @@ impl Sessions {
         if length == 0 || length > hk_server_api::vfs::VFS_FRAME_LEN {
             return false;
         }
-        let Some((mapped, virt)) = map_attach(handle) else {
+        let Some((region, virt)) = map_attach(handle) else {
             return false;
         };
-        if mapped != length as u64 {
-            let _ = map_unmap(virt, mapped as usize);
+        if capability_phys(handle).is_none_or(|(_, cap_len)| cap_len != length as u64) {
+            let _ = region_unmap(region);
             return false;
         }
-        if let Some((old_virt, old_len, old_handle)) =
-            self.frames.insert(sender, (virt, length, handle))
+        if let Some((old_virt, old_region, _old_len, old_handle)) =
+            self.frames.insert(sender, (virt, region, length, handle))
         {
-            let _ = map_unmap(old_virt, old_len);
+            let _ = region_unmap(old_region);
             let _ = close_handle(old_handle);
             unregister_client_mapping(old_virt);
         }
@@ -79,8 +79,8 @@ impl Sessions {
     }
 
     pub(crate) fn detach(&mut self, sender: u64, filesystem: &mut Vfs) {
-        if let Some((virt, length, handle)) = self.frames.remove(&sender) {
-            let _ = map_unmap(virt, length);
+        if let Some((virt, region, _length, handle)) = self.frames.remove(&sender) {
+            let _ = region_unmap(region);
             let _ = close_handle(handle);
             unregister_client_mapping(virt);
         }
@@ -94,6 +94,6 @@ impl Sessions {
     pub(crate) fn frame(&self, sender: u64) -> Option<(u64, usize)> {
         self.frames
             .get(&sender)
-            .map(|(virt, length, _)| (*virt, *length))
+            .map(|(virt, _, length, _)| (*virt, *length))
     }
 }

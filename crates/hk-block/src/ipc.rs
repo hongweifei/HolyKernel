@@ -22,9 +22,9 @@ use hk_server_api::block::{
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, handle_duplicate, map_attach,
-    map_create, map_phys, map_unmap, recv_data_handle, recv_data_handle_try, send, send_data,
-    send_handle, service_endpoint, yield_now,
+    CAPABILITY_ANONYMOUS, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle,
+    handle_duplicate, map_attach, map_new, recv_data_handle, recv_data_handle_try, region_unmap,
+    send, send_data, send_handle, service_endpoint, yield_now,
 };
 
 /// 直通帧（调用方已注册的帧）使用的槽位。
@@ -77,6 +77,7 @@ fn client_frame_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
 /// 一个客户端帧槽位。
 struct Slot {
     virt: u64,
+    region: u64,
     frame: Option<u64>,
     attached: Option<u64>,
     inflight: bool,
@@ -101,7 +102,7 @@ impl Drop for BlockClient {
         }
         for slot in &mut self.slots {
             if let Some(number) = slot.frame.take() {
-                let _ = map_unmap(slot.virt, FRAME_LEN);
+                let _ = region_unmap(slot.region);
                 let _ = close_handle(number);
             }
         }
@@ -114,6 +115,7 @@ impl BlockClient {
         let slots = (0..FRAME_SLOTS as usize)
             .map(|_| Slot {
                 virt: 0,
+                region: 0,
                 frame: None,
                 attached: None,
                 inflight: false,
@@ -131,7 +133,7 @@ impl BlockClient {
     }
 
     fn frame(&mut self, slot: usize) -> &mut [u8] {
-        // SAFETY: SYS_MAP_CREATE 把 FRAME_LEN 字节映射到该槽的虚拟地址。
+        // SAFETY: SYS_REGION_MAP 把 FRAME_LEN 字节映射到该槽的虚拟地址。
         unsafe { core::slice::from_raw_parts_mut(self.slots[slot].virt as *mut u8, FRAME_LEN) }
     }
 
@@ -170,10 +172,11 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].frame.is_none() {
-            let Some((number, virt)) = map_create(FRAME_LEN) else {
+            let Some((number, region, virt)) = map_new(CAPABILITY_ANONYMOUS, FRAME_LEN) else {
                 return Err(STATUS_ERROR);
             };
             self.slots[slot].frame = Some(number);
+            self.slots[slot].region = region;
             self.slots[slot].virt = virt;
         }
         let number = self.slots[slot].frame.ok_or(STATUS_ERROR)?;
@@ -816,6 +819,7 @@ impl BlockDevice for ClientDisk {
 /// 服务端映射的一个帧。
 struct ServerFrame {
     virt: u64,
+    region: u64,
     len: usize,
     handle: u64,
     busy: bool,
@@ -906,25 +910,21 @@ pub fn serve_with_wait<F, W>(
             let key = (sender, slot);
             let previous = frames.remove(&key);
             if let Some(old) = &previous {
-                let _ = map_unmap(old.virt, old.len);
+                let _ = region_unmap(old.region);
                 let _ = close_handle(old.handle);
             }
-            let Some((mapped, virt)) = map_attach(received) else {
+            let Some((region, virt)) = map_attach(received) else {
                 let _ = close_handle(received);
                 continue;
             };
-            if mapped != length as u64 {
-                let _ = map_unmap(virt, mapped as usize);
-                let _ = close_handle(received);
-                continue;
-            }
-            if let Some((phys, _)) = map_phys(received) {
+            if let Some((phys, _)) = capability_phys(received) {
                 hook(virt, phys, length, received);
             }
             frames.insert(
                 key,
                 ServerFrame {
                     virt,
+                    region,
                     len: length,
                     handle: received,
                     busy: false,
@@ -936,7 +936,7 @@ pub fn serve_with_wait<F, W>(
             if word == u64::MAX {
                 detach_sender(&mut frames, sender);
             } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
-                let _ = map_unmap(frame.virt, frame.len);
+                let _ = region_unmap(frame.region);
                 let _ = close_handle(frame.handle);
             }
             continue;
@@ -1045,7 +1045,7 @@ fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerFrame>, sender: u64) {
         .collect();
     for key in keys {
         if let Some(frame) = frames.remove(&key) {
-            let _ = map_unmap(frame.virt, frame.len);
+            let _ = region_unmap(frame.region);
             let _ = close_handle(frame.handle);
         }
     }

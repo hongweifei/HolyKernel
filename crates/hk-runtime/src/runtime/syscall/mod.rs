@@ -2,10 +2,13 @@
 
 use super::*;
 
+mod capability;
 mod device;
+mod dma;
 mod framebuffer;
+mod handle;
 mod ipc;
-mod mapping;
+mod region;
 mod task;
 mod thread;
 
@@ -220,15 +223,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 };
                 let in_grant =
                     length != 0 && phys >= range.start().get() && end <= range.end().get();
-                let in_frame = (0..self.tasks[index].frames.len()).any(|slot| {
-                    self.frame_at(index, FRAME_HANDLE_BASE + slot + 1)
-                        .is_some_and(|(_, frame)| {
-                            phys >= frame.start().get() && end <= frame.end().get()
+                let in_frame = (0..self.tasks[index].capabilities.len()).any(|slot| {
+                    self.capability_at(index, CAPABILITY_HANDLE_BASE + slot + 1)
+                        .and_then(|(_, _, backing)| backing)
+                        .is_some_and(|range| {
+                            phys >= range.start().get() && end <= range.end().get()
                         })
                 }) || (0..self.tasks[index].extra.len()).any(|slot| {
-                    self.frame_at(index, EXTRA_HANDLE_BASE + slot + 1)
-                        .is_some_and(|(_, frame)| {
-                            phys >= frame.start().get() && end <= frame.end().get()
+                    self.capability_at(index, EXTRA_HANDLE_BASE + slot + 1)
+                        .and_then(|(_, _, backing)| backing)
+                        .is_some_and(|range| {
+                            phys >= range.start().get() && end <= range.end().get()
                         })
                 });
                 if !in_grant && !in_frame {
@@ -310,12 +315,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.framebuffer_map(index, frame));
                 Switch::Continue
             }
-            SYS_MAP_CREATE => self.map_create(index, tcb, frame),
-            SYS_MAP_ATTACH => self.map_attach(index, tcb, frame),
-            SYS_MAP_UNMAP => self.map_unmap(index, frame),
-            SYS_MAP_PHYS => self.map_phys(index, tcb, frame),
+            SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
+            SYS_REGION_MAP => self.region_map(index, tcb, frame),
+            SYS_REGION_INFO => self.region_info(index, tcb, frame),
+            SYS_REGION_UNMAP => self.region_unmap(index, tcb, frame),
+            SYS_CAPABILITY_PHYS => self.capability_phys(index, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
-            SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),
+            SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
             SYS_BOOT_CMDLINE => {
                 let pointer = frame.arg0();
                 let capacity = frame.arg1() as usize;

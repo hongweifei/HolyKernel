@@ -116,26 +116,29 @@ pub const FUTEX_CHANGED: u64 = 1;
 /// 在任务 Arena 内分配内存。
 pub const SYS_ALLOC: u64 = 0x40;
 
-/// 创建共享 Frame 并映射。
-pub const SYS_MAP_CREATE: u64 = 0x41;
+/// 创建类型化能力并分配常驻物理页。
+pub const SYS_CAPABILITY_CREATE: u64 = 0x41;
 
-/// 把 Frame 映射到调用者地址空间。
-pub const SYS_MAP_ATTACH: u64 = 0x42;
+/// 把类型化能力的一段映射进调用者 VSpace。
+pub const SYS_REGION_MAP: u64 = 0x42;
 
-/// 解除 Frame 映射。
-pub const SYS_MAP_UNMAP: u64 = 0x43;
+/// 查询 Region 的虚拟地址与长度。
+pub const SYS_REGION_INFO: u64 = 0x43;
 
-/// 查询 Frame 的物理地址与长度。
-pub const SYS_MAP_PHYS: u64 = 0x44;
+/// 解除 Region 映射。
+pub const SYS_REGION_UNMAP: u64 = 0x44;
+
+/// 查询类型化能力的物理地址与长度。
+pub const SYS_CAPABILITY_PHYS: u64 = 0x45;
 
 /// 分配一致性 DMA 缓冲并映射到当前任务。
-pub const SYS_DMA_ALLOC: u64 = 0x45;
+pub const SYS_DMA_ALLOC: u64 = 0x46;
 
-/// 把共享 Frame 绑定到 DeviceGrant 的 IOMMU 域。
-pub const SYS_DMA_MAP_FRAME: u64 = 0x46;
+/// 把类型化能力绑定到 DeviceGrant 的 IOMMU 域。
+pub const SYS_DMA_MAP_CAPABILITY: u64 = 0x47;
 
 /// 同步 DMA 缓冲缓存。
-pub const SYS_DMA_SYNC: u64 = 0x47;
+pub const SYS_DMA_SYNC: u64 = 0x48;
 
 // === 设备与中断 0x50-0x5F ===
 
@@ -426,12 +429,13 @@ mod tests {
             SYS_FUTEX_WAIT,
             SYS_FUTEX_WAKE,
             SYS_ALLOC,
-            SYS_MAP_CREATE,
-            SYS_MAP_ATTACH,
-            SYS_MAP_UNMAP,
-            SYS_MAP_PHYS,
+            SYS_CAPABILITY_CREATE,
+            SYS_REGION_MAP,
+            SYS_REGION_INFO,
+            SYS_REGION_UNMAP,
+            SYS_CAPABILITY_PHYS,
             SYS_DMA_ALLOC,
-            SYS_DMA_MAP_FRAME,
+            SYS_DMA_MAP_CAPABILITY,
             SYS_DMA_SYNC,
             SYS_PCI_READ,
             SYS_PCI_WRITE,

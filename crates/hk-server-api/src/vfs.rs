@@ -1,8 +1,9 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
 use crate::{
-    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, handle_duplicate, map_create,
-    recv_data_from, send_data, send_handle, service_endpoint,
+    CAPABILITY_ANONYMOUS, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle,
+    handle_duplicate, map_new, recv_data_from, region_unmap, send_data, send_handle,
+    service_endpoint,
 };
 
 /// 请求标签。
@@ -192,20 +193,21 @@ pub struct VfsClient {
     own_endpoint: u64,
     request: [u8; BUFFER],
     response: [u8; BUFFER],
-    frame: Option<u64>,
+    capability: Option<u64>,
+    region: u64,
     frame_virt: u64,
     attached: u64,
 }
 
 impl Drop for VfsClient {
     fn drop(&mut self) {
-        if let Some(number) = self.frame {
+        if let Some(number) = self.capability {
             let endpoint = service_endpoint(self.service);
             if endpoint != 0 {
                 let _ = send_data(endpoint, VFS_DETACH, &[]);
             }
-            let _ = crate::map_unmap(self.frame_virt, VFS_FRAME_LEN);
-            let _ = crate::close_handle(number);
+            let _ = region_unmap(self.region);
+            let _ = close_handle(number);
         }
     }
 }
@@ -251,7 +253,8 @@ impl VfsClient {
             own_endpoint,
             request: [0; BUFFER],
             response: [0; BUFFER],
-            frame: None,
+            capability: None,
+            region: 0,
             frame_virt: 0,
             attached: 0,
         }
@@ -262,17 +265,19 @@ impl VfsClient {
         if endpoint == 0 {
             return Err(STATUS_IO);
         }
-        if self.attached == endpoint && self.frame.is_some() {
+        if self.attached == endpoint && self.capability.is_some() {
             return Ok(endpoint);
         }
-        if self.frame.is_none() {
-            let Some((number, virt)) = map_create(VFS_FRAME_LEN) else {
+        if self.capability.is_none() {
+            let Some((capability, region, virt)) = map_new(CAPABILITY_ANONYMOUS, VFS_FRAME_LEN)
+            else {
                 return Err(STATUS_IO);
             };
-            self.frame = Some(number);
+            self.capability = Some(capability);
+            self.region = region;
             self.frame_virt = virt;
         }
-        let number = self.frame.ok_or(STATUS_IO)?;
+        let number = self.capability.ok_or(STATUS_IO)?;
         let duplicate = handle_duplicate(
             number,
             RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
@@ -281,7 +286,7 @@ impl VfsClient {
             return Err(STATUS_IO);
         }
         if send_handle(endpoint, VFS_ATTACH, VFS_FRAME_LEN as u64, duplicate) == u64::MAX {
-            self.frame = None;
+            self.capability = None;
             return Err(STATUS_IO);
         }
         self.attached = endpoint;
@@ -290,7 +295,7 @@ impl VfsClient {
 
     /// 返回客户端共享帧。
     pub fn frame(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_MAP_CREATE 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
+        // SAFETY: SYS_REGION_MAP 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
         unsafe { core::slice::from_raw_parts_mut(self.frame_virt as *mut u8, VFS_FRAME_LEN) }
     }
 

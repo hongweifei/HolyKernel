@@ -6,8 +6,8 @@ use hk_server_api::net::{
     NET_SHARED_RX, NET_SHARED_TX, net_frame_word, net_rx_word,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, dma_map_frame, handle_duplicate, map_create, map_phys,
-    send, send_data, send_handle, write,
+    CAPABILITY_ANONYMOUS, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
+    dma_map_capability, handle_duplicate, map_new, send, send_data, send_handle, write,
 };
 
 /// 解析是否启用共享帧路径。
@@ -42,14 +42,14 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 #[cfg(target_os = "none")]
 fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
     for (index, frame_virt) in virts.iter_mut().enumerate() {
-        let Some((handle, virt)) = map_create(NET_SHARED_FRAME) else {
+        let Some((handle, _region, virt)) = map_new(CAPABILITY_ANONYMOUS, NET_SHARED_FRAME) else {
             return false;
         };
         *frame_virt = virt;
-        if let Some((phys, _)) = map_phys(handle) {
+        if let Some((phys, _)) = capability_phys(handle) {
             register_mapping(virt, phys, NET_SHARED_FRAME);
         }
-        let _ = dma_map_frame(grant, handle, NET_SHARED_FRAME);
+        let _ = dma_map_capability(grant, handle, NET_SHARED_FRAME);
         let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
         if duplicate == u64::MAX {
             return false;

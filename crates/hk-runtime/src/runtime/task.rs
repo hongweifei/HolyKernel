@@ -139,10 +139,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let task = &self.tasks[index];
         if task.device_factory.is_some()
-            || task.frames.iter().flatten().next().is_some()
+            || task.capabilities.iter().flatten().next().is_some()
             || task.grants.iter().flatten().next().is_some()
         {
-            return Err(String::from("任务持有设备或共享 Frame"));
+            return Err(String::from("任务持有设备或共享能力"));
         }
         if let Some((_, entry)) = self
             .tasks
