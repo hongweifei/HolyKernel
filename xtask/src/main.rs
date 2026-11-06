@@ -8,11 +8,13 @@
 //! cargo xtask lint
 //! cargo xtask docs
 //! cargo xtask budget
+//! cargo xtask bench --suite holyfs
 //! cargo xtask inspect --service hk-server-demo --symbols
 //! cargo xtask symbolize 0xffffffff80018bc4
 //! cargo xtask debug
 //! ```
 
+mod bench;
 mod budget;
 mod build;
 mod cargo;
@@ -74,6 +76,8 @@ enum Task {
     Docs,
     /// 统计内核代码行数
     Budget,
+    /// 运行宿主基准
+    Bench(bench::BenchArguments),
     /// 创建运行磁盘 build/run-disk.img
     Disk(DiskArguments),
 }
@@ -177,6 +181,7 @@ fn execute(task: Task) -> Result<()> {
         Task::Deps => deps::run(),
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
+        Task::Bench(arguments) => bench::run(arguments),
         Task::Disk(arguments) => {
             let path = if arguments.holy {
                 let path = workspace::root().join("build/run-holy.img");

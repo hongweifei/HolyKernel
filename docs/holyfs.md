@@ -416,9 +416,9 @@ sequenceDiagram
 | 4 KiB 随机读 | ≥ 50k IOPS（设备允许时） |
 | 快照创建 | ≤ 1 ms |
 | 挂载/恢复 | ≤ 100 ms |
-| 压缩吞吐（LZ4） | ≥ 500 MiB/s/core |
+| RLE 压缩写/读吞吐 | ≥ 100 MiB/s |
 
-预算由 `hk-bench holyfs` 锁定；里程碑退出以数据为准。
+预算由 `cargo run --release -p xtask -- bench --suite holyfs --enforce` 锁定；Hosted 门禁使用保守阈值，当前覆盖顺序读写、随机读、去重、压缩、快照与流式写。里程碑退出以实际硬件数据为准。
 
 ---
 
@@ -474,6 +474,7 @@ flowchart LR
 | 内容去重：ContentHash 索引、extent 共享 | 已实现 |
 | 修订保留：Seal/Prune/Purge、快照固定、旧块 GC | 已实现 |
 | Check/Scrub/Repair：对象图与引用校验、泄漏块回收、位图修复 | 已实现 |
+| Hosted 基准：顺序/随机 IO、去重、压缩、快照、流式写预算门禁 | 已实现 |
 | ContentHash：写入计算、整文档读取与 Check 校验 | 已实现 |
 
 ### 代码组织
