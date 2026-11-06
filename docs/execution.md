@@ -176,6 +176,7 @@ impl Notification {
 - 块客户端登记 VFS 客户端帧；当后端把该帧作为缓冲区时，块客户端临时 attach 同一物理帧并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据帧切回自有帧。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把帧物理区间映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
 - Frame 的最后一个句柄释放时通过平台回调把物理区间归还 DMA 池；任务退出关闭句柄、客户端 detach 后回收。
+- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、渲染缓冲与驱动共享帧都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
 
 ---
 
