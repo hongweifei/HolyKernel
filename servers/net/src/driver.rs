@@ -4,10 +4,10 @@ use core::net::Ipv4Addr;
 
 use hk_net::Stack;
 use hk_server_api::net::{
-    NET_FRAME_ATTACH, NET_FRAME_MAX, NET_FRAME_ROLE_RX, NET_FRAME_ROLE_TX, NET_INFO_BYTES,
-    NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX,
-    NET_RX_FRAME, NET_SHARED_FRAME, NET_SHARED_RX, NET_SHARED_TX, NET_SHUTDOWN, NET_TX_DONE,
-    net_frame_index, net_frame_role, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
+    NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_MAPPING_ATTACH,
+    NET_MAPPING_ROLE_RX, NET_MAPPING_ROLE_TX, NET_NOTIFY_TX, NET_POLL, NET_POLL_DONE, NET_RX,
+    NET_RX_FRAME, NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, NET_SHUTDOWN, NET_TX_DONE,
+    net_mapping_index, net_mapping_role, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
 };
 use hk_server_api::{
     capability_phys, close_handle, map_attach, notify, recv_data_handle, recv_data_try,
@@ -71,14 +71,14 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
     while rx_seen < NET_SHARED_RX || tx_seen < NET_SHARED_TX {
         let (label, word, sender, _length, handle) =
             recv_data_handle(endpoint, &mut buffer, driver);
-        if label != NET_FRAME_ATTACH || sender != driver || handle == 0 {
+        if label != NET_MAPPING_ATTACH || sender != driver || handle == 0 {
             return false;
         }
-        let role = net_frame_role(word);
-        let index = net_frame_index(word);
+        let role = net_mapping_role(word);
+        let index = net_mapping_index(word);
         let (virts, count) = match role {
-            NET_FRAME_ROLE_RX => (&mut rx, NET_SHARED_RX),
-            NET_FRAME_ROLE_TX => (&mut tx, NET_SHARED_TX),
+            NET_MAPPING_ROLE_RX => (&mut rx, NET_SHARED_RX),
+            NET_MAPPING_ROLE_TX => (&mut tx, NET_SHARED_TX),
             _ => {
                 let _ = close_handle(handle);
                 return false;
@@ -96,19 +96,19 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
             let _ = close_handle(handle);
             return false;
         };
-        if capability_phys(handle).is_none_or(|(_, length)| length != NET_SHARED_FRAME as u64) {
+        if capability_phys(handle).is_none_or(|(_, length)| length != NET_SHARED_LEN as u64) {
             let _ = region_unmap(region);
             let _ = close_handle(handle);
             return false;
         }
         virts[index] = virt;
-        if role == NET_FRAME_ROLE_RX {
+        if role == NET_MAPPING_ROLE_RX {
             rx_seen += 1;
         } else {
             tx_seen += 1;
         }
     }
-    stack.enable_shared(rx.to_vec(), tx.to_vec(), NET_SHARED_FRAME);
+    stack.enable_shared(rx.to_vec(), tx.to_vec(), NET_SHARED_LEN);
     write("hk-server-net: shared frames ready\n".as_bytes());
     true
 }

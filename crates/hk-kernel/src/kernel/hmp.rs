@@ -28,7 +28,7 @@ impl Kernel {
         &self,
         thread: TcbId,
         capability: Capability,
-        backing: Option<hk_mem::Backing>,
+        backing: Option<hk_mem::hmp::Backing>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
         self.register(

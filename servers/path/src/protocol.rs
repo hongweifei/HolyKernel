@@ -2,8 +2,8 @@
 
 use hk_server_api::send_data;
 use hk_server_api::vfs::{
-    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_FRAME, OP_STAT, OP_SYNC,
-    OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_FRAME, OPEN_CREATE, OPEN_READ,
+    OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_BUFFER, OP_STAT, OP_SYNC,
+    OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_BUFFER, OPEN_CREATE, OPEN_READ,
     OPEN_WRITE, Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK,
     STATUS_PERMISSION, VFS_RESPONSE, encode_response,
 };
@@ -29,7 +29,7 @@ pub(crate) fn handle(
     session: &mut Session,
     request: &Request<'_>,
     body: &mut [u8],
-    frame: Option<&mut [u8]>,
+    buffer: Option<&mut [u8]>,
 ) -> (u8, usize) {
     match request.op {
         OP_OPEN => {
@@ -77,20 +77,20 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
-        OP_READ_FRAME => {
+        OP_READ_BUFFER => {
             let Some(handle) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            let Some(frame) = frame else {
+            let Some(buffer) = buffer else {
                 return (STATUS_INVALID, 0);
             };
             let Some(length) = frame_length(request.data) else {
                 return (STATUS_INVALID, 0);
             };
-            if length > frame.len() {
+            if length > buffer.len() {
                 return (STATUS_INVALID, 0);
             }
-            match filesystem.read_at(handle, request.arg1, &mut frame[..length]) {
+            match filesystem.read_at(handle, request.arg1, &mut buffer[..length]) {
                 Ok(length) => {
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)
@@ -98,20 +98,20 @@ pub(crate) fn handle(
                 Err(error) => (status(error), 0),
             }
         }
-        OP_WRITE_FRAME => {
+        OP_WRITE_BUFFER => {
             let Some(handle) = session.get(request.arg0) else {
                 return (STATUS_NOT_FOUND, 0);
             };
-            let Some(frame) = frame else {
+            let Some(buffer) = buffer else {
                 return (STATUS_INVALID, 0);
             };
             let Some(length) = frame_length(request.data) else {
                 return (STATUS_INVALID, 0);
             };
-            if length > frame.len() {
+            if length > buffer.len() {
                 return (STATUS_INVALID, 0);
             }
-            match filesystem.write_at(handle, request.arg1, &frame[..length]) {
+            match filesystem.write_at(handle, request.arg1, &buffer[..length]) {
                 Ok(length) => {
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)

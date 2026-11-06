@@ -272,15 +272,15 @@ impl UserPlatform for X86Platform {
         paging::kernel_table().activate();
         if let Some(old) = USER_VSPACES.take(slot) {
             for frame in old.user_frames() {
-                paging::give_restore_frame(frame);
+                paging::give_restore_page(frame);
             }
         }
         let template = paging::kernel_table();
-        let Ok(table) = template.create_user_with(paging::take_restore_frame) else {
+        let Ok(table) = template.create_user_with(paging::take_restore_page) else {
             return false;
         };
         for page in pages {
-            let Some(frame) = paging::take_restore_frame() else {
+            let Some(frame) = paging::take_restore_page() else {
                 return false;
             };
             if page.data.is_empty() {
@@ -294,7 +294,7 @@ impl UserPlatform for X86Platform {
                     hk_hal::VirtAddr::new(page.virt),
                     frame,
                     flags,
-                    paging::take_restore_frame,
+                    paging::take_restore_page,
                 )
                 .is_err()
             {
@@ -309,7 +309,7 @@ impl UserPlatform for X86Platform {
         paging::kernel_table().activate();
         if let Some(old) = USER_VSPACES.take(slot) {
             for frame in old.user_frames() {
-                paging::give_restore_frame(frame);
+                paging::give_restore_page(frame);
             }
         }
     }

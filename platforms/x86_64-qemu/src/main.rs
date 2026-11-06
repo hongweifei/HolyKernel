@@ -37,7 +37,7 @@ use hk_hal::Console;
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::bootstrap;
 #[cfg(target_os = "none")]
-use hk_platform_x86_64::{COM1, FrameAllocator, PageTable, Serial};
+use hk_platform_x86_64::{COM1, PageAllocator, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_root_server::ServiceTable;
 #[cfg(target_os = "none")]
@@ -119,7 +119,7 @@ extern "C" fn kmain() -> ! {
         ),
     };
     let direct_map_base = direct_map.virt_base.get();
-    let mut allocator = match FrameAllocator::new(info.memory_map, info.kernel_image) {
+    let mut allocator = match PageAllocator::new(info.memory_map, info.kernel_image) {
         Some(allocator) => allocator,
         None => fail(
             &console,
@@ -131,9 +131,9 @@ extern "C" fn kmain() -> ! {
     let paging = PageTable::new(direct_map_base);
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
     hk_platform_x86_64::cache::init(direct_map_base);
-    hk_platform_x86_64::paging::reserve_frames(&mut allocator, 512);
-    hk_platform_x86_64::paging::reserve_user_table_frames(&mut allocator, 64);
-    hk_platform_x86_64::paging::reserve_restore_frames(&mut allocator, 2048);
+    hk_platform_x86_64::paging::reserve_cow_pages(&mut allocator, 512);
+    hk_platform_x86_64::paging::reserve_user_table_pages(&mut allocator, 64);
+    hk_platform_x86_64::paging::reserve_restore_pages(&mut allocator, 2048);
     if let Some(dma) = allocator.allocate_contiguous(64 * 1024 * 1024) {
         hk_platform_x86_64::dma::init(dma);
     }

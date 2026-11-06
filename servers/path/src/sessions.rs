@@ -56,8 +56,8 @@ impl Sessions {
         self.clients.entry(sender).or_insert_with(Session::new)
     }
 
-    pub(crate) fn attach_frame(&mut self, sender: u64, handle: u64, length: usize) -> bool {
-        if length == 0 || length > hk_server_api::vfs::VFS_FRAME_LEN {
+    pub(crate) fn attach_mapping(&mut self, sender: u64, handle: u64, length: usize) -> bool {
+        if length == 0 || length > hk_server_api::vfs::VFS_BUFFER_LEN {
             return false;
         }
         let Some((region, virt)) = map_attach(handle) else {
@@ -91,7 +91,7 @@ impl Sessions {
         }
     }
 
-    pub(crate) fn frame(&self, sender: u64) -> Option<(u64, usize)> {
+    pub(crate) fn mapping(&self, sender: u64) -> Option<(u64, usize)> {
         self.frames
             .get(&sender)
             .map(|(virt, _, length, _)| (*virt, *length))

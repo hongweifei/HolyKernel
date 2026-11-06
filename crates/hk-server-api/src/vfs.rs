@@ -40,12 +40,12 @@ pub const OP_UMOUNT: u8 = 12;
 /// 刷写挂起写入。
 pub const OP_SYNC: u8 = 13;
 /// 从共享帧读取文件内容。
-pub const OP_READ_FRAME: u8 = 14;
+pub const OP_READ_BUFFER: u8 = 14;
 /// 写入共享帧中的文件内容。
-pub const OP_WRITE_FRAME: u8 = 15;
+pub const OP_WRITE_BUFFER: u8 = 15;
 
 /// 客户端共享帧长度。
-pub const VFS_FRAME_LEN: usize = 60 * 1024;
+pub const VFS_BUFFER_LEN: usize = 60 * 1024;
 
 /// 打开读权限。
 pub const OPEN_READ: u64 = 1 << 0;
@@ -195,7 +195,7 @@ pub struct VfsClient {
     response: [u8; BUFFER],
     capability: Option<u64>,
     region: u64,
-    frame_virt: u64,
+    mapping_virt: u64,
     attached: u64,
 }
 
@@ -255,7 +255,7 @@ impl VfsClient {
             response: [0; BUFFER],
             capability: None,
             region: 0,
-            frame_virt: 0,
+            mapping_virt: 0,
             attached: 0,
         }
     }
@@ -269,13 +269,13 @@ impl VfsClient {
             return Ok(endpoint);
         }
         if self.capability.is_none() {
-            let Some((capability, region, virt)) = map_new(CAPABILITY_ANONYMOUS, VFS_FRAME_LEN)
+            let Some((capability, region, virt)) = map_new(CAPABILITY_ANONYMOUS, VFS_BUFFER_LEN)
             else {
                 return Err(STATUS_IO);
             };
             self.capability = Some(capability);
             self.region = region;
-            self.frame_virt = virt;
+            self.mapping_virt = virt;
         }
         let number = self.capability.ok_or(STATUS_IO)?;
         let duplicate = handle_duplicate(
@@ -285,7 +285,7 @@ impl VfsClient {
         if duplicate == u64::MAX {
             return Err(STATUS_IO);
         }
-        if send_handle(endpoint, VFS_ATTACH, VFS_FRAME_LEN as u64, duplicate) == u64::MAX {
+        if send_handle(endpoint, VFS_ATTACH, VFS_BUFFER_LEN as u64, duplicate) == u64::MAX {
             self.capability = None;
             return Err(STATUS_IO);
         }
@@ -294,19 +294,19 @@ impl VfsClient {
     }
 
     /// 返回客户端共享帧。
-    pub fn frame(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_REGION_MAP 把 VFS_FRAME_LEN 字节映射到自动分配的地址。
-        unsafe { core::slice::from_raw_parts_mut(self.frame_virt as *mut u8, VFS_FRAME_LEN) }
+    pub fn buffer(&mut self) -> &mut [u8] {
+        // SAFETY: SYS_REGION_MAP 把 VFS_BUFFER_LEN 字节映射到自动分配的地址。
+        unsafe { core::slice::from_raw_parts_mut(self.mapping_virt as *mut u8, VFS_BUFFER_LEN) }
     }
 
     /// 从共享帧读取文件内容，返回字节数。
-    pub fn read_frame(&mut self, handle: u64, offset: u64, length: usize) -> Result<usize, u8> {
-        if length > VFS_FRAME_LEN {
+    pub fn read_buffer(&mut self, handle: u64, offset: u64, length: usize) -> Result<usize, u8> {
+        if length > VFS_BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
         self.ensure_attach()?;
         let argument = (length as u64).to_le_bytes();
-        let response = self.exchange(OP_READ_FRAME, "", handle, offset, &argument)?;
+        let response = self.exchange(OP_READ_BUFFER, "", handle, offset, &argument)?;
         if response < 8 {
             return Err(STATUS_INVALID);
         }
@@ -316,14 +316,14 @@ impl VfsClient {
     }
 
     /// 把共享帧中的内容写入文件，返回字节数。
-    pub fn write_frame(&mut self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
-        if data.len() > VFS_FRAME_LEN {
+    pub fn write_buffer(&mut self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
+        if data.len() > VFS_BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
         self.ensure_attach()?;
-        self.frame()[..data.len()].copy_from_slice(data);
+        self.buffer()[..data.len()].copy_from_slice(data);
         let argument = (data.len() as u64).to_le_bytes();
-        let response = self.exchange(OP_WRITE_FRAME, "", handle, offset, &argument)?;
+        let response = self.exchange(OP_WRITE_BUFFER, "", handle, offset, &argument)?;
         if response < 8 {
             return Err(STATUS_INVALID);
         }

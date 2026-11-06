@@ -77,7 +77,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let (label, word, sender, length, frame_handle) =
             recv_data_handle(endpoint, &mut request, 0);
         if frame_handle != 0 && label == VFS_ATTACH {
-            let _ = sessions.attach_frame(sender, frame_handle, word as usize);
+            let _ = sessions.attach_mapping(sender, frame_handle, word as usize);
             continue;
         }
         if label == VFS_DETACH {
@@ -92,7 +92,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, STATUS_INVALID, &[], &mut response);
             continue;
         };
-        let mapped = sessions.frame(sender).map(|(virt, length)| {
+        let mapped = sessions.mapping(sender).map(|(virt, length)| {
             // SAFETY: Path 帧 attach 已把该客户端的共享帧映射到此地址。
             unsafe { core::slice::from_raw_parts_mut(virt as *mut u8, length) }
         });

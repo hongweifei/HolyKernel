@@ -27,7 +27,7 @@ pub const NET_CONFIG_REQUEST: u64 = 0x70b;
 /// 原生网络配置响应。
 pub const NET_CONFIG_RESPONSE: u64 = 0x70c;
 /// 驱动向 Network Server 移交共享帧（`word` 打包角色与索引）。
-pub const NET_FRAME_ATTACH: u64 = 0x70d;
+pub const NET_MAPPING_ATTACH: u64 = 0x70d;
 /// 驱动通知一帧接收数据已就绪（`word` 打包索引、偏移与长度）。
 pub const NET_RX_FRAME: u64 = 0x70e;
 /// Network Server 归还接收帧（`word` 为索引）。
@@ -38,30 +38,30 @@ pub const NET_TX_FRAME: u64 = 0x710;
 pub const NET_TX_DONE: u64 = 0x711;
 
 /// 共享帧角色：接收。
-pub const NET_FRAME_ROLE_RX: u64 = 0;
+pub const NET_MAPPING_ROLE_RX: u64 = 0;
 /// 共享帧角色：发送。
-pub const NET_FRAME_ROLE_TX: u64 = 1;
+pub const NET_MAPPING_ROLE_TX: u64 = 1;
 /// 共享接收帧数量。
 pub const NET_SHARED_RX: usize = 8;
 /// 共享发送帧数量。
 pub const NET_SHARED_TX: usize = 8;
 /// 单个共享帧长度。
-pub const NET_SHARED_FRAME: usize = 4096;
+pub const NET_SHARED_LEN: usize = 4096;
 /// 发送帧中为 virtio 头预留的空间。
 pub const NET_TX_HEADER: usize = 32;
 
 /// 打包共享帧角色与索引。
-pub const fn net_frame_word(role: u64, index: usize) -> u64 {
+pub const fn net_mapping_word(role: u64, index: usize) -> u64 {
     (role << 8) | index as u64
 }
 
 /// 从共享帧消息中取角色。
-pub const fn net_frame_role(word: u64) -> u64 {
+pub const fn net_mapping_role(word: u64) -> u64 {
     word >> 8
 }
 
 /// 从共享帧消息中取索引。
-pub const fn net_frame_index(word: u64) -> usize {
+pub const fn net_mapping_index(word: u64) -> usize {
     (word & 0xFF) as usize
 }
 

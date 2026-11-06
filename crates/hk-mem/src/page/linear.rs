@@ -3,12 +3,12 @@
 use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr};
 
 /// 线性物理帧分配器。
-pub struct LinearFrames {
+pub struct LinearPages {
     next: u64,
     end: u64,
 }
 
-impl LinearFrames {
+impl LinearPages {
     /// 以物理区间 `[next, end)` 构造分配器。
     pub const fn from_range(next: u64, end: u64) -> Self {
         Self { next, end }
@@ -85,7 +85,7 @@ mod tests {
         ];
         let kernel = MemoryRegion::new(PhysAddr::new(0), 0x1000, RegionKind::Kernel);
 
-        let allocator = LinearFrames::new(&regions, kernel).expect("可用区域");
+        let allocator = LinearPages::new(&regions, kernel).expect("可用区域");
         assert_eq!(allocator.next, 0x10_0000);
         assert_eq!(allocator.end, 0x50_0000);
     }
@@ -99,12 +99,12 @@ mod tests {
         )];
         let kernel = MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2000, RegionKind::Kernel);
 
-        let allocator = LinearFrames::new(&regions, kernel).expect("可用区域");
+        let allocator = LinearPages::new(&regions, kernel).expect("可用区域");
         assert_eq!(allocator.next, 0x1_2000);
     }
     #[test]
     fn allocates_contiguous_ranges() {
-        let mut frames = LinearFrames::from_range(0x10_0000, 0x10_3000);
+        let mut frames = LinearPages::from_range(0x10_0000, 0x10_3000);
         let range = frames.allocate_contiguous(0x1800).expect("连续分配");
         assert_eq!(range.start(), PhysAddr::new(0x10_0000));
         assert_eq!(range.len(), 0x2000);

@@ -2,7 +2,7 @@
 
 use hk_hal::PAGE_SIZE;
 use hk_handle::Rights;
-use hk_mem::Backing;
+use hk_mem::hmp::Backing;
 use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp};
 
 use super::*;

@@ -360,7 +360,7 @@ fn benchmark_ext4(endpoint: u64) -> Option<u64> {
     let chunk = [0x5A_u8; CHUNK];
     for index in 0..CHUNKS {
         client
-            .write_frame(handle, (index * CHUNK) as u64, &chunk)
+            .write_buffer(handle, (index * CHUNK) as u64, &chunk)
             .ok()?;
     }
     let _ = client.close(handle);
@@ -374,7 +374,7 @@ fn benchmark_ext4(endpoint: u64) -> Option<u64> {
     let start = tsc();
     let mut total = 0;
     loop {
-        let length = client.read_frame(handle, total as u64, CHUNK).ok()?;
+        let length = client.read_buffer(handle, total as u64, CHUNK).ok()?;
         if length == 0 {
             break;
         }

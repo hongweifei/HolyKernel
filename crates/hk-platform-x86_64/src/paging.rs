@@ -8,9 +8,9 @@ use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
-use hk_mem::FramePool;
+use hk_mem::PagePool;
 
-pub use hk_mem::LinearFrames as FrameAllocator;
+pub use hk_mem::LinearPages as PageAllocator;
 
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
@@ -27,9 +27,9 @@ const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
-static COW_FRAMES: FramePool = FramePool::new();
-static USER_TABLE_FRAMES: FramePool = FramePool::new();
-static RESTORE_FRAMES: FramePool = FramePool::new();
+static COW_PAGES: PagePool = PagePool::new();
+static USER_TABLE_PAGES: PagePool = PagePool::new();
+static RESTORE_PAGES: PagePool = PagePool::new();
 
 /// 设置页表运行时使用的 direct map 基址，并记录内核页表根。
 pub fn init_runtime(direct_map: u64) {
@@ -51,36 +51,36 @@ pub fn kernel_table() -> PageTable {
 }
 
 /// 预留写时复制与页表使用的物理帧。
-pub fn reserve_frames(allocator: &mut FrameAllocator, count: usize) {
-    COW_FRAMES.reserve(allocator, count);
+pub fn reserve_cow_pages(allocator: &mut PageAllocator, count: usize) {
+    COW_PAGES.reserve(allocator, count);
 }
 
-fn take_frame() -> Option<PhysAddr> {
-    COW_FRAMES.take()
+fn take_cow_page() -> Option<PhysAddr> {
+    COW_PAGES.take()
 }
 
 /// 预留检查点恢复使用的物理帧。
-pub fn reserve_restore_frames(allocator: &mut FrameAllocator, count: usize) {
-    RESTORE_FRAMES.reserve(allocator, count);
+pub fn reserve_restore_pages(allocator: &mut PageAllocator, count: usize) {
+    RESTORE_PAGES.reserve(allocator, count);
 }
 
 /// 取出一个检查点恢复帧。
-pub fn take_restore_frame() -> Option<PhysAddr> {
-    RESTORE_FRAMES.take()
+pub fn take_restore_page() -> Option<PhysAddr> {
+    RESTORE_PAGES.take()
 }
 
 /// 归还一个检查点恢复帧。
-pub fn give_restore_frame(frame: PhysAddr) {
-    RESTORE_FRAMES.give(frame);
+pub fn give_restore_page(frame: PhysAddr) {
+    RESTORE_PAGES.give(frame);
 }
 
 /// 预留 MMIO 映射所需的页表帧。
-pub fn reserve_user_table_frames(allocator: &mut FrameAllocator, count: usize) {
-    USER_TABLE_FRAMES.reserve(allocator, count);
+pub fn reserve_user_table_pages(allocator: &mut PageAllocator, count: usize) {
+    USER_TABLE_PAGES.reserve(allocator, count);
 }
 
 fn take_user_table_frame() -> Option<PhysAddr> {
-    USER_TABLE_FRAMES.take()
+    USER_TABLE_PAGES.take()
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。
@@ -201,7 +201,7 @@ impl PageTable {
     }
 
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
-    pub fn create_user(&self, allocator: &mut FrameAllocator) -> Result<Self, PagingError> {
+    pub fn create_user(&self, allocator: &mut PageAllocator) -> Result<Self, PagingError> {
         self.create_user_with(|| allocator.allocate())
     }
 
@@ -211,7 +211,7 @@ impl PageTable {
         F: FnMut() -> Option<PhysAddr>,
     {
         let root = allocate().ok_or(PagingError::OutOfFrames)?;
-        self.zero_frame(root);
+        self.zero_page(root);
 
         for index in KERNEL_PML4_START..ENTRIES {
             // SAFETY: 两侧 PML4 均经 HHDM 映射，索引在 0..512 范围内。
@@ -389,8 +389,8 @@ impl PageTable {
 
     /// 复制用户低半区并标记写时复制，返回子页表。
     pub fn fork_user(&self) -> Option<Self> {
-        let child_root = take_frame()?;
-        self.zero_frame(child_root);
+        let child_root = take_cow_page()?;
+        self.zero_page(child_root);
 
         for index in KERNEL_PML4_START..ENTRIES {
             // SAFETY: 两侧 PML4 均经 HHDM 映射，索引在 0..512 范围内。
@@ -411,8 +411,8 @@ impl PageTable {
                 return None;
             }
 
-            let child = take_frame()?;
-            self.zero_frame(child);
+            let child = take_cow_page()?;
+            self.zero_page(child);
             // SAFETY: 父页表处于活动状态，条目地址经 HHDM 映射。
             let source = PhysAddr::new(value & ADDRESS_MASK);
             self.clone_level(source, child, 3)?;
@@ -460,8 +460,8 @@ impl PageTable {
                     self.entry(target, index).write_volatile(physical | leaf);
                 }
             } else {
-                let child = take_frame()?;
-                self.zero_frame(child);
+                let child = take_cow_page()?;
+                self.zero_page(child);
                 self.clone_level(PhysAddr::new(physical), child, level - 1)?;
                 // SAFETY: 子中间级项指向新页表，并保留原有权限位。
                 unsafe {
@@ -493,7 +493,7 @@ impl PageTable {
             return false;
         }
 
-        let Some(frame) = take_frame() else {
+        let Some(frame) = take_cow_page() else {
             return false;
         };
         let source = (self.direct_map + (value & ADDRESS_MASK)) as *const u8;
@@ -539,7 +539,7 @@ impl PageTable {
         virt: VirtAddr,
         phys: PhysAddr,
         flags: PageFlags,
-        allocator: &mut FrameAllocator,
+        allocator: &mut PageAllocator,
     ) -> Result<(), PagingError> {
         self.map_with(virt, phys, flags, || allocator.allocate())
     }
@@ -568,7 +568,7 @@ impl PageTable {
 
             if value & PRESENT == 0 {
                 let frame = allocate().ok_or(PagingError::OutOfFrames)?;
-                self.zero_frame(frame);
+                self.zero_page(frame);
                 // SAFETY: 同上；新页表已清零，写入指向它的当前级表项。
                 // 中间级必须带 USER，否则 ring 3 访问会被拒绝。
                 unsafe {
@@ -649,7 +649,7 @@ impl PageTable {
         ((self.direct_map + table.get()) as *mut u64).wrapping_add(index)
     }
 
-    fn zero_frame(&self, frame: PhysAddr) {
+    fn zero_page(&self, frame: PhysAddr) {
         let pointer = (self.direct_map + frame.get()) as *mut u8;
         // SAFETY: 新分配的帧来自可用内存区域，经 HHDM 可写。
         unsafe {
@@ -687,7 +687,7 @@ mod tests {
             direct_map: base,
             root: PhysAddr::new(0),
         };
-        let mut allocator = FrameAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
+        let mut allocator = PageAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
         let user = table.create_user(&mut allocator).expect("创建用户页表");
         assert_eq!(user.root, PhysAddr::new(PAGE_SIZE as u64));
 

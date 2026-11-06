@@ -171,13 +171,13 @@ impl Notification {
 - 内核提供 `SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_CAPABILITY`。
 - `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务 VSpace，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
-- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享帧，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应帧。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动把帧物理地址登记给 virtio HAL，设备 DMA 直接读写帧。`BLOCK_DETACH` 按槽位或整体解除映射并关闭驱动侧句柄。
-- VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_FRAME`/`OP_WRITE_FRAME` 用 8 字节参数携带长度，文件内容直接读写客户端共享帧；服务端按发送者维护帧映射，重连时解除旧映射并关闭旧句柄，`VFS_DETACH` 清理帧与会话文件句柄。
-- 块客户端登记 VFS 客户端帧；当后端把该帧作为缓冲区时，块客户端临时 attach 同一物理帧并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据帧切回自有帧。
+- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区映射，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动把能力物理地址登记给 virtio HAL，设备 DMA 直接读写缓冲区。`BLOCK_DETACH` 按槽位或整体解除映射并关闭驱动侧句柄。
+- VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_BUFFER`/`OP_WRITE_BUFFER` 用 8 字节参数携带长度，文件内容直接读写客户端缓冲区映射；服务端按发送者维护 Region 映射，重连时解除旧映射并关闭旧句柄，`VFS_DETACH` 清理映射与会话文件句柄。
+- 块客户端登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一能力并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_CAPABILITY` 把能力物理区间映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的能力区间。
-- Frame 的最后一个句柄释放时通过平台回调把物理区间归还 DMA 池；任务退出关闭句柄、客户端 detach 后回收。
-- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、背缓冲与驱动共享帧都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
-- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Frame、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收，不再由各构件手写地址。`SYS_DMA_ALLOC`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
+- Capability 的最后一个句柄释放时通过平台回调把物理区间归还 DMA 池；任务退出关闭句柄、客户端 detach 后回收。
+- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、背缓冲与驱动共享映射都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
+- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收，不再由各构件手写地址。`SYS_DMA_ALLOC`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
 
 ---
 

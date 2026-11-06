@@ -23,6 +23,6 @@ pub mod timing;
 pub mod vspace;
 
 pub use hk_framebuffer::FramebufferConsole;
-pub use paging::{FrameAllocator, PageFlags, PageTable, PagingError};
+pub use paging::{PageAllocator, PageFlags, PageTable, PagingError};
 pub use serial::{COM1, Serial};
 pub use vspace::USER_VSPACES;

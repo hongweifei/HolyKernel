@@ -13,7 +13,7 @@ use spin::Mutex;
 
 use crate::acpi::Madt;
 use crate::ioapic::IoApic;
-use crate::{FrameAllocator, FramebufferConsole, PageFlags, PageTable};
+use crate::{FramebufferConsole, PageAllocator, PageFlags, PageTable};
 
 /// I/O APIC 与键盘路由结果。
 pub struct IoApicSetup {
@@ -137,7 +137,7 @@ impl InterruptController for IoApicController {
 
 struct AcpiWindow<'a> {
     paging: &'a PageTable,
-    allocator: &'a mut FrameAllocator,
+    allocator: &'a mut PageAllocator,
     base: u64,
 }
 
@@ -180,7 +180,7 @@ impl AcpiWindow<'_> {
 pub fn init_ioapic(
     info: &BootInfo,
     paging: &PageTable,
-    allocator: &mut FrameAllocator,
+    allocator: &mut PageAllocator,
     direct_map_base: u64,
 ) -> Result<Option<IoApicSetup>, String> {
     let Some(rsdp) = info.rsdp else {
@@ -248,7 +248,7 @@ pub fn framebuffer_console(info: &BootInfo) -> Option<FramebufferConsole> {
 /// 映射 LAPIC 寄存器页并初始化本地 APIC。
 pub fn init_interrupts(
     paging: &PageTable,
-    allocator: &mut FrameAllocator,
+    allocator: &mut PageAllocator,
     direct_map_base: u64,
 ) -> Result<(), String> {
     let lapic_phys = PhysAddr::new(0xFEE0_0000);

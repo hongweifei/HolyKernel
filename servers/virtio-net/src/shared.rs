@@ -2,8 +2,8 @@
 
 use hk_driver_virtio::{Network, register_mapping};
 use hk_server_api::net::{
-    NET_FRAME_ATTACH, NET_FRAME_ROLE_RX, NET_FRAME_ROLE_TX, NET_RX, NET_RX_FRAME, NET_SHARED_FRAME,
-    NET_SHARED_RX, NET_SHARED_TX, net_frame_word, net_rx_word,
+    NET_MAPPING_ATTACH, NET_MAPPING_ROLE_RX, NET_MAPPING_ROLE_TX, NET_RX, NET_RX_FRAME,
+    NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, net_mapping_word, net_rx_word,
 };
 use hk_server_api::{
     CAPABILITY_ANONYMOUS, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
@@ -22,13 +22,13 @@ pub(crate) fn zerocopy_enabled() -> bool {
 pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> bool {
     let mut rx = [0_u64; NET_SHARED_RX];
     let mut tx = [0_u64; NET_SHARED_TX];
-    if !attach_role(peer, grant, NET_FRAME_ROLE_RX, &mut rx)
-        || !attach_role(peer, grant, NET_FRAME_ROLE_TX, &mut tx)
+    if !attach_role(peer, grant, NET_MAPPING_ROLE_RX, &mut rx)
+        || !attach_role(peer, grant, NET_MAPPING_ROLE_TX, &mut tx)
     {
         write("hk-server-virtio-net: shared frame attach failed\n".as_bytes());
         return false;
     }
-    network.set_shared_layout(rx, tx, NET_SHARED_FRAME);
+    network.set_shared_layout(rx, tx, NET_SHARED_LEN);
     for index in 0..NET_SHARED_RX {
         if !network.submit_shared_rx(index) {
             write("hk-server-virtio-net: shared rx submit failed\n".as_bytes());
@@ -41,23 +41,23 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 
 #[cfg(target_os = "none")]
 fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
-    for (index, frame_virt) in virts.iter_mut().enumerate() {
-        let Some((handle, _region, virt)) = map_new(CAPABILITY_ANONYMOUS, NET_SHARED_FRAME) else {
+    for (index, mapping_virt) in virts.iter_mut().enumerate() {
+        let Some((handle, _region, virt)) = map_new(CAPABILITY_ANONYMOUS, NET_SHARED_LEN) else {
             return false;
         };
-        *frame_virt = virt;
+        *mapping_virt = virt;
         if let Some((phys, _)) = capability_phys(handle) {
-            register_mapping(virt, phys, NET_SHARED_FRAME);
+            register_mapping(virt, phys, NET_SHARED_LEN);
         }
-        let _ = dma_map_capability(grant, handle, NET_SHARED_FRAME);
+        let _ = dma_map_capability(grant, handle, NET_SHARED_LEN);
         let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
         if duplicate == u64::MAX {
             return false;
         }
         if send_handle(
             peer,
-            NET_FRAME_ATTACH,
-            net_frame_word(role, index),
+            NET_MAPPING_ATTACH,
+            net_mapping_word(role, index),
             duplicate,
         ) == u64::MAX
         {

@@ -251,7 +251,7 @@ pub(crate) fn flush_tx(driver: u64, stack: &mut Stack, stats: &mut Stats) {
         let _ = send(driver, NET_TX_FRAME, net_tx_word(index, length));
         woke = true;
     }
-    while let Some(packet) = stack.take_frame() {
+    while let Some(packet) = stack.take_cow_page() {
         stats.tx_frames = stats.tx_frames.saturating_add(1);
         stats.tx_bytes = stats.tx_bytes.saturating_add(packet.len() as u64);
         let _ = send_data(driver, NET_TX, &packet);

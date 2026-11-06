@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use hk_hal::{DeviceGrant, PhysRange};
 use hk_handle::{Object, ObjectHeader, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::Backing;
+use hk_mem::hmp::Backing;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
 use spin::Mutex;
 

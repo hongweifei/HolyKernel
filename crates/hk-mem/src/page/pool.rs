@@ -5,14 +5,14 @@ use alloc::vec::Vec;
 use hk_hal::PhysAddr;
 use spin::Mutex;
 
-use crate::frames::LinearFrames;
+use super::linear::LinearPages;
 
 /// 固定用途的物理帧池。
-pub struct FramePool {
+pub struct PagePool {
     frames: Mutex<Vec<PhysAddr>>,
 }
 
-impl FramePool {
+impl PagePool {
     /// 构造空池。
     pub const fn new() -> Self {
         Self {
@@ -21,7 +21,7 @@ impl FramePool {
     }
 
     /// 从线性分配器预留 `count` 个帧。
-    pub fn reserve(&self, allocator: &mut LinearFrames, count: usize) {
+    pub fn reserve(&self, allocator: &mut LinearPages, count: usize) {
         let mut frames = self.frames.lock();
         for _ in 0..count {
             let Some(frame) = allocator.allocate() else {
@@ -52,7 +52,7 @@ impl FramePool {
     }
 }
 
-impl Default for FramePool {
+impl Default for PagePool {
     fn default() -> Self {
         Self::new()
     }
@@ -64,8 +64,8 @@ mod tests {
 
     #[test]
     fn reserves_and_returns_frames() {
-        let pool = FramePool::new();
-        let mut frames = LinearFrames::from_range(0x10_0000, 0x10_2000);
+        let pool = PagePool::new();
+        let mut frames = LinearPages::from_range(0x10_0000, 0x10_2000);
         pool.reserve(&mut frames, 2);
         assert_eq!(pool.len(), 2);
         let first = pool.take().expect("第一个帧");

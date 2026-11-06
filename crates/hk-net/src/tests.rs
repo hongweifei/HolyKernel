@@ -74,7 +74,7 @@ fn answers_arp_request() {
     let request = arp_request();
     stack.push_frame(&request).expect("注入 ARP");
     stack.poll(0);
-    let reply = stack.take_frame().expect("ARP 回复");
+    let reply = stack.take_cow_page().expect("ARP 回复");
     assert_eq!(&reply[0..6], &MAC_B);
     assert_eq!(&reply[6..12], &MAC_A);
     assert_eq!(&reply[12..14], &[0x08, 0x06]);
@@ -136,11 +136,11 @@ fn dns_query_times_out() {
     for step in 0..80 {
         let now = step * 200;
         a.poll(now);
-        while let Some(frame) = a.take_frame() {
+        while let Some(frame) = a.take_cow_page() {
             b.push_frame(&frame).expect("A→B");
         }
         b.poll(now);
-        while let Some(frame) = b.take_frame() {
+        while let Some(frame) = b.take_cow_page() {
             a.push_frame(&frame).expect("B→A");
         }
         result = a.poll_dns(dns, query);
@@ -174,7 +174,7 @@ fn run_dns(
     let mut result = Ok(None);
     for tick in 0..64 {
         a.poll(tick);
-        while let Some(frame) = a.take_frame() {
+        while let Some(frame) = a.take_cow_page() {
             b.push_frame(&frame).expect("A→B");
         }
         b.poll(tick);
@@ -185,7 +185,7 @@ fn run_dns(
             b.send_udp(server, remote, endpoint.port, &response)
                 .expect("DNS 响应");
         }
-        while let Some(frame) = b.take_frame() {
+        while let Some(frame) = b.take_cow_page() {
             a.push_frame(&frame).expect("B→A");
         }
         a.poll(tick);
@@ -260,11 +260,11 @@ fn tcp_handshake_and_echo() {
 
 fn pump(a: &mut Stack, b: &mut Stack, tick: u64) {
     a.poll(tick);
-    while let Some(frame) = a.take_frame() {
+    while let Some(frame) = a.take_cow_page() {
         b.push_frame(&frame).expect("A→B");
     }
     b.poll(tick);
-    while let Some(frame) = b.take_frame() {
+    while let Some(frame) = b.take_cow_page() {
         a.push_frame(&frame).expect("B→A");
     }
 }
@@ -286,11 +286,11 @@ fn udp_between_two_stacks() {
             sent = true;
         }
         a.poll(tick + 2);
-        while let Some(frame) = a.take_frame() {
+        while let Some(frame) = a.take_cow_page() {
             b.push_frame(&frame).expect("B 收帧");
         }
         b.poll(tick + 2);
-        while let Some(frame) = b.take_frame() {
+        while let Some(frame) = b.take_cow_page() {
             a.push_frame(&frame).expect("A 收帧");
         }
         let mut buffer = [0_u8; 16];

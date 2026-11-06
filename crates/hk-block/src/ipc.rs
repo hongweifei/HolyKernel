@@ -16,8 +16,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{AsyncBlockDevice, BlockDevice, BlockError, SECTOR_SIZE};
 use hk_server_api::block::{
-    BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, FRAME_LEN,
-    FRAME_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR,
+    BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, BUFFER_LEN,
+    BUFFER_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR,
     STATUS_INVALID, STATUS_OK, STATUS_RANGE, attach_length, attach_slot, attach_word,
     decode_request, decode_response, encode_request, encode_response,
 };
@@ -31,22 +31,22 @@ use hk_server_api::{
 const DIRECT_SLOT: usize = 0;
 /// 客户端自己管理的帧槽位起点。
 const OWN_SLOT_START: usize = 1;
-const CLIENT_FRAME_SLOTS: usize = 8;
-static CLIENT_FRAME_VIRT: [AtomicU64; CLIENT_FRAME_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
-static CLIENT_FRAME_HANDLE: [AtomicU64; CLIENT_FRAME_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
-static CLIENT_FRAME_LEN: [AtomicU64; CLIENT_FRAME_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_FRAME_SLOTS];
+const CLIENT_BUFFER_SLOTS: usize = 8;
+static CLIENT_MAPPING_VIRT: [AtomicU64; CLIENT_BUFFER_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
+static CLIENT_MAPPING_HANDLE: [AtomicU64; CLIENT_BUFFER_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
+static CLIENT_BUFFER_LEN: [AtomicU64; CLIENT_BUFFER_SLOTS] =
+    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
 
 /// 登记一个 VFS 客户端缓冲区映射，供块客户端识别直写缓冲区。
 pub fn register_client_mapping(virt: u64, handle: u64, len: usize) {
-    for (slot, virt_slot) in CLIENT_FRAME_VIRT.iter().enumerate() {
+    for (slot, virt_slot) in CLIENT_MAPPING_VIRT.iter().enumerate() {
         let current = virt_slot.load(Ordering::Acquire);
         if current == 0 || current == virt {
-            CLIENT_FRAME_HANDLE[slot].store(handle, Ordering::Release);
-            CLIENT_FRAME_LEN[slot].store(len as u64, Ordering::Release);
-            CLIENT_FRAME_VIRT[slot].store(virt, Ordering::Release);
+            CLIENT_MAPPING_HANDLE[slot].store(handle, Ordering::Release);
+            CLIENT_BUFFER_LEN[slot].store(len as u64, Ordering::Release);
+            CLIENT_MAPPING_VIRT[slot].store(virt, Ordering::Release);
             return;
         }
     }
@@ -54,7 +54,7 @@ pub fn register_client_mapping(virt: u64, handle: u64, len: usize) {
 
 /// 注销一个 VFS 客户端缓冲区映射。
 pub fn unregister_client_mapping(virt: u64) {
-    for virt_slot in &CLIENT_FRAME_VIRT {
+    for virt_slot in &CLIENT_MAPPING_VIRT {
         if virt_slot.load(Ordering::Acquire) == virt {
             virt_slot.store(0, Ordering::Release);
             return;
@@ -62,12 +62,12 @@ pub fn unregister_client_mapping(virt: u64) {
     }
 }
 
-fn client_frame_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
-    for (slot, virt_slot) in CLIENT_FRAME_VIRT.iter().enumerate() {
+fn client_mapping_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
+    for (slot, virt_slot) in CLIENT_MAPPING_VIRT.iter().enumerate() {
         let virt = virt_slot.load(Ordering::Acquire);
-        let frame_len = CLIENT_FRAME_LEN[slot].load(Ordering::Acquire) as usize;
+        let frame_len = CLIENT_BUFFER_LEN[slot].load(Ordering::Acquire) as usize;
         if virt != 0 && address == virt && len <= frame_len {
-            let handle = CLIENT_FRAME_HANDLE[slot].load(Ordering::Acquire);
+            let handle = CLIENT_MAPPING_HANDLE[slot].load(Ordering::Acquire);
             return Some((handle, virt, frame_len));
         }
     }
@@ -78,7 +78,7 @@ fn client_frame_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
 struct Slot {
     virt: u64,
     region: u64,
-    frame: Option<u64>,
+    capability: Option<u64>,
     attached: Option<u64>,
     inflight: bool,
 }
@@ -101,7 +101,7 @@ impl Drop for BlockClient {
             let _ = send(self.endpoint, BLOCK_DETACH, u64::MAX);
         }
         for slot in &mut self.slots {
-            if let Some(number) = slot.frame.take() {
+            if let Some(number) = slot.capability.take() {
                 let _ = region_unmap(slot.region);
                 let _ = close_handle(number);
             }
@@ -112,11 +112,11 @@ impl Drop for BlockClient {
 impl BlockClient {
     /// 构造客户端。
     pub fn new(service: &str, own_endpoint: u64) -> Self {
-        let slots = (0..FRAME_SLOTS as usize)
+        let slots = (0..BUFFER_SLOTS as usize)
             .map(|_| Slot {
                 virt: 0,
                 region: 0,
-                frame: None,
+                capability: None,
                 attached: None,
                 inflight: false,
             })
@@ -132,12 +132,12 @@ impl BlockClient {
         }
     }
 
-    fn frame(&mut self, slot: usize) -> &mut [u8] {
-        // SAFETY: SYS_REGION_MAP 把 FRAME_LEN 字节映射到该槽的虚拟地址。
-        unsafe { core::slice::from_raw_parts_mut(self.slots[slot].virt as *mut u8, FRAME_LEN) }
+    fn buffer(&mut self, slot: usize) -> &mut [u8] {
+        // SAFETY: SYS_REGION_MAP 把 BUFFER_LEN 字节映射到该槽的虚拟地址。
+        unsafe { core::slice::from_raw_parts_mut(self.slots[slot].virt as *mut u8, BUFFER_LEN) }
     }
 
-    fn attach_frame(
+    fn attach_mapping(
         &mut self,
         slot: usize,
         endpoint: u64,
@@ -171,17 +171,17 @@ impl BlockClient {
             }
             self.endpoint = endpoint;
         }
-        if self.slots[slot].frame.is_none() {
-            let Some((number, region, virt)) = map_new(CAPABILITY_ANONYMOUS, FRAME_LEN) else {
+        if self.slots[slot].capability.is_none() {
+            let Some((number, region, virt)) = map_new(CAPABILITY_ANONYMOUS, BUFFER_LEN) else {
                 return Err(STATUS_ERROR);
             };
-            self.slots[slot].frame = Some(number);
+            self.slots[slot].capability = Some(number);
             self.slots[slot].region = region;
             self.slots[slot].virt = virt;
         }
-        let number = self.slots[slot].frame.ok_or(STATUS_ERROR)?;
+        let number = self.slots[slot].capability.ok_or(STATUS_ERROR)?;
         if self.slots[slot].attached != Some(number) {
-            self.attach_frame(slot, endpoint, number, FRAME_LEN)?;
+            self.attach_mapping(slot, endpoint, number, BUFFER_LEN)?;
             self.slots[slot].attached = Some(number);
         }
         Ok(endpoint)
@@ -199,7 +199,7 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].attached != Some(frame.0) {
-            self.attach_frame(slot, endpoint, frame.0, frame.2)?;
+            self.attach_mapping(slot, endpoint, frame.0, frame.2)?;
             self.slots[slot].attached = Some(frame.0);
         }
         Ok(endpoint)
@@ -287,10 +287,10 @@ impl BlockClient {
 
     /// 读取块数据。
     pub fn read(&mut self, block: u64, buffer: &mut [u8]) -> Result<usize, u8> {
-        if buffer.len() > FRAME_LEN {
+        if buffer.len() > BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
-        if let Some(frame) = client_frame_at(buffer.as_ptr() as u64, buffer.len()) {
+        if let Some(frame) = client_mapping_at(buffer.as_ptr() as u64, buffer.len()) {
             if self.ensure_external(DIRECT_SLOT, frame).is_ok()
                 && let Ok(tag) = self.submit_raw(DIRECT_SLOT, OP_READ, block, buffer.len())
             {
@@ -315,7 +315,7 @@ impl BlockClient {
         }
         let written = written.min(buffer.len());
         let virt = self.slots[OWN_SLOT_START].virt;
-        // SAFETY: 该槽的帧在本客户端地址空间内有效，长度为 FRAME_LEN。
+        // SAFETY: 该槽的帧在本客户端地址空间内有效，长度为 BUFFER_LEN。
         let source = unsafe { core::slice::from_raw_parts(virt as *const u8, written) };
         buffer[..written].copy_from_slice(source);
         Ok(written)
@@ -323,10 +323,10 @@ impl BlockClient {
 
     /// 写入块数据。
     pub fn write(&mut self, block: u64, data: &[u8]) -> Result<usize, u8> {
-        if data.len() > FRAME_LEN {
+        if data.len() > BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
-        if let Some(frame) = client_frame_at(data.as_ptr() as u64, data.len()) {
+        if let Some(frame) = client_mapping_at(data.as_ptr() as u64, data.len()) {
             if self.ensure_external(DIRECT_SLOT, frame).is_ok()
                 && let Ok(tag) = self.submit_raw(DIRECT_SLOT, OP_WRITE, block, data.len())
             {
@@ -343,7 +343,7 @@ impl BlockClient {
         }
         self.ensure_slot(OWN_SLOT_START)?;
         {
-            let frame = self.frame(OWN_SLOT_START);
+            let frame = self.buffer(OWN_SLOT_START);
             frame[..data.len()].copy_from_slice(data);
         }
         let tag = self.submit_raw(OWN_SLOT_START, OP_WRITE, block, data.len())?;
@@ -396,7 +396,7 @@ impl BlockClient {
 
     /// 读取一段连续区间，按帧槽位并行提交。
     pub fn read_bulk(&mut self, block: u64, buffer: &mut [u8]) -> Result<usize, u8> {
-        if buffer.len() <= FRAME_LEN {
+        if buffer.len() <= BUFFER_LEN {
             return self.read(block, buffer);
         }
         if !buffer.len().is_multiple_of(SECTOR_SIZE) {
@@ -410,7 +410,7 @@ impl BlockClient {
                 && inflight.len() < self.slots.len() - OWN_SLOT_START
                 && submitted < buffer.len()
             {
-                let length = (buffer.len() - submitted).min(FRAME_LEN);
+                let length = (buffer.len() - submitted).min(BUFFER_LEN);
                 let length = length / SECTOR_SIZE * SECTOR_SIZE;
                 if length == 0 {
                     failure = Some(STATUS_INVALID);
@@ -457,7 +457,7 @@ impl BlockClient {
 
     /// 写入一段连续区间，按帧槽位并行提交。
     pub fn write_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, u8> {
-        if data.len() <= FRAME_LEN {
+        if data.len() <= BUFFER_LEN {
             return self.write(block, data);
         }
         if !data.len().is_multiple_of(SECTOR_SIZE) {
@@ -471,7 +471,7 @@ impl BlockClient {
                 && inflight.len() < self.slots.len() - OWN_SLOT_START
                 && submitted < data.len()
             {
-                let length = (data.len() - submitted).min(FRAME_LEN);
+                let length = (data.len() - submitted).min(BUFFER_LEN);
                 let length = length / SECTOR_SIZE * SECTOR_SIZE;
                 if length == 0 {
                     failure = Some(STATUS_INVALID);
@@ -485,7 +485,7 @@ impl BlockClient {
                     break;
                 }
                 {
-                    let frame = self.frame(slot);
+                    let frame = self.buffer(slot);
                     frame[..length].copy_from_slice(&data[submitted..submitted + length]);
                 }
                 let sectors = block + (submitted / SECTOR_SIZE) as u64;
@@ -563,7 +563,7 @@ impl ClientDisk {
 
     /// 异步读取一段块数据；未就绪时让出执行器。
     pub async fn read_async(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
-        if buffer.len() > FRAME_LEN {
+        if buffer.len() > BUFFER_LEN {
             return Err(BlockError::InvalidLength);
         }
         let mut submitted: Option<(usize, u32)> = None;
@@ -601,7 +601,7 @@ impl ClientDisk {
 
     /// 异步写入一段块数据；未就绪时让出执行器。
     pub async fn write_async(&self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
-        if data.len() > FRAME_LEN {
+        if data.len() > BUFFER_LEN {
             return Err(BlockError::InvalidLength);
         }
         let mut submitted: Option<(usize, u32)> = None;
@@ -617,7 +617,7 @@ impl ClientDisk {
                     if client.ensure_slot(slot).is_err() {
                         return core::task::Poll::Ready(Err(BlockError::Io));
                     }
-                    client.frame(slot)[..data.len()].copy_from_slice(data);
+                    client.buffer(slot)[..data.len()].copy_from_slice(data);
                     match client.submit_raw(slot, OP_WRITE, block, data.len()) {
                         Ok(tag) => {
                             submitted = Some((slot, tag));
@@ -645,7 +645,7 @@ impl ClientDisk {
         block: u64,
         buffer: &mut [u8],
     ) -> Result<usize, BlockError> {
-        if buffer.len() <= FRAME_LEN {
+        if buffer.len() <= BUFFER_LEN {
             return self.read_async(block, buffer).await;
         }
         if !buffer.len().is_multiple_of(SECTOR_SIZE) {
@@ -672,7 +672,7 @@ impl ClientDisk {
                 }
             }
             while failure.is_none() && submitted < buffer.len() {
-                let length = (buffer.len() - submitted).min(FRAME_LEN);
+                let length = (buffer.len() - submitted).min(BUFFER_LEN);
                 let length = length / SECTOR_SIZE * SECTOR_SIZE;
                 if length == 0 {
                     failure = Some(STATUS_INVALID);
@@ -707,7 +707,7 @@ impl ClientDisk {
 
     /// 异步写入一段连续区间；多槽位并行提交，未完成时让出执行器。
     pub async fn write_bulk_async(&self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
-        if data.len() <= FRAME_LEN {
+        if data.len() <= BUFFER_LEN {
             return self.write_async(block, data).await;
         }
         if !data.len().is_multiple_of(SECTOR_SIZE) {
@@ -732,7 +732,7 @@ impl ClientDisk {
                 }
             }
             while failure.is_none() && submitted < data.len() {
-                let length = (data.len() - submitted).min(FRAME_LEN);
+                let length = (data.len() - submitted).min(BUFFER_LEN);
                 let length = length / SECTOR_SIZE * SECTOR_SIZE;
                 if length == 0 {
                     failure = Some(STATUS_INVALID);
@@ -746,7 +746,7 @@ impl ClientDisk {
                     break;
                 }
                 {
-                    let frame = client.frame(slot);
+                    let frame = client.buffer(slot);
                     frame[..length].copy_from_slice(&data[submitted..submitted + length]);
                 }
                 let sectors = block + (submitted / SECTOR_SIZE) as u64;
@@ -817,7 +817,7 @@ impl BlockDevice for ClientDisk {
 }
 
 /// 服务端映射的一个帧。
-struct ServerFrame {
+struct ServerMapping {
     virt: u64,
     region: u64,
     len: usize,
@@ -859,7 +859,7 @@ pub fn serve_with_wait<F, W>(
 {
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut response = vec![0_u8; 64 * 1024];
-    let mut frames: BTreeMap<(u64, u32), ServerFrame> = BTreeMap::new();
+    let mut frames: BTreeMap<(u64, u32), ServerMapping> = BTreeMap::new();
     let mut inflight: BTreeMap<u64, Pending> = BTreeMap::new();
 
     loop {
@@ -901,7 +901,7 @@ pub fn serve_with_wait<F, W>(
         if label == BLOCK_ATTACH {
             let slot = attach_slot(word);
             let length = attach_length(word);
-            if received == 0 || length == 0 || length > FRAME_LEN || slot >= FRAME_SLOTS {
+            if received == 0 || length == 0 || length > BUFFER_LEN || slot >= BUFFER_SLOTS {
                 if received != 0 {
                     let _ = close_handle(received);
                 }
@@ -922,7 +922,7 @@ pub fn serve_with_wait<F, W>(
             }
             frames.insert(
                 key,
-                ServerFrame {
+                ServerMapping {
                     virt,
                     region,
                     len: length,
@@ -1037,7 +1037,7 @@ pub fn serve_with_wait<F, W>(
     }
 }
 
-fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerFrame>, sender: u64) {
+fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) {
     let keys: Vec<(u64, u32)> = frames
         .keys()
         .filter(|(owner, _)| *owner == sender)

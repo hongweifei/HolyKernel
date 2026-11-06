@@ -305,7 +305,7 @@ impl Stack {
     }
 
     /// 取出一帧待发送数据。
-    pub fn take_frame(&mut self) -> Option<Vec<u8>> {
+    pub fn take_cow_page(&mut self) -> Option<Vec<u8>> {
         self.device.pop_tx()
     }
 

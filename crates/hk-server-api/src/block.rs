@@ -22,9 +22,9 @@ pub const BLOCK_ATTACH: u64 = 0x606;
 pub const BLOCK_DETACH: u64 = 0x607;
 
 /// 每个客户端可用的共享帧槽位数量。
-pub const FRAME_SLOTS: u32 = 8;
+pub const BUFFER_SLOTS: u32 = 8;
 /// 单个共享 Frame 的长度。
-pub const FRAME_LEN: usize = 60 * 1024;
+pub const BUFFER_LEN: usize = 60 * 1024;
 
 /// 读取块。
 pub const OP_READ: u8 = 1;
@@ -168,8 +168,8 @@ mod tests {
 
     #[test]
     fn packs_attach_slot_and_length() {
-        let word = attach_word(5, FRAME_LEN);
+        let word = attach_word(5, BUFFER_LEN);
         assert_eq!(attach_slot(word), 5);
-        assert_eq!(attach_length(word), FRAME_LEN);
+        assert_eq!(attach_length(word), BUFFER_LEN);
     }
 }
