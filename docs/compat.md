@@ -29,14 +29,14 @@
 
 ## 2. 兼容层级
 
-| 层级 | 形态 | 应用改动 | 机制 |
-| --- | --- | --- | --- |
-| L0 | Holy 原生应用 | 使用 Handle/Endpoint | 原生 API |
-| L1 | POSIX 源码 | 重新编译 | musl + `hk-abi` + POSIX Server |
-| L1.5 | 动态 musl ELF | 无需重新编译 | 上游 musl ABI + Holy `ld-musl`/`libc.so` + `hk-abi` |
-| L2 | Linux ELF | 无需重新编译 | Linux ABI Server + Linux personality |
-| L3 | 鸿蒙应用 | OpenHarmony 用户态 | Harmony personality + KAL/HDI 适配 |
-| L4 | 强 Linux 依赖 | 无需修改 | 轻量 VM/容器兜底 |
+| 层级   | 形态          | 应用改动               | 机制                                                |
+| ---- | ----------- | ------------------ | ------------------------------------------------- |
+| L0   | Holy 原生应用   | 使用 Handle/Endpoint | 原生 API                                            |
+| L1   | POSIX 源码    | 重新编译               | musl + `hk-abi` + POSIX Server                    |
+| L1.5 | 动态 musl ELF | 无需重新编译             | 上游 musl ABI + Holy `ld-musl`/`libc.so` + `hk-abi` |
+| L2   | Linux ELF   | 无需重新编译             | Linux ABI Server + Linux personality              |
+| L3   | 鸿蒙应用        | OpenHarmony 用户态    | Harmony personality + KAL/HDI 适配                  |
+| L4   | 强 Linux 依赖  | 无需修改               | 轻量 VM/容器兜底                                        |
 
 优先级：L1 覆盖大多数 POSIX CLI、语言运行时与服务端程序；L1.5 覆盖动态 musl 生态（Alpine 等）；L2 覆盖 glibc 与静态/动态 Linux 二进制；L3 复用 OpenHarmony 承载鸿蒙应用；L4 只处理必须依赖 Linux 内核的软件。
 
