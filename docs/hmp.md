@@ -297,6 +297,8 @@ Provider 是类型化能力的缺页/回写/驱逐服务，通过 Endpoint 协�
 - 内核实现快速路径（已常驻、匿名 COW）和页表安装；文件系统、swap、GPU 策略由 Provider 实现。
 - 快速路径只为未绑定 Provider 的能力服务；能力一旦绑定 Provider，该 Region 的缺页一律转发给 Provider。
 - Provider 回复的页由内核装入 Region 并清零；Provider 失败按缺页故障处理，不回退到零页快速路径。
+- Memory Server 承担匿名 Provider：按客户端请求分配匿名能力并把自身绑定为 Provider；Surface 等常驻类型经同一客户端分配带后备的能力。
+- 用户态服务的 Surface、共享 Frame 与 VFS 缓冲统一经 Memory Server 客户端申请带后备的能力；HolyFS 解压缓存与 demo 自检走按需装入的匿名路径。
 
 ### 6.7 Ledger
 
