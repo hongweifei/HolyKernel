@@ -6,9 +6,9 @@ use hk_syscall::{
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
-    SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP,
-    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO,
-    SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO,
+    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -148,6 +148,12 @@ pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
 pub fn dma_map_capability(grant: u64, capability: u64, length: usize) -> u64 {
     // SAFETY: 内核校验授权、能力句柄与长度后建立 IOMMU 映射。
     unsafe { syscall_call(SYS_DMA_MAP_CAPABILITY, grant, capability, length as u64, 0).value }
+}
+
+/// 把 Frame 绑定到 DeviceGrant 的 IOMMU 域。
+pub fn dma_map_frame(grant: u64, frame: u64, length: usize) -> u64 {
+    // SAFETY: 内核校验授权、Frame 句柄与长度后建立 IOMMU 映射。
+    unsafe { syscall_call(SYS_DMA_MAP_FRAME, grant, frame, length as u64, 0).value }
 }
 
 /// 固定或解除固定类型化能力。

@@ -3,7 +3,10 @@
 use alloc::collections::BTreeMap;
 
 use hk_block::ipc::{register_client_mapping, unregister_client_mapping};
-use hk_server_api::{capability_phys, close_handle, map_attach, region_unmap};
+use hk_server_api::{
+    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info, frame_map,
+    handle_duplicate, region_info, region_unmap,
+};
 use hk_vfs::{FileHandle, Vfs};
 
 #[cfg(target_os = "none")]
@@ -60,21 +63,34 @@ impl Sessions {
         if length == 0 || length > hk_proto::vfs::VFS_BUFFER_LEN {
             return false;
         }
-        let Some((region, virt)) = map_attach(handle) else {
-            return false;
-        };
-        if capability_phys(handle).is_none_or(|(_, cap_len)| cap_len != length as u64) {
-            let _ = region_unmap(region);
+        if frame_info(handle).is_none_or(|info| info.len != length as u64) {
             return false;
         }
-        if let Some((old_virt, old_region, _old_len, old_handle)) =
-            self.frames.insert(sender, (virt, region, length, handle))
+        let duplicate = handle_duplicate(
+            handle,
+            RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
+        );
+        if duplicate == u64::MAX {
+            return false;
+        }
+        let Some(region) = frame_map(handle, RIGHT_READ | RIGHT_WRITE, 0) else {
+            let _ = close_handle(duplicate);
+            return false;
+        };
+        let Some((virt, _)) = region_info(region) else {
+            let _ = region_unmap(region);
+            let _ = close_handle(duplicate);
+            return false;
+        };
+        if let Some((old_virt, old_region, _old_len, old_handle)) = self
+            .frames
+            .insert(sender, (virt, region, length, duplicate))
         {
             let _ = region_unmap(old_region);
             let _ = close_handle(old_handle);
             unregister_client_mapping(old_virt);
         }
-        register_client_mapping(virt, handle, length);
+        register_client_mapping(virt, duplicate, length);
         true
     }
 

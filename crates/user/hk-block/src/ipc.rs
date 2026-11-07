@@ -22,9 +22,9 @@ use hk_proto::block::{
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
-    CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
-    close_handle, handle_duplicate, map_attach, recv_data_handle, recv_data_handle_try,
-    region_unmap, send, send_data, send_handle, service_endpoint, yield_now,
+    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info,
+    frame_map, handle_duplicate, recv_data_handle, recv_data_handle_try, region_info, region_unmap,
+    send, send_data, send_handle, service_endpoint, yield_now,
 };
 
 /// 直通帧（调用方已注册的帧）使用的槽位。
@@ -78,7 +78,7 @@ fn client_mapping_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
 struct Slot {
     virt: u64,
     region: u64,
-    capability: Option<u64>,
+    frame: Option<u64>,
     attached: Option<u64>,
     inflight: bool,
 }
@@ -101,9 +101,9 @@ impl Drop for BlockClient {
             let _ = send(self.endpoint, BLOCK_DETACH, u64::MAX);
         }
         for slot in &mut self.slots {
-            if let Some(number) = slot.capability.take() {
+            if let Some(frame) = slot.frame.take() {
                 let _ = region_unmap(slot.region);
-                let _ = close_handle(number);
+                let _ = close_handle(frame);
             }
         }
     }
@@ -116,7 +116,7 @@ impl BlockClient {
             .map(|_| Slot {
                 virt: 0,
                 region: 0,
-                capability: None,
+                frame: None,
                 attached: None,
                 inflight: false,
             })
@@ -144,7 +144,10 @@ impl BlockClient {
         handle: u64,
         len: usize,
     ) -> Result<(), u8> {
-        let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
+        let duplicate = handle_duplicate(
+            handle,
+            RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
+        );
         if duplicate == u64::MAX {
             return Err(STATUS_ERROR);
         }
@@ -171,17 +174,33 @@ impl BlockClient {
             }
             self.endpoint = endpoint;
         }
-        if self.slots[slot].capability.is_none() {
-            let Some((number, region, virt)) =
-                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, BUFFER_LEN)
-            else {
+        if self.slots[slot].frame.is_none() {
+            let Some(frame) = MemoryClient::new(self.own_endpoint).frame(BUFFER_LEN) else {
                 return Err(STATUS_ERROR);
             };
-            self.slots[slot].capability = Some(number);
+            let attach = handle_duplicate(
+                frame,
+                RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
+            );
+            if attach == u64::MAX {
+                let _ = close_handle(frame);
+                return Err(STATUS_ERROR);
+            }
+            let Some(region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
+                let _ = close_handle(frame);
+                let _ = close_handle(attach);
+                return Err(STATUS_ERROR);
+            };
+            let Some((virt, _)) = region_info(region) else {
+                let _ = region_unmap(region);
+                let _ = close_handle(attach);
+                return Err(STATUS_ERROR);
+            };
+            self.slots[slot].frame = Some(attach);
             self.slots[slot].region = region;
             self.slots[slot].virt = virt;
         }
-        let number = self.slots[slot].capability.ok_or(STATUS_ERROR)?;
+        let number = self.slots[slot].frame.ok_or(STATUS_ERROR)?;
         if self.slots[slot].attached != Some(number) {
             self.attach_mapping(slot, endpoint, number, BUFFER_LEN)?;
             self.slots[slot].attached = Some(number);
@@ -823,7 +842,6 @@ struct ServerMapping {
     virt: u64,
     region: u64,
     len: usize,
-    handle: u64,
     busy: bool,
 }
 
@@ -937,22 +955,34 @@ pub fn serve_with_wait_and<F, W, O>(
             let previous = frames.remove(&key);
             if let Some(old) = &previous {
                 let _ = region_unmap(old.region);
-                let _ = close_handle(old.handle);
             }
-            let Some((region, virt)) = map_attach(received) else {
+            let Some(info) = frame_info(received) else {
                 let _ = close_handle(received);
                 continue;
             };
-            if let Some((phys, _)) = capability_phys(received) {
-                hook(virt, phys, length, received);
+            let duplicate = handle_duplicate(received, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
+            if duplicate == u64::MAX {
+                let _ = close_handle(received);
+                continue;
             }
+            let Some(region) = frame_map(received, RIGHT_READ | RIGHT_WRITE, 0) else {
+                let _ = close_handle(received);
+                let _ = close_handle(duplicate);
+                continue;
+            };
+            let Some((virt, _)) = region_info(region) else {
+                let _ = region_unmap(region);
+                let _ = close_handle(duplicate);
+                continue;
+            };
+            hook(virt, info.phys, length, duplicate);
+            let _ = close_handle(duplicate);
             frames.insert(
                 key,
                 ServerMapping {
                     virt,
                     region,
                     len: length,
-                    handle: received,
                     busy: false,
                 },
             );
@@ -963,7 +993,6 @@ pub fn serve_with_wait_and<F, W, O>(
                 detach_sender(&mut frames, sender);
             } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
                 let _ = region_unmap(frame.region);
-                let _ = close_handle(frame.handle);
             }
             continue;
         }
@@ -1080,7 +1109,6 @@ fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) 
     for key in keys {
         if let Some(frame) = frames.remove(&key) {
             let _ = region_unmap(frame.region);
-            let _ = close_handle(frame.handle);
         }
     }
 }

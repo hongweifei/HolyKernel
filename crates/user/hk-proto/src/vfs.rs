@@ -2,8 +2,8 @@
 
 use crate::status::RESPONSE_HEADER;
 use hk_server_api::{
-    CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
-    close_handle, handle_duplicate, recv_data_from, region_unmap, send_data, send_handle,
+    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
+    handle_duplicate, recv_data_from, region_info, region_unmap, send_data, send_handle,
     service_endpoint,
 };
 
@@ -138,7 +138,7 @@ pub struct VfsClient {
     own_endpoint: u64,
     request: [u8; BUFFER],
     response: [u8; BUFFER],
-    capability: Option<u64>,
+    frame: Option<u64>,
     region: u64,
     mapping_virt: u64,
     attached: u64,
@@ -146,13 +146,13 @@ pub struct VfsClient {
 
 impl Drop for VfsClient {
     fn drop(&mut self) {
-        if let Some(number) = self.capability {
+        if let Some(frame) = self.frame.take() {
             let endpoint = service_endpoint(self.service);
             if endpoint != 0 {
                 let _ = send_data(endpoint, VFS_DETACH, &[]);
             }
             let _ = region_unmap(self.region);
-            let _ = close_handle(number);
+            let _ = close_handle(frame);
         }
     }
 }
@@ -198,7 +198,7 @@ impl VfsClient {
             own_endpoint,
             request: [0; BUFFER],
             response: [0; BUFFER],
-            capability: None,
+            frame: None,
             region: 0,
             mapping_virt: 0,
             attached: 0,
@@ -210,20 +210,36 @@ impl VfsClient {
         if endpoint == 0 {
             return Err(STATUS_IO);
         }
-        if self.attached == endpoint && self.capability.is_some() {
+        if self.attached == endpoint && self.frame.is_some() {
             return Ok(endpoint);
         }
-        if self.capability.is_none() {
-            let Some((capability, region, virt)) =
-                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, VFS_BUFFER_LEN)
-            else {
+        if self.frame.is_none() {
+            let Some(frame) = MemoryClient::new(self.own_endpoint).frame(VFS_BUFFER_LEN) else {
                 return Err(STATUS_IO);
             };
-            self.capability = Some(capability);
+            let attach = handle_duplicate(
+                frame,
+                RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
+            );
+            if attach == u64::MAX {
+                let _ = close_handle(frame);
+                return Err(STATUS_IO);
+            }
+            let Some(region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
+                let _ = close_handle(frame);
+                let _ = close_handle(attach);
+                return Err(STATUS_IO);
+            };
+            let Some((virt, _)) = region_info(region) else {
+                let _ = region_unmap(region);
+                let _ = close_handle(attach);
+                return Err(STATUS_IO);
+            };
+            self.frame = Some(attach);
             self.region = region;
             self.mapping_virt = virt;
         }
-        let number = self.capability.ok_or(STATUS_IO)?;
+        let number = self.frame.ok_or(STATUS_IO)?;
         let duplicate = handle_duplicate(
             number,
             RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
@@ -232,7 +248,6 @@ impl VfsClient {
             return Err(STATUS_IO);
         }
         if send_handle(endpoint, VFS_ATTACH, VFS_BUFFER_LEN as u64, duplicate) == u64::MAX {
-            self.capability = None;
             return Err(STATUS_IO);
         }
         self.attached = endpoint;

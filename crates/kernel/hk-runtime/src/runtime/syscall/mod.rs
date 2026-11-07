@@ -268,6 +268,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_FRAME_ALLOC => self.frame_alloc(index, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
+            SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),
             SYS_BOOT_CMDLINE => {
                 let pointer = frame.arg0();
                 let capacity = frame.arg1() as usize;

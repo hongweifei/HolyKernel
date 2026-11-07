@@ -34,7 +34,7 @@ use hk_server_api::device::{
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, device_info, dma_map_capability, exit, irq_bind, recv_data_handle, recv_handle,
+    close_handle, device_info, dma_map_frame, exit, irq_bind, recv_data_handle, recv_handle,
     self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
@@ -204,7 +204,7 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -
         endpoint,
         block.as_mut(),
         |virt, phys, length, frame| {
-            if dma_map_capability(grant, frame, length) != u64::MAX {
+            if dma_map_frame(grant, frame, length) != u64::MAX {
                 hk_driver_virtio::register_mapping(virt, phys, length);
             }
         },
