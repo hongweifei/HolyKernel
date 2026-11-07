@@ -370,15 +370,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
 
     /// 分派一次系统调用。
     pub fn dispatch(&self, cpu: usize, frame: &mut C) -> Switch {
-        let switch = {
-            let mut guard = self.runtime.lock();
-            let Some(runtime) = guard.as_mut() else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            runtime.dispatch(cpu, frame)
+        let mut guard = self.runtime.lock();
+        let Some(runtime) = guard.as_mut() else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
         };
-        self.wake_aps();
+        let switch = runtime.dispatch(cpu, frame);
+        if runtime.has_runnable() {
+            runtime.wake_aps();
+        }
         switch
     }
 

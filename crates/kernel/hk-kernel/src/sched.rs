@@ -13,6 +13,7 @@ use crate::tcb::{Priority, TcbId};
 pub struct Scheduler {
     queues: [VecDeque<TcbId>; Priority::LEVELS],
     currents: [Option<TcbId>; MAX_CPUS],
+    runnable: usize,
 }
 
 impl Scheduler {
@@ -21,12 +22,14 @@ impl Scheduler {
         Self {
             queues: core::array::from_fn(|_| VecDeque::new()),
             currents: [None; MAX_CPUS],
+            runnable: 0,
         }
     }
 
     /// 把线程加入就绪队列。
     pub fn enqueue(&mut self, id: TcbId, priority: Priority) {
         self.queues[priority.level() as usize].push_back(id);
+        self.runnable += 1;
     }
 
     /// 从就绪队列移除线程。
@@ -34,6 +37,7 @@ impl Scheduler {
         for queue in &mut self.queues {
             if let Some(index) = queue.iter().position(|queued| *queued == id) {
                 queue.remove(index);
+                self.runnable -= 1;
                 return true;
             }
         }
@@ -45,6 +49,7 @@ impl Scheduler {
         assert!(cpu < MAX_CPUS, "CPU 索引越界");
         for queue in &mut self.queues {
             if let Some(id) = queue.pop_front() {
+                self.runnable -= 1;
                 self.currents[cpu] = Some(id);
                 return Some(id);
             }
@@ -74,7 +79,7 @@ impl Scheduler {
 
     /// 返回就绪线程数。
     pub fn runnable(&self) -> usize {
-        self.queues.iter().map(VecDeque::len).sum()
+        self.runnable
     }
 }
 
