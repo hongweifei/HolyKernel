@@ -33,18 +33,14 @@ use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN,
-    DISPLAY_WHEEL, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE,
-    pack_size, pack_window_size, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
+    DISPLAY_WHEEL, Window, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data_try, region_unmap, send,
-    send_handle, write, write_u64, yield_now,
-};
+use hk_server_api::{exit, recv, recv_data_try, send, write, write_u64, yield_now};
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
 
@@ -73,41 +69,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let mut width = WIDTH;
-    let mut height = HEIGHT;
-    let bytes = width * height * 4;
-    let Some((handle, mut surface_region, mut surface_virt)) =
-        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-    else {
-        write(b"hk-server-holydoc: frame alloc failed\n");
+    let Some(mut window) = Window::attach(endpoint, display, WIDTH, HEIGHT) else {
+        write(b"hk-server-holydoc: attach failed\n");
         exit(2)
     };
-    if send_handle(
-        display,
-        SURFACE_CREATE,
-        pack_size(width as u32, height as u32),
-        handle,
-    ) == u64::MAX
-    {
-        write(b"hk-server-holydoc: create failed\n");
-        exit(3)
-    }
-    let (label, surface, _sender) = recv(endpoint);
-    if label != SURFACE_CREATED || surface == 0 {
-        write(b"hk-server-holydoc: surface rejected\n");
-        exit(4)
-    }
-    let _ = send(display, WINDOW_CREATE, surface);
-    let (label, window, _sender) = recv(endpoint);
-    if label != WINDOW_CREATED || window == 0 {
-        write(b"hk-server-holydoc: window rejected\n");
-        exit(4)
-    }
+    let (mut width, mut height) = (window.width(), window.height());
+    let mut surface_virt = window.pixels() as u64;
 
     let mut docs = DocSet::new();
     let loaded = drive::load(&mut docs, endpoint);
     docs.add_builtin();
-    let pixels = surface_virt as *mut u32;
     let Some(mut view) = DocView::load(&docs, WELCOME, Vec::new(), Vec::new(), width, height)
     else {
         write(b"hk-server-holydoc: welcome missing\n");
@@ -119,13 +90,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(6)
     };
 
-    window::update_title(display, window, &view);
+    window::update_title(&window, &view);
     submit_render(pool, &view, surface_virt);
     wait_render(pool);
-    window::commit(endpoint, display, surface);
+    window.commit();
     write(b"hk-server-holydoc: render worker ok\n");
     write(b"hk-server-holydoc: ready ");
-    write_u64(window);
+    write_u64(window.window());
     write(b"\n");
     write(b"hk-server-holydoc: doc ");
     write(view.id.as_bytes());
@@ -147,17 +118,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if test {
         submit_render(pool, &view, surface_virt);
         wait_render(pool);
-        window::commit(endpoint, display, surface);
-        selftest::run(
-            &mut view,
-            &mut docs,
-            pixels,
-            endpoint,
-            display,
-            surface,
-            window,
-            loaded.documents,
-        );
+        window.commit();
+        selftest::run(&mut view, &mut docs, endpoint, &window, loaded.documents);
     }
 
     let mut keys = Decoder::new();
@@ -168,7 +130,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     loop {
         if render_pending && pool.try_next().is_some() {
-            window::commit(endpoint, display, surface);
+            window.commit();
             if resized {
                 // SAFETY: 表面帧已映射，首像素位于 surface_virt。
                 let pixel = unsafe { core::ptr::read_volatile(surface_virt as *const u32) };
@@ -223,30 +185,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     render_pending = false;
                     render_dirty = false;
                 }
-                let new_bytes = new_width * new_height * 4;
-                let Some((handle, region, virt)) =
-                    MemoryClient::new(endpoint).map(CapabilityKind::Surface, new_bytes)
-                else {
-                    write(b"hk-server-holydoc: resize frame failed\n");
-                    continue;
-                };
-                if send_handle(
-                    display,
-                    WINDOW_RESIZE,
-                    pack_window_size(window, new_width as u32, new_height as u32),
-                    handle,
-                ) == u64::MAX
-                {
-                    let _ = close_handle(handle);
-                    write(b"hk-server-holydoc: resize rejected\n");
+                if !window.resize(new_width, new_height) {
+                    write(b"hk-server-holydoc: resize failed\n");
                     continue;
                 }
-                let old_region = surface_region;
                 width = new_width;
                 height = new_height;
-                surface_region = region;
-                surface_virt = virt;
-                let _ = region_unmap(old_region);
+                surface_virt = window.pixels() as u64;
                 let scroll = view.scroll;
                 let history = core::mem::take(&mut view.history);
                 let forward = core::mem::take(&mut view.forward);
@@ -255,7 +200,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     next.scroll = scroll.min(next.max_scroll());
                     view = next;
                 }
-                window::update_title(display, window, &view);
+                window::update_title(&window, &view);
                 submit_render(pool, &view, surface_virt);
                 render_pending = true;
                 resized = true;
@@ -370,7 +315,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
 
         if redraw {
-            window::update_title(display, window, &view);
+            window::update_title(&window, &view);
             if render_pending {
                 render_dirty = true;
             } else {

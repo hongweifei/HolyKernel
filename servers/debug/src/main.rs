@@ -23,9 +23,8 @@ use hk_canvas::Surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT,
-    SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED,
-    WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_key, unpack_window_size,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, Window,
+    unpack_key, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
@@ -33,8 +32,7 @@ use hk_proto::input::{Decoder, Key};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, fault_subscribe, kernel_stats, recv,
-    recv_data, recv_data_try, region_unmap, send, send_handle, write, write_u64,
+    exit, fault_subscribe, kernel_stats, recv_data, recv_data_try, send, write, write_u64,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -50,44 +48,19 @@ const HEAP_SIZE: usize = 512 * 1024;
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
-/// 提交并等待显示服务完成合成。
 #[cfg(target_os = "none")]
-fn commit(endpoint: u64, display: u64, surface: u64) {
-    let _ = send(display, SURFACE_COMMIT, surface);
-    let mut buffer = [0_u8; 2048];
-    loop {
-        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
-        if label == hk_server_api::FAULT_EVENT {
-            hk_debug::ingest(label, &buffer[..length]);
-            continue;
-        }
-        if label == SURFACE_FRAME_DONE && word == surface {
-            return;
-        }
-    }
-}
-
-#[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-fn show(
-    page: Page,
-    text: &str,
-    scroll: usize,
-    width: usize,
-    height: usize,
-    font: &Font,
-    pixels: *mut u32,
-    endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
-) {
+fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &Window) {
     let title = format!("Debug: {}", page.title());
-    set_title(display, window, &title);
+    window.set_title(&title);
+    let (width, height) = (window.width(), window.height());
     // SAFETY: 表面帧已映射，长度为 width * height。
-    let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
+    let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(text, page.title(), scroll, width, height, font, &frame);
-    commit(endpoint, display, surface);
+    window.commit_with(|label, _, data| {
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, data);
+        }
+    });
 }
 
 /// 服务入口。
@@ -99,36 +72,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-debug: no display\n");
         exit(1)
     }
-    let mut width = WIDTH;
-    let mut height = HEIGHT;
-    let bytes = width * height * 4;
-    let Some((handle, mut surface_region, surface_virt)) =
-        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-    else {
-        write(b"hk-server-debug: frame alloc failed\n");
+    let Some(mut window) = Window::attach(endpoint, display, WIDTH, HEIGHT) else {
+        write(b"hk-server-debug: attach failed\n");
         exit(2)
     };
-    if send_handle(
-        display,
-        SURFACE_CREATE,
-        pack_size(width as u32, height as u32),
-        handle,
-    ) == u64::MAX
-    {
-        write(b"hk-server-debug: create failed\n");
-        exit(3)
-    }
-    let (label, surface, _sender) = recv(endpoint);
-    if label != SURFACE_CREATED || surface == 0 {
-        write(b"hk-server-debug: surface rejected\n");
-        exit(4)
-    }
-    let _ = send(display, WINDOW_CREATE, surface);
-    let (label, window, _sender) = recv(endpoint);
-    if label != WINDOW_CREATED || window == 0 {
-        write(b"hk-server-debug: window rejected\n");
-        exit(4)
-    }
+    let (mut width, mut height) = (window.width(), window.height());
 
     let font = hk_canvas::default_font();
     write(b"hk-server-debug: font ");
@@ -139,17 +87,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     });
     write_u64(u64::from(font.size()));
     write(b"\n");
-    let mut pixels = surface_virt as *mut u32;
     let mut page = Page::Overview;
     let mut text = page.fetch();
     let mut scroll = 0;
-    show(
-        page, &text, scroll, width, height, font, pixels, endpoint, display, surface, window,
-    );
+    show(page, &text, scroll, font, &window);
 
     let stats = kernel_stats();
     write(b"hk-server-debug: ready ");
-    write_u64(window);
+    write_u64(window.window());
     write(b"\n");
     write(b"hk-server-debug: threads ");
     write_u64(u64::from(stats.threads));
@@ -168,9 +113,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             u64::from_str_radix(env!("HK_IMAGE_BASE").trim_start_matches("0x"), 16).unwrap_or(0);
         for page in Page::ALL {
             let text = page.fetch();
-            show(
-                page, &text, 0, width, height, font, pixels, endpoint, display, surface, window,
-            );
+            show(page, &text, 0, font, &window);
             write(b"hk-server-debug: view ");
             write(page.slug().as_bytes());
             write(b"\n");
@@ -196,19 +139,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 let _ = hk_server_api::yield_now();
             }
-            show(
-                Page::Fault,
-                &fault,
-                0,
-                width,
-                height,
-                font,
-                pixels,
-                endpoint,
-                display,
-                surface,
-                window,
-            );
+            show(Page::Fault, &fault, 0, font, &window);
             if fault.contains("[hk-server-debug]") {
                 write(b"hk-server-debug: fault symbolized\n");
             } else {
@@ -256,37 +187,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 if new_width == 0 || new_height == 0 {
                     continue;
                 }
-                if new_width != width || new_height != height {
-                    let bytes = new_width * new_height * 4;
-                    let Some((handle, region, virt)) =
-                        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-                    else {
-                        write(b"hk-server-debug: resize frame failed\n");
-                        continue;
-                    };
-                    if send_handle(
-                        display,
-                        WINDOW_RESIZE,
-                        pack_window_size(window, new_width as u32, new_height as u32),
-                        handle,
-                    ) == u64::MAX
-                    {
-                        let _ = close_handle(handle);
-                        write(b"hk-server-debug: resize rejected\n");
-                        continue;
-                    }
-                    let old_region = surface_region;
+                if window.resize(new_width, new_height) {
                     width = new_width;
                     height = new_height;
-                    surface_region = region;
-                    pixels = virt as *mut u32;
-                    let _ = region_unmap(old_region);
                     let max = line_count(&text, width, font).saturating_sub(visible_lines(height));
                     scroll = scroll.min(max);
-                    show(
-                        page, &text, scroll, width, height, font, pixels, endpoint, display,
-                        surface, window,
-                    );
+                    show(page, &text, scroll, font, &window);
                 }
             }
             DISPLAY_KEY => {
@@ -349,10 +255,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     _ => {}
                 }
                 if update {
-                    show(
-                        page, &text, scroll, width, height, font, pixels, endpoint, display,
-                        surface, window,
-                    );
+                    show(page, &text, scroll, font, &window);
                 }
             }
             DISPLAY_CLICK => {}

@@ -26,10 +26,8 @@ mod render;
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
-    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE,
-    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_click_at,
-    unpack_key, unpack_wheel, unpack_window_size,
+    DISPLAY_CLICK_AT, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL, Window,
+    unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
@@ -38,10 +36,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{self, ROOT_OP_PERF};
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data, recv_data_try, region_unmap,
-    send, send_handle, sleep_ticks, ticks, tsc, write, write_u64,
-};
+use hk_server_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write, write_u64};
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
 
@@ -190,91 +185,11 @@ impl App {
     }
 }
 
-/// 创建共享表面并挂到窗口，返回 `(surface, window, region, pixels)`。
-#[cfg(target_os = "none")]
-fn attach(
-    endpoint: u64,
-    display: u64,
-    width: usize,
-    height: usize,
-) -> Option<(u64, u64, u64, *mut u32)> {
-    let bytes = width.checked_mul(height)?.checked_mul(4)?;
-    let (handle, region, virt) = MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)?;
-    if send_handle(
-        display,
-        SURFACE_CREATE,
-        pack_size(width as u32, height as u32),
-        handle,
-    ) == u64::MAX
-    {
-        return None;
-    }
-    let (label, surface, _sender) = recv(endpoint);
-    if label != SURFACE_CREATED || surface == 0 {
-        return None;
-    }
-    let _ = send(display, WINDOW_CREATE, surface);
-    let (label, window, _sender) = recv(endpoint);
-    if label != WINDOW_CREATED || window == 0 {
-        return None;
-    }
-    Some((surface, window, region, virt as *mut u32))
-}
-
-/// 为已有窗口换一块新尺寸的表面。
-#[cfg(target_os = "none")]
-fn resize(
-    endpoint: u64,
-    display: u64,
-    window: u64,
-    width: usize,
-    height: usize,
-) -> Option<(u64, *mut u32)> {
-    let bytes = width.checked_mul(height)?.checked_mul(4)?;
-    let (handle, region, virt) = MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)?;
-    if send_handle(
-        display,
-        WINDOW_RESIZE,
-        pack_window_size(window, width as u32, height as u32),
-        handle,
-    ) == u64::MAX
-    {
-        let _ = close_handle(handle);
-        return None;
-    }
-    Some((region, virt as *mut u32))
-}
-
-/// 提交并等待显示服务完成合成。
-#[cfg(target_os = "none")]
-fn commit(endpoint: u64, display: u64, surface: u64) {
-    let _ = send(display, SURFACE_COMMIT, surface);
-    let mut buffer = [0_u8; 2048];
-    loop {
-        let (label, word, _sender, _length) = recv_data(endpoint, &mut buffer);
-        match label {
-            SURFACE_FRAME_DONE if word == surface => return,
-            DISPLAY_CLOSE => exit(0),
-            _ => {}
-        }
-    }
-}
-
 /// 绘制并提交一帧。
 #[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-fn show(
-    app: &App,
-    width: usize,
-    height: usize,
-    pixels: *mut u32,
-    endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
-) {
+fn show(app: &App, window: &Window) {
     let title = format!("任务管理器 · {}", app.page.title());
-    set_title(display, window, &title);
+    window.set_title(&title);
     let view = render::View {
         page: app.page,
         sample: &app.sample,
@@ -287,10 +202,11 @@ fn show(
         scroll: app.scroll,
         auto_refresh: app.auto,
     };
+    let (width, height) = (window.width(), window.height());
     // SAFETY: 表面帧已映射，长度为 width * height。
-    let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
+    let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render::render(&view, width, height, &frame);
-    commit(endpoint, display, surface);
+    window.commit();
 }
 
 /// 输出自检标记。
@@ -431,20 +347,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     }
 
-    let mut width = render::WIDTH;
-    let mut height = render::HEIGHT;
-    let Some((surface, window, mut surface_region, mut pixels)) =
-        attach(endpoint, display, width, height)
-    else {
+    let Some(mut window) = Window::attach(endpoint, display, render::WIDTH, render::HEIGHT) else {
         write(b"hk-server-taskman: attach failed\n");
         exit(2)
     };
+    let (mut width, mut height) = (window.width(), window.height());
 
     let mut app = App::new();
     app.refresh();
-    show(
-        &app, width, height, pixels, endpoint, display, surface, window,
-    );
+    show(&app, &window);
 
     let mut cmdline_buffer = [0_u8; 128];
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
@@ -454,14 +365,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let _ = sleep_ticks(REFRESH_TICKS);
         app.refresh();
         app.switch_page(Page::Processes);
-        show(
-            &app, width, height, pixels, endpoint, display, surface, window,
-        );
+        show(&app, &window);
         app.switch_page(Page::Performance);
-        show(
-            &app, width, height, pixels, endpoint, display, surface, window,
-        );
-        log_test(&app, window);
+        show(&app, &window);
+        log_test(&app, window.window());
         let _ = send(display, DISPLAY_SHUTDOWN, 0);
         exit(0)
     }
@@ -512,17 +419,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     if new_width == width && new_height == height {
                         continue;
                     }
-                    match resize(endpoint, display, window, new_width, new_height) {
-                        Some((region, virt)) => {
-                            let old_region = surface_region;
-                            width = new_width;
-                            height = new_height;
-                            surface_region = region;
-                            pixels = virt;
-                            let _ = region_unmap(old_region);
-                            dirty = true;
-                        }
-                        None => write(b"hk-server-taskman: resize failed\n"),
+                    if window.resize(new_width, new_height) {
+                        width = new_width;
+                        height = new_height;
+                        dirty = true;
+                    } else {
+                        write(b"hk-server-taskman: resize failed\n");
                     }
                 }
                 DISPLAY_WHEEL => {
@@ -530,8 +432,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     scroll_by(&mut app, delta);
                     dirty = true;
                 }
-                SURFACE_FRAME_DONE => {}
-                DISPLAY_CLOSE => exit(0),
                 _ => {}
             }
         }
@@ -544,9 +444,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if dirty {
             let visible = render::visible_rows(height);
             app.ensure_visible(visible);
-            show(
-                &app, width, height, pixels, endpoint, display, surface, window,
-            );
+            show(&app, &window);
         }
         let _ = sleep_ticks(1);
     }

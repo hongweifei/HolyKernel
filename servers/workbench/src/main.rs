@@ -32,19 +32,14 @@ use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
     DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
-    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE,
-    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title, unpack_click_at,
-    unpack_key, unpack_wheel, unpack_window_size,
+    Window, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, fault_subscribe, recv, recv_data,
-    region_unmap, send, send_handle, write, write_u64,
-};
+use hk_server_api::{exit, fault_subscribe, recv_data, send, write, write_u64};
 
 #[cfg(target_os = "none")]
 use model::{EditorKey, Focus, Model, line_text};
@@ -59,46 +54,23 @@ const HEAP_SIZE: usize = 1024 * 1024;
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
-/// 提交表面并等待合成完成。
-#[cfg(target_os = "none")]
-fn commit(endpoint: u64, display: u64, surface: u64) {
-    let _ = send(display, SURFACE_COMMIT, surface);
-    let mut buffer = [0_u8; 2048];
-    loop {
-        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
-        if label == hk_server_api::FAULT_EVENT {
-            hk_debug::ingest(label, &buffer[..length]);
-            continue;
-        }
-        if label == SURFACE_FRAME_DONE && word == surface {
-            return;
-        }
-    }
-}
-
 /// 刷新标题、绘制并提交。
 #[cfg(target_os = "none")]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn show(
-    model: &Model,
-    font: &Font,
-    pixels: *mut u32,
-    endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
-    width: usize,
-    height: usize,
-) {
+pub(crate) fn show(model: &Model, font: &Font, window: &Window) {
     let title = match &model.editor {
         Some(editor) => format!("Workbench: {}", editor.title),
         None => String::from("Workbench"),
     };
-    set_title(display, window, &title);
+    window.set_title(&title);
+    let (width, height) = (window.width(), window.height());
     // SAFETY: 表面帧已映射，长度为 width * height。
-    let frame = unsafe { Surface::from_raw(pixels, width, height, width) };
+    let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(model, font, &frame);
-    commit(endpoint, display, surface);
+    window.commit_with(|label, _, data| {
+        if label == hk_server_api::FAULT_EVENT {
+            hk_debug::ingest(label, data);
+        }
+    });
 }
 
 /// 处理点击：命中文档树或编辑器。
@@ -289,48 +261,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-workbench: no display\n");
         exit(1)
     }
-    let mut width = WIDTH;
-    let mut height = HEIGHT;
-    let bytes = width * height * 4;
-    let Some((handle, mut surface_region, surface_virt)) =
-        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-    else {
-        write(b"hk-server-workbench: frame alloc failed\n");
+    let Some(mut window) = Window::attach(endpoint, display, WIDTH, HEIGHT) else {
+        write(b"hk-server-workbench: attach failed\n");
         exit(2)
     };
-    if send_handle(
-        display,
-        SURFACE_CREATE,
-        pack_size(width as u32, height as u32),
-        handle,
-    ) == u64::MAX
-    {
-        write(b"hk-server-workbench: create failed\n");
-        exit(3)
-    }
-    let (label, surface, _sender) = recv(endpoint);
-    if label != SURFACE_CREATED || surface == 0 {
-        write(b"hk-server-workbench: surface rejected\n");
-        exit(4)
-    }
-    let _ = send(display, WINDOW_CREATE, surface);
-    let (label, window, _sender) = recv(endpoint);
-    if label != WINDOW_CREATED || window == 0 {
-        write(b"hk-server-workbench: window rejected\n");
-        exit(4)
-    }
 
     let font = hk_canvas::default_font();
-    let mut pixels = surface_virt as *mut u32;
     let _ = fault_subscribe(endpoint);
     let mut model = Box::new(Model::new(endpoint));
-    let layout = Layout::new(width, height);
+    let layout = Layout::new(window.width(), window.height());
     model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
-    show(
-        &model, font, pixels, endpoint, display, surface, window, width, height,
-    );
+    show(&model, font, &window);
     write(b"hk-server-workbench: ready ");
-    write_u64(window);
+    write_u64(window.window());
     write(b"\n");
     write(b"hk-server-workbench: documents ");
     write_u64(model.entries.len() as u64);
@@ -340,9 +283,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("workbench-test"));
     if test {
-        selftest::run(
-            &mut model, font, pixels, endpoint, display, surface, window, width, height,
-        );
+        selftest::run(&mut model, font, &window);
     }
 
     let mut decoder = Decoder::new();
@@ -358,37 +299,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let (_, new_width, new_height) = unpack_window_size(word);
                 let new_width = new_width as usize;
                 let new_height = new_height as usize;
-                if new_width == 0 || new_height == 0 || (new_width == width && new_height == height)
-                {
-                    false
-                } else {
-                    let bytes = new_width * new_height * 4;
-                    let Some((handle, region, virt)) =
-                        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-                    else {
-                        write(b"hk-server-workbench: resize frame failed\n");
-                        continue;
-                    };
-                    if send_handle(
-                        display,
-                        WINDOW_RESIZE,
-                        pack_window_size(window, new_width as u32, new_height as u32),
-                        handle,
-                    ) == u64::MAX
-                    {
-                        let _ = close_handle(handle);
-                        write(b"hk-server-workbench: resize rejected\n");
-                        continue;
-                    }
-                    let old_region = surface_region;
-                    width = new_width;
-                    height = new_height;
-                    surface_region = region;
-                    pixels = virt as *mut u32;
-                    let _ = region_unmap(old_region);
-                    let layout = Layout::new(width, height);
+                if window.resize(new_width, new_height) {
+                    let layout = Layout::new(window.width(), window.height());
                     model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
                     true
+                } else {
+                    write(b"hk-server-workbench: resize failed\n");
+                    false
                 }
             }
             DISPLAY_KEY => {
@@ -410,16 +327,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             DISPLAY_CLICK_AT => {
                 let (_, x, y) = unpack_click_at(word);
-                click(&mut model, font, x, y, width, height);
+                click(&mut model, font, x, y, window.width(), window.height());
                 true
             }
             DISPLAY_CLOSE => exit(0),
             _ => false,
         };
         if redraw {
-            show(
-                &model, font, pixels, endpoint, display, surface, window, width, height,
-            );
+            show(&model, font, &window);
         }
     }
 }

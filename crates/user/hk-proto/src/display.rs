@@ -5,6 +5,170 @@
 
 pub use hk_syscall::DISPLAY_SERVICE;
 
+use hk_server_api::{
+    CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data, region_unmap, send,
+    send_handle,
+};
+
+/// 客户端窗口：表面缓冲、窗口编号与提交。
+pub struct Window {
+    endpoint: u64,
+    display: u64,
+    surface: u64,
+    window: u64,
+    region: u64,
+    virt: u64,
+    width: usize,
+    height: usize,
+}
+
+impl Window {
+    /// 创建共享表面并挂到 Display，返回已映射的窗口。
+    pub fn attach(endpoint: u64, display: u64, width: usize, height: usize) -> Option<Self> {
+        let bytes = width.checked_mul(height)?.checked_mul(4)?;
+        let (handle, region, virt) =
+            MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)?;
+        if send_handle(
+            display,
+            SURFACE_CREATE,
+            pack_size(width as u32, height as u32),
+            handle,
+        ) == u64::MAX
+        {
+            let _ = close_handle(handle);
+            let _ = region_unmap(region);
+            return None;
+        }
+        let (label, surface, _sender) = recv(endpoint);
+        if label != SURFACE_CREATED || surface == 0 {
+            let _ = region_unmap(region);
+            return None;
+        }
+        if send(display, WINDOW_CREATE, surface) == u64::MAX {
+            let _ = region_unmap(region);
+            return None;
+        }
+        let (label, window, _sender) = recv(endpoint);
+        if label != WINDOW_CREATED || window == 0 {
+            let _ = region_unmap(region);
+            return None;
+        }
+        Some(Self {
+            endpoint,
+            display,
+            surface,
+            window,
+            region,
+            virt,
+            width,
+            height,
+        })
+    }
+
+    /// 替换窗口表面；成功后可继续使用同一 surface/window 编号。
+    pub fn resize(&mut self, width: usize, height: usize) -> bool {
+        if width == 0 || height == 0 || (width == self.width && height == self.height) {
+            return true;
+        }
+        let Some(bytes) = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return false;
+        };
+        let Some((handle, region, virt)) =
+            MemoryClient::new(self.endpoint).map(CapabilityKind::Surface, bytes)
+        else {
+            return false;
+        };
+        if send_handle(
+            self.display,
+            WINDOW_RESIZE,
+            pack_window_size(self.window, width as u32, height as u32),
+            handle,
+        ) == u64::MAX
+        {
+            let _ = close_handle(handle);
+            let _ = region_unmap(region);
+            return false;
+        }
+        let old_region = self.region;
+        self.region = region;
+        self.virt = virt;
+        self.width = width;
+        self.height = height;
+        let _ = region_unmap(old_region);
+        true
+    }
+
+    /// 设置窗口标题。
+    pub fn set_title(&self, title: &str) {
+        set_title(self.display, self.window, title);
+    }
+
+    /// 提交并等待 Display 完成合成。
+    pub fn commit(&self) {
+        self.commit_with(|_, _, _| {});
+    }
+
+    /// 提交并等待合成；等待期间把其他消息交给调用方处理。
+    pub fn commit_with<F>(&self, mut on_message: F)
+    where
+        F: FnMut(u64, u64, &[u8]),
+    {
+        let _ = send(self.display, SURFACE_COMMIT, self.surface);
+        let mut buffer = [0_u8; 2048];
+        loop {
+            let (label, word, _sender, length) = recv_data(self.endpoint, &mut buffer);
+            match label {
+                SURFACE_FRAME_DONE if word == self.surface => return,
+                DISPLAY_CLOSE => exit(0),
+                _ => on_message(label, word, &buffer[..length.min(buffer.len())]),
+            }
+        }
+    }
+
+    /// 提交但不等待合成完成，供已经有独立背压路径的终端使用。
+    pub fn commit_no_wait(&self) {
+        let _ = send(self.display, SURFACE_COMMIT, self.surface);
+    }
+
+    /// 解除本地表面映射。
+    pub fn detach(&self) {
+        let _ = region_unmap(self.region);
+    }
+
+    /// 返回表面编号。
+    pub const fn surface(&self) -> u64 {
+        self.surface
+    }
+
+    /// 返回窗口编号。
+    pub const fn window(&self) -> u64 {
+        self.window
+    }
+
+    /// 返回显示服务端点编号。
+    pub const fn display(&self) -> u64 {
+        self.display
+    }
+
+    /// 返回表面像素指针。
+    pub const fn pixels(&self) -> *mut u32 {
+        self.virt as *mut u32
+    }
+
+    /// 返回内容宽度。
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    /// 返回内容高度。
+    pub const fn height(&self) -> usize {
+        self.height
+    }
+}
+
 /// 请求显示服务退出（用于自检收尾）。
 pub const DISPLAY_SHUTDOWN: u64 = 0xA04;
 /// 键盘事件；`word` 为打包的窗口编号与字节，发给焦点窗口的客户端。

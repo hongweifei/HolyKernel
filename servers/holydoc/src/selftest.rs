@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use hk_proto::display::DISPLAY_SHUTDOWN;
+use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
 use hk_proto::holy::{
     DocumentKind, HolyClient, QuotaView, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
     STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_drives, decode_snapshots, decode_tags,
@@ -332,15 +332,11 @@ pub(crate) fn verify_streaming(endpoint: u64) -> bool {
 }
 
 /// 执行脚本化的导航、滚动与退出。
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     view: &mut DocView,
     docs: &mut DocSet,
-    pixels: *mut u32,
     endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
+    window: &Window,
     loaded: usize,
 ) -> ! {
     if verify_drives(endpoint) {
@@ -388,33 +384,33 @@ pub(crate) fn run(
         write(target.as_bytes());
         write(b"\n");
         if view.link_at(x, y).is_some() && view.open(docs, &target) {
-            apply(view, pixels, endpoint, display, surface, window);
+            apply(view, window);
         }
     }
     if loaded > 0
         && let Some(target) = docs.resolve("H:/System/Overview")
         && view.open(docs, &target)
     {
-        apply(view, pixels, endpoint, display, surface, window);
+        apply(view, window);
     }
     view.scroll_by(5);
-    apply(view, pixels, endpoint, display, surface, window);
+    apply(view, window);
     write(b"hk-server-holydoc: scroll ");
     write_u64(view.scroll as u64);
     write(b"\n");
     if view.back(docs) {
-        apply(view, pixels, endpoint, display, surface, window);
+        apply(view, window);
     }
     if view.advance(docs) {
-        apply(view, pixels, endpoint, display, surface, window);
+        apply(view, window);
     }
     if view.select_link(true) {
-        apply(view, pixels, endpoint, display, surface, window);
+        apply(view, window);
     }
     if view.open_selected(docs) {
-        apply(view, pixels, endpoint, display, surface, window);
+        apply(view, window);
     }
     write(b"hk-server-holydoc: done\n");
-    let _ = send(display, DISPLAY_SHUTDOWN, 0);
+    let _ = send(window.display(), DISPLAY_SHUTDOWN, 0);
     exit(0)
 }

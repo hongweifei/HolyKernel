@@ -3,7 +3,7 @@
 use alloc::format;
 
 use hk_font::Font;
-use hk_proto::display::DISPLAY_SHUTDOWN;
+use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
 use hk_server_api::{exit, send, write, write_u64};
 
 use crate::model::Model;
@@ -12,24 +12,11 @@ use crate::model::Model;
 const SAMPLE: &str = "@title(\"WorkbenchCheck\")\n@exec version\n@exec ticks\nWorkbench 编辑测试\n";
 
 /// 运行脚本化自检并退出。
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
-    model: &mut Model,
-    font: &Font,
-    pixels: *mut u32,
-    endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
-    width: usize,
-    height: usize,
-) -> ! {
+pub(crate) fn run(model: &mut Model, font: &Font, window: &Window) -> ! {
     write(b"hk-server-workbench: selftest\n");
 
     if model.select_path("H:/Welcome") {
-        crate::show(
-            model, font, pixels, endpoint, display, surface, window, width, height,
-        );
+        crate::show(model, font, window);
         write(b"hk-server-workbench: open H:/Welcome\n");
     } else {
         write(b"hk-server-workbench: open failed\n");
@@ -81,10 +68,8 @@ pub(crate) fn run(
         model.open(index);
     }
     model.log(&format!("自检完成：{} 项文档", model.entries.len()));
-    crate::show(
-        model, font, pixels, endpoint, display, surface, window, width, height,
-    );
+    crate::show(model, font, window);
     write(b"hk-server-workbench: done\n");
-    let _ = send(display, DISPLAY_SHUTDOWN, 0);
+    let _ = send(window.display(), DISPLAY_SHUTDOWN, 0);
     exit(0)
 }

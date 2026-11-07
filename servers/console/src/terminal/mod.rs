@@ -6,14 +6,8 @@ mod style;
 
 use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
-use hk_proto::display::{
-    DISPLAY_SERVICE, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, WINDOW_CREATE,
-    WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
-};
-use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, recv_data_try, region_unmap, send, send_handle,
-    service_endpoint, write, yield_now,
-};
+use hk_proto::display::{DISPLAY_SERVICE, Window};
+use hk_server_api::{service_endpoint, write};
 
 use ansi::{Ansi, Command, Event};
 use style::{Cell, Style};
@@ -103,13 +97,7 @@ impl Utf8 {
 
 /// 图形终端状态。
 pub(crate) struct Terminal {
-    own_endpoint: u64,
-    display: u64,
-    surface: u64,
-    window: u64,
-    surface_virt: u64,
-    surface_region: u64,
-    pixels: *mut u32,
+    window: Window,
     width: usize,
     height: usize,
     columns: usize,
@@ -349,7 +337,8 @@ impl Terminal {
     /// 重绘整个网格与光标，并提交合成。
     fn refresh(&mut self) {
         // SAFETY: 共享表面已映射，长度为 self.width * self.height。
-        let frame = unsafe { Surface::from_raw(self.pixels, self.width, self.height, self.width) };
+        let frame =
+            unsafe { Surface::from_raw(self.window.pixels(), self.width, self.height, self.width) };
         render::refresh(
             &frame,
             grid(),
@@ -358,12 +347,12 @@ impl Terminal {
             self.font,
             self.view(),
         );
-        let _ = send(self.display, SURFACE_COMMIT, self.surface);
+        self.window.commit_no_wait();
     }
 
     /// 解除共享表面映射，准备重建窗口。
     pub(crate) fn detach(&self) {
-        let _ = region_unmap(self.surface_region);
+        self.window.detach();
     }
 
     /// 按新的窗口内容尺寸重建表面并重排网格。
@@ -373,35 +362,16 @@ impl Terminal {
         }
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
-        let bytes = width * height * 4;
-        let Some((handle, region, virt)) =
-            MemoryClient::new(self.own_endpoint).map(CapabilityKind::Surface, bytes)
-        else {
-            write(b"hk-server-console: resize frame failed\n");
-            return;
-        };
-        if send_handle(
-            self.display,
-            WINDOW_RESIZE,
-            pack_window_size(self.window, width as u32, height as u32),
-            handle,
-        ) == u64::MAX
-        {
-            let _ = close_handle(handle);
-            write(b"hk-server-console: resize rejected\n");
+        if !self.window.resize(width, height) {
+            write(b"hk-server-console: resize failed\n");
             return;
         }
-        let old_region = self.surface_region;
         self.width = width;
         self.height = height;
-        self.surface_virt = virt;
-        self.surface_region = region;
-        self.pixels = virt as *mut u32;
         self.columns = columns;
         self.rows = rows;
         self.row = self.row.min(rows.saturating_sub(1));
         self.column = self.column.min(columns.saturating_sub(1));
-        let _ = region_unmap(old_region);
         self.refresh();
     }
 
@@ -418,12 +388,12 @@ impl Terminal {
 
     /// 返回窗口编号。
     pub(crate) fn window(&self) -> u64 {
-        self.window
+        self.window.window()
     }
 
     /// 返回 Display 端点。
     pub(crate) fn display(&self) -> u64 {
-        self.display
+        self.window.display()
     }
 }
 
@@ -433,31 +403,12 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     if display == 0 {
         return None;
     }
-    let (handle, surface_region, surface_virt) =
-        MemoryClient::new(endpoint).map(CapabilityKind::Surface, WIDTH * HEIGHT * 4)?;
-    if send_handle(
-        display,
-        SURFACE_CREATE,
-        pack_size(WIDTH as u32, HEIGHT as u32),
-        handle,
-    ) == u64::MAX
-    {
-        return None;
-    }
-    let surface = wait_reply(endpoint, SURFACE_CREATED)?;
-    let _ = send(display, WINDOW_CREATE, surface);
-    let window = wait_reply(endpoint, WINDOW_CREATED)?;
+    let window = Window::attach(endpoint, display, WIDTH, HEIGHT)?;
     reset_grid();
     Some(Terminal {
-        own_endpoint: endpoint,
-        display,
-        surface,
+        width: window.width(),
+        height: window.height(),
         window,
-        surface_virt,
-        surface_region,
-        pixels: surface_virt as *mut u32,
-        width: WIDTH,
-        height: HEIGHT,
         columns: COLUMNS,
         rows: ROWS,
         column: 0,
@@ -470,17 +421,4 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         utf8_seen: false,
         cjk_seen: false,
     })
-}
-
-/// 等待指定标签的回复；显示服务启动期间可能已有其他消息到达。
-fn wait_reply(endpoint: u64, expected: u64) -> Option<u64> {
-    let mut payload = [0_u8; 8];
-    for _ in 0..4096 {
-        let (label, word, _sender, _size) = recv_data_try(endpoint, &mut payload);
-        if label == expected {
-            return (word != 0).then_some(word);
-        }
-        let _ = yield_now();
-    }
-    None
 }
