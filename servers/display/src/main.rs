@@ -32,9 +32,9 @@ use hk_proto::input::{
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, capability_phys, capability_pin, close_handle, console_read, exit, map_attach,
-    map_new, recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency, write,
-    write_u64, yield_now,
+    CapabilityKind, MemoryClient, capability_phys, capability_pin, close_handle, console_read,
+    exit, map_attach, recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency,
+    write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -454,7 +454,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let Some((_back_handle, _back_region, back_virt)) = map_new(CapabilityKind::Surface, bytes)
+    let Some((_back_handle, _back_region, back_virt)) =
+        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
     else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)

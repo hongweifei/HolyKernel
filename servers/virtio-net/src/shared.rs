@@ -6,8 +6,8 @@ use hk_proto::net::{
     NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, net_mapping_word, net_rx_word,
 };
 use hk_server_api::{
-    CapabilityKind, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, dma_map_capability,
-    handle_duplicate, map_new, send, send_data, send_handle, write,
+    CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
+    dma_map_capability, handle_duplicate, send, send_data, send_handle, write,
 };
 
 /// 解析是否启用共享帧路径。
@@ -19,11 +19,11 @@ pub(crate) fn zerocopy_enabled() -> bool {
 
 /// 分配共享帧、登记 DMA 并把副本句柄交给 Network Server；成功后提交接收缓冲。
 #[cfg(target_os = "none")]
-pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> bool {
+pub(crate) fn attach_shared(network: &mut Network, own: u64, peer: u64, grant: u64) -> bool {
     let mut rx = [0_u64; NET_SHARED_RX];
     let mut tx = [0_u64; NET_SHARED_TX];
-    if !attach_role(peer, grant, NET_MAPPING_ROLE_RX, &mut rx)
-        || !attach_role(peer, grant, NET_MAPPING_ROLE_TX, &mut tx)
+    if !attach_role(own, peer, grant, NET_MAPPING_ROLE_RX, &mut rx)
+        || !attach_role(own, peer, grant, NET_MAPPING_ROLE_TX, &mut tx)
     {
         write("hk-server-virtio-net: shared frame attach failed\n".as_bytes());
         return false;
@@ -40,9 +40,10 @@ pub(crate) fn attach_shared(network: &mut Network, peer: u64, grant: u64) -> boo
 }
 
 #[cfg(target_os = "none")]
-fn attach_role(peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
+fn attach_role(own: u64, peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
     for (index, mapping_virt) in virts.iter_mut().enumerate() {
-        let Some((handle, _region, virt)) = map_new(CapabilityKind::Anonymous, NET_SHARED_LEN)
+        let Some((handle, _region, virt)) =
+            MemoryClient::new(own).map(CapabilityKind::Anonymous, NET_SHARED_LEN)
         else {
             return false;
         };

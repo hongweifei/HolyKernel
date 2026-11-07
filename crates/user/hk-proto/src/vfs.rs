@@ -2,8 +2,8 @@
 
 use crate::status::RESPONSE_HEADER;
 use hk_server_api::{
-    CapabilityKind, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle,
-    handle_duplicate, map_new, recv_data_from, region_unmap, send_data, send_handle,
+    CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
+    close_handle, handle_duplicate, recv_data_from, region_unmap, send_data, send_handle,
     service_endpoint,
 };
 
@@ -215,7 +215,7 @@ impl VfsClient {
         }
         if self.capability.is_none() {
             let Some((capability, region, virt)) =
-                map_new(CapabilityKind::Anonymous, VFS_BUFFER_LEN)
+                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, VFS_BUFFER_LEN)
             else {
                 return Err(STATUS_IO);
             };

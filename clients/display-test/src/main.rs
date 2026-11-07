@@ -14,7 +14,8 @@ use hk_proto::display::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, exit, map_new, recv, recv_data, send, send_data, send_handle, write, write_u64,
+    CapabilityKind, MemoryClient, exit, recv, recv_data, send, send_data, send_handle, write,
+    write_u64,
 };
 
 /// 服务入口。
@@ -80,7 +81,9 @@ fn create_surface(
     shade: u32,
 ) -> u64 {
     let bytes = width as usize * height as usize * 4;
-    let Some((handle, _region, virt)) = map_new(CapabilityKind::Surface, bytes) else {
+    let Some((handle, _region, virt)) =
+        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
+    else {
         write(b"hk-server-display-test: frame alloc failed\n");
         exit(2)
     };

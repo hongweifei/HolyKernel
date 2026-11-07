@@ -38,9 +38,9 @@ use hk_sync::{Condvar, Mutex, RwLock};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     MemoryClient, alloc, boot_cmdline, call, close_handle, exit, futex_wait, futex_wake,
-    ledger_info, map_lazy, notify, recv, recv_data_try, region_unmap, self_notification, send,
-    send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
-    write, write_u64, yield_now,
+    ledger_info, notify, recv, recv_data_try, region_unmap, self_notification, send, send_handle,
+    service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify, write,
+    write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -613,11 +613,7 @@ fn verify_memory(endpoint: u64) -> bool {
     let Some(before) = ledger_info() else {
         return false;
     };
-    let Some(capability) = client.allocate(PAGE) else {
-        return false;
-    };
-    let Some((region, virt)) = map_lazy(capability, PAGE) else {
-        let _ = close_handle(capability);
+    let Some((capability, region, virt)) = client.map_lazy(PAGE) else {
         return false;
     };
     // SAFETY: 区域已按一页映射进本任务；首次读取触发 Provider 缺页。

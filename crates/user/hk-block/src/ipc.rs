@@ -22,9 +22,9 @@ use hk_proto::block::{
     decode_request, decode_response, encode_request, encode_response,
 };
 use hk_server_api::{
-    CapabilityKind, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle,
-    handle_duplicate, map_attach, map_new, recv_data_handle, recv_data_handle_try, region_unmap,
-    send, send_data, send_handle, service_endpoint, yield_now,
+    CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
+    close_handle, handle_duplicate, map_attach, recv_data_handle, recv_data_handle_try,
+    region_unmap, send, send_data, send_handle, service_endpoint, yield_now,
 };
 
 /// 直通帧（调用方已注册的帧）使用的槽位。
@@ -172,7 +172,8 @@ impl BlockClient {
             self.endpoint = endpoint;
         }
         if self.slots[slot].capability.is_none() {
-            let Some((number, region, virt)) = map_new(CapabilityKind::Anonymous, BUFFER_LEN)
+            let Some((number, region, virt)) =
+                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, BUFFER_LEN)
             else {
                 return Err(STATUS_ERROR);
             };

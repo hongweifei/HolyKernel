@@ -120,7 +120,9 @@ impl ReadCache {
         if self.virt != 0 {
             return true;
         }
-        let Some((_region, virt)) = MemoryClient::new(self.own_endpoint).map(MAX_CACHE) else {
+        let Some((_capability, _region, virt)) =
+            MemoryClient::new(self.own_endpoint).map_lazy(MAX_CACHE)
+        else {
             return false;
         };
         self.virt = virt;

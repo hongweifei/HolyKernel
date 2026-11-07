@@ -11,7 +11,7 @@ use hk_proto::display::{
     WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size,
 };
 use hk_server_api::{
-    CapabilityKind, close_handle, map_new, recv_data_try, region_unmap, send, send_handle,
+    CapabilityKind, MemoryClient, close_handle, recv_data_try, region_unmap, send, send_handle,
     service_endpoint, write, yield_now,
 };
 
@@ -103,6 +103,7 @@ impl Utf8 {
 
 /// 图形终端状态。
 pub(crate) struct Terminal {
+    own_endpoint: u64,
     display: u64,
     surface: u64,
     window: u64,
@@ -373,7 +374,9 @@ impl Terminal {
         let columns = (width / CELL_WIDTH).clamp(1, MAX_COLUMNS);
         let rows = (height / CELL_HEIGHT).clamp(1, MAX_ROWS);
         let bytes = width * height * 4;
-        let Some((handle, region, virt)) = map_new(CapabilityKind::Surface, bytes) else {
+        let Some((handle, region, virt)) =
+            MemoryClient::new(self.own_endpoint).map(CapabilityKind::Surface, bytes)
+        else {
             write(b"hk-server-console: resize frame failed\n");
             return;
         };
@@ -431,7 +434,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         return None;
     }
     let (handle, surface_region, surface_virt) =
-        map_new(CapabilityKind::Surface, WIDTH * HEIGHT * 4)?;
+        MemoryClient::new(endpoint).map(CapabilityKind::Surface, WIDTH * HEIGHT * 4)?;
     if send_handle(
         display,
         SURFACE_CREATE,
@@ -446,6 +449,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
     let window = wait_reply(endpoint, WINDOW_CREATED)?;
     reset_grid();
     Some(Terminal {
+        own_endpoint: endpoint,
         display,
         surface,
         window,

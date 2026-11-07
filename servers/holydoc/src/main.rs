@@ -42,7 +42,7 @@ use hk_proto::input::{Decoder, Key};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, close_handle, exit, map_new, recv, recv_data_try, region_unmap, send,
+    CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data_try, region_unmap, send,
     send_handle, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
@@ -77,7 +77,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut height = HEIGHT;
     let bytes = width * height * 4;
     let Some((handle, mut surface_region, mut surface_virt)) =
-        map_new(CapabilityKind::Surface, bytes)
+        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
     else {
         write(b"hk-server-holydoc: frame alloc failed\n");
         exit(2)
@@ -224,7 +224,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     render_dirty = false;
                 }
                 let new_bytes = new_width * new_height * 4;
-                let Some((handle, region, virt)) = map_new(CapabilityKind::Surface, new_bytes)
+                let Some((handle, region, virt)) =
+                    MemoryClient::new(endpoint).map(CapabilityKind::Surface, new_bytes)
                 else {
                     write(b"hk-server-holydoc: resize frame failed\n");
                     continue;

@@ -147,7 +147,7 @@ fn serve(endpoint: u64, grant: u64, network: &mut hk_driver_virtio::Network, pee
     } else if *peer != 0 {
         // 对端在等待授权期间已经发来 INFO 请求，`wait_for_grant` 消费了它，
         // 这里直接完成共享帧附加。
-        shared = attach_shared(network, *peer, grant);
+        shared = attach_shared(network, endpoint, *peer, grant);
     }
     let mut buffer = [0_u8; NET_FRAME_MAX];
     loop {
@@ -163,7 +163,7 @@ fn serve(endpoint: u64, grant: u64, network: &mut hk_driver_virtio::Network, pee
                 NET_INFO_REQUEST => {
                     send_info(sender, network.mac_address());
                     if zerocopy && !shared {
-                        shared = attach_shared(network, sender, grant);
+                        shared = attach_shared(network, endpoint, sender, grant);
                     }
                 }
                 NET_POLL => {

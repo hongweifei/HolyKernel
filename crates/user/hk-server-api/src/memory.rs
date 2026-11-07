@@ -109,24 +109,6 @@ pub fn capability_phys(capability: u64) -> Option<(u64, u64)> {
     Some((phys, length))
 }
 
-/// 创建能力并建立完整映射，返回 `(capability, region, virt)`。
-pub fn map_new(kind: CapabilityKind, length: usize) -> Option<(u64, u64, u64)> {
-    let length = length.checked_add(4095)? & !4095;
-    let capability = capability_create(kind, length)?;
-    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
-    let (virt, _) = region_info(region)?;
-    Some((capability, region, virt))
-}
-
-/// 创建并映射按需装入的匿名能力，返回 `(capability, region, virt)`。
-pub fn map_new_lazy(length: usize) -> Option<(u64, u64, u64)> {
-    let length = length.checked_add(4095)? & !4095;
-    let capability = capability_create_lazy(length)?;
-    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
-    let (virt, _) = region_info(region)?;
-    Some((capability, region, virt))
-}
-
 /// 在不要求常驻物理页的情况下映射能力。
 pub fn map_lazy(capability: u64, length: usize) -> Option<(u64, u64)> {
     let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;

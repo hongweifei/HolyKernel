@@ -82,7 +82,10 @@ pub fn run(
         }
         if display_test {
             // 显示自检只需要 Display 服务与客户端。
-            return matches!(name, "hk-server-display" | "hk-server-display-test");
+            return matches!(
+                name,
+                "hk-server-display" | "hk-server-display-test" | "hk-server-memory"
+            );
         }
         if holydoc_resize_test {
             // 缩放自检：Display 与保持运行的 HolyDoc，加文档服务链。
@@ -96,6 +99,7 @@ pub fn run(
                     | "hk-server-block"
                     | "hk-server-device"
                     | "hk-server-input"
+                    | "hk-server-memory"
             );
         }
         if holydoc_test {
@@ -109,6 +113,7 @@ pub fn run(
                     | "hk-server-virtio"
                     | "hk-server-block"
                     | "hk-server-device"
+                    | "hk-server-memory"
             );
         }
         if workbench_test {
@@ -122,17 +127,24 @@ pub fn run(
                     | "hk-server-virtio"
                     | "hk-server-block"
                     | "hk-server-device"
+                    | "hk-server-memory"
             );
         }
         if debug_test {
             // Debug 自检只需要 Display 与调试服务。
-            return matches!(name, "hk-server-display" | "hk-server-debug");
+            return matches!(
+                name,
+                "hk-server-display" | "hk-server-debug" | "hk-server-memory"
+            );
         }
         if display_restart_test {
             // 热重启自检：Display + Console + 重启客户端。
             return matches!(
                 name,
-                "hk-server-display" | "hk-server-console" | "hk-server-display-restart-test"
+                "hk-server-display"
+                    | "hk-server-console"
+                    | "hk-server-display-restart-test"
+                    | "hk-server-memory"
             );
         }
         if hotswap_test {
@@ -158,6 +170,7 @@ pub fn run(
                     | "hk-server-virtio"
                     | "hk-server-block"
                     | "hk-server-holyfs"
+                    | "hk-server-memory"
             );
         }
         if desktop {
@@ -175,6 +188,7 @@ pub fn run(
                     | "hk-server-holydoc"
                     | "hk-server-workbench"
                     | "hk-server-shell"
+                    | "hk-server-memory"
             );
         }
         if hk_boot::cmdline().is_some_and(|line| line.contains("pointer-test")) {
@@ -185,6 +199,7 @@ pub fn run(
                     | "hk-server-device"
                     | "hk-server-input"
                     | "hk-server-pointer-test"
+                    | "hk-server-memory"
             );
         }
         if hk_boot::cmdline().is_some_and(|line| line.contains("input-test")) {
@@ -196,13 +211,17 @@ pub fn run(
                     | "hk-server-console"
                     | "hk-server-terminal-test"
                     | "hk-server-input"
+                    | "hk-server-memory"
             );
         }
         if hk_boot::cmdline().is_some_and(|line| line.contains("terminal-test")) {
             // 图形终端自检需要 Console、Display 与客户端。
             return matches!(
                 name,
-                "hk-server-display" | "hk-server-console" | "hk-server-terminal-test"
+                "hk-server-display"
+                    | "hk-server-console"
+                    | "hk-server-terminal-test"
+                    | "hk-server-memory"
             );
         }
         if matches!(

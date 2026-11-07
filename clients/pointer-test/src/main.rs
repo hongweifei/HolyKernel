@@ -11,7 +11,7 @@ use hk_proto::display::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, exit, map_new, recv, region_unmap, send, send_handle, write, write_u64,
+    CapabilityKind, MemoryClient, exit, recv, region_unmap, send, send_handle, write, write_u64,
 };
 
 /// 窗口宽度。
@@ -34,7 +34,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut width = WIDTH;
     let mut height = HEIGHT;
     let bytes = width as usize * height as usize * 4;
-    let Some((handle, mut surface_region, surface_virt)) = map_new(CapabilityKind::Surface, bytes)
+    let Some((handle, mut surface_region, surface_virt)) =
+        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
     else {
         write(b"hk-server-pointer-test: frame alloc failed\n");
         exit(2)
@@ -73,7 +74,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let (_, new_width, new_height) = unpack_window_size(word);
                 if new_width != width || new_height != height {
                     let bytes = new_width as usize * new_height as usize * 4;
-                    let Some((handle, region, virt)) = map_new(CapabilityKind::Surface, bytes)
+                    let Some((handle, region, virt)) =
+                        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
                     else {
                         write(b"hk-server-pointer-test: resize frame failed\n");
                         exit(7)
