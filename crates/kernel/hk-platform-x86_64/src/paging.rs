@@ -45,15 +45,12 @@ pub fn direct_map_base() -> u64 {
 /// 判断物理页是否全为零。
 pub fn page_is_zero(phys: PhysAddr) -> bool {
     let base = direct_map_base();
-    let address = base.saturating_add(phys.get()) as *const u8;
-    let mut offset = 0;
-    while offset < hk_hal::PAGE_SIZE {
-        // SAFETY: 物理页经 direct map 映射为可读，读取范围不超过一页。
-        let byte = unsafe { core::ptr::read_volatile(address.add(offset)) };
-        if byte != 0 {
+    let address = base.saturating_add(phys.get()) as *const u64;
+    for word in 0..hk_hal::PAGE_SIZE / size_of::<u64>() {
+        // SAFETY: 物理页经 direct map 映射为可读，按 64 位读取不超过一页。
+        if unsafe { core::ptr::read_volatile(address.add(word)) } != 0 {
             return false;
         }
-        offset += 1;
     }
     true
 }
@@ -147,12 +144,6 @@ pub const fn restore_flags(bits: u64) -> PageFlags {
         bits & WRITABLE
     };
     PageFlags((bits & !COW & !HUGE) | writable | USER)
-}
-
-fn push_unique(frames: &mut Vec<PhysAddr>, frame: PhysAddr) {
-    if !frames.contains(&frame) {
-        frames.push(frame);
-    }
 }
 
 /// 页表操作错误。
@@ -314,7 +305,7 @@ impl PageTable {
     /// 收集低半区用户页表与数据帧，供检查点释放或复用。
     pub fn user_frames(&self) -> Vec<PhysAddr> {
         let mut frames = Vec::new();
-        push_unique(&mut frames, self.root);
+        frames.push(self.root);
         for pml4 in 0..KERNEL_PML4_START {
             // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
             let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
@@ -322,7 +313,7 @@ impl PageTable {
                 continue;
             }
             let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
-            push_unique(&mut frames, pdpt);
+            frames.push(pdpt);
             for pdpt_index in 0..ENTRIES {
                 // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
                 let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
@@ -330,7 +321,7 @@ impl PageTable {
                     continue;
                 }
                 let pd = PhysAddr::new(pdp & ADDRESS_MASK);
-                push_unique(&mut frames, pd);
+                frames.push(pd);
                 for pd_index in 0..ENTRIES {
                     // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
                     let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
@@ -338,18 +329,20 @@ impl PageTable {
                         continue;
                     }
                     let pt = PhysAddr::new(pde & ADDRESS_MASK);
-                    push_unique(&mut frames, pt);
+                    frames.push(pt);
                     for pt_index in 0..ENTRIES {
                         // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
                         let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
                         if pte & PRESENT == 0 || pte & (PWT | PCD) != 0 {
                             continue;
                         }
-                        push_unique(&mut frames, PhysAddr::new(pte & ADDRESS_MASK));
+                        frames.push(PhysAddr::new(pte & ADDRESS_MASK));
                     }
                 }
             }
         }
+        frames.sort_unstable();
+        frames.dedup();
         frames
     }
 
