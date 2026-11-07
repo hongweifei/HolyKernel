@@ -1,7 +1,7 @@
 //! 内核对象：对象头与负载。
 
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
@@ -40,8 +40,8 @@ pub enum ObjectPayload {
         backing: Option<FrameBacking>,
         /// 缺页/回写 Provider 端点。
         provider: Mutex<Option<ObjectId>>,
-        /// 按需装入的页；常驻能力为空。
-        pages: Mutex<Vec<Option<FrameBacking>>>,
+        /// 按需装入的页；只保存已装入页。
+        pages: Mutex<BTreeMap<usize, FrameBacking>>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// 是否正在 scanout 驻留。
@@ -169,7 +169,7 @@ impl KernelObject {
     pub fn capability_page(&self, index: usize) -> Option<PhysRange> {
         match &self.payload {
             ObjectPayload::Capability { pages, .. } => {
-                pages.lock().get(index)?.as_ref().map(FrameBacking::range)
+                pages.lock().get(&index).map(FrameBacking::range)
             }
             _ => None,
         }
@@ -178,19 +178,29 @@ impl KernelObject {
     /// 取出能力内已装入的一页。
     pub fn take_capability_page(&self, index: usize) -> Option<FrameBacking> {
         match &self.payload {
-            ObjectPayload::Capability { pages, .. } => pages.lock().get_mut(index)?.take(),
+            ObjectPayload::Capability { pages, .. } => pages.lock().remove(&index),
             _ => None,
         }
     }
 
     /// 装入能力内的一页。
     pub fn set_capability_page(&self, index: usize, page: FrameBacking) -> bool {
-        if let ObjectPayload::Capability { pages, .. } = &self.payload {
-            let mut pages = pages.lock();
-            if let Some(slot) = pages.get_mut(index) {
-                *slot = Some(page);
-                return true;
+        if let ObjectPayload::Capability {
+            capability,
+            backing,
+            pages,
+            ..
+        } = &self.payload
+        {
+            if backing.is_some() {
+                return false;
             }
+            let count = (capability.size() / capability.page_size() as u64) as usize;
+            if index >= count {
+                return false;
+            }
+            pages.lock().insert(index, page);
+            return true;
         }
         false
     }

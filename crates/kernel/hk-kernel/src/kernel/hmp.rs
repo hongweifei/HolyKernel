@@ -295,20 +295,13 @@ impl Kernel {
         backing: Option<FrameBacking>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let pages = if backing.is_none() {
-            core::iter::repeat_with(|| None)
-                .take((capability.size() / capability.page_size() as u64) as usize)
-                .collect()
-        } else {
-            alloc::vec::Vec::new()
-        };
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Capability {
                 capability,
                 backing,
                 provider: Mutex::new(None),
-                pages: Mutex::new(pages),
+                pages: Mutex::new(BTreeMap::new()),
                 pinned: AtomicBool::new(false),
                 scanout: AtomicBool::new(false),
                 version: AtomicU64::new(0),
