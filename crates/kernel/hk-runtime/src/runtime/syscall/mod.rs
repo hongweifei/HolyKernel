@@ -252,6 +252,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_FRAME_SHARE => self.frame_share(index, tcb, frame),
             SYS_FRAME_RELEASE => self.frame_release(index, tcb, frame),
             SYS_FRAME_FREE => self.frame_free(index, tcb, frame),
+            SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
             SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
             SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),
             SYS_REGION_MAP => self.region_map(index, tcb, frame),

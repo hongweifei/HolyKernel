@@ -10,9 +10,10 @@ extern crate alloc;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, capability_bind_provider, capability_create,
-    capability_create_lazy, capacity_alloc, capacity_free, capacity_info, exit, frame_alloc,
-    frame_info, frame_pin, frame_release, frame_share, recv_data, reply, send_handle, write,
+    CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
+    capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc,
+    capacity_free, capacity_info, exit, frame_alloc, frame_info, frame_pin, frame_release,
+    frame_share, recv_data, reply, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_PROVIDE};
@@ -43,6 +44,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     loop {
         let mut request = [0_u8; REQUEST_BYTES];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
+        if label == MEMORY_FRAME {
+            let size = (length >= 8)
+                .then(|| u64::from_le_bytes(request[..8].try_into().unwrap_or([0; 8])))
+                .unwrap_or(0) as usize;
+            let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, size) else {
+                let _ = send_handle(sender, MEMORY_FRAME_ALLOCATED, u64::MAX, 0);
+                continue;
+            };
+            if send_handle(sender, MEMORY_FRAME_ALLOCATED, size as u64, frame) != 0 {
+                exit(4);
+            }
+            continue;
+        }
         if label == MEMORY_ALLOC {
             write(b"hk-server-memory: alloc\n");
             let kind = (length == REQUEST_BYTES)

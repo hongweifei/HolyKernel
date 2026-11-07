@@ -83,7 +83,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             self.install_capability(child, capability, charge);
-            self.install_region(child, child_region, capability, region_id, virt, len);
+            self.install_region(child, child_region, capability, region_id, None, virt, len);
         }
     }
 
@@ -135,12 +135,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some((handle, capability, backing))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn install_region(
         &mut self,
         index: usize,
         handle: Handle,
         capability: Handle,
         region: hk_mem::hmp::RegionId,
+        frame: Option<Handle>,
         virt: u64,
         len: usize,
     ) -> u64 {
@@ -153,6 +155,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             handle,
             capability,
             region,
+            frame,
             virt,
             len,
         };

@@ -235,6 +235,9 @@ pub const SYS_FRAME_RELEASE: u64 = 0x98;
 /// 把 Frame 归还给 Capacity。
 pub const SYS_FRAME_FREE: u64 = 0x99;
 
+/// 把 Frame 映射进当前任务地址空间。
+pub const SYS_FRAME_MAP: u64 = 0x9A;
+
 /// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
 pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
 
@@ -503,7 +506,7 @@ mod tests {
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
-        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_FRAME_FREE < 0xA0) };
+        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_FRAME_MAP < 0xA0) };
     }
 
     #[test]
@@ -602,6 +605,7 @@ mod tests {
             SYS_FRAME_SHARE,
             SYS_FRAME_RELEASE,
             SYS_FRAME_FREE,
+            SYS_FRAME_MAP,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

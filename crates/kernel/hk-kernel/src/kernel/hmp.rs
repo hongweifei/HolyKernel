@@ -70,9 +70,27 @@ impl Kernel {
     ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Frame(Mutex::new(Some(
-                frame,
-            ))))),
+            Arc::new(KernelObject::new(ObjectPayload::Frame {
+                frame: Mutex::new(Some(frame)),
+                capacity: None,
+            })),
+            rights,
+        )
+    }
+
+    fn create_frame_owned(
+        &self,
+        thread: TcbId,
+        frame: Frame,
+        capacity: Arc<Mutex<Capacity>>,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        self.register(
+            thread,
+            Arc::new(KernelObject::new(ObjectPayload::Frame {
+                frame: Mutex::new(Some(frame)),
+                capacity: Some(capacity),
+            })),
             rights,
         )
     }
@@ -202,8 +220,8 @@ impl Kernel {
     ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Capacity(Mutex::new(
-                capacity,
+            Arc::new(KernelObject::new(ObjectPayload::Capacity(Arc::new(
+                Mutex::new(capacity),
             )))),
             rights,
         )
@@ -264,9 +282,10 @@ impl Kernel {
             expected: ObjectKind::Capacity,
         })?;
         let frame = capacity.lock().allocate(len).map_err(KernelError::Hmp)?;
-        self.create_frame(
+        self.create_frame_owned(
             thread,
             frame,
+            Arc::clone(capacity),
             Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
         )
     }

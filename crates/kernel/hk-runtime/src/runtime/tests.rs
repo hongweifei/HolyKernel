@@ -721,6 +721,64 @@ fn capacity_frame_lifecycle() {
 }
 
 #[test]
+fn frame_maps_and_returns_to_capacity() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(100),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x60_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(handle));
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+    assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
+    assert_eq!(runtime.tasks[index].regions.iter().flatten().count(), 1);
+    assert!(
+        runtime.tasks[index]
+            .regions
+            .iter()
+            .flatten()
+            .all(|region| region.frame.is_some())
+    );
+
+    context.rax = hk_syscall::SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+    assert!(runtime.tasks[index].regions.iter().all(Option::is_none));
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn rejects_device_grant_without_authority() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

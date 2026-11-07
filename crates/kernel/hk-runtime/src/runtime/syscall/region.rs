@@ -82,6 +82,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             handle,
             capability_handle,
             region_id,
+            None,
             virt,
             length,
         ));
@@ -175,6 +176,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             region_handle,
             capability_handle,
             region_id,
+            None,
             virt,
             len,
         );
@@ -395,10 +397,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let region_id = self.tasks[index].regions[slot]
             .as_ref()
             .map(|region| region.region);
+        let frame_handle = self.tasks[index].regions[slot]
+            .as_ref()
+            .and_then(|region| region.frame);
         if let Some(region_id) = region_id
             && let Some(arena) = self.tasks[index].hmp_arena.as_mut()
         {
             let _ = arena.remove(region_id);
+        }
+        if let Some(frame_handle) = frame_handle {
+            let _ = self.kernel.pin_frame(tcb, frame_handle, false);
+            let _ = self.kernel.close_handle(tcb, frame_handle);
         }
         let _ = self.kernel.close_handle(tcb, handle);
         self.tasks[index].regions[slot] = None;

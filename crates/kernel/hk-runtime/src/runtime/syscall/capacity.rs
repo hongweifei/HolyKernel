@@ -1,6 +1,8 @@
 //! Capacity 与 Frame 对象操作。
 
-use hk_mem::hmp::CapacityKind;
+use hk_hal::VirtAddr;
+use hk_handle::Rights;
+use hk_mem::hmp::{Capability, CapabilityKind, CapacityKind, FrameLease, Region, RegionFlags};
 use hk_syscall::{
     CAPACITY_KIND_DMA, CAPACITY_KIND_GPU, CAPACITY_KIND_NUMA, CAPACITY_KIND_SYSTEM,
     CAPACITY_KIND_USER,
@@ -13,7 +15,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let number = frame.arg0() as usize;
         let out = frame.arg1();
         let capacity = frame.arg2() as usize;
-        let Some((_, handle)) = self.capacity_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -49,7 +51,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some((_, handle)) = self.capacity_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -64,7 +66,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn capacity_alloc(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;
-        let Some((_, handle)) = self.capacity_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -94,7 +96,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let number = frame.arg0() as usize;
         let out = frame.arg1();
         let capacity = frame.arg2() as usize;
-        let Some((_, handle)) = self.frame_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -126,7 +128,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn frame_pin(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let pinned = frame.arg1() != 0;
-        let Some((_, handle)) = self.frame_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -139,7 +141,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     pub(crate) fn frame_share(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
-        let Some((_, handle)) = self.frame_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -152,7 +154,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     pub(crate) fn frame_release(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
-        let Some((_, handle)) = self.frame_at(index, number) else {
+        let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -163,6 +165,105 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn frame_map(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let packed = frame.arg1();
+        let Some(frame_handle) = self.handle_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok((range, page_size, _, _, _)) = self.kernel.frame_info(tcb, frame_handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let length = usize::try_from(range.len()).unwrap_or(0);
+        if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let rights = Rights::from_bits_truncate(packed as u32);
+        let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
+        let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let lease = FrameLease::import(range.start(), length);
+        let Ok(capability_handle) = self.kernel.create_capability(
+            tcb,
+            capability.clone(),
+            Some(lease),
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        ) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(mut region) = Region::new(&capability, 0, length, rights, flags) else {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(virt) = self.tasks[index].user_window.allocate(length) else {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !self
+            .platform
+            .map_dma(index, virt, range.start().get(), length)
+        {
+            self.tasks[index].user_window.release(virt);
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if region.map(VirtAddr::new(virt)).is_err() {
+            let _ = self.platform.unmap_dma(index, virt, length);
+            self.tasks[index].user_window.release(virt);
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let region_id = region.id();
+        if self.tasks[index]
+            .hmp_arena
+            .as_mut()
+            .is_none_or(|arena| arena.insert(&region).is_err())
+        {
+            let _ = self.platform.unmap_dma(index, virt, length);
+            self.tasks[index].user_window.release(virt);
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Ok(region_handle) =
+            self.kernel
+                .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        else {
+            let _ = self.platform.unmap_dma(index, virt, length);
+            self.tasks[index].user_window.release(virt);
+            if let Some(arena) = self.tasks[index].hmp_arena.as_mut() {
+                let _ = arena.remove(region_id);
+            }
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let _ = self.kernel.pin_frame(tcb, frame_handle, true);
+        let result = self.install_region(
+            index,
+            region_handle,
+            capability_handle,
+            region_id,
+            Some(frame_handle),
+            virt,
+            length,
+        );
+        self.clear_handle(index, number);
+        frame.set_result(result);
+        Switch::Continue
+    }
+
     fn free_frame_at(
         &mut self,
         index: usize,
@@ -170,17 +271,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         capacity: usize,
         frame_number: usize,
     ) -> u64 {
-        let Some((_, capacity)) = self.capacity_at(index, capacity) else {
+        let Some(capacity) = self.handle_at(index, capacity) else {
             return u64::MAX;
         };
-        let Some((slot, frame)) = self.frame_at(index, frame_number) else {
+        let Some(frame) = self.handle_at(index, frame_number) else {
             return u64::MAX;
         };
         if self.kernel.free_frame(tcb, capacity, frame).is_err() {
             return u64::MAX;
         }
         let _ = self.kernel.close_handle(tcb, frame);
-        self.tasks[index].frames[slot] = None;
+        self.clear_handle(index, frame_number);
         1
     }
 }

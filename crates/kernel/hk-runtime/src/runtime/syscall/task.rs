@@ -40,6 +40,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = self.handle_at(index, endpoint) else {
             return u64::MAX;
         };
+        if (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint)
+            && let Some(frame) = endpoint
+                .checked_sub(REGION_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].regions.get(slot))
+                .and_then(|region| region.as_ref())
+                .and_then(|region| region.frame)
+        {
+            let _ = self.kernel.pin_frame(tcb, frame, false);
+            let _ = self.kernel.close_handle(tcb, frame);
+        }
 
         match self.kernel.close_handle(tcb, handle) {
             Ok(()) => {

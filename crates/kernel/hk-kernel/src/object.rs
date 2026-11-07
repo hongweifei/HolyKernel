@@ -25,9 +25,14 @@ pub enum ObjectPayload {
     /// 任务内存根。
     Arena(Mutex<Arena>),
     /// 物理容量能力。
-    Capacity(Mutex<Capacity>),
+    Capacity(Arc<Mutex<Capacity>>),
     /// 物理页。
-    Frame(Mutex<Option<Frame>>),
+    Frame {
+        /// 页描述；归还 Capacity 后为空。
+        frame: Mutex<Option<Frame>>,
+        /// Frame 归属的 Capacity；关闭最后一个句柄时自动归还。
+        capacity: Option<Arc<Mutex<Capacity>>>,
+    },
     /// 类型化能力。
     Capability {
         /// 能力描述。
@@ -61,7 +66,7 @@ impl ObjectPayload {
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
             Self::Arena(_) => ObjectKind::Arena,
             Self::Capacity(_) => ObjectKind::Capacity,
-            Self::Frame(_) => ObjectKind::Frame,
+            Self::Frame { .. } => ObjectKind::Frame,
             Self::Capability { .. } => ObjectKind::Capability,
             Self::Region(_) => ObjectKind::Region,
             Self::Ledger(_) => ObjectKind::Ledger,
@@ -122,7 +127,7 @@ impl KernelObject {
     }
 
     /// 返回物理容量能力。
-    pub fn capacity(&self) -> Option<&Mutex<Capacity>> {
+    pub fn capacity(&self) -> Option<&Arc<Mutex<Capacity>>> {
         match &self.payload {
             ObjectPayload::Capacity(capacity) => Some(capacity),
             _ => None,
@@ -132,7 +137,7 @@ impl KernelObject {
     /// 返回物理页。
     pub fn frame(&self) -> Option<&Mutex<Option<Frame>>> {
         match &self.payload {
-            ObjectPayload::Frame(frame) => Some(frame),
+            ObjectPayload::Frame { frame, .. } => Some(frame),
             _ => None,
         }
     }
@@ -140,7 +145,7 @@ impl KernelObject {
     /// 取出物理页；取出后 Frame 对象保持为空。
     pub fn take_frame(&self) -> Option<Frame> {
         match &self.payload {
-            ObjectPayload::Frame(frame) => frame.lock().take(),
+            ObjectPayload::Frame { frame, .. } => frame.lock().take(),
             _ => None,
         }
     }
@@ -270,5 +275,17 @@ impl KernelObject {
 impl Object for KernelObject {
     fn header(&self) -> &ObjectHeader {
         &self.header
+    }
+}
+
+impl Drop for KernelObject {
+    fn drop(&mut self) {
+        let ObjectPayload::Frame { frame, capacity } = &self.payload else {
+            return;
+        };
+        let (Some(capacity), Some(frame)) = (capacity, frame.lock().take()) else {
+            return;
+        };
+        let _ = capacity.lock().free(frame);
     }
 }

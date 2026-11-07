@@ -1,8 +1,8 @@
 //! Memory Server 客户端：按类型申请能力并映射。
 
 use crate::{
-    CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, close_handle, map_attach, recv_data_handle,
-    send_data, service_endpoint,
+    CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
+    close_handle, map_attach, recv_data_handle, send_data, service_endpoint,
 };
 
 /// 请求载荷：能力类型（1 字节）+ 标志（1 字节）+ 长度（8 字节小端）。
@@ -76,5 +76,20 @@ impl MemoryClient {
             return None;
         };
         Some((capability, region, virt))
+    }
+
+    /// 从 Memory Server 的 Capacity 申请一个 Frame。
+    pub fn frame(&self, length: usize) -> Option<u64> {
+        if !self.available() || length == 0 {
+            return None;
+        }
+        let request = (length as u64).to_le_bytes();
+        if send_data(self.service, MEMORY_FRAME, &request) != 0 {
+            return None;
+        }
+        let mut payload = [0_u8; 0];
+        let (label, word, _sender, _length, handle) =
+            recv_data_handle(self.own_endpoint, &mut payload, self.service);
+        (label == MEMORY_FRAME_ALLOCATED && word != u64::MAX && handle != 0).then_some(handle)
     }
 }

@@ -6,9 +6,9 @@ use hk_syscall::{
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
-    SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_PIN,
-    SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_UNMAP,
+    SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP,
+    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -17,6 +17,10 @@ use crate::syscall_call;
 pub const MEMORY_ALLOC: u64 = 0x4D45_4D41;
 /// Memory Server 分配成功回复。
 pub const MEMORY_ALLOCATED: u64 = 0x4D45_4D42;
+/// Memory Server 分配 Frame 请求。
+pub const MEMORY_FRAME: u64 = 0x4D45_4D43;
+/// Memory Server 分配 Frame 成功回复。
+pub const MEMORY_FRAME_ALLOCATED: u64 = 0x4D45_4D44;
 
 /// Region 可读。
 pub const REGION_READ: u32 = RIGHT_READ;
@@ -313,6 +317,14 @@ pub fn frame_release(frame: u64) -> Option<u64> {
 pub fn frame_free(frame: u64, capacity: u64) -> u64 {
     // SAFETY: 内核校验 Frame、Capacity 与引用状态。
     unsafe { syscall_call(SYS_FRAME_FREE, frame, capacity, 0, 0).value }
+}
+
+/// 把 Frame 映射进当前任务，返回 Region 句柄。
+pub fn frame_map(frame: u64, rights: u32, flags: u32) -> Option<u64> {
+    let packed = rights as u64 | ((flags as u64) << 32);
+    // SAFETY: 内核校验 Frame 与权利后建立 Region。
+    let region = unsafe { syscall_call(SYS_FRAME_MAP, frame, packed, 0, 0).value };
+    (region != u64::MAX).then_some(region)
 }
 
 /// 任务 Arena 快照。

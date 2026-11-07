@@ -217,6 +217,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 
 - 物理页能力；map、phys、pin、export。
 - 用于 IPC、DMA、共享缓冲与 scanout；页已常驻，Provider 契约省略。
+- `SYS_FRAME_MAP` 直接把 Frame 建为 Region；Region 持有 Frame 句柄，解除时关闭句柄并归还 Capacity。
 
 ---
 
