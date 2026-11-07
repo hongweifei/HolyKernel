@@ -20,6 +20,9 @@ pub struct DebugArguments {
     /// 启动图形桌面
     #[arg(long)]
     pub ui: bool,
+    /// QEMU 内存与 CPU 配置
+    #[command(flatten)]
+    pub machine: crate::qemu::MachineArguments,
 }
 
 /// 构建镜像并以 `-S` 启动 QEMU，等待 GDB 连接。
@@ -59,5 +62,11 @@ pub fn run(arguments: DebugArguments) -> Result<()> {
     println!("GDB 脚本：{}", script.display());
     println!("在另一终端运行：gdb -x {}", script.display());
     println!("QEMU 已暂停，等待 GDB 连接 127.0.0.1:{}", arguments.port);
-    crate::qemu::run_with(&iso, &disk, arguments.ui, Some(arguments.port))
+    crate::qemu::run_with(
+        &iso,
+        &disk,
+        arguments.ui,
+        &arguments.machine.machine(),
+        Some(arguments.port),
+    )
 }

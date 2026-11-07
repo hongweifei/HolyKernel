@@ -2,13 +2,20 @@
 
 use crate::cargo;
 use crate::failure::{Failure, Result};
+use crate::qemu::Machine;
 use crate::target::{Selection, Target};
 
 /// 运行选中的目标。
 ///
 /// Hosted 直接启动进程；x86_64 QEMU 先构建镜像再启动虚拟机；AArch64 的启动镜像
-/// 在 M8 提供。
-pub fn run(selection: Selection, release: bool, arguments: &[String], ui: bool) -> Result<()> {
+/// 在 M8 提供。`machine` 控制 QEMU 的内存与 CPU 数量。
+pub fn run(
+    selection: Selection,
+    release: bool,
+    arguments: &[String],
+    ui: bool,
+    machine: Machine,
+) -> Result<()> {
     let targets = selection.targets();
     if targets.len() != 1 {
         return Err(Failure::new("run 只接受单个目标"));
@@ -30,11 +37,11 @@ pub fn run(selection: Selection, release: bool, arguments: &[String], ui: bool) 
             if ui {
                 let disk = crate::workspace::root().join("build/run-holy.img");
                 crate::disk::ensure_holyfs(&disk)?;
-                crate::qemu::run(&iso, &disk, ui)
+                crate::qemu::run(&iso, &disk, ui, &machine)
             } else {
                 let disk = crate::workspace::root().join("build/run-disk.img");
                 crate::disk::ensure_ext4(&disk)?;
-                crate::qemu::run(&iso, &disk, ui)
+                crate::qemu::run(&iso, &disk, ui, &machine)
             }
         }
         Target::Aarch64Qemu => Err(Failure::new(

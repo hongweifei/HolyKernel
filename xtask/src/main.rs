@@ -123,6 +123,9 @@ struct RunArguments {
     /// 启动图形桌面（Display/Console/Input/HolyDoc）
     #[arg(long)]
     ui: bool,
+    /// QEMU 内存与 CPU 配置
+    #[command(flatten)]
+    machine: qemu::MachineArguments,
     /// 传给目标程序的参数
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     arguments: Vec<String>,
@@ -171,6 +174,7 @@ fn execute(task: Task) -> Result<()> {
             arguments.release,
             &arguments.arguments,
             arguments.ui,
+            arguments.machine.machine(),
         ),
         Task::Test(arguments) => test::run(arguments.target),
         Task::Smoke(arguments) => smoke::run(arguments.target, arguments.release, arguments.mode),
