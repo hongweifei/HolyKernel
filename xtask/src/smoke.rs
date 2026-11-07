@@ -387,6 +387,8 @@ impl SmokeMode {
                 "hk-server-display-test: ready",
                 "hk-server-display-test: key 97 win 1",
                 "hk-server-display-test: done",
+                "hk-server-display: scanout 1 on",
+                "hk-server-display: scanout 2 on",
             ],
             Self::Terminal => &[
                 "hk-server-console: window",
@@ -417,6 +419,7 @@ impl SmokeMode {
                 "hk-server-display: maximize 1 1280x748",
                 "hk-server-display: restore 1 464x348",
                 "hk-server-display: minimize 1",
+                "hk-server-display: scanout 1 off",
                 "hk-server-pointer-test: pointer 1",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",

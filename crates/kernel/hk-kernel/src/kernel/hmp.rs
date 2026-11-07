@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 
 use super::*;
 use hk_hal::{PhysRange, VirtAddr};
-use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
+use hk_mem::hmp::{Capability, CapabilityOp, Capacity, Ledger, Region};
 
 impl Kernel {
     /// 在指定线程的句柄表中创建物理容量能力。
@@ -46,6 +46,7 @@ impl Kernel {
                 provider: Mutex::new(None),
                 pages: Mutex::new(pages),
                 pinned: AtomicBool::new(false),
+                scanout: AtomicBool::new(false),
                 version: AtomicU64::new(0),
             })),
             rights,
@@ -149,7 +150,7 @@ impl Kernel {
         })
     }
 
-    /// 设置类型化能力的固定驻留状态。
+    /// 设置类型化能力的固定驻留状态；scanout 驻留期间不能解除固定。
     pub fn pin_capability(
         &self,
         thread: TcbId,
@@ -162,7 +163,33 @@ impl Kernel {
                 expected: ObjectKind::Capability,
             });
         }
+        if !pinned && object.capability_scanout() {
+            return Err(KernelError::ScanoutActive);
+        }
         object.set_capability_pinned(pinned);
+        Ok(())
+    }
+
+    /// 设置 Surface 的 scanout 驻留状态；开启时同时固定驻留。
+    pub fn scanout_capability(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        enabled: bool,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        let Some(capability) = object.capability() else {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        };
+        if !capability.allows(CapabilityOp::Scanout) {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        }
+        object.set_capability_scanout(enabled);
+        object.set_capability_pinned(enabled);
         Ok(())
     }
 

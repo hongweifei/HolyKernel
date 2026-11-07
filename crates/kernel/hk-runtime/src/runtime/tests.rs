@@ -856,3 +856,56 @@ fn ledger_limit_rejects_over_quota_and_releases_on_close() {
     assert_ne!(context.rax, u64::MAX, "关闭后配额应归还");
     let _ = runtime.finish(0, index);
 }
+
+#[test]
+fn scanout_requires_surface_and_holds_pin() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 1;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let surface = context.rax;
+    assert_ne!(surface, u64::MAX);
+
+    context.rax = SYS_CAPABILITY_SCANOUT;
+    context.rdi = surface;
+    context.rsi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "Surface 可以进入 scanout 驻留");
+
+    context.rax = SYS_CAPABILITY_PIN;
+    context.rdi = surface;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "scanout 期间不能解除固定");
+
+    context.rax = SYS_CAPABILITY_SCANOUT;
+    context.rdi = surface;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = SYS_CAPABILITY_PIN;
+    context.rdi = surface;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "退出 scanout 后可解除固定");
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let anonymous = context.rax;
+    assert_ne!(anonymous, u64::MAX);
+    context.rax = SYS_CAPABILITY_SCANOUT;
+    context.rdi = anonymous;
+    context.rsi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "匿名能力不能 scanout");
+
+    let _ = runtime.finish(0, index);
+}

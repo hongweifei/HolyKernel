@@ -83,6 +83,10 @@ impl Region {
         if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
             return Err(HmpError::WxConflict);
         }
+        // 任务镜像区域 sealed：只能只读或可执行，不能写入。
+        if capability.kind() == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
+            return Err(HmpError::ReadOnly);
+        }
         if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
             return Err(HmpError::ReadOnly);
         }
@@ -157,6 +161,9 @@ impl Region {
         }
         if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
             return Err(HmpError::WxConflict);
+        }
+        if self.kind == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
+            return Err(HmpError::ReadOnly);
         }
         if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
             return Err(HmpError::ReadOnly);
@@ -277,6 +284,32 @@ mod tests {
             )
             .err(),
             Some(HmpError::ReadOnly)
+        );
+    }
+
+    #[test]
+    fn task_image_regions_are_sealed() {
+        let capability = capability(CapabilityKind::TaskImage, 0x2000);
+        assert_eq!(
+            Region::new(
+                &capability,
+                0,
+                0x1000,
+                Rights::READ | Rights::WRITE,
+                RegionFlags::empty()
+            )
+            .err(),
+            Some(HmpError::ReadOnly)
+        );
+        assert!(
+            Region::new(
+                &capability,
+                0,
+                0x1000,
+                Rights::READ | Rights::EXECUTE,
+                RegionFlags::empty()
+            )
+            .is_ok()
         );
     }
 

@@ -52,29 +52,42 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn capability_pin(
-        &mut self,
-        index: usize,
-        tcb: TcbId,
-        frame: &mut C,
-        scanout: bool,
-    ) -> Switch {
+    pub(crate) fn capability_pin(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let pinned = frame.arg1() != 0;
         let Some((handle, capability, _)) = self.capability_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let operation = if scanout {
-            CapabilityOp::Scanout
-        } else {
-            CapabilityOp::Pin
-        };
-        if capability.require(operation).is_err() {
+        if capability.require(CapabilityOp::Pin).is_err() {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         if self.kernel.pin_capability(tcb, handle, pinned).is_err() {
+            frame.set_result(u64::MAX);
+        } else {
+            frame.set_result(0);
+        }
+        Switch::Continue
+    }
+
+    /// 设置 Surface 的 scanout 驻留；开启时同时固定，驻留期间不能解除固定。
+    pub(crate) fn capability_scanout(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let enabled = frame.arg1() != 0;
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capability.require(CapabilityOp::Scanout).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if self
+            .kernel
+            .scanout_capability(tcb, handle, enabled)
+            .is_err()
+        {
             frame.set_result(u64::MAX);
         } else {
             frame.set_result(0);

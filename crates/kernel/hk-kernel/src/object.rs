@@ -36,6 +36,8 @@ pub enum ObjectPayload {
         pages: Mutex<Vec<Option<FrameLease>>>,
         /// 是否固定驻留。
         pinned: AtomicBool,
+        /// 是否正在 scanout 驻留。
+        scanout: AtomicBool,
         /// Revision 版本。
         version: AtomicU64,
     },
@@ -182,6 +184,21 @@ impl KernelObject {
     pub fn set_capability_pinned(&self, pinned: bool) {
         if let ObjectPayload::Capability { pinned: state, .. } = &self.payload {
             state.store(pinned, Ordering::Release);
+        }
+    }
+
+    /// 判断类型化能力是否处于 scanout 驻留。
+    pub fn capability_scanout(&self) -> bool {
+        match &self.payload {
+            ObjectPayload::Capability { scanout, .. } => scanout.load(Ordering::Acquire),
+            _ => false,
+        }
+    }
+
+    /// 设置类型化能力的 scanout 驻留状态。
+    pub fn set_capability_scanout(&self, scanout: bool) {
+        if let ObjectPayload::Capability { scanout: state, .. } = &self.payload {
+            state.store(scanout, Ordering::Release);
         }
     }
 

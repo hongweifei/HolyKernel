@@ -36,7 +36,7 @@ use hk_proto::pointer::{Shape, unpack_surface_cursor};
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, MemoryClient, capability_phys, capability_pin, close_handle, console_read,
+    CapabilityKind, MemoryClient, capability_phys, capability_scanout, close_handle, console_read,
     exit, map_attach, recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency,
     write, write_u64, yield_now,
 };
@@ -171,12 +171,25 @@ fn create_surface(
         write(b"hk-server-display: create map-failed\n");
         return None;
     }
-    let _ = capability_pin(handle, true);
+    set_scanout(handle, id, true);
     surfaces[slot] = Some(Surface::new(
         id, client, slot, width, height, virt, region, handle,
     ));
     *next_id += 1;
     Some(id)
+}
+
+/// 设置表面 scanout 驻留并记录状态切换。
+#[cfg(target_os = "none")]
+fn set_scanout(handle: u64, surface_id: u64, enabled: bool) {
+    let _ = capability_scanout(handle, enabled);
+    write(b"hk-server-display: scanout ");
+    write_u64(surface_id);
+    if enabled {
+        write(b" on\n");
+    } else {
+        write(b" off\n");
+    }
 }
 
 /// 丢弃未绑定表面的缓冲。
@@ -188,7 +201,7 @@ fn discard_surface(surfaces: &mut [Option<Surface>; MAX_SURFACES], surface_id: u
             .is_some_and(|surface| surface.id == surface_id)
     }) && let Some(surface) = surfaces[slot].take()
     {
-        let _ = capability_pin(surface.handle, false);
+        set_scanout(surface.handle, surface.id, false);
         let _ = region_unmap(surface.region);
         let _ = close_handle(surface.handle);
     }
@@ -272,7 +285,7 @@ fn replace_window_surface(
         write(b"hk-server-display: resize map-failed\n");
         return false;
     }
-    let _ = capability_pin(handle, true);
+    set_scanout(handle, surface_id, true);
     let old = window.surface;
     let mut replacement = Surface::new(
         surface_id, client, slot, width, height, virt, region, handle,
@@ -281,7 +294,7 @@ fn replace_window_surface(
     if let Some(window) = windows[index].as_mut() {
         window.surface = replacement;
     }
-    let _ = capability_pin(old.handle, false);
+    set_scanout(old.handle, old.id, false);
     let _ = region_unmap(old.region);
     let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {
@@ -1021,6 +1034,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 windows.iter_mut().flatten().find(|window| window.id == id)
                             {
                                 window.minimized = false;
+                                set_scanout(window.surface.handle, window.surface.id, true);
                             }
                             raise(&mut windows, id);
                             focus = id;

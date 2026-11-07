@@ -28,6 +28,8 @@ pub enum KernelError {
     NoReply,
     /// Endpoint 的消息队列已满。
     QueueFull,
+    /// 能力正在 scanout 驻留，不能解除固定。
+    ScanoutActive,
 }
 
 impl fmt::Display for KernelError {
@@ -43,6 +45,7 @@ impl fmt::Display for KernelError {
             Self::InvalidReply => formatter.write_str("回复令牌无效"),
             Self::NoReply => formatter.write_str("没有待取回复"),
             Self::QueueFull => formatter.write_str("Endpoint 消息队列已满"),
+            Self::ScanoutActive => formatter.write_str("能力正在 scanout，不能解除固定"),
         }
     }
 }
