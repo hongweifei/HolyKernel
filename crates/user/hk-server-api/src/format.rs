@@ -46,3 +46,54 @@ pub fn format_u64(mut value: u64, out: &mut [u8]) -> Option<&[u8]> {
     out[..length].copy_from_slice(&buffer[index..]);
     Some(&out[..length])
 }
+
+/// 单行日志缓冲：所有片段在一次 `write` 里输出，避免与其他任务的输出交错。
+pub struct Line {
+    buffer: [u8; 160],
+    length: usize,
+}
+
+impl Line {
+    /// 构造空行。
+    pub const fn new() -> Self {
+        Self {
+            buffer: [0_u8; 160],
+            length: 0,
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) -> &mut Self {
+        let end = (self.length + bytes.len()).min(self.buffer.len());
+        let length = end - self.length;
+        self.buffer[self.length..end].copy_from_slice(&bytes[..length]);
+        self.length = end;
+        self
+    }
+
+    /// 追加一段字节。
+    pub fn text(&mut self, text: &[u8]) -> &mut Self {
+        self.push(text)
+    }
+
+    /// 追加一个无符号整数的十进制形式。
+    pub fn number(&mut self, value: u64) -> &mut Self {
+        let mut scratch = [0_u8; 20];
+        let mut bytes = [0_u8; 20];
+        if let Some(digits) = format_u64(value, &mut scratch) {
+            bytes[..digits.len()].copy_from_slice(digits);
+            self.push(&bytes[..digits.len()]);
+        }
+        self
+    }
+
+    /// 输出整行。
+    pub fn finish(&self) {
+        write(&self.buffer[..self.length]);
+    }
+}
+
+impl Default for Line {
+    fn default() -> Self {
+        Self::new()
+    }
+}

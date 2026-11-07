@@ -5,7 +5,7 @@ use hk_proto::display::{
     DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
     pack_window_size,
 };
-use hk_server_api::{close_handle, region_unmap, send, write, write_u64};
+use hk_server_api::{close_handle, format::Line, region_unmap, send};
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
 use crate::pointer::Cursor;
@@ -50,9 +50,11 @@ pub(crate) fn minimize_window(
     );
     damage_title(screen, windows, *focus, font, cursor, previous);
     damage_taskbar(screen, windows, *focus, font, cursor);
-    write(b"hk-server-display: minimize ");
-    write_u64(id);
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: minimize ")
+        .number(id)
+        .text(b"\n")
+        .finish();
 }
 
 /// 最大化或还原窗口。
@@ -109,17 +111,19 @@ pub(crate) fn toggle_maximize(
     );
     damage_title(screen, windows, focus, font, cursor, id);
     damage_taskbar(screen, windows, focus, font, cursor);
-    write(if maximized {
-        b"hk-server-display: maximize ".as_slice()
-    } else {
-        b"hk-server-display: restore ".as_slice()
-    });
-    write_u64(id);
-    write(b" ");
-    write_u64(new.width as u64);
-    write(b"x");
-    write_u64(new.height as u64);
-    write(b"\n");
+    Line::new()
+        .text(if maximized {
+            b"hk-server-display: maximize ".as_slice()
+        } else {
+            b"hk-server-display: restore ".as_slice()
+        })
+        .number(id)
+        .text(b" ")
+        .number(new.width as u64)
+        .text(b"x")
+        .number(new.height as u64)
+        .text(b"\n")
+        .finish();
     let _ = send(
         new.surface.client,
         DISPLAY_RESIZE,
@@ -174,9 +178,11 @@ pub(crate) fn close_window(
     );
     damage_title(screen, windows, *focus, font, cursor, previous);
     damage_taskbar(screen, windows, *focus, font, cursor);
-    write(b"hk-server-display: close ");
-    write_u64(id);
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: close ")
+        .number(id)
+        .text(b"\n")
+        .finish();
 }
 
 /// 把按键转发给焦点窗口的客户端；没有焦点时丢弃。
@@ -246,7 +252,9 @@ pub(crate) fn cycle_focus(
     }
     damage_title(screen, windows, *focus, font, cursor, previous);
     damage_taskbar(screen, windows, *focus, font, cursor);
-    write(b"hk-server-display: focus ");
-    write_u64(id);
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: focus ")
+        .number(id)
+        .text(b"\n")
+        .finish();
 }

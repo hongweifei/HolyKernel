@@ -260,28 +260,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 render_pending = true;
                 resized = true;
                 // 一次写出整行，避免与 Display 的日志在串口上交错。
-                let mut line = [0_u8; 64];
-                let prefix = b"hk-server-holydoc: resize ";
-                let mut at = prefix.len();
-                line[..at].copy_from_slice(prefix);
-                let Some(length) = hk_server_api::format::format_u64(width as u64, &mut line[at..])
-                    .map(<[u8]>::len)
-                else {
-                    continue;
-                };
-                at += length;
-                line[at] = b'x';
-                at += 1;
-                let Some(length) =
-                    hk_server_api::format::format_u64(height as u64, &mut line[at..])
-                        .map(<[u8]>::len)
-                else {
-                    continue;
-                };
-                at += length;
-                line[at] = b'\n';
-                at += 1;
-                write(&line[..at]);
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-holydoc: resize ")
+                    .number(width as u64)
+                    .text(b"x")
+                    .number(height as u64)
+                    .text(b"\n")
+                    .finish();
             }
             DISPLAY_KEY => {
                 let (_, byte) = unpack_key(word);

@@ -35,7 +35,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, device_info, dma_map_capability, exit, irq_bind, recv_data_handle, recv_handle,
-    self_notification, send, send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
+    self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
 /// 服务堆大小。
@@ -183,9 +183,11 @@ fn probe_grant(handle: u64) -> Option<Device> {
 /// 块设备主循环；辅助设备消息由 `devices` 分派。
 #[cfg(target_os = "none")]
 fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -> ! {
-    write("hk-server-virtio: virtio-blk sectors=".as_bytes());
-    write_u64(block.capacity_blocks());
-    write(b"\n");
+    hk_server_api::format::Line::new()
+        .text(b"hk-server-virtio: virtio-blk sectors=")
+        .number(block.capacity_blocks())
+        .text(b"\n")
+        .finish();
 
     let notification = self_notification();
     let bound = irq_bind(grant, notification, BLOCK_NOTIFY_IRQ) == 0;

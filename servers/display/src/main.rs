@@ -37,8 +37,8 @@ use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MemoryClient, capability_phys, capability_scanout, close_handle, console_read,
-    exit, map_attach, recv_data_handle_try, region_unmap, send, send_data, tsc, tsc_frequency,
-    write, write_u64, yield_now,
+    exit, format::Line, map_attach, recv_data_handle_try, region_unmap, send, send_data, tsc,
+    tsc_frequency, write, write_u64, yield_now,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -183,13 +183,11 @@ fn create_surface(
 #[cfg(target_os = "none")]
 fn set_scanout(handle: u64, surface_id: u64, enabled: bool) {
     let _ = capability_scanout(handle, enabled);
-    write(b"hk-server-display: scanout ");
-    write_u64(surface_id);
-    if enabled {
-        write(b" on\n");
-    } else {
-        write(b" off\n");
-    }
+    Line::new()
+        .text(b"hk-server-display: scanout ")
+        .number(surface_id)
+        .text(if enabled { b" on\n" } else { b" off\n" })
+        .finish();
 }
 
 /// 丢弃未绑定表面的缓冲。
@@ -300,13 +298,15 @@ fn replace_window_surface(
     if let Some(window) = windows[index] {
         damage_window(screen, windows, focus, font, cursor, &window);
     }
-    write(b"hk-server-display: surface resize ");
-    write_u64(id);
-    write(b" ");
-    write_u64(width as u64);
-    write(b"x");
-    write_u64(height as u64);
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: surface resize ")
+        .number(id)
+        .text(b" ")
+        .number(width as u64)
+        .text(b"x")
+        .number(height as u64)
+        .text(b"\n")
+        .finish();
     true
 }
 
@@ -547,26 +547,34 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut theme_buffer = [0_u8; 128];
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
     let font = hk_canvas::default_font_scaled(theme::scale());
-    write(b"hk-server-display: font ");
-    write(if font.has_scalable() {
-        b"scalable ".as_slice()
-    } else {
-        b"bitmap ".as_slice()
-    });
-    write_u64(u64::from(font.size()));
-    write(b"\n");
-    write(b"hk-server-display: theme ");
-    write(theme_name.as_bytes());
-    write(b"\n");
-    write(b"hk-server-display: scale ");
-    write_u64(theme::scale() as u64);
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: font ")
+        .text(if font.has_scalable() {
+            b"scalable ".as_slice()
+        } else {
+            b"bitmap ".as_slice()
+        })
+        .number(u64::from(font.size()))
+        .text(b"\n")
+        .finish();
+    Line::new()
+        .text(b"hk-server-display: theme ")
+        .text(theme_name.as_bytes())
+        .text(b"\n")
+        .finish();
+    Line::new()
+        .text(b"hk-server-display: scale ")
+        .number(theme::scale() as u64)
+        .text(b"\n")
+        .finish();
     draw_desktop(&screen);
-    write(b"hk-server-display: ready ");
-    write_u64(u64::from(framebuffer.width));
-    write(b"x");
-    write_u64(u64::from(framebuffer.height));
-    write(b"\n");
+    Line::new()
+        .text(b"hk-server-display: ready ")
+        .number(u64::from(framebuffer.width))
+        .text(b"x")
+        .number(u64::from(framebuffer.height))
+        .text(b"\n")
+        .finish();
 
     let mut windows: [Option<Window>; MAX_WINDOWS] = [None; MAX_WINDOWS];
     let mut surfaces: [Option<Surface>; MAX_SURFACES] = [None; MAX_SURFACES];
@@ -696,15 +704,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 if let Some(shape) = shape {
                     let found =
                         pointer::set_surface_cursor(&mut windows, &mut surfaces, surface, shape);
-                    write(b"hk-server-display: cursor hint ");
-                    write_u64(surface);
-                    write(b" ");
-                    write(pointer::label(shape).as_bytes());
-                    write(if found {
-                        b"\n".as_slice()
-                    } else {
-                        b" missed\n".as_slice()
-                    });
+                    Line::new()
+                        .text(b"hk-server-display: cursor hint ")
+                        .number(surface)
+                        .text(b" ")
+                        .text(pointer::label(shape).as_bytes())
+                        .text(if found {
+                            b"\n".as_slice()
+                        } else {
+                            b" missed\n".as_slice()
+                        })
+                        .finish();
                     if found && let Some((x, y)) = seat.pointer.position() {
                         let hover = pointer::hover_at(&windows, &screen, x, y);
                         let shape = pointer::shape_for_hover(hover, &windows);
@@ -759,9 +769,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 body.height,
                             );
                         }
-                        write(b"hk-server-display: surface ");
-                        write_u64(word);
-                        write(b" ok\n");
+                        Line::new()
+                            .text(b"hk-server-display: surface ")
+                            .number(word)
+                            .text(b" ok\n")
+                            .finish();
                     }
                     None => {
                         damage_window(
@@ -777,13 +789,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         if expected != actual {
                             write(b"hk-server-display: composite mismatch\n");
                         } else {
-                            write(b"hk-server-display: composite ok ");
-                            write_u64(window.id);
-                            write(b" ");
-                            write_u64(window.width as u64);
-                            write(b"x");
-                            write_u64(window.height as u64);
-                            write(b"\n");
+                            Line::new()
+                                .text(b"hk-server-display: composite ok ")
+                                .number(window.id)
+                                .text(b" ")
+                                .number(window.width as u64)
+                                .text(b"x")
+                                .number(window.height as u64)
+                                .text(b"\n")
+                                .finish();
                         }
                     }
                 }
@@ -847,27 +861,33 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         previous,
                     );
                     damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
-                    write(b"hk-server-display: focus ");
-                    write_u64(id);
-                    write(b"\n");
+                    Line::new()
+                        .text(b"hk-server-display: focus ")
+                        .number(id)
+                        .text(b"\n")
+                        .finish();
                 }
             }
             SEAT_SET_CLIPBOARD => {
                 let text = &payload[..length.min(payload.len())];
                 if seat.set_clipboard(sender, text) {
-                    write(b"hk-server-display: clipboard set ");
-                    write_u64(sender);
-                    write(b"\n");
+                    Line::new()
+                        .text(b"hk-server-display: clipboard set ")
+                        .number(sender)
+                        .text(b"\n")
+                        .finish();
                 }
             }
             SEAT_GET_CLIPBOARD => {
                 let text = seat.clipboard();
                 let _ = send_data(sender, SEAT_CLIPBOARD, text);
-                write(b"hk-server-display: clipboard get ");
-                write_u64(seat.clipboard_owner());
-                write(b" ");
-                write_u64(text.len() as u64);
-                write(b"\n");
+                Line::new()
+                    .text(b"hk-server-display: clipboard get ")
+                    .number(seat.clipboard_owner())
+                    .text(b" ")
+                    .number(text.len() as u64)
+                    .text(b"\n")
+                    .finish();
             }
             INPUT_POINTER => {
                 static FIRST_POINTER: core::sync::atomic::AtomicBool =
@@ -939,13 +959,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 moved: true,
                                 ..state
                             });
-                            write(b"hk-server-display: drag ");
-                            write_u64(state.id);
-                            write(b" ");
-                            write_u64(new_x as u64);
-                            write(b",");
-                            write_u64(new_y as u64);
-                            write(b"\n");
+                            Line::new()
+                                .text(b"hk-server-display: drag ")
+                                .number(state.id)
+                                .text(b" ")
+                                .number(new_x as u64)
+                                .text(b",")
+                                .number(new_y as u64)
+                                .text(b"\n")
+                                .finish();
                         }
                     }
                 }
@@ -978,13 +1000,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             .find(|window| window.id == state.id)
                             .copied()
                         {
-                            write(b"hk-server-display: resize ");
-                            write_u64(window.id);
-                            write(b" ");
-                            write_u64(window.width as u64);
-                            write(b"x");
-                            write_u64(window.height as u64);
-                            write(b"\n");
+                            Line::new()
+                                .text(b"hk-server-display: resize ")
+                                .number(window.id)
+                                .text(b" ")
+                                .number(window.width as u64)
+                                .text(b"x")
+                                .number(window.height as u64)
+                                .text(b"\n")
+                                .finish();
                         }
                         notify_resize(&windows, state.id);
                     }
@@ -1063,9 +1087,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             );
                             damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
                             redraw_cursor(&screen, &windows, focus, font, &seat);
-                            write(b"hk-server-display: taskbar ");
-                            write_u64(id);
-                            write(b"\n");
+                            Line::new()
+                                .text(b"hk-server-display: taskbar ")
+                                .number(id)
+                                .text(b"\n")
+                                .finish();
                         }
                         continue;
                     }
@@ -1155,9 +1181,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 moved: false,
                             });
                         } else {
-                            write(b"hk-server-display: pointer click ");
-                            write_u64(id);
-                            write(b"\n");
+                            Line::new()
+                                .text(b"hk-server-display: pointer click ")
+                                .number(id)
+                                .text(b"\n")
+                                .finish();
                             if let Some(window) =
                                 windows.iter().flatten().find(|window| window.id == id)
                             {
