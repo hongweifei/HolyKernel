@@ -102,6 +102,17 @@ impl UserPlatform for MockPlatform {
         ))
     }
 
+    fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
+        hk_mem::hmp::Capacity::new(
+            hk_mem::hmp::CapacityId::next(),
+            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8000_0000), len as u64),
+            hk_hal::PAGE_SIZE,
+            hk_mem::hmp::CapacityKind::User,
+            0,
+        )
+        .ok()
+    }
+
     fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         true
     }
@@ -565,6 +576,17 @@ fn transports_byte_payloads() {
             (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
         }
 
+        fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
+            hk_mem::hmp::Capacity::new(
+                hk_mem::hmp::CapacityId::next(),
+                hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), len as u64),
+                hk_hal::PAGE_SIZE,
+                hk_mem::hmp::CapacityKind::User,
+                0,
+            )
+            .ok()
+        }
+
         fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
             let data = DATA.lock();
             let start = address as usize;
@@ -964,15 +986,17 @@ fn provider_fault_blocks_caller() {
     context.rdi = 2;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
 
-    context.rax = SYS_FRAME_ALLOC;
-    context.rdi = 4096;
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    context.rsi = 4096;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    let page = context.rax;
-    assert_ne!(page, u64::MAX);
+    let frame = context.rax;
+    assert_ne!(frame, u64::MAX);
 
-    context.rax = SYS_REPLY;
-    context.rdi = 0;
-    context.rsi = page;
+    context.rax = hk_syscall::SYS_REPLY_HANDLE;
+    context.rdi = hk_syscall::PROVIDER_PROVIDE;
+    context.rsi = 0;
+    context.rdx = frame;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 
@@ -1176,6 +1200,17 @@ impl UserPlatform for ShortPlatform {
 
     fn arena_layout(&self, slot: usize) -> (u64, u64) {
         (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
+    }
+
+    fn reserve_capacity(&self, _len: usize) -> Option<hk_mem::hmp::Capacity> {
+        hk_mem::hmp::Capacity::new(
+            hk_mem::hmp::CapacityId::next(),
+            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0xA000_0000), 0x3000),
+            hk_hal::PAGE_SIZE,
+            hk_mem::hmp::CapacityKind::User,
+            0,
+        )
+        .ok()
     }
 
     fn memory_limit(&self, _slot: usize) -> u64 {

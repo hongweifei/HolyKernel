@@ -16,8 +16,6 @@ hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
-
-[dev-dependencies]
 spin = "0.9"
 
 [lints]

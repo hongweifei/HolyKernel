@@ -2,7 +2,9 @@
 
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
-use hk_mem::hmp::{Capability, CapabilityKind, CapacityKind, FrameLease, Region, RegionFlags};
+use hk_mem::hmp::{
+    Capability, CapabilityKind, CapacityKind, FrameBacking, FrameLease, Region, RegionFlags,
+};
 use hk_syscall::{
     CAPACITY_KIND_DMA, CAPACITY_KIND_GPU, CAPACITY_KIND_NUMA, CAPACITY_KIND_SYSTEM,
     CAPACITY_KIND_USER,
@@ -188,7 +190,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let lease = FrameLease::import(range.start(), length);
+        let lease = FrameBacking::Imported(FrameLease::import(range.start(), length));
         let Ok(capability_handle) = self.kernel.create_capability(
             tcb,
             capability.clone(),

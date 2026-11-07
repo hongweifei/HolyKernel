@@ -586,6 +586,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.platform.activate(index);
         self.platform.set_thread_pointer(self.tasks[index].tls);
         self.resumes[cpu] = self.resumes[cpu].saturating_add(1);
+        self.run_start[cpu] = self.platform.timestamp();
         Step::Resume {
             index,
             context: self.tasks[index].context,
@@ -595,7 +596,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
     pub fn finish(&mut self, cpu: usize, index: usize) -> Option<(String, u64)> {
         self.current[cpu] = None;
-        self.last_finish = Some(self.platform.timestamp());
+        let now = self.platform.timestamp();
+        let started = self.run_start[cpu];
+        if now >= started {
+            let cycles = now - started;
+            self.tasks[index].cpu_cycles = self.tasks[index].cpu_cycles.saturating_add(cycles);
+            self.cpu_busy[cpu] = self.cpu_busy[cpu].saturating_add(cycles);
+        }
+        self.last_finish = Some(now);
         if !self.tasks[index].exited {
             return None;
         }
@@ -820,19 +828,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let owner = self.leader_of(index);
                 let owner_tcb = self.tasks[owner].tcb;
                 if let Some(message) = self.kernel.take_reply(caller) {
-                    let phys = message.words[0];
-                    if phys != 0 && phys != u64::MAX {
-                        let lease = hk_mem::hmp::FrameLease::new(
-                            hk_hal::PhysAddr::new(phys),
-                            hk_hal::PAGE_SIZE,
-                        );
+                    let frame_handle = message.handles[0];
+                    let frame = frame_handle.and_then(|handle| {
+                        let frame = self.kernel.take_owned_frame(caller, handle).ok();
+                        let _ = self.kernel.close_handle(caller, handle);
+                        frame
+                    });
+                    if let Some(frame) = frame {
+                        let range = frame.range();
                         if self
                             .kernel
-                            .set_capability_page(owner_tcb, capability, page_index, lease)
+                            .set_capability_page(
+                                owner_tcb,
+                                capability,
+                                page_index,
+                                hk_mem::hmp::FrameBacking::Owned(frame),
+                            )
                             .unwrap_or(false)
-                            && self.platform.map_dma(index, page, phys, hk_hal::PAGE_SIZE)
+                            && self.platform.map_dma(
+                                index,
+                                page,
+                                range.start().get(),
+                                range.len() as usize,
+                            )
                         {
-                            self.platform.zero(page, hk_hal::PAGE_SIZE);
+                            self.platform.zero(page, range.len() as usize);
                         } else {
                             blocked_again = true;
                         }

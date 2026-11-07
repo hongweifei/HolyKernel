@@ -6,7 +6,7 @@ use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
     Arena, ArenaRegion, Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame,
-    HmpError, Ledger, Region, RegionId,
+    FrameBacking, HmpError, Ledger, OwnedFrame, Region, RegionId,
 };
 
 impl Kernel {
@@ -295,7 +295,7 @@ impl Kernel {
         &self,
         thread: TcbId,
         capability: Capability,
-        backing: Option<hk_mem::hmp::FrameLease>,
+        backing: Option<FrameBacking>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
         let pages = if backing.is_none() {
@@ -374,7 +374,7 @@ impl Kernel {
         thread: TcbId,
         capability: Handle,
         index: usize,
-    ) -> Result<Option<hk_mem::hmp::FrameLease>, KernelError> {
+    ) -> Result<Option<FrameBacking>, KernelError> {
         let (object, _) =
             self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
         Ok(object.take_capability_page(index))
@@ -411,11 +411,23 @@ impl Kernel {
         thread: TcbId,
         capability: Handle,
         index: usize,
-        lease: hk_mem::hmp::FrameLease,
+        page: FrameBacking,
     ) -> Result<bool, KernelError> {
         let (object, _) =
             self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
-        Ok(object.set_capability_page(index, lease))
+        Ok(object.set_capability_page(index, page))
+    }
+
+    /// 取出 Frame 及其 Capacity 归属，供能力页或 Provider 转移。
+    pub fn take_owned_frame(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<OwnedFrame, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
+        object
+            .take_owned_frame()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))
     }
 
     /// 在指定线程的句柄表中创建虚拟映射。

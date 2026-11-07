@@ -14,17 +14,6 @@ use hk_mem::hmp::CapabilityKind;
 use super::{UserPlatform, UserRuntime};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
-    /// 分配一段 DMA 窗口；池耗尽时先回收当前任务的零页再重试一次。
-    pub(crate) fn allocate_window(&mut self, index: usize, len: u64) -> Option<hk_hal::PhysRange> {
-        if let Some(range) = self.platform.dma_window(len as usize) {
-            return Some(range);
-        }
-        if self.reclaim_zero_pages(index, len) == 0 {
-            return None;
-        }
-        self.platform.dma_window(len as usize)
-    }
-
     /// 回收当前任务中可证明为零的匿名页，返回释放字节数。
     pub fn reclaim_zero_pages(&mut self, index: usize, budget: u64) -> u64 {
         let owner = self.leader_of(index);

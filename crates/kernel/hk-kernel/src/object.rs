@@ -8,8 +8,7 @@ use hk_device::DeviceGrant;
 use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::hmp::FrameLease;
-use hk_mem::hmp::{Arena, Capability, Capacity, Frame, Ledger, Region};
+use hk_mem::hmp::{Arena, Capability, Capacity, Frame, FrameBacking, Ledger, OwnedFrame, Region};
 use spin::Mutex;
 
 /// 内核对象的负载。
@@ -38,11 +37,11 @@ pub enum ObjectPayload {
         /// 能力描述。
         capability: Capability,
         /// 常驻物理页。
-        backing: Option<FrameLease>,
+        backing: Option<FrameBacking>,
         /// 缺页/回写 Provider 端点。
         provider: Mutex<Option<ObjectId>>,
-        /// 按需装入的页租约；常驻能力为空。
-        pages: Mutex<Vec<Option<FrameLease>>>,
+        /// 按需装入的页；常驻能力为空。
+        pages: Mutex<Vec<Option<FrameBacking>>>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// 是否正在 scanout 驻留。
@@ -161,27 +160,23 @@ impl KernelObject {
     /// 返回类型化能力的常驻物理区间。
     pub fn capability_backing(&self) -> Option<PhysRange> {
         match &self.payload {
-            ObjectPayload::Capability { backing, .. } => backing
-                .as_ref()
-                .map(|backing| PhysRange::new(backing.phys(), backing.len() as u64)),
+            ObjectPayload::Capability { backing, .. } => backing.as_ref().map(FrameBacking::range),
             _ => None,
         }
     }
 
-    /// 返回能力内的按需页租约。
+    /// 返回能力内的按需页。
     pub fn capability_page(&self, index: usize) -> Option<PhysRange> {
         match &self.payload {
-            ObjectPayload::Capability { pages, .. } => pages
-                .lock()
-                .get(index)?
-                .as_ref()
-                .map(|lease| PhysRange::new(lease.phys(), lease.len() as u64)),
+            ObjectPayload::Capability { pages, .. } => {
+                pages.lock().get(index)?.as_ref().map(FrameBacking::range)
+            }
             _ => None,
         }
     }
 
     /// 取出能力内已装入的一页。
-    pub fn take_capability_page(&self, index: usize) -> Option<FrameLease> {
+    pub fn take_capability_page(&self, index: usize) -> Option<FrameBacking> {
         match &self.payload {
             ObjectPayload::Capability { pages, .. } => pages.lock().get_mut(index)?.take(),
             _ => None,
@@ -189,15 +184,25 @@ impl KernelObject {
     }
 
     /// 装入能力内的一页。
-    pub fn set_capability_page(&self, index: usize, lease: FrameLease) -> bool {
+    pub fn set_capability_page(&self, index: usize, page: FrameBacking) -> bool {
         if let ObjectPayload::Capability { pages, .. } = &self.payload {
             let mut pages = pages.lock();
             if let Some(slot) = pages.get_mut(index) {
-                *slot = Some(lease);
+                *slot = Some(page);
                 return true;
             }
         }
         false
+    }
+
+    /// 取出 Frame 及其 Capacity 归属。
+    pub fn take_owned_frame(&self) -> Option<OwnedFrame> {
+        let ObjectPayload::Frame { frame, capacity } = &self.payload else {
+            return None;
+        };
+        let capacity = capacity.as_ref()?;
+        let frame = frame.lock().take()?;
+        Some(OwnedFrame::new(frame, Arc::clone(capacity)))
     }
 
     /// 返回类型化能力绑定的 Provider 端点。

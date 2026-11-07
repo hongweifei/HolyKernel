@@ -12,8 +12,8 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc,
-    capacity_free, capacity_info, exit, frame_alloc, frame_info, frame_pin, frame_release,
-    frame_share, recv_data, reply, send_handle, write,
+    capacity_free, capacity_info, exit, frame_info, frame_pin, frame_release, frame_share,
+    recv_data, reply, reply_handle, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_PROVIDE};
@@ -89,11 +89,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         write(b"hk-server-memory: fault\n");
-        let Some(page) = frame_alloc(PAGE) else {
+        let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, PAGE) else {
             let _ = reply(0, u64::MAX);
             continue;
         };
-        if reply(PROVIDER_PROVIDE, page) != 0 {
+        if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
             exit(2);
         }
     }

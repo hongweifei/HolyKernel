@@ -10,6 +10,7 @@ pub mod error;
 pub mod frame;
 pub mod lease;
 pub mod ledger;
+pub mod owned;
 pub mod provider;
 pub mod region;
 
@@ -20,5 +21,6 @@ pub use error::HmpError;
 pub use frame::{Frame, FrameId};
 pub use lease::{FrameLease, set_frame_lease_releaser};
 pub use ledger::{Charge, Ledger, LedgerId};
+pub use owned::{FrameBacking, OwnedFrame};
 pub use provider::{FaultReply, FaultRequest, ProviderId, ProviderKind};
 pub use region::{Region, RegionFlags, RegionId};

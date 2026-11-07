@@ -6,6 +6,7 @@
 
 use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_base::CivilTime;
@@ -14,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::Charge;
+use hk_mem::hmp::{Capacity, Charge};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
@@ -23,16 +24,16 @@ use hk_syscall::{
     SYS_CAPABILITY_SCANOUT, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO,
     SYS_CAPACITY_SPLIT, SYS_CIVIL_TIME, SYS_CONSOLE_READ, SYS_CONSOLE_SUBSCRIBE,
     SYS_DEVICE_GRANT_CREATE, SYS_DEVICE_INFO, SYS_DEVICE_MAP, SYS_DMA_MAP_CAPABILITY,
-    SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FAULT_SUBSCRIBE, SYS_FORK, SYS_FRAME_ALLOC,
-    SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE,
-    SYS_FRAME_SHARE, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE,
-    SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS,
-    SYS_LEDGER_INFO, SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV,
-    SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY,
-    SYS_RECV_DATA_TRY, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY,
-    SYS_REPLY_HANDLE, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_SERVICE_ENDPOINT, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS,
-    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
+    SYS_DMA_MAP_FRAME, SYS_DMA_SYNC, SYS_EXIT, SYS_FAULT_SUBSCRIBE, SYS_FORK, SYS_FRAME_FREE,
+    SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE,
+    SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE,
+    SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS, SYS_LEDGER_INFO,
+    SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA,
+    SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY,
+    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE,
+    SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
+    SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
+    SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -63,7 +64,8 @@ const REGION_HANDLE_BASE: usize = 0x4000;
 const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
-const INITIAL_CAPACITY_BYTES: usize = 1024 * 1024;
+const INITIAL_CAPACITY_BYTES: usize = 16 * 1024 * 1024;
+const SYSTEM_CAPACITY_BYTES: usize = 32 * 1024 * 1024;
 
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
@@ -127,8 +129,11 @@ pub struct UserRuntime<C, P> {
     call_cycles: u64,
     call_max: u64,
     resumes: [u64; MAX_CPUS],
+    cpu_busy: [u64; MAX_CPUS],
+    run_start: [u64; MAX_CPUS],
     irq_routes: [u16; 256],
     console_subscriber: Option<usize>,
+    system_capacity: Option<Arc<spin::Mutex<Capacity>>>,
     platform: P,
 }
 
@@ -145,6 +150,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         for (index, task) in tasks.iter_mut().enumerate() {
             task.leader = index;
         }
+        let system_capacity = platform
+            .reserve_capacity(SYSTEM_CAPACITY_BYTES)
+            .map(|capacity| Arc::new(spin::Mutex::new(capacity)));
         if let Some(index) = tasks
             .iter()
             .position(|task| task.name == hk_syscall::MEMORY_SERVICE)
@@ -177,8 +185,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             call_cycles: 0,
             call_max: 0,
             resumes: [0; MAX_CPUS],
+            cpu_busy: [0; MAX_CPUS],
+            run_start: [0; MAX_CPUS],
             irq_routes: [0; 256],
             console_subscriber: None,
+            system_capacity,
             platform,
         }
     }
@@ -213,6 +224,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             call_cycles: self.call_cycles,
             call_max_cycles: self.call_max,
             resumes: self.resumes,
+            cpu_busy: self.cpu_busy,
             tsc_frequency: self.platform.tsc_frequency(),
         }
     }
@@ -305,6 +317,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 state: state_name(self.kernel.state_of(task.tcb)),
                 pending: pending_name(task.pending),
                 handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
+                cpu_cycles: task.cpu_cycles,
                 arena_used: task.arena.used(),
                 arena_size: task.arena.size(),
                 vspace: self.platform.vspace(index),

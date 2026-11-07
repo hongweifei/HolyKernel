@@ -120,9 +120,6 @@ pub const FUTEX_CHANGED: u64 = 1;
 /// 在任务 Arena 内分配内存。
 pub const SYS_ALLOC: u64 = 0x40;
 
-/// 为 Memory Provider 分配一个物理页。
-pub const SYS_FRAME_ALLOC: u64 = 0x46;
-
 /// 类型化能力的 ABI 编码；内核与用户态共用同一组判别值。
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -361,6 +358,8 @@ pub const ROOT_OP_LOOKUP: u64 = 14;
 pub const ROOT_OP_CHECKPOINT_READ: u64 = 15;
 /// Root 控制：写入检查点镜像片段；参数为 `任务 总长`。
 pub const ROOT_OP_CHECKPOINT_WRITE: u64 = 16;
+/// Root 控制：性能快照（每 CPU 忙时与每任务 CPU/内存）。
+pub const ROOT_OP_PERF: u64 = 17;
 
 // === 服务名与内核投递标签 ===
 
@@ -504,7 +503,6 @@ mod tests {
         const { assert!(SYS_SEND >= 0x20 && SYS_REPLY_HANDLE < 0x40) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
         const { assert!(SYS_ALLOC >= 0x40 && SYS_LEDGER_INFO < 0x50) };
-        const { assert!(SYS_FRAME_ALLOC >= 0x40 && SYS_FRAME_ALLOC < 0x50) };
         const { assert!(SYS_PCI_READ >= 0x50 && SYS_MSI_BIND < 0x60) };
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
@@ -560,7 +558,6 @@ mod tests {
             SYS_SERVICE_ENDPOINT,
             SYS_FUTEX_WAIT,
             SYS_FUTEX_WAKE,
-            SYS_FRAME_ALLOC,
             SYS_ALLOC,
             SYS_CAPABILITY_CREATE,
             SYS_REGION_MAP,

@@ -6,9 +6,9 @@ use hk_syscall::{
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
-    SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO,
-    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP,
+    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -121,13 +121,6 @@ pub fn map_lazy(capability: u64, length: usize) -> Option<(u64, u64)> {
     let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
     let (virt, _) = region_info(region)?;
     Some((region, virt))
-}
-
-/// 为 Provider 分配一个物理页，返回物理地址。
-pub fn frame_alloc(length: usize) -> Option<u64> {
-    // SAFETY: 内核校验调用者身份与长度后分配物理页。
-    let phys = unsafe { syscall_call(SYS_FRAME_ALLOC, length as u64, 0, 0, 0).value };
-    (phys != 0 && phys != u64::MAX).then_some(phys)
 }
 
 /// 映射已有能力，返回 `(region, virt)`。

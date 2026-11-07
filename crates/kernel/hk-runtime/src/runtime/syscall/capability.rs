@@ -2,12 +2,26 @@
 
 use hk_hal::PAGE_SIZE;
 use hk_handle::Rights;
-use hk_mem::hmp::FrameLease;
-use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp};
+use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame};
 
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    pub(super) fn allocate_owned(&mut self, index: usize, len: u64) -> Option<FrameBacking> {
+        let capacity = self.system_capacity.clone()?;
+        let allocated = { capacity.lock().allocate(len as usize) };
+        let frame = match allocated {
+            Ok(frame) => frame,
+            Err(_) => {
+                if self.reclaim_zero_pages(index, len) == 0 {
+                    return None;
+                }
+                capacity.lock().allocate(len as usize).ok()?
+            }
+        };
+        Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
+    }
+
     pub(crate) fn capability_create(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let Some(kind) = CapabilityKind::from_u8(frame.arg0() as u8) else {
             frame.set_result(u64::MAX);
@@ -23,18 +37,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(range) = self.allocate_window(index, aligned) else {
+        let Some(backing) = self.allocate_owned(index, aligned) else {
             let _ = self.tasks[index].ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
-            self.platform.dma_free(range);
             let _ = self.tasks[index].ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let backing = FrameLease::new(range.start(), aligned as usize);
         let handle = match self.kernel.create_capability(
             tcb,
             capability,
@@ -226,20 +238,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         } else {
             u64::MAX
         });
-        Switch::Continue
-    }
-
-    pub(crate) fn frame_alloc(&mut self, index: usize, frame: &mut C) -> Switch {
-        if self.tasks[index].name != hk_syscall::MEMORY_SERVICE {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
-        let length = frame.arg0() as usize;
-        let Some(range) = self.platform.dma_window(length) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        frame.set_result(range.start().get());
         Switch::Continue
     }
 

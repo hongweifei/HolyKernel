@@ -3,7 +3,7 @@
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
 use hk_ipc::Message;
-use hk_mem::hmp::{Capability, CapabilityKind, FrameLease, Region, RegionFlags};
+use hk_mem::hmp::{Capability, CapabilityKind, FrameBacking, FrameLease, Region, RegionFlags};
 
 use super::*;
 
@@ -129,7 +129,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) else {
             return false;
         };
-        let lease = FrameLease::import(hk_hal::PhysAddr::new(phys), len);
+        let lease = FrameBacking::Imported(FrameLease::import(hk_hal::PhysAddr::new(phys), len));
         let Ok(capability_handle) = self.kernel.create_capability(
             tcb,
             capability.clone(),
@@ -346,10 +346,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             return self.platform.user_mapped(page_address);
         }
-        let Some(range) = self.allocate_window(index, page) else {
+        let Some(backing) = self.allocate_owned(index, page) else {
             return false;
         };
-        let lease = FrameLease::new(range.start(), page as usize);
+        let range = backing.range();
         if !self
             .platform
             .map_dma(index, page_address, range.start().get(), page as usize)
@@ -358,7 +358,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         if !self
             .kernel
-            .set_capability_page(tcb, capability_handle, offset as usize, lease)
+            .set_capability_page(tcb, capability_handle, offset as usize, backing)
             .unwrap_or(false)
         {
             let _ = self.platform.unmap_dma(index, page_address, page as usize);
