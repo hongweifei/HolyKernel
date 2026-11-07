@@ -8,19 +8,25 @@
 
 ## 1. 分层
 
-| 层 | crate | 职责 |
-| --- | --- | --- |
-| L0 基础类型 | `hk-base` | 地址、架构标识、启动信息与校验；零依赖，HAL 与引导适配共用 |
-| L0 内核 ABI 与对象 | `hk-syscall`、`hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 系统调用编号与跨边界编码、HAL 契约、句柄、IPC、内存、TCB/调度与内核对象 |
-| L1 内核库 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-image`、`hk-test` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、原生任务镜像与服务角色元数据、测试退出 |
-| L2 用户态库 | `hk-server-api`、`hk-proto`、`hk-debug`、`hk-checkpoint`、`hk-coroutine`、`hk-async`、`hk-sync`、`hk-thread`、`hk-worker`、`hk-block`、`hk-canvas`、`hk-font`、`hk-net`、`hk-fs`、`hk-vfs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs`、`hk-driver-virtio`、`hk-server-build` | 内核提供给用户态服务的通用面、服务线协议与客户端、用户态符号与回溯格式化、检查点快照格式、有栈协程、异步执行器、同步原语、线程库、工作线程池、块/文件系统核心、像素绘制与文本排版、字体（TrueType 栅格化、等宽位图与回退）、网络协议栈、virtio 适配、服务链接脚本 |
-| L3 服务 | `servers/*` | 常驻用户态驱动、文件系统、网络、Console、Display、Input |
-| L3 客户端 | `clients/*` | netstat/netsock、`hk-server-dbg` 与 `*-test` 自检客户端；只通过协议访问服务 |
-| L3 演示 | `demos/*` | demo/echo/fault/fork/latency/spin 等内核能力演示与冒烟服务 |
-| L4 运行时 | `hk-runtime` | 用户任务视图、系统调用分派、Arena、RootServer 启动原语 |
-| L4 内核 Shell | `hk-kernel-shell` | 内核态 Shell 宿主、运行时视图转换、服务启动/重启/脚本编排；只依赖 `hk-shell` 与 `hk-root-server` |
-| L4 装配 | `hk-root-server`、`hk-platform-x86_64`、`hk-platform-hosted`、`platforms/*`、`xtask` | 服务表、ELF 装载、监督、运行时宿主、符号表与异常回溯、平台实现、镜像与测试工具 |
-| 独立 | `hk-shell` | 零依赖纯库：命令框架与内核可见的核心命令 |
+crate 按侧别划分：共享契约、内核侧与用户态。侧别是依赖规则的第一维，层号只表示依赖深度。
+
+| 层 | 侧别 | crate | 职责 |
+| --- | --- | --- | --- |
+| L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
+| L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
+| L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
+| L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
+| L1 | 共享契约 | `hk-shell`、`hk-font` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化） |
+| L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、内存、TCB/调度与内核对象 |
+| L1 | 内核侧 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
+| L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
+| L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
+| L2 | 用户态 | `hk-server-api` | 内核提供给用户态服务的通用面：系统调用封装、HMP、Root 控制、设备授权、运行时样板 |
+| L2 | 用户态 | `hk-proto` | 服务线协议、固定缓冲客户端、共享响应框架与协议标签区间 |
+| L2 | 用户态 | `hk-block`、`hk-vfs`、`hk-fs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs` | 块契约、命名空间、文件系统契约与实现 |
+| L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 适配、像素绘制、工作线程与并发库、符号化与回溯 |
+| L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
+| L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务 |
 
 `hk-shell` 与 `hk-syscall` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现。
 
@@ -28,20 +34,16 @@
 
 ## 2. 依赖规则
 
-| crate 类别 | 允许 | 禁止 |
+| 侧别 | 允许 | 禁止 |
 | --- | --- | --- |
-| L0 内核 crate | `hk-base`、`hk-hal` 与内核对象 crate | `hk-root-server`、`hk-platform-*`、`hk-server-*`、`hk-net`、`hk-vfs`、`hk-fs-*`、`hk-block`、`hk-driver*`、`hk-framebuffer`、平台二进制 |
-| L1 内核库 | `hk-hal` 与内核对象 crate | 同上实现层 crate |
-| `hk-server-api` | `hk-hal`、`hk-syscall` | `hk-handle`、`hk-mem`、`hk-kernel`、`hk-proto`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、其他服务 |
-| `hk-proto` | `hk-server-api`、`hk-syscall` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*`、各服务实现 crate |
-| `hk-debug` | `hk-server-api` | `hk-kernel`、`hk-runtime`、`hk-root-server`、`hk-platform-*` |
-| `hk-runtime` | 内核 ABI/对象 crate | `hk-root-server`、`hk-server-*`、`hk-platform-*`、平台二进制 |
-| `hk-root-server` | `hk-runtime`、内核与 L2 库 | `hk-server-*`、`hk-platform-*`、`hk-kernel-shell`、平台二进制 |
-| `hk-kernel-shell` | `hk-shell`、`hk-root-server`、`hk-hal` | `hk-server-*`、平台二进制 |
-| L2 用户态库 | `hk-hal`、`hk-syscall`、`hk-server-api`、同层库 | `hk-kernel`、`hk-root-server`、`hk-platform-*`、平台二进制 |
-| L3 服务/客户端/演示 | `hk-server-api`、`hk-hal`、L2 库 | `hk-kernel`、`hk-root-server`、`hk-platform-*` |
-| `hk-shell` | 无 | 任何依赖 |
-| `hk-syscall` | 无 | 任何依赖 |
+| 共享契约 | 更底层的共享契约 crate | 内核侧、用户态 |
+| 内核侧 | 内核侧、共享契约 | 用户态 |
+| 用户态 | 用户态、共享契约 | 内核侧 |
+| 宿主工具（`xtask`） | 任意（构建期） | — |
+
+侧别清单在 `xtask/src/deps.rs`：每个 crate 必须登记，未登记会让 `cargo xtask deps` 失败。`hk-shell` 与 `hk-syscall` 另外要求零依赖。
+
+在侧别规则之上还有几条窄约束，由同一命令检查：`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；`hk-proto` 只依赖内核面与 ABI。
 
 服务之间只通过 Endpoint、Handle 与 `hk-proto` 的线协议协作，不链接彼此的实现。
 
@@ -53,7 +55,7 @@
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 
-基础类型分层：`hk-base` 零依赖，定义地址、架构与启动信息；`hk-hal` 在其上定义平台 trait 并重导出这些类型，`hk-boot` 直接在 `hk-base` 之上实现 Limine 适配，避免 HAL 与引导适配互相依赖。
+基础类型分层：`hk-base` 零依赖，定义地址、架构、启动信息、时间与用户地址布局；`hk-hal` 在其上定义平台 trait 并重导出这些类型，`hk-device` 承载两侧共用的设备描述与 PCI 枚举，`hk-boot` 直接在 `hk-base` 之上实现 Limine 适配，避免 HAL 与引导适配互相依赖。
 
 ---
 
@@ -65,7 +67,10 @@
 | 类型化能力判类（`CapabilityKind`） | `crates/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
 | 句柄权利与 Region 标志位 | `crates/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
 | 服务角色元数据与 `.hk_service` 段 | `crates/hk-image/src/role.rs` |
-| 用户虚拟布局与自动映射窗口 | `crates/hk-hal/src/user.rs` |
+| 用户虚拟布局与自动映射窗口 | `crates/hk-base/src/user.rs` |
+| 时间类型（Moment、Duration、CivilTime） | `crates/hk-base/src/time.rs` |
+| 设备授权描述与 PCI 枚举 | `crates/hk-device/src/{device,grant,pci,scan}.rs` |
+| 设备中断向量基址 | `crates/hk-base/src/irq.rs` |
 | HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/hk-mem/src/hmp/` |
 | 页分配、页表页池与用户地址空间登记 | `crates/hk-mem/src/page/` |
 | DMA 池与软件 IOMMU | `crates/hk-mem/src/platform/` |
@@ -81,7 +86,7 @@
 | 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
 | 服务链接基址 | `crates/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 默认启动服务白名单 | `crates/hk-root-server/src/loader.rs` |
-| 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` |
+| 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` 与 `crates/hk-device/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
 新增服务时只需要改 `xtask/src/catalog.rs` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
