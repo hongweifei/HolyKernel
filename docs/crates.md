@@ -13,6 +13,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
 | L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
+| L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单与桌面排序的单一清单；零依赖 |
 | L0 | 共享契约 | `hk-cadence`（规划） | Cadence/Meter 类型、调度类别、虚拟时间数学与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
@@ -85,16 +86,16 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 服务线协议、客户端与编解码 | `crates/user/hk-proto/src/*` |
 | 服务响应框架与状态码 | `crates/user/hk-proto/src/status.rs` |
 | 协议标签区间 | `crates/user/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
-| 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`（服务名常量在 `hk-syscall`，用于服务发现；内存授权只按 Handle/Rights） |
+| 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
 | 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
-| 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
+| 镜像服务清单、启动白名单与桌面排序 | `crates/shared/hk-catalog/src/lib.rs` |
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
-| 默认启动服务白名单 | `crates/kernel/hk-root-server/src/loader.rs` |
+| 默认启动服务白名单读取 | `crates/kernel/hk-root-server/src/loader.rs` 读取 `hk-catalog` |
 | 设备类与 DeviceGrant 协议 | `crates/user/hk-server-api/src/device.rs` 与 `crates/shared/hk-device/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
-新增服务时只需要改 `xtask/src/catalog.rs` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
+新增服务时只需要改 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES` 与平台模式过滤，不再维护多份并行清单。
 
 ---
 
@@ -107,8 +108,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
    - 实现 `_start(endpoint)`；
    - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
    - 服务发现使用 `hk_server_api::runtime::wait_service`。
-4. 加入 `xtask/src/catalog.rs` 的 `SERVERS`。
-5. 如需默认启动，加入 `hk-root-server` 的 `BOOT_SERVICES`，并在平台 loader 的模式过滤中处理。
+4. 加入 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`；`boot` 决定默认启动，`desktop_order` 决定桌面顺序。
+5. 平台 loader 的模式过滤直接读取同一目录的名称，不再维护独立启动白名单。
 6. 服务线协议与标签放入 `hk-proto`，并在 `src/labels.rs` 的区间表里占一段；内核与用户态共用的编号与 ABI 编码放入 `hk-syscall`，不放入 `hk-shell`。
 7. 为可自动验证的行为新增 `xtask smoke` 模式。
 

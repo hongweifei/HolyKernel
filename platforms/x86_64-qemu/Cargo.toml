@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 hk-base = { version = "0.1.0", path = "../../crates/shared/hk-base" }
 hk-boot = { version = "0.1.0", path = "../../crates/kernel/hk-boot" }
+hk-catalog = { version = "0.1.0", path = "../../crates/shared/hk-catalog" }
 hk-checkpoint = { version = "0.1.0", path = "../../crates/shared/hk-checkpoint" }
 hk-hal = { version = "0.1.0", path = "../../crates/kernel/hk-hal" }
 hk-kernel = { version = "0.1.0", path = "../../crates/kernel/hk-kernel" }

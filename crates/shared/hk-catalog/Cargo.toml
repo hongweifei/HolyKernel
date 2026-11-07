@@ -1,0 +1,12 @@
+[package]
+name = "hk-catalog"
+description = "HolyKernel 服务目录：镜像构建、启动白名单与桌面排序的单一清单"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

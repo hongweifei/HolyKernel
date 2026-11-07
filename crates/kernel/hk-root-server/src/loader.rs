@@ -9,44 +9,12 @@ use core::fmt;
 use crate::image::{ImageError, load_into};
 use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
 
-/// 启动时默认装载的服务；其余模块按需启动。
-pub const BOOT_SERVICES: &[&str] = &[
-    "hk-server-demo",
-    "hk-server-echo",
-    "hk-server-device",
-    "hk-server-spin",
-    "hk-server-virtio",
-    "hk-server-memory",
-    "hk-server-holyfs",
-    "hk-server-vfs",
-    "hk-server-path",
-    "hk-server-block",
-    "hk-server-virtio-net",
-    "hk-server-net",
-    "hk-server-netsock",
-    "hk-server-console",
-    "hk-server-console-test",
-    "hk-server-shell",
-    "hk-server-display",
-    "hk-server-display-test",
-    "hk-server-terminal-test",
-    "hk-server-input",
-    "hk-server-pointer-test",
-    "hk-server-holydoc",
-    "hk-server-workbench",
-    "hk-server-debug",
-    "hk-server-taskman",
-    "hk-server-display-restart-test",
-    "hk-server-checkpoint",
-    "hk-server-checkpoint-test",
-];
-
 /// 从启动模块中选出默认启动的服务。
 pub fn boot_modules(modules: &[BootModule]) -> Vec<&BootModule> {
     modules
         .iter()
         .filter(|module| {
-            !is_script(module.name) && BOOT_SERVICES.contains(&service_name(module.name))
+            !is_script(module.name) && hk_catalog::boot_service(service_name(module.name))
         })
         .collect()
 }

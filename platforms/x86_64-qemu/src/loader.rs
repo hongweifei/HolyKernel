@@ -267,21 +267,7 @@ pub fn run(
     });
     if desktop {
         // 桌面启动顺序：Display/输入先就绪，Console 最后创建以获得初始焦点。
-        modules.sort_by_key(|module| match loader::service_name(module.name) {
-            "hk-server-display" => 0,
-            "hk-server-device" => 1,
-            "hk-server-input" => 2,
-            "hk-server-virtio" => 3,
-            "hk-server-holyfs" => 4,
-            "hk-server-vfs" => 5,
-            "hk-server-path" => 6,
-            "hk-server-holydoc" => 7,
-            "hk-server-workbench" => 7,
-            "hk-server-taskman" => 7,
-            "hk-server-console" => 8,
-            "hk-server-shell" => 9,
-            _ => 9,
-        });
+        modules.sort_by_key(|module| hk_catalog::desktop_order(loader::service_name(module.name)));
     }
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));

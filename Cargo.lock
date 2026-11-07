@@ -250,6 +250,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-catalog"
+version = "0.1.0"
+
+[[package]]
 name = "hk-checkpoint"
 version = "0.1.0"
 
@@ -469,6 +473,7 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
+ "hk-catalog",
  "hk-checkpoint",
  "hk-hal",
  "hk-image",
@@ -915,6 +920,7 @@ version = "0.1.0"
 dependencies = [
  "hk-base",
  "hk-boot",
+ "hk-catalog",
  "hk-checkpoint",
  "hk-hal",
  "hk-kernel",
@@ -1300,6 +1306,7 @@ dependencies = [
  "clap",
  "hk-base",
  "hk-block",
+ "hk-catalog",
  "hk-fs-ext4",
  "hk-fs-holyfs",
  "hk-image",
