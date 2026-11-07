@@ -138,6 +138,43 @@ fn allocates_splits_and_frees_capacity_frames() {
 }
 
 #[test]
+fn closing_last_frame_handle_returns_it_to_capacity() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(11),
+        PhysRange::new(PhysAddr::new(0x40_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+    assert_eq!(
+        kernel
+            .capacity_info(worker, capacity)
+            .expect("Capacity 信息")
+            .4,
+        PAGE_SIZE as u64
+    );
+
+    kernel.close_handle(worker, frame).expect("关闭 Frame");
+    assert_eq!(
+        kernel
+            .capacity_info(worker, capacity)
+            .expect("Capacity 信息")
+            .4,
+        0
+    );
+}
+
+#[test]
 fn tracks_arena_regions_and_frame_refs() {
     let kernel = kernel();
     let worker = thread(&kernel);

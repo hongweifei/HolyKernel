@@ -195,19 +195,16 @@ impl Kernel {
         let frame_lock = frame_object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
-        {
-            let slot = frame_lock.lock();
-            let frame = slot.as_ref().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-            if frame.capacity() != capacity.id() {
-                return Err(KernelError::Hmp(HmpError::WrongCapability));
-            }
-            if frame.is_pinned() || frame.refs() != 1 {
-                return Err(KernelError::Hmp(HmpError::PermissionDenied));
-            }
+        let mut slot = frame_lock.lock();
+        let frame = slot.as_ref().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        if frame.capacity() != capacity.id() {
+            return Err(KernelError::Hmp(HmpError::WrongCapability));
         }
-        let frame = frame_object
-            .take_frame()
-            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        if frame.is_pinned() || frame.refs() != 1 {
+            return Err(KernelError::Hmp(HmpError::PermissionDenied));
+        }
+        let frame = slot.take().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        drop(slot);
         capacity.free(frame).map_err(KernelError::Hmp)
     }
 

@@ -288,9 +288,13 @@ impl Drop for KernelObject {
         let ObjectPayload::Frame { frame, capacity } = &self.payload else {
             return;
         };
-        let (Some(capacity), Some(frame)) = (capacity, frame.lock().take()) else {
+        let Some(capacity) = capacity else {
             return;
         };
-        let _ = capacity.lock().free(frame);
+        let mut capacity = capacity.lock();
+        let Some(frame) = frame.lock().take() else {
+            return;
+        };
+        let _ = capacity.free(frame);
     }
 }
