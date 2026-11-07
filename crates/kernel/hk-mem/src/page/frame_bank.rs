@@ -1,6 +1,6 @@
 //! 系统物理帧银行：从全部可用内存区域分配与回收连续物理页。
 
-use alloc::vec::Vec;
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, PhysRange};
 use spin::Mutex;
@@ -58,12 +58,42 @@ pub struct FrameBankStats {
     pub by_kind: [u64; FrameKind::COUNT],
 }
 
+struct Allocation {
+    range: PhysRange,
+    kind: FrameKind,
+    charge: Charge,
+}
+
 struct Inner {
-    free: Vec<PhysRange>,
+    free_by_start: BTreeMap<u64, PhysRange>,
+    free_by_len: BTreeMap<u64, BTreeSet<u64>>,
     total: u64,
     ledger: Ledger,
-    charges: Vec<(PhysRange, Charge)>,
+    allocations: BTreeMap<u64, Allocation>,
     by_kind: [u64; FrameKind::COUNT],
+}
+
+impl Inner {
+    fn insert_free(&mut self, range: PhysRange) {
+        let start = range.start().get();
+        self.free_by_len
+            .entry(range.len())
+            .or_default()
+            .insert(start);
+        self.free_by_start.insert(start, range);
+    }
+
+    fn take_free(&mut self, start: u64) -> Option<PhysRange> {
+        let range = self.free_by_start.remove(&start)?;
+        let length = range.len();
+        if let Some(starts) = self.free_by_len.get_mut(&length) {
+            starts.remove(&start);
+            if starts.is_empty() {
+                self.free_by_len.remove(&length);
+            }
+        }
+        Some(range)
+    }
 }
 
 /// 系统物理帧银行。
@@ -76,10 +106,11 @@ impl FrameBank {
     pub const fn empty() -> Self {
         Self {
             inner: Mutex::new(Inner {
-                free: Vec::new(),
+                free_by_start: BTreeMap::new(),
+                free_by_len: BTreeMap::new(),
                 total: 0,
                 ledger: Ledger::new(LedgerId::new(0), 0),
-                charges: Vec::new(),
+                allocations: BTreeMap::new(),
                 by_kind: [0; FrameKind::COUNT],
             }),
         }
@@ -107,9 +138,10 @@ impl FrameBank {
     fn fill(&self, regions: &[MemoryRegion], kernel: Option<MemoryRegion>) {
         let page = PAGE_SIZE as u64;
         let mut inner = self.inner.lock();
-        inner.free.clear();
+        inner.free_by_start.clear();
+        inner.free_by_len.clear();
         inner.total = 0;
-        inner.charges.clear();
+        inner.allocations.clear();
         inner.by_kind = [0; FrameKind::COUNT];
         for region in regions {
             if !region.kind.is_usable() {
@@ -126,25 +158,20 @@ impl FrameBank {
             {
                 let before_end = kernel.base.get() & !(page - 1);
                 if before_end > start {
-                    inner
-                        .free
-                        .push(PhysRange::new(PhysAddr::new(start), before_end - start));
+                    inner.insert_free(PhysRange::new(PhysAddr::new(start), before_end - start));
                 }
                 let after_start = kernel.end().get().div_ceil(page) * page;
                 if end > after_start {
-                    inner.free.push(PhysRange::new(
+                    inner.insert_free(PhysRange::new(
                         PhysAddr::new(after_start),
                         end - after_start,
                     ));
                 }
                 continue;
             }
-            inner
-                .free
-                .push(PhysRange::new(PhysAddr::new(start), end - start));
+            inner.insert_free(PhysRange::new(PhysAddr::new(start), end - start));
         }
-        inner.free.sort_unstable_by_key(|range| range.start().get());
-        inner.total = inner.free.iter().map(|range| range.len()).sum();
+        inner.total = inner.free_by_start.values().map(|range| range.len()).sum();
         inner.ledger = Ledger::new(LedgerId::new(0), inner.total);
     }
 
@@ -155,19 +182,29 @@ impl FrameBank {
             return None;
         }
         let mut inner = self.inner.lock();
-        let index = inner.free.iter().position(|range| range.len() >= length)?;
+        let start = {
+            let (_, starts) = inner.free_by_len.range(length..).next()?;
+            *starts.iter().next()?
+        };
         let charge = inner.ledger.charge(length).ok()?;
-        let range = inner.free.swap_remove(index);
+        let range = inner.take_free(start)?;
         let start = range.start();
         let remaining = range.len() - length;
         if remaining > 0 {
-            inner.free.push(PhysRange::new(
+            inner.insert_free(PhysRange::new(
                 PhysAddr::new(start.get() + length),
                 remaining,
             ));
         }
         let allocated = PhysRange::new(start, length);
-        inner.charges.push((allocated, charge));
+        inner.allocations.insert(
+            start.get(),
+            Allocation {
+                range: allocated,
+                kind,
+                charge,
+            },
+        );
         let slot = &mut inner.by_kind[kind.index()];
         *slot = slot.saturating_add(length);
         Some(allocated)
@@ -189,35 +226,52 @@ impl FrameBank {
         self.allocate_for(FrameKind::Other)
     }
 
-    /// 按用途归还一段物理区间并与相邻空闲区间合并。
-    pub fn free_for(&self, kind: FrameKind, range: PhysRange) {
+    /// 按分配记录归还一段物理区间并与相邻空闲区间合并。
+    pub fn free_for(&self, _kind: FrameKind, range: PhysRange) {
         if range.is_empty() {
             return;
         }
         let mut inner = self.inner.lock();
-        if let Some(index) = inner
-            .charges
-            .iter()
-            .position(|(allocated, _)| *allocated == range)
-        {
-            let (_, charge) = inner.charges.swap_remove(index);
-            let _ = inner.ledger.release(charge);
+        let start = range.start().get();
+        let matches = inner
+            .allocations
+            .get(&start)
+            .is_some_and(|allocation| allocation.range == range);
+        if !matches {
+            return;
         }
-        let slot = &mut inner.by_kind[kind.index()];
+        let Some(allocation) = inner.allocations.remove(&start) else {
+            return;
+        };
+        let _ = inner.ledger.release(allocation.charge);
+        let slot = &mut inner.by_kind[allocation.kind.index()];
         *slot = slot.saturating_sub(range.len());
-        inner.free.push(range);
-        inner.free.sort_unstable_by_key(|range| range.start().get());
-        let mut merged: Vec<PhysRange> = Vec::with_capacity(inner.free.len());
-        for range in inner.free.drain(..) {
-            if let Some(last) = merged.last_mut()
-                && last.end().get() == range.start().get()
-            {
-                *last = PhysRange::new(last.start(), last.len().saturating_add(range.len()));
-                continue;
-            }
-            merged.push(range);
+        let mut merged = range;
+        if let Some(previous) = inner
+            .free_by_start
+            .range(..start)
+            .next_back()
+            .map(|(_, range)| *range)
+            && previous.end().get() == merged.start().get()
+        {
+            inner.take_free(previous.start().get());
+            merged = PhysRange::new(
+                previous.start(),
+                previous.len().saturating_add(merged.len()),
+            );
         }
-        inner.free = merged;
+        let next_start = merged.end().get();
+        if let Some(next) = inner
+            .free_by_start
+            .range(next_start..)
+            .next()
+            .map(|(_, range)| *range)
+            && next.start().get() == next_start
+        {
+            inner.take_free(next.start().get());
+            merged = PhysRange::new(merged.start(), merged.len().saturating_add(next.len()));
+        }
+        inner.insert_free(merged);
     }
 
     /// 归还一段用途为 `Other` 的物理区间。
