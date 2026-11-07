@@ -127,6 +127,9 @@ pub enum SmokeMode {
     /// Debug 内核统计窗口
     #[value(name = "debug")]
     Debug,
+    /// 任务管理器进程与性能窗口
+    #[value(name = "taskman")]
+    Taskman,
     /// Debug 异常与符号化回溯
     #[value(name = "debugfault")]
     DebugFault,
@@ -182,6 +185,7 @@ impl SmokeMode {
             Self::HolyDocResize => Some("vfs.fs=holyfs holydoc-resize-test input-driver"),
             Self::Workbench => Some("vfs.fs=holyfs workbench-test"),
             Self::Debug => Some("debug-test"),
+            Self::Taskman => Some("taskman-test"),
             Self::DebugFault => Some("debug-crash"),
             Self::Dbg => Some("dbg-test"),
             Self::DisplayRestart => Some("display-restart-test"),
@@ -491,6 +495,17 @@ impl SmokeMode {
                 "hk-server-debug: fault symbolized",
                 "hk-server-debug: done",
             ],
+            Self::Taskman => &[
+                "hk-server-display: composite ok",
+                "hk-server-taskman: ready 1",
+                "hk-server-taskman: cpus ",
+                "hk-server-taskman: tasks ",
+                "hk-server-taskman: rows ",
+                "hk-server-taskman: busy ",
+                "hk-server-taskman: memory ",
+                "hk-server-taskman: render ok",
+                "hk-server-taskman: done",
+            ],
             Self::Dbg => &[
                 "hk-server-dbg: ready",
                 "hk-server-dbg: tasks",
@@ -542,6 +557,7 @@ impl SmokeMode {
             | Self::HolyDocResize
             | Self::Workbench
             | Self::Debug
+            | Self::Taskman
             | Self::DebugFault
             | Self::Dbg
             | Self::Hotswap
@@ -583,6 +599,7 @@ impl SmokeMode {
             Self::HolyDocResize => "build/serial-holydocresize.log",
             Self::Workbench => "build/serial-workbench.log",
             Self::Debug => "build/serial-debug.log",
+            Self::Taskman => "build/serial-taskman.log",
             Self::DebugFault => "build/serial-debugfault.log",
             Self::Dbg => "build/serial-dbg.log",
             Self::DisplayRestart => "build/serial-displayrestart.log",

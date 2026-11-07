@@ -51,6 +51,7 @@ pub fn run(
     let workbench_test = hk_boot::cmdline().is_some_and(|line| line.contains("workbench-test"));
     let debug_test = hk_boot::cmdline()
         .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
+    let taskman_test = hk_boot::cmdline().is_some_and(|line| line.contains("taskman-test"));
     let display_restart_test =
         hk_boot::cmdline().is_some_and(|line| line.contains("display-restart-test"));
     let hotswap_test = hk_boot::cmdline().is_some_and(|line| line.contains("hotswap-test"));
@@ -137,6 +138,13 @@ pub fn run(
                 "hk-server-display" | "hk-server-debug" | "hk-server-memory"
             );
         }
+        if taskman_test {
+            // 任务管理器自检只需要 Display、任务管理器与内存服务。
+            return matches!(
+                name,
+                "hk-server-display" | "hk-server-taskman" | "hk-server-memory"
+            );
+        }
         if display_restart_test {
             // 热重启自检：Display + Console + 重启客户端。
             return matches!(
@@ -187,6 +195,7 @@ pub fn run(
                     | "hk-server-path"
                     | "hk-server-holydoc"
                     | "hk-server-workbench"
+                    | "hk-server-taskman"
                     | "hk-server-shell"
                     | "hk-server-memory"
             );
@@ -230,6 +239,7 @@ pub fn run(
                 | "hk-server-holydoc"
                 | "hk-server-workbench"
                 | "hk-server-debug"
+                | "hk-server-taskman"
                 | "hk-server-shell"
                 | "hk-server-display-restart-test"
                 | "hk-server-checkpoint"
@@ -267,6 +277,7 @@ pub fn run(
             "hk-server-path" => 6,
             "hk-server-holydoc" => 7,
             "hk-server-workbench" => 7,
+            "hk-server-taskman" => 7,
             "hk-server-console" => 8,
             "hk-server-shell" => 9,
             _ => 9,

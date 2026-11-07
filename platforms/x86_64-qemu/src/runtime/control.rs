@@ -11,9 +11,9 @@ use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
     ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE, ROOT_OP_HANDLES,
-    ROOT_OP_LOOKUP, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT,
-    ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS,
-    ROOT_OP_TRACE,
+    ROOT_OP_LOOKUP, ROOT_OP_PERF, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT,
+    ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE,
+    ROOT_OP_TASKS, ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
@@ -188,6 +188,7 @@ fn execute_text(request: &Request, loader: &mut Loader<'_>, services: &mut Servi
         ROOT_OP_SERVICES => hk_shell::format::format_services(&service_view(services)),
         ROOT_OP_TRACE => hk_shell::format::format_trace(&trace()),
         ROOT_OP_STATS => hk_shell::format::format_stats(&stats()),
+        ROOT_OP_PERF => perf(),
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
         ROOT_OP_REPLACE => runtime::replace_service(loader, services, &request.argument),
@@ -245,6 +246,65 @@ fn push_result(state: &mut ControlState, id: u64, data: Vec<u8>) {
         state.results.remove(0);
     }
     state.results.push((id, data));
+}
+
+/// 性能快照：每 CPU 忙时与每任务 CPU/内存。
+///
+/// 文本格式稳定供任务管理器解析：
+/// `perf cpus=.. tasks=.. runnable=.. tsc=.. ticks=..`
+/// 之后每 CPU 一行 `cpu <编号> <忙周期> <恢复次数>`，每任务一行
+/// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <名称>`。
+fn perf() -> String {
+    let stats = runtime::stats();
+    let tasks = runtime::tasks();
+    let cpus = stats
+        .resumes
+        .iter()
+        .rposition(|count| *count > 0)
+        .map_or(1, |index| index + 1);
+    let runnable = tasks
+        .iter()
+        .filter(|task| matches!(task.state, "running" | "runnable"))
+        .count();
+    let mut text = format!(
+        "perf cpus={} tasks={} runnable={} tsc={} ticks={}\n",
+        cpus,
+        tasks.len(),
+        runnable,
+        stats.tsc_frequency,
+        hk_platform_x86_64::cpu::uptime_ticks(),
+    );
+    for cpu in 0..cpus {
+        text.push_str(&format!(
+            "cpu {} {} {}\n",
+            cpu, stats.cpu_busy[cpu], stats.resumes[cpu]
+        ));
+    }
+    for task in &tasks {
+        let parent = match task.parent {
+            Some(parent) => format!("{parent}"),
+            None => String::from("-"),
+        };
+        let exit = match task.exit_code {
+            Some(code) => format!("{code}"),
+            None => String::from("-"),
+        };
+        text.push_str(&format!(
+            "task {} {} {} {} {} {} {} {} {} {} {}\n",
+            task.tcb,
+            task.cpu_cycles,
+            task.arena_used,
+            task.arena_size,
+            task.handles,
+            task.state,
+            parent,
+            task.endpoint,
+            task.pending,
+            exit,
+            task.name,
+        ));
+    }
+    text
 }
 
 fn tasks() -> Vec<TaskInfo> {

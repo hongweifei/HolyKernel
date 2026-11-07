@@ -19,6 +19,8 @@ pub struct TaskInfo {
     pub pending: &'static str,
     /// 在用句柄数。
     pub handles: usize,
+    /// 累计运行周期数。
+    pub cpu_cycles: u64,
     /// Arena 已用字节数。
     pub arena_used: u64,
     /// Arena 总字节数。
@@ -46,6 +48,8 @@ pub struct RuntimeStats {
     pub call_max_cycles: u64,
     /// 各 CPU 恢复用户任务的次数。
     pub resumes: [u64; MAX_CPUS],
+    /// 各 CPU 累计运行用户任务的周期数。
+    pub cpu_busy: [u64; MAX_CPUS],
     /// TSC 频率；未知时为 0。
     pub tsc_frequency: u64,
 }

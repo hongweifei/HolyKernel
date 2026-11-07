@@ -47,6 +47,8 @@ pub struct UserTask<C> {
     pub dma_mappings: Vec<(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)>,
     /// 用户现场。
     pub context: C,
+    /// 累计运行周期数（TSC）。
+    pub cpu_cycles: u64,
     /// 挂起的系统调用。
     pub pending: Pending,
     /// 最近一次收到的调用令牌。
@@ -98,6 +100,7 @@ impl<C> UserTask<C> {
             bound_irqs: Vec::new(),
             dma_mappings: Vec::new(),
             context,
+            cpu_cycles: 0,
             pending: Pending::None,
             reply: None,
             arena: Arena::new(arena_base, arena_size),

@@ -781,6 +781,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-taskman"
+version = "0.1.0"
+dependencies = [
+ "hk-canvas",
+ "hk-font",
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-terminal-test"
 version = "0.1.0"
 dependencies = [

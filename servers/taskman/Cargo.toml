@@ -1,0 +1,23 @@
+[package]
+name = "hk-server-taskman"
+description = "HolyKernel 任务管理器窗口服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-taskman"
+path = "src/main.rs"
+
+[dependencies]
+hk-canvas = { version = "0.1.0", path = "../../crates/user/hk-canvas" }
+hk-font = { version = "0.1.0", path = "../../crates/shared/hk-font" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true

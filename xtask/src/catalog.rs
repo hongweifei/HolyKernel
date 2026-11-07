@@ -30,6 +30,7 @@ pub const SERVERS: &[&str] = &[
     "hk-server-holydoc",
     "hk-server-workbench",
     "hk-server-debug",
+    "hk-server-taskman",
     "hk-server-dbg",
     "hk-server-display-restart-test",
     "hk-server-checkpoint",
