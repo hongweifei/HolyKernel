@@ -84,10 +84,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     fn install_extra_entry(&mut self, index: usize, handle: Handle, charge: Option<Charge>) -> u64 {
-        let slot = self.tasks[index].extra.len();
-        self.tasks[index]
-            .extra
-            .push(Some(HandleSlot { handle, charge }));
+        let slot = match self.tasks[index].extra_free.pop() {
+            Some(slot) => slot,
+            None => {
+                self.tasks[index].extra.push(None);
+                self.tasks[index].extra.len() - 1
+            }
+        };
+        self.tasks[index].extra[slot] = Some(HandleSlot { handle, charge });
         (EXTRA_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -97,17 +101,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         handle: Handle,
         charge: Charge,
     ) -> u64 {
-        let slot = self.tasks[index]
-            .capabilities
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.tasks[index].capabilities.len());
-        let map = CapabilityMap { handle, charge };
-        if slot == self.tasks[index].capabilities.len() {
-            self.tasks[index].capabilities.push(Some(map));
-        } else {
-            self.tasks[index].capabilities[slot] = Some(map);
-        }
+        let slot = match self.tasks[index].capability_free.pop() {
+            Some(slot) => slot,
+            None => {
+                self.tasks[index].capabilities.push(None);
+                self.tasks[index].capabilities.len() - 1
+            }
+        };
+        self.tasks[index].capabilities[slot] = Some(CapabilityMap { handle, charge });
         (CAPABILITY_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -144,12 +145,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         virt: u64,
         len: usize,
     ) -> u64 {
-        let slot = self
-            .process(index)
-            .regions
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.process(index).regions.len());
+        let slot = match self.process_mut(index).region_free.pop() {
+            Some(slot) => slot,
+            None => {
+                let process = self.process_mut(index);
+                process.regions.push(None);
+                process.regions.len() - 1
+            }
+        };
         let map = RegionMap {
             handle,
             capability,
@@ -159,11 +162,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             virt,
             len,
         };
-        if slot == self.process(index).regions.len() {
-            self.process_mut(index).regions.push(Some(map));
-        } else {
-            self.process_mut(index).regions[slot] = Some(map);
-        }
+        self.process_mut(index).regions[slot] = Some(map);
         (REGION_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -178,16 +177,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn install_capacity(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index]
-            .capacities
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.tasks[index].capacities.len());
-        if slot == self.tasks[index].capacities.len() {
-            self.tasks[index].capacities.push(Some(handle));
-        } else {
-            self.tasks[index].capacities[slot] = Some(handle);
-        }
+        let slot = match self.tasks[index].capacity_free.pop() {
+            Some(slot) => slot,
+            None => {
+                self.tasks[index].capacities.push(None);
+                self.tasks[index].capacities.len() - 1
+            }
+        };
+        self.tasks[index].capacities[slot] = Some(handle);
         (CAPACITY_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -198,16 +195,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn install_frame(&mut self, index: usize, handle: Handle) -> u64 {
-        let slot = self.tasks[index]
-            .frames
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.tasks[index].frames.len());
-        if slot == self.tasks[index].frames.len() {
-            self.tasks[index].frames.push(Some(handle));
-        } else {
-            self.tasks[index].frames[slot] = Some(handle);
-        }
+        let slot = match self.tasks[index].frame_free.pop() {
+            Some(slot) => slot,
+            None => {
+                self.tasks[index].frames.push(None);
+                self.tasks[index].frames.len() - 1
+            }
+        };
+        self.tasks[index].frames[slot] = Some(handle);
         (FRAME_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -286,34 +281,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
         if number >= FRAME_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(FRAME_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].frames.get_mut(slot))
+            if let Some(slot_index) = number.checked_sub(FRAME_HANDLE_BASE + 1)
+                && let Some(slot) = self.tasks[index].frames.get_mut(slot_index)
+                && slot.is_some()
             {
                 *slot = None;
+                self.tasks[index].frame_free.push(slot_index);
             }
         } else if number >= CAPACITY_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(CAPACITY_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].capacities.get_mut(slot))
+            if let Some(slot_index) = number.checked_sub(CAPACITY_HANDLE_BASE + 1)
+                && let Some(slot) = self.tasks[index].capacities.get_mut(slot_index)
+                && slot.is_some()
             {
                 *slot = None;
+                self.tasks[index].capacity_free.push(slot_index);
             }
         } else if number >= REGION_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(REGION_HANDLE_BASE + 1)
-                .and_then(|slot| self.process_mut(index).regions.get_mut(slot))
+            if let Some(slot_index) = number.checked_sub(REGION_HANDLE_BASE + 1)
+                && let Some(slot) = self.process_mut(index).regions.get_mut(slot_index)
                 && let Some(map) = slot.take()
             {
                 let _ = self.process_mut(index).hmp_arena.remove(map.region);
+                self.process_mut(index).region_free.push(slot_index);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(CAPABILITY_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].capabilities.get_mut(slot))
+            if let Some(slot_index) = number.checked_sub(CAPABILITY_HANDLE_BASE + 1)
+                && let Some(slot) = self.tasks[index].capabilities.get_mut(slot_index)
                 && let Some(map) = slot.take()
             {
                 let _ = self.process_mut(index).ledger.release(map.charge);
+                self.tasks[index].capability_free.push(slot_index);
             }
         } else if number >= GRANT_HANDLE_BASE {
             if let Some(slot) = number
@@ -325,13 +322,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.process_mut(index).ledger.release(charge);
             }
         } else if number >= EXTRA_HANDLE_BASE {
-            if let Some(slot) = number
-                .checked_sub(EXTRA_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].extra.get_mut(slot))
+            if let Some(slot_index) = number.checked_sub(EXTRA_HANDLE_BASE + 1)
+                && let Some(slot) = self.tasks[index].extra.get_mut(slot_index)
                 && let Some(entry) = slot.take()
-                && let Some(charge) = entry.charge
             {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.tasks[index].extra_free.push(slot_index);
+                if let Some(charge) = entry.charge {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                }
             }
         } else if let Some(slot) = number
             .checked_sub(1)

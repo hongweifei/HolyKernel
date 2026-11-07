@@ -462,17 +462,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn signal_irq(&self, irq: u8) {
-        let bindings: Vec<_> = self
-            .tasks
-            .iter()
-            .flat_map(|task| task.bound_irqs.iter())
-            .filter(|(_, line, _, _)| *line == irq)
-            .map(|(_, _, notification, bits)| (*notification, *bits))
-            .collect();
-        for (notification, bits) in bindings {
-            let _ = self
-                .kernel
-                .signal_id(ObjectId::new(notification.get()), bits);
+        for task in &self.tasks {
+            for (_, line, notification, bits) in &task.bound_irqs {
+                if *line == irq {
+                    let _ = self
+                        .kernel
+                        .signal_id(ObjectId::new(notification.get()), *bits);
+                }
+            }
         }
     }
 

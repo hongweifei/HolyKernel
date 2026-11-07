@@ -40,12 +40,20 @@ pub struct UserTask<C> {
     pub notifications: Vec<Option<Handle>>,
     /// 随消息接收的额外句柄与容量记账。
     pub(crate) extra: Vec<Option<HandleSlot>>,
+    /// 额外句柄空槽。
+    pub(crate) extra_free: Vec<usize>,
     /// 本线程持有的类型化能力。
     pub(crate) capabilities: Vec<Option<CapabilityMap>>,
+    /// 能力空槽。
+    pub(crate) capability_free: Vec<usize>,
     /// 本线程持有的 Capacity。
     pub(crate) capacities: Vec<Option<Handle>>,
+    /// Capacity 空槽。
+    pub(crate) capacity_free: Vec<usize>,
     /// 本线程持有的 Frame。
     pub(crate) frames: Vec<Option<Handle>>,
+    /// Frame 空槽。
+    pub(crate) frame_free: Vec<usize>,
     /// 本线程持有的 DeviceGrant 句柄与 DMA 窗口记账。
     pub(crate) grants: Vec<Option<HandleSlot>>,
     /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
@@ -79,9 +87,13 @@ impl<C> UserTask<C> {
             handles: init.handles,
             notifications: init.notifications,
             extra: Vec::new(),
+            extra_free: Vec::new(),
             capabilities: Vec::new(),
+            capability_free: Vec::new(),
             capacities: Vec::new(),
+            capacity_free: Vec::new(),
             frames: Vec::new(),
+            frame_free: Vec::new(),
             grants: Vec::new(),
             bound_irqs: Vec::new(),
             dma_mappings: Vec::new(),

@@ -89,6 +89,7 @@ pub(crate) struct Process {
     pub ledger: Ledger,
     pub user_window: UserWindow,
     pub regions: Vec<Option<RegionMap>>,
+    pub region_free: Vec<usize>,
     pub arena: Arena,
     pub device_factory: Option<Handle>,
 }
@@ -101,6 +102,7 @@ impl Process {
             ledger: Ledger::create(ledger_limit),
             user_window: UserWindow::new(),
             regions: Vec::new(),
+            region_free: Vec::new(),
             arena: Arena::new(arena_base, arena_size),
             device_factory: None,
         }
