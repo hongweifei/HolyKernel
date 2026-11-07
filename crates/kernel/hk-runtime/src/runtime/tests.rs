@@ -747,6 +747,46 @@ fn lazy_anonymous_capability_maps_without_backing() {
 }
 
 #[test]
+fn arena_tracks_mapped_regions() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+    let arena = runtime.tasks[0].hmp_arena.as_ref().expect("Arena");
+    assert_eq!(arena.regions().len(), 1);
+    assert_eq!(arena.used(), 0x2000);
+
+    context.rax = SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+    assert!(
+        runtime.tasks[0]
+            .hmp_arena
+            .as_ref()
+            .expect("Arena")
+            .regions()
+            .is_empty()
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn provider_fault_blocks_caller() {
     let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let Step::Resume {

@@ -1,7 +1,7 @@
 //! 用户任务条目：现场、句柄映射与 Arena。
 
 use super::*;
-use hk_mem::hmp::Ledger;
+use hk_mem::hmp::{Arena as HmpArena, Ledger};
 
 /// 用户任务。
 pub struct UserTask<C> {
@@ -27,6 +27,8 @@ pub struct UserTask<C> {
     pub(crate) capabilities: Vec<Option<CapabilityMap>>,
     /// 本任务持有的 Region。
     pub(crate) regions: Vec<Option<RegionMap>>,
+    /// 任务内存根与 Region 表。
+    pub(crate) hmp_arena: Option<HmpArena>,
     /// 本任务的内存记账。
     pub(crate) ledger: Ledger,
     /// 自动虚拟地址窗口。
@@ -81,6 +83,8 @@ impl<C> UserTask<C> {
             extra_charges: Vec::new(),
             capabilities: Vec::new(),
             regions: Vec::new(),
+            hmp_arena: HmpArena::create(hk_hal::VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)
+                .ok(),
             ledger: Ledger::create(ledger_limit),
             user_window: UserWindow::new(),
             grants: Vec::new(),

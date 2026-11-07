@@ -97,6 +97,16 @@ pub enum FaultReply {
 pub trait Provider {
     /// 返回 Provider 类型。
     fn kind(&self) -> ProviderKind;
+
+    /// 判断该 Provider 是否服务给定能力类型。
+    fn supports(&self, capability: CapabilityKind) -> bool {
+        self.kind().supports(capability)
+    }
+
+    /// 处理缺页请求；默认返回 `ProviderMissing`。
+    fn fault(&self, _request: FaultRequest) -> FaultReply {
+        FaultReply::Error(HmpError::ProviderMissing)
+    }
 }
 
 /// 分配一个 Provider 标识。
@@ -125,5 +135,25 @@ mod tests {
         assert_eq!(request.offset, 0x2000);
         let reply = FaultReply::Error(HmpError::ProviderMissing);
         assert_eq!(reply, FaultReply::Error(HmpError::ProviderMissing));
+    }
+
+    #[test]
+    fn provider_defaults_report_supported_types_and_missing_faults() {
+        struct AnonymousProvider;
+
+        impl Provider for AnonymousProvider {
+            fn kind(&self) -> ProviderKind {
+                ProviderKind::Anonymous
+            }
+        }
+
+        let provider = AnonymousProvider;
+        assert!(provider.supports(CapabilityKind::Anonymous));
+        assert!(!provider.supports(CapabilityKind::Surface));
+        let request = FaultRequest::new(ObjectId::new(1), 0, 0x1000, Rights::READ);
+        assert_eq!(
+            provider.fault(request),
+            FaultReply::Error(HmpError::ProviderMissing)
+        );
     }
 }

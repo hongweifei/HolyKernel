@@ -3,6 +3,7 @@
 use core::fmt;
 
 use hk_handle::{HandleError, ObjectId, ObjectKind};
+use hk_mem::hmp::HmpError;
 
 use crate::tcb::TcbId;
 
@@ -30,6 +31,8 @@ pub enum KernelError {
     QueueFull,
     /// 能力正在 scanout 驻留，不能解除固定。
     ScanoutActive,
+    /// HMP 对象操作失败。
+    Hmp(HmpError),
 }
 
 impl fmt::Display for KernelError {
@@ -46,6 +49,7 @@ impl fmt::Display for KernelError {
             Self::NoReply => formatter.write_str("没有待取回复"),
             Self::QueueFull => formatter.write_str("Endpoint 消息队列已满"),
             Self::ScanoutActive => formatter.write_str("能力正在 scanout，不能解除固定"),
+            Self::Hmp(error) => write!(formatter, "HMP 错误：{error}"),
         }
     }
 }
@@ -62,5 +66,11 @@ impl core::error::Error for KernelError {
 impl From<HandleError> for KernelError {
     fn from(error: HandleError) -> Self {
         Self::Handle(error)
+    }
+}
+
+impl From<HmpError> for KernelError {
+    fn from(error: HmpError) -> Self {
+        Self::Hmp(error)
     }
 }

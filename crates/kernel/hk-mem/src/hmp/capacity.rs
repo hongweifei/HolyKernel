@@ -133,6 +133,9 @@ impl Capacity {
         if frame.is_pinned() {
             return Err(HmpError::PermissionDenied);
         }
+        if frame.refs() != 1 {
+            return Err(HmpError::PermissionDenied);
+        }
         self.release(frame.phys(), frame.len())
     }
 
@@ -271,5 +274,13 @@ mod tests {
         let mut frame = first.allocate(4096).expect("页");
         frame.pin();
         assert_eq!(first.free(frame).err(), Some(HmpError::PermissionDenied));
+    }
+
+    #[test]
+    fn rejects_shared_frame_until_last_reference() {
+        let mut capacity = capacity();
+        let mut frame = capacity.allocate(4096).expect("页");
+        assert_eq!(frame.share(), Ok(2));
+        assert_eq!(capacity.free(frame).err(), Some(HmpError::PermissionDenied));
     }
 }

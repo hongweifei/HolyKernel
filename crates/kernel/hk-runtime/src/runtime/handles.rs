@@ -52,8 +52,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
+            let region_id = region.id();
+            if self.tasks[child]
+                .hmp_arena
+                .as_mut()
+                .is_some_and(|arena| arena.insert(&region).is_err())
+            {
+                let _ = self.kernel.close_handle(child_tcb, capability);
+                continue;
+            }
             let Ok(child_region) = self.kernel.create_region(child_tcb, region, rights) else {
                 let _ = self.kernel.close_handle(child_tcb, capability);
+                if let Some(arena) = self.tasks[child].hmp_arena.as_mut() {
+                    let _ = arena.remove(region_id);
+                }
                 continue;
             };
             let Ok((_, size)) = self
@@ -71,7 +83,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             self.install_capability(child, capability, charge);
-            self.install_region(child, child_region, capability, virt, len);
+            self.install_region(child, child_region, capability, region_id, virt, len);
         }
     }
 
@@ -128,6 +140,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         index: usize,
         handle: Handle,
         capability: Handle,
+        region: hk_mem::hmp::RegionId,
         virt: u64,
         len: usize,
     ) -> u64 {
@@ -139,6 +152,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let map = RegionMap {
             handle,
             capability,
+            region,
             virt,
             len,
         };
@@ -230,8 +244,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             if let Some(slot) = number
                 .checked_sub(REGION_HANDLE_BASE + 1)
                 .and_then(|slot| self.tasks[index].regions.get_mut(slot))
+                && let Some(map) = slot.take()
+                && let Some(arena) = self.tasks[index].hmp_arena.as_mut()
             {
-                *slot = None;
+                let _ = arena.remove(map.region);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
             if let Some(slot) = number

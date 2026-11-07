@@ -151,6 +151,21 @@ impl Capability {
 pub trait Mappable {
     /// 返回能力描述。
     fn capability(&self) -> &Capability;
+
+    /// 返回字节长度。
+    fn size(&self) -> u64 {
+        self.capability().size()
+    }
+
+    /// 返回页大小。
+    fn page_size(&self) -> usize {
+        self.capability().page_size()
+    }
+
+    /// 返回 Provider。
+    fn provider(&self) -> Option<ProviderId> {
+        self.capability().provider()
+    }
 }
 
 impl Mappable for Capability {
@@ -203,5 +218,14 @@ mod tests {
             Capability::new(CapabilityKind::Anonymous, 0x1001, 4096, None).err(),
             Some(HmpError::InvalidSize)
         );
+    }
+
+    #[test]
+    fn mappable_exposes_capability_layout() {
+        let capability =
+            Capability::new(CapabilityKind::Surface, 0x2000, 4096, None).expect("能力");
+        assert_eq!(capability.size(), 0x2000);
+        assert_eq!(capability.page_size(), 4096);
+        assert_eq!(capability.provider(), None);
     }
 }

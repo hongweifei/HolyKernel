@@ -48,6 +48,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
+        let region_id = region.id();
+        let Some(arena) = self.tasks[index].hmp_arena.as_mut() else {
+            let _ = self.platform.unmap_dma(index, virt, length);
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if arena.insert(&region).is_err() {
+            let _ = self.platform.unmap_dma(index, virt, length);
+            self.tasks[index].user_window.release(virt);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let handle = match self.kernel.create_region(
             tcb,
             region,
@@ -57,11 +70,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Err(_) => {
                 let _ = self.platform.unmap_dma(index, virt, length);
                 self.tasks[index].user_window.release(virt);
+                if let Some(arena) = self.tasks[index].hmp_arena.as_mut() {
+                    let _ = arena.remove(region_id);
+                }
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         };
-        frame.set_result(self.install_region(index, handle, capability_handle, virt, length));
+        frame.set_result(self.install_region(
+            index,
+            handle,
+            capability_handle,
+            region_id,
+            virt,
+            length,
+        ));
         Switch::Continue
     }
 
@@ -128,14 +151,33 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             return false;
         }
+        let region_id = region.id();
+        let Some(arena) = self.tasks[index].hmp_arena.as_mut() else {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return false;
+        };
+        if arena.insert(&region).is_err() {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return false;
+        }
         let Ok(region_handle) =
             self.kernel
                 .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
         else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
+            if let Some(arena) = self.tasks[index].hmp_arena.as_mut() {
+                let _ = arena.remove(region_id);
+            }
             return false;
         };
-        self.install_region(index, region_handle, capability_handle, virt, len);
+        self.install_region(
+            index,
+            region_handle,
+            capability_handle,
+            region_id,
+            virt,
+            len,
+        );
         true
     }
 
@@ -350,6 +392,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         self.tasks[index].user_window.release(virt);
+        let region_id = self.tasks[index].regions[slot]
+            .as_ref()
+            .map(|region| region.region);
+        if let Some(region_id) = region_id
+            && let Some(arena) = self.tasks[index].hmp_arena.as_mut()
+        {
+            let _ = arena.remove(region_id);
+        }
         let _ = self.kernel.close_handle(tcb, handle);
         self.tasks[index].regions[slot] = None;
         frame.set_result(1);

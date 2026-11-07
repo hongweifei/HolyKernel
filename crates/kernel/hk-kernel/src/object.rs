@@ -9,7 +9,7 @@ use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
 use hk_mem::hmp::FrameLease;
-use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
+use hk_mem::hmp::{Arena, Capability, Capacity, Frame, Ledger, Region};
 use spin::Mutex;
 
 /// 内核对象的负载。
@@ -22,8 +22,12 @@ pub enum ObjectPayload {
     DeviceGrant(DeviceGrant),
     /// 设备授权工厂。
     DeviceGrantFactory,
+    /// 任务内存根。
+    Arena(Mutex<Arena>),
     /// 物理容量能力。
     Capacity(Mutex<Capacity>),
+    /// 物理页。
+    Frame(Mutex<Frame>),
     /// 类型化能力。
     Capability {
         /// 能力描述。
@@ -55,7 +59,9 @@ impl ObjectPayload {
             Self::Notification(_) => ObjectKind::Notification,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
+            Self::Arena(_) => ObjectKind::Arena,
             Self::Capacity(_) => ObjectKind::Capacity,
+            Self::Frame(_) => ObjectKind::Frame,
             Self::Capability { .. } => ObjectKind::Capability,
             Self::Region(_) => ObjectKind::Region,
             Self::Ledger(_) => ObjectKind::Ledger,
@@ -107,10 +113,26 @@ impl KernelObject {
         }
     }
 
+    /// 返回任务内存根。
+    pub fn arena(&self) -> Option<&Mutex<Arena>> {
+        match &self.payload {
+            ObjectPayload::Arena(arena) => Some(arena),
+            _ => None,
+        }
+    }
+
     /// 返回物理容量能力。
     pub fn capacity(&self) -> Option<&Mutex<Capacity>> {
         match &self.payload {
             ObjectPayload::Capacity(capacity) => Some(capacity),
+            _ => None,
+        }
+    }
+
+    /// 返回物理页。
+    pub fn frame(&self) -> Option<&Mutex<Frame>> {
+        match &self.payload {
+            ObjectPayload::Frame(frame) => Some(frame),
             _ => None,
         }
     }

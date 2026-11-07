@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use hk_hal::VirtAddr;
 use hk_handle::{ObjectId, Rights};
 
+use super::capability::Mappable;
 use super::{Capability, CapabilityKind, HmpError};
 
 static NEXT_REGION_ID: AtomicU64 = AtomicU64::new(1);
@@ -47,8 +48,7 @@ impl RegionId {
 /// 类型化能力在 VSpace 中的映射。
 pub struct Region {
     id: RegionId,
-    capability: ObjectId,
-    kind: CapabilityKind,
+    capability: Capability,
     offset: u64,
     len: usize,
     rights: Rights,
@@ -98,8 +98,7 @@ impl Region {
         }
         Ok(Self {
             id: RegionId::new(NEXT_REGION_ID.fetch_add(1, Ordering::Relaxed)),
-            capability: capability.id(),
-            kind: capability.kind(),
+            capability: capability.clone(),
             offset,
             len,
             rights,
@@ -129,8 +128,7 @@ impl Region {
         };
         let mut region = Self {
             id: RegionId::new(NEXT_REGION_ID.fetch_add(1, Ordering::Relaxed)),
-            capability: self.capability,
-            kind: self.kind,
+            capability: self.capability.clone(),
             offset: self.offset,
             len: self.len,
             rights: self.rights,
@@ -162,7 +160,7 @@ impl Region {
         if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
             return Err(HmpError::WxConflict);
         }
-        if self.kind == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
+        if self.capability.kind() == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
             return Err(HmpError::ReadOnly);
         }
         if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
@@ -178,14 +176,19 @@ impl Region {
         self.id
     }
 
+    /// 返回能力。
+    pub const fn capability(&self) -> &Capability {
+        &self.capability
+    }
+
     /// 返回能力标识。
-    pub const fn capability(&self) -> ObjectId {
-        self.capability
+    pub const fn capability_id(&self) -> ObjectId {
+        self.capability.id()
     }
 
     /// 返回能力类型。
     pub const fn kind(&self) -> CapabilityKind {
-        self.kind
+        self.capability.kind()
     }
 
     /// 返回能力内偏移。
@@ -216,6 +219,12 @@ impl Region {
     /// 返回虚拟地址。
     pub const fn virt(&self) -> Option<VirtAddr> {
         self.virt
+    }
+}
+
+impl Mappable for Region {
+    fn capability(&self) -> &Capability {
+        &self.capability
     }
 }
 
@@ -343,7 +352,7 @@ mod tests {
             .expect("forked Region");
         assert_eq!(child.virt(), Some(VirtAddr::new(0x50_0000)));
         assert!(child.flags().contains(RegionFlags::COW));
-        assert_eq!(child.capability(), region.capability());
+        assert_eq!(child.capability().id(), region.capability().id());
     }
 
     #[test]

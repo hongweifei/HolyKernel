@@ -32,6 +32,7 @@ pub struct Frame {
     page_size: usize,
     capacity: CapacityId,
     pinned: bool,
+    refs: u32,
 }
 
 impl Frame {
@@ -51,6 +52,7 @@ impl Frame {
             page_size,
             capacity,
             pinned: false,
+            refs: 1,
         })
     }
 
@@ -89,6 +91,23 @@ impl Frame {
         self.pinned
     }
 
+    /// 返回共享引用数。
+    pub const fn refs(&self) -> u32 {
+        self.refs
+    }
+
+    /// 增加共享引用。
+    pub fn share(&mut self) -> Result<u32, HmpError> {
+        self.refs = self.refs.checked_add(1).ok_or(HmpError::OutOfRange)?;
+        Ok(self.refs)
+    }
+
+    /// 释放一次共享引用，返回剩余引用数。
+    pub fn release(&mut self) -> u32 {
+        self.refs = self.refs.saturating_sub(1);
+        self.refs
+    }
+
     /// 固定 Frame，供 DMA/scanout 使用。
     pub fn pin(&mut self) {
         self.pinned = true;
@@ -97,5 +116,35 @@ impl Frame {
     /// 解除固定。
     pub fn unpin(&mut self) {
         self.pinned = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame() -> Frame {
+        Frame::new(PhysAddr::new(0x20_0000), 0x1000, 0x1000, CapacityId::new(1)).expect("Frame")
+    }
+
+    #[test]
+    fn shares_and_releases_references() {
+        let mut frame = frame();
+        assert_eq!(frame.refs(), 1);
+        assert_eq!(frame.share(), Ok(2));
+        assert_eq!(frame.release(), 1);
+        assert_eq!(frame.release(), 0);
+    }
+
+    #[test]
+    fn validates_frame_geometry() {
+        assert_eq!(
+            Frame::new(PhysAddr::new(0x20_0000), 0, 0x1000, CapacityId::new(1)).err(),
+            Some(HmpError::InvalidSize)
+        );
+        assert_eq!(
+            Frame::new(PhysAddr::new(0x20_0000), 0x1800, 0x1000, CapacityId::new(1)).err(),
+            Some(HmpError::InvalidSize)
+        );
     }
 }
