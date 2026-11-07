@@ -153,6 +153,10 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::dma::free(range);
     }
 
+    fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
+        hk_platform_x86_64::dma::take_capacity(len)
+    }
+
     fn zero(&self, address: u64, length: usize) {
         // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
         unsafe {

@@ -643,6 +643,81 @@ fn transports_byte_payloads() {
     assert_eq!(context.rax, 0x400);
     assert_eq!(context.r8, 5);
     assert_eq!(&DATA.lock()[0x200..0x205], b"hello");
+
+    context.rax = hk_syscall::SYS_ARENA_INFO;
+    context.rdi = 0x300;
+    context.rsi = 32;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 32);
+    let data = DATA.lock();
+    let base = u64::from_le_bytes(data[0x300..0x308].try_into().expect("base"));
+    let size = u64::from_le_bytes(data[0x308..0x310].try_into().expect("size"));
+    let regions = u64::from_le_bytes(data[0x318..0x320].try_into().expect("regions"));
+    assert_eq!(base, 0);
+    assert!(size > 0);
+    assert_eq!(regions, 0);
+}
+
+#[test]
+fn capacity_frame_lifecycle() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(99),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x50_0000), 0x1_0000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(handle));
+    let capacity_number = 0x5001;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    assert_ne!(frame, u64::MAX);
+
+    context.rax = hk_syscall::SYS_FRAME_SHARE;
+    context.rdi = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 2);
+    context.rax = hk_syscall::SYS_FRAME_PIN;
+    context.rdi = frame;
+    context.rsi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    context.rax = hk_syscall::SYS_FRAME_PIN;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    context.rax = hk_syscall::SYS_FRAME_RELEASE;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+
+    context.rax = hk_syscall::SYS_CAPACITY_FREE;
+    context.rdi = capacity_number;
+    context.rsi = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+    assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
+    let _ = runtime.finish(0, index);
 }
 
 #[test]

@@ -5,7 +5,8 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
-    Arena, ArenaRegion, Capability, CapabilityOp, Capacity, Frame, Ledger, Region, RegionId,
+    Arena, ArenaRegion, Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame,
+    HmpError, Ledger, Region, RegionId,
 };
 
 impl Kernel {
@@ -69,28 +70,45 @@ impl Kernel {
     ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Frame(Mutex::new(frame)))),
+            Arc::new(KernelObject::new(ObjectPayload::Frame(Mutex::new(Some(
+                frame,
+            ))))),
             rights,
         )
     }
 
-    /// 返回 Frame 的物理区间。
-    pub fn frame_range(&self, thread: TcbId, handle: Handle) -> Result<PhysRange, KernelError> {
+    /// 返回 Frame 的物理区间、页大小、所属 Capacity、引用数与固定状态。
+    pub fn frame_info(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<(PhysRange, usize, CapacityId, u32, bool), KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
         let frame = object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
         let frame = frame.lock();
-        Ok(PhysRange::new(frame.phys(), frame.len() as u64))
+        let frame = frame
+            .as_ref()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        Ok((
+            PhysRange::new(frame.phys(), frame.len() as u64),
+            frame.page_size(),
+            frame.capacity(),
+            frame.refs(),
+            frame.is_pinned(),
+        ))
+    }
+
+    /// 返回 Frame 的物理区间。
+    pub fn frame_range(&self, thread: TcbId, handle: Handle) -> Result<PhysRange, KernelError> {
+        self.frame_info(thread, handle).map(|(range, ..)| range)
     }
 
     /// 返回 Frame 的共享引用数。
     pub fn frame_refs(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
-        let frame = object.frame().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Frame,
-        })?;
-        Ok(frame.lock().refs())
+        self.frame_info(thread, handle)
+            .map(|(_, _, _, refs, _)| refs)
     }
 
     /// 增加 Frame 的共享引用。
@@ -99,7 +117,24 @@ impl Kernel {
         let frame = object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
-        frame.lock().share().map_err(KernelError::Hmp)
+        let mut frame = frame.lock();
+        let frame = frame
+            .as_mut()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        frame.share().map_err(KernelError::Hmp)
+    }
+
+    /// 释放一次 Frame 共享引用。
+    pub fn release_frame(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
+        let frame = object.frame().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Frame,
+        })?;
+        let mut frame = frame.lock();
+        let frame = frame
+            .as_mut()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        Ok(frame.release())
     }
 
     /// 设置 Frame 的固定驻留状态。
@@ -114,12 +149,48 @@ impl Kernel {
             expected: ObjectKind::Frame,
         })?;
         let mut frame = frame.lock();
+        let frame = frame
+            .as_mut()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
         if pinned {
             frame.pin();
         } else {
             frame.unpin();
         }
         Ok(())
+    }
+
+    /// 把 Frame 归还给 Capacity。
+    pub fn free_frame(
+        &self,
+        thread: TcbId,
+        capacity: Handle,
+        frame: Handle,
+    ) -> Result<(), KernelError> {
+        let (capacity_object, _) =
+            self.resolve(thread, capacity, Rights::WRITE, ObjectKind::Capacity)?;
+        let (frame_object, _) = self.resolve(thread, frame, Rights::WRITE, ObjectKind::Frame)?;
+        let capacity_lock = capacity_object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let mut capacity = capacity_lock.lock();
+        let frame_lock = frame_object.frame().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Frame,
+        })?;
+        {
+            let slot = frame_lock.lock();
+            let frame = slot.as_ref().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+            if frame.capacity() != capacity.id() {
+                return Err(KernelError::Hmp(HmpError::WrongCapability));
+            }
+            if frame.is_pinned() || frame.refs() != 1 {
+                return Err(KernelError::Hmp(HmpError::PermissionDenied));
+            }
+        }
+        let frame = frame_object
+            .take_frame()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        capacity.free(frame).map_err(KernelError::Hmp)
     }
 
     /// 在指定线程的句柄表中创建物理容量能力。
@@ -135,6 +206,68 @@ impl Kernel {
                 capacity,
             )))),
             rights,
+        )
+    }
+
+    /// 返回 Capacity 的区间、用途、页大小、配额与用量。
+    pub fn capacity_info(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<(PhysRange, CapacityKind, usize, u64, u64), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let capacity = capacity.lock();
+        Ok((
+            capacity.range(),
+            capacity.kind(),
+            capacity.page_size(),
+            capacity.limit(),
+            capacity.used(),
+        ))
+    }
+
+    /// 从 Capacity 尾部切出子 Capacity 并返回句柄。
+    pub fn split_capacity(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        len: usize,
+        kind: CapacityKind,
+    ) -> Result<Handle, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let child = capacity
+            .lock()
+            .split(CapacityId::next(), len, kind)
+            .map_err(KernelError::Hmp)?;
+        self.create_capacity(
+            thread,
+            child,
+            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+        )
+    }
+
+    /// 从 Capacity 分配 Frame 并返回 Frame 句柄。
+    pub fn allocate_frame(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        len: usize,
+    ) -> Result<Handle, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let frame = capacity.lock().allocate(len).map_err(KernelError::Hmp)?;
+        self.create_frame(
+            thread,
+            frame,
+            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
         )
     }
 

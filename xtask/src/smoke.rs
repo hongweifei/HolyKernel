@@ -210,6 +210,7 @@ impl SmokeMode {
                 "hk-server-demo sync ok",
                 "hk-server-demo worker ok",
                 "hk-server-demo hmp ok",
+                "hk-server-memory: capacity ok",
                 "hk-server-memory: alloc",
                 "hk-server-memory: fault",
                 "hk-server-echo 收到句柄",

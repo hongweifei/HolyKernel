@@ -37,10 +37,10 @@ use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    MemoryClient, alloc, boot_cmdline, call, close_handle, exit, futex_wait, futex_wake,
-    ledger_info, notify, recv, recv_data_try, region_unmap, self_notification, send, send_handle,
-    service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify, write,
-    write_u64, yield_now,
+    MemoryClient, alloc, arena_info, boot_cmdline, call, close_handle, exit, futex_wait,
+    futex_wake, ledger_info, notify, recv, recv_data_try, region_unmap, self_notification, send,
+    send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
+    write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -616,6 +616,12 @@ fn verify_memory(endpoint: u64) -> bool {
     let Some((capability, region, virt)) = client.map_lazy(PAGE) else {
         return false;
     };
+    let Some(arena) = arena_info() else {
+        return false;
+    };
+    if arena.size == 0 || arena.regions == 0 || arena.used < PAGE as u64 {
+        return false;
+    }
     // SAFETY: 区域已按一页映射进本任务；首次读取触发 Provider 缺页。
     let zero = unsafe { core::ptr::read_volatile(virt as *const u8) };
     // SAFETY: 上一条读取已装入该页，写入的是本任务私有页。

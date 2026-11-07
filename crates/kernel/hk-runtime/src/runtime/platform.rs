@@ -44,6 +44,11 @@ pub trait UserPlatform {
     fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {
         None
     }
+
+    /// 为内存服务预留一段独立 Capacity。
+    fn reserve_capacity(&self, _len: usize) -> Option<hk_mem::hmp::Capacity> {
+        None
+    }
     /// 归还 DeviceGrant 的 DMA 窗口。
     fn dma_free(&self, _range: hk_hal::PhysRange) {}
     /// 取出并清除待处理 IRQ 位图，最多 256 条。

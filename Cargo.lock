@@ -908,6 +908,7 @@ dependencies = [
  "hk-hal",
  "hk-kernel",
  "hk-kernel-shell",
+ "hk-mem",
  "hk-platform-x86_64",
  "hk-root-server",
  "hk-shell",

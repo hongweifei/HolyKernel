@@ -27,7 +27,7 @@ pub enum ObjectPayload {
     /// 物理容量能力。
     Capacity(Mutex<Capacity>),
     /// 物理页。
-    Frame(Mutex<Frame>),
+    Frame(Mutex<Option<Frame>>),
     /// 类型化能力。
     Capability {
         /// 能力描述。
@@ -130,9 +130,17 @@ impl KernelObject {
     }
 
     /// 返回物理页。
-    pub fn frame(&self) -> Option<&Mutex<Frame>> {
+    pub fn frame(&self) -> Option<&Mutex<Option<Frame>>> {
         match &self.payload {
             ObjectPayload::Frame(frame) => Some(frame),
+            _ => None,
+        }
+    }
+
+    /// 取出物理页；取出后 Frame 对象保持为空。
+    pub fn take_frame(&self) -> Option<Frame> {
+        match &self.payload {
+            ObjectPayload::Frame(frame) => frame.lock().take(),
             _ => None,
         }
     }

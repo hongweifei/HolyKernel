@@ -1,10 +1,13 @@
 //! 物理容量能力。
 
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{PhysAddr, PhysRange};
 
 use super::{Frame, HmpError};
+
+static NEXT_CAPACITY_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Capacity 标识。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -14,6 +17,11 @@ impl CapacityId {
     /// 构造标识。
     pub const fn new(value: u64) -> Self {
         Self(value)
+    }
+
+    /// 分配一个进程内唯一标识。
+    pub fn next() -> Self {
+        Self(NEXT_CAPACITY_ID.fetch_add(1, Ordering::Relaxed))
     }
 
     /// 返回标识数值。
@@ -123,6 +131,37 @@ impl Capacity {
         )?;
         self.used = self.used.saturating_add(length);
         Ok(frame)
+    }
+
+    /// 从未分配尾部切出一个子 Capacity。
+    ///
+    /// 分割把尾部区间从当前 Capacity 的可用空间中移除；子 Capacity 从切出
+    /// 区间的起点开始分配。
+    pub fn split(
+        &mut self,
+        id: CapacityId,
+        len: usize,
+        kind: CapacityKind,
+    ) -> Result<Self, HmpError> {
+        let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
+        if length == 0 {
+            return Err(HmpError::InvalidSize);
+        }
+        let start = self.next;
+        let end = start.checked_add(length).ok_or(HmpError::OutOfCapacity)?;
+        let limit_end = self.range.start().get().saturating_add(self.limit);
+        if end > limit_end {
+            return Err(HmpError::OutOfCapacity);
+        }
+        self.next = end;
+        self.used = self.used.saturating_add(length);
+        Self::new(
+            id,
+            PhysRange::new(PhysAddr::new(start), length),
+            self.page_size,
+            kind,
+            length,
+        )
     }
 
     /// 归还 Frame 的物理区间。
@@ -282,5 +321,29 @@ mod tests {
         let mut frame = capacity.allocate(4096).expect("页");
         assert_eq!(frame.share(), Ok(2));
         assert_eq!(capacity.free(frame).err(), Some(HmpError::PermissionDenied));
+    }
+
+    #[test]
+    fn splits_tail_into_child_capacity() {
+        let mut parent = capacity();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        assert_eq!(
+            child.range(),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x4000)
+        );
+        assert_eq!(child.limit(), 0x4000);
+
+        let child_frame = child.allocate(4096).expect("子分配");
+        assert_eq!(child_frame.phys(), PhysAddr::new(0x10_0000));
+        let parent_frame = parent.allocate(4096).expect("父分配");
+        assert_eq!(parent_frame.phys(), PhysAddr::new(0x10_4000));
+        assert_eq!(
+            parent
+                .split(CapacityId::new(3), 0x1_0000, CapacityKind::User)
+                .err(),
+            Some(HmpError::OutOfCapacity)
+        );
     }
 }

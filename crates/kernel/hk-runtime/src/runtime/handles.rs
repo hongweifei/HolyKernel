@@ -174,6 +174,46 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some((slot, map.handle, map.virt, map.len))
     }
 
+    pub(crate) fn install_capacity(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index]
+            .capacities
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].capacities.len());
+        if slot == self.tasks[index].capacities.len() {
+            self.tasks[index].capacities.push(Some(handle));
+        } else {
+            self.tasks[index].capacities[slot] = Some(handle);
+        }
+        (CAPACITY_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn capacity_at(&self, index: usize, number: usize) -> Option<(usize, Handle)> {
+        let slot = number.checked_sub(CAPACITY_HANDLE_BASE + 1)?;
+        let handle = self.tasks[index].capacities.get(slot)?.as_ref()?;
+        Some((slot, *handle))
+    }
+
+    pub(crate) fn install_frame(&mut self, index: usize, handle: Handle) -> u64 {
+        let slot = self.tasks[index]
+            .frames
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.tasks[index].frames.len());
+        if slot == self.tasks[index].frames.len() {
+            self.tasks[index].frames.push(Some(handle));
+        } else {
+            self.tasks[index].frames[slot] = Some(handle);
+        }
+        (FRAME_HANDLE_BASE + slot + 1) as u64
+    }
+
+    pub(crate) fn frame_at(&self, index: usize, number: usize) -> Option<(usize, Handle)> {
+        let slot = number.checked_sub(FRAME_HANDLE_BASE + 1)?;
+        let handle = self.tasks[index].frames.get(slot)?.as_ref()?;
+        Some((slot, *handle))
+    }
+
     pub(crate) fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
         if let Some(handle) = number
             .checked_sub(GRANT_HANDLE_BASE + 1)
@@ -216,7 +256,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if number >= REGION_HANDLE_BASE {
+        if number >= FRAME_HANDLE_BASE {
+            self.frame_at(index, number).map(|(_, handle)| handle)
+        } else if number >= CAPACITY_HANDLE_BASE {
+            self.capacity_at(index, number).map(|(_, handle)| handle)
+        } else if number >= REGION_HANDLE_BASE {
             self.region_at(index, number)
                 .map(|(_, handle, _, _)| handle)
         } else if number >= CAPABILITY_HANDLE_BASE {
@@ -240,7 +284,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
-        if number >= REGION_HANDLE_BASE {
+        if number >= FRAME_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(FRAME_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].frames.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= CAPACITY_HANDLE_BASE {
+            if let Some(slot) = number
+                .checked_sub(CAPACITY_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].capacities.get_mut(slot))
+            {
+                *slot = None;
+            }
+        } else if number >= REGION_HANDLE_BASE {
             if let Some(slot) = number
                 .checked_sub(REGION_HANDLE_BASE + 1)
                 .and_then(|slot| self.tasks[index].regions.get_mut(slot))

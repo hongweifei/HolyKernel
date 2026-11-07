@@ -2,7 +2,9 @@
 
 use super::*;
 
+mod arena;
 mod capability;
+mod capacity;
 mod device;
 mod dma;
 mod framebuffer;
@@ -240,6 +242,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.framebuffer_map(index, frame));
                 Switch::Continue
             }
+            SYS_ARENA_INFO => self.arena_info(index, frame),
+            SYS_CAPACITY_INFO => self.capacity_info(index, frame),
+            SYS_CAPACITY_SPLIT => self.capacity_split(index, tcb, frame),
+            SYS_CAPACITY_ALLOC => self.capacity_alloc(index, tcb, frame),
+            SYS_CAPACITY_FREE => self.capacity_free(index, tcb, frame),
+            SYS_FRAME_INFO => self.frame_info(index, frame),
+            SYS_FRAME_PIN => self.frame_pin(index, tcb, frame),
+            SYS_FRAME_SHARE => self.frame_share(index, tcb, frame),
+            SYS_FRAME_RELEASE => self.frame_release(index, tcb, frame),
+            SYS_FRAME_FREE => self.frame_free(index, tcb, frame),
             SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
             SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),
             SYS_REGION_MAP => self.region_map(index, tcb, frame),

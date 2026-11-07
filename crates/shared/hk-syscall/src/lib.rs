@@ -13,6 +13,7 @@
 //! | `0x60-0x6F` | 时间与系统信息 |
 //! | `0x70-0x7F` | 控制台与帧缓冲 |
 //! | `0x80-0x8F` | Root 与调试控制 |
+//! | `0x90-0x9F` | HMP 对象查询 |
 //!
 //! 只包含系统调用编号、跨边界共享常量与编码，不依赖任何 crate 或平台；寄存器
 //! 映射由平台层实现，服务协议与服务策略放在各自的用户态库。
@@ -201,6 +202,52 @@ pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
 /// 查询任务 Ledger 的用量、配额、峰值与压力。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
+
+// === HMP 对象查询 0x90-0x9F ===
+
+/// 查询当前任务 Arena 的基址、大小、已用与 Region 数。
+pub const SYS_ARENA_INFO: u64 = 0x90;
+
+/// 查询 Capacity 的区间、用途、页大小、配额与用量。
+pub const SYS_CAPACITY_INFO: u64 = 0x91;
+
+/// 从 Capacity 尾部切出子 Capacity。
+pub const SYS_CAPACITY_SPLIT: u64 = 0x92;
+
+/// 从 Capacity 分配一个 Frame。
+pub const SYS_CAPACITY_ALLOC: u64 = 0x93;
+
+/// 把 Frame 归还给 Capacity。
+pub const SYS_CAPACITY_FREE: u64 = 0x94;
+
+/// 查询 Frame 的物理区间、页大小、所属 Capacity、引用数与固定状态。
+pub const SYS_FRAME_INFO: u64 = 0x95;
+
+/// 固定或解除固定 Frame。
+pub const SYS_FRAME_PIN: u64 = 0x96;
+
+/// 增加 Frame 共享引用。
+pub const SYS_FRAME_SHARE: u64 = 0x97;
+
+/// 释放一次 Frame 共享引用。
+pub const SYS_FRAME_RELEASE: u64 = 0x98;
+
+/// 把 Frame 归还给 Capacity。
+pub const SYS_FRAME_FREE: u64 = 0x99;
+
+/// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
+pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
+
+/// Capacity 用途编码：System。
+pub const CAPACITY_KIND_SYSTEM: u8 = 0;
+/// Capacity 用途编码：User。
+pub const CAPACITY_KIND_USER: u8 = 1;
+/// Capacity 用途编码：Dma。
+pub const CAPACITY_KIND_DMA: u8 = 2;
+/// Capacity 用途编码：Gpu。
+pub const CAPACITY_KIND_GPU: u8 = 3;
+/// Capacity 用途编码：Numa。
+pub const CAPACITY_KIND_NUMA: u8 = 4;
 
 // === 设备与中断 0x50-0x5F ===
 
@@ -456,6 +503,7 @@ mod tests {
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
+        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_FRAME_FREE < 0xA0) };
     }
 
     #[test]
@@ -544,6 +592,16 @@ mod tests {
             SYS_ROOT_RESULT,
             SYS_FAULT_SUBSCRIBE,
             SYS_ROOT_CONTROL_DATA,
+            SYS_ARENA_INFO,
+            SYS_CAPACITY_INFO,
+            SYS_CAPACITY_SPLIT,
+            SYS_CAPACITY_ALLOC,
+            SYS_CAPACITY_FREE,
+            SYS_FRAME_INFO,
+            SYS_FRAME_PIN,
+            SYS_FRAME_SHARE,
+            SYS_FRAME_RELEASE,
+            SYS_FRAME_FREE,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

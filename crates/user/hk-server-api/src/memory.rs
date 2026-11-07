@@ -2,10 +2,13 @@
 
 use hk_syscall::{
     CapabilityKind, REGION_FLAG_COW, REGION_FLAG_GUARD, REGION_FLAG_PINNED, REGION_FLAG_SEALED,
-    RIGHT_EXECUTE, RIGHT_READ, RIGHT_WRITE, SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT,
-    SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS,
-    SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC,
-    SYS_LEDGER_INFO, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
+    RIGHT_EXECUTE, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_INFO, SYS_CAPABILITY_BIND_PROVIDER,
+    SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
+    SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
+    SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
+    SYS_DMA_MAP_CAPABILITY, SYS_FRAME_ALLOC, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_PIN,
+    SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO, SYS_REGION_MAP,
+    SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -160,6 +163,194 @@ pub fn capability_commit(capability: u64) -> Option<u64> {
     // SAFETY: 内核校验能力类型并推进版本。
     let version = unsafe { syscall_call(SYS_CAPABILITY_COMMIT, capability, 0, 0, 0).value };
     (version != u64::MAX).then_some(version)
+}
+
+/// Capacity 用途编码。
+pub use hk_syscall::{
+    CAPACITY_KIND_DMA as CAPACITY_DMA, CAPACITY_KIND_GPU as CAPACITY_GPU,
+    CAPACITY_KIND_NUMA as CAPACITY_NUMA, CAPACITY_KIND_SYSTEM as CAPACITY_SYSTEM,
+    CAPACITY_KIND_USER as CAPACITY_USER,
+};
+
+/// Capacity 快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CapacityInfo {
+    /// 起始物理地址。
+    pub start: u64,
+    /// 区间长度。
+    pub len: u64,
+    /// 用途编码。
+    pub kind: u8,
+    /// 页大小。
+    pub page_size: u64,
+    /// 配额字节数。
+    pub limit: u64,
+    /// 已用字节数。
+    pub used: u64,
+}
+
+/// 查询 Capacity。
+pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
+    let mut bytes = [0_u8; 48];
+    // SAFETY: 缓冲区属于本进程；内核写入 Capacity 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_CAPACITY_INFO,
+            capacity,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+        .value
+    };
+    if result != 48 {
+        return None;
+    }
+    Some(CapacityInfo {
+        start: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        len: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        kind: u64::from_le_bytes(bytes[16..24].try_into().ok()?) as u8,
+        page_size: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        limit: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[40..].try_into().ok()?),
+    })
+}
+
+/// 从 Capacity 尾部切出子 Capacity。
+pub fn capacity_split(capacity: u64, length: usize, kind: u8) -> Option<u64> {
+    // SAFETY: 内核校验 Capacity 与长度后切出子容量。
+    let child = unsafe {
+        syscall_call(
+            SYS_CAPACITY_SPLIT,
+            capacity,
+            length as u64,
+            u64::from(kind),
+            0,
+        )
+        .value
+    };
+    (child != u64::MAX).then_some(child)
+}
+
+/// 从 Capacity 分配一个 Frame。
+pub fn capacity_alloc(capacity: u64, length: usize) -> Option<u64> {
+    // SAFETY: 内核校验 Capacity 与长度后分配 Frame。
+    let frame = unsafe { syscall_call(SYS_CAPACITY_ALLOC, capacity, length as u64, 0, 0).value };
+    (frame != u64::MAX).then_some(frame)
+}
+
+/// 把 Frame 归还给 Capacity。
+pub fn capacity_free(capacity: u64, frame: u64) -> u64 {
+    // SAFETY: 内核校验 Capacity、Frame 与引用状态。
+    unsafe { syscall_call(SYS_CAPACITY_FREE, capacity, frame, 0, 0).value }
+}
+
+/// Frame 快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameInfo {
+    /// 起始物理地址。
+    pub phys: u64,
+    /// 区间长度。
+    pub len: u64,
+    /// 页大小。
+    pub page_size: u64,
+    /// 所属 Capacity 标识。
+    pub capacity: u64,
+    /// 共享引用数。
+    pub refs: u64,
+    /// 是否固定驻留。
+    pub pinned: bool,
+}
+
+/// 查询 Frame。
+pub fn frame_info(frame: u64) -> Option<FrameInfo> {
+    let mut bytes = [0_u8; 48];
+    // SAFETY: 缓冲区属于本进程；内核写入 Frame 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_FRAME_INFO,
+            frame,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+        .value
+    };
+    if result != 48 {
+        return None;
+    }
+    Some(FrameInfo {
+        phys: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        len: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        page_size: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        capacity: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        refs: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
+        pinned: u64::from_le_bytes(bytes[40..].try_into().ok()?) != 0,
+    })
+}
+
+/// 固定或解除固定 Frame。
+pub fn frame_pin(frame: u64, pinned: bool) -> u64 {
+    // SAFETY: 内核校验 Frame 与驻留状态。
+    unsafe { syscall_call(SYS_FRAME_PIN, frame, u64::from(pinned), 0, 0).value }
+}
+
+/// 增加 Frame 共享引用。
+pub fn frame_share(frame: u64) -> Option<u64> {
+    // SAFETY: 内核校验 Frame 后增加引用。
+    let refs = unsafe { syscall_call(SYS_FRAME_SHARE, frame, 0, 0, 0).value };
+    (refs != u64::MAX).then_some(refs)
+}
+
+/// 释放一次 Frame 共享引用。
+pub fn frame_release(frame: u64) -> Option<u64> {
+    // SAFETY: 内核校验 Frame 后释放引用。
+    let refs = unsafe { syscall_call(SYS_FRAME_RELEASE, frame, 0, 0, 0).value };
+    (refs != u64::MAX).then_some(refs)
+}
+
+/// 把 Frame 归还给 Capacity。
+pub fn frame_free(frame: u64, capacity: u64) -> u64 {
+    // SAFETY: 内核校验 Frame、Capacity 与引用状态。
+    unsafe { syscall_call(SYS_FRAME_FREE, frame, capacity, 0, 0).value }
+}
+
+/// 任务 Arena 快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ArenaInfo {
+    /// 起始虚拟地址。
+    pub base: u64,
+    /// 地址区间长度。
+    pub size: u64,
+    /// 已登记 Region 的字节数。
+    pub used: u64,
+    /// Region 数。
+    pub regions: u64,
+}
+
+/// 查询当前任务的 Arena。
+pub fn arena_info() -> Option<ArenaInfo> {
+    let mut bytes = [0_u8; 32];
+    // SAFETY: 缓冲区属于本进程；内核写入 Arena 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_ARENA_INFO,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    if result != 32 {
+        return None;
+    }
+    Some(ArenaInfo {
+        base: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        size: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        regions: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+    })
 }
 
 /// 任务内存账本快照。

@@ -96,9 +96,10 @@ pub struct ServiceManifest {
 
 ### 3.1 Memory Server
 
-- 持有 Root Server 授予的 User Capacity 子集，作为 Anonymous Provider 的页来源。
+- Root Server 从 Dma Capacity 尾部切出 1 MiB 初始 User Capacity，授予 Memory Server 句柄 `0x5001`。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
-- 缺页请求 `PROVIDER_FAULT` 从 User Capacity 分配 Frame，`PROVIDER_PROVIDE` 返回；与内核快速路径共用同一 HMP 契约。
+- 缺页请求 `PROVIDER_FAULT` 通过 `SYS_FRAME_ALLOC` 取得物理页，`PROVIDER_PROVIDE` 返回；Frame 句柄路径由 `SYS_CAPACITY_*` 与 `SYS_FRAME_*` 提供。
+- 启动自检覆盖 `CAPACITY_INFO`、`CAPACITY_ALLOC`、`FRAME_INFO`、`FRAME_PIN`、`FRAME_SHARE`、`FRAME_RELEASE` 与 `CAPACITY_FREE`。
 - 内存授权由 Handle 与 Rights 决定；任何持有 Capacity/Capability 的服务使用同一组 HMP 对象操作。
 
 ---

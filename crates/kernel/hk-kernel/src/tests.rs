@@ -85,6 +85,59 @@ fn creates_hmp_objects() {
 }
 
 #[test]
+fn allocates_splits_and_frees_capacity_frames() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(10),
+        PhysRange::new(PhysAddr::new(0x30_0000), 0x20_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+    let (range, page_size, _, refs, pinned) = kernel.frame_info(worker, frame).expect("Frame 信息");
+    assert_eq!(range.start(), PhysAddr::new(0x30_0000));
+    assert_eq!(page_size, PAGE_SIZE);
+    assert_eq!(refs, 1);
+    assert!(!pinned);
+    assert_eq!(kernel.share_frame(worker, frame), Ok(2));
+    assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
+    assert_eq!(
+        kernel.free_frame(worker, capacity, frame).err(),
+        Some(crate::KernelError::Hmp(
+            hk_mem::hmp::HmpError::PermissionDenied
+        ))
+    );
+    assert_eq!(kernel.pin_frame(worker, frame, false), Ok(()));
+    assert_eq!(kernel.release_frame(worker, frame), Ok(1));
+    assert_eq!(kernel.free_frame(worker, capacity, frame), Ok(()));
+    assert!(matches!(
+        kernel.frame_info(worker, frame),
+        Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))
+    ));
+
+    let child = kernel
+        .split_capacity(worker, capacity, 0x4000, CapacityKind::User)
+        .expect("分割 Capacity");
+    let (child_range, kind, _, limit, used) = kernel
+        .capacity_info(worker, child)
+        .expect("子 Capacity 信息");
+    assert_eq!(child_range.start(), PhysAddr::new(0x30_1000));
+    assert_eq!(kind, CapacityKind::User);
+    assert_eq!(limit, 0x4000);
+    assert_eq!(used, 0);
+}
+
+#[test]
 fn tracks_arena_regions_and_frame_refs() {
     let kernel = kernel();
     let worker = thread(&kernel);

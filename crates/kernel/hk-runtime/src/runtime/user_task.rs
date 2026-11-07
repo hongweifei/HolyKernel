@@ -27,6 +27,10 @@ pub struct UserTask<C> {
     pub(crate) capabilities: Vec<Option<CapabilityMap>>,
     /// 本任务持有的 Region。
     pub(crate) regions: Vec<Option<RegionMap>>,
+    /// 本任务持有的 Capacity。
+    pub(crate) capacities: Vec<Option<Handle>>,
+    /// 本任务持有的 Frame。
+    pub(crate) frames: Vec<Option<Handle>>,
     /// 任务内存根与 Region 表。
     pub(crate) hmp_arena: Option<HmpArena>,
     /// 本任务的内存记账。
@@ -83,6 +87,8 @@ impl<C> UserTask<C> {
             extra_charges: Vec::new(),
             capabilities: Vec::new(),
             regions: Vec::new(),
+            capacities: Vec::new(),
+            frames: Vec::new(),
             hmp_arena: HmpArena::create(hk_hal::VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)
                 .ok(),
             ledger: Ledger::create(ledger_limit),

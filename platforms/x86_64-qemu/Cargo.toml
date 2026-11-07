@@ -16,6 +16,7 @@ hk-boot = { version = "0.1.0", path = "../../crates/kernel/hk-boot" }
 hk-checkpoint = { version = "0.1.0", path = "../../crates/shared/hk-checkpoint" }
 hk-hal = { version = "0.1.0", path = "../../crates/kernel/hk-hal" }
 hk-kernel = { version = "0.1.0", path = "../../crates/kernel/hk-kernel" }
+hk-mem = { version = "0.1.0", path = "../../crates/kernel/hk-mem" }
 hk-kernel-shell = { version = "0.1.0", path = "../../crates/kernel/hk-kernel-shell" }
 hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/kernel/hk-platform-x86_64" }
 hk-root-server = { version = "0.1.0", path = "../../crates/kernel/hk-root-server" }
