@@ -2,6 +2,8 @@
 
 use crate::runtime::*;
 use alloc::string::String;
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use hk_hal::{SyscallFrame, UserContext};
 
 /// 最小用户现场。
@@ -75,6 +77,8 @@ struct MockPlatform {
     zero: bool,
     /// 解除映射的返回值。
     unmap_ok: bool,
+    /// 地址空间激活次数。
+    activations: Arc<AtomicUsize>,
 }
 
 impl MockPlatform {
@@ -82,6 +86,7 @@ impl MockPlatform {
         Self {
             zero: true,
             unmap_ok: true,
+            activations: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -152,6 +157,10 @@ impl UserPlatform for MockPlatform {
 
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
         true
+    }
+
+    fn activate(&self, _slot: usize) {
+        self.activations.fetch_add(1, Ordering::AcqRel);
     }
 
     fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
@@ -540,6 +549,27 @@ fn threads_share_process_memory_state() {
         runtime.process(child).ledger.limit(),
         runtime.process(leader).ledger.limit()
     );
+}
+
+#[test]
+fn activates_address_space_once_per_step() {
+    let activations = Arc::new(AtomicUsize::new(0));
+    let mut runtime = runtime_on(
+        "b",
+        MockPlatform {
+            activations: Arc::clone(&activations),
+            ..MockPlatform::new()
+        },
+    );
+
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(activations.load(Ordering::Acquire), 1);
+    let _ = runtime.finish(0, index);
+
+    let _ = runtime.step(0);
+    assert_eq!(activations.load(Ordering::Acquire), 2);
 }
 
 #[test]
@@ -1059,8 +1089,8 @@ fn lazy_region_unmap_failure_keeps_region() {
     let mut runtime = runtime_on(
         "b",
         MockPlatform {
-            zero: true,
             unmap_ok: false,
+            ..MockPlatform::new()
         },
     );
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -1410,7 +1440,7 @@ fn reclaim_skips_non_zero_pages() {
         "b",
         MockPlatform {
             zero: false,
-            unmap_ok: true,
+            ..MockPlatform::new()
         },
     );
     let Step::Resume { index, mut context } = runtime.step(0) else {

@@ -555,7 +555,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
 
-        self.platform.activate(index);
         self.platform.set_thread_pointer(self.tasks[index].tls);
         self.resumes[cpu] = self.resumes[cpu].saturating_add(1);
         self.run_start[cpu] = self.platform.timestamp();
