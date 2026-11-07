@@ -687,6 +687,41 @@ fn transports_byte_payloads() {
     assert_eq!(context.r8, 5);
     assert_eq!(&DATA.lock()[0x200..0x205], b"hello");
 
+    runtime.finish(0, receiver);
+    DATA.lock()[0x100..0x110].copy_from_slice(b"0123456789abcdef");
+    let Step::Resume {
+        index: sender,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("发送方应可再次运行");
+    };
+    assert_eq!(sender, 0);
+    context.rax = SYS_SEND_DATA;
+    context.rdi = 2;
+    context.rsi = 0x400;
+    context.rdx = 0x100;
+    context.r10 = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    runtime.finish(0, sender);
+
+    let Step::Resume {
+        index: receiver,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("接收方应可再次运行");
+    };
+    assert_eq!(receiver, 1);
+    context.rax = SYS_RECV_DATA;
+    context.rdi = 2;
+    context.rsi = 0x200;
+    context.rdx = 8;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0x400);
+    assert_eq!(context.r8, 8);
+    assert_eq!(&DATA.lock()[0x200..0x208], b"01234567");
+
     context.rax = hk_syscall::SYS_ARENA_INFO;
     context.rdi = 0x300;
     context.rsi = 32;

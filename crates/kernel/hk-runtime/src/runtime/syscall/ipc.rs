@@ -363,7 +363,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .write_user(buffer, &received.message.data[..copied])
         {
             frame.set_result(u64::MAX);
-            frame.set_handle(length as u64);
+            frame.set_handle(copied as u64);
             return Switch::Continue;
         }
 
@@ -371,7 +371,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);
         frame.set_sender(self.endpoint_of(received.sender));
-        frame.set_handle((number << 32) | length as u64);
+        frame.set_handle((number << 32) | copied as u64);
         Switch::Continue
     }
 
@@ -391,7 +391,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .write_user(buffer, &received.message.data[..copied])
         {
             frame.set_result(u64::MAX);
-            frame.set_handle(length as u64);
+            frame.set_handle(copied as u64);
             return Switch::Continue;
         }
 
@@ -399,7 +399,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);
         frame.set_sender(self.endpoint_of(received.sender));
-        frame.set_handle(length as u64);
+        frame.set_handle(copied as u64);
         Switch::Continue
     }
 }

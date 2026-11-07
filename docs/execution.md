@@ -209,6 +209,7 @@ impl Notification {
 - `Capacity`、`Frame`、`Region` 与类型化能力构成 HMP 对象图；内核与用户态服务使用同一组对象、Rights 与错误面。
 - `Frame` 是 HMP 物理页能力，带 `FrameId`、所属 Capacity、pin 与共享引用；通过 Handle 访问。
 - 大消息通过 Frame Handle 传递；接收方创建自己的 Region，句柄权限决定只读/可写/可转移。
+- `SYS_RECV_DATA*` 返回实际写入缓冲区的字节数；载荷超过缓冲区时截断，调用方按返回长度切片。
 - 内核提供 `SYS_CAPACITY_*`、`SYS_FRAME_*`、`SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_CAPABILITY`。
 - `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
 - 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。

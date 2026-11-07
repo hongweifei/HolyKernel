@@ -120,7 +120,9 @@ pub fn send_data(endpoint: u64, label: u64, data: &[u8]) -> u64 {
     }
 }
 
-/// 从端点接收带字节载荷的消息，返回标签、消息字、发送者与载荷长度。
+/// 从端点接收带字节载荷的消息，返回标签、消息字、发送者与实际写入长度。
+///
+/// 载荷超过 `buffer` 时截断，返回长度不超过 `buffer.len()`。
 pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
     let result = unsafe {
@@ -136,7 +138,7 @@ pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
         result.value,
         result.word,
         result.sender,
-        result.extra as usize,
+        (result.extra as usize).min(buffer.len()),
     )
 }
 
@@ -156,7 +158,7 @@ pub fn recv_data_try(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize)
         result.value,
         result.word,
         result.sender,
-        result.extra as usize,
+        (result.extra as usize).min(buffer.len()),
     )
 }
 
@@ -181,7 +183,7 @@ pub fn recv_data_handle(
         result.value,
         result.word,
         result.sender,
-        (packed & 0xFFFF_FFFF) as usize,
+        ((packed & 0xFFFF_FFFF) as usize).min(buffer.len()),
         packed >> 32,
     )
 }
@@ -207,7 +209,7 @@ pub fn recv_data_handle_try(
         result.value,
         result.word,
         result.sender,
-        (packed & 0xFFFF_FFFF) as usize,
+        ((packed & 0xFFFF_FFFF) as usize).min(buffer.len()),
         packed >> 32,
     )
 }
