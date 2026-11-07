@@ -37,7 +37,7 @@ use hk_hal::Console;
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::bootstrap;
 #[cfg(target_os = "none")]
-use hk_platform_x86_64::{COM1, PageAllocator, PageTable, Serial};
+use hk_platform_x86_64::{COM1, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_root_server::ServiceTable;
 #[cfg(target_os = "none")]
@@ -119,26 +119,45 @@ extern "C" fn kmain() -> ! {
         ),
     };
     let direct_map_base = direct_map.virt_base.get();
-    let mut allocator = match PageAllocator::new(info.memory_map, info.kernel_image) {
-        Some(allocator) => allocator,
-        None => fail(
+    hk_platform_x86_64::paging::FRAME_BANK.init(info.memory_map, info.kernel_image);
+    if hk_platform_x86_64::paging::FRAME_BANK.total() == 0 {
+        fail(
             &console,
             screen.as_ref(),
             "没有可用的物理内存区域\n",
             ExitCode::Failure(3),
-        ),
+        );
+    }
+    const KERNEL_HEAP_BYTES: usize = 16 * 1024 * 1024;
+    let Some(heap) = hk_platform_x86_64::paging::FRAME_BANK.allocate_contiguous(KERNEL_HEAP_BYTES)
+    else {
+        fail(
+            &console,
+            screen.as_ref(),
+            "内核堆物理内存不足\n",
+            ExitCode::Failure(3),
+        );
     };
+    let heap_virt = direct_map_base.saturating_add(heap.start().get());
+    // SAFETY: heap 来自 FrameBank，direct map 已覆盖该物理区间。
+    unsafe {
+        core::ptr::write_bytes(heap_virt as *mut u8, 0, KERNEL_HEAP_BYTES);
+    }
+    crate::allocator::init_dynamic(heap_virt as usize, KERNEL_HEAP_BYTES);
     let paging = PageTable::new(direct_map_base);
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
     hk_platform_x86_64::cache::init(direct_map_base);
-    hk_platform_x86_64::paging::reserve_cow_pages(&mut allocator, 512);
-    hk_platform_x86_64::paging::reserve_user_table_pages(&mut allocator, 64);
-    hk_platform_x86_64::paging::reserve_restore_pages(&mut allocator, 2048);
-    if let Some(dma) = allocator.allocate_contiguous(hk_platform_x86_64::dma::POOL_BYTES) {
+    if let Some(dma) = hk_platform_x86_64::paging::FRAME_BANK
+        .allocate_contiguous(hk_platform_x86_64::dma::POOL_BYTES)
+    {
         hk_platform_x86_64::dma::init(dma);
     }
 
-    if let Err(error) = bootstrap::init_interrupts(&paging, &mut allocator, direct_map_base) {
+    if let Err(error) = bootstrap::init_interrupts(
+        &paging,
+        &hk_platform_x86_64::paging::FRAME_BANK,
+        direct_map_base,
+    ) {
         fail(
             &console,
             screen.as_ref(),
@@ -152,7 +171,12 @@ extern "C" fn kmain() -> ! {
         hk_platform_x86_64::cpu::calibrate_tick(hz);
     }
 
-    match bootstrap::init_ioapic(&info, &paging, &mut allocator, direct_map_base) {
+    match bootstrap::init_ioapic(
+        &info,
+        &paging,
+        &hk_platform_x86_64::paging::FRAME_BANK,
+        direct_map_base,
+    ) {
         Ok(Some(ioapic)) => {
             let _ = bootstrap::init_keyboard(&ioapic);
             announce(
@@ -258,7 +282,7 @@ extern "C" fn kmain() -> ! {
             if let Err(error) = loader::run(
                 &info,
                 direct_map_base,
-                &mut allocator,
+                &hk_platform_x86_64::paging::FRAME_BANK,
                 &paging,
                 &mut services,
             ) {
@@ -280,7 +304,7 @@ extern "C" fn kmain() -> ! {
             let mut shell_loader = shell::Loader {
                 info: &info,
                 direct_map_base,
-                allocator: &mut allocator,
+                allocator: &hk_platform_x86_64::paging::FRAME_BANK,
                 paging: &paging,
             };
 

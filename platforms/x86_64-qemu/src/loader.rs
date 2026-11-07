@@ -28,7 +28,7 @@ const USER_STACK_STRIDE: u64 = hk_base::user::STACK_STRIDE;
 pub fn run(
     info: &BootInfo,
     direct_map_base: u64,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     paging: &PageTable,
     services: &mut ServiceTable,
 ) -> Result<(), String> {
@@ -343,13 +343,14 @@ pub fn run(
             continue;
         }
         if idle {
-            // 控制台自检需要等待外部键盘输入：任务全部阻塞时不要直接退出，
-            // 而是进入可被中断唤醒的空闲等待，直到所有任务真正退出。
-            if console_test && !runtime::tasks().iter().all(|task| task.state == "exited") {
-                // SAFETY: 等待外部中断（键盘）唤醒；`sti` 延迟到下一条指令，
-                // `hlt` 不会丢失已挂起的中断。
+            // 图形桌面、控制台自检与任何存在休眠任务的模式都不能直接退出：
+            // 休眠任务需要周期性 tick 才能到期，外部输入则通过中断唤醒空闲 CPU。
+            let keep_alive = desktop || console_test || runtime::has_sleepers();
+            if keep_alive && !runtime::tasks().iter().all(|task| task.state == "exited") {
+                cpu::rearm_tick();
+                // SAFETY: 中断已开启；`hlt` 等待下一次中断，随后关中断回到调度循环。
                 unsafe {
-                    core::arch::asm!("sti; hlt; cli", options(nomem, nostack));
+                    core::arch::asm!("hlt; cli", options(nomem, nostack));
                 }
                 continue;
             }
@@ -365,7 +366,7 @@ fn load(
     index: usize,
     endpoint: u64,
     direct_map_base: u64,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     let bytes = info
@@ -402,7 +403,7 @@ fn load(
 struct UserPages<'a> {
     direct_map_base: u64,
     paging: &'a PageTable,
-    allocator: &'a mut PageAllocator,
+    allocator: &'a PageAllocator,
 }
 
 impl UserMemory for UserPages<'_> {
@@ -434,7 +435,7 @@ pub fn load_service(
     name: &str,
     slot: usize,
     direct_map_base: u64,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     load_module(info, name, slot, direct_map_base, allocator, paging)
@@ -446,7 +447,7 @@ pub fn load_module(
     name: &str,
     slot: usize,
     direct_map_base: u64,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     let module = info

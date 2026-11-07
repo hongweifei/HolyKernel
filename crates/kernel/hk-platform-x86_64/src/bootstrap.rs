@@ -137,7 +137,7 @@ impl InterruptController for IoApicController {
 
 struct AcpiWindow<'a> {
     paging: &'a PageTable,
-    allocator: &'a mut PageAllocator,
+    allocator: &'a PageAllocator,
     base: u64,
 }
 
@@ -180,7 +180,7 @@ impl AcpiWindow<'_> {
 pub fn init_ioapic(
     info: &BootInfo,
     paging: &PageTable,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     direct_map_base: u64,
 ) -> Result<Option<IoApicSetup>, String> {
     let Some(rsdp) = info.rsdp else {
@@ -248,7 +248,7 @@ pub fn framebuffer_console(info: &BootInfo) -> Option<FramebufferConsole> {
 /// 映射 LAPIC 寄存器页并初始化本地 APIC。
 pub fn init_interrupts(
     paging: &PageTable,
-    allocator: &mut PageAllocator,
+    allocator: &PageAllocator,
     direct_map_base: u64,
 ) -> Result<(), String> {
     let lapic_phys = PhysAddr::new(0xFEE0_0000);

@@ -19,7 +19,7 @@ pub mod sched;
 pub mod tcb;
 mod trace;
 
-pub use allocator::{BumpHeap, FreeHeap};
+pub use allocator::{BumpHeap, FreeHeap, KernelHeap};
 pub use error::KernelError;
 pub use kernel::{Kernel, Received, TRACE_CAPACITY};
 pub use object::{KernelObject, ObjectPayload};

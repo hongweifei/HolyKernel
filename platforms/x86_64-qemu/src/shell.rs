@@ -22,7 +22,7 @@ pub struct Loader<'a> {
     /// direct map 基址。
     pub direct_map_base: u64,
     /// 物理帧分配器。
-    pub allocator: &'a mut PageAllocator,
+    pub allocator: &'a PageAllocator,
     /// 内核页表。
     pub paging: &'a PageTable,
 }

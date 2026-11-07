@@ -11,5 +11,5 @@ pub mod hmp;
 pub mod page;
 pub mod platform;
 
-pub use page::{LinearPages, PagePool, UserVspace, VspaceRegistry};
+pub use page::{FrameBank, UserVspace, VspaceRegistry};
 pub use platform::{DmaPool, SoftwareIommu};

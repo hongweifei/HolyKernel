@@ -7,10 +7,12 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
-use hk_mem::PagePool;
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 
-pub use hk_mem::LinearPages as PageAllocator;
+pub use hk_mem::FrameBank as PageAllocator;
+
+/// 内核全局物理帧银行。
+pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
 
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
@@ -27,9 +29,6 @@ const KERNEL_PML4_START: usize = 256;
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
-static COW_PAGES: PagePool = PagePool::new();
-static USER_TABLE_PAGES: PagePool = PagePool::new();
-static RESTORE_PAGES: PagePool = PagePool::new();
 
 /// 设置页表运行时使用的 direct map 基址，并记录内核页表根。
 pub fn init_runtime(direct_map: u64) {
@@ -66,37 +65,22 @@ pub fn kernel_table() -> PageTable {
     }
 }
 
-/// 预留写时复制与页表使用的物理帧。
-pub fn reserve_cow_pages(allocator: &mut PageAllocator, count: usize) {
-    COW_PAGES.reserve(allocator, count);
-}
-
 fn take_cow_page() -> Option<PhysAddr> {
-    COW_PAGES.take()
-}
-
-/// 预留检查点恢复使用的物理帧。
-pub fn reserve_restore_pages(allocator: &mut PageAllocator, count: usize) {
-    RESTORE_PAGES.reserve(allocator, count);
+    FRAME_BANK.allocate()
 }
 
 /// 取出一个检查点恢复帧。
 pub fn take_restore_page() -> Option<PhysAddr> {
-    RESTORE_PAGES.take()
+    FRAME_BANK.allocate()
 }
 
 /// 归还一个检查点恢复帧。
 pub fn give_restore_page(frame: PhysAddr) {
-    RESTORE_PAGES.give(frame);
-}
-
-/// 预留 MMIO 映射所需的页表帧。
-pub fn reserve_user_table_pages(allocator: &mut PageAllocator, count: usize) {
-    USER_TABLE_PAGES.reserve(allocator, count);
+    FRAME_BANK.free(PhysRange::new(frame, PAGE_SIZE as u64));
 }
 
 fn take_user_table_frame() -> Option<PhysAddr> {
-    USER_TABLE_PAGES.take()
+    FRAME_BANK.allocate()
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。
@@ -217,7 +201,7 @@ impl PageTable {
     }
 
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
-    pub fn create_user(&self, allocator: &mut PageAllocator) -> Result<Self, PagingError> {
+    pub fn create_user(&self, allocator: &PageAllocator) -> Result<Self, PagingError> {
         self.create_user_with(|| allocator.allocate())
     }
 
@@ -555,7 +539,7 @@ impl PageTable {
         virt: VirtAddr,
         phys: PhysAddr,
         flags: PageFlags,
-        allocator: &mut PageAllocator,
+        allocator: &PageAllocator,
     ) -> Result<(), PagingError> {
         self.map_with(virt, phys, flags, || allocator.allocate())
     }
@@ -703,8 +687,8 @@ mod tests {
             direct_map: base,
             root: PhysAddr::new(0),
         };
-        let mut allocator = PageAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
-        let user = table.create_user(&mut allocator).expect("创建用户页表");
+        let allocator = PageAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
+        let user = table.create_user(&allocator).expect("创建用户页表");
         assert_eq!(user.root, PhysAddr::new(PAGE_SIZE as u64));
 
         // SAFETY: 用户页表位于缓冲区第二页，已清零并复制内核入口。
