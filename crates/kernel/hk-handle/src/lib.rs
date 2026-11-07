@@ -141,9 +141,12 @@ impl ObjectHeader {
 /// 句柄表持有的对象。
 ///
 /// 句柄持有对象的强引用：最后一个句柄关闭时对象随之析构。
-pub trait Object: Send + Sync {
+pub trait Object: Send + Sync + core::any::Any {
     /// 返回对象头。
     fn header(&self) -> &ObjectHeader;
+
+    /// 以类型擦除的 `Arc` 返回对象，供内核还原具体对象类型。
+    fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync>;
 }
 
 bitflags::bitflags! {
@@ -261,6 +264,11 @@ impl Resolved {
     pub fn kind(&self) -> ObjectKind {
         self.object.header().kind()
     }
+
+    /// 取出类型擦除的对象，供内核还原具体类型。
+    pub fn into_any(self) -> Arc<dyn core::any::Any + Send + Sync> {
+        self.object.into_any()
+    }
 }
 
 impl fmt::Debug for Resolved {
@@ -366,6 +374,15 @@ impl HandleTable {
             object: Arc::clone(&slot.object),
             rights: slot.rights,
         })
+    }
+
+    /// 查找句柄并返回对象标识，不克隆对象引用。
+    pub fn handle_id(&self, handle: Handle) -> Result<ObjectId, HandleError> {
+        let slot = self.slot(handle)?;
+        if slot.grant_epoch != slot.object.header().epoch() {
+            return Err(HandleError::Revoked);
+        }
+        Ok(slot.object.header().id())
     }
 
     /// 查找句柄并校验对象类别。
@@ -475,6 +492,10 @@ mod tests {
     impl Object for TestObject {
         fn header(&self) -> &ObjectHeader {
             &self.header
+        }
+
+        fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync> {
+            self
         }
     }
 

@@ -115,7 +115,7 @@ impl Kernel {
         let tcb = threads
             .get(&thread)
             .ok_or(KernelError::UnknownThread(thread))?;
-        Ok(tcb.handles().resolve(handle, Rights::empty())?.id())
+        Ok(tcb.handles().handle_id(handle)?)
     }
 
     pub(crate) fn register(
@@ -132,9 +132,13 @@ impl Kernel {
             tcb.handles_mut()
                 .insert(Arc::clone(&object) as Arc<dyn Object>, rights)?
         };
-        self.objects
-            .lock()
-            .insert(object.header().id(), Arc::downgrade(&object));
+        {
+            let mut objects = self.objects.lock();
+            objects.insert(object.header().id(), Arc::downgrade(&object));
+            if objects.len() > 256 && objects.len().is_multiple_of(64) {
+                objects.retain(|_, weak| weak.strong_count() > 0);
+            }
+        }
         self.record(
             thread.get(),
             Category::Handle,
@@ -151,14 +155,17 @@ impl Kernel {
         required: Rights,
         expected: ObjectKind,
     ) -> Result<(Arc<KernelObject>, ObjectId), KernelError> {
-        let id = {
-            let threads = self.threads.lock();
-            let tcb = threads
-                .get(&thread)
-                .ok_or(KernelError::UnknownThread(thread))?;
-            tcb.handles().resolve_kind(handle, required, expected)?.id()
-        };
-        Ok((self.upgrade(id)?, id))
+        let threads = self.threads.lock();
+        let tcb = threads
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?;
+        let resolved = tcb.handles().resolve_kind(handle, required, expected)?;
+        let id = resolved.id();
+        let object = resolved
+            .into_any()
+            .downcast::<KernelObject>()
+            .map_err(|_| KernelError::WrongKind { expected })?;
+        Ok((object, id))
     }
 
     pub(crate) fn upgrade(&self, id: ObjectId) -> Result<Arc<KernelObject>, KernelError> {

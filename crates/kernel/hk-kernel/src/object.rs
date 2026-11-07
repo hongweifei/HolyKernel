@@ -281,6 +281,10 @@ impl Object for KernelObject {
     fn header(&self) -> &ObjectHeader {
         &self.header
     }
+
+    fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync> {
+        self
+    }
 }
 
 impl Drop for KernelObject {
