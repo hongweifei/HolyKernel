@@ -546,6 +546,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     );
     let mut theme_buffer = [0_u8; 128];
     let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
+    let mut test_buffer = [0_u8; 128];
+    let display_test = hk_server_api::boot_cmdline(&mut test_buffer)
+        .is_some_and(|line| line.contains("display-test"));
     let font = hk_canvas::default_font_scaled(theme::scale());
     Line::new()
         .text(b"hk-server-display: font ")
@@ -1230,6 +1233,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         payload[6], payload[7],
                     ]);
                     let text = &payload[8..length];
+                    let mut changed = false;
                     if let Some(window) =
                         windows.iter_mut().flatten().find(|window| window.id == id)
                     {
@@ -1237,31 +1241,38 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         while count > 0 && core::str::from_utf8(&text[..count]).is_err() {
                             count -= 1;
                         }
-                        window.title[..count].copy_from_slice(&text[..count]);
-                        window.title_length = count;
+                        if window.title_length != count || window.title[..count] != text[..count] {
+                            window.title[..count].copy_from_slice(&text[..count]);
+                            window.title_length = count;
+                            changed = true;
+                        }
                     }
-                    damage_title(&screen, &windows, focus, font, seat.pointer.cursor(), id);
-                    damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
-                    let titled = windows
-                        .iter()
-                        .flatten()
-                        .find(|window| window.id == id)
-                        .is_some_and(|window| {
-                            let palette = theme::theme();
-                            let color = if window.id == focus {
-                                palette.title_focus
-                            } else {
-                                palette.title_color
-                            };
-                            (window.y + 4..(window.y + title_height()).min(screen.height)).any(
-                                |row| {
-                                    (window.x + 4..(window.x + window.width).min(screen.width))
-                                        .any(|column| screen.get(column, row) != color)
-                                },
-                            )
-                        });
-                    if titled {
-                        write(b"hk-server-display: title ok\n");
+                    if changed {
+                        damage_title(&screen, &windows, focus, font, seat.pointer.cursor(), id);
+                        damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
+                        if display_test {
+                            let titled = windows
+                                .iter()
+                                .flatten()
+                                .find(|window| window.id == id)
+                                .is_some_and(|window| {
+                                    let palette = theme::theme();
+                                    let color = if window.id == focus {
+                                        palette.title_focus
+                                    } else {
+                                        palette.title_color
+                                    };
+                                    (window.y + 4..(window.y + title_height()).min(screen.height))
+                                        .any(|row| {
+                                            (window.x + 4
+                                                ..(window.x + window.width).min(screen.width))
+                                                .any(|column| screen.get(column, row) != color)
+                                        })
+                                });
+                            if titled {
+                                write(b"hk-server-display: title ok\n");
+                            }
+                        }
                     }
                 }
             }
