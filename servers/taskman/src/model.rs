@@ -145,11 +145,6 @@ impl PerfSample {
     pub fn arena_used(&self) -> u64 {
         self.rows.iter().map(|row| row.arena_used).sum()
     }
-
-    /// 所有任务 Arena 总量。
-    pub fn arena_total(&self) -> u64 {
-        self.rows.iter().map(|row| row.arena_size).sum()
-    }
 }
 
 /// 排序键。

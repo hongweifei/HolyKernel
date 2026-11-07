@@ -21,6 +21,16 @@ pub use hk_syscall::{
     RIGHT_TRANSFER, RIGHT_WRITE,
 };
 
+/// panic 输出写入器；panic 处理器通过它在不分配内存的情况下写串口。
+pub struct PanicWriter;
+
+impl core::fmt::Write for PanicWriter {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        crate::syscall::write(text.as_bytes());
+        Ok(())
+    }
+}
+
 /// 生成服务入口样板：内核态 panic 处理器与宿主占位 `main`。
 ///
 /// 每个服务二进制在 crate 根部调用一次；`_start` 仍由服务自己实现。
@@ -29,10 +39,28 @@ macro_rules! server_boilerplate {
     () => {
         #[cfg(target_os = "none")]
         #[panic_handler]
-        fn panic(_info: &core::panic::PanicInfo) -> ! {
-            loop {
-                core::hint::spin_loop();
+        fn panic(info: &core::panic::PanicInfo) -> ! {
+            let mut writer = $crate::PanicWriter;
+            let _ = core::fmt::write(
+                &mut writer,
+                format_args!(
+                    "\nhk-server panic: {} [{}]\n",
+                    env!("CARGO_PKG_NAME"),
+                    info.message()
+                ),
+            );
+            if let Some(location) = info.location() {
+                let _ = core::fmt::write(
+                    &mut writer,
+                    format_args!(
+                        "  at {}:{}:{}\n",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    ),
+                );
             }
+            $crate::exit(1)
         }
 
         #[cfg(not(target_os = "none"))]
