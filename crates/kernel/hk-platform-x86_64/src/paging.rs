@@ -601,7 +601,7 @@ impl PageTable {
         Ok(())
     }
 
-    /// 解除一段用户映射；页表中间级保留。
+    /// 解除一段用户映射；已不存在的页按已解除处理。
     pub fn unmap_user_range(&self, virt: VirtAddr, len: usize) -> bool {
         if !virt.is_page_aligned() {
             return false;
@@ -616,14 +616,18 @@ impl PageTable {
                 let entry = self.entry(table, index);
                 // SAFETY: 页表项位于 HHDM 映射的物理内存。
                 let value = unsafe { entry.read_volatile() };
-                if value & PRESENT == 0 || value & HUGE != 0 {
+                if value & PRESENT == 0 {
                     present = false;
                     break;
+                }
+                if value & HUGE != 0 {
+                    return false;
                 }
                 table = PhysAddr::new(value & ADDRESS_MASK);
             }
             if !present {
-                return false;
+                offset += PAGE_SIZE;
+                continue;
             }
             let index = ((address >> 12) & 0x1FF) as usize;
             let entry = self.entry(table, index);
@@ -673,6 +677,18 @@ fn read_cr3() -> PhysAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmaps_absent_range_idempotently() {
+        let mut memory = alloc::vec![0_u8; PAGE_SIZE];
+        let base = memory.as_mut_ptr() as u64;
+        let table = PageTable {
+            direct_map: base,
+            root: PhysAddr::new(0),
+        };
+        assert!(table.unmap_user_range(VirtAddr::new(0x1000), PAGE_SIZE));
+        assert!(!table.unmap_user_range(VirtAddr::new(0x1001), PAGE_SIZE));
+    }
 
     #[test]
     fn creates_user_table_with_kernel_entries() {

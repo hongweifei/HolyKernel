@@ -73,11 +73,16 @@ impl SyscallFrame for MockContext {
 struct MockPlatform {
     /// 物理页零检测的返回值。
     zero: bool,
+    /// 解除映射的返回值。
+    unmap_ok: bool,
 }
 
 impl MockPlatform {
     fn new() -> Self {
-        Self { zero: true }
+        Self {
+            zero: true,
+            unmap_ok: true,
+        }
     }
 }
 
@@ -122,7 +127,7 @@ impl UserPlatform for MockPlatform {
     }
 
     fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
-        true
+        self.unmap_ok
     }
 
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
@@ -1050,6 +1055,43 @@ fn arena_tracks_mapped_regions() {
 }
 
 #[test]
+fn lazy_region_unmap_failure_keeps_region() {
+    let mut runtime = runtime_on(
+        "b",
+        MockPlatform {
+            zero: true,
+            unmap_ok: false,
+        },
+    );
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    context.rax = SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    assert_eq!(runtime.process(0).hmp_arena.regions().len(), 1);
+    assert_eq!(runtime.process(0).regions.iter().flatten().count(), 1);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn provider_fault_blocks_caller() {
     let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let Step::Resume {
@@ -1364,7 +1406,13 @@ fn reclaims_zero_pages_and_reloads_them() {
 
 #[test]
 fn reclaim_skips_non_zero_pages() {
-    let mut runtime = runtime_on("b", MockPlatform { zero: false });
+    let mut runtime = runtime_on(
+        "b",
+        MockPlatform {
+            zero: false,
+            unmap_ok: true,
+        },
+    );
     let Step::Resume { index, mut context } = runtime.step(0) else {
         panic!("任务应可运行");
     };

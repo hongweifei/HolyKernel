@@ -377,7 +377,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let page = hk_hal::PAGE_SIZE as u64;
             let mut offset = 0;
             while offset < length as u64 {
-                let _ = self.platform.unmap_dma(index, virt + offset, page as usize);
+                if !self.platform.unmap_dma(index, virt + offset, page as usize) {
+                    frame.set_result(0);
+                    return Switch::Continue;
+                }
                 offset += page;
             }
         } else if !self.platform.unmap_dma(index, virt, length) {
