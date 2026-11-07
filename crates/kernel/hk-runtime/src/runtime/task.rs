@@ -37,20 +37,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.append_endpoint(own_id, own_notification_id);
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
+        let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(index));
+        process.device_factory = device_factory;
         let mut task = UserTask::new(TaskInit {
             tcb,
+            process: index,
             name: String::from(name),
             parent,
             handles,
             notifications,
             context,
-            arena_base,
-            arena_size,
-            ledger_limit: self.platform.memory_limit(index),
         });
-        task.device_factory = device_factory;
         task.leader = index;
         self.tasks.push(task);
+        self.processes.push(Some(process));
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }
@@ -173,7 +173,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Err(String::from("任务正在 CPU 上执行"));
         }
         let task = &self.tasks[index];
-        if task.device_factory.is_some()
+        if self.process(index).device_factory.is_some()
             || task.capabilities.iter().flatten().next().is_some()
             || task.grants.iter().flatten().next().is_some()
         {
@@ -191,7 +191,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let context = task.context;
         let parent = task.parent;
-        let arena_used = task.arena.used();
+        let arena_used = self.process(index).arena.used();
         let pages = self
             .platform
             .capture_pages(index)
@@ -311,19 +311,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.endpoint_views(tcb, slot, Some(own), Some(own_notification));
 
         let (arena_base, arena_size) = self.platform.arena_layout(slot);
+        let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(slot));
+        process.arena.set_used(arena_used);
         let mut task = UserTask::new(TaskInit {
             tcb,
+            process: slot,
             name: String::from(name),
             parent,
             handles,
             notifications,
             context,
-            arena_base,
-            arena_size,
-            ledger_limit: self.platform.memory_limit(slot),
         });
-        task.arena.set_used(arena_used);
         task.leader = slot;
+        self.processes[slot] = Some(process);
         self.tasks[slot] = task;
         let _ = self.kernel.activate(tcb);
         Ok(slot)
@@ -403,22 +403,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let mut context = *frame;
         context.set_result(0);
         let name = format!("{}-fork", self.tasks[index].name);
-        let arena = self.tasks[index].arena;
-        let ledger_limit = self.tasks[index].ledger.limit();
+        let arena = self.process(index).arena;
+        let ledger_limit = self.process(index).ledger.limit();
+        let mut process = Process::new(0, 0, ledger_limit);
+        process.arena = arena;
         let mut task = UserTask::new(TaskInit {
             tcb: child,
+            process: child_index,
             name,
             parent: Some(tcb.get()),
             handles,
             notifications,
             context,
-            arena_base: arena.base(),
-            arena_size: arena.size(),
-            ledger_limit,
         });
-        task.arena = arena;
         task.leader = child_index;
         self.tasks.push(task);
+        self.processes.push(Some(process));
         self.fork_regions(index, child_index);
         let _ = self.kernel.activate(child);
 
@@ -456,7 +456,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.platform.dma_free(range);
             }
             if let Some(charge) = entry.charge {
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
             }
         }
     }

@@ -33,17 +33,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
-        let Ok(charge) = self.tasks[index].ledger.charge(aligned) else {
+        let Ok(charge) = self.process_mut(index).ledger.charge(aligned) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Some(backing) = self.allocate_owned(index, aligned) else {
-            let _ = self.tasks[index].ledger.release(charge);
+            let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
-            let _ = self.tasks[index].ledger.release(charge);
+            let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -55,7 +55,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -159,13 +159,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
-        let Ok(charge) = self.tasks[index].ledger.charge(aligned) else {
+        let Ok(charge) = self.process_mut(index).ledger.charge(aligned) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Ok(capability) = Capability::new(CapabilityKind::Anonymous, aligned, PAGE_SIZE, None)
         else {
-            let _ = self.tasks[index].ledger.release(charge);
+            let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -177,7 +177,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -220,7 +220,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let (charged, limit, peak, pressure) = {
-            let ledger = &self.tasks[index].ledger;
+            let ledger = &self.process(index).ledger;
             (
                 ledger.charged(),
                 ledger.limit(),

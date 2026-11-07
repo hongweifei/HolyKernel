@@ -9,7 +9,7 @@ use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::Rights;
 use hk_kernel::{Kernel, KernelError};
 
-use crate::runtime::{TaskInit, UserPlatform, UserRuntime, UserTask};
+use crate::runtime::{Process, TaskInit, UserPlatform, UserRuntime, UserTask};
 use crate::{RootServer, ServiceSpec};
 
 /// 用服务清单装配用户态运行时。
@@ -34,6 +34,7 @@ where
     let mut notifications = Vec::with_capacity(specs.len());
     let mut own_notifications = Vec::with_capacity(specs.len());
     let mut tasks = Vec::with_capacity(specs.len());
+    let mut processes = Vec::with_capacity(specs.len());
 
     for service in server.services() {
         let handle = kernel
@@ -78,18 +79,17 @@ where
         } else {
             None
         };
+        let mut process = Process::new(arena_base, arena_size, platform.memory_limit(index));
+        process.device_factory = factory;
         let mut task = UserTask::new(TaskInit {
             tcb: service.tcb,
+            process: index,
             name: String::from(specs[index].name),
             parent: Some(root),
             handles,
             notifications: notification_handles,
             context,
-            arena_base,
-            arena_size,
-            ledger_limit: platform.memory_limit(index),
         });
-        task.device_factory = factory;
         if let Some((kind, bytes)) = specs[index].capacity
             && let Some(capacity) = platform.reserve_capacity(bytes, kind)
             && let Ok(handle) = kernel.create_capacity(
@@ -101,6 +101,7 @@ where
             task.capacities.push(Some(handle));
         }
         tasks.push(task);
+        processes.push(Some(process));
     }
 
     kernel.exit(server.root())?;
@@ -110,6 +111,7 @@ where
         endpoints,
         notifications,
         tasks,
+        processes,
         platform,
     ))
 }

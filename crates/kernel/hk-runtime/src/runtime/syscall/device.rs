@@ -2,7 +2,7 @@ use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn create_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let Some(factory) = self.tasks[index].device_factory else {
+        let Some(factory) = self.process(index).device_factory else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -20,12 +20,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(charge) = self.tasks[index].ledger.charge(DMA_WINDOW_BYTES as u64) else {
+        let Ok(charge) = self
+            .process_mut(index)
+            .ledger
+            .charge(DMA_WINDOW_BYTES as u64)
+        else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Some(range) = self.platform.dma_window(DMA_WINDOW_BYTES) else {
-            let _ = self.tasks[index].ledger.release(charge);
+            let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -42,7 +46,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             Err(_) => {
                 self.platform.dma_free(range);
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
                 frame.set_result(u64::MAX);
                 Switch::Continue
             }
@@ -71,12 +75,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let Some(virt) = self.tasks[index].user_window.allocate(aligned as usize) else {
+        let Some(virt) = self
+            .process_mut(index)
+            .user_window
+            .allocate(aligned as usize)
+        else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         if !self.platform.write_user(out, &virt.to_le_bytes()) {
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -84,13 +92,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .platform
             .map_mmio(index, virt, range.base, aligned as usize)
         {
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         if !self.install_device_mapping(index, tcb, range.base, aligned as usize, virt) {
             let _ = self.platform.unmap_dma(index, virt, aligned as usize);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -181,7 +189,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Ok(()) => {
                 let entry = self.tasks[index].grants[slot].take();
                 if let Some(charge) = entry.and_then(|entry| entry.charge) {
-                    let _ = self.tasks[index].ledger.release(charge);
+                    let _ = self.process_mut(index).ledger.release(charge);
                 }
                 0
             }

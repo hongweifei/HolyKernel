@@ -205,7 +205,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(virt) = self.tasks[index].user_window.allocate(length) else {
+        let Some(virt) = self.process_mut(index).user_window.allocate(length) else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -214,22 +214,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .platform
             .map_dma(index, virt, range.start().get(), length)
         {
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.platform.unmap_dma(index, virt, length);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         let region_id = region.id();
-        if self.tasks[index].hmp_arena.insert(&region).is_err() {
+        if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.platform.unmap_dma(index, virt, length);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -239,8 +239,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
         else {
             let _ = self.platform.unmap_dma(index, virt, length);
-            self.tasks[index].user_window.release(virt);
-            let _ = self.tasks[index].hmp_arena.remove(region_id);
+            self.process_mut(index).user_window.release(virt);
+            let _ = self.process_mut(index).hmp_arena.remove(region_id);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;

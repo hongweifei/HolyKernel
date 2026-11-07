@@ -145,6 +145,10 @@ impl UserPlatform for MockPlatform {
         true
     }
 
+    fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
+        true
+    }
+
     fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
         true
     }
@@ -501,6 +505,36 @@ fn forks_task_with_child_context() {
             _ => panic!("子任务应可运行"),
         }
     }
+}
+
+#[test]
+fn threads_share_process_memory_state() {
+    let mut runtime = runtime();
+    let Step::Resume {
+        index: leader,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_THREAD_CREATE;
+    context.rdi = 0x1000;
+    context.rsi = 0x2000;
+    context.rdx = 7;
+    context.r10 = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let child = runtime.tasks.len() - 1;
+    assert_eq!(runtime.tasks[child].process, runtime.tasks[leader].process);
+    assert_eq!(
+        runtime.process(child).arena.base(),
+        runtime.process(leader).arena.base()
+    );
+    assert_eq!(
+        runtime.process(child).ledger.limit(),
+        runtime.process(leader).ledger.limit()
+    );
 }
 
 #[test]
@@ -863,9 +897,10 @@ fn frame_maps_and_returns_to_capacity() {
     let region = context.rax;
     assert_ne!(region, u64::MAX);
     assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
-    assert_eq!(runtime.tasks[index].regions.iter().flatten().count(), 1);
+    assert_eq!(runtime.process(index).regions.iter().flatten().count(), 1);
     assert!(
-        runtime.tasks[index]
+        runtime
+            .process(index)
             .regions
             .iter()
             .flatten()
@@ -876,7 +911,7 @@ fn frame_maps_and_returns_to_capacity() {
     context.rdi = region;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
-    assert!(runtime.tasks[index].regions.iter().all(Option::is_none));
+    assert!(runtime.process(index).regions.iter().all(Option::is_none));
     let _ = runtime.finish(0, index);
 }
 
@@ -1002,7 +1037,7 @@ fn arena_tracks_mapped_regions() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let region = context.rax;
     assert_ne!(region, u64::MAX);
-    let arena = &runtime.tasks[0].hmp_arena;
+    let arena = &runtime.process(0).hmp_arena;
     assert_eq!(arena.regions().len(), 1);
     assert_eq!(arena.used(), 0x2000);
 
@@ -1010,7 +1045,7 @@ fn arena_tracks_mapped_regions() {
     context.rdi = region;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
-    assert!(runtime.tasks[0].hmp_arena.regions().is_empty());
+    assert!(runtime.process(0).hmp_arena.regions().is_empty());
     let _ = runtime.finish(0, index);
 }
 
@@ -1295,6 +1330,10 @@ impl UserPlatform for ShortPlatform {
     }
 
     fn fork(&self, _parent: usize, _child: usize) -> bool {
+        true
+    }
+
+    fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
         true
     }
 

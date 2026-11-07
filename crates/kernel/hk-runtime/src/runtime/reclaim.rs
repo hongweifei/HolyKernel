@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 
 use hk_hal::{PAGE_SIZE, SyscallFrame, UserContext};
 use hk_handle::{Handle, ObjectId};
+use hk_kernel::TcbId;
 use hk_mem::hmp::CapabilityKind;
 
 use super::{UserPlatform, UserRuntime};
@@ -17,16 +18,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 回收当前任务中可证明为零的匿名页，返回释放字节数。
     pub fn reclaim_zero_pages(&mut self, index: usize, budget: u64) -> u64 {
         let owner = self.leader_of(index);
-        let tcb = self.tasks[owner].tcb;
         let page = PAGE_SIZE as u64;
-        let regions: Vec<Handle> = self.tasks[owner]
+        let regions: Vec<(TcbId, Handle)> = self
+            .process(owner)
             .regions
             .iter()
             .flatten()
-            .map(|region| region.capability)
+            .map(|region| (region.owner, region.capability))
             .collect();
         let mut released = 0;
-        for handle in regions {
+        for (tcb, handle) in regions {
             if released >= budget {
                 break;
             }
@@ -56,7 +57,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 if self.platform.page_is_zero(range.start()) != Some(true) {
                     continue;
                 }
-                if !self.unmap_capability_page(owner, index, object, page_index) {
+                if !self.unmap_capability_page(index, object, page_index) {
                     continue;
                 }
                 let Ok(Some(lease)) = self.kernel.take_capability_page(tcb, handle, page_index)
@@ -71,19 +72,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 解除映射该能力第 `page_index` 页的所有映射。
-    fn unmap_capability_page(
-        &self,
-        owner: usize,
-        index: usize,
-        object: ObjectId,
-        page_index: usize,
-    ) -> bool {
-        let tcb = self.tasks[owner].tcb;
+    fn unmap_capability_page(&self, index: usize, object: ObjectId, page_index: usize) -> bool {
         let page = PAGE_SIZE as u64;
         let offset = page_index as u64 * page;
         let mut unmapped = false;
-        for region in self.tasks[owner].regions.iter().flatten() {
-            let Ok(id) = self.kernel.capability_id(tcb, region.capability) else {
+        for region in self.process(index).regions.iter().flatten() {
+            let Ok(id) = self.kernel.capability_id(region.owner, region.capability) else {
                 continue;
             };
             if id != object || offset + page > region.len as u64 {

@@ -4,7 +4,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn allocate(&mut self, index: usize, size: usize, align: usize) -> Option<u64> {
         // 线程共享进程 Arena，避免每个线程各自占用一段未映射的地址空间。
         let slot = self.leader_of(index);
-        let start = self.tasks[slot].arena.allocate(size, align)?;
+        let start = self.process_mut(slot).arena.allocate(size, align)?;
         self.platform.zero(start, size);
         Some(start)
     }
@@ -43,7 +43,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint)
             && let Some(frame) = endpoint
                 .checked_sub(REGION_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].regions.get(slot))
+                .and_then(|slot| self.process(index).regions.get(slot))
                 .and_then(|region| region.as_ref())
                 .and_then(|region| region.frame)
         {

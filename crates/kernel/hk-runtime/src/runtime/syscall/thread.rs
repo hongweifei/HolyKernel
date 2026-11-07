@@ -32,24 +32,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         // 线程槽位没有自己的端点；其他任务按槽位下标补齐空洞。
         self.append_empty_endpoint();
 
-        let arena = self.tasks[leader].arena;
-        let ledger_limit = self.tasks[leader].ledger.limit();
+        let process = self.tasks[leader].process;
         let name = format!("{}-thread{}", self.tasks[leader].name, child_index - leader);
         let mut task = UserTask::new(TaskInit {
             tcb: child,
+            process,
             name,
             parent: Some(tcb.get()),
             handles,
             notifications,
             context: C::for_thread(entry, stack_top, argument),
-            arena_base: 0,
-            arena_size: 0,
-            ledger_limit,
         });
-        task.arena = arena;
         task.leader = leader;
         task.tls = tls;
         self.tasks.push(task);
+        self.processes.push(None);
         let _ = self.kernel.activate(child);
 
         frame.set_result(child.get());

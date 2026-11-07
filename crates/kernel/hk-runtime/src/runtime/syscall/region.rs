@@ -30,28 +30,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(virt) = self.tasks[index].user_window.allocate(length) else {
+        let Some(virt) = self.process_mut(index).user_window.allocate(length) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         if let Some(backing) = backing {
             let phys = backing.start().get().saturating_add(offset);
             if !self.platform.map_dma(index, virt, phys, length) {
-                self.tasks[index].user_window.release(virt);
+                self.process_mut(index).user_window.release(virt);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         }
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.platform.unmap_dma(index, virt, length);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         let region_id = region.id();
-        if self.tasks[index].hmp_arena.insert(&region).is_err() {
+        if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.platform.unmap_dma(index, virt, length);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -63,8 +63,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Ok(handle) => handle,
             Err(_) => {
                 let _ = self.platform.unmap_dma(index, virt, length);
-                self.tasks[index].user_window.release(virt);
-                let _ = self.tasks[index].hmp_arena.remove(region_id);
+                self.process_mut(index).user_window.release(virt);
+                let _ = self.process_mut(index).hmp_arena.remove(region_id);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -145,7 +145,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         }
         let region_id = region.id();
-        if self.tasks[index].hmp_arena.insert(&region).is_err() {
+        if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             return false;
         }
@@ -154,7 +154,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
         else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
-            let _ = self.tasks[index].hmp_arena.remove(region_id);
+            let _ = self.process_mut(index).hmp_arena.remove(region_id);
             return false;
         };
         self.install_region(
@@ -176,9 +176,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let owner = self.leader_of(index);
         self.tasks[index].context = context;
-        let tcb = self.tasks[owner].tcb;
         let Some((slot, virt, _length)) =
-            self.tasks[owner]
+            self.process(owner)
                 .regions
                 .iter()
                 .enumerate()
@@ -194,10 +193,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return false;
         };
-        let Some(region) = self.tasks[owner].regions[slot].as_ref() else {
+        let Some(region) = self.process(owner).regions[slot].as_ref() else {
             return false;
         };
         let capability_handle = region.capability;
+        let tcb = region.owner;
         let Ok((capability, backing)) = self.kernel.capability(tcb, capability_handle) else {
             return false;
         };
@@ -237,13 +237,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 在 fork 前把惰性 Region 的页装入父地址空间。
     pub(crate) fn populate_lazy_regions(&mut self, index: usize) -> bool {
-        let tcb = self.tasks[index].tcb;
-        let ranges: alloc::vec::Vec<(u64, usize)> = self.tasks[index]
+        let ranges: alloc::vec::Vec<(u64, usize)> = self
+            .process(index)
             .regions
             .iter()
             .flatten()
             .filter_map(|region| {
-                let (_, backing) = self.kernel.capability(tcb, region.capability).ok()?;
+                let (_, backing) = self
+                    .kernel
+                    .capability(region.owner, region.capability)
+                    .ok()?;
                 backing.is_none().then_some((region.virt, region.len))
             })
             .collect();
@@ -276,9 +279,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         let owner = self.leader_of(index);
-        let tcb = self.tasks[owner].tcb;
         let Some((slot, virt, _length)) =
-            self.tasks[owner]
+            self.process(owner)
                 .regions
                 .iter()
                 .enumerate()
@@ -294,10 +296,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return false;
         };
-        let Some(region) = self.tasks[owner].regions[slot].as_ref() else {
+        let Some(region) = self.process(owner).regions[slot].as_ref() else {
             return false;
         };
         let capability_handle = region.capability;
+        let tcb = region.owner;
         let Ok((capability, backing)) = self.kernel.capability(tcb, capability_handle) else {
             return false;
         };
@@ -354,20 +357,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
-    pub(crate) fn region_unmap(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+    pub(crate) fn region_unmap(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let Some((slot, handle, virt, length)) = self.region_at(index, number) else {
             frame.set_result(0);
             return Switch::Continue;
         };
-        let lazy = self.tasks[index].regions[slot]
-            .as_ref()
-            .and_then(|region| {
-                self.kernel
-                    .capability(self.tasks[index].tcb, region.capability)
-                    .ok()
-            })
-            .is_some_and(|(_, backing)| backing.is_none());
+        let Some(region) = self.process(index).regions[slot].as_ref() else {
+            frame.set_result(0);
+            return Switch::Continue;
+        };
+        let owner = region.owner;
+        let capability = region.capability;
+        let lazy = self
+            .kernel
+            .capability(owner, capability)
+            .is_ok_and(|(_, backing)| backing.is_none());
         if lazy {
             let page = hk_hal::PAGE_SIZE as u64;
             let mut offset = 0;
@@ -379,22 +384,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(0);
             return Switch::Continue;
         }
-        self.tasks[index].user_window.release(virt);
-        let region_id = self.tasks[index].regions[slot]
+        self.process_mut(index).user_window.release(virt);
+        let region_id = self.process(index).regions[slot]
             .as_ref()
             .map(|region| region.region);
-        let frame_handle = self.tasks[index].regions[slot]
+        let frame_handle = self.process(index).regions[slot]
             .as_ref()
             .and_then(|region| region.frame);
         if let Some(region_id) = region_id {
-            let _ = self.tasks[index].hmp_arena.remove(region_id);
+            let _ = self.process_mut(index).hmp_arena.remove(region_id);
         }
         if let Some(frame_handle) = frame_handle {
-            let _ = self.kernel.pin_frame(tcb, frame_handle, false);
-            let _ = self.kernel.close_handle(tcb, frame_handle);
+            let _ = self.kernel.pin_frame(owner, frame_handle, false);
+            let _ = self.kernel.close_handle(owner, frame_handle);
         }
-        let _ = self.kernel.close_handle(tcb, handle);
-        self.tasks[index].regions[slot] = None;
+        let _ = self.kernel.close_handle(owner, handle);
+        self.process_mut(index).regions[slot] = None;
         frame.set_result(1);
         Switch::Continue
     }

@@ -10,7 +10,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let arena = &self.tasks[index].hmp_arena;
+        let arena = &self.process(index).hmp_arena;
         let mut bytes = [0_u8; 32];
         bytes[..8].copy_from_slice(&arena.base().get().to_le_bytes());
         bytes[8..16].copy_from_slice(&arena.size().to_le_bytes());

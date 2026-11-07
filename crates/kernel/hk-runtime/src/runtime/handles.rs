@@ -16,7 +16,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Ok((capability, _)) = self.kernel.capability(tcb, handle) else {
             return Some(self.install_extra_handle(index, handle));
         };
-        let Ok(charge) = self.tasks[index].ledger.charge(capability.size()) else {
+        let Ok(charge) = self.process_mut(index).ledger.charge(capability.size()) else {
             let _ = self.kernel.close_handle(tcb, handle);
             return None;
         };
@@ -25,7 +25,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
     pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
-        let entries: Vec<(Handle, Handle, u64, usize)> = self.tasks[parent]
+        let entries: Vec<(Handle, Handle, u64, usize)> = self
+            .process(parent)
             .regions
             .iter()
             .flatten()
@@ -50,13 +51,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             };
             let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
             let region_id = region.id();
-            if self.tasks[child].hmp_arena.insert(&region).is_err() {
+            if self.process_mut(child).hmp_arena.insert(&region).is_err() {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 continue;
             }
             let Ok(child_region) = self.kernel.create_region(child_tcb, region, rights) else {
                 let _ = self.kernel.close_handle(child_tcb, capability);
-                let _ = self.tasks[child].hmp_arena.remove(region_id);
+                let _ = self.process_mut(child).hmp_arena.remove(region_id);
                 continue;
             };
             let Ok((_, size)) = self
@@ -68,7 +69,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.kernel.close_handle(child_tcb, child_region);
                 continue;
             };
-            let Ok(charge) = self.tasks[child].ledger.charge(size) else {
+            let Ok(charge) = self.process_mut(child).ledger.charge(size) else {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 let _ = self.kernel.close_handle(child_tcb, child_region);
                 continue;
@@ -143,23 +144,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         virt: u64,
         len: usize,
     ) -> u64 {
-        let slot = self.tasks[index]
+        let slot = self
+            .process(index)
             .regions
             .iter()
             .position(Option::is_none)
-            .unwrap_or(self.tasks[index].regions.len());
+            .unwrap_or(self.process(index).regions.len());
         let map = RegionMap {
             handle,
             capability,
+            owner: self.tasks[index].tcb,
             region,
             frame,
             virt,
             len,
         };
-        if slot == self.tasks[index].regions.len() {
-            self.tasks[index].regions.push(Some(map));
+        if slot == self.process(index).regions.len() {
+            self.process_mut(index).regions.push(Some(map));
         } else {
-            self.tasks[index].regions[slot] = Some(map);
+            self.process_mut(index).regions[slot] = Some(map);
         }
         (REGION_HANDLE_BASE + slot + 1) as u64
     }
@@ -170,7 +173,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         number: usize,
     ) -> Option<(usize, Handle, u64, usize)> {
         let slot = number.checked_sub(REGION_HANDLE_BASE + 1)?;
-        let map = self.tasks[index].regions.get(slot)?.as_ref()?;
+        let map = self.process(index).regions.get(slot)?.as_ref()?;
         Some((slot, map.handle, map.virt, map.len))
     }
 
@@ -299,10 +302,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         } else if number >= REGION_HANDLE_BASE {
             if let Some(slot) = number
                 .checked_sub(REGION_HANDLE_BASE + 1)
-                .and_then(|slot| self.tasks[index].regions.get_mut(slot))
+                .and_then(|slot| self.process_mut(index).regions.get_mut(slot))
                 && let Some(map) = slot.take()
             {
-                let _ = self.tasks[index].hmp_arena.remove(map.region);
+                let _ = self.process_mut(index).hmp_arena.remove(map.region);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
             if let Some(slot) = number
@@ -310,7 +313,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .and_then(|slot| self.tasks[index].capabilities.get_mut(slot))
                 && let Some(map) = slot.take()
             {
-                let _ = self.tasks[index].ledger.release(map.charge);
+                let _ = self.process_mut(index).ledger.release(map.charge);
             }
         } else if number >= GRANT_HANDLE_BASE {
             if let Some(slot) = number
@@ -319,7 +322,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 && let Some(entry) = slot.take()
                 && let Some(charge) = entry.charge
             {
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
             }
         } else if number >= EXTRA_HANDLE_BASE {
             if let Some(slot) = number
@@ -328,7 +331,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 && let Some(entry) = slot.take()
                 && let Some(charge) = entry.charge
             {
-                let _ = self.tasks[index].ledger.release(charge);
+                let _ = self.process_mut(index).ledger.release(charge);
             }
         } else if let Some(slot) = number
             .checked_sub(1)

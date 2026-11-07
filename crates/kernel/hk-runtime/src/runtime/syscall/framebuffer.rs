@@ -47,20 +47,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if out == 0 {
             return 0;
         }
-        let Some(virt) = self.tasks[index].user_window.allocate(aligned as usize) else {
+        let Some(virt) = self
+            .process_mut(index)
+            .user_window
+            .allocate(aligned as usize)
+        else {
             return 0;
         };
         if !self.platform.write_user(out, &virt.to_le_bytes()) {
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             return 0;
         }
         let Some(mapped) = self.platform.map_framebuffer(index, virt) else {
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             return 0;
         };
         if mapped < length {
             let _ = self.platform.unmap_dma(index, virt, aligned as usize);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             return 0;
         }
         if !self.install_device_mapping(
@@ -71,7 +75,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             virt,
         ) {
             let _ = self.platform.unmap_dma(index, virt, aligned as usize);
-            self.tasks[index].user_window.release(virt);
+            self.process_mut(index).user_window.release(virt);
             return 0;
         }
         mapped

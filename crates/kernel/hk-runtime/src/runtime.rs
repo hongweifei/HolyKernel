@@ -12,10 +12,10 @@ use alloc::vec::Vec;
 use hk_base::CivilTime;
 use hk_checkpoint::Page;
 use hk_device::DeviceGrant;
-use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
+use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Capacity, CapacityKind, Charge};
+use hk_mem::hmp::{Arena as HmpArena, Capacity, CapacityKind, Charge, Ledger};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
@@ -76,10 +76,35 @@ pub(crate) struct CapabilityMap {
 pub(crate) struct RegionMap {
     pub handle: Handle,
     pub capability: Handle,
+    pub owner: TcbId,
     pub region: hk_mem::hmp::RegionId,
     pub frame: Option<Handle>,
     pub virt: u64,
     pub len: usize,
+}
+
+/// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
+pub(crate) struct Process {
+    pub hmp_arena: HmpArena,
+    pub ledger: Ledger,
+    pub user_window: UserWindow,
+    pub regions: Vec<Option<RegionMap>>,
+    pub arena: Arena,
+    pub device_factory: Option<Handle>,
+}
+
+impl Process {
+    pub(crate) fn new(arena_base: u64, arena_size: u64, ledger_limit: u64) -> Self {
+        Self {
+            hmp_arena: HmpArena::create(VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)
+                .expect("用户 Arena 布局有效"),
+            ledger: Ledger::create(ledger_limit),
+            user_window: UserWindow::new(),
+            regions: Vec::new(),
+            arena: Arena::new(arena_base, arena_size),
+            device_factory: None,
+        }
+    }
 }
 
 /// 保存的 Native Task 现场；VSpace 已释放，页内容保存在序列化镜像中。
@@ -110,6 +135,7 @@ pub struct UserRuntime<C, P> {
     kernel: Kernel,
     root: u64,
     tasks: Vec<UserTask<C>>,
+    processes: Vec<Option<Process>>,
     endpoints: Vec<Option<ObjectId>>,
     notifications: Vec<Option<ObjectId>>,
     checkpoints: Vec<(String, Checkpoint<C>)>,
@@ -141,12 +167,13 @@ pub struct UserRuntime<C, P> {
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 以 Kernel、任务与平台适配构造运行时。
-    pub fn new(
+    pub(crate) fn new(
         kernel: Kernel,
         root: u64,
         endpoints: Vec<Option<ObjectId>>,
         notifications: Vec<Option<ObjectId>>,
         mut tasks: Vec<UserTask<C>>,
+        processes: Vec<Option<Process>>,
         platform: P,
     ) -> Self {
         for (index, task) in tasks.iter_mut().enumerate() {
@@ -159,6 +186,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             kernel,
             root,
             tasks,
+            processes,
             endpoints,
             notifications,
             checkpoints: Vec::new(),
@@ -188,6 +216,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 返回任务数量。
     pub fn task_count(&self) -> usize {
         self.tasks.len()
+    }
+
+    /// 返回任务所属进程。
+    pub(crate) fn process(&self, index: usize) -> &Process {
+        self.processes[self.tasks[index].process]
+            .as_ref()
+            .expect("任务所属进程存在")
+    }
+
+    /// 返回任务所属进程的可变引用。
+    pub(crate) fn process_mut(&mut self, index: usize) -> &mut Process {
+        let process = self.tasks[index].process;
+        self.processes[process].as_mut().expect("任务所属进程存在")
     }
 
     /// 判断是否有等待调度的线程。
@@ -314,8 +355,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 pending: pending_name(task.pending),
                 handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
                 cpu_cycles: task.cpu_cycles,
-                arena_used: task.arena.used(),
-                arena_size: task.arena.size(),
+                arena_used: self.process(index).arena.used(),
+                arena_size: self.process(index).arena.size(),
                 vspace: self.platform.vspace(index),
                 exit_code: task.exited.then_some(task.exit_code),
             })
