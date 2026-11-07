@@ -42,12 +42,12 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 窗口表面使用共享 Frame：客户端绘制后经句柄转移交给显示服务，由显示服务映射并合成，不复制整块表面。
 - 合成器绘制桌面渐变、标题栏与窗口，并回读窗口首像素校验；焦点窗口标题栏高亮。
 - 窗口带圆角与柔和投影：标题栏顶部和窗口底部按半径裁剪，投影按缩放后的边距绘制并混合桌面/下层窗口；窗口 damage 区域同步扩展，移动、缩放、关闭与焦点切换不会残留影边。
-- 深/浅两套调色板由启动 token `theme=light` 选择（默认深色）；窗口、任务栏与光标统一从当前主题取色。
+- 深/浅两套调色板由启动 token `theme=light` 选择（默认深色）；窗口、任务栏、光标与悬停高亮统一从当前主题取色。
 - 多窗口按槽位维护 z 序；按 Tab、点击窗口或任务栏按钮切换焦点，标题栏与任务栏按钮高亮。客户端提交表面只重绘内容，不改变焦点；`desktop` 模式让 Console 最后创建以获得初始焦点。
 - 标题栏右侧提供关闭按钮：点击后回收共享表面与句柄、从任务栏移除按钮，并向客户端发送 `DISPLAY_CLOSE`。
 - 窗口四边与四角均可缩放：拖动边缘调整单边、拖动角落同时调整两边；右下角为焦点窗口显示可见把手；最小尺寸、屏幕边界与任务栏上方区域受限。缩放结束、最大化与还原后，Display 通过 `DISPLAY_RESIZE` 通知客户端新的内容尺寸，客户端重建同尺寸表面并经 `WINDOW_RESIZE` 交回；待处理的通知会在客户端每次提交帧后补发，避免提交等待期间丢失。合成器按 1:1 拷贝客户端表面，表面尚未跟进时正文以窗口背景填充。
 - 标题栏提供最小化、最大化/还原按钮：最小化保留任务栏按钮，点击任务栏恢复；最大化铺满任务栏上方区域并保存原几何。
-- 启动 token `ui.scale=2` 将标题栏/任务栏字体与控件布局放大 2 倍，窗口内容随客户端新表面尺寸 1:1 合成。
+- 启动 token `ui.scale=2` 将标题栏/任务栏字体、控件布局与光标位图放大 2 倍，窗口内容随客户端新表面尺寸 1:1 合成。
 - HolyDoc：HolyDoc 指令解析（`@title`、`@heading`、`@link`、`@bullet`、`@code`、`@exec`）、自动换行布局、滚动与历史返回；内置欢迎页与帮助页作为无卷回退，链接可点击跳转；Display 通过 `DISPLAY_CLICK_AT` 提供窗口内点击坐标。`smoke --mode holydoc` 验证解析、执行、跳转、返回与渲染。
 - HolyDoc 启动落在欢迎页：欢迎页展示版本、民用时间、系统 tick 与文档清单，并提供文档索引与帮助页；`i` 打开索引，`t` 打开标签页，`w` 回到欢迎页，`[`/`]` 或 Backspace 前后翻阅历史；`n`/`N` 选择链接、Enter 打开，方向键、PageUp/PageDown、Home/End 与鼠标滚轮滚动，底部状态栏显示按键提示与滚动百分比。
 - 文档浏览：HolyDoc 启动时按 `H:` 盘符枚举根集合，把集合成员与子集合递归加载为文档页；内容文档整篇读入，集合页把成员显示为 DocPath 链接。文档标题取自 `@title` 指令，链接在文档集内解析并可直接跳转。没有卷时使用内置欢迎页与帮助页。
@@ -57,7 +57,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - Debug Server：调试窗口分页展示概览、任务、服务、trace、统计与最近一次用户异常回溯；`1`-`6` 切换视图，`j`/`k`、`u`/`d`、方向键与 PageUp/PageDown 滚动，`r` 刷新，`q` 或关闭退出。异常页显示故障现场与符号化栈帧。`smoke --mode debug` 验证分页读取、渲染与符号解析。
 - Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
-- Surface/Seat 协议：`SURFACE_CREATE`/`SURFACE_DAMAGE`/`SURFACE_COMMIT`/`SURFACE_DESTROY` 与 `WINDOW_CREATE` 把表面与窗口分离；damage 在表面坐标裁剪并合并，提交时只重绘受影响区域；`SURFACE_SET_INPUT_REGION` 控制正文命中，标题栏与装饰始终由服务端处理；`SEAT_FOCUS` 统一焦点，`SEAT_SET_CLIPBOARD`/`SEAT_GET_CLIPBOARD` 提供剪贴板。所有原生客户端统一走 surface/window 两段式创建与表面提交。`smoke --mode display` 验证局部 damage、焦点与剪贴板。
+- Surface/Seat 协议：`SURFACE_CREATE`/`SURFACE_DAMAGE`/`SURFACE_COMMIT`/`SURFACE_DESTROY` 与 `WINDOW_CREATE` 把表面与窗口分离；damage 在表面坐标裁剪并合并，提交时只重绘受影响区域；`SURFACE_SET_INPUT_REGION` 控制正文命中，`SURFACE_SET_CURSOR` 声明该表面的光标形状，标题栏与装饰始终由服务端处理；`SEAT_FOCUS` 统一焦点，`SEAT_SET_CLIPBOARD`/`SEAT_GET_CLIPBOARD` 提供剪贴板。指针在窗口正文内移动时经 `DISPLAY_POINTER` 把窗口内坐标发给对应客户端，离开时发 `DISPLAY_POINTER_LEAVE`；事件按悬停窗口路由，不依赖焦点。所有原生客户端统一走 surface/window 两段式创建与表面提交。`smoke --mode display` 验证局部 damage、焦点与剪贴板。
 - Workbench 走同一 surface/window 协议：三栏布局展示 `H:` 文档树、编辑器与输出面板；文档经 Holy 协议整篇读写，键盘支持方向键、Home/End、Delete 编辑与 Ctrl+S 保存，Ctrl+B 统计构建、Ctrl+R 运行 `@exec`、Ctrl+D 读取异常回溯；鼠标可命中文档树与编辑器定位。`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏；所有绘制先写入离屏后备缓冲，damage 合并后一次性提交帧缓冲，避免中间状态闪烁。
 - Display 启动 2 秒后连续做 3 次全屏合成 + present 并取最小值，输出 `full redraw min`；QEMU 1280×800 桌面（含窗口与投影）实测约 3.0–3.3 ms，满足 M6 的 ≤8 ms 目标。
@@ -66,7 +66,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - 用户态 `hk-server-input` 通过带索引的 DeviceGrant 申请接管多个 virtio-input 设备（键盘 + 平板），分别绑定 IRQ 通知、解码 evdev 键码与绝对坐标，把按键/指针事件发给 Display。`smoke --mode inputdriver/pointer` 验证。
 - 输入驱动把 Shift/Ctrl/Alt 与方向键、PageUp/PageDown、Home/End、Insert/Delete 解码为 ANSI 序列，消费端用 `hk_proto::input::Decoder` 还原成按键；滚轮经 `INPUT_WHEEL` 上报，Display 按焦点转发 `DISPLAY_WHEEL`。
 - 底部任务栏显示各窗口标题按钮；按钮按焦点高亮，点击即提升并聚焦对应窗口。窗口创建与拖动均限制在任务栏上方，任务栏始终合成在最上层。
-- 指针使用 virtio-tablet 绝对坐标：Display 归一化到屏幕、绘制带阴影的光标；0x7FFF 映射到最后一个有效像素，越界值再被裁剪，取消/拖动/缩放都使用屏幕内坐标。点击按 z 序命中窗口并置顶，任务栏区域单独命中。标题栏按下即开始拖动（靠近窗口边缘时优先缩放），移动时按旧/新矩形重绘并限制在任务栏上方；正文点击才向客户端发送 `DISPLAY_CLICK`。`smoke --mode pointer` 验证拖拽、任务栏切换与点击。
+- 指针系统使用 virtio-tablet 绝对坐标：Display 把 0..=0x7FFF 归一化到屏幕像素（0x7FFF 映射到最后一个有效像素）并按 z 序命中任务栏、标题栏按钮、缩放边、标题栏与窗口正文。光标按命中切换形状（箭头、手形、移动、左右/上下/两种对角缩放与文本），位图随 `ui.scale` 放大、带 1 像素投影，并在屏幕边缘整体夹紧，不画出屏幕。悬停标题栏按钮与任务栏按钮时显示主题高亮，只重绘受影响的小块区域。标题栏双击切换最大化/还原；按下先清空拖动/缩放状态，靠近窗口边缘优先缩放，标题栏按下开始拖动，移动时按旧/新矩形重绘并限制在任务栏上方；正文点击才向客户端发送 `DISPLAY_CLICK`。正文指针移动与离开事件按悬停窗口路由，光标形状优先采用表面通过 `SURFACE_SET_CURSOR` 声明的值。`smoke --mode pointer` 验证悬停形状、拖拽、缩放、任务栏切换、最大化/最小化、正文指针事件与点击。
 - 终端模式下键盘事件由 Display 按焦点转发给 Console，Console 完成行编辑、回显与按行回复。`smoke --mode terminal` 注入输入验证。
 - 终端使用增量 UTF-8 解码与 `char` 网格，中文按双宽字形占两格；渲染先清背景再画字形，末尾绘制光标。提示符由 Shell 写入；Console 暂存尚未被读行请求取走的整行，避免启动期输入丢失。
 
