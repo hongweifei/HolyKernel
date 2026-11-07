@@ -116,6 +116,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 休眠指定调度 tick 数；到期由 [`Self::wake_sleepers`] 唤醒。
+    pub(crate) fn sleep(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let ticks = frame.arg0();
+        frame.set_result(0);
+        self.tasks[index].context = *frame;
+        if ticks == 0 {
+            self.tasks[index].pending = Pending::None;
+            return Switch::Continue;
+        }
+
+        let wake = self.platform.timer_ticks().saturating_add(ticks);
+        self.tasks[index].pending = Pending::Sleep { wake };
+        if !self.sleeping.contains(&index) {
+            self.sleeping.push(index);
+        }
+        if self.kernel.park(tcb).is_err() {
+            self.sleeping.retain(|slot| *slot != index);
+            self.tasks[index].pending = Pending::None;
+            self.tasks[index].context.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        Switch::Block
+    }
+
     /// 在共享内存字上等待；值已变化时立即返回。
     pub(crate) fn futex_wait(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let address = frame.arg0();

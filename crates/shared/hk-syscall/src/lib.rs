@@ -40,6 +40,9 @@ pub const SYS_THREAD_JOIN: u64 = 0x04;
 /// 设置当前线程的 TLS 基址。
 pub const SYS_THREAD_SET_TLS: u64 = 0x05;
 
+/// 休眠指定调度 tick 数；到期后由内核唤醒。
+pub const SYS_SLEEP: u64 = 0x06;
+
 // === 句柄 0x10-0x1F ===
 
 /// 关闭端点句柄。

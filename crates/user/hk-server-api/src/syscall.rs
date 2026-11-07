@@ -218,6 +218,12 @@ pub fn yield_now() -> u64 {
     unsafe { syscall_call(SYS_YIELD, 0, 0, 0, 0).value }
 }
 
+/// 休眠指定调度 tick 数；阻塞直到到期。
+pub fn sleep_ticks(ticks: u64) -> u64 {
+    // SAFETY: 休眠不携带指针，内核只读取 tick 数。
+    unsafe { syscall_call(SYS_SLEEP, ticks, 0, 0, 0).value }
+}
+
 /// 置位指定任务的通知位；`target` 是端点或通知编号。
 pub fn notify(target: u64, bits: u64) -> u64 {
     // SAFETY: 目标编号由内核分配；内核校验句柄后置位。

@@ -20,8 +20,8 @@ use hk_proto::display::{
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    console_read, exit, recv_data_try, send, send_data, service_endpoint, write, write_u64,
-    yield_now,
+    console_read, exit, recv_data_try, send, send_data, service_endpoint, sleep_ticks, write,
+    write_u64,
 };
 
 #[cfg(target_os = "none")]
@@ -129,7 +129,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
         }
 
-        let _ = yield_now();
+        let _ = sleep_ticks(1);
     }
 }
 

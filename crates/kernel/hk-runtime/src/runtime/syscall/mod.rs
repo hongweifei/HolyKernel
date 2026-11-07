@@ -94,6 +94,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.tasks[index].pending = Pending::None;
                 Switch::Block
             }
+            SYS_SLEEP => self.sleep(index, tcb, frame),
             SYS_EXIT => {
                 let code = frame.arg0();
                 self.release_grants(index);

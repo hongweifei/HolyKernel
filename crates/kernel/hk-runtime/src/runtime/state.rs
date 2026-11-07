@@ -55,6 +55,11 @@ pub enum Pending {
         /// 待安装页的用户虚拟地址。
         page: u64,
     },
+    /// 休眠到指定调度 tick。
+    Sleep {
+        /// 唤醒的调度 tick。
+        wake: u64,
+    },
 }
 
 /// 系统调用后的调度动作。

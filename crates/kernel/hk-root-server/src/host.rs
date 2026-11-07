@@ -143,6 +143,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or(0, UserRuntime::task_count)
     }
 
+    /// 是否有尚未到期的休眠任务。
+    pub fn has_sleepers(&self) -> bool {
+        self.runtime
+            .lock()
+            .as_ref()
+            .is_some_and(|runtime| runtime.has_sleepers())
+    }
+
     /// 按名称返回任务的 TCB 编号。
     pub fn tcb_of(&self, name: &str) -> Option<u64> {
         self.runtime

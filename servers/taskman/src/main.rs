@@ -40,7 +40,7 @@ use hk_server_api::root::{self, ROOT_OP_PERF};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data, recv_data_try, region_unmap,
-    send, send_handle, ticks, tsc, write, write_u64, yield_now,
+    send, send_handle, sleep_ticks, ticks, tsc, write, write_u64,
 };
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
@@ -308,6 +308,9 @@ fn log_test(app: &App, window: u64) {
     write(b"hk-server-taskman: rows ");
     write_u64(app.sample.rows.len() as u64);
     write(b"\n");
+    write(b"hk-server-taskman: cpu ");
+    write_u64(app.cpu_usage);
+    write(b"\n");
     for row in app.rows().iter().take(8) {
         write(b"hk-server-taskman: task ");
         write(row.name.as_bytes());
@@ -430,6 +433,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("taskman-test"));
     if test {
+        // 空闲采样一个刷新周期，验证 CPU 占用率不会因为轮询而持续打满。
+        let _ = sleep_ticks(REFRESH_TICKS);
+        app.refresh();
         app.switch_page(Page::Processes);
         show(
             &app, width, height, pixels, endpoint, display, surface, window,
@@ -525,7 +531,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 &app, width, height, pixels, endpoint, display, surface, window,
             );
         }
-        let _ = yield_now();
+        let _ = sleep_ticks(1);
     }
 }
 

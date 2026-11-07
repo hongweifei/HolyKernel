@@ -37,8 +37,8 @@ use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MemoryClient, capability_phys, capability_scanout, close_handle, console_read,
-    exit, format::Line, map_attach, recv_data_handle_try, region_unmap, send, send_data, tsc,
-    tsc_frequency, write, write_u64, yield_now,
+    exit, format::Line, map_attach, recv_data_handle_try, region_unmap, send, send_data,
+    sleep_ticks, tsc, tsc_frequency, write, write_u64,
 };
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
@@ -626,7 +626,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let mut payload = [0_u8; 8 + TITLE_MAX];
         let (label, word, sender, length, handle) = recv_data_handle_try(endpoint, &mut payload, 0);
         if label == 0 {
-            let _ = yield_now();
+            let _ = sleep_ticks(1);
             continue;
         }
         match label {

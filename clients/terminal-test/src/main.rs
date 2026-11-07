@@ -9,7 +9,7 @@ use hk_proto::console::{
 #[cfg(target_os = "none")]
 use hk_proto::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, write, yield_now};
+use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, sleep_ticks, write};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -39,7 +39,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 acknowledged = true;
                 break;
             }
-            let _ = yield_now();
+            let _ = sleep_ticks(1);
         }
         if acknowledged {
             break;
@@ -53,11 +53,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     // 请求一行输入；键盘事件应经 Display 焦点路由到 Console。
     let _ = send(console, CONSOLE_READ_REQUEST, 0);
     let mut line = [0_u8; 64];
-    let (label, _word, _sender, length) = recv_data_from(endpoint, console, &mut line);
-    if label != CONSOLE_READ_LINE {
-        write(b"hk-server-terminal-test: no line\n");
-        exit(3)
-    }
+    // 等待期间可能先收到迟到的 CONSOLE_WRITE_ACK，忽略直到读到整行。
+    let (_label, _word, _sender, length) = loop {
+        let received = recv_data_from(endpoint, console, &mut line);
+        if received.0 == CONSOLE_READ_LINE {
+            break received;
+        }
+    };
     write(b"hk-server-terminal-test: line ");
     write(&line[..length.min(line.len())]);
     write(b"\n");

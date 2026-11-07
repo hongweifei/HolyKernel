@@ -378,6 +378,11 @@ pub fn tasks() -> Vec<TaskInfo> {
     RUNTIME.tasks()
 }
 
+/// 是否有尚未到期的休眠任务。
+pub fn has_sleepers() -> bool {
+    RUNTIME.has_sleepers()
+}
+
 /// 返回最近的内核 trace 事件。
 pub fn trace(limit: usize) -> Vec<hk_root_server::TraceEvent> {
     RUNTIME.trace(limit)

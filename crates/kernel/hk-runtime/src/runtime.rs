@@ -32,8 +32,8 @@ use hk_syscall::{
     SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY,
     SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE,
     SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
-    SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
-    SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
+    SYS_SLEEP, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC,
+    SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -115,6 +115,8 @@ pub struct UserRuntime<C, P> {
     checkpoints: Vec<(String, Checkpoint<C>)>,
     /// 等待线程退出的 (目标 TCB, 等待者 TCB)。
     joiners: Vec<(TcbId, TcbId)>,
+    /// 正在休眠的任务槽位。
+    sleeping: Vec<usize>,
     /// 共享内存字上的等待者：(进程主线程槽位, 地址, 线程)。
     futex_waiters: Vec<(usize, u64, TcbId)>,
     /// 异常事件订阅者：(任务槽位, 端点句柄)。
@@ -173,6 +175,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             notifications,
             checkpoints: Vec::new(),
             joiners: Vec::new(),
+            sleeping: Vec::new(),
             futex_waiters: Vec::new(),
             fault_subscribers: Vec::new(),
             current: [None; MAX_CPUS],
@@ -202,6 +205,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 判断是否有等待调度的线程。
     pub fn has_runnable(&self) -> bool {
         self.kernel.has_runnable()
+    }
+
+    /// 是否有尚未到期的休眠任务。
+    pub fn has_sleepers(&self) -> bool {
+        !self.sleeping.is_empty()
     }
 
     /// 唤醒空闲 CPU。
@@ -393,6 +401,7 @@ fn pending_name(pending: Pending) -> &'static str {
         Pending::Notify { .. } => "notify",
         Pending::Call { .. } => "call",
         Pending::ProviderFault { .. } => "provider-fault",
+        Pending::Sleep { .. } => "sleep",
     }
 }
 

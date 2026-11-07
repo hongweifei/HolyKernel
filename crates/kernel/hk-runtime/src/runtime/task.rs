@@ -556,6 +556,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
         self.drain_irqs();
+        self.wake_sleepers();
         if self.platform.take_console_input()
             && let Some(index) = self.console_subscriber
             && let Some(task) = self.tasks.get(index)
@@ -734,6 +735,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
+    /// 唤醒到期的休眠任务。
+    fn wake_sleepers(&mut self) {
+        if self.sleeping.is_empty() {
+            return;
+        }
+        let now = self.platform.timer_ticks();
+        let mut kept = Vec::new();
+        for index in core::mem::take(&mut self.sleeping) {
+            let Some(task) = self.tasks.get(index) else {
+                continue;
+            };
+            if task.exited {
+                continue;
+            }
+            match task.pending {
+                Pending::Sleep { wake } if now >= wake => {
+                    self.kernel.wake_thread(task.tcb);
+                }
+                Pending::Sleep { .. } => kept.push(index),
+                _ => {}
+            }
+        }
+        self.sleeping = kept;
+    }
+
     fn next_task(&mut self, cpu: usize) -> Option<usize> {
         let tcb = self.kernel.schedule(cpu)?;
         self.tasks.iter().position(|task| task.tcb == tcb)
@@ -863,7 +889,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     blocked_again = true;
                 }
             }
-            Pending::None | Pending::Send { .. } => {}
+            Pending::None | Pending::Send { .. } | Pending::Sleep { .. } => {}
         }
 
         if blocked_again {

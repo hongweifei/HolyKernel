@@ -8,7 +8,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::display::{DISPLAY_RESTART, DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, send, service_endpoint, ticks, write, write_u64, yield_now};
+use hk_server_api::{exit, send, service_endpoint, sleep_ticks, ticks, write, write_u64};
 
 /// 等待 Console 完成首次连接的 tick 数。
 #[cfg(target_os = "none")]
@@ -30,10 +30,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     write_u64(display);
     write(b"\n");
 
-    let settle = ticks().saturating_add(SETTLE_TICKS);
-    while ticks() < settle {
-        let _ = yield_now();
-    }
+    sleep_ticks(SETTLE_TICKS);
     let _ = send(display, DISPLAY_RESTART, 0);
 
     let deadline = ticks().saturating_add(RESTART_TICKS);
@@ -46,10 +43,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
             write(b"hk-server-display-restart-test: restarted ");
             write_u64(current);
             write(b"\n");
-            let settle = ticks().saturating_add(SETTLE_TICKS);
-            while ticks() < settle {
-                let _ = yield_now();
-            }
+            sleep_ticks(SETTLE_TICKS);
             let _ = send(current, DISPLAY_SHUTDOWN, 0);
             exit(0)
         }
@@ -57,7 +51,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
             write(b"hk-server-display-restart-test: timeout\n");
             exit(2)
         }
-        let _ = yield_now();
+        sleep_ticks(1);
     }
 }
 
