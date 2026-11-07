@@ -967,7 +967,7 @@ fn arena_tracks_mapped_regions() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let region = context.rax;
     assert_ne!(region, u64::MAX);
-    let arena = runtime.tasks[0].hmp_arena.as_ref().expect("Arena");
+    let arena = &runtime.tasks[0].hmp_arena;
     assert_eq!(arena.regions().len(), 1);
     assert_eq!(arena.used(), 0x2000);
 
@@ -975,14 +975,7 @@ fn arena_tracks_mapped_regions() {
     context.rdi = region;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
-    assert!(
-        runtime.tasks[0]
-            .hmp_arena
-            .as_ref()
-            .expect("Arena")
-            .regions()
-            .is_empty()
-    );
+    assert!(runtime.tasks[0].hmp_arena.regions().is_empty());
     let _ = runtime.finish(0, index);
 }
 

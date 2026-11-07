@@ -2,13 +2,14 @@
 //!
 //! 装配逻辑与服务表一致，与具体平台无关；平台只提供用户现场与 Arena 布局。
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{SyscallFrame, UserContext};
 use hk_handle::Rights;
 use hk_kernel::{Kernel, KernelError};
 
-use crate::runtime::{UserPlatform, UserRuntime, UserTask};
+use crate::runtime::{TaskInit, UserPlatform, UserRuntime, UserTask};
 use crate::{RootServer, ServiceSpec};
 
 /// 用服务清单装配用户态运行时。
@@ -77,17 +78,17 @@ where
         } else {
             None
         };
-        let mut task = UserTask::new(
-            service.tcb,
-            specs[index].name,
-            Some(root),
+        let mut task = UserTask::new(TaskInit {
+            tcb: service.tcb,
+            name: String::from(specs[index].name),
+            parent: Some(root),
             handles,
-            notification_handles,
+            notifications: notification_handles,
             context,
             arena_base,
             arena_size,
-            platform.memory_limit(index),
-        );
+            ledger_limit: platform.memory_limit(index),
+        });
         task.device_factory = factory;
         if let Some((kind, bytes)) = specs[index].capacity
             && let Some(capacity) = platform.reserve_capacity(bytes, kind)

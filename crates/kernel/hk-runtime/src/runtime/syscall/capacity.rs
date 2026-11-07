@@ -227,11 +227,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let region_id = region.id();
-        if self.tasks[index]
-            .hmp_arena
-            .as_mut()
-            .is_none_or(|arena| arena.insert(&region).is_err())
-        {
+        if self.tasks[index].hmp_arena.insert(&region).is_err() {
             let _ = self.platform.unmap_dma(index, virt, length);
             self.tasks[index].user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
@@ -244,9 +240,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             let _ = self.platform.unmap_dma(index, virt, length);
             self.tasks[index].user_window.release(virt);
-            if let Some(arena) = self.tasks[index].hmp_arena.as_mut() {
-                let _ = arena.remove(region_id);
-            }
+            let _ = self.tasks[index].hmp_arena.remove(region_id);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
             return Switch::Continue;

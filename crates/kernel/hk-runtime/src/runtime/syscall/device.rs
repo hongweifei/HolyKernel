@@ -162,13 +162,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(slot) = number.checked_sub(GRANT_HANDLE_BASE + 1) else {
             return u64::MAX;
         };
-        let Some(handle) = self.tasks[index].grants.get(slot).copied().flatten() else {
+        let Some(handle) = self.tasks[index]
+            .grants
+            .get(slot)
+            .and_then(|slot| slot.as_ref())
+            .map(|entry| entry.handle)
+        else {
             return u64::MAX;
         };
-        let charge = self.tasks[index]
-            .grant_charges
-            .get_mut(slot)
-            .and_then(Option::take);
         self.release_bindings(index, handle);
         self.release_dma_mappings(index, handle);
         if let Ok(grant) = self.kernel.device_grant(tcb, handle)
@@ -178,8 +179,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         match self.kernel.close_handle(tcb, handle) {
             Ok(()) => {
-                self.tasks[index].grants[slot] = None;
-                if let Some(charge) = charge {
+                let entry = self.tasks[index].grants[slot].take();
+                if let Some(charge) = entry.and_then(|entry| entry.charge) {
                     let _ = self.tasks[index].ledger.release(charge);
                 }
                 0

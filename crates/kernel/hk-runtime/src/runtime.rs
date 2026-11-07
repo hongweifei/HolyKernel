@@ -5,7 +5,7 @@
 //! 计时与 Arena 布局。
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -55,6 +55,7 @@ pub use arena::Arena;
 pub use platform::UserPlatform;
 pub use state::{Pending, Step, Switch};
 pub use user_task::UserTask;
+pub(crate) use user_task::{HandleSlot, TaskInit};
 pub use view::{RuntimeStats, TaskInfo};
 
 const EXTRA_HANDLE_BASE: usize = 0x1000;

@@ -21,57 +21,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        let kernel = &self.kernel;
-        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        let child = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+        let child = self
+            .kernel
+            .spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
 
         self.endpoints.push(None);
         self.notifications.push(None);
 
-        let mut handles = Vec::with_capacity(self.endpoints.len());
-        for (slot, object) in self.endpoints.iter().enumerate() {
-            let handle = if slot == child_index {
-                None
-            } else {
-                object.and_then(|id| kernel.grant(child, id, rights).ok())
-            };
-            handles.push(handle);
-        }
-        let mut notifications = Vec::with_capacity(self.notifications.len());
-        for (slot, object) in self.notifications.iter().enumerate() {
-            let handle = if slot == child_index {
-                None
-            } else {
-                object.and_then(|id| kernel.grant(child, id, rights).ok())
-            };
-            notifications.push(handle);
-        }
-
+        let (handles, notifications) = self.endpoint_views(child, child_index, None, None);
         // 线程槽位没有自己的端点；其他任务按槽位下标补齐空洞。
-        for task in &mut self.tasks {
-            task.handles.push(None);
-            task.notifications.push(None);
-        }
+        self.append_empty_endpoint();
 
         let arena = self.tasks[leader].arena;
         let ledger_limit = self.tasks[leader].ledger.limit();
         let name = format!("{}-thread{}", self.tasks[leader].name, child_index - leader);
-        let mut task = UserTask::new(
-            child,
-            &name,
-            Some(tcb.get()),
+        let mut task = UserTask::new(TaskInit {
+            tcb: child,
+            name,
+            parent: Some(tcb.get()),
             handles,
             notifications,
-            C::for_thread(entry, stack_top, argument),
-            0,
-            0,
+            context: C::for_thread(entry, stack_top, argument),
+            arena_base: 0,
+            arena_size: 0,
             ledger_limit,
-        );
+        });
         task.arena = arena;
         task.leader = leader;
         task.tls = tls;
         self.tasks.push(task);
-        let _ = kernel.activate(child);
+        let _ = self.kernel.activate(child);
 
         frame.set_result(child.get());
         Switch::Continue

@@ -20,10 +20,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self.kernel.close_handle(tcb, handle);
             return None;
         };
-        let number = self.install_extra_handle(index, handle);
-        let slot = number as usize - EXTRA_HANDLE_BASE - 1;
-        self.tasks[index].extra_charges[slot] = Some(charge);
-        Some(number)
+        Some(self.install_extra_entry(index, handle, Some(charge)))
     }
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
@@ -53,19 +50,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             };
             let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
             let region_id = region.id();
-            if self.tasks[child]
-                .hmp_arena
-                .as_mut()
-                .is_some_and(|arena| arena.insert(&region).is_err())
-            {
+            if self.tasks[child].hmp_arena.insert(&region).is_err() {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 continue;
             }
             let Ok(child_region) = self.kernel.create_region(child_tcb, region, rights) else {
                 let _ = self.kernel.close_handle(child_tcb, capability);
-                if let Some(arena) = self.tasks[child].hmp_arena.as_mut() {
-                    let _ = arena.remove(region_id);
-                }
+                let _ = self.tasks[child].hmp_arena.remove(region_id);
                 continue;
             };
             let Ok((_, size)) = self
@@ -88,9 +79,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn install_extra_handle(&mut self, index: usize, handle: Handle) -> u64 {
+        self.install_extra_entry(index, handle, None)
+    }
+
+    fn install_extra_entry(&mut self, index: usize, handle: Handle, charge: Option<Charge>) -> u64 {
         let slot = self.tasks[index].extra.len();
-        self.tasks[index].extra.push(Some(handle));
-        self.tasks[index].extra_charges.push(None);
+        self.tasks[index]
+            .extra
+            .push(Some(HandleSlot { handle, charge }));
         (EXTRA_HANDLE_BASE + slot + 1) as u64
     }
 
@@ -126,10 +122,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .as_ref()?
                 .handle
         } else {
-            *self.tasks[index]
+            self.tasks[index]
                 .extra
                 .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)?
                 .as_ref()?
+                .handle
         };
         let (capability, backing) = self.kernel.capability(self.tasks[index].tcb, handle).ok()?;
         Some((handle, capability, backing))
@@ -218,19 +215,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if let Some(handle) = number
+        if let Some(entry) = number
             .checked_sub(GRANT_HANDLE_BASE + 1)
             .and_then(|slot| self.tasks[index].grants.get(slot))
-            .copied()
-            .flatten()
+            .and_then(|slot| slot.as_ref())
         {
-            return Some(handle);
+            return Some(entry.handle);
         }
         let handle = self.tasks[index]
             .extra
             .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)
-            .copied()
-            .flatten()?;
+            .and_then(|slot| slot.as_ref())?
+            .handle;
         self.kernel
             .device_grant(self.tasks[index].tcb, handle)
             .ok()?;
@@ -248,12 +244,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .position(Option::is_none)
             .unwrap_or(self.tasks[index].grants.len());
+        let entry = HandleSlot { handle, charge };
         if slot == self.tasks[index].grants.len() {
-            self.tasks[index].grants.push(Some(handle));
-            self.tasks[index].grant_charges.push(charge);
+            self.tasks[index].grants.push(Some(entry));
         } else {
-            self.tasks[index].grants[slot] = Some(handle);
-            self.tasks[index].grant_charges[slot] = charge;
+            self.tasks[index].grants[slot] = Some(entry);
         }
         (GRANT_HANDLE_BASE + slot + 1) as u64
     }
@@ -275,8 +270,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks[index]
                 .extra
                 .get(number - EXTRA_HANDLE_BASE - 1)
-                .copied()
-                .flatten()
+                .and_then(|slot| slot.as_ref())
+                .map(|slot| slot.handle)
         } else {
             self.tasks[index]
                 .handles
@@ -306,9 +301,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .checked_sub(REGION_HANDLE_BASE + 1)
                 .and_then(|slot| self.tasks[index].regions.get_mut(slot))
                 && let Some(map) = slot.take()
-                && let Some(arena) = self.tasks[index].hmp_arena.as_mut()
             {
-                let _ = arena.remove(map.region);
+                let _ = self.tasks[index].hmp_arena.remove(map.region);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
             if let Some(slot) = number
@@ -319,26 +313,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.tasks[index].ledger.release(map.charge);
             }
         } else if number >= GRANT_HANDLE_BASE {
-            let slot = number.checked_sub(GRANT_HANDLE_BASE + 1);
-            if let Some(slot) = slot
-                && slot < self.tasks[index].grants.len()
+            if let Some(slot) = number
+                .checked_sub(GRANT_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].grants.get_mut(slot))
+                && let Some(entry) = slot.take()
+                && let Some(charge) = entry.charge
             {
-                self.tasks[index].grants[slot] = None;
-                if let Some(charge) = self.tasks[index].grant_charges[slot].take() {
-                    let _ = self.tasks[index].ledger.release(charge);
-                }
+                let _ = self.tasks[index].ledger.release(charge);
             }
         } else if number >= EXTRA_HANDLE_BASE {
-            let slot = number - EXTRA_HANDLE_BASE - 1;
-            if let Some(handle) = self.tasks[index].extra.get_mut(slot) {
-                *handle = None;
-                if let Some(charge) = self.tasks[index]
-                    .extra_charges
-                    .get_mut(slot)
-                    .and_then(Option::take)
-                {
-                    let _ = self.tasks[index].ledger.release(charge);
-                }
+            if let Some(slot) = number
+                .checked_sub(EXTRA_HANDLE_BASE + 1)
+                .and_then(|slot| self.tasks[index].extra.get_mut(slot))
+                && let Some(entry) = slot.take()
+                && let Some(charge) = entry.charge
+            {
+                let _ = self.tasks[index].ledger.release(charge);
             }
         } else if let Some(slot) = number
             .checked_sub(1)

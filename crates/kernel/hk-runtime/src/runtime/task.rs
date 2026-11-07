@@ -32,75 +32,109 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None
         };
 
-        let mut handles = Vec::with_capacity(self.endpoints.len());
-        for (slot, object) in self.endpoints.iter().enumerate() {
-            let handle = if slot == index {
-                Some(own)
-            } else {
-                match object {
-                    Some(id) => kernel
-                        .grant(tcb, *id, Rights::READ | Rights::WRITE | Rights::TRANSFER)
-                        .ok(),
-                    None => None,
-                }
-            };
-            handles.push(handle);
-        }
-
-        let mut notifications = Vec::with_capacity(self.notifications.len());
-        for (slot, object) in self.notifications.iter().enumerate() {
-            let handle = if slot == index {
-                Some(own_notification)
-            } else {
-                match object {
-                    Some(id) => kernel
-                        .grant(tcb, *id, Rights::READ | Rights::WRITE | Rights::TRANSFER)
-                        .ok(),
-                    None => None,
-                }
-            };
-            notifications.push(handle);
-        }
-
-        for task in &mut self.tasks {
-            if task.exited {
-                continue;
-            }
-            let handle = kernel
-                .grant(
-                    task.tcb,
-                    own_id,
-                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
-                )
-                .ok();
-            task.handles.push(handle);
-            let handle = kernel
-                .grant(
-                    task.tcb,
-                    own_notification_id,
-                    Rights::READ | Rights::WRITE | Rights::TRANSFER,
-                )
-                .ok();
-            task.notifications.push(handle);
-        }
+        let (handles, notifications) =
+            self.endpoint_views(tcb, index, Some(own), Some(own_notification));
+        self.append_endpoint(own_id, own_notification_id);
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        let mut task = UserTask::new(
+        let mut task = UserTask::new(TaskInit {
             tcb,
-            name,
+            name: String::from(name),
             parent,
             handles,
             notifications,
             context,
             arena_base,
             arena_size,
-            self.platform.memory_limit(index),
-        );
+            ledger_limit: self.platform.memory_limit(index),
+        });
         task.device_factory = device_factory;
         task.leader = index;
         self.tasks.push(task);
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
+    }
+
+    /// 为新任务建立端点与通知句柄视图。
+    pub(crate) fn endpoint_views(
+        &self,
+        tcb: TcbId,
+        own_slot: usize,
+        own_endpoint: Option<Handle>,
+        own_notification: Option<Handle>,
+    ) -> (Vec<Option<Handle>>, Vec<Option<Handle>>) {
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let handles = self
+            .endpoints
+            .iter()
+            .enumerate()
+            .map(|(slot, object)| {
+                if slot == own_slot {
+                    own_endpoint
+                } else {
+                    object.and_then(|id| self.kernel.grant(tcb, id, rights).ok())
+                }
+            })
+            .collect();
+        let notifications = self
+            .notifications
+            .iter()
+            .enumerate()
+            .map(|(slot, object)| {
+                if slot == own_slot {
+                    own_notification
+                } else {
+                    object.and_then(|id| self.kernel.grant(tcb, id, rights).ok())
+                }
+            })
+            .collect();
+        (handles, notifications)
+    }
+
+    /// 把新端点追加到已有任务的端点视图。
+    fn append_endpoint(&mut self, endpoint: ObjectId, notification: ObjectId) {
+        let kernel = &self.kernel;
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        for task in &mut self.tasks {
+            if task.exited {
+                continue;
+            }
+            task.handles
+                .push(kernel.grant(task.tcb, endpoint, rights).ok());
+            task.notifications
+                .push(kernel.grant(task.tcb, notification, rights).ok());
+        }
+    }
+
+    /// 在已有槽位替换端点，并同步其他任务的端点视图。
+    fn replace_endpoint(&mut self, slot: usize, endpoint: ObjectId, notification: ObjectId) {
+        let kernel = &self.kernel;
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        for (index, task) in self.tasks.iter_mut().enumerate() {
+            if index == slot || task.exited {
+                continue;
+            }
+            let endpoint_handle = kernel.grant(task.tcb, endpoint, rights).ok();
+            if let Some(handle) = task.handles.get_mut(slot) {
+                *handle = endpoint_handle;
+            } else {
+                task.handles.push(endpoint_handle);
+            }
+            let notification_handle = kernel.grant(task.tcb, notification, rights).ok();
+            if let Some(handle) = task.notifications.get_mut(slot) {
+                *handle = notification_handle;
+            } else {
+                task.notifications.push(notification_handle);
+            }
+        }
+    }
+
+    /// 为没有独立端点的线程槽位补齐空视图。
+    pub(crate) fn append_empty_endpoint(&mut self) {
+        for task in &mut self.tasks {
+            task.handles.push(None);
+            task.notifications.push(None);
+        }
     }
 
     /// 捕获任务、序列化现场并终止任务。
@@ -272,55 +306,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.endpoints[slot] = Some(own_id);
         self.notifications[slot] = Some(own_notification_id);
 
-        for (index, task) in self.tasks.iter_mut().enumerate() {
-            if index == slot || task.exited {
-                continue;
-            }
-            let endpoint = kernel.grant(task.tcb, own_id, rights).ok();
-            if let Some(handle) = task.handles.get_mut(slot) {
-                *handle = endpoint;
-            } else {
-                task.handles.push(endpoint);
-            }
-            let notification = kernel.grant(task.tcb, own_notification_id, rights).ok();
-            if let Some(handle) = task.notifications.get_mut(slot) {
-                *handle = notification;
-            } else {
-                task.notifications.push(notification);
-            }
-        }
-
-        let mut handles = Vec::with_capacity(self.endpoints.len());
-        for (index, object) in self.endpoints.iter().enumerate() {
-            let handle = if index == slot {
-                Some(own)
-            } else {
-                object.and_then(|id| kernel.grant(tcb, id, rights).ok())
-            };
-            handles.push(handle);
-        }
-        let mut notifications = Vec::with_capacity(self.notifications.len());
-        for (index, object) in self.notifications.iter().enumerate() {
-            let handle = if index == slot {
-                Some(own_notification)
-            } else {
-                object.and_then(|id| kernel.grant(tcb, id, rights).ok())
-            };
-            notifications.push(handle);
-        }
+        self.replace_endpoint(slot, own_id, own_notification_id);
+        let (handles, notifications) =
+            self.endpoint_views(tcb, slot, Some(own), Some(own_notification));
 
         let (arena_base, arena_size) = self.platform.arena_layout(slot);
-        let mut task = UserTask::new(
+        let mut task = UserTask::new(TaskInit {
             tcb,
-            name,
+            name: String::from(name),
             parent,
             handles,
             notifications,
             context,
             arena_base,
             arena_size,
-            self.platform.memory_limit(slot),
-        );
+            ledger_limit: self.platform.memory_limit(slot),
+        });
         task.arena.set_used(arena_used);
         task.leader = slot;
         self.tasks[slot] = task;
@@ -391,58 +392,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         self.notifications.push(Some(own_notification_id));
 
-        let mut handles = Vec::with_capacity(self.endpoints.len());
-        for (slot, object) in self.endpoints.iter().enumerate() {
-            let handle = if slot == child_index {
-                Some(own_endpoint)
-            } else {
-                match object {
-                    Some(id) => kernel.grant(child, *id, rights).ok(),
-                    None => None,
-                }
-            };
-            handles.push(handle);
-        }
-
-        let mut notifications = Vec::with_capacity(self.notifications.len());
-        for (slot, object) in self.notifications.iter().enumerate() {
-            let handle = if slot == child_index {
-                Some(own_notification)
-            } else {
-                match object {
-                    Some(id) => kernel.grant(child, *id, rights).ok(),
-                    None => None,
-                }
-            };
-            notifications.push(handle);
-        }
-
-        for task in &mut self.tasks {
-            if task.exited {
-                continue;
-            }
-            task.handles
-                .push(kernel.grant(task.tcb, own_endpoint_id, rights).ok());
-            task.notifications
-                .push(kernel.grant(task.tcb, own_notification_id, rights).ok());
-        }
+        let (handles, notifications) = self.endpoint_views(
+            child,
+            child_index,
+            Some(own_endpoint),
+            Some(own_notification),
+        );
+        self.append_endpoint(own_endpoint_id, own_notification_id);
 
         let mut context = *frame;
         context.set_result(0);
         let name = format!("{}-fork", self.tasks[index].name);
         let arena = self.tasks[index].arena;
         let ledger_limit = self.tasks[index].ledger.limit();
-        let mut task = UserTask::new(
-            child,
-            &name,
-            Some(tcb.get()),
+        let mut task = UserTask::new(TaskInit {
+            tcb: child,
+            name,
+            parent: Some(tcb.get()),
             handles,
             notifications,
             context,
-            arena.base(),
-            arena.size(),
+            arena_base: arena.base(),
+            arena_size: arena.size(),
             ledger_limit,
-        );
+        });
         task.arena = arena;
         task.leader = child_index;
         self.tasks.push(task);
@@ -471,20 +444,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn release_grants(&mut self, index: usize) {
         let tcb = self.tasks[index].tcb;
         self.release_all_dma_mappings(index);
-        let charges = core::mem::take(&mut self.tasks[index].grant_charges);
-        for (handle, charge) in core::mem::take(&mut self.tasks[index].grants)
+        for entry in core::mem::take(&mut self.tasks[index].grants)
             .into_iter()
-            .zip(charges)
+            .flatten()
         {
-            if let Some(handle) = handle {
-                self.release_bindings(index, handle);
-                if let Ok(grant) = self.kernel.device_grant(tcb, handle)
-                    && let Some(range) = grant.dma
-                {
-                    self.platform.dma_free(range);
-                }
+            let handle = entry.handle;
+            self.release_bindings(index, handle);
+            if let Ok(grant) = self.kernel.device_grant(tcb, handle)
+                && let Some(range) = grant.dma
+            {
+                self.platform.dma_free(range);
             }
-            if let Some(charge) = charge {
+            if let Some(charge) = entry.charge {
                 let _ = self.tasks[index].ledger.release(charge);
             }
         }
