@@ -192,7 +192,7 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 
 ## 10. Display Server 与 HolyDoc
 
-- **Display Server**：合成器；原生 surface、Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。
+- **Display Server**：合成器；原生 surface、Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；帧缓冲、窗口、输入、sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）。窗口显示、最小化、还原、关闭与缩放换表面时切换 Surface 的 scanout 驻留（`SYS_CAPABILITY_SCANOUT`）：驻留开启即固定，驻留期间拒绝解除固定，关闭时一并解除。
 - **HolyDoc Server**：活文档渲染、链接、代码块、表单。
 - **Workbench**：编辑、浏览、构建、运行、调试一体化应用。已落地 `hk-server-workbench`：surface/window 三栏窗口，左侧加载 `H:` 文档树，中间整篇读写 Holy 文档并支持保存，底部输出构建统计、`@exec` 运行结果与异常回溯；`smoke --mode workbench` 验证。
 - **Toolchain Server**：系统内编译/链接/打包/缓存。

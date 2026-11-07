@@ -234,7 +234,8 @@ Frame 是连续物理页，唯一的物理内存能力。
 - 能力：`Handle<Surface>`；操作：map、damage、resize、scanout。
 - 像素缓冲 + 格式 + stride + 尺寸 + damage/scanout 状态。
 - 窗口是合成器对象，引用一个或多个 Surface。
-- Provider：Display / GPU；scanout 时 pin 住。
+- Provider：Display / GPU；scanout 开启即固定驻留（pinned），驻留期间拒绝解除固定，关闭时一并解除。
+- Display 在窗口显示、最小化、还原、关闭和缩放换表面时切换 scanout 状态。
 - 典型用途：窗口内容、光标、任务栏、桌面背景、GPU 纹理/合成目标。
 
 #### TaskImage
@@ -242,7 +243,7 @@ Frame 是连续物理页，唯一的物理内存能力。
 - 能力：`Handle<TaskImage>`；操作：sealed map、execute。
 - 原生任务镜像（HKX）中的代码/只读数据/数据区域。
 - TaskImage 是 Native Task 镜像区域；ELF 是编译中间产物。
-- 装载后通常 sealed：代码只读/可执行，数据页可 COW。
+- 区域 sealed：映射拒绝写权限，只读或可执行；需要改写的数据走 Revision 或 COW，而不是原地修改镜像。
 - Provider：Image Loader / Root Server；代码页通常已 resident。
 - 典型用途：服务启动映射代码段、共享镜像 text 页。
 
