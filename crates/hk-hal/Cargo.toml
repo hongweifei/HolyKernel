@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 bitflags = { version = "2.6", default-features = false }
 hk-base = { version = "0.1.0", path = "../hk-base" }
+hk-device = { version = "0.1.0", path = "../hk-device" }
 
 [lints]
 workspace = true

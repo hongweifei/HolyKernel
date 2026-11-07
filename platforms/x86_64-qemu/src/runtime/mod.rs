@@ -60,13 +60,13 @@ fn framebuffer_info() -> Option<hk_hal::FramebufferInfo> {
 }
 
 /// Arena 虚拟基址。
-const ARENA_BASE: u64 = hk_hal::user::ARENA_BASE;
+const ARENA_BASE: u64 = hk_base::user::ARENA_BASE;
 
 /// 相邻任务 Arena 的间隔。
-const ARENA_STRIDE: u64 = hk_hal::user::ARENA_STRIDE;
+const ARENA_STRIDE: u64 = hk_base::user::ARENA_STRIDE;
 
 /// 每个任务的 Arena 大小。
-const ARENA_SIZE: u64 = hk_hal::user::ARENA_SIZE;
+const ARENA_SIZE: u64 = hk_base::user::ARENA_SIZE;
 
 /// 用户可访问地址上限。
 const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
@@ -85,7 +85,7 @@ impl UserPlatform for X86Platform {
         cpu::uptime_ticks()
     }
 
-    fn civil_time(&self) -> Option<hk_hal::CivilTime> {
+    fn civil_time(&self) -> Option<hk_base::CivilTime> {
         hk_platform_x86_64::rtc::civil_time()
     }
 

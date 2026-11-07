@@ -7,13 +7,14 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_drivers::grant::{DEVICE_GRANT_BYTES, DeviceGrant, from_device};
-#[cfg(target_os = "none")]
-use hk_drivers::pci::{Bar, Device, PciAddress, PciConfig, capabilities, enumerate, read_bars};
+use hk_device::{
+    grant::{DEVICE_GRANT_BYTES, DeviceGrant, from_device},
+    pci::{PciAddress, PciConfig},
+    scan::{Bar, Device, bar_size, capabilities, enumerate, read_bars},
+};
 #[cfg(target_os = "none")]
 hk_image::declare_service_role!(SERVICE_ROLE, hk_image::ServiceRole::device());
 
-#[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
     DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_INPUT,
@@ -169,7 +170,7 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool, re
                     }
                 }
             }
-            if let Some(size) = hk_drivers::pci::bar_size(&SyscallConfig, device, index) {
+            if let Some(size) = bar_size(&SyscallConfig, device, index) {
                 write(b" size=");
                 write_hex64(size);
             }

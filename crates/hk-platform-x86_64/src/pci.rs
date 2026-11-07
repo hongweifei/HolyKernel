@@ -3,7 +3,7 @@
 //! 通过 `0xCF8` 写入配置地址、`0xCFC` 读写数据，只支持 32 位对齐访问。
 //! 其他架构可使用 `hk_hal::EcamPci`。
 
-use hk_hal::{PciAddress, PciConfig};
+use hk_device::{PciAddress, PciConfig};
 
 use crate::port::{inl, outl};
 

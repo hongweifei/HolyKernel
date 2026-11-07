@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use hk_server_api::{
     CapabilityKind, capability_create, capability_phys, close_handle, device_map,
     dma_map_capability, dma_sync, map_attach, pci_read, pci_write, region_unmap,
@@ -250,8 +250,8 @@ impl ConfigurationAccess for SysConfig {
     }
 }
 
-impl hk_hal::PciConfig for SysConfig {
-    fn read32(&self, address: hk_hal::PciAddress) -> u32 {
+impl hk_device::PciConfig for SysConfig {
+    fn read32(&self, address: hk_device::PciAddress) -> u32 {
         pci_read(
             address.bus,
             address.device,
@@ -260,7 +260,7 @@ impl hk_hal::PciConfig for SysConfig {
         )
     }
 
-    fn write32(&self, address: hk_hal::PciAddress, value: u32) {
+    fn write32(&self, address: hk_device::PciAddress, value: u32) {
         pci_write(
             address.bus,
             address.device,

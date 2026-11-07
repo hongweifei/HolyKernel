@@ -10,7 +10,7 @@
 
 use core::ptr::write_volatile;
 
-use hk_hal::irq::IRQ_VECTOR_BASE;
+use hk_base::IRQ_VECTOR_BASE;
 
 use crate::pci_config::Config;
 
@@ -69,7 +69,7 @@ pub fn enable(grant: u64) -> Option<Msix> {
 /// 在 virtio common config 中把全部队列指向 MSI-X 表项 0。
 ///
 /// 队列未绑定表项时设备不会发中断；这里填的是表项索引，不是 CPU 向量。
-fn route_queues(grant: u64, config: &Config, descriptor: &hk_hal::DeviceGrant) {
+fn route_queues(grant: u64, config: &Config, descriptor: &hk_device::DeviceGrant) {
     let Some(offset) = config.find(0x09) else {
         return;
     };

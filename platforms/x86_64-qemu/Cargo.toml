@@ -11,6 +11,7 @@ name = "hk-x86_64"
 path = "src/main.rs"
 
 [dependencies]
+hk-base = { version = "0.1.0", path = "../../crates/hk-base" }
 hk-boot = { version = "0.1.0", path = "../../crates/hk-boot" }
 hk-checkpoint = { version = "0.1.0", path = "../../crates/hk-checkpoint" }
 hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }

@@ -189,7 +189,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 };
-                let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+                let mut bytes = [0_u8; hk_device::DEVICE_GRANT_BYTES];
                 let Some(length) = grant.encode(&mut bytes) else {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;

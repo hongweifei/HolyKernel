@@ -1,6 +1,6 @@
 //! PCI 配置空间访问：x86 legacy 机制只支持 DWORD 对齐，这里统一做掩码与读改写。
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use hk_server_api::{pci_read, pci_write};
 
 /// 一个设备的配置空间访问器。

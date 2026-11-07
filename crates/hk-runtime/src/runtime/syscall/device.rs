@@ -7,11 +7,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let length = frame.arg1() as usize;
-        if length == 0 || length > hk_hal::DEVICE_GRANT_BYTES {
+        if length == 0 || length > hk_device::DEVICE_GRANT_BYTES {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+        let mut bytes = [0_u8; hk_device::DEVICE_GRANT_BYTES];
         if !self.platform.read_user(frame.arg0(), &mut bytes[..length]) {
             frame.set_result(u64::MAX);
             return Switch::Continue;

@@ -1,6 +1,6 @@
 [package]
 name = "hk-base"
-description = "HolyKernel 基础类型：地址、架构标识与启动信息"
+description = "HolyKernel 共享基础类型：地址、架构、启动信息、时间与用户布局"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

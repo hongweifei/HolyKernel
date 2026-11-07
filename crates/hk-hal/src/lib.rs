@@ -10,7 +10,6 @@ extern crate std;
 
 pub mod cache;
 pub mod console;
-pub mod device;
 pub mod dma;
 pub mod entropy;
 pub mod execution;
@@ -18,12 +17,10 @@ pub mod io;
 pub mod iommu;
 pub mod irq;
 pub mod mmu;
-pub mod pci;
 pub mod physical;
 pub mod platform;
 pub mod power;
 pub mod time;
-pub mod user;
 pub mod user_memory;
 
 /// 支持的 CPU 数量上限。
@@ -31,7 +28,6 @@ pub const MAX_CPUS: usize = 16;
 
 pub use cache::{CacheOps, NoCacheOps};
 pub use console::Console;
-pub use device::{DEVICE_GRANT_BYTES, DeviceGrant, IoRange, MmioRange};
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
 pub use execution::{SyscallFrame, UserContext};
@@ -45,9 +41,8 @@ pub use io::Io;
 pub use iommu::{IdentityIommu, Iommu, IommuDomain, IommuError, IommuFlags, Iova, NoIommu};
 pub use irq::{InterruptController, Ipi, Irq, IrqBitmap, IrqError, NotificationId};
 pub use mmu::{MapFlags, Mmu, MmuError, VSpaceId};
-pub use pci::{PciAddress, PciConfig};
 pub use physical::{PhysicalAccess, PhysicalError};
 pub use platform::{Platform, PlatformError};
 pub use power::Power;
-pub use time::{CivilClock, CivilTime, Duration, Moment, Timer};
+pub use time::Timer;
 pub use user_memory::UserMemory;

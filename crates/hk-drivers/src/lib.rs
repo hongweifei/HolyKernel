@@ -1,13 +1,9 @@
-//! 通用设备协议核心：PCI、16550 UART 与 PS/2 键盘。
+//! 通用设备协议核心：16550 UART 与 PS/2 键盘。
 //!
-//! 只依赖 `hk-hal` 契约；端口/MMIO、ECAM 与中断由平台适配。
+//! 只依赖 `hk-hal` 的 I/O 与 Console 契约；端口/MMIO 访问由平台适配。设备描述
+//! 与 PCI 枚举在 `hk-device`。
 
 #![no_std]
 
-#[cfg(test)]
-extern crate alloc;
-
-pub mod grant;
 pub mod keyboard;
-pub mod pci;
 pub mod uart;

@@ -3,7 +3,7 @@
 //! QEMU 默认把 RTC 设为 UTC。寄存器可能是 BCD 或二进制、12 或 24 小时制，
 //! 都由状态寄存器 B 描述；读值时等待更新周期结束并连续读取两次确认稳定。
 
-use hk_hal::{CivilClock, CivilTime};
+use hk_base::{CivilClock, CivilTime};
 use spin::Mutex;
 
 use crate::port::{inb, outb};

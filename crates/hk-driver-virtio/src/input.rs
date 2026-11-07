@@ -1,6 +1,6 @@
 //! virtio-input 设备封装。
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use virtio_drivers::device::input::{InputEvent, VirtIOInput};
 use virtio_drivers::transport::pci::PciTransport;
 

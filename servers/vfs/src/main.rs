@@ -14,13 +14,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
+use hk_base::CivilTime;
+#[cfg(target_os = "none")]
 use hk_block::ipc::ClientDisk;
 #[cfg(target_os = "none")]
 use hk_fs::Backend;
 #[cfg(target_os = "none")]
 use hk_fs_ext4::{Ext4Backend, WallClock};
-#[cfg(target_os = "none")]
-use hk_hal::CivilTime;
 #[cfg(target_os = "none")]
 use hk_proto::holy::{
     DocId as WireDocId, HOLY_REQUEST, HOLY_RESPONSE, HolyClient, VolumeView, decode_drives,

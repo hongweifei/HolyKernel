@@ -20,9 +20,9 @@ use aux::Aux;
 #[cfg(target_os = "none")]
 use hk_block::BlockDevice;
 #[cfg(target_os = "none")]
-use hk_driver_virtio::{Block, Device, probe};
+use hk_device::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_hal::DeviceGrant;
+use hk_driver_virtio::{Block, Device, probe};
 #[cfg(target_os = "none")]
 use hk_proto::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
@@ -171,7 +171,7 @@ fn reply_not_ready(sender: u64, label: u64) {
 /// 读取授权描述并探测设备。
 #[cfg(target_os = "none")]
 fn probe_grant(handle: u64) -> Option<Device> {
-    let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+    let mut bytes = [0_u8; hk_device::DEVICE_GRANT_BYTES];
     let length = device_info(handle, &mut bytes) as usize;
     if length == u64::MAX as usize {
         return None;

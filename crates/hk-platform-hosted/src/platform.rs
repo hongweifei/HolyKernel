@@ -1,8 +1,10 @@
 //! Hosted 平台实现。
 
+use hk_base::{CivilClock, CivilTime};
+use hk_device::PciConfig;
 use hk_hal::{
-    Arch, BootInfo, CivilClock, CivilTime, Console, CpuId, DmaOps, Entropy, InterruptController,
-    Mmu, PciConfig, PhysAddr, PhysRange, PhysicalAccess, Platform, PlatformError, Timer,
+    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PhysAddr, PhysRange,
+    PhysicalAccess, Platform, PlatformError, Timer,
 };
 
 use crate::boot::{HOSTED_RAM_BASE, HOSTED_RAM_SIZE, boot_info};
@@ -187,7 +189,7 @@ mod tests {
         let start = platform.civil_time().expect("民用时间");
         platform
             .timer
-            .advance(hk_hal::Duration::from_ticks(1_000_000_000));
+            .advance(hk_base::Duration::from_ticks(1_000_000_000));
         let next = platform.civil_time().expect("民用时间");
         assert_eq!(next.second, start.second + 1);
     }

@@ -17,7 +17,7 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::trace::{Category, TraceRing};
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use hk_handle::{Handle, HandleTable, Object, ObjectId, ObjectKind, Rights};
 use hk_ipc::{Message, SendOutcome, Waiter};
 use spin::Mutex;

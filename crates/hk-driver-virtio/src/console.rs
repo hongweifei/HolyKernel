@@ -3,7 +3,7 @@
 //! 只使用端口 0 的接收/发送队列；读取不阻塞，没有数据时返回 `None`，
 //! 服务在自己的主循环里按请求轮询。
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use spin::Mutex;
 use virtio_drivers::device::console::VirtIOConsole;
 use virtio_drivers::transport::pci::PciTransport;

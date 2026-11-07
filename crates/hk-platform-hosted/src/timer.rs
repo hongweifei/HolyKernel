@@ -4,7 +4,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use hk_hal::{Duration, Moment, Timer};
+use hk_base::{Duration, Moment};
+use hk_hal::Timer;
 
 /// 定时器频率：1 GHz，即 1 tick 等于 1 纳秒。
 pub const HOSTED_TIMER_FREQUENCY: u64 = 1_000_000_000;

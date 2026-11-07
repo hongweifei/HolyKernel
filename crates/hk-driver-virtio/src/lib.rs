@@ -1,6 +1,6 @@
 //! virtio 用户态驱动。
 //!
-//! 本 crate 在 [`hk_hal::DeviceGrant`] 之上接入 `virtio-drivers`：用 PCI 配置空间
+//! 本 crate 在 [`hk_device::DeviceGrant`] 之上接入 `virtio-drivers`：用 PCI 配置空间
 //! 枚举 virtio 设备，用授权中的 MMIO 窗口映射寄存器，用授权中的 DMA 窗口分配
 //! 共享缓冲。设备类别由 `virtio-drivers` 判定，已接入块、网络、输入、熵源与
 //! 控制台设备；块设备实现 [`hk_block::BlockDevice`]。
@@ -25,7 +25,7 @@ mod rng;
 
 use core::fmt;
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use virtio_drivers::transport::DeviceType;
 use virtio_drivers::transport::Transport;
 use virtio_drivers::transport::pci::PciTransport;

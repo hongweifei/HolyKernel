@@ -1,7 +1,7 @@
 //! 设备授权：用户态驱动可获得的 MMIO、I/O 与 IRQ 资源描述。
 
-use crate::addr::{PhysAddr, PhysRange};
 use crate::pci::PciAddress;
+use hk_base::{PhysAddr, PhysRange};
 
 /// MMIO 物理范围。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

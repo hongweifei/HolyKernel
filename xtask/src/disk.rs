@@ -6,12 +6,12 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use hk_base::CivilTime;
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
 use hk_fs_holyfs::{
     DocumentKind, HolyError, HolyFs, VOLUME_H, VOLUME_I, VolumeId, format_with_volume_id,
     is_formatted,
 };
-use hk_hal::CivilTime;
 
 use crate::failure::{Failure, Result};
 use crate::workspace;

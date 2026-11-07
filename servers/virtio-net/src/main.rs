@@ -10,9 +10,9 @@ extern crate alloc;
 use alloc::string::ToString;
 
 #[cfg(target_os = "none")]
-use hk_driver_virtio::{Device, probe};
+use hk_device::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_hal::DeviceGrant;
+use hk_driver_virtio::{Device, probe};
 #[cfg(target_os = "none")]
 use hk_proto::net::{
     NET_FRAME_MAX, NET_INFO_BYTES, NET_INFO_REQUEST, NET_INFO_RESPONSE, NET_NOTIFY_IRQ,
@@ -56,7 +56,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(0)
     };
     let mut peer = wait.pending.unwrap_or(0);
-    let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+    let mut bytes = [0_u8; hk_device::DEVICE_GRANT_BYTES];
     let length = device_info(grant_handle, &mut bytes) as usize;
     if length == u64::MAX as usize {
         write("hk-server-virtio-net: 授权描述读取失败\n".as_bytes());

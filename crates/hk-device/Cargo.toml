@@ -1,0 +1,16 @@
+[package]
+name = "hk-device"
+description = "HolyKernel 设备描述与 PCI 枚举（内核与用户态共享）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-base = { version = "0.1.0", path = "../hk-base" }
+
+[dev-dependencies]
+spin = "0.9"
+
+[lints]
+workspace = true

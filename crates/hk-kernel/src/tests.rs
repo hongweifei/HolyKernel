@@ -1,6 +1,7 @@
 //! 内核集成测试。
 
-use hk_hal::{DeviceGrant, MmioRange, PAGE_SIZE, PciAddress, PhysAddr, PhysRange};
+use hk_device::{DeviceGrant, MmioRange, PciAddress};
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{

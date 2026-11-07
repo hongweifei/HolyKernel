@@ -4,7 +4,8 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use hk_hal::{DeviceGrant, PhysRange};
+use hk_device::DeviceGrant;
+use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
 use hk_mem::hmp::FrameLease;

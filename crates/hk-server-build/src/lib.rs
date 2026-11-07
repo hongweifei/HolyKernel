@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-pub use hk_hal::user::{IMAGE_BASE, IMAGE_LIMIT};
+pub use hk_base::user::{IMAGE_BASE, IMAGE_LIMIT};
 
 /// 为当前包生成链接脚本。
 ///
@@ -96,5 +96,5 @@ SECTIONS
 const _: () = {
     assert!(IMAGE_BASE.is_multiple_of(0x1000));
     assert!(IMAGE_LIMIT > IMAGE_BASE);
-    assert!(IMAGE_LIMIT <= hk_hal::user::AUTO_WINDOW_BASE);
+    assert!(IMAGE_LIMIT <= hk_base::user::AUTO_WINDOW_BASE);
 };

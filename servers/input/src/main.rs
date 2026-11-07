@@ -18,9 +18,9 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_driver_virtio::{Device, Input, probe};
+use hk_device::DeviceGrant;
 #[cfg(target_os = "none")]
-use hk_hal::DeviceGrant;
+use hk_driver_virtio::{Device, Input, probe};
 #[cfg(target_os = "none")]
 use hk_proto::input::{
     INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
@@ -78,7 +78,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
         index += 1;
 
-        let mut bytes = [0_u8; hk_hal::DEVICE_GRANT_BYTES];
+        let mut bytes = [0_u8; hk_device::DEVICE_GRANT_BYTES];
         let length = device_info(handle, &mut bytes) as usize;
         if length == u64::MAX as usize {
             continue;

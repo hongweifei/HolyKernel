@@ -9,9 +9,9 @@ use crate::dma::DmaOps;
 use crate::entropy::Entropy;
 use crate::irq::InterruptController;
 use crate::mmu::Mmu;
-use crate::pci::PciConfig;
 use crate::physical::PhysicalAccess;
 use crate::time::Timer;
+use hk_device::PciConfig;
 
 /// 平台初始化错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

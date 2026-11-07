@@ -632,7 +632,7 @@ fn rejects_device_grant_without_authority() {
     };
     context.rax = hk_syscall::SYS_DEVICE_GRANT_CREATE;
     context.rdi = 0x1000;
-    context.rsi = hk_hal::DEVICE_GRANT_BYTES as u64;
+    context.rsi = hk_device::DEVICE_GRANT_BYTES as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
     assert_eq!(runtime.tasks()[index].handles, 4);
@@ -721,7 +721,7 @@ fn lazy_anonymous_capability_maps_without_backing() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 16);
 
-    assert!(runtime.anonymous_fault(0, hk_hal::user::AUTO_WINDOW_BASE));
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
     let _ = runtime.finish(0, index);
 }
 
@@ -755,7 +755,7 @@ fn provider_fault_blocks_caller() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 
-    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE, MockContext::default()));
+    assert!(runtime.provider_fault(0, hk_base::user::AUTO_WINDOW_BASE, MockContext::default()));
     assert_eq!(runtime.tasks()[0].pending, "provider-fault");
 
     let Step::Resume {
@@ -817,10 +817,10 @@ fn anonymous_fault_defers_to_bound_provider() {
     assert_eq!(context.rax, 0);
 
     assert!(
-        !runtime.anonymous_fault(0, hk_hal::user::AUTO_WINDOW_BASE),
+        !runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
         "绑定 Provider 后不进入内核零页快速路径"
     );
-    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE, MockContext::default()));
+    assert!(runtime.provider_fault(0, hk_base::user::AUTO_WINDOW_BASE, MockContext::default()));
     let _ = runtime.finish(0, index);
 }
 

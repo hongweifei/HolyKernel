@@ -8,8 +8,10 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use hk_base::CivilTime;
 use hk_checkpoint::Page;
-use hk_hal::{CivilTime, DeviceGrant, MAX_CPUS, SyscallFrame, UserContext};
+use hk_device::DeviceGrant;
+use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::Charge;

@@ -3,7 +3,7 @@
 //! 单队列请求/响应：每次 [`Rng::fill`] 把目标缓冲提交给设备并等待完成。
 //! 设备不产生需要清除的中断状态，服务可以不绑定 IRQ。
 
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use spin::Mutex;
 use virtio_drivers::device::rng::VirtIORng;
 use virtio_drivers::transport::pci::PciTransport;

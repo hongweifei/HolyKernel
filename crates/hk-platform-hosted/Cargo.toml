@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hk-device = { version = "0.1.0", path = "../hk-device" }
+hk-base = { version = "0.1.0", path = "../hk-base" }
 hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 
 [lints]

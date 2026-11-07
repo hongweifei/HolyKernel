@@ -11,8 +11,8 @@ name = "hk-server-input"
 path = "src/main.rs"
 
 [dependencies]
+hk-device = { version = "0.1.0", path = "../../crates/hk-device" }
 hk-driver-virtio = { version = "0.1.0", path = "../../crates/hk-driver-virtio" }
-hk-hal = { version = "0.1.0", path = "../../crates/hk-hal" }
 hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
 hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
 

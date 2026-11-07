@@ -252,9 +252,6 @@ dependencies = [
 [[package]]
 name = "hk-checkpoint"
 version = "0.1.0"
-dependencies = [
- "hk-hal",
-]
 
 [[package]]
 name = "hk-coroutine"
@@ -269,11 +266,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-device"
+version = "0.1.0"
+dependencies = [
+ "hk-base",
+ "spin",
+]
+
+[[package]]
 name = "hk-driver-virtio"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-block",
- "hk-hal",
+ "hk-device",
  "hk-proto",
  "hk-server-api",
  "spin",
@@ -315,8 +321,8 @@ version = "0.1.0"
 name = "hk-fs-ext4"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-block",
- "hk-hal",
  "hk-vfs",
  "rsext4",
 ]
@@ -344,6 +350,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "hk-base",
+ "hk-device",
 ]
 
 [[package]]
@@ -386,6 +393,7 @@ dependencies = [
 name = "hk-kernel"
 version = "0.1.0"
 dependencies = [
+ "hk-device",
  "hk-hal",
  "hk-handle",
  "hk-ipc",
@@ -427,6 +435,8 @@ dependencies = [
 name = "hk-platform-hosted"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
+ "hk-device",
  "hk-hal",
 ]
 
@@ -435,6 +445,8 @@ name = "hk-platform-x86_64"
 version = "0.1.0"
 dependencies = [
  "hk-acpi",
+ "hk-base",
+ "hk-device",
  "hk-drivers",
  "hk-framebuffer",
  "hk-hal",
@@ -470,7 +482,9 @@ dependencies = [
 name = "hk-runtime"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-checkpoint",
+ "hk-device",
  "hk-hal",
  "hk-handle",
  "hk-ipc",
@@ -484,7 +498,7 @@ dependencies = [
 name = "hk-server-api"
 version = "0.1.0"
 dependencies = [
- "hk-hal",
+ "hk-base",
  "hk-syscall",
  "linked_list_allocator",
  "spin",
@@ -503,7 +517,7 @@ dependencies = [
 name = "hk-server-build"
 version = "0.1.0"
 dependencies = [
- "hk-hal",
+ "hk-base",
 ]
 
 [[package]]
@@ -582,7 +596,7 @@ dependencies = [
 name = "hk-server-device"
 version = "0.1.0"
 dependencies = [
- "hk-drivers",
+ "hk-device",
  "hk-image",
  "hk-server-api",
  "hk-server-build",
@@ -673,8 +687,8 @@ dependencies = [
 name = "hk-server-input"
 version = "0.1.0"
 dependencies = [
+ "hk-device",
  "hk-driver-virtio",
- "hk-hal",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
@@ -779,10 +793,10 @@ dependencies = [
 name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-block",
  "hk-fs",
  "hk-fs-ext4",
- "hk-hal",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
@@ -794,8 +808,8 @@ name = "hk-server-virtio"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+ "hk-device",
  "hk-driver-virtio",
- "hk-hal",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
@@ -805,8 +819,8 @@ dependencies = [
 name = "hk-server-virtio-net"
 version = "0.1.0"
 dependencies = [
+ "hk-device",
  "hk-driver-virtio",
- "hk-hal",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
@@ -888,6 +902,7 @@ dependencies = [
 name = "hk-x86_64"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-boot",
  "hk-checkpoint",
  "hk-hal",
@@ -1271,10 +1286,10 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hk-base",
  "hk-block",
  "hk-fs-ext4",
  "hk-fs-holyfs",
- "hk-hal",
  "hk-image",
  "hk-server-build",
  "hk-vfs",

@@ -16,13 +16,13 @@ use hk_root_server::{ServiceSpec, ServiceTable};
 use crate::runtime;
 
 /// 用户栈基址。
-const USER_STACK_BASE: u64 = hk_hal::user::STACK_BASE;
+const USER_STACK_BASE: u64 = hk_base::user::STACK_BASE;
 
 /// 用户栈大小。
-const USER_STACK_SIZE: u64 = hk_hal::user::STACK_SIZE;
+const USER_STACK_SIZE: u64 = hk_base::user::STACK_SIZE;
 
 /// 各服务用户栈之间的间隔。
-const USER_STACK_STRIDE: u64 = hk_hal::user::STACK_STRIDE;
+const USER_STACK_STRIDE: u64 = hk_base::user::STACK_STRIDE;
 
 /// 加载默认启动服务并运行到退出。
 pub fn run(

@@ -3,7 +3,7 @@
 //! 与 MSI-X 不同，MSI 直接在 capability 里写一组地址/数据，设备所有事件共用一个
 //! 向量，不需要在 BAR 里维护表。
 
-use hk_hal::irq::IRQ_VECTOR_BASE;
+use hk_base::IRQ_VECTOR_BASE;
 
 use crate::pci_config::Config;
 

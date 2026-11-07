@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use hk_block::{AsyncBlockDevice, BlockDevice, BlockError};
-use hk_hal::DeviceGrant;
+use hk_device::DeviceGrant;
 use spin::Mutex;
 use virtio_drivers::device::blk::{BlkReq, BlkResp, SECTOR_SIZE, VirtIOBlk};
 use virtio_drivers::transport::pci::PciTransport;

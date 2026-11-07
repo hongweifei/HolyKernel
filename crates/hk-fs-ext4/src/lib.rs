@@ -15,8 +15,8 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt;
 
+use hk_base::CivilTime;
 use hk_block::BlockDevice;
-use hk_hal::CivilTime;
 use hk_vfs::{DirEntry, FileType, Metadata, NodeId, PathBackend, Vfs, VfsError};
 use rsext4::{
     BlockIo, Clock, DeviceCapabilities, DeviceGeometry, DirectoryCursor, DirectoryEntryType,

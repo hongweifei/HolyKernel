@@ -2,8 +2,8 @@
 
 use alloc::vec::Vec;
 
+use hk_base::CivilTime;
 use hk_checkpoint::Page;
-use hk_hal::CivilTime;
 
 /// 平台提供的用户态运行支持。
 pub trait UserPlatform {

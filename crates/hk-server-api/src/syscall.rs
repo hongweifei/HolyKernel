@@ -428,8 +428,8 @@ pub fn boot_cmdline(buffer: &mut [u8]) -> Option<&str> {
 }
 
 /// 读取民用时间；没有 RTC 时返回 `None`。
-pub fn civil_time() -> Option<hk_hal::CivilTime> {
-    let mut bytes = [0_u8; hk_hal::CivilTime::ENCODED_LEN];
+pub fn civil_time() -> Option<hk_base::CivilTime> {
+    let mut bytes = [0_u8; hk_base::CivilTime::ENCODED_LEN];
     // SAFETY: 缓冲区属于本进程；内核校验长度后写入。
     let result = unsafe {
         syscall_call(
@@ -440,10 +440,10 @@ pub fn civil_time() -> Option<hk_hal::CivilTime> {
             0,
         )
     };
-    if result.value as usize != hk_hal::CivilTime::ENCODED_LEN {
+    if result.value as usize != hk_base::CivilTime::ENCODED_LEN {
         return None;
     }
-    hk_hal::CivilTime::decode(&bytes)
+    hk_base::CivilTime::decode(&bytes)
 }
 
 /// 读取调度 tick 计数。

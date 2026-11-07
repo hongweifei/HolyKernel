@@ -2,8 +2,8 @@
 
 use alloc::vec::Vec;
 
+use hk_base::user::{AUTO_WINDOW_BASE, AUTO_WINDOW_LIMIT};
 use hk_hal::PAGE_SIZE;
-use hk_hal::user::{AUTO_WINDOW_BASE, AUTO_WINDOW_LIMIT};
 
 /// 一段已分配的虚拟区间。
 type Range = (u64, u64);
