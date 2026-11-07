@@ -298,11 +298,16 @@ pub fn run(
             let bytes = info.module_bytes(module);
             let device = bytes.is_some_and(loader::service_has_device_authority);
             let priority = bytes.map(loader::service_priority).unwrap_or(16);
-            let spec = if device {
+            let mut spec = if device {
                 ServiceSpec::device(name)
             } else {
                 ServiceSpec::new(name)
             };
+            if *name == "hk-server-memory" {
+                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::User, 16 * 1024 * 1024);
+            } else if device {
+                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
+            }
             spec.with_priority(priority)
         })
         .collect();
@@ -408,7 +413,7 @@ struct UserPages<'a> {
 
 impl UserMemory for UserPages<'_> {
     fn map_page(&mut self, virtual_address: u64) -> Option<&mut [u8]> {
-        let frame = self.allocator.allocate()?;
+        let frame = self.allocator.allocate_for(hk_mem::FrameKind::Image)?;
         let destination = (self.direct_map_base + frame.get()) as *mut u8;
 
         // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。

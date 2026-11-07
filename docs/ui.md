@@ -54,7 +54,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - HolyDoc 文档由文本与内联指令组成：`@title`、`@heading`、`@link`、`@bullet`、`@code` 与 `@exec`；正文按 8×16 位图字体排版，ASCII 半宽、汉字全宽。
 - HolyDoc 标签：启动时读取 H: 卷标签表，文档页追加所属标签；`H:/Tags` 按标签分组列出成员，按 `t` 打开，`@exec tags` 输出标签列表。
 - `desktop` 启动模式装载 virtio-blk 驱动与 VFS，并以 `vfs.fs=holyfs` 挂载 `H:` 卷；`cargo xtask run --target x86_64-qemu --ui` 会把 `docs/holy` 的文档播种到 `build/run-holy.img`。
-- Debug Server：调试窗口分页展示概览、任务、服务、trace、统计与最近一次用户异常回溯；`1`-`6` 切换视图，`j`/`k`、`u`/`d`、方向键与 PageUp/PageDown 滚动，`r` 刷新，`q` 或关闭退出。异常页显示故障现场与符号化栈帧。`smoke --mode debug` 验证分页读取、渲染与符号解析。
+- Debug Server：调试窗口分页展示概览、任务、服务、trace、统计与最近一次用户异常回溯；概览包含 System Capacity 总量、已用、峰值与分类用量。`1`-`6` 切换视图，`j`/`k`、`u`/`d`、方向键与 PageUp/PageDown 滚动，`r` 刷新，`q` 或关闭退出。异常页显示故障现场与符号化栈帧。`smoke --mode debug` 验证分页读取、渲染与符号解析。
 - Task Manager：任务管理器窗口提供「进程」与「性能」两页；进程页展示任务状态、CPU 占用、Arena 内存、句柄与端点，性能页绘制 CPU/内存历史曲线与每核占用，默认每秒自动刷新，支持键盘与鼠标切换页面、排序与暂停。内核按调度区间累计每任务 CPU 周期与每 CPU 忙时，经 `ROOT_OP_PERF` 暴露。`smoke --mode taskman` 验证快照读取与两页渲染。
 - Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。

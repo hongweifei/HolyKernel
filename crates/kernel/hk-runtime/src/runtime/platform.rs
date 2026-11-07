@@ -45,8 +45,17 @@ pub trait UserPlatform {
         None
     }
 
-    /// 为内存服务预留一段独立 Capacity。
-    fn reserve_capacity(&self, _len: usize) -> Option<hk_mem::hmp::Capacity> {
+    /// 按用途预留一段独立 Capacity。
+    fn reserve_capacity(
+        &self,
+        _len: usize,
+        _kind: hk_mem::hmp::CapacityKind,
+    ) -> Option<hk_mem::hmp::Capacity> {
+        None
+    }
+
+    /// 返回 System Capacity 的 FrameBank 记账快照。
+    fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
         None
     }
     /// 归还 DeviceGrant 的 DMA 窗口。

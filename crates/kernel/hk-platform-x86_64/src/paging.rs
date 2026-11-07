@@ -10,6 +10,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 
 pub use hk_mem::FrameBank as PageAllocator;
+use hk_mem::FrameKind;
 
 /// 内核全局物理帧银行。
 pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
@@ -66,21 +67,21 @@ pub fn kernel_table() -> PageTable {
 }
 
 fn take_cow_page() -> Option<PhysAddr> {
-    FRAME_BANK.allocate()
+    FRAME_BANK.allocate_for(FrameKind::Cow)
 }
 
 /// 取出一个检查点恢复帧。
 pub fn take_restore_page() -> Option<PhysAddr> {
-    FRAME_BANK.allocate()
+    FRAME_BANK.allocate_for(FrameKind::Restore)
 }
 
 /// 归还一个检查点恢复帧。
 pub fn give_restore_page(frame: PhysAddr) {
-    FRAME_BANK.free(PhysRange::new(frame, PAGE_SIZE as u64));
+    FRAME_BANK.free_for(FrameKind::Restore, PhysRange::new(frame, PAGE_SIZE as u64));
 }
 
 fn take_user_table_frame() -> Option<PhysAddr> {
-    FRAME_BANK.allocate()
+    FRAME_BANK.allocate_for(FrameKind::PageTable)
 }
 
 /// 解析用户写保护页错误；成功复制页帧时返回 `true`。
@@ -202,7 +203,7 @@ impl PageTable {
 
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
     pub fn create_user(&self, allocator: &PageAllocator) -> Result<Self, PagingError> {
-        self.create_user_with(|| allocator.allocate())
+        self.create_user_with(|| allocator.allocate_for(FrameKind::PageTable))
     }
 
     /// 以指定分配器创建用户页表；中间页表也由 `allocate` 提供。
@@ -541,7 +542,9 @@ impl PageTable {
         flags: PageFlags,
         allocator: &PageAllocator,
     ) -> Result<(), PagingError> {
-        self.map_with(virt, phys, flags, || allocator.allocate())
+        self.map_with(virt, phys, flags, || {
+            allocator.allocate_for(FrameKind::PageTable)
+        })
     }
 
     /// 建立映射，并用调用方提供的分配器分配中间页表。

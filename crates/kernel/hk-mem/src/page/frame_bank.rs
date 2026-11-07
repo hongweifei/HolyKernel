@@ -5,10 +5,65 @@ use alloc::vec::Vec;
 use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, PhysRange};
 use spin::Mutex;
 
+use crate::hmp::{Charge, Ledger, LedgerId};
+
+/// FrameBank 分配用途。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    /// 内核堆。
+    KernelHeap,
+    /// 页表。
+    PageTable,
+    /// 写时复制。
+    Cow,
+    /// 检查点恢复。
+    Restore,
+    /// 用户镜像。
+    Image,
+    /// DMA。
+    Dma,
+    /// 其他。
+    Other,
+}
+
+impl FrameKind {
+    /// 用途数量。
+    pub const COUNT: usize = 7;
+
+    const fn index(self) -> usize {
+        match self {
+            Self::KernelHeap => 0,
+            Self::PageTable => 1,
+            Self::Cow => 2,
+            Self::Restore => 3,
+            Self::Image => 4,
+            Self::Dma => 5,
+            Self::Other => 6,
+        }
+    }
+}
+
+/// FrameBank 记账快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameBankStats {
+    /// 总字节数。
+    pub total: u64,
+    /// 已分配字节数。
+    pub used: u64,
+    /// 峰值已用字节数。
+    pub peak: u64,
+    /// 空闲字节数。
+    pub free: u64,
+    /// 各用途已用字节数。
+    pub by_kind: [u64; FrameKind::COUNT],
+}
+
 struct Inner {
     free: Vec<PhysRange>,
     total: u64,
-    used: u64,
+    ledger: Ledger,
+    charges: Vec<(PhysRange, Charge)>,
+    by_kind: [u64; FrameKind::COUNT],
 }
 
 /// 系统物理帧银行。
@@ -23,7 +78,9 @@ impl FrameBank {
             inner: Mutex::new(Inner {
                 free: Vec::new(),
                 total: 0,
-                used: 0,
+                ledger: Ledger::new(LedgerId::new(0), 0),
+                charges: Vec::new(),
+                by_kind: [0; FrameKind::COUNT],
             }),
         }
     }
@@ -52,7 +109,8 @@ impl FrameBank {
         let mut inner = self.inner.lock();
         inner.free.clear();
         inner.total = 0;
-        inner.used = 0;
+        inner.charges.clear();
+        inner.by_kind = [0; FrameKind::COUNT];
         for region in regions {
             if !region.kind.is_usable() {
                 continue;
@@ -87,16 +145,18 @@ impl FrameBank {
         }
         inner.free.sort_unstable_by_key(|range| range.start().get());
         inner.total = inner.free.iter().map(|range| range.len()).sum();
+        inner.ledger = Ledger::new(LedgerId::new(0), inner.total);
     }
 
-    /// 分配一段连续物理内存，长度按页向上取整。
-    pub fn allocate_contiguous(&self, len: usize) -> Option<PhysRange> {
+    /// 按用途分配一段连续物理内存，长度按页向上取整。
+    pub fn allocate_contiguous_for(&self, kind: FrameKind, len: usize) -> Option<PhysRange> {
         let length = (len as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
         if length == 0 {
             return None;
         }
         let mut inner = self.inner.lock();
         let index = inner.free.iter().position(|range| range.len() >= length)?;
+        let charge = inner.ledger.charge(length).ok()?;
         let range = inner.free.swap_remove(index);
         let start = range.start();
         let remaining = range.len() - length;
@@ -106,22 +166,45 @@ impl FrameBank {
                 remaining,
             ));
         }
-        inner.used = inner.used.saturating_add(length);
-        Some(PhysRange::new(start, length))
+        let allocated = PhysRange::new(start, length);
+        inner.charges.push((allocated, charge));
+        let slot = &mut inner.by_kind[kind.index()];
+        *slot = slot.saturating_add(length);
+        Some(allocated)
     }
 
-    /// 分配一个 4 KiB 物理帧。
+    /// 分配一段连续物理内存，用途记为 `Other`。
+    pub fn allocate_contiguous(&self, len: usize) -> Option<PhysRange> {
+        self.allocate_contiguous_for(FrameKind::Other, len)
+    }
+
+    /// 按用途分配一个 4 KiB 物理帧。
+    pub fn allocate_for(&self, kind: FrameKind) -> Option<PhysAddr> {
+        self.allocate_contiguous_for(kind, PAGE_SIZE)
+            .map(PhysRange::start)
+    }
+
+    /// 分配一个 4 KiB 物理帧，用途记为 `Other`。
     pub fn allocate(&self) -> Option<PhysAddr> {
-        self.allocate_contiguous(PAGE_SIZE).map(PhysRange::start)
+        self.allocate_for(FrameKind::Other)
     }
 
-    /// 归还一段物理区间并与相邻空闲区间合并。
-    pub fn free(&self, range: PhysRange) {
+    /// 按用途归还一段物理区间并与相邻空闲区间合并。
+    pub fn free_for(&self, kind: FrameKind, range: PhysRange) {
         if range.is_empty() {
             return;
         }
         let mut inner = self.inner.lock();
-        inner.used = inner.used.saturating_sub(range.len());
+        if let Some(index) = inner
+            .charges
+            .iter()
+            .position(|(allocated, _)| *allocated == range)
+        {
+            let (_, charge) = inner.charges.swap_remove(index);
+            let _ = inner.ledger.release(charge);
+        }
+        let slot = &mut inner.by_kind[kind.index()];
+        *slot = slot.saturating_sub(range.len());
         inner.free.push(range);
         inner.free.sort_unstable_by_key(|range| range.start().get());
         let mut merged: Vec<PhysRange> = Vec::with_capacity(inner.free.len());
@@ -137,6 +220,11 @@ impl FrameBank {
         inner.free = merged;
     }
 
+    /// 归还一段用途为 `Other` 的物理区间。
+    pub fn free(&self, range: PhysRange) {
+        self.free_for(FrameKind::Other, range);
+    }
+
     /// 返回总字节数。
     pub fn total(&self) -> u64 {
         self.inner.lock().total
@@ -144,7 +232,19 @@ impl FrameBank {
 
     /// 返回已分配字节数。
     pub fn used(&self) -> u64 {
-        self.inner.lock().used
+        self.inner.lock().ledger.charged()
+    }
+
+    /// 返回记账快照。
+    pub fn stats(&self) -> FrameBankStats {
+        let inner = self.inner.lock();
+        FrameBankStats {
+            total: inner.total,
+            used: inner.ledger.charged(),
+            peak: inner.ledger.peak(),
+            free: inner.total.saturating_sub(inner.ledger.charged()),
+            by_kind: inner.by_kind,
+        }
     }
 }
 
@@ -189,9 +289,9 @@ mod tests {
         assert_eq!(range.len(), 0x2000);
         assert_eq!(bank.allocate(), Some(PhysAddr::new(0x10_2000)));
         assert_eq!(bank.allocate_contiguous(0x2000), None);
-        bank.free(PhysRange::new(PhysAddr::new(0x10_0000), 0x1000));
-        bank.free(PhysRange::new(PhysAddr::new(0x10_1000), 0x1000));
-        let merged = bank.allocate_contiguous(0x2000).expect("合并后");
+        bank.free(range);
+        bank.free(PhysRange::new(PhysAddr::new(0x10_2000), 0x1000));
+        let merged = bank.allocate_contiguous(0x3000).expect("合并后");
         assert_eq!(merged.start(), PhysAddr::new(0x10_0000));
     }
 }

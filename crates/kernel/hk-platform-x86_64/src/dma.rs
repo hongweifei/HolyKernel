@@ -31,6 +31,6 @@ pub fn free(range: PhysRange) {
 }
 
 /// 从 DMA 池切出独立 Capacity。
-pub fn take_capacity(len: usize) -> Option<hk_mem::hmp::Capacity> {
-    DMA.take_capacity(len, hk_mem::hmp::CapacityKind::User)
+pub fn take_capacity(len: usize, kind: hk_mem::hmp::CapacityKind) -> Option<hk_mem::hmp::Capacity> {
+    DMA.take_capacity(len, kind)
 }

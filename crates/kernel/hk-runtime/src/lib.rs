@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_kernel::{Kernel, KernelError, Priority, TcbId};
+use hk_mem::hmp::CapacityKind;
 
 /// 服务清单条目。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +27,8 @@ pub struct ServiceSpec {
     pub name: &'static str,
     /// 是否允许通过设备授权工厂创建 DeviceGrant。
     pub device_authority: bool,
+    /// 初始 Capacity 授予。
+    pub capacity: Option<(CapacityKind, usize)>,
     /// 调度优先级。
     pub priority: u8,
 }
@@ -36,6 +39,7 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: false,
+            capacity: None,
             priority: 16,
         }
     }
@@ -45,8 +49,15 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: true,
+            capacity: None,
             priority: 16,
         }
+    }
+
+    /// 声明初始 Capacity 授予。
+    pub const fn with_capacity(mut self, kind: CapacityKind, bytes: usize) -> Self {
+        self.capacity = Some((kind, bytes));
+        self
     }
 
     /// 指定调度优先级。

@@ -102,12 +102,16 @@ impl UserPlatform for MockPlatform {
         ))
     }
 
-    fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
+    fn reserve_capacity(
+        &self,
+        len: usize,
+        kind: hk_mem::hmp::CapacityKind,
+    ) -> Option<hk_mem::hmp::Capacity> {
         hk_mem::hmp::Capacity::new(
             hk_mem::hmp::CapacityId::next(),
             hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8000_0000), len as u64),
             hk_hal::PAGE_SIZE,
-            hk_mem::hmp::CapacityKind::User,
+            kind,
             0,
         )
         .ok()
@@ -165,11 +169,14 @@ fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> 
 }
 
 fn runtime_on<P: UserPlatform>(second: &'static str, platform: P) -> UserRuntime<MockContext, P> {
+    let second = if second == hk_syscall::MEMORY_SERVICE {
+        crate::ServiceSpec::new(second)
+            .with_capacity(hk_mem::hmp::CapacityKind::User, 16 * 1024 * 1024)
+    } else {
+        crate::ServiceSpec::new(second)
+    };
     let mut runtime = crate::boot::user_runtime(
-        &[
-            crate::ServiceSpec::new("a"),
-            crate::ServiceSpec::new(second),
-        ],
+        &[crate::ServiceSpec::new("a"), second],
         platform,
         |_index, endpoint| MockContext {
             rdi: endpoint,
@@ -576,15 +583,29 @@ fn transports_byte_payloads() {
             (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
         }
 
-        fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
+        fn reserve_capacity(
+            &self,
+            len: usize,
+            kind: hk_mem::hmp::CapacityKind,
+        ) -> Option<hk_mem::hmp::Capacity> {
             hk_mem::hmp::Capacity::new(
                 hk_mem::hmp::CapacityId::next(),
                 hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), len as u64),
                 hk_hal::PAGE_SIZE,
-                hk_mem::hmp::CapacityKind::User,
+                kind,
                 0,
             )
             .ok()
+        }
+
+        fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
+            Some(hk_mem::FrameBankStats {
+                total: 0x1000,
+                used: 0x800,
+                peak: 0x900,
+                free: 0x800,
+                by_kind: [0x100, 0x200, 0x300, 0, 0, 0, 0],
+            })
         }
 
         fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
@@ -678,6 +699,30 @@ fn transports_byte_payloads() {
     assert_eq!(base, 0);
     assert!(size > 0);
     assert_eq!(regions, 0);
+    drop(data);
+
+    context.rax = hk_syscall::SYS_MEMORY_STATS;
+    context.rdi = 0x400;
+    context.rsi = 88;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 88);
+    let data = DATA.lock();
+    assert_eq!(
+        u64::from_le_bytes(data[0x400..0x408].try_into().expect("total")),
+        0x1000
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[0x408..0x410].try_into().expect("used")),
+        0x800
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[0x410..0x418].try_into().expect("peak")),
+        0x900
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[0x418..0x420].try_into().expect("free")),
+        0x800
+    );
 }
 
 #[test]
@@ -1202,12 +1247,16 @@ impl UserPlatform for ShortPlatform {
         (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
     }
 
-    fn reserve_capacity(&self, _len: usize) -> Option<hk_mem::hmp::Capacity> {
+    fn reserve_capacity(
+        &self,
+        _len: usize,
+        kind: hk_mem::hmp::CapacityKind,
+    ) -> Option<hk_mem::hmp::Capacity> {
         hk_mem::hmp::Capacity::new(
             hk_mem::hmp::CapacityId::next(),
             hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0xA000_0000), 0x3000),
             hk_hal::PAGE_SIZE,
-            hk_mem::hmp::CapacityKind::User,
+            kind,
             0,
         )
         .ok()

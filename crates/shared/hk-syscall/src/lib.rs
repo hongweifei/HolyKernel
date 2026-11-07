@@ -241,6 +241,9 @@ pub const SYS_FRAME_MAP: u64 = 0x9A;
 /// 把 Frame 绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP_FRAME: u64 = 0x9B;
 
+/// 查询 System Capacity 的 FrameBank 记账快照。
+pub const SYS_MEMORY_STATS: u64 = 0x9C;
+
 /// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
 pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
 
@@ -510,7 +513,7 @@ mod tests {
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
-        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_DMA_MAP_FRAME < 0xA0) };
+        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_MEMORY_STATS < 0xA0) };
     }
 
     #[test]
@@ -610,6 +613,7 @@ mod tests {
             SYS_FRAME_FREE,
             SYS_FRAME_MAP,
             SYS_DMA_MAP_FRAME,
+            SYS_MEMORY_STATS,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

@@ -129,7 +129,8 @@ extern "C" fn kmain() -> ! {
         );
     }
     const KERNEL_HEAP_BYTES: usize = 16 * 1024 * 1024;
-    let Some(heap) = hk_platform_x86_64::paging::FRAME_BANK.allocate_contiguous(KERNEL_HEAP_BYTES)
+    let Some(heap) = hk_platform_x86_64::paging::FRAME_BANK
+        .allocate_contiguous_for(hk_mem::FrameKind::KernelHeap, KERNEL_HEAP_BYTES)
     else {
         fail(
             &console,
@@ -148,10 +149,28 @@ extern "C" fn kmain() -> ! {
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
     hk_platform_x86_64::cache::init(direct_map_base);
     if let Some(dma) = hk_platform_x86_64::paging::FRAME_BANK
-        .allocate_contiguous(hk_platform_x86_64::dma::POOL_BYTES)
+        .allocate_contiguous_for(hk_mem::FrameKind::Dma, hk_platform_x86_64::dma::POOL_BYTES)
     {
         hk_platform_x86_64::dma::init(dma);
     }
+    let stats = hk_platform_x86_64::paging::FRAME_BANK.stats();
+    announce(
+        &console,
+        screen.as_ref(),
+        &format!(
+            "System Capacity：used {} KiB / total {} KiB，peak {} KiB；heap {}，page-table {}，cow {}，restore {}，image {}，dma {}，other {}\n",
+            stats.used / 1024,
+            stats.total / 1024,
+            stats.peak / 1024,
+            stats.by_kind[0] / 1024,
+            stats.by_kind[1] / 1024,
+            stats.by_kind[2] / 1024,
+            stats.by_kind[3] / 1024,
+            stats.by_kind[4] / 1024,
+            stats.by_kind[5] / 1024,
+            stats.by_kind[6] / 1024,
+        ),
+    );
 
     if let Err(error) = bootstrap::init_interrupts(
         &paging,

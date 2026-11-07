@@ -7,8 +7,8 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
     SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP,
-    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_REGION_INFO,
-    SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_MEMORY_STATS,
+    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -361,6 +361,52 @@ pub fn arena_info() -> Option<ArenaInfo> {
         size: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
         used: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
         regions: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+    })
+}
+
+/// System Capacity 记账快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MemoryStats {
+    /// 总字节数。
+    pub total: u64,
+    /// 已用字节数。
+    pub used: u64,
+    /// 峰值字节数。
+    pub peak: u64,
+    /// 空闲字节数。
+    pub free: u64,
+    /// 各用途已用字节数：KernelHeap、PageTable、Cow、Restore、Image、Dma、Other。
+    pub by_kind: [u64; 7],
+}
+
+/// 查询 System Capacity 的 FrameBank 记账快照。
+pub fn memory_stats() -> Option<MemoryStats> {
+    let mut bytes = [0_u8; 88];
+    // SAFETY: 缓冲区属于本进程；内核写入 System Capacity 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_MEMORY_STATS,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    if result != 88 {
+        return None;
+    }
+    let mut by_kind = [0_u64; 7];
+    for (index, value) in by_kind.iter_mut().enumerate() {
+        let start = 32 + index * 8;
+        *value = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
+    }
+    Some(MemoryStats {
+        total: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        free: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        by_kind,
     })
 }
 

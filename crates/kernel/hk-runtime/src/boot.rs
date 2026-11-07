@@ -89,6 +89,16 @@ where
             platform.memory_limit(index),
         );
         task.device_factory = factory;
+        if let Some((kind, bytes)) = specs[index].capacity
+            && let Some(capacity) = platform.reserve_capacity(bytes, kind)
+            && let Ok(handle) = kernel.create_capacity(
+                service.tcb,
+                capacity,
+                Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+            )
+        {
+            task.capacities.push(Some(handle));
+        }
         tasks.push(task);
     }
 

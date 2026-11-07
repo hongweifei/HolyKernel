@@ -5,7 +5,9 @@ use alloc::string::String;
 use alloc::vec;
 
 use hk_server_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
-use hk_server_api::{handle_count, kernel_stats, service_endpoint, ticks, tsc_frequency};
+use hk_server_api::{
+    handle_count, kernel_stats, memory_stats, service_endpoint, ticks, tsc_frequency,
+};
 
 /// Root 控制结果缓冲长度。
 const BUFFER: usize = 32 * 1024;
@@ -85,6 +87,7 @@ fn root(op: u64) -> String {
 
 fn overview() -> String {
     let stats = kernel_stats();
+    let memory = memory_stats().unwrap_or_default();
     let display = service_endpoint("hk-server-display");
     format!(
         "同步统计\n\
@@ -95,7 +98,9 @@ fn overview() -> String {
          调度 tick: {}\n\
          TSC Hz: {}\n\
          本任务句柄: {}\n\
-         Display: {}\n",
+         Display: {}\n\
+         System Capacity: {} / {} KiB（峰值 {}）\n\
+         内存分类 KiB: heap {} page-table {} cow {} restore {} image {} dma {} other {}\n",
         stats.threads,
         stats.objects,
         stats.runnable,
@@ -104,5 +109,15 @@ fn overview() -> String {
         tsc_frequency(),
         handle_count(),
         if display == 0 { "离线" } else { "在线" },
+        memory.used / 1024,
+        memory.total / 1024,
+        memory.peak / 1024,
+        memory.by_kind[0] / 1024,
+        memory.by_kind[1] / 1024,
+        memory.by_kind[2] / 1024,
+        memory.by_kind[3] / 1024,
+        memory.by_kind[4] / 1024,
+        memory.by_kind[5] / 1024,
+        memory.by_kind[6] / 1024,
     )
 }

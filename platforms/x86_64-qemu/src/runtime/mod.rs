@@ -153,8 +153,16 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::dma::free(range);
     }
 
-    fn reserve_capacity(&self, len: usize) -> Option<hk_mem::hmp::Capacity> {
-        hk_platform_x86_64::dma::take_capacity(len)
+    fn reserve_capacity(
+        &self,
+        len: usize,
+        kind: hk_mem::hmp::CapacityKind,
+    ) -> Option<hk_mem::hmp::Capacity> {
+        hk_platform_x86_64::dma::take_capacity(len, kind)
+    }
+
+    fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
+        Some(hk_platform_x86_64::paging::FRAME_BANK.stats())
     }
 
     fn zero(&self, address: u64, length: usize) {

@@ -204,6 +204,7 @@ impl SmokeMode {
             Self::Boot => &[
                 "TSC 频率",
                 "启动信息校验通过",
+                "System Capacity：",
                 "内核初始化耗时",
                 "加载服务并进入用户态",
                 "hk-server-demo running",

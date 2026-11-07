@@ -3,5 +3,5 @@
 pub mod frame_bank;
 pub mod registry;
 
-pub use frame_bank::FrameBank;
+pub use frame_bank::{FrameBank, FrameBankStats, FrameKind};
 pub use registry::{UserVspace, VspaceRegistry};

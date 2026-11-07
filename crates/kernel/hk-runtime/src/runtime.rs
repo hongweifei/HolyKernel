@@ -15,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Capacity, Charge};
+use hk_mem::hmp::{Capacity, CapacityKind, Charge};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
@@ -28,12 +28,12 @@ use hk_syscall::{
     SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE,
     SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE, SYS_HANDLE_CLOSE,
     SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS, SYS_LEDGER_INFO,
-    SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA,
-    SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY,
-    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE,
-    SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
-    SYS_SLEEP, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC,
-    SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
+    SYS_MEMORY_STATS, SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE, SYS_RECV,
+    SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY,
+    SYS_RECV_DATA_TRY, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP, SYS_REPLY,
+    SYS_REPLY_HANDLE, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
+    SYS_SERVICE_ENDPOINT, SYS_SLEEP, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS,
+    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
@@ -64,7 +64,6 @@ const REGION_HANDLE_BASE: usize = 0x4000;
 const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
-const INITIAL_CAPACITY_BYTES: usize = 16 * 1024 * 1024;
 const SYSTEM_CAPACITY_BYTES: usize = 32 * 1024 * 1024;
 
 /// 任务持有的共享 Frame。
@@ -153,20 +152,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             task.leader = index;
         }
         let system_capacity = platform
-            .reserve_capacity(SYSTEM_CAPACITY_BYTES)
+            .reserve_capacity(SYSTEM_CAPACITY_BYTES, CapacityKind::User)
             .map(|capacity| Arc::new(spin::Mutex::new(capacity)));
-        if let Some(index) = tasks
-            .iter()
-            .position(|task| task.name == hk_syscall::MEMORY_SERVICE)
-            && let Some(capacity) = platform.reserve_capacity(INITIAL_CAPACITY_BYTES)
-            && let Ok(handle) = kernel.create_capacity(
-                tasks[index].tcb,
-                capacity,
-                Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
-            )
-        {
-            tasks[index].capacities.push(Some(handle));
-        }
         Self {
             kernel,
             root,
