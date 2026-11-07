@@ -20,7 +20,7 @@ flowchart TB
     end
     subgraph Kernel["微内核"]
         TCB["TCB / 调度"]
-        VSpace["VSpace / 内存"]
+        Arena["Arena / 内存"]
         HandleTable["HandleTable / 句柄"]
         IPC["Endpoint / Notification"]
         IRQ["IRQ / 设备句柄"]
@@ -37,7 +37,7 @@ flowchart TB
 
 **内核提供机制，服务器提供策略。** 驱动、文件系统、POSIX 兼容层与原生服务运行在用户态。
 
-核心抽象是 **Native Task**：VSpace + HandleTable + TCB(s) + Arena + 父子关系 + 元数据。Task 拥有自己的堆与生命周期；Root Server 管理服务树，POSIX Server 管理进程树；调度保持固定优先级与同优先级轮转；IPC 保持快速路径；Debug Server 提供 Task/资源视图；Display Server 提供多窗口客户端与合成器。
+核心抽象是 **Native Task**：Arena + HandleTable + TCB(s) + 父子关系 + 元数据。Arena 是任务内存根，持有地址空间、栈、堆与 Region 表。Task 拥有自己的内存与生命周期；Root Server 管理服务树，POSIX Server 管理进程树；调度保持固定优先级与同优先级轮转；IPC 保持快速路径；Debug Server 提供 Task/资源视图；Display Server 提供多窗口客户端与合成器。
 
 ---
 
@@ -45,7 +45,7 @@ flowchart TB
 
 ### 法则一：最小内核
 
-内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Frame、IRQ 与调度。文件系统、网络、设备策略、POSIX 语义运行在用户态。
+内核提供 TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQ 与调度。文件系统、网络、设备策略、POSIX 语义运行在用户态。HMP 是唯一内存面，内核与用户态服务共享同一对象图。
 
 ### 法则二：句柄即权限
 
@@ -53,7 +53,7 @@ flowchart TB
 
 ### 法则三：隔离优先
 
-每个进程拥有独立 VSpace；内核地址空间与用户地址空间分离。服务器之间通过句柄与 IPC 协作；权限来自显式 Handle。
+每个 Task 拥有独立 Arena；内核地址空间与用户地址空间分离。服务器之间通过句柄与 IPC 协作；权限来自显式 Handle。
 
 ### 法则四：服务器可重启
 
@@ -98,17 +98,21 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | 构件 | 职责 |
 | --- | --- |
 | **TCB** | 线程控制块；寄存器上下文、优先级、亲和性、状态 |
-| **VSpace** | 进程地址空间；页表根、映射、权限 |
+| **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆 |
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
 | **Endpoint** | 同步 IPC；发送/接收、阻塞、句柄传递 |
 | **Notification** | 异步事件；位信号、等待、清除 |
-| **Capacity** | 物理容量；页大小、配额与 Frame 分配 |
+| **HMP** | 内存对象图；统一能力面与授予面 |
+| **Capacity** | 物理容量；页大小、配额、拆分与 Frame 分配 |
+| **Frame** | 物理页对象；共享引用、pin 与所属 Capacity |
 | **Capability** | 类型化能力；Revision/Surface/TaskImage/Device/Anonymous/Frame |
-| **Region** | 类型化能力在 VSpace 中的映射 |
+| **Region** | 类型化能力在任务地址空间中的唯一映射；任务本地对象 |
+| **Provider** | 缺页、回写、驱逐的 Endpoint 服务 |
+| **Ledger** | 容量、常驻、配额与压力的显式记账 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint、EOI |
 | **DeviceGrant** | 设备 MMIO / DMA / IRQ 句柄集合 |
 
-内核范围：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
+内核范围：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
 
 ---
 
@@ -128,7 +132,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **HolyDoc Server** | 可选活文档渲染与链接 |
 
-服务器通过句柄与 IPC 组合；每个服务器拥有自己的 VSpace 与最小权限集合。
+服务器通过句柄与 IPC 组合；每个服务器拥有自己的 Arena 与最小权限集合。
 
 ---
 
@@ -138,7 +142,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 - **libc**：musl 作为主 C libc；`hk-abi` 提供 syscall shim 协议与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。
 - **POSIX Server**：维护 PID 表、父子关系、fd 表、信号状态、管道、套接字、进程组与会话。
 - **文件系统**：POSIX Server 通过 ext2/ext4 Server 提供 `/`、目录、inode、权限位、`stat`、`open`/`read`/`write`；HolyFS 经适配层提供 Holy 文档。
-- **进程**：`fork` 通过 VSpace 复制与 COW；`exec` 通过 ELF 加载器映射新 VSpace；`wait` 通过 Endpoint 通知。
+- **进程**：`fork` 复制 Arena 的 Region 表并标 COW；`exec` 装载 TaskImage 并建立新 Arena 的 Region 表；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；TLS、栈、join、取消由 libc 与 POSIX Server协作。
 - **信号**：POSIX Server维护 pending/blocked 集合；libc 在安全点调用 handler。
 - **IPC**：pipe、FIFO、Unix 域套接字、共享内存、POSIX 信号量由 POSIX Server管理。
@@ -157,7 +161,7 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Hol
 - **Display Server**：帧缓冲、可缩放字体（8×16 位图回退）、sRGB 真彩色 + 主题、多窗口客户端与合成器。
 - **原生应用**通过 HK 服务 API 使用这些句柄；POSIX 应用通过 Display Server 的终端/控制台接口使用文本界面。
 
-原生服务遵循最小权限：每个服务只获得必要的 Frame、DeviceGrant 与 Endpoint。
+原生服务遵循最小权限：每个服务只获得必要的 Capacity/Frame/Region、DeviceGrant 与 Endpoint Handle。
 
 ---
 
@@ -179,7 +183,7 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Hol
 
 1. **微内核**：内核只包含机制；服务器承载策略。
 2. **句柄模型**：资源通过 Handle 访问；`duplicate` 需要 ADMIN 并收窄，`close` 失效，IPC 通过 TRANSFER 转移，对象 epoch 支持 `revoke_all`，Task/服务器有配额。
-3. **隔离**：每个进程独立 VSpace；内核与用户态分离。
+3. **隔离**：每个 Task 独立 Arena；内核与用户态分离。
 4. **用户态驱动**：设备驱动运行在用户态；DeviceGrant 管理 MMIO/DMA/IRQ。
 5. **POSIX 兼容**：POSIX.1 服务器 + musl + `hk-abi` 提供应用接口。
 6. **服务器监督**：Root Server 负责启动、重启与句柄分配。
@@ -187,15 +191,16 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Hol
 8. **多架构**：HAL 之上共享一套内核与服务器语义。
 9. **可观察与可测试**：trace、确定性模拟、故障注入、POSIX 测试套件。
 10. **小步交付**：每个里程碑形成可演示的纵向切片。
-11. **Native Task**：VSpace + HandleTable + TCB(s) + Arena + 父子关系；Task 拥有堆与生命周期；Root/POSIX Server 管理 Task 树；窗口由 Display Server 独立管理。
+11. **Native Task**：Arena + HandleTable + TCB(s) + 父子关系；Arena 是任务内存根，持有地址空间、栈、堆与 Region 表；Root/POSIX Server 管理 Task 树；窗口由 Display Server 独立管理。
 12. **Holy 原生体验**：HolyDoc 作为 UI 基底；Workbench 一体化编辑/浏览/构建/运行；Toolchain Server 系统内构建；Checkpoint 快照/恢复；Debug Server 符号化调试；Home/Once 可执行启动文档；Sprite/Font 编辑器；文本回退；可增长栈；Task 消息。
+13. **统一内存面**：HMP 是唯一内存契约；Capacity/Frame/Region 对所有持权服务统一开放，Root Server 通过服务清单决定初始授予，内核只校验 Handle/Rights/ObjectKind。
 
 ---
 
 ## 9. 变更程序
 
-1. 触及内核对象、句柄、IPC、VSpace、POSIX 兼容层、服务器边界或 ABI 的变更，先写 ADR。
-2. ADR 说明变更如何与微内核模型协作：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、服务器。
+1. 触及内核对象、句柄、IPC、Arena、POSIX 兼容层、服务器边界或 ABI 的变更，先写 ADR。
+2. ADR 说明变更如何与微内核模型协作：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、服务器。
 3. 新增依赖通过 [工程策略](engineering.md) 的依赖审查：`no_std` 可用、许可证兼容、可审计。
 4. 内核代码行数由 CI 统计，用于跟踪规模。
 5. 文档与代码冲突时，以本文与已接受的 ADR 为准；代码与文档在同一个 PR 中收敛。

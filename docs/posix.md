@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-里程碑：网络与原生 UI 先行（M5/M6）；POSIX 核心在 **M7**、POSIX 扩展与 socket 在 **M8** 接入。
+里程碑：网络在 **M5**、原生 UI 在 **M9**；POSIX 核心、POSIX 扩展与 socket 在 **M10** 接入。
 
 HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼容环境**。用户态 **POSIX Server** 提供 POSIX 语义，musl 作为兼容 C libc；`hk-abi` 提供 syscall shim 协议与头文件，`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载；`hk-libc` 作为薄兼容层。通过 `posix` 入口使用 `/bin/sh`、coreutils 与 POSIX 应用。
 
@@ -14,7 +14,7 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 
 1. **POSIX 兼容环境**：通过 `posix` 入口提供进程、文件、目录、信号、线程、管道、FIFO、Unix 套接字、共享内存、定时器；默认命令行走 HolyShell。
 2. **musl + ABI shim**：musl 提供 C 运行时、pthreads、stdio、malloc；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 作为薄兼容层。
-3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核只提供 TCB、VSpace、Endpoint、Notification、Frame、Handle。
+3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核只提供 TCB、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
 4. **VFS 集成**：文件与目录操作通过 VFS Server；文件系统后端为 ext2/ext4、tmpfs、devfs、procfs；HolyFS 经适配层提供 Holy 文档。
 5. **进程模型**：`fork`、`exec`、`wait`、`exit`、进程组、会话、作业控制。
 6. **线程模型**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
@@ -51,7 +51,7 @@ flowchart TB
     Libc -->|IPC| POSIX["POSIX Server<br/>PID · fd · signal · process group"]
     POSIX -->|FileHandle| VFS["VFS Server"]
     POSIX -->|socket| Net["Network Server"]
-    POSIX -->|invoke| Kernel["VSpace · TCB · Frame · Endpoint"]
+    POSIX -->|invoke| Kernel["Arena · TCB · HMP Region · Endpoint"]
     VFS --> FS["ext2/ext4 · HolyFS · tmpfs · devfs · procfs"]
 ```
 
@@ -59,7 +59,7 @@ flowchart TB
 - **POSIX Server**：维护进程、fd、信号、进程组、会话、管道、Unix 套接字。
 - **VFS Server**：路径解析、挂载表、文件句柄、页缓存。
 - **Network Server**：socket 后端。
-- **内核**：提供 VSpace/TCB/Frame/Endpoint 等机制。
+- **内核**：提供 Arena/TCB/HMP（Capacity/Frame/Region）/Endpoint 等机制。
 
 ---
 
@@ -79,7 +79,7 @@ pub struct Process {
     ppid: Pid,
     pgid: Pgid,
     sid: Sid,
-    vspace: Handle<VSpace>,
+    vspace: Handle<Arena>,
     handle_table: Handle<HandleTable>,
     threads: Vec<Handle<Tcb>>,
     fds: BTreeMap<Fd, FdEntry>,
@@ -149,7 +149,7 @@ pub enum PosixRequest {
 
 ### 4.4 应用自带 libc
 
-HolyKernel 的稳定边界是 **`hk-abi` syscall shim**，不是某个 libc 的内部 ABI。应用可以自带 libc，但该 libc 必须把底层系统调用实现为 `hk-abi` 请求，并通过 POSIX Server 获得进程、文件、线程、信号与 socket 语义。
+HolyKernel 的稳定边界是 **`hk-abi` syscall shim**。应用可以自带 libc，该 libc 把底层系统调用实现为 `hk-abi` 请求，并通过 POSIX Server 获得进程、文件、线程、信号与 socket 语义。
 
 | 形态 | 支持级别 | 说明 |
 | --- | --- | --- |
@@ -165,7 +165,7 @@ HolyKernel 的稳定边界是 **`hk-abi` syscall shim**，不是某个 libc 的�
 - **启动**：`_start` 可以自带，但必须完成与 `hk-crt` 等价的初始化：TLS、栈保护、`hk-abi` 连接、atexit/析构表、signal trampoline。
 - **线程与信号**：pthread、futex、`fork`、COW、信号投递与 `sigreturn` 必须遵循 POSIX Server 与 HK TCB 的协议，libc 不能绕过服务器直接操作内核。
 - **命名与错误**：C 符号使用标准 POSIX 名称；`errno` 使用 POSIX 数值；避免与系统 musl 的动态符号混用。
-- **链接**：优先静态链接自有 libc；同一 VSpace 只应存在一套 libc 运行时。Native Holy 应用不使用 POSIX libc。
+- **链接**：优先静态链接自有 libc；同一 Arena 只应存在一套 libc 运行时。Native Holy 应用不使用 POSIX libc。
 
 因此官方表述为：**“应用可静态链接自有 libc，但该 libc 必须实现 `hk-abi` 后端；musl 是一等支持，其他 libc 为 best-effort。”**
 
@@ -189,14 +189,14 @@ sequenceDiagram
     participant K as 内核
     App->>Libc: fork()
     Libc->>POSIX: Fork
-    POSIX->>K: 创建 VSpace（复制映射）
+    POSIX->>K: 创建 Arena（复制映射）
     POSIX->>K: 创建子 TCB
     POSIX->>POSIX: 复制 fd 表、信号状态
     POSIX-->>Libc: 父进程返回 child pid
     POSIX-->>Libc: 子进程返回 0
 ```
 
-- 子进程获得新 VSpace；页映射标记只读，写时复制。
+- 子进程获得新 Arena；页映射标记只读，写时复制。
 - fd 表复制；共享 `OpenFile` 偏移由 VFS 维护。
 - 信号处理继承；pending 集合清空。
 - 失败时返回 `-1` 并设置 `errno`。
@@ -204,8 +204,8 @@ sequenceDiagram
 ### 5.2 exec
 
 - `hk-crt` + musl 动态链接器读取 ELF，验证头部与段。
-- POSIX Server 创建新 VSpace，映射 text/data/bss/stack/interpreter。
-- 旧 VSpace 在成功后释放；fd 按 `FD_CLOEXEC` 关闭。
+- POSIX Server 创建新 Arena，映射 text/data/bss/stack/interpreter。
+- 旧 Arena 在成功后释放；fd 按 `FD_CLOEXEC` 关闭。
 - `argv`/`envp` 复制到新栈；设置入口点。
 - 失败时保留旧映像并返回 `-1`。
 
@@ -277,12 +277,12 @@ flowchart LR
 
 ## 10. 内存
 
-- `brk`/`sbrk`：POSIX Server 扩展进程 heap；映射新 Frame。
-- `mmap`：文件映射通过 VFS 页缓存；匿名映射通过 Anonymous Capability；共享映射通过 Capability/Region。
-- `mprotect`：更新 VSpace 权限。
-- `munmap`：解除映射并释放 Frame 引用。
-- `fork` COW：页错误通过 Fault Endpoint 交给 POSIX Server。
-- 栈：musl 分配主线程栈与 pthread 栈；guard page 由 VSpace 配置。
+- `brk`/`sbrk`：POSIX Server 扩展进程 heap；增长 `Anonymous + GROW` 的 Region。
+- `mmap`：文件映射通过 VFS 页缓存与 Revision Region；匿名映射通过 Anonymous Capability；共享映射通过 Capability/Frame 创建 Region。
+- `mprotect`：修改 Region 权利；W^X 检查。
+- `munmap`：解除 Region 并释放 Frame 引用。
+- `fork` COW：复制 Region 表并标 `RegionFlags::COW`；页错误按 Provider 契约处理。
+- 栈：musl 分配主线程栈与 pthread 栈；guard page 由 Region 标志配置。
 
 ---
 
@@ -330,11 +330,11 @@ flowchart LR
 ## 14. 保证
 
 1. POSIX 语义由用户态 POSIX Server 实现；musl + `hk-abi` 提供应用侧 C ABI。
-2. 内核维护 TCB、VSpace、Endpoint、Notification、Frame 与 Handle。
+2. 内核维护 TCB、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）与 Handle。
 3. POSIX Server 维护 PID、fd、信号、进程组、会话。
 4. 文件操作通过 VFS；文件系统后端以服务器形式接入。
 5. `fork` 使用 COW；页错误由 POSIX Server 处理。
-6. `exec` 加载 ELF 并创建新 VSpace。
+6. `exec` 加载 ELF 并创建新 Arena。
 7. 信号通过 POSIX Server 的 pending/blocked 集合投递。
 8. fd 表条目指向 VFS `FileHandle`、pipe、socket 或 event。
 9. musl 提供 C 运行时；`hk-abi`/`hk-crt` 提供 ABI shim、启动与头文件；应用重新编译。

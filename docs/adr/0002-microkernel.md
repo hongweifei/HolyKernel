@@ -1,4 +1,3 @@
-> 历史 ADR：内存对象模型已由 [HMP](../hmp.md) 的 Capacity/Capability/Region 取代。
 
 # ADR-0002：句柄型微内核
 
@@ -12,9 +11,9 @@ HolyKernel 需要强隔离、最小可信基与可重启服务器。单体内核
 
 ## 决策
 
-1. 内核只提供 **TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、IRQHandler**。
+1. 内核只提供 **TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQHandler**。
 2. 所有资源通过 **Handle** 访问；Handle 携带 index、generation 与 rights（READ/WRITE/EXECUTE/TRANSFER/ADMIN）。
-3. 每进程独立 **VSpace**；内核与用户态地址空间分离。
+3. 每进程独立 **Arena**；内核与用户态地址空间分离。
 4. 驱动、VFS、文件系统、POSIX 兼容层、显示服务运行在用户态。
 5. Root Server 获得初始 Capacity/HandleTable/Endpoint，负责服务器启动与句柄分配。
 6. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄。

@@ -17,7 +17,7 @@ M5 需要 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS。自
 5. **Socket Handle 自研**：smoltcp 只提供协议栈；Native Socket 表、rights、配额、Endpoint 协议与 `net` 命令由 `hk-net`/Network Server 提供。
 6. **数据路径**：驱动侧 RX/TX 使用共享 Frame，保持零拷贝；smoltcp 边界允许一次复制，后续再做零拷贝 PHY。
 7. **不选 `embassy-net`/`lwIP` 作为 M5 主路径**：前者引入 async executor，后者引入 C 构建依赖；需要时再评估。
-8. **POSIX socket 后置**：M5 只提供原生 Socket Handle；M8 由 POSIX Server 映射 fd 到同一批 Socket Handle。
+8. **POSIX socket 后置**：M5 只提供原生 Socket Handle；M10 由 POSIX Server 映射 fd 到同一批 Socket Handle。
 
 ## 后果
 
@@ -33,7 +33,7 @@ M5 需要 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS。自
 - smoltcp 位于 Network Server 内，需要自定义 PHY 适配与缓冲管理。
 - 驱动与协议栈之间需要 Frame 队列、所有权与流控；初始版本允许 smoltcp 边界复制。
 - smoltcp 的 DNS/DHCP 特性需锁定版本并做覆盖测试。
-- 与 Linux socket 语义仍有差异；完整 POSIX 选项在 M8 增量补齐。
+- 与 Linux socket 语义仍有差异；完整 POSIX 选项在 M10 增量补齐。
 
 ## 备选方案
 
@@ -48,7 +48,7 @@ M5 需要 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS。自
 
 - 驱动持有 DeviceGrant，通过 IOMMU/DMA/IRQ 与设备交互；Network Server 只处理 Frame 与协议。
 - smoltcp 运行在用户态 Network Server，不进入内核；内核只提供 Endpoint/Notification/Frame/Handle。
-- Socket Handle 由 Network Server 签发；POSIX Server 在 M8 做 fd 映射，不复制协议状态。
+- Socket Handle 由 Network Server 签发；POSIX Server 在 M10 做 fd 映射，不复制协议状态。
 - 驱动与 Network Server 均可由 Root Server 重启；客户端按服务名重连。
 
 ## 相关

@@ -2,9 +2,9 @@
 
 状态：**设计中** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)
 
-里程碑：网络在 **M5** 先行交付，原生 Socket Handle 与 `net` 命令先可用；POSIX socket API 在 **M8** 映射到同一 Socket Handle。
+里程碑：网络在 **M5** 先行交付，原生 Socket Handle 与 `net` 命令先可用；POSIX socket API 在 **M10** 映射到同一 Socket Handle。
 
-HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 Endpoint、Notification、Frame、DeviceGrant；TCP/IP、socket、DHCP、DNS、策略都在用户态。驱动是用户态 virtio-net。
+HolyKernel 的网络以用户态 **Network Server** 为核心：内核只提供 Endpoint、Notification、HMP（Capacity/Frame/Region）、DeviceGrant；TCP/IP、socket、DHCP、DNS、策略都在用户态。驱动是用户态 virtio-net。
 
 ## 实现选型
 
@@ -128,7 +128,7 @@ pub struct Socket {
 
 ---
 
-## 5. POSIX socket API（M8）
+## 5. POSIX socket API（M10）
 
 支持：
 
@@ -166,7 +166,7 @@ holy> net dns example.com
 - 原生命令通过 Network Server Endpoint 查询/配置。
 - 原生应用使用 Socket Handle；POSIX 应用通过 POSIX Server 使用同一后端。
 - 配置文档：`H:/Network/Config.hd` 或服务清单；DHCP 默认。
-- POSIX 兼容环境通过 POSIX 桥看到 `/etc/resolv.conf`、`/etc/hosts` 的投影，它们不是配置源头。
+- POSIX 兼容环境通过 POSIX 桥看到 `/etc/resolv.conf`、`/etc/hosts` 的投影；原生配置是唯一来源。
 
 ---
 
@@ -211,7 +211,7 @@ sequenceDiagram
 
 ## 9. 安全与策略
 
-- Network Server 在用户态，独立 VSpace/HandleTable，仅持有 Net Endpoint 与必要配置句柄；DeviceGrant 由 Network Driver 持有。
+- Network Server 在用户态，独立 Arena/HandleTable，仅持有 Net Endpoint 与必要配置句柄；DeviceGrant 由 Network Driver 持有。
 - 每客户端需显式 Socket Handle；权限来自 Handle。
 - `SOCK_RAW`、`bind` 特权端口、`listen` 需要 `ADMIN`。
 - 每客户端配额：socket 数、连接数、backlog、带宽/速率（可选）。

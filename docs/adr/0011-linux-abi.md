@@ -17,7 +17,7 @@
 5. **x86_64 优先**：先支持静态 musl/glibc，再支持动态 glibc；AArch64/RISC-V 在后续里程碑增量接入。
 6. **源码兼容工具链**：提供 `hk-abi` 头文件、musl sysroot、CMake/Meson/Autotools toolchain 与 `holybuild`。
 7. **支持自带 libc**：允许应用静态链接自有 libc，但必须实现 `hk-abi` 后端；musl 为一等支持。
-8. **安全边界**：Linux ABI Server 是用户态高权限组件，可重启；每个兼容应用独立 VSpace/Native Task，权限由 Handle 管理；`/proc`/`/sys` 只暴露最小视图。
+8. **安全边界**：Linux ABI Server 是用户态高权限组件，可重启；每个兼容应用独立 Arena/Native Task，权限由 Handle 管理；`/proc`/`/sys` 只暴露最小视图。
 9. **明确非目标**：不承诺内核模块、完整容器编排、GPU/专有驱动与完整 `io_uring`/eBPF 原生兼容；这些走 L3 兜底。
 
 ## 后果
@@ -49,7 +49,7 @@
 
 - 内核只增加 personality 与 foreign syscall 转发，不引入 Linux 对象或策略。
 - Linux ABI Server 通过 Endpoint 与 POSIX Server/VFS/Network 协作；进程与 fd 状态仍由 POSIX Server 维护。
-- ELF、Frame 映射、信号与线程遵循现有 VSpace/TCB/Handle/Notification 机制。
+- ELF、Frame 映射、信号与线程遵循现有 Arena/TCB/Handle/Notification 机制。
 - L2 应用与 L1 应用共享 VFS、Network、Display 与权限模型，不建立平行内核接口。
 - 兼容层崩溃由 Root Server 重启；应用按策略恢复或终止。
 

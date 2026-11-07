@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-HolyKernel 的内核只提供机制；服务器承载策略。本文描述 Root Server、设备管理、驱动、VFS、文件系统、POSIX、网络与显示服务，以及服务监督与句柄分配。
+HolyKernel 的内核只提供机制；服务器承载策略。本文描述 Root Server、Memory Server、设备管理、驱动、VFS、文件系统、POSIX、网络与显示服务，以及服务监督与句柄分配。
 
 ---
 
@@ -10,7 +10,8 @@ HolyKernel 的内核只提供机制；服务器承载策略。本文描述 Root 
 
 ```mermaid
 flowchart TB
-    Root["Root Server<br/>监督与句柄分配"]
+    Root["Root Server<br/>监督与初始授予"]
+    Mem["Memory Server<br/>User Capacity · Anonymous"]
     DM["Device Manager<br/>PCI / DTB"]
     Blk["Block Driver<br/>virtio-blk / AHCI"]
     Net["Network Driver<br/>virtio-net"]
@@ -28,6 +29,10 @@ flowchart TB
     HolyDoc["HolyDoc Server"]
 
     Root --> DM
+    Root --> Mem
+    Mem --> VFS
+    Mem --> Display
+    Mem --> POSIX
     Root --> VFS
     Root --> POSIX
     Root --> NetSrv
@@ -68,8 +73,9 @@ pub struct ServiceManifest {
 ```
 
 - Root Server 读取服务清单，按依赖顺序启动服务器。
-- 每个服务 Task 拥有独立的 VSpace、HandleTable、Endpoint 与最小 Handle 集合。
+- 每个服务 Task 拥有独立的 Arena、HandleTable、Endpoint 与最小 Handle 集合。
 - 服务通过 Endpoint 暴露接口；客户端通过 Handle 获取服务入口。
+- 服务清单声明初始 `Capacity`、`Frame` 与 `Capability` 需求；Root Server 按清单授予收窄后的 Handle。
 - 服务清单由 bootloader 作为模块提供；运行时可从 VFS 加载更新版本。
 
 ---
@@ -77,15 +83,23 @@ pub struct ServiceManifest {
 ## 3. Root Server
 
 - 启动时获得初始 Capacity、HandleTable、Endpoint 与设备句柄。
-- 解析服务清单，创建服务器 VSpace/TCB，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
+- 持有 System / User / Dma / Gpu 顶层 Capacity；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle。Memory Server 取得 User Capacity 子集，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
+- 解析服务清单，创建服务器 Arena/TCB，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
 - 维护服务表：PID、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
 - 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。
 - 监督循环按有界步进调度，避免持续 yield 的服务阻塞重启时机。
 - 提供管理接口：`start`、`stop`、`restart`、`status`、`list`。
 - 热替换：`replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生镜像启动同名服务；服务表与设备授权保留，端点和句柄重新分配，客户端按端点变化重连。
-- 检查点：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容（零页省略），序列化为版本化快照并释放原 VSpace；`restore-checkpoint <任务>` 在同一任务槽按快照重建 VSpace 与 TCB。默认快照保存在 Root 内存；`checkpoint.disk` 启用 `H:/Checkpoints` 分块落盘与读回，`checkpointsrv` 冒烟验证磁盘保存/恢复。持有设备、共享 Frame、COW 页或线程的任务暂不支持。
+- 检查点：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容（零页省略），序列化为版本化快照并释放原 Arena；`restore-checkpoint <任务>` 在同一任务槽按快照重建 Arena 与 TCB。默认快照保存在 Root 内存；`checkpoint.disk` 启用 `H:/Checkpoints` 分块落盘与读回，`checkpointsrv` 冒烟验证磁盘保存/恢复。持有设备、共享 Frame、COW Region 或线程的任务暂不支持。
 - Root Server 自身崩溃时，内核按配置停机或重启。
+
+### 3.1 Memory Server
+
+- 持有 Root Server 授予的 User Capacity 子集，作为 Anonymous Provider 的页来源。
+- `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
+- 缺页请求 `PROVIDER_FAULT` 从 User Capacity 分配 Frame，`PROVIDER_PROVIDE` 返回；与内核快速路径共用同一 HMP 契约。
+- 内存授权由 Handle 与 Rights 决定；任何持有 Capacity/Capability 的服务使用同一组 HMP 对象操作。
 
 ---
 
@@ -115,9 +129,9 @@ pub struct ServiceManifest {
 | **PS/2** | 键盘/鼠标 | Input Endpoint |
 | **Framebuffer** | 显示 | Display Endpoint |
 
-- 驱动运行在用户态；通过 DeviceGrant 映射 MMIO、分配 DMA Frame、绑定 IRQ。
+- 驱动运行在用户态；通过 DeviceGrant 映射 MMIO，从 Dma Capacity 分配 Frame，绑定 IRQ。
 - 中断通过 IRQHandler → Notification 交付驱动线程。
-- virtio-blk 完成走中断：驱动实现 `AsyncBlockDevice::ack_interrupt` 读取并清除设备中断状态，服务用 `serve_with_wait` 在有在途请求时等待通知而不是让出轮询；未绑定 IRQ 时自动回退轮询。
+- virtio-blk 完成走中断：驱动实现 `AsyncBlockDevice::ack_interrupt` 读取并清除设备中断状态，服务用 `serve_with_wait` 在有在途请求时等待通知，空闲时轮询；IRQ 绑定失败时自动回退轮询。
 - 驱动崩溃后由 Device Manager 或 Root Server 重启；设备状态重新初始化。
 
 ---
@@ -140,14 +154,14 @@ pub struct ServiceManifest {
 
 ## 7. Compatibility Server 与 POSIX
 
-Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Linux 或 Harmony personality，并为每个应用配置 Native Task/VSpace、rootfs、命名空间与 Handle 配额。
+Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Linux 或 Harmony personality，并为每个应用配置 Native Task/Arena、rootfs、命名空间与 Handle 配额。
 
 ### 7.1 POSIX Personality
 
 - 维护 PID 表、父子关系、进程组、会话、fd 表、信号状态。
 - 处理 `fork`/`exec`/`wait`、`kill`、`sigaction`、`pthread_create` 等请求。
 - 通过 VFS 执行文件操作；通过 Network Server 创建 socket。
-- 通过内核 Handle 创建/操作 VSpace、TCB、Frame。
+- 通过内核 Handle 创建/操作 Arena、TCB、Region 与 Frame。
 - POSIX Personality 运行在内核可信基之外；崩溃后 Root Server 重启，POSIX 应用按策略恢复或终止。
 
 ### 7.2 Linux Personality
@@ -221,7 +235,7 @@ sequenceDiagram
     participant K as Kernel
     Root->>K: 关闭旧 Handle / Endpoint
     Root->>Svc: 终止旧实例
-    Root->>K: 创建新 VSpace / TCB
+    Root->>K: 创建新 Arena / TCB
     Root->>Svc: 加载 HKX 镜像、分配 Handle
     Svc->>Root: 注册 Endpoint
     Root->>Root: 更新服务表
@@ -236,16 +250,17 @@ sequenceDiagram
 
 ## 12. 保证
 
-1. 服务器运行在用户态，拥有独立 VSpace 与最小 Handle 集合。
+1. 服务器运行在用户态，拥有独立 Arena 与最小 Handle 集合。
 2. 服务器通过 Endpoint 通信；客户端通过 Handle 获取入口。
-3. Root Server 维护服务表与重启策略。
-4. 驱动通过 DeviceGrant 访问 MMIO/DMA/IRQ。
-5. VFS 是 POSIX 文件语义的统一入口；文件系统以服务器形式接入。
-6. POSIX Server 维护进程、fd 与信号；VFS 维护挂载与文件句柄。
-7. 服务器崩溃后 Root Server 关闭旧句柄，新实例重新注册 Endpoint。
-8. 服务器清单与 Handle 需求可审计。
-9. 每个服务器有 trace 与健康状态。
-10. 服务器策略与文件系统逻辑位于用户态；内核提供机制。
+3. Root Server 维护服务表、初始 Capacity 授予与重启策略。
+4. 每个服务的内存对象都是 Capacity/Frame/Region/Capability；内存授权由 Handle 与 Rights 决定。
+5. 驱动通过 DeviceGrant 访问 MMIO/DMA/IRQ。
+6. VFS 是 POSIX 文件语义的统一入口；文件系统以服务器形式接入。
+7. POSIX Server 维护进程、fd 与信号；VFS 维护挂载与文件句柄。
+8. 服务器崩溃后 Root Server 关闭旧句柄，新实例重新注册 Endpoint。
+9. 服务器清单与 Handle 需求可审计。
+10. 每个服务器有 trace 与健康状态。
+11. 服务器策略与文件系统逻辑位于用户态；内核提供机制。
 
 ---
 

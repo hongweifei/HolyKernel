@@ -17,7 +17,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
 | L1 | 共享契约 | `hk-shell`、`hk-font` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化） |
-| L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、内存、TCB/调度与内核对象 |
+| L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
 | L1 | 内核侧 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
 | L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
 | L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
@@ -45,6 +45,8 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；`hk-proto` 只依赖内核面与 ABI。
 
+HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable / Handle / Rights`；页表、固件解析、引导与架构库位于包装 crate 内部。
+
 服务之间只通过 Endpoint、Handle 与 `hk-proto` 的线协议协作，不链接彼此的实现。
 
 字体统一由 `hk-font` 提供：内核帧缓冲控制台以 `default-features = false` 只取位图字形，用户态服务启用 `scalable` 取得 TrueType 栅格化。`xtask` 因此按目标把内核与服务分成两组构建，避免 Cargo 把特性取并集后把字体数据链进内核。像素绘制与文本落位统一走 `hk-canvas`，它直接以 `hk-font::Font` 为字体来源：调用方把字体交给 `draw_text`、`draw_glyph` 与 `text_width`，不需要在两者之间做适配。`hk-font` 常驻 `default_font`（16 像素可缩放）、`default_font_scaled`（100%/200% 界面缩放）与 `default_monospace`（16 像素等宽）三份默认字体，`hk-canvas` 将它们重新导出；`draw_text_default`、`draw_glyph_default` 与 `text_width_default` 无需传入字体即可排版。Display、Workbench、Debug 与 HolyDoc 正文使用可缩放默认字体，Console 字符网格与 HolyDoc 代码块使用等宽默认字体。同一 crate 还提供圆角矩形、椭圆、线段、水平/垂直/任意方向渐变、最近邻缩放拷贝、半透明拷贝与区域滚动；圆角与椭圆的抗锯齿使用整数定点运算，热路径不依赖浮点数学库。
@@ -66,21 +68,22 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 系统调用编号与跨边界 ABI 编码 | `crates/shared/hk-syscall/src/lib.rs` |
 | 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
 | 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
+| HMP 对外词汇、Rights 与授予面 | [HMP 文档](hmp.md) 与 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 服务角色元数据与 `.hk_service` 段 | `crates/shared/hk-image/src/role.rs` |
 | 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
 | 设备授权描述与 PCI 枚举 | `crates/shared/hk-device/src/{device,grant,pci,scan}.rs` |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
-| HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/` |
-| 页分配、页表页池与用户地址空间登记 | `crates/kernel/hk-mem/src/page/` |
-| DMA 池与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
+| HMP 核心对象（Arena/Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/`；对外词汇与授予规则见 [ADR-0016](adr/0016-hmp-native-contract.md) |
+| Capacity 帧库、页表机制与 Arena Region 登记 | `crates/kernel/hk-mem/src/page/` |
+| Dma Capacity 与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、缓存与字体特性 | `crates/shared/hk-font/src/lib.rs` |
 | Holy 文件系统契约与后端接口 | `crates/user/hk-fs/src/backend.rs` |
 | 服务线协议、客户端与编解码 | `crates/user/hk-proto/src/*` |
 | 服务响应框架与状态码 | `crates/user/hk-proto/src/status.rs` |
 | 协议标签区间 | `crates/user/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
-| 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`（内核按名称授权的服务名在 `hk-syscall`） |
+| 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`（服务名常量在 `hk-syscall`，用于服务发现；内存授权只按 Handle/Rights） |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
 | 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
 | 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
@@ -96,7 +99,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 ## 4. 新增服务清单
 
 1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-server-api`、`hk-proto` 与所需 L2 库；`[build-dependencies] hk-server-build`。
-2. `build.rs`：`hk_server_build::configure()`；所有服务共享同一镜像区（各自独立 VSpace）。
+2. `build.rs`：`hk_server_build::configure()`；所有服务共享同一镜像区（各自独立 Arena）。
 3. `src/main.rs`：
    - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
    - 实现 `_start(endpoint)`；

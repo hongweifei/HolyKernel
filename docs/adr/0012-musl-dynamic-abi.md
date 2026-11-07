@@ -16,7 +16,7 @@ L1 源码兼容要求应用重新编译；L2 Linux ABI 覆盖未修改的 Linux 
 4. **符号与动态加载**：保持 musl 无符号版本与动态加载器内部符号；`dlopen` 只保证 musl ABI 的 `.so`。
 5. **直接 syscall 兼容**：应用通过 `syscall()` 传 Linux syscall 号时，做有限号段翻译；不支持的号返回 `ENOSYS` 并记录覆盖缺口。
 6. **边界明确**：静态 musl 与 glibc 二进制仍走 L2；绕过 libc 直接发 Linux syscall 的程序不属于 L1.5。
-7. **里程碑**：L1.5 在 M8（POSIX 扩展）交付并设 ABI 门禁；M9 继续做 glibc/静态二进制的 Linux ABI。
+7. **里程碑**：L1.5 在 M10（兼容层）交付并设 ABI 门禁；Linux ABI 与 glibc/静态二进制在同一里程碑推进。
 8. **验收**：上游 musl 动态 hello、BusyBox、Alpine `sh`/`ls`/`cat`、pthread/TLS/信号/`dlopen`/`getaddrinfo`/`termios` 通过。
 
 ## 后果
@@ -48,7 +48,7 @@ L1 源码兼容要求应用重新编译；L2 Linux ABI 覆盖未修改的 Linux 
 
 - 动态 musl 二进制仍是 POSIX 应用，进程/fd/信号由 POSIX Server 维护。
 - syscall 经 Holy musl 后端进入 `hk-abi`，不新增内核 Linux 语义。
-- ELF/auxv/TLS 由用户态 loader 与 `hk-crt` 协作；内核只提供 VSpace/TCB/Frame/Handle 机制。
+- ELF/auxv/TLS 由用户态 loader 与 `hk-crt` 协作；内核提供 Arena、TCB、HMP 与 Handle 机制。
 - `dlopen` 的模块使用同一 musl ABI；不加载 glibc `.so`。
 - 权限、VFS、Network、Display 与 L1 完全一致。
 

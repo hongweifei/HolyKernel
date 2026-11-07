@@ -447,7 +447,7 @@ flowchart LR
 - 卷覆盖本地块设备；网络文件系统由独立服务提供。
 - 系统以单用户运行；多用户凭证由兼容层维护。
 - 兼容层表达所有权、权限位、硬链接、符号链接、稀疏文件与 POSIX 时间属性；HolyFS 磁盘格式保存 Holy 对象与关系。
-- 文件系统运行在用户态；内核提供 Block、Endpoint、Frame 与 Handle 机制。
+- 文件系统运行在用户态；内核提供 Block、Endpoint、HMP（Capacity/Frame/Region）与 Handle 机制。
 - `H:` 盘符与 VFS 挂载点指向同一卷；两者共享同一份文档数据。
 
 ---
@@ -531,10 +531,9 @@ crates/user/hk-fs-holyfs-vfs/src/lib.rs
 
 ## 14. 路线图
 
-- M6：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、VFS 适配层、`H:` 盘符）。
-- M7：POSIX 元数据与 inode 适配（POSIX 核心接入时）。
-- M8：集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub 与性能优化。
-- M9：流式写、压缩、去重、配额、加密、并行 I/O 与基准锁定。
+- M8：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、VFS 适配层、`H:` 盘符）、集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub 与性能优化。
+- M10：POSIX 元数据与 inode 适配（POSIX 核心接入时）。
+- M11：流式写、压缩、去重、配额、加密、并行 I/O 与基准锁定。
 
 ---
 

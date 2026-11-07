@@ -30,11 +30,11 @@
 
 | 层级 | 目标 | 用途 | 状态 |
 | --- | --- | --- | --- |
-| Tier 1 | x86_64 QEMU（Limine） | 主要开发与演示 | 启动路径完成，M2 收尾中 |
+| Tier 1 | x86_64 QEMU（Limine） | 主要开发与演示 | 已完成（M2） |
 | Tier 1 | Hosted 模拟器 | 单元测试、CI、确定性回放 | 已完成（M1） |
-| Tier 2 | AArch64 QEMU `virt` | 多架构验证 | 设计完成，待 M9 |
-| Tier 2 | RISC-V 64 QEMU `virt` | 多架构验证 | 设计完成，待 M9 |
-| Tier 3 | 主流 x86_64 UEFI 真机 | 真机验证 | M10 后 |
+| Tier 2 | AArch64 QEMU `virt` | 多架构验证 | 设计完成，待 M7 |
+| Tier 2 | RISC-V 64 QEMU `virt` | 多架构验证 | 设计完成，待 M11 |
+| Tier 3 | 主流 x86_64 UEFI 真机 | 真机验证 | M11 后 |
 
 ---
 
@@ -42,7 +42,7 @@
 
 ```mermaid
 flowchart TB
-    Core["微内核：TCB · VSpace · HandleTable · Endpoint"]
+    Core["微内核：TCB · Arena · HandleTable · Endpoint · HMP"]
     HAL["hk-hal traits"]
     X["x86_64"]
     A["AArch64"]
@@ -76,7 +76,8 @@ pub trait Platform: Send + Sync {
 ```
 
 - 核心 crate 通过 trait 访问硬件；架构判断位于 `hk-hal` 实现或 platform crate。
-- `Mmu` 管理 VSpace 页表、映射、TLB shootdown。
+- `Mmu` 管理 Arena 地址空间、页表与 TLB shootdown；它是 HMP Region 的物化机制。
+- `HMP` 是唯一内存面：Capacity/Frame/Region 由内核与用户态服务共享；平台只提供页表、物理访问与 DMA 机制。
 - `InterruptController` 提供 IRQ 绑定与 IPI；运行时保存 IRQ→Notification 绑定，收到待处理中断后按对象标识直接唤醒通知，平台只负责路由/解绑。
 - `Timer` 提供一次性定时器与单调时间。
 - `DmaOps` 提供 DMA Frame 的缓存维护。
@@ -120,7 +121,7 @@ sequenceDiagram
     participant Net as Network Server
     participant POSIX as POSIX Server
     FW->>K: 载入内核 + BootInfo + 服务器模块
-    K->>K: 初始化 Capacity、VSpace、TCB、IPC
+    K->>K: 初始化 Capacity、Arena、TCB、IPC
     K->>Root: 启动 Root Task（初始句柄）
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
@@ -160,7 +161,7 @@ sequenceDiagram
 ## 7. Hosted 模拟器
 
 - 普通进程运行微内核与用户态服务器。
-- 虚拟地址区域表模拟 VSpace；虚拟时钟模拟 Timer；虚拟设备模拟 PCI/块/输入/网络。
+- 虚拟地址区域表模拟 Arena 与 HMP Region 的物化；虚拟时钟模拟 Timer；虚拟设备模拟 PCI/块/输入/网络。
 - 支持 `--seed`、`--deterministic`、`--fault-inject`、`--restart-server`。
 - 用于单元测试、CI、IPC 回放、服务器重启与 POSIX 测试。
 
@@ -168,9 +169,9 @@ sequenceDiagram
 
 ## 8. 移植指南
 
-1. 创建 `hk-platform-<arch>`，实现 `Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`。
+1. 创建 `hk-platform-<arch>`，实现 `Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`；`Mmu` 物化 HMP Region，内存对象由 HMP 定义。
 2. 创建 `platforms/<arch>-qemu/`：链接脚本、启动汇编、QEMU 配置。
-3. BootInfo 适配：memory map、帧缓冲、DTB/ACPI、服务器模块。
+3. BootInfo 适配：memory map、帧缓冲、DTB/ACPI、服务器模块；初始 Capacity 从 BootInfo 建立。
 4. 早期启动：栈、BSS、串口、页表、异常向量。
 5. SMP：IPI 与 AP 启动。
 6. 设备：virtio 优先；DeviceGrant 生成。
@@ -184,7 +185,7 @@ sequenceDiagram
 | --- | --- |
 | `boot` | 内核启动、Root Server、服务器加载 |
 | `ipc` | Endpoint、Notification、Handle 传递 |
-| `memory` | Capacity、Capability、Region、COW、DMA |
+| `memory` | Capacity、Frame、Capability、Region、COW、Ledger、DMA |
 | `irq` | IRQHandler、Notification、SMP IPI |
 | `vfs` | 挂载、路径解析、ext2 读写 |
 | `shell` | HolyShell、Holy 命令、结构化管道、`posix` 入口 |
@@ -199,13 +200,14 @@ sequenceDiagram
 ## 10. 保证
 
 1. 微内核通过 HAL 访问平台，保持架构无关。
-2. 每个进程独立 VSpace；内核地址空间与用户态分离。
+2. 每个 Task 独立 Arena；内核地址空间与用户态分离。
 3. 设备通过 DeviceGrant 授权；驱动运行在用户态。
 4. BootInfo 校验失败时进入早期 panic。
 5. 每个平台通过同一套 conformance suite 后标记支持。
 6. Hosted 平台向内核提供虚拟 HAL 与模拟设备。
 7. 目标架构为 64 位：x86_64、AArch64、RISC-V 64、Hosted。
 8. 服务器模块由 bootloader 提供，Root Server 加载。
+9. 平台只提供 Region 物化与物理访问机制；Capacity/Frame/Region 的语义由 HMP 统一。
 
 ---
 

@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-本表定义 HolyKernel 的微内核、服务器与 POSIX 兼容层术语。
+本表定义 HolyKernel 的微内核、HMP、服务器与兼容层术语。
 
 ---
 
@@ -11,9 +11,9 @@
 | 术语 | 定义 |
 | --- | --- |
 | **HolyKernel (HK)** | 句柄型微内核 + 用户态服务器 + POSIX.1 兼容层 |
-| **Microkernel** | 只提供 TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、IRQHandler 的内核 |
+| **Microkernel** | 只提供 TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQHandler 的内核 |
 | **TCB** | 线程控制块；上下文、优先级、亲和性、状态 |
-| **VSpace** | 进程地址空间；页表根、映射、保护 |
+| **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆 |
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
 | **Handle** | index + generation；资源访问凭据 |
 | **Rights** | READ、WRITE、EXECUTE、TRANSFER、ADMIN |
@@ -22,20 +22,20 @@
 | **DeviceGrant** | 设备句柄集合；MMIO/DMA/IRQ |
 | **Endpoint** | 同步 IPC 通道；send/recv/call/reply、句柄传递 |
 | **Notification** | 异步位通知；中断下半部、事件完成 |
-| **Frame** | 物理内存帧；映射、共享、DMA |
-| **Capacity** | 物理容量能力；分配 Frame、配额与页大小 |
+| **Frame** | HMP 物理页对象；带 FrameId、所属 Capacity、pin 与共享引用 |
+| **Capacity** | Root Server 持有并通过 Handle 授予的物理容量能力；分配 Frame、配额、拆分与转移 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint/Notification |
 | **DeviceGrant** | 设备 MMIO/DMA/IRQ 句柄集合 |
 | **Fault Endpoint** | 页错误与异常交付出口 |
-| **Native Task** | 用户态一等 Task：VSpace + HandleTable + TCB(s) + Arena + 父子关系 |
+| **Native Task** | 用户态一等 Task：Arena + HandleTable + TCB(s) + 父子关系 |
 | **Window Client** | Display Server 的客户端；可创建多个窗口 |
-| **Arena** | Task 拥有的用户态堆；Task 退出时整体回收 |
+| **Arena** | 任务内存根；持有地址空间、栈、堆与 Region 表，任务退出时整体回收 |
 | **Debug Server** | Task/资源视图、trace、符号化调试、`hk-dbg` |
 | **Toolchain Server** | 系统内编译/链接/打包/缓存 |
 | **Workbench** | 编辑/浏览/构建/运行/调试一体化原生应用 |
 | **Checkpoint Server** | Native Task/Server 快照与恢复 |
 | **Compatibility Server** | 按应用选择 POSIX/Linux/Harmony personality 的用户态 supervisor |
-| **Personality** | 应用的运行时/ABI 域：POSIX、Linux 或 Harmony；各自独立 VSpace |
+| **Personality** | 应用的运行时/ABI 域：POSIX、Linux 或 Harmony；各自独立 Arena |
 | **Surface / Seat** | 合成器表面与输入焦点/键盘/指针/剪贴板契约 |
 | **Wayland / XWayland** | Linux Wayland 客户端与 X11 兼容桥接 |
 | **Harmony Personality** | OpenHarmony 用户态 + Holy KAL/HDI 适配 |
@@ -47,17 +47,21 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| **HMP** | Holy Memory Plane；以 Region 统一映射、类型化能力承载身份的内存平面 |
-| **Capacity** | Root Server 授予的物理容量能力；声明页大小、配额与用途 |
-| **Region** | 类型化能力在 VSpace 中的唯一映射视图；带权利、COW、guard、pin 等标志 |
+| **HMP** | Holy Memory Plane；内存的唯一能力映射平面；内核与用户态服务共享同一对象图 |
+| **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆，任务退出时整体回收 |
+| **Capacity** | Root Server 持有并通过 Handle 授予的物理容量能力；声明页大小、配额、用途与拆分 |
+| **Frame** | 连续物理页对象；带 FrameId、所属 Capacity、pin 与共享引用；最后一个引用归还 Capacity |
+| **Region** | 类型化能力在任务地址空间中的唯一映射视图；任务本地对象；带权利、COW、guard、pin 等标志 |
 | **Provider** | 缺页、回写、驱逐的 Endpoint 服务；契约按类型定义 |
-| **Ledger** | 容量、常驻、配额、压力的显式记账对象 |
-| **类型化能力** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 各自以独立 Handle 类型暴露 |
+| **Ledger** | 容量、常驻、配额、压力的显式记账对象；随 Handle 转移 |
+| **类型化能力** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame；ABI 使用 `Handle + ObjectKind`，库层提供 `Handle<T>` |
 | **Mappable** | 内核可见的统一能力接口；类型化能力实现它，由 Region 引用 |
+| **铸造链** | Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights |
+| **授予面** | Root Server 服务清单决定的初始 Capacity/Frame/Capability；ABI 面对所有持权服务统一开放 |
 | **Provider 契约** | 每类能力对应的 fault/commit/scanout/pin/export/swap 协议 |
 | **TaskImage** | Native Task 镜像中的代码/数据区域；通常 sealed |
 | **DeviceAllocation** | 显存/DMA 内存分配；MMIO 寄存器由 DeviceGrant 映射 |
-| **Anonymous** | 由 MemoryManager 提供后备、页面初始为零的匿名内存 |
+| **Anonymous** | 由 Memory Server 提供后备、页面初始为零的匿名内存；Arena 承载任务栈、堆与工作区 |
 | **sealed** | 只读共享、拒绝写入的对象/Region 状态 |
 | **pin** | 固定 Frame，保持驻留；用于 DMA、scanout |
 | **provenance** | 内存对象的原生来源：Revision/Surface/TaskImage/Device/Anonymous |
@@ -66,7 +70,8 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| **Root Server** | 启动服务器、分配 Handle、监督与重启 |
+| **Root Server** | 启动服务器、分配初始 Capacity/Handle、监督与重启 |
+| **Memory Server** | 持有 User Capacity，作为 Anonymous Provider 提供匿名能力与缺页 |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | 挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存 |
 | **FS Backend** | ext2/ext4、HolyFS、tmpfs、devfs、procfs 等文件系统服务器 |
@@ -143,7 +148,7 @@
 
 ## 6. 命名约定
 
-- 内核类型：`Tcb`、`VSpace`、`HandleTable`、`Handle`、`Endpoint`、`Notification`、`Capacity`、`Capability`、`Region`、`Ledger`。
+- 内核类型：`Tcb`、`Arena`、`HandleTable`、`Handle`、`Endpoint`、`Notification`、`Capacity`、`Frame`、`Capability`、`Region`、`Provider`、`Ledger`、`Mappable`。
 - 服务器：`hk-root-server`、`hk-vfs`、`hk-posix-server`、`hk-network`、`hk-holyfs`、`hk-display`、`hk-holydoc`。
 - libc：musl 为主；`hk-abi`/`hk-crt` 提供 shim 与启动；`hk-libc` 薄兼容层；C ABI 符号使用标准 POSIX 名称。
 - 路径：POSIX 风格 `/usr/bin/sh`；根文件系统由 ext2/ext4 Server 提供；HolyFS 提供 Holy 卷与 `H:` 盘符。

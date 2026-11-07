@@ -82,7 +82,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
   -device isa-debug-exit,iobase=0xf4,iosize=0x04
 ```
 
-`exit` 与冒烟测试通过 `isa-debug-exit` 退出 QEMU；缺少该设备时内核会安全停机而不是触发异常。
+`exit` 与冒烟测试通过 `isa-debug-exit` 退出 QEMU；缺少该设备时内核安全停机。
 
 图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`xtask run` 在存在 `/dev/kvm` 时自动启用 `-accel kvm -cpu host`，手动 QEMU 可同样加速。
 
@@ -132,7 +132,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 ### 单元
 
-- 内核：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region。
+- 内核：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）。
 - 服务器：Root Server 状态机、VFS 路径/缓存、ext2、POSIX fd/信号。
 - 网络：ARP/IPv4/IPv6、TCP 状态机、UDP、DHCP、DNS、socket 表。
 - HolyFS：对象表、修订链、集合关系、allocator、checksum、COW 事务、压缩、快照、VFS 适配层。
@@ -182,7 +182,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 ## 6. 安全与信任模型
 
-- **隔离**：内核与用户态分离；每进程独立 VSpace。
+- **隔离**：内核与用户态分离；每个 Task 独立 Arena。
 - **最小权限**：服务器只获得职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启回收旧句柄。
 - **可信基**：内核、Root Server、POSIX Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务。
@@ -198,6 +198,8 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - 许可证兼容：MIT/Apache-2.0/BSD/ISC/MPL-2.0。
 - 依赖精简、可审计、维护活跃。
 - `build.rs` 与过程宏经过审查。
+- HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表、固件解析、引导与架构库在包装 crate 内部。
+- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈；每类只由对应包装 crate 引入。
 - `cargo-deny` 检查许可证与安全公告。
 
 ---
@@ -212,7 +214,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 | `holy-hosted` | Linux/macOS/Windows | 模拟器 |
 
 - 发布附变更日志、已知限制、启动说明、校验和。
-- 版本语义：`0.x` 设计/实验；`1.0` 满足 [路线图 M9](roadmap.md#12-m9--10)。
+- 版本语义：`0.x` 设计/实验；`1.0` 满足 [路线图 M11](roadmap.md)。
 - 构建可复现：固定工具链、锁定依赖、固定时间戳。
 
 ---
@@ -240,7 +242,8 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 5. 每个平台通过 conformance suite 后标记支持。
 6. 基准预算达标是里程碑退出条件。
 7. 构建可复现。
-8. 系统由微内核与用户态服务器组成：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、Handle。
+8. 系统由微内核与用户态服务器组成：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
+9. 内核与用户态服务共享同一组 HMP 对象、Rights 与 Ledger 规则；内存授权由 Handle、Rights 与 ObjectKind 决定。
 
 ---
 

@@ -16,7 +16,7 @@ pub struct Tcb {
     affinity: CpuMask,
     context: UnsafeCell<Context>,
     kernel_stack: Stack,
-    vspace: Handle<VSpace>,
+    arena: Handle<Arena>,
     handle_table: Handle<HandleTable>,
     fault_endpoint: Option<Handle<Endpoint>>,
     ipc_state: IpcState,
@@ -25,9 +25,9 @@ pub struct Tcb {
 ```
 
 - **TCB** 是唯一的内核执行体。
-- 每个 TCB 绑定一个 VSpace，并引用所属 Task 的 HandleTable。
+- 每个 TCB 绑定一个 Arena，并引用所属 Task 的 HandleTable。
 - 线程入口、栈、TLS 由用户态服务器与 libc 配置。
-- 内核以 TCB 为调度单位；POSIX 进程是共享 VSpace 的 TCB 集合。
+- 内核以 TCB 为调度单位；同一进程的 TCB 共享 Arena。
 
 ### 状态机
 
@@ -164,19 +164,21 @@ impl Notification {
 - Notification 可绑定 TCB；`signal` 唤醒等待线程。
 - 与 Endpoint 配合：服务器通过 Notification 等待设备事件。
 
-### 4.3 类型化能力与 Region
+### 4.3 HMP 能力与 Region
 
-- Frame 是匿名内核对象 `{ phys, len }`，通过 Handle 访问。
-- 大消息通过 Frame Handle 传递；接收方映射到自己的 VSpace，句柄权限决定只读/可写/可转移。
-- 内核提供 `SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_CAPABILITY`。
-- `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务 VSpace，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
+- `Capacity`、`Frame`、`Region` 与类型化能力构成 HMP 对象图；内核与用户态服务使用同一组对象、Rights 与错误面。
+- `Frame` 是 HMP 物理页能力，带 `FrameId`、所属 Capacity、pin 与共享引用；通过 Handle 访问。
+- 大消息通过 Frame Handle 传递；接收方创建自己的 Region，句柄权限决定只读/可写/可转移。
+- 内核提供 `SYS_CAPACITY_*`、`SYS_FRAME_*`、`SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_CAPABILITY`。
+- `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
+- 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
 - 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区映射，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动把能力物理地址登记给 virtio HAL，设备 DMA 直接读写缓冲区。`BLOCK_DETACH` 按槽位或整体解除映射并关闭驱动侧句柄。
 - VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_BUFFER`/`OP_WRITE_BUFFER` 用 8 字节参数携带长度，文件内容直接读写客户端缓冲区映射；服务端按发送者维护 Region 映射，重连时解除旧映射并关闭旧句柄，`VFS_DETACH` 清理映射与会话文件句柄。
 - 块客户端登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一能力并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_CAPABILITY` 把能力物理区间映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的能力区间。
-- Capability 的最后一个句柄释放时通过平台回调把物理区间归还 DMA 池；任务退出关闭句柄、客户端 detach 后回收。
-- x86_64 平台启动时预留 64 MiB 连续 DMA 池，显示表面、背缓冲与驱动共享映射都从这里分配；窗口放大时新旧表面会短暂并存，池需要覆盖这一峰值。
+- Capability 的最后一个句柄释放时通过平台回调把物理区间归还 Dma Capacity；任务退出关闭句柄、客户端 detach 后回收。
+- x86_64 平台启动时建立 64 MiB 连续 Dma Capacity，显示表面、背缓冲与驱动共享映射都从这里分配；窗口放大时新旧表面会短暂并存，容量需要覆盖这一峰值。
 - 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收，不再由各构件手写地址。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
 
 ---
@@ -185,21 +187,21 @@ impl Notification {
 
 | POSIX 概念 | HK 实现 |
 | --- | --- |
-| 进程 | 共享 VSpace 的 TCB 集合 + POSIX Server 的进程表 |
+| 进程 | 共享 Arena 的 TCB 集合 + POSIX Server 的进程表 |
 | 线程 | 一个 TCB；libc 管理栈/TLS |
-| `fork` | POSIX Server 创建新 VSpace、复制映射、创建 TCB |
-| `clone` | POSIX Server 按标志共享 VSpace/fd/信号 |
-| `exec` | 加载 ELF、创建新 VSpace、启动主 TCB |
+| `fork` | POSIX Server 复制 Region 表并标 COW、创建 TCB |
+| `clone` | POSIX Server 按标志共享地址空间/fd/信号 |
+| `exec` | 装载 TaskImage、创建新的 Region 表、启动主 TCB |
 | `wait` | 父进程 Endpoint 接收子进程退出事件 |
 | 信号 | POSIX Server 维护 pending/blocked；libc 调用 handler |
 
-内核只提供 TCB、VSpace、Endpoint、Notification、Frame 与 Handle；POSIX 语义在用户态完成。
+内核只提供 TCB、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）与 Handle；POSIX 语义在用户态完成。
 
 ### 5.1 原生线程
 
 同地址空间线程已经落地，运行库提供以下系统调用：
 
-- `SYS_THREAD_CREATE(entry, stack_top, argument, tls)` 在进程 VSpace 内创建 TCB 并返回线程编号；栈与 TLS 块由调用方从 Arena 分配。
+- `SYS_THREAD_CREATE(entry, stack_top, argument, tls)` 在任务 Arena 内创建 TCB 并返回线程编号；栈与 TLS 块由调用方从 Arena 分配。
 - `SYS_THREAD_JOIN(thread)` 等待线程退出；等待期间当前线程由内核挂起，目标退出时唤醒。
 - `SYS_THREAD_SET_TLS(tls)` 设置当前线程的 TLS 基址；每次调度切换时运行库写入线程指针寄存器（x86_64 为 `IA32_FS_BASE`）。
 - `SYS_FUTEX_WAIT(address, expected)` 与 `SYS_FUTEX_WAKE(address, count)` 以共享内存字为键挂起与唤醒线程，地址按进程归属区分。
@@ -344,7 +346,7 @@ pub struct CivilTime { ... }
 | `0x00-0x0F` | 进程与线程 | `EXIT`、`YIELD`、`FORK`、`THREAD_CREATE`/`THREAD_JOIN`/`THREAD_SET_TLS` |
 | `0x10-0x1F` | 句柄 | `HANDLE_CLOSE`/`HANDLE_COUNT`/`HANDLE_DUPLICATE` |
 | `0x20-0x3F` | IPC、通知与同步 | `SEND*`、`RECV*`、`CALL`、`REPLY*`、`NOTIFY`、`WAIT_NOTIFY*`、`SELF_NOTIFICATION`、`SERVICE_ENDPOINT`、`FUTEX_WAIT`/`FUTEX_WAKE` |
-| `0x40-0x4F` | 内存与共享 Frame | `ALLOC`、`FRAME_ALLOC`（`0x46`）、`CAPABILITY_*`、`REGION_*`、`DMA_MAP_CAPABILITY`/`DMA_SYNC`、`LEDGER_INFO` |
+| `0x40-0x4F` | HMP 与共享 Frame | `ALLOC`、`CAPACITY_*`、`FRAME_*`、`CAPABILITY_*`、`REGION_*`、`DMA_MAP_CAPABILITY`/`DMA_SYNC`、`LEDGER_INFO` |
 | `0x50-0x5F` | 设备与中断 | `PCI_READ`/`PCI_WRITE`、`DEVICE_*`、`IRQ_BIND`/`MSI_BIND` |
 | `0x60-0x6F` | 时间与系统信息 | `TICKS`、`TSC*`、`CIVIL_TIME`、`BOOT_CMDLINE`、`KERNEL_STATS` |
 | `0x70-0x7F` | 控制台与帧缓冲 | `WRITE`、`CONSOLE_*`、`FRAMEBUFFER_*` |
@@ -359,7 +361,7 @@ pub struct CivilTime { ... }
 ## 10. 保证
 
 1. 任意时刻，一个 TCB 最多在一个 CPU 上运行。
-2. 每个 TCB 绑定一个 VSpace，并引用 Task 的 HandleTable。
+2. 每个 TCB 绑定一个 Arena，并引用 Task 的 HandleTable。
 3. Handle 只能由持有 `TRANSFER` 权限的线程传递。
 4. IPC 消息中的 Handle 在接收方 HandleTable 中获得新槽位。
 5. Endpoint 的发送/接收按优先级与 FIFO 规则调度。
@@ -368,6 +370,9 @@ pub struct CivilTime { ... }
 8. 服务器崩溃后，Root Server 关闭旧句柄并重启服务。
 9. 中断上半部使用固定分配与自旋锁。
 10. panic 路径独立于调度器与堆。
+11. 每个用户地址映射都有对应 Region；每个 Frame 来自 Capacity，每次分配计入 Ledger。
+12. COW 的唯一契约状态是 `RegionFlags::COW`；页表只表达只读/可写权限与 Frame 安装。
+13. 内核与用户态服务使用同一组 HMP 对象与 Rights；内存授权由 Handle、Rights 与 ObjectKind 决定。
 
 ---
 

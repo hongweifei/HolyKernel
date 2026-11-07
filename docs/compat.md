@@ -88,6 +88,8 @@ flowchart TB
 
 ## 4. 内核机制
 
+HMP 是兼容 personality 的内存底座：地址空间视图由 Region 表达，内存身份由 Revision/Anonymous/DeviceAllocation 承载；兼容层只创建 Region 并转换调用语义。
+
 ### 4.1 Personality 与入口
 
 - 任务创建时指定 personality；`exec` 根据 ELF 类型切换。
@@ -99,7 +101,7 @@ flowchart TB
 ### 4.2 线程与 TLS
 
 - TCB 保存用户 FS/GS base；`arch_prctl(ARCH_SET_FS)` 等请求经 ABI Server 落到内核机制。
-- 支持 pthread TLS、`set_tid_address`、`rseq` 的最小语义；不支持时返回明确错误而不是静默错误。
+- 支持 pthread TLS、`set_tid_address`、`rseq` 的最小语义；能力缺失时返回明确错误。
 - `clone`/`clone3` 创建 Linux 线程；与 HK TCB、信号投递、COW 栈协同。
 
 ### 4.3 信号与异常
@@ -136,7 +138,7 @@ flowchart TB
 | P3 | 运行时与桌面常见扩展 | `clone3`/`rseq`/`prlimit64`/`getrandom`/`memfd_create`/`pidfd_*`/`inotify` |
 | P4 | 高级/可选 | `io_uring`、netlink 子集、`bpf` 查询、命名空间与 cgroup 视图 |
 
-每一阶段以真实应用为门禁，而不是只看 syscall 数量。
+每一阶段以真实应用为门禁，同时覆盖 syscall 数量。
 
 ### 5.3 glibc 关键点
 
@@ -220,7 +222,7 @@ ABI 契约：
 ## 7. 安全模型
 
 - Compatibility Server 是用户态 supervisor，按 personality 启动应用；各 ABI 实现运行在内核可信基之外，崩溃可重启。
-- 每个兼容应用运行在独立 Native Task/VSpace；fd、Socket、Frame 权限由 Handle 管理。musl/glibc/Harmony 的 libc 域彼此隔离。
+- 每个兼容应用运行在独立 Native Task/Arena；fd、Socket、Frame 权限由 Handle 管理。musl/glibc/Harmony 的 libc 域彼此隔离。
 - `/proc`、`/sys` 只暴露兼容所需的最小视图，不泄露宿主服务内部句柄。
 - 监听端口、raw socket、设备访问与 `ptrace` 需要显式 ADMIN 权限。
 - 对 syscall 参数做边界与类型校验；解析器与 ELF 加载器有 fuzz 目标。
@@ -262,13 +264,14 @@ ABI 契约：
 
 ## 10. 路线图
 
-- **M7 — POSIX 核心与 Toolchain**：Compatibility Server supervisor、POSIX personality、musl 源码移植、ELF 基础；Toolchain Server 从 `H:/Apps` 构建 `H:/System/Apps` 应用包。
-- **M8 — POSIX 扩展**：动态 musl ABI（L1.5）、Unix socket/`SCM_RIGHTS`、`memfd`/shm、`epoll`、pthread/信号；这些也是 Wayland 的前置。
-- **M9 — Linux ABI 兼容**：Linux personality、syscall 转发、`ld-linux`/glibc 静态与动态、`/proc`/`/sys`、vDSO、Wayland Server + XWayland。
-- **M10 — 多架构、鸿蒙与测试**：AArch64/RISC-V；OpenHarmony standard-system 用户态的 Harmony personality + KAL/HDI 适配。
-- **M11 — 1.0**：硬化、fuzz、发布镜像、真机验证。
+- **M6 — 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
+- **M7 — 平台与引导**：HAL、BootInfo、ACPI/DTB、x86_64、AArch64、Limine/UEFI。
+- **M8 — 设备与存储**：Device Manager、virtio 驱动、DMA/IOMMU、VFS、HolyFS。
+- **M9 — 原生 UI 与工具链**：Display、指针、Console、Input、HolyDoc、Workbench、Toolchain Server。
+- **M10 — 兼容**：Compatibility Server supervisor、POSIX personality、musl 源码移植、ELF、fork/exec/wait、pthread/信号、Unix socket、Linux personality、glibc/musl 动态加载、`/proc`、vDSO、Wayland/XWayland、Harmony personality、`holybuild` 与 POSIX 工具链。
+- **M11 — 1.0 与多架构**：AArch64/RISC-V、conformance、硬化、fuzz、发布镜像、真机验证。
 
-VFS、Network、UI、POSIX 的既有里程碑不变：M5 网络、M6 原生 UI、M7 POSIX 核心、M8 POSIX 扩展。
+路线按底层优先推进：M5 网络之后先完成 M6 底层收敛、M7 平台与引导、M8 设备与存储，再进入 M9 原生 UI 与 M10 兼容层。
 
 ---
 
@@ -276,12 +279,12 @@ VFS、Network、UI、POSIX 的既有里程碑不变：M5 网络、M6 原生 UI�
 
 | 风险 | 影响 | 应对 |
 | --- | --- | --- |
-| Linux syscall 面过大 | M9 拖延 | P1 真实应用门禁；P2/P3 增量；高级特性明确降级 |
+| Linux syscall 面过大 | M10 拖延 | P1 真实应用门禁；P2/P3 增量；高级特性明确降级 |
 | glibc 假设复杂 | 动态二进制失败 | 静态 glibc 先行；逐项补齐 `/proc`/TLS/信号/auxv |
 | ABI Server 高权限 | 安全风险 | 用户态隔离、最小视图、ADMIN 权限、审计与 fuzz |
 | 每次 syscall IPC 开销 | 性能下降 | vDSO、缓存、批量、共享 Frame、热路径 |
 | 系统级软件依赖内核 | 无法原生运行 | L3 VM/容器兜底，明确支持边界 |
-| 多架构 ABI 差异 | 移植成本 | x86_64 先行；AArch64/RISC-V 在 M10 增量接入 |
+| 多架构 ABI 差异 | 移植成本 | x86_64 先行；AArch64/RISC-V 在 M11 增量接入 |
 
 ---
 

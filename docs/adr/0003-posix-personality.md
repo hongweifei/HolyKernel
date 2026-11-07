@@ -14,7 +14,7 @@
 2. musl 提供 C 运行时与 POSIX 头文件；`hk-abi`/`hk-crt` 提供 shim、启动与 TLS；应用重新编译。
 3. POSIX Server 维护 PID、进程组、会话、fd 表、信号状态、cwd/root、凭证。
 4. 文件操作通过 **VFS Server**；socket 通过 **Network Server**。
-5. `fork` 通过 VSpace 复制与 COW；`exec` 通过 ELF 加载器；`wait` 通过 Endpoint。
+5. `fork` 通过 Arena 复制与 COW；`exec` 通过 ELF 加载器；`wait` 通过 Endpoint。
 6. pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
 7. 信号由 POSIX Server 管理 pending/blocked，libc trampoline 调用 handler。
 8. 1.0 聚焦源码兼容的 POSIX.1；Linux 二进制 ABI 属于后续版本。

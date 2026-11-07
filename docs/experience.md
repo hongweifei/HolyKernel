@@ -2,6 +2,8 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
+里程碑：原生 UI、Workbench、Toolchain Server、Checkpoint Server 与 Debug Server 在 **M9** 交付。
+
 本文定义 HolyKernel 的原生体验层：HolyDoc、Workbench、系统内工具链、Task 命名空间、整文件缓存、Checkpoint、符号化调试、Home/Once 启动文档、Sprite/Font 编辑器、文本回退、可增长栈与 Task 消息。
 
 ---
@@ -54,7 +56,7 @@ HolyDoc 同时服务文档与原生 UI：
 
 - **帮助**：符号、服务、POSIX 路径、调试信息都可链接到 HolyDoc。
 - **设置**：系统设置以 HolyDoc 表单呈现，提交调用原生函数。
-- **调试面板**：Task、TCB、VSpace、HandleTable、Endpoint 以 HolyDoc 表格/树展示。
+- **调试面板**：Task、TCB、Arena、Region、Ledger、HandleTable、Endpoint 以 HolyDoc 表格/树展示。
 - **源码浏览**：源码文档带语法高亮、符号链接、错误位置跳转。
 - **可执行块**：`@exec` 在沙箱中运行，结果显示为只读块。
 - **嵌入资源**：Sprite、Font、图像直接嵌入文档。
@@ -139,16 +141,16 @@ sequenceDiagram
     participant VFS as VFS
     Root->>CP: checkpoint(task)
     CP->>Task: suspend
-    CP->>Task: 读取 VSpace / HandleTable / TCB 状态
+    CP->>Task: 读取 Region / Frame / HandleTable / TCB 状态
     CP->>VFS: 写入快照文档
     CP->>Task: resume
     Root->>CP: restore(snapshot)
-    CP->>Task: 创建 VSpace / TCB / Handle
+    CP->>Task: 创建 Arena / TCB / Handle
     CP->>Task: 恢复 Arena 与寄存器
 ```
 
-- Native Task/Server 可 checkpoint：VSpace 映射、Frame 内容、HandleTable 状态、TCB 寄存器、Arena。
-- 已落地：捕获用户页内容（零页省略）并序列化为版本化快照；默认在 Root 内存恢复，`checkpoint.disk` 可写 `H:/Checkpoints` 分块并读回；设备、共享 Frame、COW 与线程任务暂不支持。
+- Native Task/Server 可 checkpoint：Region 映射、Frame 内容、HandleTable 状态、TCB 寄存器、Arena。
+- 已落地：捕获用户页内容（零页省略）并序列化为版本化快照；默认在 Root 内存恢复，`checkpoint.disk` 可写 `H:/Checkpoints` 分块并读回；设备、共享 Frame、COW Region 与线程任务暂不支持。
 - 目标：快照写入 VFS；恢复时重建 Task 与 Handle。
 - 用于快速重启、调试回放、升级前备份。
 - POSIX 进程采用进程语义；Checkpoint 由 POSIX Server 按策略提供。
@@ -236,7 +238,7 @@ sequenceDiagram
 3. Toolchain Server 隐藏链接细节；构建产物按内容哈希缓存。
 4. Task 符号表只负责名字解析与调试；访问凭据仍是 Handle。
 5. 整文件文档 I/O 采用原子提交；大文档使用显式 Stream。
-6. Checkpoint 快照包含 VSpace、HandleTable、TCB、Arena；恢复后句柄重新分配。
+6. Checkpoint 快照包含 Arena、HandleTable、TCB；恢复后句柄重新分配。
 7. Debug Server 的所有操作需要显式 Handle。
 8. Home/Once 是可执行文档；首次启动只执行一次。
 9. 文本回退始终可用。

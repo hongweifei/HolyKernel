@@ -2,7 +2,7 @@
 HolyKernel 是分层微内核：内核只保留对象、地址空间与 IPC，驱动、文件系统与界面运行在用户态。
 
 @heading(2, "内核")
-内核提供 TCB、VSpace、HandleTable、Endpoint、Notification 与 Frame；权限由带权利的句柄与对象代际决定。
+内核提供 TCB、Arena、HandleTable、Endpoint、Notification 与 HMP（Capacity/Frame/Region）；权限由带权利的句柄与对象代际决定。
 
 @heading(2, "服务")
 服务之间只通过 Endpoint、句柄与线协议通信：

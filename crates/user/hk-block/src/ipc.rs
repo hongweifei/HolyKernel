@@ -1,6 +1,6 @@
 //! 块协议的服务端循环与远端块设备客户端。
 //!
-//! 协议编码在 [`hk_server_api::block`]；本模块把协议接到 [`AsyncBlockDevice`]，
+//! 协议编码在 [`hk_proto::block`]；本模块把协议接到 [`AsyncBlockDevice`]，
 //! 供 Block Server、virtio 驱动服务与 VFS 复用。
 //!
 //! 客户端使用多个共享帧槽位与递增标签，服务端按发送者与槽位分别映射帧，

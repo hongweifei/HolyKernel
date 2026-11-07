@@ -21,6 +21,7 @@
 | [0013](0013-net-stack.md) | virtio-net 与 smoltcp 网络栈 | 已接受 |
 | [0014](0014-native-image.md) | 原生任务镜像 | 已接受 |
 | [0015](0015-compatibility-server.md) | Compatibility Server 与多来源 UI | 已接受 |
+| [0016](0016-hmp-native-contract.md) | Holy Memory Plane 作为唯一内存面 | 已接受 |
 
 ## 模板
 
@@ -49,12 +50,12 @@
 
 ## 架构一致性检查
 
-这个决策如何与微内核模型协作：TCB、VSpace、HandleTable、Endpoint、Notification、Frame、服务器？
+这个决策如何与微内核模型协作：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、服务器？
 ```
 
 ## 规则
 
-1. 触及内核对象、Handle、IPC、VSpace、POSIX 兼容层、服务器边界或 ABI 的变更先写 ADR。
+1. 触及内核对象、Handle、IPC、Arena、POSIX 兼容层、服务器边界或 ABI 的变更先写 ADR。
 2. ADR 包含“架构一致性检查”。
 3. 已接受的 ADR 通过新 ADR 演进；新 ADR 取代时保留原文并链接新 ADR。
 4. 代码与 ADR 冲突时，以章程与已接受 ADR 为准。

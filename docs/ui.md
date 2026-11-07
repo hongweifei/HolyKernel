@@ -2,7 +2,7 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-里程碑：原生 UI 在 **M6** 先行交付；surface/seat 抽象在 M6 收尾，Linux Wayland/XWayland 与鸿蒙 HDI 在兼容层稳定后接入，详见 [ADR-0015](adr/0015-compatibility-server.md)；POSIX 终端在 **M7** 接入。
+里程碑：原生 UI 在 **M9** 交付；surface/seat 抽象在 M9 收尾，Linux Wayland/XWayland 与鸿蒙 HDI 在兼容层稳定后接入，详见 [ADR-0015](adr/0015-compatibility-server.md)；POSIX 终端在 **M10** 接入。
 
 UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入，**HolyDoc Server** 渲染活文档。界面采用现代真彩色：32 位 RGBA、sRGB、主题、alpha 合成与可缩放字体；文本优先与串口回退继续保留。Display 同时是 surface/seat 合成器：原生窗口直接接入，Linux Wayland/X11 与鸿蒙应用通过独立适配器接入。
 
@@ -18,7 +18,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 4. **多窗口客户端**：客户端可创建多个窗口；Display Server 管理焦点、z 序、装饰与输入。
 5. **HolyDoc**：可链接、可执行、可嵌入的活文档；支持富文本、图片、表单与代码执行结果。
 6. **POSIX 终端**：控制台/终端接口与 `termios` 后端；支持 256 色/真彩色 SGR。
-7. **最小权限**：Display Server 只获得 Framebuffer 与 Input DeviceGrant。
+7. **最小权限**：Display Server 获得 Framebuffer Capability 与 Input DeviceGrant。
 8. **可重启**：Display Server 崩溃后由 Root Server 重启；客户端重连。
 9. **可降级**：文本回退使用串口/VGA 文本模式。
 10. **多来源合成**：原生 surface、Wayland、XWayland 与鸿蒙 ArkUI 表面进入同一场景图。
@@ -38,7 +38,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 
 ### 已落地
 
-- 帧缓冲访问通过 `SYS_FRAMEBUFFER_INFO` / `SYS_FRAMEBUFFER_MAP` 只授权给 `hk-server-display`；映射地址由内核在任务自动窗口内选择并返回，显示服务不再使用固定地址。
+- 帧缓冲通过 Framebuffer Capability 授予 Display；映射地址由内核在任务自动窗口内选择并返回，显示服务不再使用固定地址。
 - 窗口表面使用共享 Frame：客户端绘制后经句柄转移交给显示服务，由显示服务映射并合成，不复制整块表面。
 - 合成器绘制桌面渐变、标题栏与窗口，并回读窗口首像素校验；焦点窗口标题栏高亮。
 - 窗口带圆角与柔和投影：标题栏顶部和窗口底部按半径裁剪，投影按缩放后的边距绘制并混合桌面/下层窗口；窗口 damage 区域同步扩展，移动、缩放、关闭与焦点切换不会残留影边。
@@ -60,7 +60,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - Surface/Seat 协议：`SURFACE_CREATE`/`SURFACE_DAMAGE`/`SURFACE_COMMIT`/`SURFACE_DESTROY` 与 `WINDOW_CREATE` 把表面与窗口分离；damage 在表面坐标裁剪并合并，提交时只重绘受影响区域；`SURFACE_SET_INPUT_REGION` 控制正文命中，`SURFACE_SET_CURSOR` 声明该表面的光标形状，标题栏与装饰始终由服务端处理；`SEAT_FOCUS` 统一焦点，`SEAT_SET_CLIPBOARD`/`SEAT_GET_CLIPBOARD` 提供剪贴板。指针在窗口正文内移动时经 `DISPLAY_POINTER` 把窗口内坐标发给对应客户端，离开时发 `DISPLAY_POINTER_LEAVE`；事件按悬停窗口路由，不依赖焦点。所有原生客户端统一走 surface/window 两段式创建与表面提交。`smoke --mode display` 验证局部 damage、焦点与剪贴板。
 - Workbench 走同一 surface/window 协议：三栏布局展示 `H:` 文档树、编辑器与输出面板；文档经 Holy 协议整篇读写，键盘支持方向键、Home/End、Delete 编辑与 Ctrl+S 保存，Ctrl+B 统计构建、Ctrl+R 运行 `@exec`、Ctrl+D 读取异常回溯；鼠标可命中文档树与编辑器定位。`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏；所有绘制先写入离屏后备缓冲，damage 合并后一次性提交帧缓冲，避免中间状态闪烁。
-- Display 启动 2 秒后连续做 3 次全屏合成 + present 并取最小值，输出 `full redraw min`；QEMU 1280×800 桌面（含窗口与投影）实测约 3.0–3.3 ms，满足 M6 的 ≤8 ms 目标。
+- Display 启动 2 秒后连续做 3 次全屏合成 + present 并取最小值，输出 `full redraw min`；QEMU 1280×800 桌面（含窗口与投影）实测约 3.0–3.3 ms，满足 M9 的 ≤8 ms 目标。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
 - Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；支持 SGR 16/256/真彩色与粗体/暗淡/下划线/反显，以及光标定位和行列擦除。它只负责行编辑、回显与按行交付，不包含命令解析。桌面交互命令由用户态 `hk-server-shell` 接管：Shell 通过 PING/PONG 握手确认 Console 已进入接收循环，再写入提示符并逐行执行。
 - 用户态 `hk-server-input` 通过带索引的 DeviceGrant 申请接管多个 virtio-input 设备（键盘 + 平板），分别绑定 IRQ 通知、解码 evdev 键码与绝对坐标，把按键/指针事件发给 Display。`smoke --mode inputdriver/pointer` 验证。
@@ -87,7 +87,7 @@ flowchart LR
     Display --> Comp["Compositor"]
 ```
 
-- Display Server 运行在用户态，持有 Framebuffer 与 Input 的 DeviceGrant。
+- Display Server 运行在用户态，持有 Framebuffer Capability、Surface 与 Input DeviceGrant。
 - POSIX 应用通过 Console Service 使用终端；Console 输出字符、属性与真彩色。
 - HolyDoc Server 把文档节点树渲染为 RGBA 图层。
 - Font Stack 提供可缩放字体与位图回退；字体缓存按 (family, size, weight) 索引。
@@ -112,7 +112,7 @@ flowchart LR
 - Wayland 与 XWayland 依赖 POSIX/Linux ABI；X11 通过 XWayland 接入。
 - Harmony Bridge 对接 OpenHarmony 的 Render Service/Window Manager/HDI，表面经 HDI 进入 Holy surface。
 - 各适配器是独立服务，受 Handle、配额与能力声明约束；崩溃只影响对应适配器。
-- 当前 M6 已落地原生 surface/seat；Wayland/XWayland 与 Harmony 适配器在兼容层成熟后接入。
+- 原生 surface/seat 已落地；Wayland/XWayland 与 Harmony 适配器在兼容层成熟后接入。
 
 ---
 
@@ -244,8 +244,8 @@ flowchart LR
 
 ## 8. 启动与降级
 
-- Root Server 启动 Display Server；Display Server 获取 Framebuffer/Input DeviceGrant。
-- Console Service 先以原生模式启动并连接 Display Server 的窗口；POSIX Server 在 M7 接入终端模式。
+- Root Server 启动 Display Server，并授予 Framebuffer Capability 与 Input DeviceGrant。
+- Console Service 先以原生模式启动并连接 Display Server 的窗口；POSIX Server 在 M10 接入终端模式。
 - 原生应用可启动 HolyDoc 欢迎页与 Workbench。
 - 文本回退：Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
 - 字体回退：8×16 位图字体。

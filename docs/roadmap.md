@@ -2,39 +2,37 @@
 
 状态：**设计中** · 上级：[总体架构](architecture.md)
 
-本文定义 M0–M11 里程碑、退出标准、决策门与风险。节奏由退出标准决定，以可演示的纵向切片推进。
+本文定义 M0–M11 里程碑、退出标准、决策门与风险。路线按底层优先推进：先固定 HMP 对象面与内存机制，再完成平台、设备、存储、UI 与兼容层。
 
 ---
 
 ## 1. 排序原则
 
-1. **先 Hosted，后裸机**：内核与 IPC 在确定性模拟器中先跑通。
-2. **先内核机制，后服务器**：TCB、VSpace、HandleTable、Endpoint、Notification、Frame 优先。
-3. **先 Root Server，后全栈**：Root Server、Device Manager、VFS、Network、Display、POSIX 依次接入。
-4. **VFS 先行**：ext2/tmpfs/devfs/procfs 通过 VFS 统一；POSIX Server 依赖 VFS。
-5. **原生能力先行**：网络与原生 UI 在 POSIX 之前；POSIX 兼容层复用 Native Task、VFS、Network 与 Console。
-6. **POSIX 分层**：先文件/进程，后线程/信号/POSIX socket。
-7. **可选服务后置**：HolyFS 卷、Workbench、工具链等深化服务在核心链路之后接入。
-8. **多架构收尾**：x86_64 纵向切片完成后抽 HAL，验证 AArch64/RISC-V。
+1. **底层优先**：HMP 对象面 → 内存机制 → 分页与 MMIO → 平台与引导 → 设备与存储 → UI → 兼容。
+2. **先 Hosted，后裸机**：内核与 IPC 在确定性模拟器中先跑通。
+3. **先内核机制，后服务器**：TCB、Arena、HandleTable、Endpoint、Notification、HMP 优先。
+4. **单对象面**：Arena、Capacity、Frame、Region、Capability、Provider、Ledger 覆盖内核与用户态。
+5. **纵向切片**：每个里程碑形成可演示、可冒烟、可回归的完整链路。
+6. **平台与引导先行**：UI 与兼容层建立在稳定的 HAL、BootInfo、HMP 与设备链路之上。
 
 ---
 
 ## 2. 里程碑总览
 
-| 里程碑 | 主题                  | 关键产物                                                                                         | 决策门             |
-| --- | ------------------- | -------------------------------------------------------------------------------------------- | --------------- |
-| M0  | 章程、架构、脚手架           | 文档、workspace、CI、xtask、Hosted stub                                                            | G0：架构批准         |
-| M1  | Hosted 微内核          | TCB、VSpace、HandleTable、Endpoint、Notification、Frame                                           | G1：内核对象冻结       |
-| M2  | x86_64 启动           | Limine、BootInfo、Root Server、IPC                                                              | —               |
-| M3  | 句柄与内存               | Handle duplicate/close、COW、SMP、调度                                                            | G2：句柄模型冻结       |
-| M4  | 用户态驱动与 VFS          | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs                                               | G3：VFS 接口冻结     |
-| M5  | 网络                  | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS                                         | —               |
-| M6  | 原生 UI               | Display Server、surface/seat、HolyDoc、Console、输入、字体/主题                                         | —               |
-| M7  | POSIX 核心与 Toolchain | Compatibility Server、POSIX personality、musl、hk-abi/hk-crt、fork/exec/wait、文件、Toolchain Server | G4：POSIX ABI 冻结 |
-| M8  | POSIX 扩展            | pthreads、信号、pipe、AF_UNIX、SCM_RIGHTS、memfd/shm、mmap、POSIX socket                              | —               |
-| M9  | Linux ABI 兼容        | Linux personality、ELF/glibc/musl、/proc、vDSO、Wayland/XWayland                                 | G5：Linux ABI 冻结 |
-| M10 | 多架构、鸿蒙与测试           | AArch64/RISC-V、Harmony personality、OpenHarmony 用户态、HDI、兼容测试                                  | G6：平台抽象冻结       |
-| M11 | 1.0                 | 硬化、fuzz、发布镜像、真机                                                                              | G7：1.0          |
+| 里程碑 | 主题 | 关键产物 | 决策门 |
+| --- | --- | --- | --- |
+| M0 | 章程、架构、脚手架 | 文档、workspace、CI、xtask、Hosted stub | G0：架构批准 |
+| M1 | Hosted 微内核 | TCB、Arena、HandleTable、Endpoint、Notification、HMP | G1：内核对象冻结 |
+| M2 | x86_64 启动 | Limine、BootInfo、Root Server、IPC | — |
+| M3 | 句柄与内存 | Handle duplicate/close、HMP 对象、COW、SMP、调度 | G2：句柄模型冻结 |
+| M4 | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs | G3：VFS 接口冻结 |
+| M5 | 网络 | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS | — |
+| M6 | 底层收敛 | HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA、HMP ABI | G4：内存对象面冻结 |
+| M7 | 平台与引导 | HAL、BootInfo、ACPI/DTB、x86_64、AArch64、Limine/UEFI | G5：平台抽象冻结 |
+| M8 | 设备与存储 | Device Manager、virtio 驱动、DMA/IOMMU、VFS、HolyFS | G6：设备与存储接口冻结 |
+| M9 | 原生 UI 与工具链 | Display、指针、Console、Input、HolyDoc、Workbench、Toolchain Server | — |
+| M10 | 兼容 | Compatibility Server、POSIX、Linux ABI、Harmony | G7：兼容 ABI 冻结 |
+| M11 | 1.0 与多架构 | AArch64/RISC-V、conformance、硬化、发布 | G8：1.0 |
 
 ```mermaid
 flowchart LR
@@ -43,321 +41,198 @@ flowchart LR
     M2 --> M3["M3 句柄与内存"]
     M3 --> M4["M4 驱动与 VFS"]
     M4 --> M5["M5 网络"]
-    M5 --> M6["M6 原生 UI"]
-    M6 --> M7["M7 POSIX 核心"]
-    M7 --> M8["M8 POSIX 扩展"]
-    M8 --> M9["M9 Linux ABI 兼容"]
-    M9 --> M10["M10 多架构与测试"]
-    M10 --> M11["M11 1.0"]
+    M5 --> M6["M6 底层收敛"]
+    M6 --> M7["M7 平台与引导"]
+    M7 --> M8["M8 设备与存储"]
+    M8 --> M9["M9 原生 UI 与工具链"]
+    M9 --> M10["M10 兼容"]
+    M10 --> M11["M11 1.0 与多架构"]
 ```
 
 ---
 
-## 3. M0 — 章程、架构、脚手架
+## 3. 已完成基础（M0–M5）
 
-### 交付
-
-- 章程、总体架构、内存、执行、服务器、VFS、POSIX、UI、平台、工程、路线图、术语、ADR。
-- Cargo workspace；全部目标可编译（允许空实现）。
-- `xtask`：`build`、`run`、`test`、`lint`、`docs`、`budget`。
-- CI：`fmt`、`clippy`、`build-matrix`、`host-test`、`docs`、`deny`、`budget`。
-- `hk-platform-hosted` stub：BootInfo、初始化、退出协议。
-- 许可证确认。
-
-### 退出标准
-
-1. Hosted、x86_64、AArch64 三个目标构建成功。
-2. `cargo xtask lint` 与 CI 全绿。
-3. 架构文档评审通过；ADR-0001 至 0008 已接受。
+- **M0**：章程、架构、HMP、执行、服务器、VFS、UI、平台、工程、路线图、术语与 ADR 文档；workspace、`xtask`、CI、Hosted stub。
+- **M1**：Hosted 微内核；TCB、Arena、HandleTable、Endpoint、Notification、HMP 对象、确定性仿真。
+- **M2**：x86_64 启动；Limine、BootInfo、串口、GDT/IDT、分页、LAPIC/IOAPIC、帧缓冲控制台、用户态服务与 IPC。
+- **M3**：句柄与内存；Handle duplicate/close/transfer、COW、SMP、调度、用户态线程、审计与 trace。
+- **M4**：用户态驱动与 VFS；DeviceGrant、virtio-blk/input、Block Server、ext4/HolyFS、VFS 与路径服务、共享 Frame 数据路径。
+- **M5**：网络；virtio-net 驱动、Network Server、IPv4/IPv6、TCP/UDP、DHCP、DNS、Socket Handle。
 
 ---
 
-## 4. M1 — Hosted 微内核
+## 4. M6 — 底层收敛
 
 ### 交付
 
-- `hk-hal`：CPU、MMU、IRQ、Timer、SMP、Console、DMA。
-- `hk-kernel`：TCB、VSpace、HandleTable、Endpoint、Notification、Capacity、Capability、Region、Ledger。
-- `hk-ipc`：send/recv/call/reply、Notification、句柄传递。
-- `hk-handle`：HandleTable、duplicate/close、IPC 转移。
-- Hosted 模拟器：虚拟 CPU、虚拟时钟、虚拟 VSpace。
-- Root Server stub：加载服务器、分配句柄、IPC 回环。
-- Native Task：VSpace+HandleTable+TCB(s)+Arena 的用户态封装；窗口由 Display Server 管理。
+- **HMP 共享契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；内核与用户态共享同一对象定义。
+- **Arena**：任务内存根；创建、Region 映射、增长、检查点、恢复与销毁；栈、堆与工作区归入 Arena。
+- **Capacity**：从完整 BootInfo 内存描述建立 System/User/Dma/Gpu/Numa 容量；拆分、配额、Frame 分配与归还；覆盖全部可用物理内存。
+- **Frame**：FrameId、所属 Capacity、共享引用、pin/unpin、export/import；最后一个引用归还 Capacity，归还前清零。
+- **Region**：Arena 内唯一映射视图；map/unmap/protect/fault/grow；COW、GUARD、PINNED、SEALED、DONT_FORK、GROW 标志。
+- **COW**：`RegionFlags::COW` 为唯一契约状态；匿名 COW 走内核快速路径，绑定 Provider 的能力交给 Provider。
+- **页表与 MMIO**：Region 物化为页表；MMIO、DMA、帧缓冲与自动窗口统一走 Region；页表机制留在实现层。
+- **HMP ABI**：Arena/Capacity/Frame/Region/Capability/Provider/Ledger 操作统一；Memory Server、Device Manager、驱动、VFS、Display 与客户端接入同一对象面。
+- **Provider**：Anonymous、Revision、Surface、TaskImage、DeviceAllocation 的 fault、writeback、evict、commit、scanout、pin、export、swap 契约。
+- **Ledger**：Arena、Capacity、Frame、Region 与能力的容量与压力记账；Handle 转移时记账随对象转移。
 
 ### 退出标准
 
-1. Hosted 启动 Root Server，两个服务器通过 Endpoint 完成 call/reply。
-2. Handle duplicate/close 与 IPC 转移测试通过。
-3. VSpace 映射/解除映射/COW 单元测试通过。
-4. 确定性模拟：固定种子回放一致。
-5. 内核 panic dump 可复现。
+1. HMP 宿主单测覆盖 Arena、Capacity 拆分/合并、Frame 引用、Region 权限/COW、Ledger、Provider fault。
+2. x86_64 的 `boot`、`display`、`pointer`、`fork`、`checkpoint`、`net`、`holyfs` 冒烟全绿。
+3. 所有用户地址映射对应 Region；所有物理分配来自 Capacity/Frame。
+4. 服务、驱动、客户端与 demo 使用同一组 HMP 对象与 Rights。
+5. AArch64 目标编译通过；`memory` conformance 覆盖对象面统一语义。
+6. `cargo xtask lint`、`cargo test --workspace`、`cargo xtask docs` 全绿。
 
 ---
 
-## 5. M2 — x86_64 启动
+## 5. M7 — 平台与引导
 
 ### 交付
 
-- `platforms/x86_64-qemu`：链接脚本、启动汇编、Limine、ISO。
-- BootInfo 适配、早期串口、GDT/IDT、8254 PIT 定时器、帧缓冲文本。
-- Root Server ELF 加载、初始 Handle 分配。
-- 用户态服务器 IPC 回环；Device Manager stub。
-- QEMU smoke 框架。
-- Native Task 视图：任务名、Arena、子 Task、窗口列表。
-- HolyShell 基础：`tasks`、`services`、`mounts`、`help`。
-- HolyShell Session：Native Task、Session Namespace、`use`/`load`。
+- HAL：`Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`。
+- BootInfo：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务模块；统一校验。
+- `hk-fw`：ACPI 与 DTB 解析，产出 Arena/Capacity/设备描述。
+- x86_64 平台：GDT/TSS/IDT、LAPIC/IOAPIC、PCI legacy/ECAM、串口、帧缓冲、SMP。
+- AArch64 平台：PL011、GICv3、Generic Timer、PSCI、DTB、页表。
+- 引导：Limine 多架构后端与 UEFI loader；`platforms/*` 启动目录与镜像。
+- `xtask`：aarch64 构建、运行与冒烟模式。
 
 ### 退出标准
 
-1. QEMU 启动内核与 Root Server。
-2. Root Server 启动两个用户态服务并完成 IPC。
-3. 帧缓冲与串口输出正常。
-4. 故意触发内核 panic/页错误，dump 完整。
-5. 启动时间预算记录。
+1. Hosted、x86_64、AArch64 三目标构建成功。
+2. x86_64 与 AArch64 启动到内核 Shell；串口输出 CPU、HMP、设备与启动耗时。
+3. ACPI 与 DTB 后端产出等价的 Arena/Capacity/设备描述。
+4. `boot`、`irq`、`memory` conformance 在两个架构通过。
+5. `cargo xtask lint`、`cargo test --workspace`、全部冒烟通过。
 
 ---
 
-## 6. M3 — 句柄与内存
+## 6. M8 — 设备与存储
 
 ### 交付
 
-- HandleTable、duplicate/close、IPC 转移。
-- Capacity、Capability、Region 映射、COW、Fault Endpoint。
-- SMP 启动、per-CPU、IPI、抢占调度、tickless。
-- 用户态线程创建/退出、通知与等待。
-- HandleTable 审计与 trace。
-
-已完成：服务退出关闭对端端点句柄、`restart` 重新装载已退出服务并统计重启次数、IPC 句柄转移（`SYS_SEND_HANDLE` 与接收句柄映射）、Notification 置位与阻塞等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型（父页共享只读、子页写时复制）、QEMU 每任务页表与 CR3 切换、用户态异常隔离（`hk-server-fault` 按需启动验证）、QEMU COW fork（`SYS_FORK` 复制页表、写保护页错误恢复、`hk-server-fork` 验证父子栈页独立）、HandleTable 审计（授予/关闭/转移/释放事件与 `trace` 命令）、上下文切换与 IPC 时延统计（`stats` 命令、`SYS_TSC`/`SYS_TSC_FREQ`、`hk-server-latency` 测量）、MADT 本地 APIC 枚举（`-smp 4` 冒烟）、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度与 AP 用户任务执行、AP 本地 APIC 定时抢占、TLB shootdown（代际邮箱、跨核 IPI 确认、COW fork 整表同步）、AP 空闲关闭 tick 并用唤醒 IPI 恢复调度。
+- Device Manager：PCI/DTB 枚举、DeviceGrant、DeviceAllocation、驱动启动与重启。
+- virtio 驱动：blk、net、input、rng、console；MMIO、DMA、IRQ 走 HMP 与 DeviceGrant。
+- DMA/IOMMU：Dma Capacity、Frame pin、IOMMU 域与缓存维护。
+- VFS：挂载表、DocId/集合/修订、FileHandle、页缓存、路径与 fd 兼容服务。
+- HolyFS：文档、修订、集合、标签、快照、COW、checksum、压缩。
+- 存储后端：ext4、tmpfs、devfs、procfs。
 
 ### 退出标准
 
-1. 2/4 核 SMP 启动；跨核 IPC、空闲 IPI 唤醒与 TLB shootdown 正常。
-2. COW fork 原型在 Hosted 与 QEMU 通过。
-3. Handle close 后旧引用失效。
-4. 上下文切换 ≤ 1 µs；IPC call/reply ≤ 2 µs（QEMU 记录）。
-5. 服务器崩溃后 Root Server 可关闭句柄并重启 stub。
+1. ext4 与 HolyFS 挂载、读写、重新挂载落盘校验通过。
+2. VFS/HolyFS 重启后恢复；在途请求返回明确错误。
+3. virtio-blk/net/input/rng/console 冒烟通过。
+4. 1 MiB 顺序读达到预算；共享 Frame 零拷贝路径有测试。
+5. `vfs`、`holyfs`、`restart` conformance 通过。
 
 ---
 
-## 7. M4 — 用户态驱动与 VFS
+## 7. M9 — 原生 UI 与工具链
 
 ### 交付
 
-- Device Manager：PCI/DTB 枚举、DeviceGrant、驱动启动。
-- virtio-blk/input/net 驱动；IRQ → Notification。
-- VFS Server：挂载表、路径解析、dentry/inode 缓存、FileHandle、页缓存。
-- ext2、tmpfs、devfs、procfs 后端。
-- Block Driver 与 VFS 的 Endpoint 接口。
-
-已完成：`hk-block` 块契约与 RAM disk Block Server；独立 `hk-server-virtio` 驱动服务（DeviceGrant 移交、virtio-drivers 探测、DMA 页复用、块协议）；`hk-fs-ext4` 以 `rsext4` 实现 ext4 后端；VFS 通过驱动端点挂载 `/disk`；demo 经 VFS 写入并读回标记文件、用 `OP_SYNC` 刷写；宿主侧重新挂载镜像验证落盘；`SYS_RECV_DATA_FROM` 按发送者过滤，避免服务同时作为客户端时误收请求；IPC 单消息上限提升到 8 KiB，支持整块（4 KiB）读写；平台 RTC 在启动时建立民用时间锚点，由单调 tick 推进并通过 `SYS_CIVIL_TIME` 提供，ext4 后端在磁盘边界换算时间戳；Root Server 增加重启策略与监督循环，Device Manager 常驻、驱动按需申请授权；启动参数可配置 VFS 的 ext4 挂载点；demo 输出 1 MiB ext4 顺序读吞吐。内核与服务堆改为可回收分配器；IPC 单消息上限提升到 64 KiB，VFS 大块顺序读写绕过逐页路径，块与 VFS 客户端缓冲移到堆上；HolyFS v1 完成对象化重构（Document/Revision/Entry、文档与集合项共用修订链、Document/Revision/Collection 三棵 COW 元数据树、子集合、追加快路径与整文档读取）并通过 `vfs.fs=holyfs` 挂载与 QEMU `holyfs` 冒烟；共享 Frame 数据路径落地（`SYS_CAPABILITY_*` / `SYS_REGION_*`、`SYS_HANDLE_DUPLICATE`、`SYS_RECV_DATA_HANDLE`，块设备与 VFS 的 attach 协议），驱动把帧物理地址直接交给 virtio DMA，VFS 文件读写直接落在客户端共享帧；客户端 detach 清理帧映射与会话句柄，Frame 最后句柄释放时归还 DMA 池；HolyFS inode 缓存与块客户端直写帧使文档路径零拷贝。块协议引入请求标签与按发送者的多帧槽位，服务端提交即返回、完成时回复，virtio-blk 驱动改用非阻塞 `read_blocks_nb`/`write_blocks_nb` 与 used-ring 轮询，同一设备队列可同时挂多条请求；块客户端提供按槽位并行的批量读写，HolyFS 的追加哈希与压缩解压改为一处一缓冲的流式处理，避免大文档写入时整内容临时缓冲耗尽服务堆。同地址空间线程机制落地：`SYS_THREAD_CREATE` 共享页表与句柄快照并返回线程编号，`SYS_THREAD_JOIN` 挂起等待线程退出，`SYS_THREAD_SET_TLS` 在每次切换写入线程指针，`SYS_FUTEX_WAIT`/`SYS_FUTEX_WAKE` 以共享内存字同步；demo 在启动时校验 TLS、共享计数与 futex 唤醒。用户态有栈协程 `hk-coroutine` 落地：独立栈与 callee-saved 现场切换、嵌套恢复与挂起/结束状态；demo 在启动时交替执行两个协程并校验执行轨迹。用户态异步执行器 `hk-async` 落地：`block_on`/`block_on_with`、`join2`、通知位与 tick 完成源，`SYS_WAIT_NOTIFY_TRY` 提供无阻塞检查；demo 在同一线程同时等待线程通知与 tick。系统调用号按子系统重排为 `0x00`–`0x8F` 的九个区间，段内发送/接收变体相邻排列，单元测试锁定分组与唯一性；shell 命令触发的嵌套服务运行会重新装载调度 tick，重启后的服务里定时器与异步等待可以推进。块 I/O 异步封装落地：`ClientDisk::read_async`/`write_async` 按请求标签匹配完成、其它完成暂存，`BlockClient::wait` 由执行器驱动；HolyFS 启动时异步读取一个块并校验。用户态线程与同步库落地：`hk-thread` 提供 spawn/join/sleep，`hk-sync` 在 futex 上提供 Mutex/Condvar/RwLock/Once；demo 用 4 个线程并发计数并验证条件变量与读写锁。服务内工作线程池 `hk-worker` 落地：任务与完成队列基于 Mutex/Condvar，echo 用 3 个工作线程并行处理计算请求、主线程统一回复；demo 并发提交 4 个任务并校验结果与并发峰值。HolyDoc 渲染工作线程落地：主线程处理事件与提交，工作线程直接绘制到窗口表面；渲染期间继续接收事件并合并更新。HolyFS 读路径解压落地上工作线程：文件系统暴露原始载荷与纯解压接口，服务按 (盘符, 文档, head) 缓存整篇解压结果到帧，压缩文档的按块读取不再逐块整篇解压。块客户端批量异步与完成唤醒落地：`read_bulk_async`/`write_bulk_async` 多槽位并行提交，HolyFS 启动时与同步批量读逐字节比对；工作线程池完成后向服务端点发消息，服务主线程阻塞接收请求与完成通知，不再忙等轮询。块驱动中断化落地：`serve_with_wait` 让块服务在有在途请求时等待 IRQ 通知、`AsyncBlockDevice::ack_interrupt` 清除设备中断状态，virtio-blk 完成不再轮询；未绑定 IRQ 时回退 yield。MSI 能力落地：驱动侧实现 MSI capability 编程与布局单测，网络驱动优先 MSI、失败回退 INTx；QEMU virtio-pci 只有 MSI-X，实测仍走 INTx。
-- VFS 重启与后端恢复。
-
-### 退出标准
-
-1. 挂载 ext4 数据盘（`rsext4`），读写文件，重新挂载后数据保留；支持通过启动参数把 ext4 作为 `/` 主根。
-2. tmpfs/devfs/procfs 挂载与访问正常。
-3. VFS 崩溃后重启，在途请求返回 `EIO`，新请求恢复。
-4. 驱动退出后 Root Server 按重启策略重启，Device Manager 常驻并重新下发 DeviceGrant。
-5. VFS 1 MiB 顺序读 ≥ 100 MiB/s；共享 Frame 与 HolyFS inode 缓存落地后 QEMU release 测得 ext4 约 81–104 MiB/s、ext4 主根约 98–108 MiB/s、HolyFS 约 155–195 MiB/s（debug HolyFS 约 25 MiB/s）；已接入 virtio-net 设备类、独立驱动服务与 `hk-server-net`，`smoke --mode net` 校验 MAC、Net Endpoint 握手、DHCP 租约、`ping 10.0.2.2`、TCP 回显与 UDP 回显；`hk-net` TCP/DNS API 已有双栈主机测试（含 A/AAAA/失败/超时），QEMU `net` 模式已连接宿主 echo 验证 TCP 握手/回显，并用 `net.dns=localhost` 验证 DNS 解析；内核 `send` 改为异步入队避免双向发送死锁，网络驱动改为非阻塞收发去掉 TX 自旋；Device Manager 缓存授权避免运行期改写 BAR 干扰在用设备，DNS 已纳入默认 `net` 冒烟；`net` 命令经用户态 `hk-server-netstat` 查询接口、收发统计、路由、ARP 邻居与原生配置（`hk-shell` 保持核心命令集，扩展点转交服务）；virtio-net 按 `Always` 重启，Network Server 检测端点变化并重新握手恢复链路（`smoke --mode netrestart`）；共享 Frame 收发环落地（驱动分配并登记 DMA 帧，RX/TX 零拷贝，`net.zerocopy` + `smoke --mode netzerocopy`）；原生 Socket Handle API 落地（`hk-proto::socket` 客户端 + `hk-server-netsock` 用户态自检，`smoke --mode netsocket`）；ext4 已接近/周期性达到 100 MiB/s，ext4 仍受 rsext4 内部缓冲的一次拷贝限制。
-
----
-
-## 8. M5 — 网络
-
-### 交付
-
-- virtio-net 驱动服务：复用 `virtio-drivers` `VirtIONetRaw`，DeviceGrant、RX/TX 队列、IRQ Notification、共享 Frame 收发环。
-- Network Server：基于 `smoltcp` 的 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP、DNS；自定义 PHY 适配 Net Endpoint。
-- 原生 Socket Handle 与 Endpoint/Notification 收发；`net` 命令查看接口、ARP/路由、连接与统计。Socket API（TCP/UDP/DNS）经 `hk-proto::socket` 提供给用户态服务。
-- 静态地址与 DHCP 配置；支持启动参数 `net.dhcp=off`/`net.ip=`/`net.gw=`/`net.resolver=` 的 Holy 原生引导配置，并以 `smoke --mode netstatic` 验证；原生配置对象 `H:/Network/Config.hd`，经 Network Server Endpoint 读写；POSIX 兼容环境的 `/etc/network`、`/etc/hosts`、`/etc/resolv.conf` 由 POSIX 桥从原生配置投影，不是配置源头。
-- 包路径使用共享 Frame，驱动与协议栈避免逐包复制；为后续 POSIX socket 复用同一 Socket Handle。
-
-### 退出标准
-
-1. QEMU 中 `net ping`、UDP echo 与 TCP 连接成功。
-2. DHCP 获取租约；DNS 查询成功。
-3. `net` 命令展示接口、ARP/路由、Socket 状态与收发统计。
-4. 驱动退出后 Root Server 重启并恢复网络；在途请求返回明确错误。
-5. 共享 Frame 收发环有单元测试与 QEMU 冒烟，吞吐与延迟记录到基准。
-
----
-
-## 9. M6 — 原生 UI
-
-### 交付
-
-- Display Server：帧缓冲、窗口、合成器、输入焦点。已落地：帧缓冲仅授权 `hk-server-display`；窗口表面使用共享 Frame 经句柄转移，合成器绘制桌面、标题栏与窗口并回读校验；多窗口按槽位维护 z 序，提交、Tab 或底部任务栏按钮切换时提升并高亮焦点；标题栏与任务栏均用 8×16 位图字体渲染窗口标题；任务栏始终置顶，窗口创建与拖动限制在其上方；标题栏关闭按钮回收表面、句柄并通知客户端；右下角把手可缩放窗口，缩放结束与最大化/还原时向客户端发送 `DISPLAY_RESIZE`，客户端重建表面并重绘，合成器按 1:1 拷贝窗口表面；标题栏支持最小化与最大化/还原，任务栏可恢复最小化窗口；窗口带圆角与柔和投影，damage 区域按投影边距扩展；启动后记录全屏重绘最小值（QEMU 1280×800 实测约 3.0–3.3 ms）；失败退出由 Root Server 重启，Console 检测端点变化重建窗口；`ui.scale=2` 放大标题栏/任务栏字体、布局与光标；深/浅调色板由 `theme=light` 选择，窗口/任务栏/光标与悬停高亮统一取色；指针系统按 z 序命中任务栏、标题栏按钮、缩放边与窗口正文，切换箭头/手形/移动/缩放/文本光标（随缩放、带投影、屏幕内夹紧），悬停按钮只重绘小块区域，标题栏双击切换最大化，正文移动与离开经 `DISPLAY_POINTER`/`DISPLAY_POINTER_LEAVE` 路由给悬停窗口，表面可经 `SURFACE_SET_CURSOR` 声明光标形状；合成按 damage 区域重绘，键盘事件经 IPC 路由到焦点客户端，`smoke --mode display/pointer` 注入 Tab、拖拽、任务栏、缩放、悬停形状、指针事件与关闭点击验证；`smoke --mode holydocresize` 验证最大化后客户端重建表面与重排。
-- Input Driver：用户态 virtio-input 驱动（DeviceGrant + IRQ 通知），把 evdev 键码解码为字节交给 Display 按焦点路由；支持 virtio-tablet 绝对指针、按钮与滚轮；Display 归一化坐标并驱动指针系统（悬停形状、光标绘制、双击最大化、标题栏拖拽与边缘缩放）；`smoke --mode inputdriver/pointer` 验证。
-- Console Service：原生终端、字符与属性、真彩色 SGR；POSIX 终端模式在 M7 接入。已落地：内核非阻塞控制台读与输入通知，用户态行编辑/回显；有 Display 时 Console 创建自己的终端窗口，用 8×16 字体渲染并提交合成；支持增量 UTF-8 与中文双宽字形、光标与提示符；SGR 支持 16/256/真彩色、粗体/暗淡/下划线/反显，以及光标定位与行列擦除；键盘事件由 Display 按焦点转发给 Console 做行编辑，无 Display 时回退内核控制台。`smoke --mode console/terminal` 验证。
-- HolyDoc Server：解析、布局、渲染、链接、`@exec`。已落地：HolyDoc 指令解析、自动换行布局、内置欢迎页与帮助页、链接跳转/历史、`@exec` 允许列表、窗口内点击坐标、滚动与关闭；启动落在欢迎页，经 `H:` 卷原生文档协议枚举集合并整篇读取文档，集合页与 DocPath 链接可直接跳转；`smoke --mode holydoc` 验证解析、执行、跳转、返回、集合浏览与渲染。
-- sRGB 真彩色 + 主题、可缩放字体（8×16 位图回退）、窗口切换。已落地：深/浅语义调色板、`ui.scale` 缩放标题栏与任务栏；`hk-font` 内置 TrueType 字体，支持轮廓栅格化、字形缓存与缺字形 8×16 位图回退；UI 服务统一从 `hk-canvas` 取内置默认字体：Display 按 `ui.scale` 使用 16/32 像素的可缩放默认字体，Workbench、Debug 与 HolyDoc 正文使用 16 像素可缩放默认字体，Console 字符网格与 HolyDoc 代码块使用等宽默认字体。
-- 原生欢迎页与文档浏览。已落地：欢迎页作为启动页，文档集按 `H:` 盘符枚举集合，文档索引与 DocPath 链接直接跳转。
-- Debug Server：Task/资源视图、trace、`hk-dbg`、符号化栈回溯。已落地：调试窗口分页展示概览/任务/服务/trace/统计/异常，`hk-server-dbg` 客户端打印同样的视图；内核只保留内核符号，异常现场作为 `FAULT_EVENT` 投递给订阅端点而不保存；服务符号留在 `.hkx` 镜像中由用户态按地址查询，回溯过滤与符号化由 Debug Server（`hk-debug`）完成；`smoke --mode debug` 验证各视图与符号解析。
-- 服务器热重启与应用热替换原型。已落地：Display 热重启与 Console 重连；Root 控制 `replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生模块启动同名服务，客户端按端点变化重连。`smoke --mode hotswap` 验证。
-- 多来源 UI 路线：surface/seat 合成器；Wayland/XWayland 与 Harmony HDI 表面进入同一场景图；详见 [ADR-0015](adr/0015-compatibility-server.md)。已落地原生 surface/seat 协议：表面与窗口分离、表面 damage、输入区域、统一焦点与剪贴板；所有原生客户端已统一到 surface/window 协议。
-- Workbench：编辑/浏览/构建/运行/调试一体化。已落地初始版本：`hk-server-workbench` 以 surface/window 协议创建三栏窗口，左侧按 `H:` 盘符加载文档树，中间编辑器整篇读写 Holy 文档并支持保存，底部输出构建统计、`@exec` 运行结果与最近用户异常回溯；`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
-- Toolchain Server：系统内构建、编译期执行、隐藏链接步骤。
-- Checkpoint Server：Native Task 快照与恢复。已落地：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容（零页省略），序列化为版本化快照并释放原 VSpace；`restore-checkpoint <任务>` 在同一任务槽按快照重建 VSpace 与 TCB；`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议并委托 Root 控制。默认快照在内存；`checkpoint.disk` 启用 `H:/Checkpoints` 分块落盘与读回。设备/共享 Frame/COW/线程任务暂不支持。`smoke --mode checkpoint/checkpointsrv` 验证，`checkpointsrv` 覆盖磁盘保存/恢复。
-- HolyFS Core：对象表、修订链、连续 extent、checksum、双超级块、页缓存、VFS 适配层、整文档 API。已落地原生 Document API 与 `H:` 盘符：DocPath 解析、集合枚举、整文档读写、文档视图与修订链。
-- Home/Once 启动文档：Shell 启动执行 `H:/Home`，`H:/Once` 首次执行后写 `Once.done`。已落地。
-- Sprite/Font 编辑器。
+- Display Server：帧缓冲、窗口、合成器、焦点、z 序、surface/seat。
+- 指针系统：悬停命中、光标形状、双击最大化、拖拽与缩放。
+- Console：终端网格、UTF-8、中文双宽、SGR、光标与提示符。
+- Input Driver：virtio-input 键盘与绝对指针、按钮、滚轮。
+- HolyDoc：解析、布局、渲染、链接、`@exec`、文档浏览。
+- Workbench：编辑、浏览、构建、运行、调试。
+- Toolchain Server：系统内编译、链接、打包、缓存；`H:/Apps` 构建到 `H:/System/Apps`；Workbench 的构建与运行走同一服务；用户看到“构建文档”，链接步骤由服务隐藏。
+- Checkpoint Server：Native Task 快照与恢复；寄存器、Arena、用户页与 TCB 重建；`H:/Checkpoints` 分块落盘与读回。
+- Debug Server：Task/资源视图、trace、符号化回溯。
+- Sprite/Font 编辑器：原生图形与字体资产编辑。
+- Home/Once 启动文档：Shell 启动执行 `H:/Home`；`H:/Once` 首次执行后写 `Once.done`。
+- 字体与主题：可缩放字体、位图回退、深/浅主题、界面缩放。
 
 ### 退出标准
 
 1. QEMU 启动到图形 Console 与 HolyShell。
-2. HolyDoc 链接跳转、`@exec` 结果嵌入。
-3. 多窗口、焦点、键盘/鼠标正常。
-4. Display Server 崩溃后重启，Console 重连。
-5. 帧缓冲全屏重绘 ≤ 8 ms。
-6. HolyFS `H:` 盘符、文档读写、修订与快照、重启恢复。
+2. 多窗口、焦点、键盘、指针、拖拽与缩放正常。
+3. HolyDoc 链接跳转与 `@exec` 结果嵌入。
+4. Display 崩溃后重启，Console 重连。
+5. 全屏重绘达到预算；UI 冒烟全绿。
+6. Toolchain Server 从 `H:/Apps` 构建应用到 `H:/System/Apps`；Workbench 构建、运行与调试闭环通过。
+7. Checkpoint 保存/恢复与磁盘快照通过；Home/Once 启动文档执行通过。
 
 ---
 
-## 10. M7 — POSIX 核心
+## 8. M10 — 兼容
 
 ### 交付
 
-- Compatibility Server supervisor：按 personality 选择 POSIX/Linux/Harmony，管理 rootfs、命名空间与配额。
-- POSIX Server：PID 表、fd 表、进程组、会话、cwd/root。
-- musl 移植：C 运行时、stdio、malloc、pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 薄兼容层。
-- ELF 加载器与动态链接。
-- `fork`/`exec`/`wait`/`exit`；文件 `open`/`read`/`write`/`stat`/`readdir`/`rename`/`unlink`。
-- `/sbin/init`、`/bin/sh`、基础 coreutils；`posix` 兼容入口。
-- 支持静态链接自有 libc（实现 `hk-abi` 后端）；musl 为一等支持，其他 libc 为 best-effort。
-- Console Service 的 POSIX 终端模式：`/dev/console`、`/dev/tty`、行规程、`termios` 基础。
-- POSIX fd 映射到 VFS FileHandle；网络 socket 在 M8 接入。
+- Compatibility Server：按应用选择 POSIX、Linux、Harmony personality，管理 rootfs、命名空间与配额。
+- POSIX：POSIX Server、musl、`hk-abi`/`hk-crt`、fork/exec/wait、文件、线程、信号、管道、socket。
+- Linux ABI：Linux personality、ELF/`PT_INTERP`、glibc/musl 动态加载、`/proc`、vDSO、Wayland/XWayland。
+- Harmony：OpenHarmony 用户态、KAL/HDI display/input/storage/network 适配。
+- POSIX 工具链：`holybuild`、sysroot、CMake/Meson/Autotools cross toolchain；与 Toolchain Server 并存。
+- `hk-compat`：测试矩阵、syscall 覆盖表与真实应用回归。
 
 ### 退出标准
 
-1. QEMU 启动到 HolyShell；`posix sh` 可用。
-2. `posix sh` 执行 `ls`、`cat`、`echo`、重定向与管道。
-3. 静态与动态链接 C 程序运行；musl 作为兼容环境主 libc。
-4. `fork` + `exec` `/bin/true` ≤ 5 ms。
-5. POSIX 文件测试子集通过。
+1. POSIX shell、coreutils、pthreads、信号、pipe、socket 测试通过。
+2. 静态与动态 musl/glibc BusyBox 与基础 coreutils 运行。
+3. `/proc/self/maps`、auxv、vDSO、TLS 语义正确。
+4. Wayland `wl_shm` 与一个 X11 客户端经 XWayland 显示到 Holy surface。
+5. Harmony 最小 ArkUI 应用通过 HDI 显示到 Holy surface。
 
 ---
 
-## 11. M8 — POSIX 扩展
+## 9. M11 — 1.0 与多架构
 
 ### 交付
 
-- pthreads：create/join/mutex/cond/rwlock/key/TLS。
-- 信号：sigaction、kill、sigprocmask、trampoline。
-- pipe、FIFO、AF_UNIX、共享内存、信号量。
-- `mmap`/`mprotect`/`brk`。
-- `select`/`poll`、`termios`、`isatty`。
-- POSIX socket API：socket/bind/listen/accept/connect/send/recv/getaddrinfo，映射到 M5 的 Network Server Socket Handle。
-- 动态 musl ABI 兼容（L1.5）：保持上游 musl ABI，提供 Holy `ld-musl`/`libc.so`；未修改的动态 musl ELF 直接运行。
-- POSIX 测试套件扩展到进程/线程/信号/IPC/网络。
-
-### 退出标准
-
-1. 多线程 C/C++ 程序运行。
-2. 信号 handler 与 `sigreturn` 正常。
-3. pipe/socket 测试通过；`select`/`poll` 正常。
-4. `mmap` 文件映射与共享内存测试通过。
-5. POSIX `ping`、TCP 连接、DNS 查询、DHCP 租约通过。
-6. 上游 musl 动态 hello、BusyBox、Alpine `sh`/`ls`/`cat` 无需重新编译运行；pthread/TLS/信号/`dlopen`/`getaddrinfo`/`termios` ABI 测试通过。
-7. POSIX 测试子集通过率达到里程碑目标。
-
----
-
-## 12. M9 — Linux ABI 兼容
-
-### 交付
-
-- 每任务 ABI personality：Native/POSIX 走 `int 0x80`，Linux 走 `syscall`；内核只转发原始 syscall。
-- Linux ABI Server：ELF/`PT_INTERP`、auxv、TLS/FS/GS、信号帧、`clone`/futex、`mmap`、`epoll`/`ioctl`、socket、`/proc`/`/sys` 最小视图与 vDSO。
-- x86_64 静态 musl/glibc 二进制 → 动态 glibc/musl 二进制；`ld-linux`/`ld-musl`、符号版本、IFUNC、TLS、`dlopen` 与 NSS；BusyBox、coreutils 与语言运行时按阶段接入。
-- Wayland Server + XWayland：Linux Wayland/X11 应用接入 Holy surface/seat；X11 经 XWayland 接入。
-- `hk-compat` 兼容测试矩阵与 syscall 覆盖表；`hk-port` sysroot/工具链与 `holybuild` 打包。
-- 兼容层安全边界：独立 VSpace/Native Task、Handle 权限、最小 `/proc` 视图与 fuzz。
-
-### 退出标准
-
-1. 静态 musl/glibc BusyBox 与基础 coreutils 直接运行。
-2. 动态 glibc `ls`/`cat`/`sh` 运行，动态加载器与 `/etc/ld.so.cache` 正常。
-3. `/proc/self/maps`、`/proc/self/stat`、auxv、vDSO 与 TLS 语义正确。
-4. `hk-compat` P1/P2 syscall 覆盖与真实应用回归通过；ABI Server 重启可恢复。
-5. 源码兼容（L1）目标应用零修改重编译；静态自带 libc 走 `hk-abi` 后端。
-6. Wayland `wl_shm` 最小客户端与一个 X11 客户端经 XWayland 显示到 Holy surface。
-
----
-
-## 13. M10 — 多架构与测试
-
-### 交付
-
-- `hk-platform-aarch64`、`hk-platform-riscv64` 与 QEMU 启动目录。
-- AArch64/RISC-V 的 Root Server、VFS、POSIX、Network、Linux ABI、HolyFS 全栈。
-- Harmony personality：OpenHarmony standard-system 用户态、`init`/`samgr`/`appexecfwk`/ArkUI 最小应用、KAL/HDI display/input/storage/network 适配。
-- POSIX/Linux ABI 与 Harmony 兼容测试套件扩展；VFS/ELF/驱动/网络/HolyFS fuzz。
-- 性能基准与预算复核。
-- 服务器重启矩阵（含 Network Server、HolyFS）。
-- HolyFS COW 事务、GC、check/repair、scrub、性能优化与 `H:` 盘符启动。
-
-### 退出标准
-
-1. 4 个目标通过同一套 `boot/ipc/memory/irq/vfs/net/holyfs/posix/linux-abi/restart` 测试。
-2. AArch64/RISC-V 上 HolyShell 与 `posix` coreutils 运行。
-3. POSIX 测试子集在 x86_64 与 AArch64 通过。
-4. 服务器崩溃/重启矩阵通过。
-5. Harmony personality 启动 OpenHarmony `init`/`samgr`/`appexecfwk`，最小 ArkUI 应用通过 HDI 显示到 Holy surface。
-6. QEMU 接入 HolyFS `H:` 卷并运行文档测试。
-7. 性能预算达标或记录例外 ADR。
-
----
-
-## 14. M11 — 1.0
-
-### 交付
-
-- 硬化：fuzz 语料库、回归、长时间压力、故障注入矩阵。
-- 文档：用户手册、libc 参考、VFS 指南、移植指南、故障排查。
+- AArch64/RISC-V 平台与全栈服务。
+- 四目标 conformance：`boot`、`ipc`、`memory`、`irq`、`vfs`、`net`、`holyfs`、`posix`、`linux-abi`、`restart`。
+- 性能基准、预算复核与回归门禁。
+- 服务器重启矩阵与故障注入。
+- 硬化：fuzz、长时间压力、`unsafe` 审计、依赖审查。
 - 发布镜像：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 模拟器。
-- 主流 x86_64 UEFI 真机验证。
-- 安全/可靠性审计：`unsafe`、依赖、句柄回收、服务器重启。
 
 ### 退出标准
 
 1. 所有里程碑退出标准成立。
-2. conformance 在 Tier 1 + Tier 2 全绿；Tier 3 至少一台真机启动到 HolyShell。
+2. 四目标 conformance 全绿；x86_64 UEFI 真机启动到 HolyShell。
 3. 72 小时 SMP + 服务器重启 + VFS 故障注入：零死锁、零数据损坏、零未处理 panic。
-4. POSIX 与 Linux ABI 测试套件达到公开目标；应用回归通过。
-5. 构建可复现。
-6. 文档完整；发布镜像与校验和齐全。
+4. POSIX 与 Linux ABI 测试套件达到公开目标。
+5. 构建可复现；发布镜像与校验和齐全。
 
 ---
 
-## 15. 风险与应对
+## 10. 风险与应对
 
 | 挑战 | 影响 | 应对 |
 | --- | --- | --- |
-| 微内核 IPC 性能 | POSIX 应用变慢 | 快速路径、共享 Frame、批处理、基准门禁 |
-| POSIX Server 复杂 | 进度拖延 | 分层实现：文件/进程 → 线程/信号 → 网络 |
-| VFS 与后端一致性 | 数据损坏 | 单元 + 故障注入 + 后端重启测试 |
-| `fork`/COW 语义 | 兼容性问题 | 早期原型、POSIX 测试、页错误跟踪 |
-| 服务器重启状态恢复 | 应用中断 | 明确 EIO 语义、重连协议、会话恢复策略 |
-| 多架构移植 | 范围扩大 | Tier 分层、x86_64 纵向切片优先 |
-| libc 兼容范围 | 应用覆盖需要提升 | POSIX 测试套件 + 应用回归 + 增量接口 |
+| HMP 对象面收敛 | 服务与客户端同步改动 | 共享契约 crate、对象面冻结、单测与冒烟门禁 |
+| Capacity/Frame 实现 | 物理内存碎片与回收 | 全内存区帧库、引用计数、连续分配、压力测试 |
+| Region 物化 | 多架构页表差异 | 页表机制包装、平台后端、memory conformance |
+| Provider 缺页 | IPC 开销 | 内核快速路径、批量、预读与 fault token |
+| 平台与引导 | 范围扩大 | x86_64 先行、AArch64 紧随、Limine/UEFI 双后端 |
+| 设备与存储一致性 | 数据损坏 | 单元 + 故障注入 + 后端重启测试 |
+| UI 与兼容 | 依赖底层成熟 | 底层 conformance 通过后接入 |
 | 内核可信基 | 安全风险 | 最小内核、句柄模型、`unsafe` 审计 |
 
 ---
 
-## 16. 当前状态
+## 11. 当前状态
 
-- 已完成：M0 脚手架（workspace、`xtask`、CI、`hk-hal`、`hk-test`、Hosted 平台与退出协议）、M1 Hosted 微内核（句柄表、Capacity/Capability/Region 与 COW、Endpoint/Notification、TCB 与调度、Root Server stub、确定性仿真）、M2 启动路径（Limine、BootInfo 适配与校验、COM1 串口、GDT/TSS/IDT、异常现场输出、内核分页与 MMIO 映射、本地 APIC 定时器、帧缓冲文本控制台、服务 ELF 加载、ring 3 用户态与 `int 0x80` 系统调用、服务表与 HolyShell 基础命令、多服务加载与内核消息 IPC、协作式任务切换、ACPI MADT 与 IOAPIC、PS/2 键盘中断、交互式 HolyShell、`tasks` 任务视图、TSC 启动耗时记录、用户态 Device Manager stub（PCI 枚举）、常驻 echo 服务与 HolyShell 会话 `focus`、按需 `start` 服务、APIC 定时抢占调度（10 ms tick）与 spin 验证、任务 Arena（`SYS_ALLOC`）与任务视图 Arena 列、Native Task 父子关系、Handle 计数与 `handles` 命令、句柄关闭与计数系统调用、服务重启计数、用户态运行时与系统调用分派下沉到 `hk-root-server`（运行时宿主）、Shell 执行循环与 I/O 宿主契约下沉到 `hk-shell`、启动模块 `.hsh` 脚本与 `use`/`load` 会话求值、服务退出关闭对端句柄与 `restart` 重新装载、IPC 句柄转移与接收句柄映射、Notification 置位与等待（`SYS_NOTIFY`/`SYS_WAIT_NOTIFY`）、用户态 call/reply（`SYS_CALL`/`SYS_REPLY`）、Hosted COW fork 原型、QEMU 每任务页表与 CR3 切换（任务视图显示 VSpace）、用户态异常隔离（页错误只终止故障任务）、QEMU COW fork（`SYS_FORK` 与 `hk-server-fork` 验证父子页独立）、HandleTable 审计事件与 `trace` 命令、上下文切换与 IPC call/reply 时延统计（`stats` 与 `hk-server-latency`）、MADT 本地 APIC 枚举与 `-smp 4` 冒烟、Limine MP 启动 AP、per-CPU TSS/GDT/内核栈、per-CPU 调度 current、AP 参与用户任务调度与跨核 IPC 唤醒、AP 本地 APIC 定时抢占、系统调用入口按架构分层、用户镜像装载下沉到 crates（`UserMemory`）、BootInfo 描述与 x86 引导初始化下沉到 crates、内核堆分配器下沉到 `hk-kernel`、服务镜像链接配置共享（`hk-server-build`）、QEMU 冒烟）。
-- 当前代码：crate 分层与完整清单见 [Crate 分层](crates.md)；常驻服务在 `servers/`，自检客户端在 `clients/`，演示服务在 `demos/`，平台在 `platforms/`，构建与镜像工具在 `xtask/`。
-- M2 收尾完成：HolyShell 会话（`use`/`load` 脚本求值）。
-- 下一阶段：M5 网络已完成；**M6 原生 UI** 进行中（Display、Console、Input、HolyDoc 欢迎页与 `H:` 卷文档浏览、Workbench 文档工作台）；POSIX 核心与扩展在 M7/M8，Linux ABI 兼容在 M9，多架构与 1.0 顺延到 M10/M11。
+- M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
+- UI、Workbench、Toolchain、Checkpoint、Debug、HolyFS、POSIX 等原型作为现有资产保留，按 M7–M10 的顺序继续深化。
+- 当前代码分层与清单见 [Crate 分层](crates.md)；构建、运行与冒烟入口见 [工程策略](engineering.md)。
 
 ---
 
-## 17. 相关文档
+## 12. 相关文档
 
 - [章程](charter.md)
 - [总体架构](architecture.md)
+- [内存模型（HMP）](hmp.md)
+- [执行模型](execution.md)
 - [服务器](servers.md)
 - [VFS](vfs.md)
-- [POSIX 与 libc](posix.md)
+- [HolyFS 文件系统](holyfs.md)
+- [平台与启动](platforms.md)
 - [工程策略](engineering.md)

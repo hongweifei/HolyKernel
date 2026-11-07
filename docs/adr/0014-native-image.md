@@ -6,7 +6,7 @@
 
 ## 背景
 
-HolyKernel 的原生服务镜像此前使用 ELF，Root Server 在运行期用 `xmas-elf` 解析并映射。ELF 是外部工具链与兼容环境的格式，不应成为原生服务的运行期契约；仅替换段表也不足以让镜像体现 Holy 的运行时语义。
+原生服务的运行期契约由 HKX 任务镜像承载；ELF 作为外部工具链与兼容环境的格式。HKX 记录 Native Task、能力、内存区域、符号与内容标识，装载器按记录直接建立运行时对象。
 
 ## 决策
 
@@ -24,7 +24,7 @@ HolyKernel 的原生服务镜像此前使用 ELF，Root Server 在运行期用 `
 
 ## 后果
 
-- 收益：镜像承载 Native Task 清单而不是装载描述；服务布局、能力、符号与内容标识随镜像传递；运行期不再依赖 ELF 解析器；记录区可整体校验。
+- 收益：镜像承载 Native Task 清单；服务布局、能力、符号与内容标识随镜像传递；运行期由原生镜像装载器解析；记录区可整体校验。
 - 成本：打包多一步转换；装载时校验记录区；引导器边界仍要求 ELF。
 - 中性：兼容环境继续支持 ELF。
 
@@ -37,4 +37,4 @@ HolyKernel 的原生服务镜像此前使用 ELF，Root Server 在运行期用 `
 
 ## 架构一致性检查
 
-HKX 记录对应既有运行时对象：Task、VSpace、Handle、Endpoint、Notification、Frame。Root Server 仍通过 `UserMemory` 映射 Region；服务发现、监督与重启策略不变。
+HKX 记录对应既有运行时对象：Task、Arena、Handle、Endpoint、Notification、Frame。Root Server 仍通过 `UserMemory` 映射 Region；服务发现、监督与重启策略不变。

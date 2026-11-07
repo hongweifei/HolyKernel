@@ -33,8 +33,8 @@ flowchart LR
 | right | 用途 |
 | --- | --- |
 | `READ` | 读取对象、接收消息、等待通知、查询状态 |
-| `WRITE` | 修改对象、发送消息、映射可写 Frame |
-| `EXECUTE` | 执行代码、映射可执行 Frame |
+| `WRITE` | 修改对象、发送消息、映射可写 Region/Frame |
+| `EXECUTE` | 执行代码、映射可执行 Region/Frame |
 | `TRANSFER` | 通过 IPC 把 Handle 转移给其他 Task |
 | `ADMIN` | 配置对象、duplicate、revoke_all、close |
 
@@ -45,6 +45,20 @@ flowchart LR
 - `revoke_all` 需要对象 owner 的 `ADMIN` Handle；递增对象 epoch。
 - `close` 由持有者执行，只影响自己的槽位。
 - 对象类型检查失败返回 `WrongType`；rights 不足返回 `PermissionDenied`。
+
+### 2.1 HMP 对象 rights
+
+| 对象 | READ | WRITE | EXECUTE | TRANSFER | ADMIN |
+| --- | --- | --- | --- | --- | --- |
+| `Capacity` | 查询容量与 Ledger | 分配/归还 Frame | — | 转移 Capacity Handle | 拆分、配置、绑定 Provider |
+| `Frame` | 映射只读 | 映射可写、pin/unpin | 映射可执行 | 转移、export/import | 配置导出与驻留 |
+| `Region` | 映射只读 | 映射可写 | 映射可执行 | — | protect、unmap |
+| `Capability` | 只读映射、查询 | 可写映射 | 可执行映射 | 转移 Capability | 绑定 Provider、scanout、pin |
+
+- `Region` 是任务本地对象；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`。
+- `Region` 是唯一映射视图；内核页表是 Region 的物化。
+- ABI 面对所有持权服务统一开放 `Capacity`、`Frame`、`Region`；内存授权由 `Handle + Rights + ObjectKind` 决定。
+- 初始授予由 Root Server 的服务清单决定；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 
 ---
 
@@ -80,7 +94,9 @@ revoke:  object.epoch += 1
 - Handle 只能通过 Endpoint 消息显式转移。
 - 发送方必须有 `TRANSFER`；发送后失去该 Handle。
 - 接收方必须有配额空位；否则消息失败，发送方保留 Handle。
-- VSpace/HandleTable 的 `ADMIN`/transfer 只授予管理服务；DeviceGrant 只授予驱动。普通应用管理自己的 HandleTable；VSpace/HandleTable/DeviceGrant 由管理服务与驱动持有。
+- Arena/HandleTable 的 `ADMIN`/transfer 只授予管理服务；DeviceGrant 只授予驱动。普通应用管理自己的 HandleTable；Arena/HandleTable/DeviceGrant 由管理服务与驱动持有。
+- Capacity/Frame/Capability 通过 `TRANSFER` 转移；每次转移只收窄 rights，并按 Handle 重新记账；Region 任务本地创建，不跨任务转移。
+- 内存授权由 Handle、Rights 与 ObjectKind 决定；Root Server 通过服务清单授予初始 Capacity/Frame/Capability。
 - POSIX fd 与 Handle 分层：POSIX Server 的 fd 表引用 VFS FileHandle；内核权限由 Handle 管理。
 - Endpoint badge 用于客户端标识；权限由 Handle 决定。
 
@@ -127,6 +143,8 @@ revoke:  object.epoch += 1
 8. POSIX fd 与内核 Handle 分离；POSIX root 的权限来自 POSIX 凭证与 Handle。
 9. DeviceGrant 只授予驱动/管理服务。
 10. 所有 Handle 操作有审计事件。
+11. 每个 Frame 来自 Capacity；每次分配、转移与释放都计入 Ledger。
+12. 内核与用户态服务共享同一组 HMP 对象与 Rights；内存授权由 Handle、Rights 与 ObjectKind 决定。
 
 ---
 
