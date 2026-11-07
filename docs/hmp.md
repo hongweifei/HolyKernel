@@ -1,6 +1,6 @@
 # Holy Memory Plane（HMP）
 
-状态：**设计中** · 上级：[总体架构](architecture.md)
+状态：**设计中**（Anonymous 能力、Provider 缺页与 Ledger 记账已在 x86_64 落地） · 上级：[总体架构](architecture.md)
 
 HMP 是 HolyKernel 原生对象图的内存平面。`Region` 提供统一映射入口；Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 以类型化能力暴露，Provider 承担各自的缺页、回写与驻留语义。
 
@@ -295,6 +295,8 @@ Provider 是类型化能力的缺页/回写/驱逐服务，通过 Endpoint 协�
 - `DeviceProvider`：residency、eviction、pin、export/import、IOMMU。
 - `AnonymousProvider`：zero-fill、COW、compress、swap、grow。
 - 内核实现快速路径（已常驻、匿名 COW）和页表安装；文件系统、swap、GPU 策略由 Provider 实现。
+- 快速路径只为未绑定 Provider 的能力服务；能力一旦绑定 Provider，该 Region 的缺页一律转发给 Provider。
+- Provider 回复的页由内核装入 Region 并清零；Provider 失败按缺页故障处理，不回退到零页快速路径。
 
 ### 6.7 Ledger
 
@@ -302,7 +304,10 @@ Ledger 是容量与内存使用的显式记账对象。
 
 - 记录：容量、常驻、提交、峰值、软/硬上限、压力状态。
 - 每个 Capacity、Region、类型化能力、Task/Service 都有关联 Ledger。
-- 内核执行硬上限；MemoryManager 根据软上限、前台/后台优先级、压力做回收/OOM 决策。
+- 内核在记账时执行硬上限；超过配额的能力申请返回失败。
+- 记账随能力句柄转移：发送方在转移时归还，接收方按能力大小重新记账，接收方超配额则拒绝该句柄。
+- 关闭能力句柄归还记账；设备授权与其 DMA 窗口同样计入任务配额。
+- MemoryManager 根据软上限、前台/后台优先级、压力做回收/OOM 决策。
 - Debug/Checkpoint 可以枚举 Ledger，内存记账集中在 HMP 对象图。
 
 ---
@@ -335,6 +340,7 @@ sequenceDiagram
 ```
 
 - **已常驻**：内核查页表，零 IPC。
+- **快速路径边界**：未绑定 Provider 的匿名能力由内核安装零页；绑定 Provider 的能力阻塞在缺页上等待 Provider 回复，Provider 失败按故障处理。
 - **匿名 COW**：内核快速路径复制 Frame，一次处理一页，减少 IPC。
 - **文件/设备 COW**：可委托 Provider 决定复制、共享或拒绝。
 - **Guard**：Region 标记 GUARD，命中即 fault；由 Provider/策略决定终止或扩展。
