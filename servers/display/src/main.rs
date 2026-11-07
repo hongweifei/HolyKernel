@@ -7,6 +7,8 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(any(target_os = "none", test))]
+mod pointer;
+#[cfg(any(target_os = "none", test))]
 mod resize;
 #[cfg(any(target_os = "none", test))]
 mod seat;
@@ -20,14 +22,16 @@ use hk_proto::display::{
     DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_RESIZE, DISPLAY_RESTART, DISPLAY_SET_TITLE,
     DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD,
     SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_DAMAGE, SURFACE_DESTROY,
-    SURFACE_FRAME_DONE, SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE, WINDOW_CREATED,
-    WINDOW_RESIZE, pack_click_at, pack_window_size, unpack_size, unpack_surface_rect,
-    unpack_window_size,
+    SURFACE_FRAME_DONE, SURFACE_SET_CURSOR, SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE,
+    WINDOW_CREATED, WINDOW_RESIZE, pack_click_at, pack_window_size, unpack_size,
+    unpack_surface_rect, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{
     INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, unpack_pointer, unpack_wheel,
 };
+#[cfg(target_os = "none")]
+use hk_proto::pointer::{Shape, unpack_surface_cursor};
 #[cfg(target_os = "none")]
 use hk_server_api::framebuffer;
 #[cfg(target_os = "none")]
@@ -48,9 +52,11 @@ use actions::{
 mod compositor;
 #[cfg(target_os = "none")]
 use compositor::{
-    CURSOR_HEIGHT, CURSOR_WIDTH, compose_region, damage_taskbar, damage_title, damage_window,
-    draw_desktop, move_window, resize_window, surface_pixel,
+    compose_region, damage_taskbar, damage_title, damage_window, draw_desktop, move_window,
+    resize_window, surface_pixel,
 };
+#[cfg(target_os = "none")]
+use pointer::{Cursor, Hover};
 
 #[cfg(target_os = "none")]
 use resize::Rect;
@@ -74,20 +80,6 @@ use window::{
 #[cfg(target_os = "none")]
 const TAB: u8 = b'\t';
 
-/// 把输入的 0..=0x7FFF 绝对坐标映射到屏幕像素范围。
-///
-/// 最大值映射到 `width - 1` / `height - 1`，避免指针落在屏幕外一像素；空屏幕
-/// 时退化为 (0, 0)。
-#[cfg(target_os = "none")]
-fn pointer_position(x: u16, y: u16, width: usize, height: usize) -> (usize, usize) {
-    let limit_x = width.saturating_sub(1) as u64;
-    let limit_y = height.saturating_sub(1) as u64;
-    (
-        (u64::from(x) * width as u64 / 0x7FFF).min(limit_x) as usize,
-        (u64::from(y) * height as u64 / 0x7FFF).min(limit_y) as usize,
-    )
-}
-
 /// 全屏合成并提交，返回耗时 cycles。
 #[cfg(target_os = "none")]
 fn measure_full_redraw(
@@ -95,7 +87,7 @@ fn measure_full_redraw(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
 ) -> u64 {
     let start = tsc();
     compose_region(
@@ -103,7 +95,7 @@ fn measure_full_redraw(
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         0,
         0,
         screen.width,
@@ -222,7 +214,7 @@ fn replace_window_surface(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     id: u64,
     width: usize,
     height: usize,
@@ -282,16 +274,18 @@ fn replace_window_surface(
     }
     let _ = capability_pin(handle, true);
     let old = window.surface;
+    let mut replacement = Surface::new(
+        surface_id, client, slot, width, height, virt, region, handle,
+    );
+    replacement.cursor = old.cursor;
     if let Some(window) = windows[index].as_mut() {
-        window.surface = Surface::new(
-            surface_id, client, slot, width, height, virt, region, handle,
-        );
+        window.surface = replacement;
     }
     let _ = capability_pin(old.handle, false);
     let _ = region_unmap(old.region);
     let _ = close_handle(old.handle);
     if let Some(window) = windows[index] {
-        damage_window(screen, windows, focus, font, pointer, &window);
+        damage_window(screen, windows, focus, font, cursor, &window);
     }
     write(b"hk-server-display: surface resize ");
     write_u64(id);
@@ -314,7 +308,7 @@ fn attach_window(
     next_id: &mut u64,
     focus: &mut u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
 ) -> Option<u64> {
     let slot = surfaces.iter().position(|entry| {
         entry
@@ -366,10 +360,10 @@ fn attach_window(
         .find(|window| window.id == id)
         .copied()
     {
-        damage_window(screen, windows, *focus, font, pointer, &window);
+        damage_window(screen, windows, *focus, font, cursor, &window);
     }
-    damage_title(screen, windows, *focus, font, pointer, previous);
-    damage_taskbar(screen, windows, *focus, font, pointer);
+    damage_title(screen, windows, *focus, font, cursor, previous);
+    damage_taskbar(screen, windows, *focus, font, cursor);
     Some(id)
 }
 
@@ -428,6 +422,76 @@ fn set_surface_input_region(
         return true;
     }
     false
+}
+
+/// 应用悬停目标：更新光标形状与按钮高亮。
+#[cfg(target_os = "none")]
+fn apply_hover(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font,
+    seat: &mut Seat,
+    hover: Hover,
+    shape: Shape,
+) {
+    if seat.pointer.set_shape(shape) {
+        write(b"hk-server-display: cursor ");
+        write(pointer::label(shape).as_bytes());
+        write(b"\n");
+    }
+    let previous = screen.hover();
+    if previous == Some(hover) {
+        return;
+    }
+    screen.set_hover(Some(hover));
+    for target in [previous, Some(hover)] {
+        if let Some((x, y, width, height)) = pointer::hover_rect(windows, screen, target) {
+            compose_region(screen, windows, focus, font, None, x, y, width, height);
+        }
+    }
+}
+
+/// 擦除旧光标：重绘它覆盖的矩形但不画光标。
+#[cfg(target_os = "none")]
+fn erase_cursor(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font,
+    cursor: Option<Cursor>,
+) {
+    if let Some(cursor) = cursor {
+        let (x, y, width, height) =
+            pointer::cursor_rect(cursor, screen.width, screen.height, theme::scale());
+        compose_region(screen, windows, focus, font, None, x, y, width, height);
+    }
+}
+
+/// 在当前指针位置重绘光标。
+#[cfg(target_os = "none")]
+fn redraw_cursor(
+    screen: &Screen,
+    windows: &[Option<Window>; MAX_WINDOWS],
+    focus: u64,
+    font: &Font,
+    seat: &Seat,
+) {
+    if let Some(cursor) = seat.pointer.cursor() {
+        let (x, y, width, height) =
+            pointer::cursor_rect(cursor, screen.width, screen.height, theme::scale());
+        compose_region(
+            screen,
+            windows,
+            focus,
+            font,
+            Some(cursor),
+            x,
+            y,
+            width,
+            height,
+        );
+    }
 }
 
 /// 服务入口。
@@ -500,7 +564,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut seat = Seat::new();
     let mut drag: Option<Drag> = None;
     let mut resize: Option<Resize> = None;
-    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
+    damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
 
     let mut benchmarked = false;
     let benchmark_at = tsc().saturating_add(tsc_frequency().saturating_mul(2));
@@ -517,7 +581,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     &windows,
                     focus,
                     font,
-                    seat.pointer,
+                    seat.pointer.cursor(),
                 ));
             }
             report_full_redraw(b"full redraw min ", best);
@@ -526,7 +590,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if !driver_input {
             while let Some(byte) = console_read() {
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, font, seat.pointer);
+                    cycle_focus(
+                        &screen,
+                        &mut windows,
+                        &mut focus,
+                        font,
+                        seat.pointer.cursor(),
+                    );
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -561,7 +631,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     &mut next_window_id,
                     &mut focus,
                     font,
-                    seat.pointer,
+                    seat.pointer.cursor(),
                 );
                 let _ = send(sender, WINDOW_CREATED, window.unwrap_or(0));
             }
@@ -572,7 +642,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     &mut windows,
                     focus,
                     font,
-                    seat.pointer,
+                    seat.pointer.cursor(),
                     id,
                     width as usize,
                     height as usize,
@@ -606,6 +676,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         height: height as usize,
                     };
                     let _ = set_surface_input_region(&mut windows, &mut surfaces, surface, region);
+                }
+            }
+            SURFACE_SET_CURSOR => {
+                let (surface, shape) = unpack_surface_cursor(word);
+                if let Some(shape) = shape {
+                    let found =
+                        pointer::set_surface_cursor(&mut windows, &mut surfaces, surface, shape);
+                    write(b"hk-server-display: cursor hint ");
+                    write_u64(surface);
+                    write(b" ");
+                    write(pointer::label(shape).as_bytes());
+                    write(if found {
+                        b"\n".as_slice()
+                    } else {
+                        b" missed\n".as_slice()
+                    });
+                    if found && let Some((x, y)) = seat.pointer.position() {
+                        let hover = pointer::hover_at(&windows, &screen, x, y);
+                        let shape = pointer::shape_for_hover(hover, &windows);
+                        apply_hover(&screen, &windows, focus, font, &mut seat, hover, shape);
+                        redraw_cursor(&screen, &windows, focus, font, &seat);
+                    }
                 }
             }
             SURFACE_COMMIT => {
@@ -647,7 +739,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &windows,
                                 focus,
                                 font,
-                                seat.pointer,
+                                seat.pointer.cursor(),
                                 window.x + body.x,
                                 window.y + title_height() + body.y,
                                 body.width,
@@ -659,7 +751,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         write(b" ok\n");
                     }
                     None => {
-                        damage_window(&screen, &windows, focus, font, seat.pointer, &window);
+                        damage_window(
+                            &screen,
+                            &windows,
+                            focus,
+                            font,
+                            seat.pointer.cursor(),
+                            &window,
+                        );
                         let expected = surface_pixel(&window, 0, 0);
                         let actual = screen.get(window.x, window.y + title_height());
                         if expected != actual {
@@ -700,7 +799,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         &mut windows,
                         &mut focus,
                         font,
-                        seat.pointer,
+                        seat.pointer.cursor(),
                         window.id,
                     );
                 }
@@ -717,10 +816,24 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .find(|window| window.id == id)
                         .copied()
                     {
-                        damage_window(&screen, &windows, focus, font, seat.pointer, &window);
+                        damage_window(
+                            &screen,
+                            &windows,
+                            focus,
+                            font,
+                            seat.pointer.cursor(),
+                            &window,
+                        );
                     }
-                    damage_title(&screen, &windows, focus, font, seat.pointer, previous);
-                    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
+                    damage_title(
+                        &screen,
+                        &windows,
+                        focus,
+                        font,
+                        seat.pointer.cursor(),
+                        previous,
+                    );
+                    damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
                     write(b"hk-server-display: focus ");
                     write_u64(id);
                     write(b"\n");
@@ -750,20 +863,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     write(b"hk-server-display: pointer ready\n");
                 }
                 let (x, y) = unpack_pointer(word);
-                let next = pointer_position(x, y, screen.width, screen.height);
-                if let Some(previous) = seat.pointer {
-                    compose_region(
-                        &screen,
-                        &windows,
-                        focus,
-                        font,
-                        None,
-                        previous.0,
-                        previous.1,
-                        CURSOR_WIDTH + 1,
-                        CURSOR_HEIGHT + 1,
-                    );
-                }
+                let next = pointer::normalize(x, y, screen.width, screen.height);
+                erase_cursor(&screen, &windows, focus, font, seat.pointer.cursor());
                 if let Some(state) = resize
                     && let Some(window) = windows
                         .iter()
@@ -835,21 +936,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         }
                     }
                 }
-                seat.pointer = Some(next);
-                compose_region(
-                    &screen,
-                    &windows,
-                    focus,
-                    font,
-                    seat.pointer,
-                    next.0,
-                    next.1,
-                    CURSOR_WIDTH + 1,
-                    CURSOR_HEIGHT + 1,
-                );
+                seat.pointer.set_position(next);
+                let hover = if drag.is_some() || resize.is_some() {
+                    Hover::None
+                } else {
+                    pointer::hover_at(&windows, &screen, next.0, next.1)
+                };
+                let shape = if let Some(state) = resize {
+                    pointer::shape_for_edges(state.edge)
+                } else if drag.is_some() {
+                    Shape::Move
+                } else {
+                    pointer::shape_for_hover(hover, &windows)
+                };
+                apply_hover(&screen, &windows, focus, font, &mut seat, hover, shape);
+                redraw_cursor(&screen, &windows, focus, font, &seat);
+                seat.route_pointer(&windows, hover, next.0, next.1);
             }
             INPUT_BUTTON => {
                 if word == 0 {
+                    seat.pointer.set_pressed(false);
                     if let Some(state) = resize
                         && state.resized
                     {
@@ -871,11 +977,43 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                     drag = None;
                     resize = None;
+                    if let Some((x, y)) = seat.pointer.position() {
+                        let hover = pointer::hover_at(&windows, &screen, x, y);
+                        let shape = pointer::shape_for_hover(hover, &windows);
+                        apply_hover(&screen, &windows, focus, font, &mut seat, hover, shape);
+                    }
+                    redraw_cursor(&screen, &windows, focus, font, &seat);
                     continue;
                 }
+                let was_pressed = seat.pointer.pressed();
+                seat.pointer.set_pressed(true);
                 drag = None;
                 resize = None;
-                if let Some((x, y)) = seat.pointer {
+                if let Some((x, y)) = seat.pointer.position() {
+                    let hover = pointer::hover_at(&windows, &screen, x, y);
+                    if !was_pressed {
+                        let clicks = seat.pointer.register_press(hover, tsc(), tsc_frequency());
+                        if clicks == 2
+                            && let Hover::Title(id) = hover
+                        {
+                            toggle_maximize(
+                                &screen,
+                                &mut windows,
+                                focus,
+                                font,
+                                seat.pointer.cursor(),
+                                id,
+                            );
+                            write(b"hk-server-display: double click ");
+                            write_u64(id);
+                            write(b"\n");
+                            let hover = pointer::hover_at(&windows, &screen, x, y);
+                            let shape = pointer::shape_for_hover(hover, &windows);
+                            apply_hover(&screen, &windows, focus, font, &mut seat, hover, shape);
+                            redraw_cursor(&screen, &windows, focus, font, &seat);
+                            continue;
+                        }
+                    }
                     if y >= taskbar_top(screen.height) {
                         if let Some(id) = taskbar_at(&windows, x, y, screen.width, screen.height) {
                             let old_focus = focus;
@@ -897,23 +1035,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                     &windows,
                                     focus,
                                     font,
-                                    seat.pointer,
+                                    seat.pointer.cursor(),
                                     &window,
                                 );
                             }
-                            damage_title(&screen, &windows, focus, font, seat.pointer, old_focus);
-                            damage_taskbar(&screen, &windows, focus, font, seat.pointer);
-                            compose_region(
+                            damage_title(
                                 &screen,
                                 &windows,
                                 focus,
                                 font,
-                                seat.pointer,
-                                x,
-                                y,
-                                CURSOR_WIDTH + 1,
-                                CURSOR_HEIGHT + 1,
+                                seat.pointer.cursor(),
+                                old_focus,
                             );
+                            damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
+                            redraw_cursor(&screen, &windows, focus, font, &seat);
                             write(b"hk-server-display: taskbar ");
                             write_u64(id);
                             write(b"\n");
@@ -928,7 +1063,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 &mut focus,
                                 font,
-                                seat.pointer,
+                                seat.pointer.cursor(),
                                 window.id,
                             );
                             continue;
@@ -939,7 +1074,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 &mut focus,
                                 font,
-                                seat.pointer,
+                                seat.pointer.cursor(),
                                 window.id,
                             );
                             continue;
@@ -950,7 +1085,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                                 &mut windows,
                                 focus,
                                 font,
-                                seat.pointer,
+                                seat.pointer.cursor(),
                                 window.id,
                             );
                             continue;
@@ -964,21 +1099,25 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                             .find(|window| window.id == id)
                             .copied()
                         {
-                            damage_window(&screen, &windows, focus, font, seat.pointer, &window);
+                            damage_window(
+                                &screen,
+                                &windows,
+                                focus,
+                                font,
+                                seat.pointer.cursor(),
+                                &window,
+                            );
                         }
-                        damage_title(&screen, &windows, focus, font, seat.pointer, old_focus);
-                        damage_taskbar(&screen, &windows, focus, font, seat.pointer);
-                        compose_region(
+                        damage_title(
                             &screen,
                             &windows,
                             focus,
                             font,
-                            seat.pointer,
-                            x,
-                            y,
-                            CURSOR_WIDTH + 1,
-                            CURSOR_HEIGHT + 1,
+                            seat.pointer.cursor(),
+                            old_focus,
                         );
+                        damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
+                        redraw_cursor(&screen, &windows, focus, font, &seat);
                         let on_title = y >= window.y && y < window.y + title_height();
                         if let Some(edge) = resize_at(&window, x, y) {
                             resize = Some(Resize {
@@ -1025,7 +1164,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 driver_input = true;
                 let byte = word as u8;
                 if byte == TAB {
-                    cycle_focus(&screen, &mut windows, &mut focus, font, seat.pointer);
+                    cycle_focus(
+                        &screen,
+                        &mut windows,
+                        &mut focus,
+                        font,
+                        seat.pointer.cursor(),
+                    );
                 } else {
                     route_key(&windows, focus, byte);
                 }
@@ -1053,8 +1198,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         window.title[..count].copy_from_slice(&text[..count]);
                         window.title_length = count;
                     }
-                    damage_title(&screen, &windows, focus, font, seat.pointer, id);
-                    damage_taskbar(&screen, &windows, focus, font, seat.pointer);
+                    damage_title(&screen, &windows, focus, font, seat.pointer.cursor(), id);
+                    damage_taskbar(&screen, &windows, focus, font, seat.pointer.cursor());
                     let titled = windows
                         .iter()
                         .flatten()

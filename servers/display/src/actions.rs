@@ -8,6 +8,7 @@ use hk_proto::display::{
 use hk_server_api::{capability_pin, close_handle, region_unmap, send, write, write_u64};
 
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
+use crate::pointer::Cursor;
 use crate::window::{MAX_WINDOWS, Screen, Window, raise, taskbar_height, title_height};
 
 /// 最小化窗口并把焦点交给剩余最上层窗口。
@@ -17,7 +18,7 @@ pub(crate) fn minimize_window(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     id: u64,
 ) {
     let Some(window) = windows.iter_mut().flatten().find(|window| window.id == id) else {
@@ -39,14 +40,14 @@ pub(crate) fn minimize_window(
         windows,
         *focus,
         font,
-        pointer,
+        cursor,
         old.x,
         old.y,
         old.width,
         old.height + title_height(),
     );
-    damage_title(screen, windows, *focus, font, pointer, previous);
-    damage_taskbar(screen, windows, *focus, font, pointer);
+    damage_title(screen, windows, *focus, font, cursor, previous);
+    damage_taskbar(screen, windows, *focus, font, cursor);
     write(b"hk-server-display: minimize ");
     write_u64(id);
     write(b"\n");
@@ -59,7 +60,7 @@ pub(crate) fn toggle_maximize(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     id: u64,
 ) {
     let desktop_height = screen.height.saturating_sub(taskbar_height());
@@ -87,7 +88,7 @@ pub(crate) fn toggle_maximize(
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         old.x,
         old.y,
         old.width,
@@ -98,14 +99,14 @@ pub(crate) fn toggle_maximize(
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         new.x,
         new.y,
         new.width,
         new.height + title_height(),
     );
-    damage_title(screen, windows, focus, font, pointer, id);
-    damage_taskbar(screen, windows, focus, font, pointer);
+    damage_title(screen, windows, focus, font, cursor, id);
+    damage_taskbar(screen, windows, focus, font, cursor);
     write(if maximized {
         b"hk-server-display: maximize ".as_slice()
     } else {
@@ -131,7 +132,7 @@ pub(crate) fn close_window(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     id: u64,
 ) {
     let Some(slot) = windows
@@ -163,14 +164,14 @@ pub(crate) fn close_window(
         windows,
         *focus,
         font,
-        pointer,
+        cursor,
         window.x,
         window.y,
         window.width,
         window.height + title_height(),
     );
-    damage_title(screen, windows, *focus, font, pointer, previous);
-    damage_taskbar(screen, windows, *focus, font, pointer);
+    damage_title(screen, windows, *focus, font, cursor, previous);
+    damage_taskbar(screen, windows, *focus, font, cursor);
     write(b"hk-server-display: close ");
     write_u64(id);
     write(b"\n");
@@ -204,7 +205,7 @@ pub(crate) fn cycle_focus(
     windows: &mut [Option<Window>; MAX_WINDOWS],
     focus: &mut u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
 ) {
     let count = windows
         .iter()
@@ -239,10 +240,10 @@ pub(crate) fn cycle_focus(
         .find(|window| window.id == id)
         .copied()
     {
-        damage_window(screen, windows, *focus, font, pointer, &window);
+        damage_window(screen, windows, *focus, font, cursor, &window);
     }
-    damage_title(screen, windows, *focus, font, pointer, previous);
-    damage_taskbar(screen, windows, *focus, font, pointer);
+    damage_title(screen, windows, *focus, font, cursor, previous);
+    damage_taskbar(screen, windows, *focus, font, cursor);
     write(b"hk-server-display: focus ");
     write_u64(id);
     write(b"\n");

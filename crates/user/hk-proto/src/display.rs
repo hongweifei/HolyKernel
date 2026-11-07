@@ -23,6 +23,12 @@ pub const DISPLAY_RESTART: u64 = 0xA0A;
 pub const DISPLAY_WHEEL: u64 = 0xA0B;
 /// 窗口内容尺寸变化；`word` 打包窗口编号与新的内容宽高，发给窗口客户端。
 pub const DISPLAY_RESIZE: u64 = 0xA0C;
+/// 指针在窗口正文内移动；`word` 打包窗口编号与窗口内坐标。
+pub const DISPLAY_POINTER: u64 = 0xA1E;
+/// 指针离开窗口正文；`word` 为窗口编号。
+pub const DISPLAY_POINTER_LEAVE: u64 = 0xA1F;
+/// 设置表面光标形状；`word` 由 [`hk_proto::pointer::pack_surface_cursor`] 打包。
+pub const SURFACE_SET_CURSOR: u64 = 0xA20;
 
 /// 创建表面；`word` 打包宽高，随消息转移表面 Frame 句柄。
 pub const SURFACE_CREATE: u64 = 0xA10;

@@ -3,6 +3,10 @@
 //! 焦点仍由 Display 的窗口模型维护；Seat 持有跨客户端共享的输入与剪贴板
 //! 状态，后续 Wayland/Harmony 适配器复用同一套语义。
 
+#![cfg_attr(not(target_os = "none"), allow(dead_code))]
+
+use crate::pointer::Pointer;
+
 /// 剪贴板容量。
 pub(crate) const CLIPBOARD_MAX: usize = 4096;
 
@@ -46,16 +50,41 @@ impl Clipboard {
 
 /// 指针与剪贴板状态。
 pub(crate) struct Seat {
-    pub(crate) pointer: Option<(usize, usize)>,
+    pub(crate) pointer: Pointer,
+    /// 当前接收正文指针事件的窗口。
+    target: Option<u64>,
+    /// 最近一次发给客户端的正文坐标。
+    last_motion: Option<(u64, u32, u32)>,
     clipboard: Clipboard,
 }
 
 impl Seat {
     pub(crate) const fn new() -> Self {
         Self {
-            pointer: None,
+            pointer: Pointer::new(),
+            target: None,
+            last_motion: None,
             clipboard: Clipboard::new(),
         }
+    }
+
+    /// 按悬停目标把正文指针事件发给客户端。
+    #[cfg(target_os = "none")]
+    pub(crate) fn route_pointer(
+        &mut self,
+        windows: &[Option<crate::window::Window>; crate::window::MAX_WINDOWS],
+        hover: crate::pointer::Hover,
+        x: usize,
+        y: usize,
+    ) {
+        crate::pointer::route_pointer(
+            windows,
+            &mut self.target,
+            &mut self.last_motion,
+            hover,
+            x,
+            y,
+        );
     }
 
     pub(crate) fn set_clipboard(&mut self, owner: u64, bytes: &[u8]) -> bool {
@@ -104,6 +133,7 @@ mod tests {
     #[test]
     fn pointer_defaults_to_none() {
         let seat = Seat::new();
-        assert_eq!(seat.pointer, None);
+        assert_eq!(seat.pointer.position(), None);
+        assert!(!seat.pointer.pressed());
     }
 }

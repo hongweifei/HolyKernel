@@ -3,35 +3,13 @@
 use hk_canvas::mix;
 use hk_font::Font;
 
+use crate::pointer::{self, Cursor, Hover};
 use crate::theme::{scale, theme};
 use crate::window::{
     MAX_WINDOWS, Screen, Window, close_button_origin, close_size, maximize_button_origin,
     minimize_button_origin, resize_size, taskbar_button_height, taskbar_button_top,
     taskbar_button_width, taskbar_button_x, taskbar_height, taskbar_top, title_height,
 };
-
-/// 光标宽度。
-#[cfg(target_os = "none")]
-pub(crate) const CURSOR_WIDTH: usize = 8;
-/// 光标高度。
-#[cfg(target_os = "none")]
-pub(crate) const CURSOR_HEIGHT: usize = 12;
-/// 光标位图（每行 8 位）。
-#[cfg(target_os = "none")]
-const CURSOR_BITS: [u8; CURSOR_HEIGHT] = [
-    0b1000_0000,
-    0b1100_0000,
-    0b1110_0000,
-    0b1111_0000,
-    0b1111_1000,
-    0b1111_1100,
-    0b1111_1110,
-    0b1111_1111,
-    0b1111_0000,
-    0b1100_1000,
-    0b1000_1100,
-    0b0000_0110,
-];
 
 /// 窗口投影边距（随界面缩放）。
 #[cfg(target_os = "none")]
@@ -95,26 +73,6 @@ pub(crate) fn surface_pixel(window: &Window, x: usize, y: usize) -> u32 {
         (window.surface.virt as *const u32)
             .add(y * window.surface.width + x)
             .read_volatile()
-    }
-}
-
-/// 绘制鼠标箭头（带 1 像素阴影）。
-#[cfg(target_os = "none")]
-fn draw_cursor(screen: &Screen, x: usize, y: usize) {
-    let palette = theme();
-    for (row, bits) in CURSOR_BITS.iter().enumerate() {
-        for column in 0..CURSOR_WIDTH {
-            if bits & (0x80 >> column) != 0 {
-                screen.put(x + column + 1, y + row + 1, palette.cursor_shadow);
-            }
-        }
-    }
-    for (row, bits) in CURSOR_BITS.iter().enumerate() {
-        for column in 0..CURSOR_WIDTH {
-            if bits & (0x80 >> column) != 0 {
-                screen.put(x + column, y + row, palette.cursor);
-            }
-        }
     }
 }
 
@@ -309,7 +267,32 @@ fn paint_window(
             }
             pen_x += advance;
         }
+        let hovered = screen.hover();
+        let fill_button = |x: usize, y: usize, color: u32| {
+            let button_size = close_size();
+            for row in 0..button_size {
+                let pixel_y = y + row;
+                if pixel_y < top || pixel_y >= bottom || pixel_y >= window_y + title_height() {
+                    continue;
+                }
+                let pixel_left = x.max(left);
+                let pixel_right = (x + button_size).min(right);
+                if pixel_left < pixel_right {
+                    screen.fill_row(pixel_left, pixel_y, pixel_right - pixel_left, color);
+                }
+            }
+        };
+
         let (close_x, close_y) = close_button_origin(window);
+        let close_hovered = hovered == Some(Hover::Close(window.id));
+        if close_hovered {
+            fill_button(close_x, close_y, palette.title_close_hover);
+        }
+        let close_color = if close_hovered {
+            palette.title_text
+        } else {
+            palette.title_close
+        };
         for offset in 0..close_size() {
             let row = close_y + offset;
             if row < top || row >= bottom || row >= window_y + title_height() {
@@ -318,10 +301,10 @@ fn paint_window(
             let left_pixel = close_x + offset;
             let right_pixel = close_x + (close_size() - 1 - offset);
             if left_pixel >= left && left_pixel < right {
-                screen.put(left_pixel, row, palette.title_close);
+                screen.put(left_pixel, row, close_color);
             }
             if right_pixel >= left && right_pixel < right {
-                screen.put(right_pixel, row, palette.title_close);
+                screen.put(right_pixel, row, close_color);
             }
         }
 
@@ -330,6 +313,12 @@ fn paint_window(
         let inside = |x: usize, y: usize| {
             x >= left && x < right && y >= top && y < bottom && y < window_y + title_height()
         };
+        if hovered == Some(Hover::Maximize(window.id)) {
+            fill_button(maximize_x, maximize_y, palette.title_button_hover);
+        }
+        if hovered == Some(Hover::Minimize(window.id)) {
+            fill_button(minimize_x, minimize_y, palette.title_button_hover);
+        }
         let button_bottom = maximize_y + close_size() - 1;
         for offset in 0..close_size() {
             let x = maximize_x + offset;
@@ -449,6 +438,8 @@ fn paint_taskbar(
         let button_width = taskbar_button_width().min(screen.width - button_x);
         let color = if window.id == focus {
             palette.taskbar_active
+        } else if screen.hover() == Some(Hover::Taskbar(window.id)) {
+            palette.taskbar_button_hover
         } else {
             palette.taskbar_button
         };
@@ -503,7 +494,7 @@ pub(crate) fn compose_region(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     x: usize,
     y: usize,
     width: usize,
@@ -525,13 +516,16 @@ pub(crate) fn compose_region(
         paint_window(screen, window, focus, font, left, top, right, bottom);
     }
     paint_taskbar(screen, windows, focus, font, left, top, right, bottom);
-    if let Some((cursor_x, cursor_y)) = pointer
-        && cursor_x >= left
-        && cursor_x < right
-        && cursor_y >= top
-        && cursor_y < bottom
-    {
-        draw_cursor(screen, cursor_x, cursor_y);
+    if let Some(cursor) = cursor {
+        let (cursor_x, cursor_y, cursor_width, cursor_height) =
+            pointer::cursor_rect(cursor, screen.width, screen.height, scale());
+        if cursor_x < right
+            && cursor_x + cursor_width > left
+            && cursor_y < bottom
+            && cursor_y + cursor_height > top
+        {
+            pointer::paint_cursor(screen, cursor);
+        }
     }
 }
 
@@ -543,7 +537,7 @@ pub(crate) fn compose_window_region(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     x: usize,
     y: usize,
     width: usize,
@@ -555,7 +549,7 @@ pub(crate) fn compose_window_region(
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         x.saturating_sub(margin),
         y.saturating_sub(margin),
         width.saturating_add(margin * 2),
@@ -580,7 +574,7 @@ pub(crate) fn damage_window(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     window: &Window,
 ) {
     compose_window_region(
@@ -588,7 +582,7 @@ pub(crate) fn damage_window(
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         window.x,
         window.y,
         window.width,
@@ -603,14 +597,14 @@ pub(crate) fn damage_taskbar(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
 ) {
     compose_region(
         screen,
         windows,
         focus,
         font,
-        pointer,
+        cursor,
         0,
         taskbar_top(screen.height),
         screen.width,
@@ -625,7 +619,7 @@ pub(crate) fn damage_title(
     windows: &[Option<Window>; MAX_WINDOWS],
     focus: u64,
     font: &Font,
-    pointer: Option<(usize, usize)>,
+    cursor: Option<Cursor>,
     id: u64,
 ) {
     if id == 0 {
@@ -642,7 +636,7 @@ pub(crate) fn damage_title(
             windows,
             focus,
             font,
-            pointer,
+            cursor,
             window.x,
             window.y,
             window.width,

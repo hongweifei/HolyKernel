@@ -5,6 +5,7 @@ use core::cell::Cell;
 use hk_canvas::{Rect, Surface as Canvas};
 use hk_proto::display::TITLE_MAX;
 
+use crate::pointer::Hover;
 use crate::resize::{Edges, Rect as Frame};
 use crate::surface::Surface;
 use crate::theme::scale;
@@ -219,6 +220,7 @@ pub(crate) struct Screen {
     pub(crate) height: usize,
     pub(crate) stride: usize,
     damage: Cell<Option<(usize, usize, usize, usize)>>,
+    hover: Cell<Option<Hover>>,
 }
 
 #[cfg(target_os = "none")]
@@ -239,7 +241,18 @@ impl Screen {
             height,
             stride,
             damage: Cell::new(None),
+            hover: Cell::new(None),
         }
+    }
+
+    /// 当前悬停目标；合成器据此高亮按钮。
+    pub(crate) fn hover(&self) -> Option<Hover> {
+        self.hover.get()
+    }
+
+    /// 更新悬停目标。
+    pub(crate) fn set_hover(&self, hover: Option<Hover>) {
+        self.hover.set(hover);
     }
 
     /// 记录需要从后备缓冲提交到帧缓冲的区域。

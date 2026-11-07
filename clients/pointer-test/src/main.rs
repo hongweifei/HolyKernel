@@ -5,10 +5,13 @@
 
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, SURFACE_COMMIT, SURFACE_CREATE,
-    SURFACE_CREATED, SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size,
-    pack_window_size, set_title, unpack_window_size,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_POINTER, DISPLAY_RESIZE, DISPLAY_SHUTDOWN,
+    SURFACE_COMMIT, SURFACE_CREATE, SURFACE_CREATED, SURFACE_FRAME_DONE, SURFACE_SET_CURSOR,
+    WINDOW_CREATE, WINDOW_CREATED, WINDOW_RESIZE, pack_size, pack_window_size, set_title,
+    unpack_click_at, unpack_window_size,
 };
+#[cfg(target_os = "none")]
+use hk_proto::pointer::{Shape, pack_surface_cursor};
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MemoryClient, exit, recv, region_unmap, send, send_handle, write, write_u64,
@@ -52,6 +55,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-pointer-test: surface rejected\n");
         exit(4)
     }
+    let _ = send(
+        display,
+        SURFACE_SET_CURSOR,
+        pack_surface_cursor(surface, Shape::Hand),
+    );
     let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
     if label != WINDOW_CREATED || window == 0 {
@@ -102,6 +110,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     write_u64(u64::from(width));
                     write(b"x");
                     write_u64(u64::from(height));
+                    write(b"\n");
+                }
+            }
+            DISPLAY_POINTER => {
+                let (id, x, y) = unpack_click_at(word);
+                if id == window {
+                    write(b"hk-server-pointer-test: pointer ");
+                    write_u64(id);
+                    write(b" ");
+                    write_u64(u64::from(x));
+                    write(b",");
+                    write_u64(u64::from(y));
                     write(b"\n");
                 }
             }

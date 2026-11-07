@@ -15,6 +15,7 @@ pub mod holy;
 pub mod input;
 pub mod labels;
 pub mod net;
+pub mod pointer;
 pub mod socket;
 pub mod status;
 pub mod vfs;

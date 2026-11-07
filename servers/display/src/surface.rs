@@ -3,6 +3,8 @@
 //! 表面是 Display 的合成单元；窗口只负责几何、装饰与 z 序。客户端提交的
 //! damage 与输入区域都在表面缓冲坐标系中记录，合成时再映射到窗口坐标。
 
+use hk_proto::pointer::Shape;
+
 use crate::resize::Rect;
 
 /// 同时存在的表面上限。
@@ -25,6 +27,8 @@ pub(crate) struct Surface {
     damage: Option<Rect>,
     /// 输入区域；`None` 表示整个表面。
     input: Option<Rect>,
+    /// 窗口正文里指针落在该表面时使用的光标形状。
+    pub(crate) cursor: Shape,
 }
 
 impl Surface {
@@ -50,6 +54,7 @@ impl Surface {
             handle,
             damage: None,
             input: None,
+            cursor: Shape::Arrow,
         }
     }
 
@@ -200,5 +205,11 @@ mod tests {
         let mut surface = surface(100, 100);
         surface.set_input_region(Rect::default());
         assert!(surface.input_contains(99, 99));
+    }
+
+    #[test]
+    fn cursor_defaults_to_arrow() {
+        let surface = surface(10, 10);
+        assert_eq!(surface.cursor, Shape::Arrow);
     }
 }
