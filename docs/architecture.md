@@ -1,8 +1,8 @@
 # HolyKernel 总体架构
 
-状态：**设计中** · 版本：`0.1.0-design`
+状态：**设计中**
 
-本文描述 HolyKernel 的微内核模型、句柄与 IPC、服务器划分、POSIX 兼容层与启动流程。细节分别见 [内存（HMP）](hmp.md)、[执行](execution.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)、[VFS](vfs.md)、[UI](ui.md)、[平台](platforms.md)。
+本文描述 HolyKernel 的微内核模型、句柄与 IPC、服务器划分、POSIX 兼容层与启动流程。细节分别见 [内存（HMP）](hmp.md)、[执行](execution.md)、[调度（HCM）](scheduling.md)、[服务器](servers.md)、[POSIX 与 libc](posix.md)、[VFS 与 Path Server](vfs.md)、[UI](ui.md)、[平台](platforms.md)。
 
 ---
 
@@ -27,6 +27,9 @@ flowchart TB
         Native["HolyDoc / Display"]
     end
     subgraph Kernel["微内核"]
+        Task["Task"]
+        Cadence["Cadence / Meter"]
+        Beat["Beat / Grant"]
         TCB["TCB"]
         Arena["Arena"]
         HandleTable["HandleTable / Handle"]
@@ -85,7 +88,7 @@ flowchart TB
 - Linux 二进制 ABI
 - ext4、TCP/IP、更多设备类别
 - 多用户与完整 POSIX 凭证模型
-- 实时调度、形式化验证、服务器热升级
+- Realtime 准入与硬实时保证、形式化验证、服务器热升级
 
 ---
 
@@ -97,7 +100,7 @@ flowchart TB
 4. **显式 IPC**：Endpoint 同步通信，Notification 异步事件，Frame 共享数据。
 5. **服务器可重启**：Root Server 监督生命周期与句柄分配。
 6. **POSIX 在边缘**：POSIX.1 语义由用户态 POSIX Server实现。
-7. **最小可信基**：内核、Root Server、VFS Server 构成可信基；POSIX Server 在启用兼容环境时加入。
+7. **最小可信基**：内核、Root Server、VFS Server、根文件系统后端（ext4/HolyFS）构成可信基；POSIX Server 在启用兼容环境时加入。
 8. **多架构抽象**：架构差异止步于 `hk-hal` 与 platform crate。
 9. **可观察、可复现**：trace 与确定性模拟覆盖 IPC、调度、句柄、服务器重启。
 10. **小步交付**：每个里程碑形成可演示的纵向切片。
@@ -108,7 +111,10 @@ flowchart TB
 
 | 对象 | 职责 | 关键操作 |
 | --- | --- | --- |
-| **TCB** | 线程控制块；引用 Task 的 HandleTable | 配置、启动、挂起、恢复、绑定 Arena |
+| **Task** | 调度主体；持有 Cadence、Meter、TCB(s) 与父子关系 | 附加契约、挂起、恢复、快照 |
+| **Cadence** | 时间契约；类别、权重、预算、周期、截止期、延迟目标、亲和性、lending | 创建、拆分、调整、撤销 |
+| **Meter** | 调度计量；消耗、等待、节流、迁移、切换、虚拟进度 | 查询、重置 |
+| **TCB** | 执行单元；引用 Task 的 HandleTable | 配置、启动、挂起、恢复、绑定 Arena |
 | **Arena** | 任务内存根；持有地址空间与 Region 表 | map、unmap、grow、checkpoint、destroy |
 | **HandleTable** | 每 Task 的句柄表 | 查找、duplicate、close、转移 |
 | **Endpoint** | 同步 IPC | send、recv、call、reply、句柄传递 |
@@ -124,12 +130,15 @@ flowchart TB
 
 ### 4.1 Native Task
 
-内核的 TCB 是机制；**Native Task** 是用户态的一等对象：Arena + HandleTable + TCB(s) + 父子关系 + 元数据。Arena 是任务内存根，持有地址空间、栈、堆与 Region 表。Root Server 用 Native Task 管理服务，POSIX Server 用 Native Task 承载 POSIX 进程。Task 退出时整体回收 Arena 与 Handle；窗口由 Display Server 独立管理。
+内核的 TCB 是执行机制；**Native Task** 是跨内核与用户态的一等对象：Arena + HandleTable + TCB(s) + 父子关系 + Cadence + Meter + 元数据。Arena 是任务内存根，持有地址空间、栈、堆与 Region 表；Cadence 与 Meter 由内核调度层持有，用户态通过 Handle 访问。Root Server 用 Native Task 管理服务，POSIX Server 用 Native Task 承载 POSIX 进程。Task 退出时整体回收 Arena、Handle 与调度状态；窗口由 Display Server 独立管理。
 
 ```mermaid
 flowchart LR
     Capacity["Capacity 物理容量"] -->|分配| Frame["Frame"]
-    TCB["TCB"] -->|references| HandleTable["HandleTable"]
+    Task["Native Task"] -->|holds| Cadence["Cadence 契约"]
+    Task -->|charges| Meter["Meter 计量"]
+    Task -->|owns| HandleTable["HandleTable"]
+    Task -->|contains| TCB["TCB(s)"]
     HandleTable -->|Handle| TCB
     HandleTable -->|Handle| Arena
     HandleTable -->|Handle| Region["Region"]
@@ -187,8 +196,9 @@ sequenceDiagram
 
 ## 6. 执行与内存
 
-- **TCB**：线程上下文、优先级、亲和性、状态；绑定 Arena，并引用 Task 的 HandleTable。
-- **调度**：抢占式、优先级 + 轮转、每 CPU run queue、SMP、tickless。
+- **Task**：调度主体，持有 Cadence 与 Meter；同一 Task 的 TCB 共享契约与计量。
+- **TCB**：执行单元；寄存器上下文、所属 Task、状态；绑定 Arena，并引用 Task 的 HandleTable。
+- **调度**：Holy Cadence Model（Task 级 Cadence 契约 + TCB 级轮转、每 CPU Beat、SMP、Tickless、Lending）；见 [Holy Cadence Model](scheduling.md)。
 - **Arena**：每任务内存根；持有地址空间、页表、Region 表、栈与堆。
 - **HMP**：Capacity 管物理容量，Frame 管物理页；Revision/Surface/TaskImage/DeviceAllocation/Anonymous 以类型化能力暴露，Mappable 是统一能力接口，Region 是唯一映射；Provider 按类型提供契约，Ledger 记账。内核与用户态服务使用同一对象图、Rights 与错误面。
 - **铸造链**：Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights。
@@ -204,26 +214,28 @@ sequenceDiagram
 
 | 服务器 | 职责 | 关键句柄 |
 | --- | --- | --- |
-| **Root Server** | 启动、监督、重启、句柄分配 | 初始 Capacity、HandleTable、Endpoint |
+| **Root Server** | 启动、监督、重启、初始授予 | 初始 Capacity、Cadence、HandleTable、Endpoint |
+| **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence | Cadence Pool、Meter |
 | **Memory Server** | Anonymous Provider、User Capacity、Capability 分配 | User Capacity、Capability、Frame |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
-| **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 | FS Backend Endpoint、Revision Region |
+| **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 | FS Backend Endpoint、Revision Region |
+| **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存、POSIX 路径投影 | VFS Endpoint、Shared Frame |
 | **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
 | **Compatibility Server** | 按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额 | POSIX/Linux/Harmony 实现 Endpoint、VFS/Display Handle |
-| **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | Arena/TCB、VFS/Network Endpoint |
+| **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | Task/TCB/Cadence、Path/Network Endpoint |
 | **Wayland Server / XWayland** | Linux Wayland/X11 客户端表面与 seat 适配 | Surface/Seat、POSIX Endpoint |
 | **Harmony Server** | OpenHarmony 用户态、KAL/HDI 适配 | Surface/Seat、VFS/Network Handle |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略 | Net Endpoint、Socket Handle |
-| **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、VFS 适配层、Document Handle |
+| **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、快照 | Block Endpoint、Holy 远程后端、Document Handle |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI | Framebuffer、Input |
 | **HolyDoc Server** | 可选活文档渲染 | Display Endpoint、HolyFS Endpoint |
 | **Workbench** | 编辑/浏览/构建/运行/调试 | HolyDoc、Toolchain、Debug、Display |
 | **Toolchain Server** | 系统内编译/链接/打包/缓存 | VFS、Task |
-| **Checkpoint Server** | Task/Server 快照与恢复 | Arena/HandleTable/TCB、VFS |
-| **Debug Server** | 符号、栈回溯、Task/资源视图 | Task、Checkpoint、trace |
+| **Checkpoint Server** | Task/Server 快照与恢复 | Arena/HandleTable/TCB/Cadence/Meter、VFS |
+| **Debug Server** | 符号、栈回溯、Task/Cadence/Meter 视图 | Task、Checkpoint、trace |
 | **HolyShell** | 原生命令行、结构化管道、脚本 | Command Registry、服务 Endpoint |
 | **POSIX Bridge** | `posix` 入口；启动 POSIX session 或执行 POSIX 命令 | POSIX Server |
 
@@ -241,10 +253,12 @@ sequenceDiagram
 flowchart LR
     App["POSIX 应用"] --> Libc["musl + hk-abi"]
     Libc -->|IPC| POSIX["POSIX Server"]
-    POSIX -->|IPC| VFS["VFS Server"]
-    VFS -->|IPC| FS["ext2/ext4 · HolyFS · tmpfs"]
+    POSIX -->|IPC| Path["Path Server"]
+    Path -->|IPC| VFS["VFS Server"]
+    VFS -->|IPC| FS["ext2/ext4 · tmpfs · devfs · procfs"]
+    VFS -->|IPC| Holy["HolyFS Server"]
     POSIX -->|IPC| Net["Network Server"]
-    POSIX -->|invoke| Kernel["Arena / TCB / HMP Region"]
+    POSIX -->|invoke| Kernel["Task / TCB / Cadence / HMP Region"]
     Kernel --> POSIX
 ```
 
@@ -280,38 +294,42 @@ sequenceDiagram
     participant FW as Firmware / Bootloader
     participant K as Microkernel
     participant Root as Root Server
+    participant Tempo as Tempo Server
     participant DM as Device Manager
     participant VFS as VFS Server
+    participant Path as Path Server
     participant Shell as HolyShell
     participant Net as Network Server
     participant POSIX as POSIX Server
     participant App as /sbin/init
 
     FW->>K: 载入内核 + BootInfo + 服务器镜像
-    K->>K: 初始化 Capacity、Arena、TCB、IPC
-    K->>Root: 启动 Root Task（初始句柄）
+    K->>K: 初始化 Task、Cadence、Meter、Beat、Capacity、Arena、IPC
+    K->>Root: 启动 Root Task（初始句柄与 Cadence 池）
+    Root->>Tempo: 授予 Cadence 池与策略权
     Root->>DM: 启动设备管理器
     DM->>DM: 枚举 PCI/DTB、启动驱动
     Root->>VFS: 启动 VFS Server 与根文件系统后端
+    Root->>Path: 启动 Path Server
     Root->>Net: 启动 Network Server（启用网络）
     Root->>Shell: 启动 HolyShell（原生主路径）
     opt 启用 POSIX 兼容环境
         Root->>POSIX: 启动 POSIX Server
-        POSIX->>VFS: 挂载 /
+        POSIX->>Path: 挂载 /、打开 fd
         POSIX->>App: 启动 /sbin/init（PID 1）
     end
-    Note over Root: 监督服务器；崩溃后重启
+    Note over Root: 监督服务器；崩溃后重启并重新授予 Cadence
 ```
 
 关键点：
 
-- 内核只创建 Root Task，并把初始 Capacity/Endpoint 句柄与 HandleTable 交给它。
-- Root Server 启动设备管理器、VFS、Network Server、HolyShell 与可选原生服务。
+- 内核只创建 Root Task，并把初始 Capacity、Cadence、Endpoint 句柄与 HandleTable 交给它。
+- Root Server 启动 Tempo、设备管理器、VFS、Path、Network Server、HolyShell 与可选原生服务。
 - POSIX 兼容环境的根文件系统为 ext2/ext4；HolyFS 卷作为数据卷接入。
 - HolyShell 是默认命令行；POSIX Server 是可选兼容环境。
-- 启用 POSIX 兼容环境时，POSIX Server 挂载 ext2/ext4 根文件系统并启动 `/sbin/init`。
-- 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载原生任务镜像（HKX），Task/Capability/Symbol 记录分别驱动入口与栈、设备授权和调试符号。内核镜像本身仍以 ELF 交给 Limine，这是引导器边界。
-- 服务器崩溃时，Root Server 按服务清单重启并重新分配句柄。
+- 启用 POSIX 兼容环境时，POSIX Server 通过 Path Server 挂载根文件系统并启动 `/sbin/init`。
+- 服务器镜像由 bootloader 作为模块提供；Root Server 从模块加载原生任务镜像（HKX），Task/Cadence/Capability/Symbol 记录分别驱动入口与调度、设备授权和调试符号。
+- 服务器崩溃时，Root Server 按服务清单重启，Tempo 重新授予 Cadence 并重置 Meter。
 
 ---
 
@@ -361,7 +379,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 
 ## 14. 关键保证
 
-1. 内核只包含机制：TCB、Arena、HandleTable、Endpoint、Notification、Capacity、Frame、Region、IRQHandler。
+1. 内核只包含机制：Task、Cadence、Meter、TCB、Arena、HandleTable、Endpoint、Notification、Capacity、Frame、Region、IRQHandler。
 2. 所有资源访问通过 Handle；内核维护对象引用与句柄复制树。
 3. 每个 Task 独立 Arena；内核地址空间与用户地址空间分离。
 4. 跨服务器调用通过 Endpoint；异步事件通过 Notification。

@@ -24,10 +24,10 @@
 | M0 | 章程、架构、脚手架 | 文档、workspace、CI、xtask、Hosted stub | G0：架构批准 |
 | M1 | Hosted 微内核 | TCB、Arena、HandleTable、Endpoint、Notification、HMP | G1：内核对象冻结 |
 | M2 | x86_64 启动 | Limine、BootInfo、Root Server、IPC | — |
-| M3 | 句柄与内存 | Handle duplicate/close、HMP 对象、COW、SMP、调度 | G2：句柄模型冻结 |
+| M3 | 句柄与内存 | Handle duplicate/close、HMP 对象、COW、SMP、调度对象面预留 | G2：句柄模型冻结 |
 | M4 | 用户态驱动与 VFS | DeviceGrant、virtio、VFS、ext2/tmpfs/devfs/procfs | G3：VFS 接口冻结 |
 | M5 | 网络 | virtio-net、Network Server、IPv4/IPv6、TCP/UDP、DHCP/DNS | — |
-| M6 | 底层收敛 | HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA、HMP ABI | G4：内存对象面冻结 |
+| M6 | 底层收敛 | HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA、HMP ABI、Holy Cadence 调度 | G4：内存对象面冻结 |
 | M7 | 平台与引导 | HAL、BootInfo、ACPI/DTB、x86_64、AArch64、Limine/UEFI | G5：平台抽象冻结 |
 | M8 | 设备与存储 | Device Manager、virtio 驱动、DMA/IOMMU、VFS、HolyFS | G6：设备与存储接口冻结 |
 | M9 | 原生 UI 与工具链 | Display、指针、Console、Input、HolyDoc、Workbench、Toolchain Server | — |
@@ -56,7 +56,7 @@ flowchart LR
 - **M0**：章程、架构、HMP、执行、服务器、VFS、UI、平台、工程、路线图、术语与 ADR 文档；workspace、`xtask`、CI、Hosted stub。
 - **M1**：Hosted 微内核；TCB、Arena、HandleTable、Endpoint、Notification、HMP 对象、确定性仿真。
 - **M2**：x86_64 启动；Limine、BootInfo、串口、GDT/IDT、分页、LAPIC/IOAPIC、帧缓冲控制台、用户态服务与 IPC。
-- **M3**：句柄与内存；Handle duplicate/close/transfer、COW、SMP、调度、用户态线程、审计与 trace。
+- **M3**：句柄与内存；Handle duplicate/close/transfer、COW、SMP、调度对象面预留、用户态线程、审计与 trace。
 - **M4**：用户态驱动与 VFS；DeviceGrant、virtio-blk/input、Block Server、ext4/HolyFS、VFS 与路径服务、共享 Frame 数据路径。
 - **M5**：网络；virtio-net 驱动、Network Server、IPv4/IPv6、TCP/UDP、DHCP、DNS、Socket Handle。
 
@@ -76,6 +76,8 @@ flowchart LR
 - **HMP ABI**：Arena/Capacity/Frame/Region/Capability/Provider/Ledger 操作统一；Memory Server、Device Manager、驱动、VFS、Display 与客户端接入同一对象面。
 - **Provider**：Anonymous、Revision、Surface、TaskImage、DeviceAllocation 的 fault、writeback、evict、commit、scanout、pin、export、swap 契约。
 - **Ledger**：Arena、Capacity、Frame、Region 与能力的容量与压力记账；Handle 转移时记账随对象转移。
+- **Holy Cadence**：Cadence/Meter 对象、Tempo Server、Beat、Task 级与 TCB 级两阶段调度、Lending、Tickless、idle TCB、亲和性与负载均衡。
+- **调度 ABI**：`SYS_CADENCE_*`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`；Root 服务清单授予初始 Cadence。
 
 ### 退出标准
 
@@ -85,6 +87,7 @@ flowchart LR
 4. 服务、驱动、客户端与 demo 使用同一组 HMP 对象与 Rights。
 5. AArch64 目标编译通过；`memory` conformance 覆盖对象面统一语义。
 6. `cargo xtask lint`、`cargo test --workspace`、`cargo xtask docs` 全绿。
+7. Cadence/Meter、Tempo 与 Beat 的机制与冒烟全绿；空闲 CPU 用户态占用 0%，同权重份额误差 ≤2%，唤醒延迟 ≤100µs。Realtime 的硬保证与准入策略在 M11 验收。
 
 ---
 
@@ -186,6 +189,7 @@ flowchart LR
 ### 交付
 
 - AArch64/RISC-V 平台与全栈服务。
+- Realtime 调度类与 Tempo 准入控制；Lending 的跨安全域策略。
 - 四目标 conformance：`boot`、`ipc`、`memory`、`irq`、`vfs`、`net`、`holyfs`、`posix`、`linux-abi`、`restart`。
 - 性能基准、预算复核与回归门禁。
 - 服务器重启矩阵与故障注入。
@@ -210,6 +214,7 @@ flowchart LR
 | Capacity/Frame 实现 | 物理内存碎片与回收 | 全内存区帧库、引用计数、连续分配、压力测试 |
 | Region 物化 | 多架构页表差异 | 页表机制包装、平台后端、memory conformance |
 | Provider 缺页 | IPC 开销 | 内核快速路径、批量、预读与 fault token |
+| 调度契约与优先级反转 | 交互延迟与服务饥饿 | Cadence/Meter、Tempo 准入、caller-pays Lending、确定性回放 |
 | 平台与引导 | 范围扩大 | x86_64 先行、AArch64 紧随、Limine/UEFI 双后端 |
 | 设备与存储一致性 | 数据损坏 | 单元 + 故障注入 + 后端重启测试 |
 | UI 与兼容 | 依赖底层成熟 | 底层 conformance 通过后接入 |
@@ -220,7 +225,8 @@ flowchart LR
 ## 11. 当前状态
 
 - M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
-- UI、Workbench、Toolchain、Checkpoint、Debug、HolyFS、POSIX 等原型作为现有资产保留，按 M7–M10 的顺序继续深化。
+- 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
+- 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 兼容层；按 M7–M10 继续深化。
 - 当前代码分层与清单见 [Crate 分层](crates.md)；构建、运行与冒烟入口见 [工程策略](engineering.md)。
 
 ---

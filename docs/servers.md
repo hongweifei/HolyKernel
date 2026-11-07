@@ -11,6 +11,7 @@ HolyKernel 的内核只提供机制；服务器承载策略。本文描述 Root 
 ```mermaid
 flowchart TB
     Root["Root Server<br/>监督与初始授予"]
+    Tempo["Tempo Server<br/>Cadence 策略 · 准入"]
     Mem["Memory Server<br/>User Capacity · Anonymous"]
     DM["Device Manager<br/>PCI / DTB"]
     Blk["Block Driver<br/>virtio-blk / AHCI"]
@@ -29,6 +30,7 @@ flowchart TB
     HolyDoc["HolyDoc Server"]
 
     Root --> DM
+    Root --> Tempo
     Root --> Mem
     Mem --> VFS
     Mem --> Display
@@ -67,6 +69,7 @@ pub struct ServiceManifest {
     pub args: Vec<String>,
     pub handles: Vec<HandleSpec>, // 初始 Handle 需求
     pub endpoints: Vec<EndpointSpec>,
+    pub cadence: CadenceSpec,     // 类别、权重、预算、周期、截止期、亲和性、lending
     pub depends_on: Vec<Name>,
     pub restart: RestartPolicy,   // Always | OnFailure | Never
 }
@@ -75,26 +78,35 @@ pub struct ServiceManifest {
 - Root Server 读取服务清单，按依赖顺序启动服务器。
 - 每个服务 Task 拥有独立的 Arena、HandleTable、Endpoint 与最小 Handle 集合。
 - 服务通过 Endpoint 暴露接口；客户端通过 Handle 获取服务入口。
-- 服务清单声明初始 `Capacity`、`Frame` 与 `Capability` 需求；Root Server 按清单授予收窄后的 Handle。
+- 服务清单声明初始 `Capacity`、`Frame`、`Capability` 与 `Cadence` 需求；Root Server 按清单授予收窄后的 Handle 与 Cadence。
 - 服务清单由 bootloader 作为模块提供；运行时可从 VFS 加载更新版本。
 
 ---
 
 ## 3. Root Server
 
-- 启动时获得初始 Capacity、HandleTable、Endpoint 与设备句柄。
-- 持有 System / User / Dma / Gpu 顶层 Capacity；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle。Memory Server 取得 User Capacity 子集，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
-- 解析服务清单，创建服务器 Arena/TCB，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
-- 维护服务表：PID、状态、重启次数、Endpoint、Handle。
+- 启动时获得初始 Capacity、Cadence、HandleTable、Endpoint 与设备句柄。
+- 持有 System / User / Dma / Gpu 顶层 Capacity 与初始 Cadence 池；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle 与 Cadence Handle。Memory Server 取得 User Capacity 子集，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
+- 解析服务清单，创建服务器 Task/TCB，附加 Cadence，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
+- 维护服务表：Task、Cadence、Meter、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
 - 监督服务器：按 `RestartPolicy`（Never / OnFailure / Always）在退出后重启，关闭旧句柄并重新分配；`hk-server-device` 与 `hk-server-virtio` 默认为 Always。
-- 监督循环按有界步进调度，避免持续 yield 的服务阻塞重启时机。
+- Root Server 按自身 Cadence 运行；监督循环由 Beat 调度，服务重启由退出事件与 Cadence 预算驱动。
 - 提供管理接口：`start`、`stop`、`restart`、`status`、`list`。
 - 热替换：`replace <服务> <镜像>` 终止未在 CPU 上执行的任务，用另一原生镜像启动同名服务；服务表与设备授权保留，端点和句柄重新分配，客户端按端点变化重连。
 - 检查点：`checkpoint <任务>` 暂停非当前任务，捕获寄存器、Arena 用量与用户页内容（零页省略），序列化为版本化快照并释放原 Arena；`restore-checkpoint <任务>` 在同一任务槽按快照重建 Arena 与 TCB。默认快照保存在 Root 内存；`checkpoint.disk` 启用 `H:/Checkpoints` 分块落盘与读回，`checkpointsrv` 冒烟验证磁盘保存/恢复。持有设备、共享 Frame、COW Region 或线程的任务暂不支持。
 - Root Server 自身崩溃时，内核按配置停机或重启。
 
-### 3.1 Memory Server
+### 3.1 Tempo Server
+
+- 接收 Root Server 授予的 Cadence 池与普通服务的策略权。
+- 创建、拆分、调整与撤销普通服务 Cadence；按服务角色授予类别、权重、预算、周期、截止期、亲和性与 lending 策略。
+- 执行 Realtime 准入：按预算与周期判断可调度性，拒绝或降级无法保证的契约。
+- 读取 Meter，按负载调整权重与预算；在服务重启、热替换与检查点恢复时重新授予 Cadence。
+- 提供 Holy 命令：`cadence <task>`、`meter <task>`、`tempo`、`admit <task>`、`revoke <task>`。
+- Tempo 崩溃由 Root Server 重启；重启后从服务清单与 Meter 水位重建契约。
+
+### 3.2 Memory Server
 
 - Root Server 从 Dma Capacity 尾部切出 1 MiB 初始 User Capacity，授予 Memory Server 句柄 `0x5001`。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
@@ -254,15 +266,17 @@ sequenceDiagram
 
 1. 服务器运行在用户态，拥有独立 Arena 与最小 Handle 集合。
 2. 服务器通过 Endpoint 通信；客户端通过 Handle 获取入口。
-3. Root Server 维护服务表、初始 Capacity 授予与重启策略。
+3. Root Server 维护服务表、初始 Capacity/Cadence 授予与重启策略。
 4. 每个服务的内存对象都是 Capacity/Frame/Region/Capability；内存授权由 Handle 与 Rights 决定。
-5. 驱动通过 DeviceGrant 访问 MMIO/DMA/IRQ。
-6. VFS 是 POSIX 文件语义的统一入口；文件系统以服务器形式接入。
-7. POSIX Server 维护进程、fd 与信号；VFS 维护挂载与文件句柄。
-8. 服务器崩溃后 Root Server 关闭旧句柄，新实例重新注册 Endpoint。
-9. 服务器清单与 Handle 需求可审计。
-10. 每个服务器有 trace 与健康状态。
-11. 服务器策略与文件系统逻辑位于用户态；内核提供机制。
+5. 每个服务 Task 持有 Cadence 与 Meter；Tempo Server 授予与调整普通契约，Root Server 决定初始授予。
+6. 服务器重启后，Tempo 重新授予 Cadence 并重置 Meter 水位。
+7. 驱动通过 DeviceGrant 访问 MMIO/DMA/IRQ。
+8. VFS 是 POSIX 文件语义的统一入口；文件系统以服务器形式接入。
+9. POSIX Server 维护进程、fd 与信号；VFS 维护挂载与文件句柄。
+10. 服务器崩溃后 Root Server 关闭旧句柄，新实例重新注册 Endpoint。
+11. 服务器清单与 Handle/Cadence 需求可审计。
+12. 每个服务器有 trace、Meter 与健康状态。
+13. 服务器策略与文件系统逻辑位于用户态；内核提供机制。
 
 ---
 
@@ -270,11 +284,11 @@ sequenceDiagram
 
 | 层级 | 测试 |
 | --- | --- |
-| Hosted 单元 | 服务清单解析、Handle 分配、Endpoint 注册、重启状态机 |
-| Hosted 模拟 | 服务器崩溃/重启、句柄回收、客户端重连、VFS/POSIX 恢复 |
-| QEMU | Root Server 启动全栈、驱动 probe、VFS 挂载、HolyShell、`posix` |
-| 故障注入 | 驱动崩溃、VFS 崩溃、POSIX 崩溃、Network 超时 |
-| 基准 | 启动时间、服务器重启时间、IPC 延迟、VFS 吞吐 |
+| Hosted 单元 | 服务清单解析、Handle 分配、Cadence 授予、Endpoint 注册、重启状态机 |
+| Hosted 模拟 | 服务器崩溃/重启、句柄回收、Cadence 重授、客户端重连、VFS/POSIX 恢复 |
+| QEMU | Root/Tempo 启动全栈、驱动 probe、VFS 挂载、HolyShell、`posix`、`cadence`/`meter` |
+| 故障注入 | 驱动崩溃、VFS 崩溃、POSIX 崩溃、Network 超时、Tempo 重启 |
+| 基准 | 启动时间、服务器重启时间、IPC 延迟、VFS 吞吐、调度份额 |
 
 ---
 

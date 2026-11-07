@@ -1,12 +1,12 @@
 # HolyFS 文件系统
 
-状态：**v1 后端已实现，数据卷接入可用** · 定位：**HolyKernel 原生文件系统** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS](vfs.md)、[POSIX 与 libc](posix.md)
+状态：**现行**（v1 后端已实现，数据卷接入可用） · 定位：**HolyKernel 原生文件系统** · 关联：[总体架构](architecture.md)、[服务器](servers.md)、[VFS 与 Path Server](vfs.md)、[POSIX 与 libc](posix.md)
 
 HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空间，以文档为内容单位，以修订记录历史，以集合表达原生关系。设计目标是现代、稳定、可靠、高性能。
 
-Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
+Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 远程后端与 Path Server 访问同一批文档；Path Server 承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/user/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、流式写、压缩、修订保留/GC、内容去重与配额已实现。
+已实现 `crates/user/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与远程 VFS 后端。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、流式写、压缩、修订保留/GC、内容去重与配额已实现。
 
 ---
 
@@ -429,15 +429,15 @@ sequenceDiagram
 flowchart LR
     Posix["POSIX 应用"] --> Libc["musl + hk-abi"]
     Libc --> POSIX["POSIX Server"]
-    POSIX --> VFS["VFS Server"]
-    VFS --> Adapter["VFS 适配层"]
-    Adapter --> Holy["HolyFS 卷"]
+    POSIX --> Path["Path Server"]
+    Path --> VFS["VFS Server"]
+    VFS --> Holy["HolyFS Server<br/>远程 Holy 后端"]
     Native["原生应用"] --> Holy
     Holy --> Blk["Block Endpoint"]
 ```
 
-- POSIX 兼容环境拥有自己的 VFS、fd 表与路径解析；VFS 通过适配层把路径与偏移翻译为 Holy 文档操作。
-- 适配层合成 POSIX 元数据（`mode`、`uid`、`gid`、时间字段），HolyFS 磁盘格式保存 Holy 对象与关系。
+- POSIX 兼容环境通过 Path Server 与 VFS Server 访问 Holy 文档；VFS 通过远程 Holy 后端把盘符与偏移映射为 Holy 文档操作。
+- VFS 与 Path Server 在边界合成 POSIX 元数据（`mode`、`uid`、`gid`、时间字段），HolyFS 磁盘格式保存 Holy 对象与关系。
 - ext2/ext4 作为 POSIX 兼容环境的根文件系统；HolyFS 卷接入兼容环境的挂载点，同时以盘符供原生应用访问。
 
 ---
@@ -531,7 +531,7 @@ crates/user/hk-fs-holyfs-vfs/src/lib.rs
 
 ## 14. 路线图
 
-- M8：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、VFS 适配层、`H:` 盘符）、集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub 与性能优化。
+- M8：HolyFS Core（COW 表、修订链、连续 extent、CRC32C、双超级块、整文档 API、远程 VFS 后端、`H:` 盘符）、集合索引、修订保留、快照、标签、封存、GC、check/repair、scrub 与性能优化。
 - M10：POSIX 元数据与 inode 适配（POSIX 核心接入时）。
 - M11：流式写、压缩、去重、配额、加密、并行 I/O 与基准锁定。
 

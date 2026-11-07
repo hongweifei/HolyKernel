@@ -1,4 +1,3 @@
-
 # ADR-0002：句柄型微内核
 
 - 状态：**已接受**
@@ -11,13 +10,13 @@ HolyKernel 需要强隔离、最小可信基与可重启服务器。单体内核
 
 ## 决策
 
-1. 内核只提供 **TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQHandler**。
+1. 内核只提供 **Task/TCB、Cadence/Meter、Beat、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQHandler**。
 2. 所有资源通过 **Handle** 访问；Handle 携带 index、generation 与 rights（READ/WRITE/EXECUTE/TRANSFER/ADMIN）。
 3. 每进程独立 **Arena**；内核与用户态地址空间分离。
-4. 驱动、VFS、文件系统、POSIX 兼容层、显示服务运行在用户态。
-5. Root Server 获得初始 Capacity/HandleTable/Endpoint，负责服务器启动与句柄分配。
-6. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄。
-7. POSIX、VFS、文件系统、网络协议栈与设备类驱动位于用户态服务；内核提供机制。
+4. 驱动、VFS、Path、文件系统、POSIX 兼容层、显示服务运行在用户态。
+5. Root Server 获得初始 Capacity、Cadence、HandleTable 与 Endpoint，负责服务器启动、句柄分配与初始调度契约授予。
+6. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄，Tempo 重新授予 Cadence。
+7. POSIX、VFS/Path、文件系统、网络协议栈与设备类驱动位于用户态服务；内核提供机制。
 
 ## 后果
 
@@ -45,6 +44,7 @@ HolyKernel 需要强隔离、最小可信基与可重启服务器。单体内核
 ## 架构一致性检查
 
 - 内核对象集合固定；新机制通过 ADR 加入。
+- 调度对象与契约由 ADR-0017 定义：Task 持有 Cadence，TCB 在 Task 内执行。
 - 服务器通过 Endpoint 与 Handle 协作。
 - 全局命名空间与 POSIX 状态由用户态服务维护；内核提供机制。
 
@@ -52,3 +52,4 @@ HolyKernel 需要强隔离、最小可信基与可重启服务器。单体内核
 
 - [ADR-0005：Handle 与 IPC](0005-handles.md)
 - [ADR-0003：POSIX personality](0003-posix-personality.md)
+- [ADR-0017：Holy Cadence Model](0017-holy-cadence.md)

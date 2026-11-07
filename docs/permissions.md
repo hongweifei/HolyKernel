@@ -55,10 +55,19 @@ flowchart LR
 | `Region` | 映射只读 | 映射可写 | 映射可执行 | — | protect、unmap |
 | `Capability` | 只读映射、查询 | 可写映射 | 可执行映射 | 转移 Capability | 绑定 Provider、scanout、pin |
 
+#### 调度对象 rights
+
+| 对象 | READ | WRITE | EXECUTE | TRANSFER | ADMIN |
+| --- | --- | --- | --- | --- | --- |
+| `Cadence` | 查询契约与 Meter | 在父范围内调整 weight/budget/latency | 转移契约 | — | 创建、拆分、撤销、设置 lending |
+| `Meter` | 读取计量 | — | — | — | 重置、设置水位 |
+
 - `Region` 是任务本地对象；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`。
 - `Region` 是唯一映射视图；内核页表是 Region 的物化。
 - ABI 面对所有持权服务统一开放 `Capacity`、`Frame`、`Region`；内存授权由 `Handle + Rights + ObjectKind` 决定。
 - 初始授予由 Root Server 的服务清单决定；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- Root Server 持有初始 Cadence 池；Tempo Server 持有普通服务 Cadence 的创建、拆分、调整、准入与撤销权；普通 Task 持有自身 Cadence/Meter 的 READ。
+- Cadence 的 WRITE 限制在父契约范围内；ADMIN 只授予 Root/Tempo。Task 通过 Handle 转移获得契约，epoch 撤销使旧 Handle 失效。
 
 ---
 
@@ -145,6 +154,7 @@ revoke:  object.epoch += 1
 10. 所有 Handle 操作有审计事件。
 11. 每个 Frame 来自 Capacity；每次分配、转移与释放都计入 Ledger。
 12. 内核与用户态服务共享同一组 HMP 对象与 Rights；内存授权由 Handle、Rights 与 ObjectKind 决定。
+13. 每个 Task 持有有效 Cadence 后才能运行；Cadence 与 Meter 通过 Handle、Rights 与 epoch 管理。
 
 ---
 

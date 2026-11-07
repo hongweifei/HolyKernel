@@ -8,9 +8,9 @@
 
 HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空间，以文档为内容单位，以修订记录历史，以集合表达原生关系。设计目标是现代、稳定、可靠、高性能。
 
-Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
+Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 远程后端与 Path Server 访问同一批文档；Path Server 承担路径、偏移、fd 与凭证语义。
 
-本 ADR 定义 HolyFS 的对象模型、原生关系、提交协议与操作；兼容语义由 VFS 适配层承担，HolyFS 磁盘格式保存 Holy 对象与关系。
+本 ADR 定义 HolyFS 的对象模型、原生关系、提交协议与操作；兼容语义由 Path Server 与 VFS 远程后端承担，HolyFS 磁盘格式保存 Holy 对象与关系。
 
 ## 决策
 
@@ -25,7 +25,7 @@ Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集
 9. 垃圾回收：从当前根、全部快照、全部封存修订与标签表做**可达性标记**；读者以修订代与宽限期固定视图。
 10. 空间管理：卷按**分配组**组织，组内维护位图与连续空闲段摘要；集合项使用**名字哈希 B-tree**；写入使用 `Stage`/`WriteRange`/`Commit` 流式协议，`Append` 共享基线 extent。
 11. 句柄采用**服务端 128 位不可伪造令牌**，携带权利与卷代；`Grant` 收窄权利，`Revoke` 立即失效，`Restore` 使旧代令牌返回 `Stale`；盘符由**卷注册表**分配。
-12. 兼容层：POSIX 兼容环境通过 **VFS 适配层**访问 HolyFS；适配层合成 `mode`/`uid`/`gid` 与时间字段。ext2/ext4 作为 POSIX 根文件系统；HolyFS 卷作为数据卷接入兼容环境的挂载点，并以盘符供原生应用访问。
+12. 兼容层：POSIX 兼容环境通过 **VFS 远程后端与 Path Server** 访问 HolyFS；Path Server 合成 `mode`/`uid`/`gid` 与时间字段。ext2/ext4 作为 POSIX 根文件系统；HolyFS 卷作为数据卷接入兼容环境的挂载点，并以盘符供原生应用访问。
 13. 格式：小端、版本号、feature flags 与挂载校验；现代能力包括修订、快照、标签、封存、流式写、压缩、去重、配额与在线校验，按路线图分阶段落地。
 
 ## 后果
@@ -59,7 +59,7 @@ Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集
 
 - HolyFS 运行在用户态，通过 Block Endpoint 访问存储。
 - 内核提供 Block、Endpoint、Frame 与 Handle 机制。
-- 原生应用通过 Document API 访问卷；POSIX 兼容环境通过 VFS 适配层访问同一份文档。
+- 原生应用通过 Document API 访问卷；POSIX 兼容环境通过 VFS 远程后端与 Path Server 访问同一份文档。
 - 卷以盘符进入 Holy 命名空间；VFS 挂载点是兼容环境的视图。
 - 快照、COW 与回收由文件系统服务维护；Root Server 负责服务生命周期与盘符注册。
 

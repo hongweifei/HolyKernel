@@ -1,6 +1,6 @@
 # ADR-0015：Compatibility Server 与多来源 UI
 
-- 状态：已接受
+- 状态：**已接受**
 - 日期：2026-11-05
 - 关联：[POSIX Personality](0003-posix-personality.md)、[Linux ABI](0011-linux-abi.md)、[musl 动态 ABI](0012-musl-dynamic-abi.md)、[UI](../ui.md)、[应用兼容](../compat.md)
 
@@ -37,4 +37,11 @@ Holy 桌面承载原生应用、Linux X11/Wayland 应用与鸿蒙应用；兼容
 
 ## 架构一致性检查
 
-Compatibility Server 运行在用户态，内核可信基保持 TCB/Arena/Handle/Endpoint/HMP/IRQ。Display 持有 Framebuffer/Input 授权；外来表面通过 surface 协议进入合成器。既有 Native、POSIX 与 Linux ABI 决策保持有效，本 ADR 补充多 personality 与多来源 UI 的组织方式。
+Compatibility Server 运行在用户态，内核可信基保持 Task/TCB、Cadence/Meter、Arena、Handle、Endpoint、HMP、IRQ。Display 持有 Framebuffer/Input 授权；外来表面通过 surface 协议进入合成器。既有 Native、POSIX 与 Linux ABI 决策保持有效，本 ADR 补充多 personality 与多来源 UI 的组织方式。
+
+## 相关
+
+- [ADR-0003：POSIX personality](0003-posix-personality.md)
+- [ADR-0011：Linux 二进制 ABI](0011-linux-abi.md)
+- [ADR-0012：musl 动态 ABI](0012-musl-dynamic-abi.md)
+- [ADR-0017：Holy Cadence Model](0017-holy-cadence.md)

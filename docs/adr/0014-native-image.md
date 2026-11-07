@@ -1,6 +1,6 @@
 # ADR-0014：原生任务镜像
 
-- 状态：已接受
+- 状态：**已接受**
 - 日期：2026-11-05
 - 关联：[平台 HAL](0004-platform-hal.md)、[服务器](../servers.md)、[Crate 分层](../crates.md)
 
@@ -12,7 +12,7 @@
 
 1. 原生服务与原生应用使用 HKX 任务镜像：32 字节头（魔数 `HKXI`、版本、头长度、记录数、记录区 CRC32C、内容标识、镜像长度），后接类型化 TLV 记录。
 2. 记录覆盖运行时契约：
-   - `Task`：名称、角色、优先级、入口、用户栈大小、Arena 大小；
+   - `Task`：名称、角色、Cadence 默认契约（类别、权重、预算、周期、亲和性）、入口、用户栈大小、Arena 大小；
    - `Region`：虚拟地址、内存长度、访问标志与内容；
    - `Capability`：能力类别、权利与名称，装载时由 Root Server 授予 Handle；
    - `Symbol`：地址与名称，随镜像携带；
@@ -37,4 +37,11 @@
 
 ## 架构一致性检查
 
-HKX 记录对应既有运行时对象：Task、Arena、Handle、Endpoint、Notification、Frame。Root Server 仍通过 `UserMemory` 映射 Region；服务发现、监督与重启策略不变。
+HKX 记录对应既有运行时对象：Task、Cadence、Meter、Arena、Handle、Endpoint、Notification、Frame。Root Server 仍通过 `UserMemory` 映射 Region；服务发现、监督与重启策略不变。
+
+## 相关
+
+- [ADR-0004：平台 HAL](0004-platform-hal.md)
+- [ADR-0017：Holy Cadence Model](0017-holy-cadence.md)
+- [服务器](../servers.md)
+- [Crate 分层](../crates.md)

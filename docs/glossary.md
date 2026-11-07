@@ -11,8 +11,11 @@
 | 术语 | 定义 |
 | --- | --- |
 | **HolyKernel (HK)** | 句柄型微内核 + 用户态服务器 + POSIX.1 兼容层 |
-| **Microkernel** | 只提供 TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQHandler 的内核 |
-| **TCB** | 线程控制块；上下文、优先级、亲和性、状态 |
+| **Microkernel** | 只提供 Task/TCB、Cadence/Meter、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQHandler 的内核 |
+| **Task** | 调度主体；持有 Cadence、Meter、TCB(s) 与父子关系 |
+| **Cadence** | 时间契约；类别、权重、预算、周期、截止期、延迟目标、亲和性、lending |
+| **Meter** | 调度计量；消耗、等待、节流、迁移、切换、虚拟进度 |
+| **TCB** | 执行单元；所属 Task、寄存器上下文、状态 |
 | **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆 |
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
 | **Handle** | index + generation；资源访问凭据 |
@@ -22,14 +25,10 @@
 | **DeviceGrant** | 设备句柄集合；MMIO/DMA/IRQ |
 | **Endpoint** | 同步 IPC 通道；send/recv/call/reply、句柄传递 |
 | **Notification** | 异步位通知；中断下半部、事件完成 |
-| **Frame** | HMP 物理页对象；带 FrameId、所属 Capacity、pin 与共享引用 |
-| **Capacity** | Root Server 持有并通过 Handle 授予的物理容量能力；分配 Frame、配额、拆分与转移 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint/Notification |
-| **DeviceGrant** | 设备 MMIO/DMA/IRQ 句柄集合 |
 | **Fault Endpoint** | 页错误与异常交付出口 |
-| **Native Task** | 用户态一等 Task：Arena + HandleTable + TCB(s) + 父子关系 |
+| **Native Task** | Task 的完整视图，跨内核与用户态：Arena + HandleTable + TCB(s) + 父子关系 + Cadence + Meter |
 | **Window Client** | Display Server 的客户端；可创建多个窗口 |
-| **Arena** | 任务内存根；持有地址空间、栈、堆与 Region 表，任务退出时整体回收 |
 | **Debug Server** | Task/资源视图、trace、符号化调试、`hk-dbg` |
 | **Toolchain Server** | 系统内编译/链接/打包/缓存 |
 | **Workbench** | 编辑/浏览/构建/运行/调试一体化原生应用 |
@@ -66,14 +65,28 @@
 | **pin** | 固定 Frame，保持驻留；用于 DMA、scanout |
 | **provenance** | 内存对象的原生来源：Revision/Surface/TaskImage/Device/Anonymous |
 
+### 1.2 Holy Cadence Model（HCM）
+
+| 术语 | 定义 |
+| --- | --- |
+| **HCM** | Holy Cadence Model；Holy 原生调度契约模型；CPU 时间的显式对象面 |
+| **Tempo Server** | 用户态调度策略服务；创建、拆分、调整、准入与撤销 Cadence |
+| **Beat** | 每 CPU 调度核心；类别队列、一次性定时器、抢占、空闲与负载均衡 |
+| **Grant** | 内核内部执行许可；某 Task 在某个 CPU 上可运行的时间片 |
+| **Lending** | `call` 期间的契约借贷；服务端取得调用方与服务端中更强的有效契约，caller pays |
+| **Throttled** | 预算用尽后的 Task 状态；到下一周期重新进入 Eligible |
+| **Latency / Throughput / Realtime / Idle** | HCM 的四个调度类别 |
+
 ## 2. 服务器
 
 | 术语 | 定义 |
 | --- | --- |
-| **Root Server** | 启动服务器、分配初始 Capacity/Handle、监督与重启 |
+| **Root Server** | 启动服务器、分配初始 Capacity/Cadence/Handle、监督与重启 |
+| **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence |
 | **Memory Server** | 持有 User Capacity，作为 Anonymous Provider 提供匿名能力与缺页 |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
-| **VFS Server** | 挂载表、路径解析、dentry/inode 缓存、文件句柄、页缓存 |
+| **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 |
+| **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |
 | **FS Backend** | ext2/ext4、HolyFS、tmpfs、devfs、procfs 等文件系统服务器 |
 | **HolyFS** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **Document** | HolyFS 文档；DocId + head 修订 + 校验和；内容与集合项住在修订里 |
@@ -124,8 +137,9 @@
 
 | 术语 | 定义 |
 | --- | --- |
-| **VFS** | 虚拟文件系统；挂载表、路径解析、文件句柄、页缓存 |
-| **Mount** | 文件系统挂载点；绑定 FS Backend Endpoint |
+| **VFS Server** | Holy 原生命名空间；盘符、DocId、集合、修订、文档令牌 |
+| **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |
+| **Mount** | 盘符到路径的投影；挂载表由 VFS 持有，Path Server 负责投影 |
 | **Dentry** | 路径组件到 inode 的缓存 |
 | **Inode** | 文件元数据与后端节点句柄 |
 | **ext2** | POSIX 根文件系统后端 |

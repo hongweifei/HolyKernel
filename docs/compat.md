@@ -264,14 +264,7 @@ ABI 契约：
 
 ## 10. 路线图
 
-- **M6 — 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
-- **M7 — 平台与引导**：HAL、BootInfo、ACPI/DTB、x86_64、AArch64、Limine/UEFI。
-- **M8 — 设备与存储**：Device Manager、virtio 驱动、DMA/IOMMU、VFS、HolyFS。
-- **M9 — 原生 UI 与工具链**：Display、指针、Console、Input、HolyDoc、Workbench、Toolchain Server。
-- **M10 — 兼容**：Compatibility Server supervisor、POSIX personality、musl 源码移植、ELF、fork/exec/wait、pthread/信号、Unix socket、Linux personality、glibc/musl 动态加载、`/proc`、vDSO、Wayland/XWayland、Harmony personality、`holybuild` 与 POSIX 工具链。
-- **M11 — 1.0 与多架构**：AArch64/RISC-V、conformance、硬化、fuzz、发布镜像、真机验证。
-
-路线按底层优先推进：M5 网络之后先完成 M6 底层收敛、M7 平台与引导、M8 设备与存储，再进入 M9 原生 UI 与 M10 兼容层。
+兼容层随 [路线图](roadmap.md) 的 M6–M11 推进；里程碑、退出标准与风险以路线图为准。
 
 ---
 

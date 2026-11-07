@@ -19,7 +19,7 @@ flowchart TB
         Native["HolyDoc · UI"]
     end
     subgraph Kernel["微内核"]
-        TCB["TCB / 调度"]
+        TCB["Task / Beat / 调度"]
         Arena["Arena / 内存"]
         HandleTable["HandleTable / 句柄"]
         IPC["Endpoint / Notification"]
@@ -37,7 +37,7 @@ flowchart TB
 
 **内核提供机制，服务器提供策略。** 驱动、文件系统、POSIX 兼容层与原生服务运行在用户态。
 
-核心抽象是 **Native Task**：Arena + HandleTable + TCB(s) + 父子关系 + 元数据。Arena 是任务内存根，持有地址空间、栈、堆与 Region 表。Task 拥有自己的内存与生命周期；Root Server 管理服务树，POSIX Server 管理进程树；调度保持固定优先级与同优先级轮转；IPC 保持快速路径；Debug Server 提供 Task/资源视图；Display Server 提供多窗口客户端与合成器。
+核心抽象是 **Native Task**：Arena + HandleTable + TCB(s) + 父子关系 + Cadence + Meter + 元数据。Arena 是任务内存根，持有地址空间、栈、堆与 Region 表。Task 拥有自己的内存与生命周期；Root Server 管理服务树，POSIX Server 管理进程树；调度由 Holy Cadence Model 定义：Task 持有 Cadence 契约，TCB 在契约内轮转，Tempo Server 授予策略，Meter 记录计量；IPC 保持快速路径；Debug Server 提供 Task/资源视图；Display Server 提供多窗口客户端与合成器。
 
 ---
 
@@ -45,7 +45,7 @@ flowchart TB
 
 ### 法则一：最小内核
 
-内核提供 TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQ 与调度。文件系统、网络、设备策略、POSIX 语义运行在用户态。HMP 是唯一内存面，内核与用户态服务共享同一对象图。
+内核提供 Task/TCB、Cadence/Meter、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、IRQ 与 Beat 调度。文件系统、网络、设备策略、POSIX 语义运行在用户态。HMP 是唯一内存面，内核与用户态服务共享同一对象图。
 
 ### 法则二：句柄即权限
 
@@ -69,7 +69,7 @@ Root Server 监督服务器生命周期。驱动、文件系统、POSIX Server�
 
 ### 法则七：最小可信基
 
-内核、Root Server、POSIX Server与文件系统服务器构成可信基。驱动与可选原生服务按最小权限运行。
+内核、Root Server、VFS Server、根文件系统后端（ext4/HolyFS 卷服务）构成可信基；POSIX Server 在启用兼容环境时加入。驱动与可选原生服务按最小权限运行。
 
 ### 法则八：多架构
 
@@ -97,7 +97,10 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 
 | 构件 | 职责 |
 | --- | --- |
-| **TCB** | 线程控制块；寄存器上下文、优先级、亲和性、状态 |
+| **Task** | 调度主体；持有 Cadence、Meter、TCB(s) 与父子关系 |
+| **Cadence** | 时间契约；类别、权重、预算、周期、截止期、延迟目标、亲和性、lending |
+| **Meter** | 调度计量；消耗、等待、节流、迁移、切换、虚拟进度 |
+| **TCB** | 执行单元；寄存器上下文、所属 Task、状态 |
 | **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆 |
 | **HandleTable** | 每 Task 的句柄表；槽位、generation、rights |
 | **Endpoint** | 同步 IPC；发送/接收、阻塞、句柄传递 |
@@ -112,7 +115,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **IRQHandler** | 中断句柄；绑定 Endpoint、EOI |
 | **DeviceGrant** | 设备 MMIO / DMA / IRQ 句柄集合 |
 
-内核范围：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQ 机制；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
+内核范围：Task/TCB、Cadence/Meter、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQ 与 Beat；文件系统、网络协议栈、POSIX syscall、设备类驱动与 shell 位于用户态服务。
 
 ---
 
@@ -121,6 +124,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | 服务器 | 职责 |
 | --- | --- |
 | **Root Server** | 启动服务器、分配初始句柄、监督与重启 |
+| **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **Network Driver** | virtio-net / e1000；持有 DeviceGrant，向 Network Server 提供 Net Endpoint |
 | **Block Driver** | virtio-blk / AHCI；向文件系统服务器提供块设备 Endpoint |
@@ -128,11 +132,12 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、Unix 套接字、`fork`/`exec` |
 | **Network Server** | TCP/IP、UDP、DHCP、DNS、socket、策略；向 POSIX Server提供 socket 后端 |
 | **Display Server** | 帧缓冲、窗口、输入、真彩 UI |
-| **VFS Server** | 挂载表、路径解析、文件句柄、页缓存 |
+| **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 |
+| **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |
 | **HolyFS Server** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **HolyDoc Server** | 可选活文档渲染与链接 |
 
-服务器通过句柄与 IPC 组合；每个服务器拥有自己的 Arena 与最小权限集合。
+服务器通过句柄与 IPC 组合；每个服务器拥有自己的 Arena 与最小权限集合。完整服务器清单与职责以 [服务器](servers.md) 为准；本表只列架构边界构件。
 
 ---
 
@@ -191,9 +196,10 @@ HolyDoc 与真彩 UI 作为可选原生服务；HolyFS 以 `H:` 盘符提供 Hol
 8. **多架构**：HAL 之上共享一套内核与服务器语义。
 9. **可观察与可测试**：trace、确定性模拟、故障注入、POSIX 测试套件。
 10. **小步交付**：每个里程碑形成可演示的纵向切片。
-11. **Native Task**：Arena + HandleTable + TCB(s) + 父子关系；Arena 是任务内存根，持有地址空间、栈、堆与 Region 表；Root/POSIX Server 管理 Task 树；窗口由 Display Server 独立管理。
+11. **Native Task**：Arena + HandleTable + TCB(s) + 父子关系 + Cadence + Meter；Arena 是任务内存根，持有地址空间、栈、堆与 Region 表；Root/POSIX Server 管理 Task 树；窗口由 Display Server 独立管理。
 12. **Holy 原生体验**：HolyDoc 作为 UI 基底；Workbench 一体化编辑/浏览/构建/运行；Toolchain Server 系统内构建；Checkpoint 快照/恢复；Debug Server 符号化调试；Home/Once 可执行启动文档；Sprite/Font 编辑器；文本回退；可增长栈；Task 消息。
 13. **统一内存面**：HMP 是唯一内存契约；Capacity/Frame/Region 对所有持权服务统一开放，Root Server 通过服务清单决定初始授予，内核只校验 Handle/Rights/ObjectKind。
+14. **调度契约**：Holy Cadence Model 是唯一调度契约；Task 持有 Cadence，TCB 在 Task 内轮转，Tempo 授予策略，Meter 记录计量；Root Server 决定初始授予。
 
 ---
 

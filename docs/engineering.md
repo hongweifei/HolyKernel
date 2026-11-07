@@ -15,6 +15,7 @@ HolyKernel/
 ├── crates/
 │   ├── shared/            共享契约
 │   │   ├── hk-base（地址、架构、启动信息、时间、用户布局）
+│   │   ├── hk-cadence（规划：Cadence/Meter、调度类别、虚拟时间数学）
 │   │   ├── hk-syscall hk-device hk-image hk-checkpoint
 │   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态）
 │   ├── kernel/            内核侧
@@ -29,7 +30,7 @@ HolyKernel/
 │       └── hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
 │           hk-async hk-coroutine hk-debug hk-server-build
 ├── platforms/             x86_64-qemu、hosted
-├── servers/               常驻用户态服务
+├── servers/               常驻用户态服务（含规划中的 tempo）
 ├── clients/               网络状态与 `*-test` 自检客户端
 ├── demos/                 demo/echo/fault/fork/latency/spin 演示服务
 ├── scripts/               随镜像打包的 HolyShell 脚本
@@ -133,10 +134,10 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 ### 单元
 
-- 内核：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）。
-- 服务器：Root Server 状态机、VFS 路径/缓存、ext2、POSIX fd/信号。
+- 内核：Task/TCB、Cadence/Meter、Beat、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）。
+- 服务器：Root/Tempo 状态机与 Cadence 授予、VFS/Path 缓存与路径、ext2、POSIX fd/信号。
 - 网络：ARP/IPv4/IPv6、TCP 状态机、UDP、DHCP、DNS、socket 表。
-- HolyFS：对象表、修订链、集合关系、allocator、checksum、COW 事务、压缩、快照、VFS 适配层。
+- HolyFS：对象表、修订链、集合关系、allocator、checksum、COW 事务、压缩、快照、远程 VFS 后端。
 - 原生体验：HolyDoc 表单、Workbench 服务调用、Toolchain 构建缓存、Checkpoint/restore、Debug 符号化。
 - libc：musl 单元测试、`hk-abi` shim、`hk-crt` 启动/TLS、errno。
 
@@ -186,7 +187,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - **隔离**：内核与用户态分离；每个 Task 独立 Arena。
 - **最小权限**：服务器只获得职责所需的 Handle。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启回收旧句柄。
-- **可信基**：内核、Root Server、POSIX Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务。
+- **可信基**：内核、Root Server、VFS Server、根文件系统后端（ext4/HolyFS）；POSIX Server 在启用兼容环境时加入。
 - **Rust**：内核与服务器使用 Rust；`unsafe` 最小化、注释、审计。
 - **`unsafe` 规则**：每个块有 `// SAFETY:`；可变全局状态用 `Atomic*`/`SpinLock`/`Once`；裸指针集中在 MMIO/DMA/页表/上下文切换。
 - **验证**：fuzz、确定性模拟、POSIX 测试、服务器重启测试。
@@ -243,7 +244,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 5. 每个平台通过 conformance suite 后标记支持。
 6. 基准预算达标是里程碑退出条件。
 7. 构建可复现。
-8. 系统由微内核与用户态服务器组成：TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
+8. 系统由微内核与用户态服务器组成：Task/TCB、Cadence/Meter、Beat、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
 9. 内核与用户态服务共享同一组 HMP 对象、Rights 与 Ledger 规则；内存授权由 Handle、Rights 与 ObjectKind 决定。
 
 ---

@@ -47,7 +47,7 @@ M5 需要 Ethernet、ARP/NDP、IPv4/IPv6、ICMP、UDP、TCP、DHCP 与 DNS。自
 ## 架构一致性检查
 
 - 驱动持有 DeviceGrant，通过 IOMMU/DMA/IRQ 与设备交互；Network Server 只处理 Frame 与协议。
-- smoltcp 运行在用户态 Network Server，不进入内核；内核只提供 Endpoint/Notification/Frame/Handle。
+- smoltcp 运行在用户态 Network Server，不进入内核；内核提供 Task/Cadence、Endpoint/Notification/Frame/Handle。
 - Socket Handle 由 Network Server 签发；POSIX Server 在 M10 做 fd 映射，不复制协议状态。
 - 驱动与 Network Server 均可由 Root Server 重启；客户端按服务名重连。
 

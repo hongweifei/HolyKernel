@@ -13,6 +13,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
 | L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
+| L0 | 共享契约 | `hk-cadence`（规划） | Cadence/Meter 类型、调度类别、虚拟时间数学与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
@@ -26,7 +27,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L2 | 用户态 | `hk-block`、`hk-vfs`、`hk-fs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs` | 块契约、命名空间、文件系统契约与实现 |
 | L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 适配、像素绘制、工作线程与并发库、符号化与回溯 |
 | L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
-| L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务 |
+| L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo`（规划）承载 Cadence 策略与准入 |
 
 `hk-shell` 与 `hk-syscall` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现。
 
@@ -69,6 +70,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
 | 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
 | HMP 对外词汇、Rights 与授予面 | [HMP 文档](hmp.md) 与 [ADR-0016](adr/0016-hmp-native-contract.md) |
+| 调度契约、Cadence/Meter 词汇与授予面 | [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md)；共享类型 `hk-cadence`（规划） |
 | 服务角色元数据与 `.hk_service` 段 | `crates/shared/hk-image/src/role.rs` |
 | 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |

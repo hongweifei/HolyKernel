@@ -23,7 +23,7 @@ HolyShell 是原生命令行与脚本环境。**Holy 命令是主路径**；POSI
 
 - **HolyShell**：命令行解析、命令注册表、结构化管道、脚本执行。
 - **Command Registry**：原生命令元数据（名称、用法、所需 Handle、输出 schema）。
-- **Native Commands**：`tasks`、`services`、`handles`、`mounts`、`build`、`run`、`debug` 等。
+- **Native Commands**：`tasks`、`cadence`、`meter`、`tempo`、`services`、`handles`、`mounts`、`build`、`run`、`debug` 等。
 - **POSIX Bridge**：`posix` 命令；启动 POSIX session 或运行 `/usr/bin/<cmd>`。
 - **Console Service**：终端显示与输入；原生模式与 POSIX 模式共用窗口。
 - **Workbench**：内置 HolyShell 面板与命令输出视图。
@@ -51,7 +51,7 @@ flowchart TB
     HolyShell -->|posix| Bridge["POSIX Bridge"]
     Bridge --> PosixSrv["POSIX Server"]
     PosixSrv --> PosixCmd["/bin/sh · coreutils<br/>fd/pipe/signal"]
-    Native --> Services["Root / VFS / Debug / Toolchain"]
+    Native --> Services["Root / Tempo / VFS / Path / Debug / Toolchain"]
     HolyShell --> Console["Console / Workbench 窗口"]
 ```
 
@@ -125,6 +125,11 @@ holy> debug app
 | 命令 | 作用 |
 | --- | --- |
 | `tasks` | 列出 Native Task/TCB、状态、Arena、Region、Ledger、子 Task |
+| `cadence <task>` | 查看 Task 的 Cadence 契约：类别、权重、预算、周期、截止期、亲和性、lending |
+| `meter <task>` | 查看 Task 的 Meter：消耗、等待、节流、超限、迁移、切换、虚拟进度 |
+| `tempo` | 查看 Tempo 策略、准入与全局 Cadence 池 |
+| `admit <task>` | 由特权 Shell 请求 Tempo 准入 Realtime 契约 |
+| `revoke <task>` | 由特权 Shell 请求 Tempo 撤销并重新授予契约 |
 | `focus` | 选择当前 Native Task（会话焦点） |
 | `start` | 按需装载并启动服务模块 |
 | `restart` | 重新装载并启动已退出的服务模块 |
@@ -137,8 +142,8 @@ holy> debug app
 | `tags-of` | 列出文档所属标签 |
 | `tag-members` | 列出标签成员 |
 | `tag-create` / `tag-drop` | 创建或删除标签 |
-| `trace` | 查看最近的内核 trace 事件（含句柄审计） |
-| `stats` | 查看上下文切换与 IPC call/reply 时延统计 |
+| `trace` | 查看最近的内核 trace 事件（含句柄审计），并支持打开/关闭 trace |
+| `stats` | 查看上下文切换、IPC call/reply 时延、调度份额与节流统计 |
 | `docs` | 列出/搜索 HolyDoc |
 | `open` | 打开文档/窗口 |
 | `edit` | 编辑源码或 HolyDoc |
@@ -148,7 +153,6 @@ holy> debug app
 | `replace` | 用另一原生镜像热替换服务（`replace <服务> <镜像>`） |
 | `checkpoint` / `restore-checkpoint` | Native Task 检查点与恢复 |
 | `snapshot` / `restore` | Checkpoint Server 快照/恢复 |
-| `trace` | 打开/关闭 trace，查看事件 |
 | `theme` | 切换显示主题 |
 | `posix` | 进入 POSIX 兼容环境 |
 | `help` | 打开 HolyDoc 帮助 |
@@ -220,13 +224,15 @@ holy> run /usr/bin/ls -l /home
 ```text
 Kernel
   → Root Server
-    → Console / Display
+    → Tempo / Device Manager / VFS / Path / Memory
+    → Display / Input / Console
     → HolyShell（原生主路径）
-    → VFS / Debug / Toolchain
+    → Toolchain / Debug / Checkpoint
     → POSIX Server（可选兼容环境）
       → /sbin/init（PID 1）
 ```
 
+- 完整启动流程与顺序以 [总体架构](architecture.md) 为准。
 - HolyShell 在 POSIX Server 之前可用。
 - POSIX Server 可选；启用时提供 `/bin/sh` 与 coreutils。
 - `/sbin/init` 是 POSIX 环境的 init；原生启动由 Root Server 与服务清单管理。

@@ -10,7 +10,7 @@
 
 ### 目标
 
-1. **一套内核**：`hk-kernel`、`hk-mem`、`hk-exec`、`hk-ipc`、`hk-handle` 通过 HAL 访问平台。
+1. **一套内核**：`hk-kernel`、`hk-mem`、`hk-ipc`、`hk-handle` 通过 HAL 访问平台。
 2. **统一 BootInfo**：memory map、内核镜像、帧缓冲、DTB/RSDP、服务器模块。
 3. **用户态驱动**：DeviceGrant 授予 MMIO/DMA/IRQ；驱动运行在用户态。
 4. **多架构**：x86_64、AArch64、RISC-V、Hosted 共享同一套语义。
@@ -42,7 +42,7 @@
 
 ```mermaid
 flowchart TB
-    Core["微内核：TCB · Arena · HandleTable · Endpoint · HMP"]
+    Core["微内核：Task · Cadence · Meter · Beat · Arena · HandleTable · Endpoint · HMP"]
     HAL["hk-hal traits"]
     X["x86_64"]
     A["AArch64"]
@@ -110,32 +110,18 @@ pub struct BootInfo {
 
 ## 5. 启动流程
 
-```mermaid
-sequenceDiagram
-    participant FW as Firmware / Bootloader
-    participant K as Microkernel
-    participant Root as Root Server
-    participant DM as Device Manager
-    participant VFS as VFS Server
-    participant Shell as HolyShell
-    participant Net as Network Server
-    participant POSIX as POSIX Server
-    FW->>K: 载入内核 + BootInfo + 服务器模块
-    K->>K: 初始化 Capacity、Arena、TCB、IPC
-    K->>Root: 启动 Root Task（初始句柄）
-    Root->>DM: 启动设备管理器
-    DM->>DM: 枚举 PCI/DTB、启动驱动
-    Root->>VFS: 启动 VFS + 根文件系统
-    Root->>Net: 启动 Network Server
-    Root->>Shell: 启动 HolyShell
-    opt 启用 POSIX 兼容环境
-        Root->>POSIX: 启动 POSIX Server
-        POSIX->>VFS: 挂载 /、启动 /sbin/init
-    end
+启动流程与顺序以 [总体架构](architecture.md) 为准：
+
+```text
+Firmware / Bootloader → Kernel → Root Server
+  → Tempo / Device Manager / VFS / Path / Memory
+  → Display / Input / Console
+  → HolyShell
+  → POSIX Server（可选）
 ```
 
-- 内核只创建 Root Task，并把初始 Capacity/HandleTable/Endpoint 交给它。
-- Root Server 按服务清单启动服务器，分配最小 Handle；HolyShell 是默认命令行。
+- 内核只创建 Root Task，并把初始 Capacity、Cadence、HandleTable 与 Endpoint 交给它。
+- Root Server 按服务清单启动服务器，分配最小 Handle 与初始 Cadence；HolyShell 是默认命令行。
 - POSIX Server 是可选兼容环境，启用时启动 `/sbin/init`。
 - 服务器镜像由 bootloader 作为模块提供；Root Server 加载原生任务镜像（HKX）。
 

@@ -1,4 +1,3 @@
-
 # ADR-0009：用户态网络服务
 
 - 状态：**已接受**
@@ -47,7 +46,7 @@
 
 ## 架构一致性检查
 
-- 内核提供 TCB、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQHandler。
+- 内核提供 Task/TCB、Cadence/Meter、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）、IRQHandler。
 - Network Server 通过 Net Endpoint 访问 Network Driver；Network Driver 持有 DeviceGrant。Network Server 通过 Socket Handle 服务客户端。
 - POSIX Server 维护 fd 表；fd 映射到 Socket Handle。
 - 网络配置与审计通过 Endpoint 显式授权。

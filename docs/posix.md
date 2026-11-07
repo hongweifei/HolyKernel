@@ -14,8 +14,8 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 
 1. **POSIX 兼容环境**：通过 `posix` 入口提供进程、文件、目录、信号、线程、管道、FIFO、Unix 套接字、共享内存、定时器；默认命令行走 HolyShell。
 2. **musl + ABI shim**：musl 提供 C 运行时、pthreads、stdio、malloc；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 作为薄兼容层。
-3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核只提供 TCB、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
-4. **VFS 集成**：文件与目录操作通过 VFS Server；文件系统后端为 ext2/ext4、tmpfs、devfs、procfs；HolyFS 经适配层提供 Holy 文档。
+3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核提供 Task/TCB、Cadence/Meter、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）与 Handle。
+4. **VFS 集成**：文件与目录操作通过 Path Server 投影到 VFS Server；文件系统后端为 ext2/ext4、tmpfs、devfs、procfs；HolyFS 由独立服务提供，经 VFS 远程后端接入。
 5. **进程模型**：`fork`、`exec`、`wait`、`exit`、进程组、会话、作业控制。
 6. **线程模型**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
 7. **兼容性测试**：POSIX 测试套件 + 自有回归 + 应用示例。
@@ -49,17 +49,20 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 flowchart TB
     App["POSIX 应用<br/>C / C++ / Rust"] --> Libc["musl + hk-abi<br/>C ABI · pthread · signal · ELF"]
     Libc -->|IPC| POSIX["POSIX Server<br/>PID · fd · signal · process group"]
-    POSIX -->|FileHandle| VFS["VFS Server"]
+    POSIX -->|FileHandle| Path["Path Server"]
+    Path -->|盘符投影| VFS["VFS Server"]
     POSIX -->|socket| Net["Network Server"]
-    POSIX -->|invoke| Kernel["Arena · TCB · HMP Region · Endpoint"]
-    VFS --> FS["ext2/ext4 · HolyFS · tmpfs · devfs · procfs"]
+    POSIX -->|invoke| Kernel["Task · TCB · Cadence · HMP Region · Endpoint"]
+    VFS --> FS["ext2/ext4 · tmpfs · devfs · procfs"]
+    VFS --> Holy["HolyFS Server"]
 ```
 
 - **musl + `hk-abi`**：musl 提供 C 运行时与 POSIX 函数；`hk-abi` 把 POSIX 调用转换为 POSIX Server IPC；`hk-crt` 提供启动与 ELF 加载。
 - **POSIX Server**：维护进程、fd、信号、进程组、会话、管道、Unix 套接字。
-- **VFS Server**：路径解析、挂载表、文件句柄、页缓存。
+- **Path Server**：路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影。
+- **VFS Server**：Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌。
 - **Network Server**：socket 后端。
-- **内核**：提供 Arena/TCB/HMP（Capacity/Frame/Region）/Endpoint 等机制。
+- **内核**：提供 Task/TCB、Cadence/Meter、Arena、HMP（Capacity/Frame/Region）与 Endpoint 等机制。
 
 ---
 
@@ -96,7 +99,7 @@ pub struct Process {
 - **fd 表**：fd → `FdEntry`（File、Pipe、Socket、Event、Timer）。
 - **信号状态**：pending、blocked、handler、默认动作。
 - **凭证**：uid/gid/groups；1.0 使用单用户默认值，接口保留多用户扩展；内核权限模型见 [权限模型](permissions.md)。
-- **cwd/root**：POSIX 路径起点；VFS 路径解析使用。
+- **cwd/root**：POSIX 路径起点；Path Server 路径解析使用。
 - **退出状态**：父进程通过 `wait` 获取。
 
 ---
@@ -136,7 +139,7 @@ pub enum PosixRequest {
 ```
 
 - FrameRef 是共享 Frame Handle + 偏移/长度。
-- POSIX Server 通过 VFS/Network Endpoint 转发请求。
+- POSIX Server 通过 Path/VFS/Network Endpoint 转发请求。
 - 错误码使用 POSIX `errno` 数值；libc 设置 `errno`。
 
 ### 4.3 启动
@@ -197,7 +200,7 @@ sequenceDiagram
 ```
 
 - 子进程获得新 Arena；页映射标记只读，写时复制。
-- fd 表复制；共享 `OpenFile` 偏移由 VFS 维护。
+- fd 表复制；共享 `OpenFile` 偏移由 Path Server 维护。
 - 信号处理继承；pending 集合清空。
 - 失败时返回 `-1` 并设置 `errno`。
 
@@ -248,27 +251,27 @@ flowchart LR
 
 ---
 
-## 8. 文件与 VFS
+## 8. 文件、Path Server 与 VFS
 
-- POSIX Server 的 fd 表指向 VFS `FileHandle`。
-- `open`：POSIX Server 调用 VFS `open`，获得 `FileHandle`。
-- `read`/`write`：通过共享 Frame 传输数据；VFS 命中页缓存时零拷贝。
-- `stat`/`readdir`/`rename`/`unlink`：转发到 VFS。
+- POSIX Server 的 fd 表指向 Path Server 的 `FileHandle`。
+- `open`：POSIX Server 调用 Path Server `open`，获得 `FileHandle`。
+- `read`/`write`：通过共享 Frame 传输数据；Path Server 命中页缓存时零拷贝，未命中则转发 VFS。
+- `stat`/`readdir`/`rename`/`unlink`：转发到 Path Server。
 - `dup`/`dup2`：复制 fd 条目，共享 `OpenFile`。
-- `fcntl`：flags、锁、`O_APPEND` 由 POSIX Server 与 VFS 协作。
-- `mount`/`umount`：转发到 VFS 挂载表。
-- 设备文件：VFS devfs 后端转发到设备 Endpoint。
-- HolyFS 以 Holy 卷工作：VFS 通过适配层把路径与偏移映射为文档对象、修订与集合操作；适配层承担 POSIX 语义，HolyFS 磁盘格式保持 Holy 模型。
+- `fcntl`：flags、锁、`O_APPEND` 由 POSIX Server 与 Path Server 协作。
+- `mount`/`umount`：查询或更新 VFS 盘符表，Path Server 负责路径投影。
+- 设备文件：VFS 的 devfs 后端转发到设备 Endpoint，Path Server 提供 `/dev` 投影。
+- HolyFS 以 Holy 卷工作：VFS 通过远程 Holy 后端把盘符与偏移映射为文档对象、修订与集合操作；Path Server 在路径边界承担 POSIX 语义。
 - HolyFS 卷可作为兼容环境的数据挂载点，同时以 `H:` 盘符供原生应用访问。
 
-详见 [VFS](vfs.md)。
+详见 [VFS 与 Path Server](vfs.md)。
 
 ---
 
 ## 9. 管道、FIFO、套接字
 
 - **pipe**：POSIX Server 创建一对共享 Frame + Notification；fd 表保存读/写端。
-- **FIFO**：VFS 中的命名管道节点；打开时连接 POSIX Server 的管道对象。
+- **FIFO**：Path Server 中的命名管道节点；打开时连接 POSIX Server 的管道对象。
 - **Unix 域套接字**：POSIX Server 管理端点与连接队列；数据通过 Frame 传递。
 - **网络套接字**：POSIX Server 转发到 Network Server；支持 AF_INET/AF_INET6 的 TCP/UDP、loopback、AF_UNIX；详见 [网络](network.md)。
 - `select`/`poll`：POSIX Server 聚合 fd 事件；`epoll` 属于后续版本。
@@ -278,7 +281,7 @@ flowchart LR
 ## 10. 内存
 
 - `brk`/`sbrk`：POSIX Server 扩展进程 heap；增长 `Anonymous + GROW` 的 Region。
-- `mmap`：文件映射通过 VFS 页缓存与 Revision Region；匿名映射通过 Anonymous Capability；共享映射通过 Capability/Frame 创建 Region。
+- `mmap`：文件映射通过 Path Server 页缓存与 Revision Region；匿名映射通过 Anonymous Capability；共享映射通过 Capability/Frame 创建 Region。
 - `mprotect`：修改 Region 权利；W^X 检查。
 - `munmap`：解除 Region 并释放 Frame 引用。
 - `fork` COW：复制 Region 表并标 `RegionFlags::COW`；页错误按 Provider 契约处理。
@@ -319,10 +322,10 @@ flowchart LR
 | --- | --- |
 | musl / ABI 单元 | 字符串、stdio、malloc、pthread、signal、errno、shim |
 | POSIX Server | PID/fd 表、fork/exec/wait、信号、pipe、socket |
-| VFS 集成 | open/read/write/stat/readdir/rename/unlink、挂载 |
+| VFS/Path 集成 | open/read/write/stat/readdir/rename/unlink、挂载 |
 | POSIX 套件 | POSIX.1 测试集、文件/进程/线程/信号用例 |
 | 应用回归 | shell、coreutils、编译器、脚本运行时 |
-| 故障注入 | POSIX Server 崩溃、VFS 崩溃、驱动崩溃、EIO 传播 |
+| 故障注入 | POSIX Server 崩溃、VFS/Path 崩溃、驱动崩溃、EIO 传播 |
 | 基准 | fork+exec、open/read/write、pthread 创建、pipe 吞吐 |
 
 ---
@@ -348,7 +351,7 @@ flowchart LR
 - [总体架构](architecture.md)
 - [权限模型](permissions.md)
 - [网络](network.md)
-- [VFS](vfs.md)
+- [VFS 与 Path Server](vfs.md)
 - [HolyFS 文件系统](holyfs.md)
 - [服务器](servers.md)
 - [内存模型（HMP）](hmp.md)

@@ -13,7 +13,7 @@
 1. **文档即界面**：帮助、设置、表单、调试面板、源码浏览共用 HolyDoc。
 2. **一个工作台**：编辑、浏览、构建、运行、调试在同一个原生应用里完成。
 3. **系统内工具链**：编译、链接、打包、运行由 Toolchain Server 提供。
-4. **Task 命名空间**：每个 Native Task 拥有符号表与父链；服务按 Task 作用域注册。
+4. **Task 命名空间**：每个 Native Task 拥有符号表、父链、Cadence 与 Meter；服务按 Task 作用域注册。
 5. **整文件文档 I/O**：HolyDoc/原生文档整体读写、透明压缩、内容缓存；HolyFS 提供底层文件系统与 Document API。
 6. **可检查点**：Native Task/Server 可 checkpoint/restore，支持快速重启与状态恢复。
 7. **符号化调试**：Debug Server 把地址映射到源码、符号与 HolyDoc。
@@ -35,7 +35,7 @@ flowchart TB
     Home["Home / Once 文档<br/>启动与用户配置"]
     Assets["Sprite / Font 编辑器<br/>原生资源"]
     Display["Display Server<br/>多窗口 · 合成器"]
-    VFS["VFS Server<br/>整文件缓存 · 压缩"]
+    VFS["Path Server<br/>整文件缓存 · 压缩"]
 
     Workbench --> HolyDoc
     Workbench --> Toolchain
@@ -56,7 +56,7 @@ HolyDoc 同时服务文档与原生 UI：
 
 - **帮助**：符号、服务、POSIX 路径、调试信息都可链接到 HolyDoc。
 - **设置**：系统设置以 HolyDoc 表单呈现，提交调用原生函数。
-- **调试面板**：Task、TCB、Arena、Region、Ledger、HandleTable、Endpoint 以 HolyDoc 表格/树展示。
+- **调试面板**：Task、Cadence、Meter、TCB、Arena、Region、Ledger、HandleTable、Endpoint 以 HolyDoc 表格/树展示。
 - **源码浏览**：源码文档带语法高亮、符号链接、错误位置跳转。
 - **可执行块**：`@exec` 在沙箱中运行，结果显示为只读块。
 - **嵌入资源**：Sprite、Font、图像直接嵌入文档。
@@ -99,7 +99,7 @@ Workbench 是原生一体化应用：
 - **编译期执行**：`@build { ... }` 在构建阶段运行，生成表、资源、配置。
 - **隐藏链接步骤**：用户看到“构建文档”，Toolchain Server 负责目标文件/链接细节。
 - 产物：原生模块、静态/动态应用、资源包、HolyDoc 资产。
-- 缓存：按源码哈希缓存构建产物，放在 VFS 中。
+- 缓存：按源码哈希缓存构建产物，放在 VFS 卷中。
 - 与 POSIX 工具链并存：POSIX 环境仍可使用常规 cc/make。
 
 ```text
@@ -113,7 +113,7 @@ Workbench 是原生一体化应用：
 
 ## 6. Task 命名空间
 
-- 每个 Native Task 拥有可选 **符号表**：服务名、函数、资源、调试符号。
+- 每个 Native Task 拥有可选 **符号表**：服务名、函数、资源、调试符号；同时持有 Cadence 与 Meter，供 Workbench/Debug 查看契约与计量。
 - 名字解析沿父 Task 链向上，最终到 Root Server 的全局表。
 - 服务注册是显式的：Task 启动时向父 Task 注册 Endpoint 与元数据。
 - Handle 仍是访问凭据；符号表只负责名字解析与调试展示。
@@ -125,7 +125,7 @@ Workbench 是原生一体化应用：
 
 - HolyDoc 与原生文档默认**整体读写**：一次读入、一次写回。
 - 透明压缩：压缩后更大则存原始；压缩算法与长度写入元数据。
-- 内容哈希：按哈希缓存与去重；VFS 缓存命中时零拷贝。
+- 内容哈希：按哈希缓存与去重；Path Server 缓存命中时零拷贝。
 - 大文档使用显式 Stream；默认路径保持整文件语义。
 - POSIX 文件仍按 ext2 语义；整文件缓存主要服务 HolyDoc/原生资产。
 
@@ -138,7 +138,7 @@ sequenceDiagram
     participant Root as Root Server
     participant CP as Checkpoint Server
     participant Task as Native Task
-    participant VFS as VFS
+    participant VFS as Path Server
     Root->>CP: checkpoint(task)
     CP->>Task: suspend
     CP->>Task: 读取 Region / Frame / HandleTable / TCB 状态
@@ -151,7 +151,7 @@ sequenceDiagram
 
 - Native Task/Server 可 checkpoint：Region 映射、Frame 内容、HandleTable 状态、TCB 寄存器、Arena。
 - 已落地：捕获用户页内容（零页省略）并序列化为版本化快照；默认在 Root 内存恢复，`checkpoint.disk` 可写 `H:/Checkpoints` 分块并读回；设备、共享 Frame、COW Region 与线程任务暂不支持。
-- 目标：快照写入 VFS；恢复时重建 Task 与 Handle。
+- 目标：快照写入 VFS/Path；恢复时重建 Task 与 Handle。
 - 用于快速重启、调试回放、升级前备份。
 - POSIX 进程采用进程语义；Checkpoint 由 POSIX Server 按策略提供。
 
@@ -175,7 +175,7 @@ sequenceDiagram
 - **MakeHome**：重新生成 Home 的脚本/文档。
 - 启动文档是可执行 HolyDoc；启动与配置集中在文档中。
 - 已落地：Shell 启动时读取 `H:/Home` 并执行其中的 `@exec` 行；`H:/Once` 仅在首次启动执行，完成后写入 `H:/Once.done`，后续启动跳过。`@exec` 行直接交给 Shell 命令解析，因此可以启动服务、创建标签或写配置。
-- POSIX 环境对应 `/etc/holy/`、`/home/<user>/`；原生环境对应 VFS 路径。
+- POSIX 环境对应 `/etc/holy/`、`/home/<user>/`；原生环境对应 VFS 盘符路径。
 
 ---
 
@@ -226,7 +226,7 @@ sequenceDiagram
 | 快照/恢复 | Checkpoint Server |
 | 启动/用户配置 | Home / Once 文档 |
 | 图形/字体资源 | Sprite/Font 编辑器 + Display Server |
-| 整文件缓存/压缩 | VFS Server |
+| 整文件缓存/压缩 | Path Server |
 | Task 命名空间 | Root/POSIX Server + Native Task |
 
 ---
@@ -238,7 +238,7 @@ sequenceDiagram
 3. Toolchain Server 隐藏链接细节；构建产物按内容哈希缓存。
 4. Task 符号表只负责名字解析与调试；访问凭据仍是 Handle。
 5. 整文件文档 I/O 采用原子提交；大文档使用显式 Stream。
-6. Checkpoint 快照包含 Arena、HandleTable、TCB；恢复后句柄重新分配。
+6. Checkpoint 快照包含 Arena、HandleTable、TCB、Cadence 与 Meter；恢复后句柄重新分配，Tempo 重新准入契约。
 7. Debug Server 的所有操作需要显式 Handle。
 8. Home/Once 是可执行文档；首次启动只执行一次。
 9. 文本回退始终可用。
@@ -263,6 +263,6 @@ sequenceDiagram
 - [总体架构](architecture.md)
 - [服务器](servers.md)
 - [HolyDoc 与 UI](ui.md)
-- [VFS](vfs.md)
+- [VFS 与 Path Server](vfs.md)
 - [POSIX 与 libc](posix.md)
 - [工程策略](engineering.md)

@@ -1,6 +1,6 @@
 # Holy Memory Plane（HMP）
 
-状态：**设计基线** · 上级：[总体架构](architecture.md) · 决策：[ADR-0016](adr/0016-hmp-native-contract.md)
+状态：**已接受** · 上级：[总体架构](architecture.md) · 决策：[ADR-0016](adr/0016-hmp-native-contract.md)
 
 HMP 是 HolyKernel 的内存平面。内存在 Holy 原生对象图中是一等对象：`Arena` 承载任务内存，`Capacity` 授予物理容量，`Frame` 承载物理页，`Region` 把类型化能力映射进 Arena，`Provider` 提供页与回写，`Ledger` 记录容量与压力。
 
