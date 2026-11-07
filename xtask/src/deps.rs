@@ -108,75 +108,20 @@ enum Side {
     Host,
 }
 
-/// 内核侧 crate。
-const KERNEL_CRATES: &[&str] = &[
-    "hk-acpi",
-    "hk-boot",
-    "hk-drivers",
-    "hk-framebuffer",
-    "hk-hal",
-    "hk-handle",
-    "hk-ipc",
-    "hk-kernel",
-    "hk-kernel-shell",
-    "hk-mem",
-    "hk-platform-hosted",
-    "hk-platform-x86_64",
-    "hk-root-server",
-    "hk-runtime",
-    "hk-sim",
-    "hk-smp",
-    "hk-test",
+/// 共享契约、内核侧与用户态 crate 的目录。
+const SIDE_DIRECTORY: [(&str, Side); 3] = [
+    ("kernel", Side::Kernel),
+    ("shared", Side::Shared),
+    ("user", Side::User),
 ];
 
-/// 用户态库 crate。
-const USER_CRATES: &[&str] = &[
-    "hk-async",
-    "hk-block",
-    "hk-canvas",
-    "hk-coroutine",
-    "hk-debug",
-    "hk-driver-virtio",
-    "hk-fs",
-    "hk-fs-ext4",
-    "hk-fs-holyfs",
-    "hk-fs-holyfs-vfs",
-    "hk-net",
-    "hk-proto",
-    "hk-server-api",
-    "hk-server-build",
-    "hk-sync",
-    "hk-thread",
-    "hk-vfs",
-    "hk-worker",
-];
-
-/// 共享契约 crate：只依赖更底层的共享契约。
-const SHARED_CRATES: &[&str] = &[
-    "hk-base",
-    "hk-checkpoint",
-    "hk-device",
-    "hk-font",
-    "hk-image",
-    "hk-shell",
-    "hk-syscall",
-];
-
-fn side_of(name: &str) -> Option<Side> {
-    if KERNEL_CRATES.contains(&name) {
-        Some(Side::Kernel)
-    } else if USER_CRATES.contains(&name) {
-        Some(Side::User)
-    } else if SHARED_CRATES.contains(&name) {
-        Some(Side::Shared)
-    } else {
-        None
-    }
-}
-
-fn side_of_path(name: &str, path: &Path, root: &Path) -> Option<Side> {
-    if let Some(side) = side_of(name) {
-        return Some(side);
+/// 依赖分类来自 crate 所在目录；`servers`、`clients`、`demos` 归用户态，
+/// `platforms` 归内核侧。
+fn side_of_path(path: &Path, root: &Path) -> Option<Side> {
+    for (directory, side) in SIDE_DIRECTORY {
+        if path.starts_with(root.join("crates").join(directory)) {
+            return Some(side);
+        }
     }
     if ["servers", "clients", "demos"]
         .iter()
@@ -215,7 +160,40 @@ fn violates(crate_side: Side, dependency_side: Side) -> bool {
 pub fn run() -> Result<()> {
     let root = workspace::root();
     let mut manifests = Vec::new();
-    for group in ["crates", "platforms", "servers", "clients", "demos"] {
+    let mut violations = Vec::new();
+
+    // `crates/` 必须按侧别放在 kernel、user、shared 三个目录下。
+    let crates = root.join("crates");
+    for entry in fs::read_dir(&crates)
+        .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", crates.display())))?
+    {
+        let directory = entry
+            .map_err(|error| Failure::new(format!("读取目录项失败：{error}")))?
+            .path();
+        if directory.join("Cargo.toml").is_file() {
+            violations.push(format!(
+                "  crate 必须放在 crates/kernel、crates/user 或 crates/shared 下：{}",
+                directory.display()
+            ));
+            continue;
+        }
+        if !directory.is_dir() {
+            continue;
+        }
+        let entries = fs::read_dir(&directory)
+            .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", directory.display())))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|error| Failure::new(format!("读取目录项失败：{error}")))?
+                .path()
+                .join("Cargo.toml");
+            if path.is_file() {
+                manifests.push(path);
+            }
+        }
+    }
+
+    for group in ["platforms", "servers", "clients", "demos"] {
         let directory = root.join(group);
         let entries = fs::read_dir(&directory)
             .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", directory.display())))?;
@@ -234,10 +212,29 @@ pub fn run() -> Result<()> {
         manifests.push(xtask);
     }
 
-    let mut violations = Vec::new();
+    let mut sides: Vec<(String, Side)> = Vec::new();
+    for path in &manifests {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(manifest) = text.parse::<toml::Value>() else {
+            continue;
+        };
+        let Some(name) = manifest
+            .get("package")
+            .and_then(|package| package.get("name"))
+            .and_then(|name| name.as_str())
+        else {
+            continue;
+        };
+        if let Some(side) = side_of_path(path, &root) {
+            sides.push((name.to_string(), side));
+        }
+    }
+
     let mut counts = [0_usize; 3];
     for path in &manifests {
-        if let Some(side) = check(path, &root, &mut violations)? {
+        if let Some(side) = check(path, &root, &sides, &mut violations)? {
             match side {
                 Side::Kernel => counts[0] += 1,
                 Side::User => counts[1] += 1,
@@ -262,7 +259,12 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn check(path: &Path, root: &Path, violations: &mut Vec<String>) -> Result<Option<Side>> {
+fn check(
+    path: &Path,
+    root: &Path,
+    sides: &[(String, Side)],
+    violations: &mut Vec<String>,
+) -> Result<Option<Side>> {
     let text = fs::read_to_string(path)
         .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
     let manifest: toml::Value = text
@@ -276,9 +278,9 @@ fn check(path: &Path, root: &Path, violations: &mut Vec<String>) -> Result<Optio
     if name.is_empty() {
         return Ok(None);
     }
-    let Some(side) = side_of_path(name, path, root) else {
+    let Some(side) = side_of_path(path, root) else {
         violations.push(format!(
-            "  {name} 未登记侧别（{}）；请在 xtask/src/deps.rs 的侧别清单里登记",
+            "  {name} 未登记侧别（{}）；crate 必须放在 crates/kernel、crates/user 或 crates/shared 下",
             path.display()
         ));
         return Ok(None);
@@ -305,7 +307,11 @@ fn check(path: &Path, root: &Path, violations: &mut Vec<String>) -> Result<Optio
     };
 
     for dependency in dependencies.keys() {
-        let Some(dependency_side) = side_of(dependency) else {
+        let Some(dependency_side) = sides
+            .iter()
+            .find(|(name, _)| name == dependency)
+            .map(|(_, side)| *side)
+        else {
             continue;
         };
         if violates(side, dependency_side) {
