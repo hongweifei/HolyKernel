@@ -13,18 +13,21 @@ HolyKernel/
 ├── Cargo.toml / rust-toolchain.toml
 ├── xtask/                 构建、镜像、QEMU、smoke、文档、依赖检查
 ├── crates/
-│   ├── 共享契约           hk-base（地址、架构、启动信息、时间、用户布局）
-│   │                      hk-syscall hk-device hk-image hk-checkpoint
-│   │                      hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态）
-│   ├── 内核 ABI 与对象    hk-hal hk-handle hk-ipc hk-mem hk-kernel
-│   ├── 内核库             hk-boot hk-acpi hk-framebuffer hk-smp hk-test hk-drivers
-│   ├── 用户态库           hk-server-api hk-proto hk-block hk-net hk-fs hk-vfs
-│   │                      hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
-│   │                      hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
-│   │                      hk-async hk-coroutine hk-debug hk-server-build
-│   ├── 运行时             hk-runtime（用户任务、syscall 分派、RootServer 原语）
-│   ├── 装配层             hk-root-server hk-platform-x86_64 hk-platform-hosted
-│   └── 独立/工具          hk-sim
+│   ├── shared/            共享契约
+│   │   ├── hk-base（地址、架构、启动信息、时间、用户布局）
+│   │   ├── hk-syscall hk-device hk-image hk-checkpoint
+│   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态）
+│   ├── kernel/            内核侧
+│   │   ├── hk-hal hk-handle hk-ipc hk-mem hk-kernel
+│   │   ├── hk-boot hk-acpi hk-framebuffer hk-smp hk-test hk-drivers
+│   │   ├── hk-runtime（用户任务、syscall 分派、RootServer 原语）
+│   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
+│   │   └── hk-kernel-shell hk-sim
+│   └── user/              用户态库
+│       ├── hk-server-api hk-proto hk-block hk-net hk-fs hk-vfs
+│       ├── hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
+│       └── hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
+│           hk-async hk-coroutine hk-debug hk-server-build
 ├── platforms/             x86_64-qemu、hosted
 ├── servers/               常驻用户态服务
 ├── clients/               网络状态与 `*-test` 自检客户端
@@ -40,7 +43,7 @@ HolyKernel/
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
 - 内核与服务堆使用可回收分配器（`linked_list_allocator`）；服务堆按需从 Arena 初始化，内核堆使用静态区间。
 - 大块协议缓冲放在堆上，服务栈只保留小对象；IPC 单消息上限 64 KiB。
-- 每个 crate 属于一个侧别：内核侧、用户态或共享契约。内核侧只依赖内核侧与共享契约，用户态只依赖用户态与共享契约，共享契约只依赖更底层的共享契约；规则由 `cargo xtask deps` 强制。
+- 每个 crate 属于一个侧别：共享契约、内核侧或用户态，分别放在 `crates/shared`、`crates/kernel`、`crates/user`。内核侧只依赖内核侧与共享契约，用户态只依赖用户态与共享契约，共享契约只依赖更底层的共享契约；规则由 `cargo xtask deps` 强制。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
 - 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。
 - libc 提供 C ABI；内核与服务器使用 Rust。

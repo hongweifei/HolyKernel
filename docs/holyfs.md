@@ -6,7 +6,7 @@ HolyFS 是 HolyKernel 的原生文件系统。它以卷和盘符组织命名空�
 
 Holy 语义围绕对象、关系与操作展开：身份是 DocId，名字是集合中的关系，内容是版本化的文档，访问通过带权利的句柄完成。POSIX 兼容环境通过 VFS 适配层访问同一批文档；适配层承担路径、偏移、fd 与凭证语义。
 
-已实现 `crates/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、流式写、压缩、修订保留/GC、内容去重与配额已实现。
+已实现 `crates/user/hk-fs-holyfs` v1：Volume/Document/Revision/Entry 对象模型，文档与集合项共用修订链；Document/Revision/Collection 三棵元数据树全部以 COW 方式构建并通过 Superblock 根切换提交；4 KiB 块、双超级块（generation + CRC32C）、连续 extent、追加写快路径、整文档读取、子集合与 VFS 适配层。原生 Document API 与 `H:` 盘符已接入：按 DocPath 解析、枚举集合、整文档读写、文档视图与修订链；数据卷由独立 `hk-server-holyfs` 服务挂载，当前把一个物理盘切分为 `H:` 与 `I:` 两个独立卷（不同 VolumeId），原生 VFS 通过远程后端提供 H:/I: 的 DocId 命名空间，Path 服务再投影到 `/disk`、`/disk-I`；原生客户端还可以按块服务动态 `Attach`/`Detach` 盘符。QEMU `smoke --mode holyfs/holydoc` 校验落盘、盘符枚举、动态挂载与 `H:` 文档浏览。标签、卷级/文档令牌与快照已接入：快照固定文档表、标签视图与根修订，支持创建、枚举、恢复与释放，并随卷提交持久化；卷级令牌绑定卷身份与卷代，恢复推进卷代并使旧令牌失效。分配组、流式写、压缩、修订保留/GC、内容去重与配额已实现。
 
 ---
 
@@ -486,7 +486,7 @@ flowchart LR
 ### 代码组织
 
 ```text
-crates/hk-fs-holyfs/src/
+crates/user/hk-fs-holyfs/src/
 ├── lib.rs          公共 API、模块装配、format
 ├── ids.rs          DocId、RevisionId、VolumeId、HandleRights
 ├── types.rs        Document/Revision/Entry 记录与编码
@@ -510,7 +510,7 @@ crates/hk-fs-holyfs/src/
 ├── handle.rs       原生卷句柄（DocPath、整文档、修订链）
 └── tests.rs        单元、子集合、持久化测试
 
-crates/hk-fs-holyfs-vfs/src/lib.rs
+crates/user/hk-fs-holyfs-vfs/src/lib.rs
                      VFS Backend 适配：NodeId ↔ DocId、错误与类型映射
 ```
 

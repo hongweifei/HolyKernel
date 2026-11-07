@@ -86,6 +86,6 @@ docs/
 
 1. 变更与 [章程](charter.md) 的微内核模型对齐。
 2. 内核代码只包含机制；策略位于服务器。
-3. 新增平台差异位于 `platforms/` 或 `crates/hk-platform-*`。
+3. 新增平台差异位于 `platforms/` 或 `crates/kernel/hk-platform-*`。
 4. 新增依赖通过 [工程策略](engineering.md) 的依赖审查。
 5. 接口有测试策略，覆盖失败路径、IPC 断开与服务器重启。

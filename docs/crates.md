@@ -8,7 +8,7 @@
 
 ## 1. 分层
 
-crate 按侧别划分：共享契约、内核侧与用户态。侧别是依赖规则的第一维，层号只表示依赖深度。
+crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决定目录（`crates/shared`、`crates/kernel`、`crates/user`）与依赖规则，层号只表示依赖深度。
 
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别是依赖�
 | 用户态 | 用户态、共享契约 | 内核侧 |
 | 宿主工具（`xtask`） | 任意（构建期） | — |
 
-侧别清单在 `xtask/src/deps.rs`：每个 crate 必须登记，未登记会让 `cargo xtask deps` 失败。`hk-shell` 与 `hk-syscall` 另外要求零依赖。
+侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。`hk-shell` 与 `hk-syscall` 另外要求零依赖。
 
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；`hk-proto` 只依赖内核面与 ABI。
 
@@ -51,7 +51,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别是依赖�
 
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`；`hk-fs-holyfs-vfs` 把原生实现接到契约上，不引入路径语义。`hk-vfs` 的核心也使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。
 
-目录约定：常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 只承载内核提供的用户态面：系统调用薄封装在 `src/syscall.rs`、共享输出格式化在 `src/format.rs`、HMP 与 Root 控制、设备授权、运行时样板；服务线协议与固定缓冲客户端在 `hk-proto` 的各服务模块，共享响应框架与协议标签区间分别在 `hk-proto/src/status.rs` 与 `hk-proto/src/labels.rs`。两者都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
+目录约定：共享契约、内核侧与用户态库分别放 `crates/shared/`、`crates/kernel/`、`crates/user/`；常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 只承载内核提供的用户态面：系统调用薄封装在 `src/syscall.rs`、共享输出格式化在 `src/format.rs`、HMP 与 Root 控制、设备授权、运行时样板；服务线协议与固定缓冲客户端在 `hk-proto` 的各服务模块，共享响应框架与协议标签区间分别在 `hk-proto/src/status.rs` 与 `hk-proto/src/labels.rs`。两者都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 
@@ -63,30 +63,30 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别是依赖�
 
 | 内容 | 位置 |
 | --- | --- |
-| 系统调用编号与跨边界 ABI 编码 | `crates/hk-syscall/src/lib.rs` |
-| 类型化能力判类（`CapabilityKind`） | `crates/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
-| 句柄权利与 Region 标志位 | `crates/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
-| 服务角色元数据与 `.hk_service` 段 | `crates/hk-image/src/role.rs` |
-| 用户虚拟布局与自动映射窗口 | `crates/hk-base/src/user.rs` |
-| 时间类型（Moment、Duration、CivilTime） | `crates/hk-base/src/time.rs` |
-| 设备授权描述与 PCI 枚举 | `crates/hk-device/src/{device,grant,pci,scan}.rs` |
-| 设备中断向量基址 | `crates/hk-base/src/irq.rs` |
-| HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/hk-mem/src/hmp/` |
-| 页分配、页表页池与用户地址空间登记 | `crates/hk-mem/src/page/` |
-| DMA 池与软件 IOMMU | `crates/hk-mem/src/platform/` |
-| 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/hk-canvas/src/{surface,color,rect,text}.rs` |
-| 字形度量、缓存与字体特性 | `crates/hk-font/src/lib.rs` |
-| Holy 文件系统契约与后端接口 | `crates/hk-fs/src/backend.rs` |
-| 服务线协议、客户端与编解码 | `crates/hk-proto/src/*` |
-| 服务响应框架与状态码 | `crates/hk-proto/src/status.rs` |
-| 协议标签区间 | `crates/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
-| 服务协议标签与服务名常量 | `crates/hk-proto/src/*`（内核按名称授权的服务名在 `hk-syscall`） |
-| 用户态符号查询与回溯格式化 | `crates/hk-debug/src/lib.rs` |
-| 检查点快照格式 | `crates/hk-checkpoint/src/lib.rs` |
+| 系统调用编号与跨边界 ABI 编码 | `crates/shared/hk-syscall/src/lib.rs` |
+| 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
+| 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
+| 服务角色元数据与 `.hk_service` 段 | `crates/shared/hk-image/src/role.rs` |
+| 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
+| 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
+| 设备授权描述与 PCI 枚举 | `crates/shared/hk-device/src/{device,grant,pci,scan}.rs` |
+| 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
+| HMP 核心对象（Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/` |
+| 页分配、页表页池与用户地址空间登记 | `crates/kernel/hk-mem/src/page/` |
+| DMA 池与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
+| 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
+| 字形度量、缓存与字体特性 | `crates/shared/hk-font/src/lib.rs` |
+| Holy 文件系统契约与后端接口 | `crates/user/hk-fs/src/backend.rs` |
+| 服务线协议、客户端与编解码 | `crates/user/hk-proto/src/*` |
+| 服务响应框架与状态码 | `crates/user/hk-proto/src/status.rs` |
+| 协议标签区间 | `crates/user/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
+| 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`（内核按名称授权的服务名在 `hk-syscall`） |
+| 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
+| 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
 | 镜像服务清单与装载顺序 | `xtask/src/catalog.rs` |
-| 服务链接基址 | `crates/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
-| 默认启动服务白名单 | `crates/hk-root-server/src/loader.rs` |
-| 设备类与 DeviceGrant 协议 | `crates/hk-server-api/src/device.rs` 与 `crates/hk-device/src/device.rs` |
+| 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
+| 默认启动服务白名单 | `crates/kernel/hk-root-server/src/loader.rs` |
+| 设备类与 DeviceGrant 协议 | `crates/user/hk-server-api/src/device.rs` 与 `crates/shared/hk-device/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
 新增服务时只需要改 `xtask/src/catalog.rs` 的 `SERVERS`、`BOOT_SERVICES` 与模式过滤，不再维护多份并行清单。
