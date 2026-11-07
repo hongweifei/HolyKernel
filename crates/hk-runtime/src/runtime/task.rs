@@ -816,8 +816,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 index: page_index,
                 page,
             } => {
-                let tcb = self.tasks[index].tcb;
-                if let Some(message) = self.kernel.take_reply(tcb) {
+                let caller = self.tasks[index].tcb;
+                let owner = self.leader_of(index);
+                let owner_tcb = self.tasks[owner].tcb;
+                if let Some(message) = self.kernel.take_reply(caller) {
                     let phys = message.words[0];
                     if phys != 0 && phys != u64::MAX {
                         let lease = hk_mem::hmp::FrameLease::new(
@@ -826,7 +828,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         );
                         if self
                             .kernel
-                            .set_capability_page(tcb, capability, page_index, lease)
+                            .set_capability_page(owner_tcb, capability, page_index, lease)
                             .unwrap_or(false)
                             && self.platform.map_dma(index, page, phys, hk_hal::PAGE_SIZE)
                         {

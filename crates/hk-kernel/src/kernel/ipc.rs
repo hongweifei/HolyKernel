@@ -169,6 +169,27 @@ impl Kernel {
     ) -> Result<(), KernelError> {
         let (object, endpoint_id) =
             self.resolve(thread, endpoint_handle, Rights::WRITE, ObjectKind::Endpoint)?;
+        self.call_resolved(thread, &object, endpoint_id, message)
+    }
+
+    /// 按对象标识调用端点；内核代转 Provider 缺页时使用。
+    pub fn call_object(
+        &self,
+        thread: TcbId,
+        endpoint_id: ObjectId,
+        message: Message,
+    ) -> Result<(), KernelError> {
+        let object = self.upgrade(endpoint_id)?;
+        self.call_resolved(thread, &object, endpoint_id, message)
+    }
+
+    fn call_resolved(
+        &self,
+        thread: TcbId,
+        object: &KernelObject,
+        endpoint_id: ObjectId,
+        message: Message,
+    ) -> Result<(), KernelError> {
         let endpoint = object.endpoint().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Endpoint,
         })?;

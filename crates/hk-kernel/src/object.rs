@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use hk_hal::{DeviceGrant, PhysRange};
-use hk_handle::{Object, ObjectHeader, ObjectKind};
+use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
 use hk_mem::hmp::FrameLease;
 use hk_mem::hmp::{Capability, Capacity, Ledger, Region};
@@ -30,7 +30,7 @@ pub enum ObjectPayload {
         /// 常驻物理页。
         backing: Option<FrameLease>,
         /// 缺页/回写 Provider 端点。
-        provider: Mutex<Option<hk_handle::Handle>>,
+        provider: Mutex<Option<ObjectId>>,
         /// 按需装入的页租约；常驻能力为空。
         pages: Mutex<Vec<Option<FrameLease>>>,
         /// 是否固定驻留。
@@ -155,7 +155,7 @@ impl KernelObject {
     }
 
     /// 返回类型化能力绑定的 Provider 端点。
-    pub fn capability_provider(&self) -> Option<hk_handle::Handle> {
+    pub fn capability_provider(&self) -> Option<ObjectId> {
         match &self.payload {
             ObjectPayload::Capability { provider, .. } => *provider.lock(),
             _ => None,
@@ -163,7 +163,7 @@ impl KernelObject {
     }
 
     /// 绑定类型化能力的 Provider 端点。
-    pub fn set_capability_provider(&self, endpoint: hk_handle::Handle) {
+    pub fn set_capability_provider(&self, endpoint: ObjectId) {
         if let ObjectPayload::Capability { provider, .. } = &self.payload {
             *provider.lock() = Some(endpoint);
         }

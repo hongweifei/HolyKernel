@@ -320,7 +320,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_HANDLE_CLOSE => {
                 let number = frame.arg0() as usize;
-                let result = if number >= GRANT_HANDLE_BASE {
+                let result = if number >= CAPABILITY_HANDLE_BASE {
+                    self.close_handle(index, tcb, number)
+                } else if number >= GRANT_HANDLE_BASE {
                     self.close_grant(index, tcb, number)
                 } else {
                     self.close_handle(index, tcb, number)

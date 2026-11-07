@@ -72,6 +72,9 @@ impl SyscallFrame for MockContext {
 
 struct MockPlatform;
 
+/// 测试平台的每任务内存配额。
+const MEMORY_LIMIT: u64 = 1 << 20;
+
 impl UserPlatform for MockPlatform {
     fn timer_ticks(&self) -> u64 {
         7
@@ -100,6 +103,10 @@ impl UserPlatform for MockPlatform {
 
     fn arena_layout(&self, slot: usize) -> (u64, u64) {
         (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
+    }
+
+    fn memory_limit(&self, _slot: usize) -> u64 {
+        MEMORY_LIMIT
     }
 
     fn fork(&self, _parent: usize, _child: usize) -> bool {
@@ -748,7 +755,7 @@ fn provider_fault_blocks_caller() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 
-    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE));
+    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE, MockContext::default()));
     assert_eq!(runtime.tasks()[0].pending, "provider-fault");
 
     let Step::Resume {
@@ -780,5 +787,72 @@ fn provider_fault_blocks_caller() {
     };
     assert_eq!(index, 0);
     assert_eq!(context.rax, 0);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn anonymous_fault_defers_to_bound_provider() {
+    let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    assert!(
+        !runtime.anonymous_fault(0, hk_hal::user::AUTO_WINDOW_BASE),
+        "绑定 Provider 后不进入内核零页快速路径"
+    );
+    assert!(runtime.provider_fault(0, hk_hal::user::AUTO_WINDOW_BASE, MockContext::default()));
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn ledger_limit_rejects_over_quota_and_releases_on_close() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = MEMORY_LIMIT;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "超出配额应被拒绝");
+
+    context.rax = SYS_HANDLE_CLOSE;
+    context.rdi = capability;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = MEMORY_LIMIT;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX, "关闭后配额应归还");
     let _ = runtime.finish(0, index);
 }

@@ -140,16 +140,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。
-    pub fn provider_fault(&mut self, cpu: usize, address: u64) -> bool {
+    pub fn provider_fault(&mut self, cpu: usize, address: u64, context: C) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;
         };
-        if self.leader_of(index) != index {
-            return false;
-        }
-        let tcb = self.tasks[index].tcb;
+        let owner = self.leader_of(index);
+        self.tasks[index].context = context;
+        let tcb = self.tasks[owner].tcb;
         let Some((slot, virt, _length)) =
-            self.tasks[index]
+            self.tasks[owner]
                 .regions
                 .iter()
                 .enumerate()
@@ -165,7 +164,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return false;
         };
-        let Some(region) = self.tasks[index].regions[slot].as_ref() else {
+        let Some(region) = self.tasks[owner].regions[slot].as_ref() else {
             return false;
         };
         let capability_handle = region.capability;
@@ -189,7 +188,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         words[1] = page;
         words[2] = address;
         let message = Message::new(PROVIDER_FAULT).with_words(words);
-        if self.kernel.call(tcb, provider, message).is_err() {
+        if self
+            .kernel
+            .call_object(self.tasks[index].tcb, provider, message)
+            .is_err()
+        {
             return false;
         }
         let page_index = (page_address.saturating_sub(virt) / page) as usize;
@@ -269,6 +272,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         if backing.is_some() || capability.kind() != CapabilityKind::Anonymous {
+            return false;
+        }
+        if self
+            .kernel
+            .capability_provider(tcb, capability_handle)
+            .ok()
+            .flatten()
+            .is_some()
+        {
             return false;
         }
         let page = hk_hal::PAGE_SIZE as u64;
