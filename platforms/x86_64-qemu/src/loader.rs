@@ -155,8 +155,8 @@ pub fn run(
             );
         }
         if checkpoint_test {
-            // 检查点自检只需要一个阻塞任务与内核 Shell。
-            return name == "hk-server-echo";
+            // 检查点自检需要一个阻塞、无线程且不持有设备或共享能力的任务。
+            return name == "hk-server-memory";
         }
         if checkpoint_srv_test {
             // Checkpoint Server 自检：服务、目标任务、客户端与 HolyFS 落盘链路。

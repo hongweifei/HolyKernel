@@ -25,3 +25,24 @@ pub fn write_ipv4(address: &[u8; 4]) {
         write_u64(u64::from(*octet));
     }
 }
+
+/// 把无符号整数写成十进制到 `out`，返回写出的字节；空间不足时返回 `None`。
+pub fn format_u64(mut value: u64, out: &mut [u8]) -> Option<&[u8]> {
+    let mut buffer = [0_u8; 20];
+    let mut index = buffer.len();
+    if value == 0 {
+        index -= 1;
+        buffer[index] = b'0';
+    }
+    while value > 0 {
+        index -= 1;
+        buffer[index] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    let length = buffer.len() - index;
+    if length > out.len() {
+        return None;
+    }
+    out[..length].copy_from_slice(&buffer[index..]);
+    Some(&out[..length])
+}

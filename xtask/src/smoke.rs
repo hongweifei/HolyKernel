@@ -189,7 +189,7 @@ impl SmokeMode {
                 Some("hotswap-test shell-test help;replace hk-server-echo hk-server-fault;tasks")
             }
             Self::Checkpoint => Some(
-                "checkpoint-test shell-test help;checkpoint hk-server-echo;restore-checkpoint hk-server-echo;tasks",
+                "checkpoint-test shell-test help;checkpoint hk-server-memory;restore-checkpoint hk-server-memory;tasks",
             ),
             Self::CheckpointServer => Some("checkpoint-srv-test"),
         }
@@ -495,7 +495,7 @@ impl SmokeMode {
                 "hk-server-console: done",
             ],
             Self::Hotswap => &["已替换：hk-server-echo", "hk-server-fault: 触发用户页错误"],
-            Self::Checkpoint => &["已检查点：hk-server-echo", "已恢复：hk-server-echo"],
+            Self::Checkpoint => &["已检查点：hk-server-memory", "已恢复：hk-server-memory"],
             Self::CheckpointServer => &[
                 "hk-server-checkpoint: ready",
                 "hk-server-checkpoint-test: saved ",
@@ -719,7 +719,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let vcon_peer = vcon.map(|(listener, _)| thread::spawn(move || serve_vcon_echo(listener)));
 
     if mode == SmokeMode::Input {
-        thread::sleep(Duration::from_secs(3));
+        // 等内核 Shell 打出提示符再注入；启动耗时随机器负载变化，固定等待会丢按键。
+        wait_for(&log, "hk> ", Duration::from_secs(30))?;
         inject(&socket, "echo hello-ioapic\n")?;
         thread::sleep(Duration::from_millis(500));
         inject(&socket, "use boot.hsh\n")?;
