@@ -405,6 +405,10 @@ impl SmokeMode {
             ],
             Self::Pointer => &[
                 "hk-server-input: ready",
+                "hk-server-display: cursor hint 1 hand",
+                "hk-server-display: cursor move",
+                "hk-server-display: cursor hand",
+                "hk-server-display: cursor resize-nwse",
                 "hk-server-display: drag 1",
                 "hk-server-display: taskbar 1",
                 "hk-server-display: resize 1 464x348",
@@ -413,6 +417,7 @@ impl SmokeMode {
                 "hk-server-display: maximize 1 1280x748",
                 "hk-server-display: restore 1 464x348",
                 "hk-server-display: minimize 1",
+                "hk-server-pointer-test: pointer 1",
                 "hk-server-display: pointer click 1",
                 "hk-server-pointer-test: clicked",
                 "hk-server-display: close 1",
@@ -778,7 +783,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         // 点击任务栏按钮恢复最小化窗口。
         inject_pointer(&socket, 0x08CC, 0x7DC1)?;
         thread::sleep(Duration::from_millis(300));
-        inject_pointer(&socket, 0x3FFF, 0x3FFF)?;
+        // 窗口正文中心约在 (736,410)：验证指针移动事件与正文点击。
+        inject_pointer(&socket, 0x4997, 0x4199)?;
         thread::sleep(Duration::from_millis(300));
         // 还原后窗口右上方约在 (958,236) 的关闭按钮。
         inject_pointer(&socket, 0x5FCC, 0x25C2)?;
