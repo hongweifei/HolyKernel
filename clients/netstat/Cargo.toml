@@ -11,11 +11,11 @@ name = "hk-server-netstat"
 path = "src/main.rs"
 
 [dependencies]
-hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

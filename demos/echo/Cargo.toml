@@ -11,12 +11,12 @@ name = "hk-server-echo"
 path = "src/main.rs"
 
 [dependencies]
-hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
-hk-worker = { version = "0.1.0", path = "../../crates/hk-worker" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-worker = { version = "0.1.0", path = "../../crates/user/hk-worker" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

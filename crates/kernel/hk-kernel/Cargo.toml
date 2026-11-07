@@ -1,0 +1,22 @@
+[package]
+name = "hk-kernel"
+description = "HolyKernel 微内核：对象表、TCB、调度与 IPC 分派"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-handle = { version = "0.1.0", path = "../hk-handle" }
+hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
+hk-mem = { version = "0.1.0", path = "../hk-mem" }
+linked_list_allocator = "0.10"
+spin = "0.9"
+
+[dev-dependencies]
+hk-platform-hosted = { version = "0.1.0", path = "../hk-platform-hosted" }
+
+[lints]
+workspace = true

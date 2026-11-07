@@ -1,0 +1,24 @@
+[package]
+name = "hk-runtime"
+description = "HolyKernel 用户态运行时与 Root Server 启动原语"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-checkpoint = { version = "0.1.0", path = "../../shared/hk-checkpoint" }
+hk-handle = { version = "0.1.0", path = "../hk-handle" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
+hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
+hk-mem = { version = "0.1.0", path = "../hk-mem" }
+hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+
+[dev-dependencies]
+spin = "0.9"
+
+[lints]
+workspace = true

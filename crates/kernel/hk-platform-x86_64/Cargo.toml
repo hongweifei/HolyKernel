@@ -1,0 +1,23 @@
+[package]
+name = "hk-platform-x86_64"
+description = "HolyKernel x86_64 平台：串口控制台与硬件访问"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
+hk-drivers = { version = "0.1.0", path = "../hk-drivers" }
+hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+hk-mem = { version = "0.1.0", path = "../hk-mem" }
+hk-smp = { version = "0.1.0", path = "../hk-smp" }
+hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+hk-test = { version = "0.1.0", path = "../hk-test" }
+spin = "0.9"
+
+[lints]
+workspace = true

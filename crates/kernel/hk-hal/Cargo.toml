@@ -1,0 +1,15 @@
+[package]
+name = "hk-hal"
+description = "HolyKernel 硬件抽象层：平台 trait 与硬件契约"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bitflags = { version = "2.6", default-features = false }
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+
+[lints]
+workspace = true

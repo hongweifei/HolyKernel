@@ -11,13 +11,13 @@ name = "hk-server-display"
 path = "src/main.rs"
 
 [dependencies]
-hk-canvas = { version = "0.1.0", path = "../../crates/hk-canvas" }
-hk-font = { version = "0.1.0", path = "../../crates/hk-font" }
-hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-canvas = { version = "0.1.0", path = "../../crates/user/hk-canvas" }
+hk-font = { version = "0.1.0", path = "../../crates/shared/hk-font" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

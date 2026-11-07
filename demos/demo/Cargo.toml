@@ -11,15 +11,15 @@ name = "hk-server-demo"
 path = "src/main.rs"
 
 [dependencies]
-hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
-hk-coroutine = { version = "0.1.0", path = "../../crates/hk-coroutine" }
-hk-async = { version = "0.1.0", path = "../../crates/hk-async" }
-hk-sync = { version = "0.1.0", path = "../../crates/hk-sync" }
-hk-thread = { version = "0.1.0", path = "../../crates/hk-thread" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-coroutine = { version = "0.1.0", path = "../../crates/user/hk-coroutine" }
+hk-async = { version = "0.1.0", path = "../../crates/user/hk-async" }
+hk-sync = { version = "0.1.0", path = "../../crates/user/hk-sync" }
+hk-thread = { version = "0.1.0", path = "../../crates/user/hk-thread" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

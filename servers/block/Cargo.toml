@@ -11,11 +11,11 @@ name = "hk-server-block"
 path = "src/main.rs"
 
 [dependencies]
-hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-block = { version = "0.1.0", path = "../../crates/user/hk-block", features = ["ipc"] }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

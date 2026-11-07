@@ -1,0 +1,13 @@
+[package]
+name = "hk-canvas"
+description = "HolyKernel 像素绘制：表面、裁剪、形状、渐变、缩放拷贝与文本"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-font = { version = "0.1.0", path = "../../shared/hk-font" }
+
+[lints]
+workspace = true

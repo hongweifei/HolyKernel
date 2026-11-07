@@ -11,11 +11,11 @@ name = "hk-server-dbg"
 path = "src/main.rs"
 
 [dependencies]
-hk-debug = { version = "0.1.0", path = "../../crates/hk-debug" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
+hk-debug = { version = "0.1.0", path = "../../crates/user/hk-debug" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true

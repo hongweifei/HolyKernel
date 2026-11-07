@@ -1,0 +1,15 @@
+[package]
+name = "hk-platform-hosted"
+description = "HolyKernel Hosted 模拟器平台"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+
+[lints]
+workspace = true

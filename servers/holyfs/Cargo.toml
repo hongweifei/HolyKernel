@@ -11,16 +11,16 @@ name = "hk-server-holyfs"
 path = "src/main.rs"
 
 [dependencies]
-hk-async = { version = "0.1.0", path = "../../crates/hk-async" }
-hk-block = { version = "0.1.0", path = "../../crates/hk-block", features = ["ipc"] }
-hk-fs = { version = "0.1.0", path = "../../crates/hk-fs" }
-hk-fs-holyfs = { version = "0.1.0", path = "../../crates/hk-fs-holyfs" }
-hk-proto = { version = "0.1.0", path = "../../crates/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/hk-server-api" }
-hk-worker = { version = "0.1.0", path = "../../crates/hk-worker" }
+hk-async = { version = "0.1.0", path = "../../crates/user/hk-async" }
+hk-block = { version = "0.1.0", path = "../../crates/user/hk-block", features = ["ipc"] }
+hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
+hk-fs-holyfs = { version = "0.1.0", path = "../../crates/user/hk-fs-holyfs" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-worker = { version = "0.1.0", path = "../../crates/user/hk-worker" }
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/hk-server-build" }
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
 
 [lints]
 workspace = true
