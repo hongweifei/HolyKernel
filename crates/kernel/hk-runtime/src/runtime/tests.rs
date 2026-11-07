@@ -70,7 +70,16 @@ impl SyscallFrame for MockContext {
     }
 }
 
-struct MockPlatform;
+struct MockPlatform {
+    /// 物理页零检测的返回值。
+    zero: bool,
+}
+
+impl MockPlatform {
+    fn new() -> Self {
+        Self { zero: true }
+    }
+}
 
 /// 测试平台的每任务内存配额。
 const MEMORY_LIMIT: u64 = 1 << 20;
@@ -95,6 +104,14 @@ impl UserPlatform for MockPlatform {
 
     fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         true
+    }
+
+    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+        true
+    }
+
+    fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
+        Some(self.zero)
     }
 
     fn user_mapped(&self, _address: u64) -> bool {
@@ -133,12 +150,16 @@ impl UserPlatform for MockPlatform {
 }
 
 fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> {
+    runtime_on(second, MockPlatform::new())
+}
+
+fn runtime_on<P: UserPlatform>(second: &'static str, platform: P) -> UserRuntime<MockContext, P> {
     let mut runtime = crate::boot::user_runtime(
         &[
             crate::ServiceSpec::new("a"),
             crate::ServiceSpec::new(second),
         ],
-        MockPlatform,
+        platform,
         |_index, endpoint| MockContext {
             rdi: endpoint,
             ..MockContext::default()
@@ -200,7 +221,7 @@ fn framebuffer_access_is_display_only() {
             crate::ServiceSpec::new("hk-server-display"),
             crate::ServiceSpec::new("other"),
         ],
-        MockPlatform,
+        MockPlatform::new(),
         |_index, endpoint| MockContext {
             rdi: endpoint,
             ..MockContext::default()
@@ -907,5 +928,147 @@ fn scanout_requires_surface_and_holds_pin() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX, "匿名能力不能 scanout");
 
+    let _ = runtime.finish(0, index);
+}
+
+/// 创建惰性匿名能力并映射到自动窗口，返回能力句柄编号。
+fn create_lazy_region<P: UserPlatform>(
+    runtime: &mut UserRuntime<MockContext, P>,
+    context: &mut MockContext,
+    length: u64,
+) -> u64 {
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = length;
+    assert_eq!(runtime.dispatch(0, context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = length;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    capability
+}
+
+/// 窗口数量受限的平台：`unmap_dma` 归还一个窗口，模拟池回收。
+struct ShortPlatform {
+    windows: core::sync::atomic::AtomicUsize,
+}
+
+impl UserPlatform for ShortPlatform {
+    fn timer_ticks(&self) -> u64 {
+        7
+    }
+
+    fn pci_read(&self, _bus: u8, _device: u8, _function: u8, _offset: u8) -> u32 {
+        0x1234
+    }
+
+    fn zero(&self, _address: u64, _length: usize) {}
+
+    fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {
+        let available = self.windows.load(core::sync::atomic::Ordering::Acquire);
+        if available == 0 {
+            return None;
+        }
+        self.windows
+            .fetch_sub(1, core::sync::atomic::Ordering::AcqRel);
+        Some(hk_hal::PhysRange::new(
+            hk_hal::PhysAddr::new(0x1000_0000),
+            len as u64,
+        ))
+    }
+
+    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+        true
+    }
+
+    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+        self.windows
+            .fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+        true
+    }
+
+    fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
+        Some(true)
+    }
+
+    fn user_mapped(&self, _address: u64) -> bool {
+        true
+    }
+
+    fn arena_layout(&self, slot: usize) -> (u64, u64) {
+        (0x10_0000 + slot as u64 * 0x2_0000, 0x1_0000)
+    }
+
+    fn memory_limit(&self, _slot: usize) -> u64 {
+        MEMORY_LIMIT
+    }
+
+    fn fork(&self, _parent: usize, _child: usize) -> bool {
+        true
+    }
+
+    fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
+        true
+    }
+}
+
+#[test]
+fn reclaims_zero_pages_and_reloads_them() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE + 4096));
+
+    assert_eq!(runtime.reclaim_zero_pages(0, 0x2000), 0x2000);
+    assert_eq!(runtime.reclaim_zero_pages(0, 0x2000), 0, "回收后页已归还");
+
+    assert!(
+        runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
+        "回收后再次缺页可重新装入"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn reclaim_skips_non_zero_pages() {
+    let mut runtime = runtime_on("b", MockPlatform { zero: false });
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    create_lazy_region(&mut runtime, &mut context, 0x1000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+
+    assert_eq!(runtime.reclaim_zero_pages(0, 0x1000), 0);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn allocation_pressure_reclaims_zero_pages() {
+    let platform = ShortPlatform {
+        windows: core::sync::atomic::AtomicUsize::new(3),
+    };
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    create_lazy_region(&mut runtime, &mut context, 0x4000);
+    for page in 0..3 {
+        assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE + page * 4096));
+    }
+
+    assert!(
+        runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE + 3 * 4096),
+        "池耗尽后回收零页继续装入"
+    );
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
     let _ = runtime.finish(0, index);
 }

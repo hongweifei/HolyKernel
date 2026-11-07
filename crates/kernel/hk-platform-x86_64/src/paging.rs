@@ -42,6 +42,22 @@ pub fn direct_map_base() -> u64 {
     DIRECT_MAP.load(Ordering::Acquire)
 }
 
+/// 判断物理页是否全为零。
+pub fn page_is_zero(phys: PhysAddr) -> bool {
+    let base = direct_map_base();
+    let address = base.saturating_add(phys.get()) as *const u8;
+    let mut offset = 0;
+    while offset < hk_hal::PAGE_SIZE {
+        // SAFETY: 物理页经 direct map 映射为可读，读取范围不超过一页。
+        let byte = unsafe { core::ptr::read_volatile(address.add(offset)) };
+        if byte != 0 {
+            return false;
+        }
+        offset += 1;
+    }
+    true
+}
+
 /// 返回启动时记录的内核页表句柄；与当前 CR3 无关。
 pub fn kernel_table() -> PageTable {
     PageTable {

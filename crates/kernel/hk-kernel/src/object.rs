@@ -145,6 +145,14 @@ impl KernelObject {
         }
     }
 
+    /// 取出能力内已装入的一页。
+    pub fn take_capability_page(&self, index: usize) -> Option<FrameLease> {
+        match &self.payload {
+            ObjectPayload::Capability { pages, .. } => pages.lock().get_mut(index)?.take(),
+            _ => None,
+        }
+    }
+
     /// 装入能力内的一页。
     pub fn set_capability_page(&self, index: usize, lease: FrameLease) -> bool {
         if let ObjectPayload::Capability { pages, .. } = &self.payload {

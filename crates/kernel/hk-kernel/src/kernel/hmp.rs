@@ -101,6 +101,43 @@ impl Kernel {
         Ok(object.capability_page(index))
     }
 
+    /// 取出能力内已装入的一页，返回其租约。
+    pub fn take_capability_page(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+    ) -> Result<Option<hk_mem::hmp::FrameLease>, KernelError> {
+        let (object, _) =
+            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
+        Ok(object.take_capability_page(index))
+    }
+
+    /// 判断能力是否固定驻留。
+    pub fn capability_pinned(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+    ) -> Result<bool, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        if object.capability().is_none() {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        }
+        Ok(object.capability_pinned())
+    }
+
+    /// 返回能力对象标识，用于判断多个句柄是否指向同一能力。
+    pub fn capability_id(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+    ) -> Result<ObjectId, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.header().id())
+    }
+
     /// 把一页装入能力。
     pub fn set_capability_page(
         &self,

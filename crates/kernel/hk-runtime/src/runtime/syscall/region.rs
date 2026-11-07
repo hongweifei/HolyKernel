@@ -302,7 +302,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             return self.platform.user_mapped(page_address);
         }
-        let Some(range) = self.platform.dma_window(page as usize) else {
+        let Some(range) = self.allocate_window(index, page) else {
             return false;
         };
         let lease = FrameLease::new(range.start(), page as usize);

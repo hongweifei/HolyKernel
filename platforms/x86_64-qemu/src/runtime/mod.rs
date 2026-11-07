@@ -113,6 +113,10 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.unmap_dma(slot, virt, len)
     }
 
+    fn page_is_zero(&self, phys: hk_hal::PhysAddr) -> Option<bool> {
+        Some(hk_platform_x86_64::paging::page_is_zero(phys))
+    }
+
     fn take_irqs(&self, pending: &mut [u64; 4]) {
         *pending = hk_platform_x86_64::irq::take_pending();
     }

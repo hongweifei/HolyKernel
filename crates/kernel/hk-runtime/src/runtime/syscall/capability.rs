@@ -23,7 +23,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(range) = self.platform.dma_window(aligned as usize) else {
+        let Some(range) = self.allocate_window(index, aligned) else {
             let _ = self.tasks[index].ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;

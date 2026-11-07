@@ -40,6 +40,7 @@ use user_window::UserWindow;
 mod arena;
 mod handles;
 mod platform;
+mod reclaim;
 mod state;
 mod syscall;
 mod task;
