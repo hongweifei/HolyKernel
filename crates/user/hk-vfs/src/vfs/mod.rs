@@ -38,6 +38,7 @@ struct OpenFile {
     instance: usize,
     document: DocId,
     revision: RevisionId,
+    size: u64,
     offset: u64,
     flags: OpenFlags,
 }

@@ -67,19 +67,20 @@ impl PageCache {
     }
 
     /// 从文档读取，未命中时从后端加载整页。
+    #[allow(clippy::too_many_arguments)]
     pub fn read<B: Backend + ?Sized>(
         &mut self,
         backend: &B,
         instance: usize,
         document: DocId,
         revision: RevisionId,
+        size: u64,
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, VfsError> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        let size = backend.document(document).map_err(map_error)?.size;
         if offset >= size {
             return Ok(0);
         }
@@ -210,13 +211,15 @@ mod tests {
     fn caches_pages_across_reads() {
         let (mut fs, document) = writable();
         fs.write(document, 0, b"hello").expect("写入");
-        let revision = fs.document(document).expect("视图").head;
+        let info = fs.document(document).expect("视图");
+        let revision = info.head;
+        let size = info.size;
 
         let mut cache = PageCache::new();
         let mut buffer = [0_u8; 5];
         assert_eq!(
             cache
-                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .read(&fs, 0, document, revision, size, 0, &mut buffer)
                 .expect("读"),
             5
         );
@@ -226,7 +229,7 @@ mod tests {
         let mut tail = [0_u8; 3];
         assert_eq!(
             cache
-                .read(&fs, 0, document, revision, 2, &mut tail)
+                .read(&fs, 0, document, revision, size, 2, &mut tail)
                 .expect("读"),
             3
         );
@@ -241,11 +244,12 @@ mod tests {
         cache.write(&mut fs, 0, document, 0, b"abc").expect("写");
         assert_eq!(fs.document(document).expect("元数据").size, 3);
 
-        let revision = fs.document(document).expect("视图").head;
+        let info = fs.document(document).expect("视图");
+        let revision = info.head;
         let mut buffer = [0_u8; 3];
         assert_eq!(
             cache
-                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .read(&fs, 0, document, revision, info.size, 0, &mut buffer)
                 .expect("读"),
             3
         );
@@ -261,11 +265,12 @@ mod tests {
             .write(&mut fs, 0, document, 0, &chunk)
             .expect("批量写");
         assert!(cache.is_empty());
-        let revision = fs.document(document).expect("视图").head;
+        let info = fs.document(document).expect("视图");
+        let revision = info.head;
         let mut buffer = [0_u8; PAGE_SIZE * 8];
         assert_eq!(
             cache
-                .read(&fs, 0, document, revision, 0, &mut buffer)
+                .read(&fs, 0, document, revision, info.size, 0, &mut buffer)
                 .expect("批量读"),
             chunk.len()
         );
@@ -294,19 +299,28 @@ mod tests {
         fs.write(document, 0, &first).expect("写第一页");
         fs.write(document, PAGE_SIZE as u64, &second)
             .expect("写第二页");
-        let revision = fs.document(document).expect("视图").head;
+        let info = fs.document(document).expect("视图");
+        let revision = info.head;
 
         let mut cache = PageCache::with_capacity(1);
         let mut buffer = [0_u8; 4];
         cache
-            .read(&fs, 0, document, revision, 0, &mut buffer)
+            .read(&fs, 0, document, revision, info.size, 0, &mut buffer)
             .expect("读第一页");
         cache
-            .read(&fs, 0, document, revision, PAGE_SIZE as u64, &mut buffer)
+            .read(
+                &fs,
+                0,
+                document,
+                revision,
+                info.size,
+                PAGE_SIZE as u64,
+                &mut buffer,
+            )
             .expect("读第二页");
         assert_eq!(cache.len(), 1);
         cache
-            .read(&fs, 0, document, revision, 0, &mut buffer)
+            .read(&fs, 0, document, revision, info.size, 0, &mut buffer)
             .expect("再读第一页");
         assert_eq!(cache.len(), 1);
         assert_eq!(&buffer, &[1; 4]);

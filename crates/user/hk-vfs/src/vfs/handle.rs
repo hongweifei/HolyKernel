@@ -4,7 +4,7 @@ impl Vfs {
     /// 打开文档，返回句柄。
     pub fn open(&mut self, path: &str, flags: OpenFlags) -> Result<FileHandle, VfsError> {
         let path = normalize(path);
-        let (instance, document) = match self.resolve(&path) {
+        let (instance, document, info) = match self.resolve(&path) {
             Ok((instance, document)) => {
                 let info = self.instances[instance]
                     .backend
@@ -13,19 +13,19 @@ impl Vfs {
                 if info.kind == hk_fs::DocumentKind::Collection && flags.write {
                     return Err(VfsError::IsDirectory);
                 }
-                (instance, document)
+                (instance, document, info)
             }
             Err(VfsError::NotFound) if flags.create => {
-                self.create_node(&path, hk_fs::DocumentKind::Content)?
+                let (instance, document) = self.create_node(&path, hk_fs::DocumentKind::Content)?;
+                let info = self.instances[instance]
+                    .backend
+                    .document(document)
+                    .map_err(map_fs_error)?;
+                (instance, document, info)
             }
             Err(error) => return Err(error),
         };
 
-        let revision = self.instances[instance]
-            .backend
-            .document(document)
-            .map_err(map_fs_error)?
-            .head;
         let handle = self.next_handle;
         self.next_handle = self.next_handle.checked_add(1).ok_or(VfsError::Backend)?;
         self.handles.insert(
@@ -33,7 +33,8 @@ impl Vfs {
             OpenFile {
                 instance,
                 document,
-                revision,
+                revision: info.head,
+                size: info.size,
                 offset: 0,
                 flags,
             },
@@ -56,31 +57,22 @@ impl Vfs {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, VfsError> {
-        let (instance, document, flags) = {
+        let (instance, document, revision, size) = {
             let open = self.handles.get(&handle.0).ok_or(VfsError::NotFound)?;
             if !open.flags.read {
                 return Err(VfsError::PermissionDenied);
             }
-            (open.instance, open.document, open.flags)
+            (open.instance, open.document, open.revision, open.size)
         };
-        let revision = self.instances[instance]
-            .backend
-            .document(document)
-            .map_err(map_fs_error)?
-            .head;
-        if let Some(open) = self.handles.get_mut(&handle.0) {
-            open.revision = revision;
-        }
         let backend = &*self.instances[instance].backend;
         let read = if backend.cacheable(document) {
             self.cache
-                .read(backend, instance, document, revision, offset, buffer)?
+                .read(backend, instance, document, revision, size, offset, buffer)?
         } else {
             backend
                 .read(document, Some(revision), offset, buffer)
                 .map_err(map_fs_error)?
         };
-        let _ = flags;
         Ok(read)
     }
 
@@ -124,9 +116,10 @@ impl Vfs {
                 .write(document, offset, data)
                 .map_err(map_fs_error)?
         };
-        let revision = backend.document(document).map_err(map_fs_error)?.head;
+        let info = backend.document(document).map_err(map_fs_error)?;
         if let Some(open) = self.handles.get_mut(&handle.0) {
-            open.revision = revision;
+            open.revision = info.head;
+            open.size = info.size;
         }
         Ok(written)
     }
@@ -191,6 +184,22 @@ impl Vfs {
             .truncate(document, size)
             .map_err(map_fs_error)?;
         self.cache.invalidate(instance, document);
+        if self
+            .handles
+            .values()
+            .any(|open| open.instance == instance && open.document == document)
+        {
+            let info = self.instances[instance]
+                .backend
+                .document(document)
+                .map_err(map_fs_error)?;
+            for open in self.handles.values_mut() {
+                if open.instance == instance && open.document == document {
+                    open.revision = info.head;
+                    open.size = info.size;
+                }
+            }
+        }
         Ok(())
     }
 
