@@ -14,7 +14,9 @@ use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::paging;
 use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
-use hk_root_server::{RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform};
+use hk_root_server::{
+    FaultOutcome, RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform,
+};
 
 mod control;
 use hk_syscall::{SYS_ROOT_CONTROL, SYS_ROOT_CONTROL_DATA, SYS_ROOT_RESULT};
@@ -627,17 +629,12 @@ fn preempt(frame: &InterruptFrame) -> bool {
 }
 
 fn fault(frame: &mut InterruptFrame) -> FaultAction {
-    if frame.vector == 14
-        && frame.error & 0b1 == 0
-        && RUNTIME.provider_fault(cpu::cpu_index(), cpu::fault_address(), *frame)
-    {
-        return FaultAction::Block;
-    }
-    if frame.vector == 14
-        && frame.error & 0b1 == 0
-        && RUNTIME.anonymous_fault(cpu::cpu_index(), cpu::fault_address())
-    {
-        return FaultAction::Resume;
+    if frame.vector == 14 && frame.error & 0b1 == 0 {
+        match RUNTIME.handle_fault(cpu::cpu_index(), cpu::fault_address(), *frame) {
+            FaultOutcome::Blocked => return FaultAction::Block,
+            FaultOutcome::Resumed => return FaultAction::Resume,
+            FaultOutcome::Unhandled => {}
+        }
     }
     if frame.vector == 14
         && frame.error & 0b11 == 0b11

@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// 缺页处理结果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaultOutcome {
+    /// 已转交 Provider，任务阻塞。
+    Blocked,
+    /// 页已装入或恢复映射，任务可继续。
+    Resumed,
+    /// 当前 Region 不处理该缺页。
+    Unhandled,
+}
+
 /// 被挂起的系统调用。
 #[derive(Clone, Copy)]
 pub enum Pending {

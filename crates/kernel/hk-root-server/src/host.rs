@@ -11,7 +11,9 @@ use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
-use hk_runtime::runtime::{CheckpointCapture, Step, Switch, TaskInfo, UserPlatform, UserRuntime};
+use hk_runtime::runtime::{
+    CheckpointCapture, FaultOutcome, Step, Switch, TaskInfo, UserPlatform, UserRuntime,
+};
 
 use crate::ServiceTable;
 use crate::debug::{self, FaultContext};
@@ -133,6 +135,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .lock()
             .as_mut()
             .is_some_and(|runtime| runtime.provider_fault(cpu, address, context))
+    }
+
+    /// 解析一次 Region 后处理缺页。
+    pub fn handle_fault(&self, cpu: usize, address: u64, context: C) -> FaultOutcome {
+        self.runtime
+            .lock()
+            .as_mut()
+            .map_or(FaultOutcome::Unhandled, |runtime| {
+                runtime.handle_fault(cpu, address, context)
+            })
     }
 
     /// 返回任务数量。

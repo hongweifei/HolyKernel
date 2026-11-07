@@ -53,7 +53,7 @@ mod view;
 
 pub use arena::Arena;
 pub use platform::UserPlatform;
-pub use state::{Pending, Step, Switch};
+pub use state::{FaultOutcome, Pending, Step, Switch};
 pub use user_task::UserTask;
 pub(crate) use user_task::{HandleSlot, TaskInit};
 pub use view::{RuntimeStats, TaskInfo};

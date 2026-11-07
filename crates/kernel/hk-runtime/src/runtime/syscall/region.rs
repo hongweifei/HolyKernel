@@ -9,6 +9,13 @@ use super::*;
 
 use hk_syscall::PROVIDER_FAULT;
 
+#[derive(Clone, Copy)]
+struct FaultRegion {
+    tcb: TcbId,
+    capability: Handle,
+    virt: u64,
+}
+
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn region_map(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
@@ -169,47 +176,60 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
+    fn find_fault_region(&self, index: usize, address: u64) -> Option<FaultRegion> {
+        let owner = self.leader_of(index);
+        self.process(owner).regions.iter().find_map(|region| {
+            let region = region.as_ref()?;
+            let end = region.virt.checked_add(region.len as u64)?;
+            (address >= region.virt && address < end).then_some(FaultRegion {
+                tcb: region.owner,
+                capability: region.capability,
+                virt: region.virt,
+            })
+        })
+    }
+
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。
     pub fn provider_fault(&mut self, cpu: usize, address: u64, context: C) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;
         };
-        let owner = self.leader_of(index);
         self.tasks[index].context = context;
-        let Some((slot, virt, _length)) =
-            self.process(owner)
-                .regions
-                .iter()
-                .enumerate()
-                .find_map(|(slot, region)| {
-                    let region = region.as_ref()?;
-                    let end = region.virt.checked_add(region.len as u64)?;
-                    (address >= region.virt && address < end).then_some((
-                        slot,
-                        region.virt,
-                        region.len,
-                    ))
-                })
+        let Some(region) = self.find_fault_region(index, address) else {
+            return false;
+        };
+        let Ok((capability, backing)) = self.kernel.capability(region.tcb, region.capability)
         else {
-            return false;
-        };
-        let Some(region) = self.process(owner).regions[slot].as_ref() else {
-            return false;
-        };
-        let capability_handle = region.capability;
-        let tcb = region.owner;
-        let Ok((capability, backing)) = self.kernel.capability(tcb, capability_handle) else {
             return false;
         };
         if backing.is_some() {
             return false;
         }
-        let Ok(Some(provider)) = self.kernel.capability_provider(tcb, capability_handle) else {
+        let Ok(Some(provider)) = self
+            .kernel
+            .capability_provider(region.tcb, region.capability)
+        else {
             return false;
         };
+        if self.provider_fault_region(index, region, address, &capability, provider) {
+            self.current[cpu] = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn provider_fault_region(
+        &mut self,
+        index: usize,
+        region: FaultRegion,
+        address: u64,
+        capability: &Capability,
+        provider: ObjectId,
+    ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
-        let page_address = virt + (address.saturating_sub(virt) / page) * page;
-        let offset = page_address.saturating_sub(virt);
+        let page_address = region.virt + (address.saturating_sub(region.virt) / page) * page;
+        let offset = page_address.saturating_sub(region.virt);
         if offset >= capability.size() {
             return false;
         }
@@ -225,14 +245,49 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             return false;
         }
-        let page_index = (page_address.saturating_sub(virt) / page) as usize;
         self.tasks[index].pending = Pending::ProviderFault {
-            capability: capability_handle,
-            index: page_index,
+            capability: region.capability,
+            index: (offset / page) as usize,
             page: page_address,
         };
-        self.current[cpu] = None;
         true
+    }
+
+    /// 一次解析 Region 后分派 Provider 或匿名缺页。
+    pub fn handle_fault(&mut self, cpu: usize, address: u64, context: C) -> FaultOutcome {
+        let Some(index) = self.current[cpu] else {
+            return FaultOutcome::Unhandled;
+        };
+        let Some(region) = self.find_fault_region(index, address) else {
+            return FaultOutcome::Unhandled;
+        };
+        let Ok((capability, backing)) = self.kernel.capability(region.tcb, region.capability)
+        else {
+            return FaultOutcome::Unhandled;
+        };
+        if backing.is_some() {
+            return FaultOutcome::Unhandled;
+        }
+        let provider = self
+            .kernel
+            .capability_provider(region.tcb, region.capability)
+            .ok()
+            .flatten();
+        if let Some(provider) = provider {
+            self.tasks[index].context = context;
+            if self.provider_fault_region(index, region, address, &capability, provider) {
+                self.current[cpu] = None;
+                FaultOutcome::Blocked
+            } else {
+                FaultOutcome::Unhandled
+            }
+        } else if capability.kind() == CapabilityKind::Anonymous
+            && self.anonymous_fault_region(index, region, address, &capability)
+        {
+            FaultOutcome::Resumed
+        } else {
+            FaultOutcome::Unhandled
+        }
     }
 
     /// 在 fork 前把惰性 Region 的页装入父地址空间。
@@ -278,30 +333,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(index) = self.current[cpu] else {
             return false;
         };
-        let owner = self.leader_of(index);
-        let Some((slot, virt, _length)) =
-            self.process(owner)
-                .regions
-                .iter()
-                .enumerate()
-                .find_map(|(slot, region)| {
-                    let region = region.as_ref()?;
-                    let end = region.virt.checked_add(region.len as u64)?;
-                    (address >= region.virt && address < end).then_some((
-                        slot,
-                        region.virt,
-                        region.len,
-                    ))
-                })
+        let Some(region) = self.find_fault_region(index, address) else {
+            return false;
+        };
+        let Ok((capability, backing)) = self.kernel.capability(region.tcb, region.capability)
         else {
-            return false;
-        };
-        let Some(region) = self.process(owner).regions[slot].as_ref() else {
-            return false;
-        };
-        let capability_handle = region.capability;
-        let tcb = region.owner;
-        let Ok((capability, backing)) = self.kernel.capability(tcb, capability_handle) else {
             return false;
         };
         if backing.is_some() || capability.kind() != CapabilityKind::Anonymous {
@@ -309,22 +345,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         if self
             .kernel
-            .capability_provider(tcb, capability_handle)
+            .capability_provider(region.tcb, region.capability)
             .ok()
             .flatten()
             .is_some()
         {
             return false;
         }
+        self.anonymous_fault_region(index, region, address, &capability)
+    }
+
+    fn anonymous_fault_region(
+        &mut self,
+        index: usize,
+        region: FaultRegion,
+        address: u64,
+        capability: &Capability,
+    ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
-        let offset = address.saturating_sub(virt) / page;
+        let offset = address.saturating_sub(region.virt) / page;
         if offset >= capability.size() / page {
             return false;
         }
-        let page_address = virt + offset * page;
+        let page_address = region.virt + offset * page;
         if let Some(range) = self
             .kernel
-            .capability_page(tcb, capability_handle, offset as usize)
+            .capability_page(region.tcb, region.capability, offset as usize)
             .ok()
             .flatten()
         {
@@ -347,7 +393,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         if !self
             .kernel
-            .set_capability_page(tcb, capability_handle, offset as usize, backing)
+            .set_capability_page(region.tcb, region.capability, offset as usize, backing)
             .unwrap_or(false)
         {
             let _ = self.platform.unmap_dma(index, page_address, page as usize);
