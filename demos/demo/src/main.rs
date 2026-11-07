@@ -37,9 +37,10 @@ use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    alloc, boot_cmdline, call, exit, futex_wait, futex_wake, notify, recv, recv_data_try,
-    self_notification, send, send_handle, service_endpoint, thread_create, thread_join, tsc,
-    tsc_frequency, wait_notify, write, write_u64, yield_now,
+    MemoryClient, alloc, boot_cmdline, call, close_handle, exit, futex_wait, futex_wake,
+    ledger_info, map_lazy, notify, recv, recv_data_try, region_unmap, self_notification, send,
+    send_handle, service_endpoint, thread_create, thread_join, tsc, tsc_frequency, wait_notify,
+    write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -131,6 +132,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             write(b"hk-server-demo worker ok\n");
         } else {
             write(b"hk-server-demo worker fail\n");
+            exit(1)
+        }
+        if verify_memory(endpoint) {
+            write(b"hk-server-demo hmp ok\n");
+        } else {
+            write(b"hk-server-demo hmp fail\n");
             exit(1)
         }
 
@@ -593,6 +600,38 @@ fn verify_sync() -> bool {
         return false;
     }
     *SYNC_RW.read() == 1
+}
+
+/// HMP 自检：经 Memory Server 申请匿名能力，缺页取零页写入后释放。
+#[cfg(target_os = "none")]
+fn verify_memory(endpoint: u64) -> bool {
+    const PAGE: usize = 4096;
+    let client = MemoryClient::new(endpoint);
+    if !client.available() {
+        return false;
+    }
+    let Some(before) = ledger_info() else {
+        return false;
+    };
+    let Some(capability) = client.allocate(PAGE) else {
+        return false;
+    };
+    let Some((region, virt)) = map_lazy(capability, PAGE) else {
+        let _ = close_handle(capability);
+        return false;
+    };
+    // SAFETY: 区域已按一页映射进本任务；首次读取触发 Provider 缺页。
+    let zero = unsafe { core::ptr::read_volatile(virt as *const u8) };
+    // SAFETY: 上一条读取已装入该页，写入的是本任务私有页。
+    unsafe { core::ptr::write_volatile(virt as *mut u8, 0xAB) };
+    // SAFETY: 读回刚写入的字节校验映射与内容。
+    let written = unsafe { core::ptr::read_volatile(virt as *const u8) };
+    let _ = region_unmap(region);
+    let _ = close_handle(capability);
+    let Some(after) = ledger_info() else {
+        return false;
+    };
+    zero == 0 && written == 0xAB && after.charged == before.charged
 }
 
 /// 验证服务端工作线程池：并发提交、乱序完成与并发峰值。
