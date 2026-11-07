@@ -80,6 +80,33 @@ impl TaskRow {
     }
 }
 
+/// System Capacity 记账快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemMemory {
+    /// 总字节数。
+    pub total: u64,
+    /// 已用字节数。
+    pub used: u64,
+    /// 峰值字节数。
+    pub peak: u64,
+    /// 空闲字节数。
+    pub free: u64,
+    /// 内核堆。
+    pub heap: u64,
+    /// 页表。
+    pub page_table: u64,
+    /// 写时复制。
+    pub cow: u64,
+    /// 检查点恢复。
+    pub restore: u64,
+    /// 用户镜像。
+    pub image: u64,
+    /// DMA。
+    pub dma: u64,
+    /// 其他。
+    pub other: u64,
+}
+
 /// 一次性能快照。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PerfSample {
@@ -99,16 +126,28 @@ pub struct PerfSample {
     pub cpu_resumes: Vec<u64>,
     /// 任务行。
     pub rows: Vec<TaskRow>,
+    /// System Capacity 快照。
+    pub system: SystemMemory,
 }
 
 impl PerfSample {
-    /// 所有任务 Arena 已用字节。
+    /// System Capacity 已用字节。
     pub fn memory_used(&self) -> u64 {
+        self.system.used
+    }
+
+    /// System Capacity 总量。
+    pub fn memory_total(&self) -> u64 {
+        self.system.total
+    }
+
+    /// 所有任务 Arena 已用字节。
+    pub fn arena_used(&self) -> u64 {
         self.rows.iter().map(|row| row.arena_used).sum()
     }
 
     /// 所有任务 Arena 总量。
-    pub fn memory_total(&self) -> u64 {
+    pub fn arena_total(&self) -> u64 {
         self.rows.iter().map(|row| row.arena_size).sum()
     }
 }
@@ -175,6 +214,27 @@ pub fn parse_perf(text: &str) -> PerfSample {
                     "runnable" => sample.runnable = value.parse().unwrap_or(0),
                     "tsc" => sample.tsc_hz = value.parse().unwrap_or(0),
                     "ticks" => sample.ticks = value.parse().unwrap_or(0),
+                    _ => {}
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("mem ") {
+            for field in rest.split_whitespace() {
+                let Some((key, value)) = field.split_once('=') else {
+                    continue;
+                };
+                let value = value.parse().unwrap_or(0);
+                match key {
+                    "total" => sample.system.total = value,
+                    "used" => sample.system.used = value,
+                    "peak" => sample.system.peak = value,
+                    "free" => sample.system.free = value,
+                    "heap" => sample.system.heap = value,
+                    "page_table" => sample.system.page_table = value,
+                    "cow" => sample.system.cow = value,
+                    "restore" => sample.system.restore = value,
+                    "image" => sample.system.image = value,
+                    "dma" => sample.system.dma = value,
+                    "other" => sample.system.other = value,
                     _ => {}
                 }
             }

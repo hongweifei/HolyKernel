@@ -67,7 +67,7 @@ const PROC_X: [i32; 8] = [16, 60, 240, 304, 360, 510, 554, 590];
 /// 进程页列宽。
 const PROC_WIDTH: [i32; 8] = [44, 180, 64, 56, 150, 44, 36, 44];
 /// 进程页列标题。
-const PROC_TITLE: [&str; 8] = ["TCB", "任务", "状态", "CPU", "内存", "句柄", "父", "端点"];
+const PROC_TITLE: [&str; 8] = ["TCB", "任务", "状态", "CPU", "Arena", "句柄", "父", "端点"];
 
 /// 绘制所需的只读快照。
 pub(crate) struct View<'a> {
@@ -189,12 +189,13 @@ fn render_tabs(active: Page, surface: &Surface) {
 fn render_processes(view: &View<'_>, width: i32, height: usize, surface: &Surface) {
     let table = hk_canvas::default_monospace();
     let summary = format!(
-        "任务 {} · 就绪 {} · CPU {} · 内存 {} MiB / {} MiB",
+        "任务 {} · 就绪 {} · CPU {} · System {} / {} MiB · Arena {} MiB",
         view.sample.tasks,
         view.sample.runnable,
         percent_text(view.cpu_usage),
         mib_text(view.sample.memory_used()),
         mib_text(view.sample.memory_total()),
+        mib_text(view.sample.arena_used()),
     );
     let mut pen = MARGIN;
     surface.draw_text(&mut pen, 52, &summary, MUTED, table);
@@ -341,19 +342,39 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
         used.saturating_mul(1000) / total
     };
     let memory_text = format!(
-        "{} / {} MiB  ({})",
+        "{} / {} MiB  ({})  峰值 {} MiB",
         mib_text(used),
         mib_text(total),
         percent_text(percent),
+        mib_text(view.sample.system.peak),
     );
     let memory_width = text_width(heading, &memory_text);
     let mut pen = memory_panel.right() - 12 - memory_width;
     surface.draw_text(&mut pen, memory_panel.y + 8, &memory_text, INK, heading);
+    let categories = format!(
+        "heap {} · 页表 {} · COW {} · 恢复 {} · 镜像 {} · DMA {} · 其他 {} MiB",
+        mib_text(view.sample.system.heap),
+        mib_text(view.sample.system.page_table),
+        mib_text(view.sample.system.cow),
+        mib_text(view.sample.system.restore),
+        mib_text(view.sample.system.image),
+        mib_text(view.sample.system.dma),
+        mib_text(view.sample.system.other),
+    );
+    let mut pen = memory_panel.x + 12;
+    surface.draw_text_ellipsis(
+        &mut pen,
+        memory_panel.y + 26,
+        &categories,
+        memory_panel.width - 24,
+        MUTED,
+        table,
+    );
     let memory_graph = Rect::new(
         memory_panel.x + 12,
-        memory_panel.y + 38,
+        memory_panel.y + 44,
         memory_panel.width - 24,
-        memory_panel.height - 50,
+        memory_panel.height - 56,
     );
     draw_graph(
         surface,

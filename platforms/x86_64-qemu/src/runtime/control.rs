@@ -266,6 +266,7 @@ fn perf() -> String {
         .iter()
         .filter(|task| matches!(task.state, "running" | "runnable"))
         .count();
+    let memory = hk_platform_x86_64::paging::FRAME_BANK.stats();
     let mut text = format!(
         "perf cpus={} tasks={} runnable={} tsc={} ticks={}\n",
         cpus,
@@ -274,6 +275,20 @@ fn perf() -> String {
         stats.tsc_frequency,
         hk_platform_x86_64::cpu::uptime_ticks(),
     );
+    text.push_str(&format!(
+        "mem total={} used={} peak={} free={} heap={} page_table={} cow={} restore={} image={} dma={} other={}\n",
+        memory.total,
+        memory.used,
+        memory.peak,
+        memory.free,
+        memory.by_kind[0],
+        memory.by_kind[1],
+        memory.by_kind[2],
+        memory.by_kind[3],
+        memory.by_kind[4],
+        memory.by_kind[5],
+        memory.by_kind[6],
+    ));
     for cpu in 0..cpus {
         text.push_str(&format!(
             "cpu {} {} {}\n",

@@ -505,6 +505,7 @@ impl SmokeMode {
                 "hk-server-taskman: cpu ",
                 "hk-server-taskman: busy ",
                 "hk-server-taskman: memory ",
+                "hk-server-taskman: memory-kinds ",
                 "hk-server-taskman: render ok",
                 "hk-server-taskman: done",
             ],
