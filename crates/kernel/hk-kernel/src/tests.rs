@@ -550,6 +550,132 @@ fn transfers_handles_over_ipc() {
 }
 
 #[test]
+fn handle_transfer_failure_preserves_sender_and_receiver() {
+    let kernel = kernel();
+    let client = thread(&kernel);
+    let server = kernel.spawn_thread(HandleTable::new(1), Priority::NORMAL);
+
+    let endpoint = kernel
+        .create_endpoint(client, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(client, endpoint).expect("端点标识");
+    let server_endpoint = kernel
+        .grant(server, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予服务端句柄");
+
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+    let frame = kernel
+        .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
+        .expect("创建能力");
+
+    assert!(
+        kernel
+            .recv(server, server_endpoint)
+            .expect("接收")
+            .is_none()
+    );
+    let result = kernel.send(
+        client,
+        endpoint,
+        Message::new(4).with_handles([Some(frame), None, None, None]),
+    );
+    assert_eq!(
+        result,
+        Err(crate::KernelError::Handle(
+            hk_handle::HandleError::NoHandles
+        ))
+    );
+    assert!(kernel.handle_id(client, frame).is_ok());
+    assert_eq!(kernel.handles_live(server), Some(1));
+
+    kernel
+        .send(client, endpoint, Message::new(5))
+        .expect("重试发送");
+    assert_eq!(kernel.state_of(server), Some(ThreadState::Runnable));
+    let received = kernel
+        .recv(server, server_endpoint)
+        .expect("接收")
+        .expect("收到消息");
+    assert_eq!(received.message.label, 5);
+}
+
+#[test]
+fn handle_transfer_rejects_duplicate_and_invalid_handles() {
+    let kernel = kernel();
+    let client = thread(&kernel);
+    let server = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(client, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(client, endpoint).expect("端点标识");
+    let server_endpoint = kernel
+        .grant(server, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予服务端句柄");
+
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+    let frame = kernel
+        .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
+        .expect("创建能力");
+
+    assert!(
+        kernel
+            .recv(server, server_endpoint)
+            .expect("接收")
+            .is_none()
+    );
+    let before = kernel.handles_live(client);
+    let result = kernel.send(
+        client,
+        endpoint,
+        Message::new(4).with_handles([Some(frame), Some(frame), None, None]),
+    );
+    assert_eq!(
+        result,
+        Err(crate::KernelError::Handle(
+            hk_handle::HandleError::BadHandle
+        ))
+    );
+    assert_eq!(kernel.handles_live(client), before);
+    assert!(kernel.handle_id(client, frame).is_ok());
+
+    let bogus = hk_handle::Handle::new(u32::MAX, 0);
+    let result = kernel.send(
+        client,
+        endpoint,
+        Message::new(5).with_handles([Some(bogus), None, None, None]),
+    );
+    assert_eq!(
+        result,
+        Err(crate::KernelError::Handle(
+            hk_handle::HandleError::BadHandle
+        ))
+    );
+    assert_eq!(kernel.handles_live(client), before);
+}
+
+#[test]
+fn transfers_handles_to_self_without_moving_them() {
+    let kernel = kernel();
+    let client = thread(&kernel);
+
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+    let frame = kernel
+        .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
+        .expect("创建能力");
+
+    let mut message = Message::new(1).with_handles([Some(frame), None, None, None]);
+    kernel
+        .transfer_handles(client, client, &mut message)
+        .expect("自转移");
+    assert_eq!(message.handles[0], Some(frame));
+    assert!(kernel.handle_id(client, frame).is_ok());
+}
+
+#[test]
 fn schedules_higher_priority_first() {
     let kernel = kernel();
     let low = kernel.spawn_thread(HandleTable::new(8), Priority::LOWEST);

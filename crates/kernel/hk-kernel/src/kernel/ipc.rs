@@ -19,9 +19,17 @@ impl Kernel {
         })?;
 
         match endpoint.send(Waiter::new(thread.get()), message) {
-            SendOutcome::Delivered { receiver, message } => {
+            SendOutcome::Delivered {
+                position,
+                receiver,
+                expected,
+                mut message,
+            } => {
                 let receiver = TcbId::new(receiver.get());
-                let message = self.transfer_handles(thread, receiver, message)?;
+                if let Err(error) = self.transfer_handles(thread, receiver, &mut message) {
+                    endpoint.restore_receiver(position, Waiter::new(receiver.get()), expected);
+                    return Err(error);
+                }
                 {
                     let mut threads = self.threads.lock();
                     let target = threads
@@ -100,15 +108,18 @@ impl Kernel {
         let expected = expected.map(|tcb| Waiter::new(tcb.get()));
         // 非阻塞路径不能登记等待者，否则会在端点里留下悬挂的接收者。
         let received = if block_when_empty {
-            endpoint.recv_from(Waiter::new(thread.get()), expected)
+            endpoint.recv_from_indexed(Waiter::new(thread.get()), expected)
         } else {
-            endpoint.try_recv_from(expected)
+            endpoint.try_recv_from_indexed(expected)
         };
         match received {
-            Some((sender, message)) => {
+            Some((position, sender, mut message)) => {
                 let sender = TcbId::new(sender.get());
                 let reply = self.reply_token(sender, endpoint_id);
-                let message = self.transfer_handles(sender, thread, message)?;
+                if let Err(error) = self.transfer_handles(sender, thread, &mut message) {
+                    endpoint.restore_sender(position, Waiter::new(sender.get()), message);
+                    return Err(error);
+                }
                 if reply.is_none() {
                     self.wake(sender);
                 }
@@ -210,9 +221,20 @@ impl Kernel {
         };
 
         match endpoint.send(Waiter::new(thread.get()), message) {
-            SendOutcome::Delivered { receiver, message } => {
+            SendOutcome::Delivered {
+                position,
+                receiver,
+                expected,
+                mut message,
+            } => {
                 let receiver = TcbId::new(receiver.get());
-                let message = self.transfer_handles(thread, receiver, message)?;
+                if let Err(error) = self.transfer_handles(thread, receiver, &mut message) {
+                    endpoint.restore_receiver(position, Waiter::new(receiver.get()), expected);
+                    if let Some(tcb) = self.threads.lock().get_mut(&thread) {
+                        tcb.set_pending_call(None);
+                    }
+                    return Err(error);
+                }
                 {
                     let mut threads = self.threads.lock();
                     let target = threads
@@ -254,9 +276,19 @@ impl Kernel {
         &self,
         thread: TcbId,
         token: ReplyToken,
-        message: Message,
+        mut message: Message,
     ) -> Result<(), KernelError> {
-        let message = self.transfer_handles(thread, token.caller, message)?;
+        {
+            let threads = self.threads.lock();
+            let caller = threads
+                .get(&token.caller)
+                .ok_or(KernelError::UnknownThread(token.caller))?;
+            let pending = caller.pending_call().ok_or(KernelError::InvalidReply)?;
+            if pending.sequence != token.sequence || pending.answered {
+                return Err(KernelError::InvalidReply);
+            }
+        }
+        self.transfer_handles(thread, token.caller, &mut message)?;
         {
             let mut threads = self.threads.lock();
             let caller = threads
@@ -393,15 +425,41 @@ impl Kernel {
         &self,
         sender: TcbId,
         receiver: TcbId,
-        mut message: Message,
-    ) -> Result<Message, KernelError> {
+        message: &mut Message,
+    ) -> Result<(), KernelError> {
         let handles: Vec<Handle> = message.handles.iter().flatten().copied().collect();
         if handles.is_empty() {
-            return Ok(message);
+            return Ok(());
+        }
+        if handles
+            .iter()
+            .enumerate()
+            .any(|(index, handle)| handles[..index].contains(handle))
+        {
+            return Err(hk_handle::HandleError::BadHandle.into());
         }
 
-        {
+        if sender == receiver {
             let threads = self.threads.lock();
+            let source = threads
+                .get(&sender)
+                .ok_or(KernelError::UnknownThread(sender))?;
+            for handle in &handles {
+                source
+                    .handles()
+                    .resolve(*handle, Rights::READ | Rights::TRANSFER)?;
+            }
+            self.record(
+                sender.get(),
+                Category::Handle,
+                TRACE_HANDLE_TRANSFER,
+                handles.len() as u64,
+            );
+            return Ok(());
+        }
+
+        let mut threads = self.threads.lock();
+        {
             let target = threads
                 .get(&receiver)
                 .ok_or(KernelError::UnknownThread(receiver))?;
@@ -414,41 +472,74 @@ impl Kernel {
             }
         }
 
-        let mut moved = Vec::with_capacity(handles.len());
+        let mut resolved = Vec::with_capacity(handles.len());
         {
-            let mut threads = self.threads.lock();
             let source = threads
-                .get_mut(&sender)
+                .get(&sender)
                 .ok_or(KernelError::UnknownThread(sender))?;
             for handle in &handles {
-                moved.push(source.handles_mut().take(*handle, Rights::READ)?);
+                resolved.push(
+                    source
+                        .handles()
+                        .resolve(*handle, Rights::READ | Rights::TRANSFER)?,
+                );
             }
         }
 
-        let mut granted = Vec::with_capacity(moved.len());
+        let mut granted = Vec::with_capacity(resolved.len());
         {
-            let mut threads = self.threads.lock();
             let target = threads
                 .get_mut(&receiver)
                 .ok_or(KernelError::UnknownThread(receiver))?;
-            for resolved in &moved {
-                let object = Arc::clone(resolved.object());
-                granted.push(target.handles_mut().insert(object, resolved.rights())?);
+            for resolved in &resolved {
+                match target
+                    .handles_mut()
+                    .insert(Arc::clone(resolved.object()), resolved.rights())
+                {
+                    Ok(handle) => granted.push(handle),
+                    Err(error) => {
+                        for handle in granted {
+                            let _ = target.handles_mut().close(handle);
+                        }
+                        return Err(error.into());
+                    }
+                }
             }
+        }
+
+        let close_failed = {
+            let source = threads
+                .get_mut(&sender)
+                .ok_or(KernelError::UnknownThread(sender))?;
+            let mut failed = false;
+            for handle in &handles {
+                if source.handles_mut().close(*handle).is_err() {
+                    failed = true;
+                    break;
+                }
+            }
+            failed
+        };
+        if close_failed {
+            let target = threads
+                .get_mut(&receiver)
+                .ok_or(KernelError::UnknownThread(receiver))?;
+            for handle in &granted {
+                let _ = target.handles_mut().close(*handle);
+            }
+            return Err(hk_handle::HandleError::BadHandle.into());
         }
 
         message.handles = [None; hk_ipc::MAX_MESSAGE_HANDLES];
         for (index, handle) in granted.into_iter().enumerate() {
             message.handles[index] = Some(handle);
         }
-        if !moved.is_empty() {
-            self.record(
-                sender.get(),
-                Category::Handle,
-                TRACE_HANDLE_TRANSFER,
-                moved.len() as u64,
-            );
-        }
-        Ok(message)
+        self.record(
+            sender.get(),
+            Category::Handle,
+            TRACE_HANDLE_TRANSFER,
+            handles.len() as u64,
+        );
+        Ok(())
     }
 }

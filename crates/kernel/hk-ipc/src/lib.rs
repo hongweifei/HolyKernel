@@ -91,8 +91,12 @@ pub const ENDPOINT_QUEUE_CAPACITY: usize = 64;
 pub enum SendOutcome {
     /// 已有接收者在等待，消息直接交付。
     Delivered {
+        /// 接收者在等待队列中的位置；交付失败时用于原样恢复。
+        position: usize,
         /// 接收者。
         receiver: Waiter,
+        /// 接收者匹配的发送者。
+        expected: Option<Waiter>,
         /// 交付的消息。
         message: Message,
     },
@@ -168,7 +172,9 @@ impl Endpoint {
             Some(index) => {
                 let pending = state.receivers.remove(index).expect("接收者已索引");
                 SendOutcome::Delivered {
+                    position: index,
                     receiver: pending.receiver,
+                    expected: pending.expected,
                     message,
                 }
             }
@@ -191,6 +197,16 @@ impl Endpoint {
         receiver: Waiter,
         expected: Option<Waiter>,
     ) -> Option<(Waiter, Message)> {
+        self.recv_from_indexed(receiver, expected)
+            .map(|(_, sender, message)| (sender, message))
+    }
+
+    /// 接收消息并返回发送者在队列中的位置，供交付失败时原样恢复。
+    pub fn recv_from_indexed(
+        &self,
+        receiver: Waiter,
+        expected: Option<Waiter>,
+    ) -> Option<(usize, Waiter, Message)> {
         let mut state = self.state.lock();
         let index = match expected {
             None => (!state.senders.is_empty()).then_some(0),
@@ -201,7 +217,7 @@ impl Endpoint {
         };
         if let Some(index) = index {
             let pending = state.senders.remove(index)?;
-            return Some((pending.sender, pending.message));
+            return Some((index, pending.sender, pending.message));
         }
         state
             .receivers
@@ -211,6 +227,15 @@ impl Endpoint {
 
     /// 非阻塞接收：没有待取消息时直接返回 `None`，不登记等待者。
     pub fn try_recv_from(&self, expected: Option<Waiter>) -> Option<(Waiter, Message)> {
+        self.try_recv_from_indexed(expected)
+            .map(|(_, sender, message)| (sender, message))
+    }
+
+    /// 非阻塞接收并返回发送者在队列中的位置。
+    pub fn try_recv_from_indexed(
+        &self,
+        expected: Option<Waiter>,
+    ) -> Option<(usize, Waiter, Message)> {
         let mut state = self.state.lock();
         let index = match expected {
             None => (!state.senders.is_empty()).then_some(0),
@@ -220,7 +245,25 @@ impl Endpoint {
                 .position(|pending| pending.sender == expected),
         }?;
         let pending = state.senders.remove(index)?;
-        Some((pending.sender, pending.message))
+        Some((index, pending.sender, pending.message))
+    }
+
+    /// 交付失败时把接收者放回原位置。
+    pub fn restore_receiver(&self, position: usize, receiver: Waiter, expected: Option<Waiter>) {
+        let mut state = self.state.lock();
+        let position = position.min(state.receivers.len());
+        state
+            .receivers
+            .insert(position, PendingRecv { receiver, expected });
+    }
+
+    /// 交付失败时把发送者消息放回原位置。
+    pub fn restore_sender(&self, position: usize, sender: Waiter, message: Message) {
+        let mut state = self.state.lock();
+        let position = position.min(state.senders.len());
+        state
+            .senders
+            .insert(position, PendingSend { sender, message });
     }
 
     /// 撤销发送者的排队消息，用于超时与取消。
@@ -382,7 +425,9 @@ mod tests {
         assert_eq!(
             endpoint.send(waiter(1), message.clone()),
             SendOutcome::Delivered {
+                position: 0,
                 receiver: waiter(2),
+                expected: None,
                 message
             }
         );
@@ -401,7 +446,9 @@ mod tests {
         assert_eq!(
             endpoint.send(waiter(1), expected.clone()),
             SendOutcome::Delivered {
+                position: 0,
                 receiver: waiter(3),
+                expected: Some(waiter(1)),
                 message: expected,
             }
         );
