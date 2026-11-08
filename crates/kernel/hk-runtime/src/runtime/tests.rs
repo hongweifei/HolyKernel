@@ -90,15 +90,26 @@ struct MockPlatform {
     activations: Arc<AtomicUsize>,
     /// 最近一次 `map_user` 的页表参数。
     last_map: Arc<core::sync::atomic::AtomicU64>,
+    /// 共享的 System Capacity。
+    system: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
 }
 
 impl MockPlatform {
     fn new() -> Self {
+        let system = hk_mem::hmp::Capacity::new(
+            hk_mem::hmp::CapacityId::next(),
+            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8000_0000), 0x20_0000),
+            hk_hal::PAGE_SIZE,
+            hk_mem::hmp::CapacityKind::System,
+            0,
+        )
+        .expect("System Capacity");
         Self {
             zero: true,
             unmap_ok: true,
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
+            system: Arc::new(spin::Mutex::new(system)),
         }
     }
 }
@@ -140,7 +151,7 @@ impl UserPlatform for MockPlatform {
     }
 
     fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        test_system_capacity(self)
+        Some(Arc::clone(&self.system))
     }
 
     fn map_user(
@@ -216,8 +227,7 @@ fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> 
 
 fn runtime_on<P: UserPlatform>(second: &'static str, platform: P) -> UserRuntime<MockContext, P> {
     let second = if second == hk_syscall::MEMORY_SERVICE {
-        crate::ServiceSpec::new(second)
-            .with_capacity(hk_mem::hmp::CapacityKind::User, 16 * 1024 * 1024)
+        crate::ServiceSpec::new(second).with_system_capacity()
     } else {
         crate::ServiceSpec::new(second)
     };
@@ -244,6 +254,31 @@ fn runtime_on<P: UserPlatform>(second: &'static str, platform: P) -> UserRuntime
 
 fn runtime() -> UserRuntime<MockContext, MockPlatform> {
     runtime_with("b")
+}
+
+#[test]
+fn memory_service_receives_shared_system_capacity() {
+    let runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    let system = runtime
+        .system_capacity
+        .as_ref()
+        .expect("系统容量")
+        .lock()
+        .id();
+    let granted = runtime.tasks[1]
+        .capacities
+        .iter()
+        .flatten()
+        .next()
+        .and_then(|handle| {
+            runtime
+                .kernel
+                .capacity_ref(runtime.tasks[1].tcb, *handle)
+                .ok()
+        })
+        .expect("Memory Server 持有容量");
+    // 授予视图与内核默认匿名容量是同一个对象：两条出页路径共用同一本账。
+    assert_eq!(granted.lock().id(), system);
 }
 
 #[test]

@@ -21,6 +21,15 @@ use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_kernel::{Kernel, KernelError, Priority, TcbId};
 use hk_mem::hmp::CapacityKind;
 
+/// 初始 Capacity 授予方式。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapacityGrant {
+    /// 从 System Capacity 尾部切出一段独立子容量。
+    Split(CapacityKind, usize),
+    /// 授予启动期建立的 System Capacity 共享视图。
+    System,
+}
+
 /// 服务清单条目。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ServiceSpec {
@@ -29,7 +38,7 @@ pub struct ServiceSpec {
     /// 是否允许通过设备授权工厂创建 DeviceGrant。
     pub device_authority: bool,
     /// 初始 Capacity 授予。
-    pub capacity: Option<(CapacityKind, usize)>,
+    pub capacity: Option<CapacityGrant>,
     /// 调度优先级。
     pub priority: u8,
 }
@@ -55,9 +64,15 @@ impl ServiceSpec {
         }
     }
 
-    /// 声明初始 Capacity 授予。
+    /// 声明初始 Capacity 授予：从 System Capacity 尾部切出独立子容量。
     pub const fn with_capacity(mut self, kind: CapacityKind, bytes: usize) -> Self {
-        self.capacity = Some((kind, bytes));
+        self.capacity = Some(CapacityGrant::Split(kind, bytes));
+        self
+    }
+
+    /// 授予启动期建立的 System Capacity 共享视图。
+    pub const fn with_system_capacity(mut self) -> Self {
+        self.capacity = Some(CapacityGrant::System);
         self
     }
 

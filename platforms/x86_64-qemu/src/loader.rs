@@ -303,7 +303,9 @@ pub fn run(
                 ServiceSpec::new(name)
             };
             if *name == "hk-server-memory" {
-                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::User, 16 * 1024 * 1024);
+                // Memory Server 持有启动期 System Capacity 的共享视图，作为用户
+                // 内存的唯一来源；不再单独切出一段固定大小的子容量。
+                spec = spec.with_system_capacity();
             } else if device {
                 spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
             }

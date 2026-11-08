@@ -10,7 +10,7 @@ use hk_handle::Rights;
 use hk_kernel::{Kernel, KernelError};
 
 use crate::runtime::{Process, TaskInit, UserPlatform, UserRuntime, UserTask};
-use crate::{RootServer, ServiceSpec};
+use crate::{CapacityGrant, RootServer, ServiceSpec};
 
 /// 用服务清单装配用户态运行时。
 ///
@@ -90,15 +90,25 @@ where
             notifications: notification_handles,
             context,
         });
-        if let Some((kind, bytes)) = specs[index].capacity
-            && let Some(capacity) = platform.reserve_capacity(bytes, kind)
-            && let Ok(handle) = kernel.create_capacity(
-                service.tcb,
-                capacity,
-                Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
-            )
-        {
-            task.capacities.push(Some(handle));
+        if let Some(grant) = specs[index].capacity {
+            let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+            let handle = match grant {
+                CapacityGrant::Split(kind, bytes) => {
+                    platform.reserve_capacity(bytes, kind).and_then(|capacity| {
+                        kernel.create_capacity(service.tcb, capacity, rights).ok()
+                    })
+                }
+                // 共享视图与内核默认匿名容量是同一个对象：Memory Server 的
+                // MEMORY_ALLOC、MEMORY_FRAME 与 Provider 页因此落在同一本账上。
+                CapacityGrant::System => platform.system_capacity().and_then(|capacity| {
+                    kernel
+                        .create_capacity_shared(service.tcb, capacity, rights)
+                        .ok()
+                }),
+            };
+            if let Some(handle) = handle {
+                task.capacities.push(Some(handle));
+            }
         }
         tasks.push(task);
         processes.push(Some(process));

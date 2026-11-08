@@ -228,13 +228,36 @@ impl Kernel {
         capacity: Capacity,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        self.create_capacity_shared(thread, Arc::new(Mutex::new(capacity)), rights)
+    }
+
+    /// 以共享对象在句柄表中创建物理容量能力。
+    ///
+    /// 启动期建立的 System Capacity 以同一对象授予多个持有者；分配与用量因此
+    /// 始终落在同一个 `CapacityId` 上，不会出现并行的第二本账。
+    pub fn create_capacity_shared(
+        &self,
+        thread: TcbId,
+        capacity: Arc<Mutex<Capacity>>,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Capacity(Arc::new(
-                Mutex::new(capacity),
-            )))),
+            Arc::new(KernelObject::new(ObjectPayload::Capacity(capacity))),
             rights,
         )
+    }
+
+    /// 返回 Capacity 的共享对象；内核侧分配据此保持与句柄相同的归属。
+    pub fn capacity_ref(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<Arc<Mutex<Capacity>>, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        object.capacity().cloned().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })
     }
 
     /// 返回 Capacity 的区间、用途、页大小、配额与用量。
