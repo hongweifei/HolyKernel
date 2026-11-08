@@ -1,5 +1,7 @@
 //! 线上请求标签、操作码、权利位与记录长度。
 
+use crate::wire::{self, RequestHeader};
+
 /// 请求标签。
 pub const HOLY_REQUEST: u64 = crate::labels::HOLY;
 /// 响应标签。
@@ -139,9 +141,6 @@ pub const TOKEN_RIGHT_TRANSFER: u32 = 1 << 5;
 /// 当前承载卷的服务名。
 pub const DRIVE_SERVICE: &str = "hk-server-holyfs";
 
-/// Holy 请求头：op + 盘符 + 路径长度 + arg0 + arg1。
-pub(super) const REQUEST_HEADER: usize = 1 + 1 + 2 + 8 + 8;
-
 /// 解码后的 Holy 请求。
 pub struct Request<'a> {
     /// 操作码。
@@ -168,46 +167,24 @@ pub fn encode_request(
     arg1: u64,
     data: &[u8],
 ) -> Option<usize> {
-    let path = path.as_bytes();
-    if path.len() > u16::MAX as usize {
-        return None;
-    }
-    let end = REQUEST_HEADER
-        .checked_add(path.len())?
-        .checked_add(data.len())?;
-    if end > buffer.len() {
-        return None;
-    }
-    buffer[0] = op;
-    buffer[1] = drive;
-    buffer[2..4].copy_from_slice(&(path.len() as u16).to_le_bytes());
-    buffer[4..12].copy_from_slice(&arg0.to_le_bytes());
-    buffer[12..20].copy_from_slice(&arg1.to_le_bytes());
-    buffer[20..20 + path.len()].copy_from_slice(path);
-    buffer[20 + path.len()..end].copy_from_slice(data);
-    Some(end)
+    wire::encode_request(
+        buffer,
+        RequestHeader::new(op, drive, arg0, arg1),
+        path.as_bytes(),
+        data,
+    )
 }
 
 /// 解码 Holy 请求。
 pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
-    if bytes.len() < REQUEST_HEADER {
-        return None;
-    }
-    let length = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
-    let path_end = REQUEST_HEADER.checked_add(length)?;
-    if path_end > bytes.len() {
-        return None;
-    }
-    let path = core::str::from_utf8(&bytes[REQUEST_HEADER..path_end]).ok()?;
-    let arg0 = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
-    let arg1 = u64::from_le_bytes(bytes[12..20].try_into().ok()?);
+    let request = wire::decode_request(bytes)?;
     Some(Request {
-        op: bytes[0],
-        drive: bytes[1],
-        path,
-        arg0,
-        arg1,
-        data: &bytes[path_end..],
+        op: request.header.op,
+        drive: request.header.kind,
+        path: core::str::from_utf8(request.text).ok()?,
+        arg0: request.header.arg0,
+        arg1: request.header.arg1,
+        data: request.data,
     })
 }
 

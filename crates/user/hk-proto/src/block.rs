@@ -4,6 +4,8 @@
 //! 数据面走共享 Frame：每个 `tag` 对应一个客户端帧槽位，服务端按发送者与槽位
 //! 分别映射，因此多个请求可以并行提交、乱序完成。
 
+use crate::wire::{self, RequestHeader};
+
 /// 请求标签。
 pub const BLOCK_REQUEST: u64 = crate::labels::DEVICE_BLOCK;
 /// 响应标签。
@@ -35,20 +37,10 @@ pub const OP_FLUSH: u8 = 3;
 /// 查询容量。
 pub const OP_CAPACITY: u8 = 4;
 
-/// 成功。
-pub const STATUS_OK: u8 = 0;
-/// 参数非法。
-pub const STATUS_INVALID: u8 = 1;
-/// 范围越界。
-pub const STATUS_RANGE: u8 = 2;
-/// I/O 错误。
-pub const STATUS_ERROR: u8 = 3;
-/// 设备队列已满；调用方回收完成后再提交。
-pub const STATUS_BUSY: u8 = 4;
+pub use crate::status::{STATUS_BUSY, STATUS_ERROR, STATUS_INVALID, STATUS_OK, STATUS_RANGE};
 
-const REQUEST_HEADER: usize = 1 + 8 + 4 + 4;
-/// 响应头：status + data_len + tag。
-pub const RESPONSE_HEADER: usize = 3 + 4;
+/// 响应头：status + data_len + tag（tag 作为固定 `extra`）。
+pub const RESPONSE_HEADER: usize = wire::RESPONSE_HEADER + 4;
 
 /// 解码后的请求。
 pub struct Request<'a> {
@@ -80,7 +72,6 @@ pub const fn attach_length(word: u64) -> usize {
 }
 
 /// 编码请求。
-#[allow(clippy::too_many_arguments)]
 pub fn encode_request(
     buffer: &mut [u8],
     tag: u32,
@@ -89,57 +80,32 @@ pub fn encode_request(
     length: u32,
     data: &[u8],
 ) -> Option<usize> {
-    let end = REQUEST_HEADER.checked_add(data.len())?;
-    if end > buffer.len() {
-        return None;
-    }
-    buffer[0] = op;
-    buffer[1..9].copy_from_slice(&block.to_le_bytes());
-    buffer[9..13].copy_from_slice(&length.to_le_bytes());
-    buffer[13..17].copy_from_slice(&tag.to_le_bytes());
-    buffer[REQUEST_HEADER..end].copy_from_slice(data);
-    Some(end)
+    let packed = (u64::from(tag) << 32) | u64::from(length);
+    wire::encode_request(buffer, RequestHeader::new(op, 0, block, packed), &[], data)
 }
 
 /// 解码请求。
 pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
-    if bytes.len() < REQUEST_HEADER {
-        return None;
-    }
+    let request = wire::decode_request(bytes)?;
     Some(Request {
-        op: bytes[0],
-        block: u64::from_le_bytes(bytes[1..9].try_into().ok()?),
-        length: u32::from_le_bytes(bytes[9..13].try_into().ok()?),
-        tag: u32::from_le_bytes(bytes[13..17].try_into().ok()?),
-        data: &bytes[REQUEST_HEADER..],
+        op: request.header.op,
+        block: request.header.arg0,
+        length: request.header.arg1 as u32,
+        tag: (request.header.arg1 >> 32) as u32,
+        data: request.data,
     })
 }
 
 /// 编码响应。
 pub fn encode_response(buffer: &mut [u8], tag: u32, status: u8, data: &[u8]) -> Option<usize> {
-    let end = RESPONSE_HEADER.checked_add(data.len())?;
-    if end > buffer.len() || data.len() > u16::MAX as usize {
-        return None;
-    }
-    buffer[0] = status;
-    buffer[1..3].copy_from_slice(&(data.len() as u16).to_le_bytes());
-    buffer[3..7].copy_from_slice(&tag.to_le_bytes());
-    buffer[7..end].copy_from_slice(data);
-    Some(end)
+    wire::encode_response(buffer, status, &tag.to_le_bytes(), data)
 }
 
 /// 解码响应；返回状态、标签与载荷。
 pub fn decode_response(bytes: &[u8]) -> Option<(u8, u32, &[u8])> {
-    if bytes.len() < RESPONSE_HEADER {
-        return None;
-    }
-    let length = u16::from_le_bytes([bytes[1], bytes[2]]) as usize;
-    let end = RESPONSE_HEADER.checked_add(length)?;
-    (end <= bytes.len()).then_some((
-        bytes[0],
-        u32::from_le_bytes(bytes[3..7].try_into().ok()?),
-        &bytes[RESPONSE_HEADER..end],
-    ))
+    let response = wire::decode_response(bytes, 4)?;
+    let tag = u32::from_le_bytes(response.extra.try_into().ok()?);
+    Some((response.status, tag, response.data))
 }
 
 #[cfg(test)]

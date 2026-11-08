@@ -91,7 +91,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 系统调用薄封装、Root 控制与架构入口 | `crates/user/hk-syscall-client/src/{syscall,root,arch}.rs` |
 | 服务线协议、客户端与编解码 | `crates/user/hk-proto/src/*` |
 | Holy 文档响应构造与错误映射 | `crates/user/hk-holy-proto/src/response.rs` |
-| 服务响应框架与状态码 | `crates/user/hk-proto/src/status.rs` |
+| 协议公共帧头（请求/响应） | `crates/user/hk-proto/src/wire.rs`；块设备响应在头后追加固定 `tag` |
+| 服务状态码与响应封装 | `crates/user/hk-proto/src/status.rs`；VFS、Holy 与块设备共用同一套状态词表（含 `RANGE`/`BUSY`） |
 | 协议标签基址与登记表 | `crates/user/hk-proto/src/labels.rs`（`LABEL_GROUPS` 含各服务、memory 与 provider 段；virtio 标签在驱动 crate 内派生并自检） |
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 内核符号表与异常现场 | `crates/kernel/hk-root-server/src/debug/{symbols,fault}.rs`；文本符号解析与符号化在 `hk-symbols` |

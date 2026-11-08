@@ -1,6 +1,7 @@
 //! VFS 客户端/服务端共享协议与固定缓冲客户端。
 
 use crate::status::RESPONSE_HEADER;
+use crate::wire::{self, RequestHeader};
 use hk_server_api::{
     MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
     handle_duplicate, recv_data_from, region_info, region_unmap, send_data, send_handle,
@@ -61,8 +62,8 @@ pub use crate::status::{
     decode_response, encode_response,
 };
 
-/// 请求头：op + path_len + arg0 + arg1。
-const REQUEST_HEADER: usize = 1 + 2 + 8 + 8;
+/// 请求头长度；布局由 [`crate::wire`] 统一。
+const REQUEST_HEADER: usize = wire::REQUEST_HEADER;
 
 /// 单条 VFS 协议消息的缓冲上限。
 const BUFFER: usize = 64 * 1024;
@@ -90,44 +91,23 @@ pub fn encode_request(
     arg1: u64,
     data: &[u8],
 ) -> Option<usize> {
-    let path = path.as_bytes();
-    if path.len() > u16::MAX as usize {
-        return None;
-    }
-    let end = REQUEST_HEADER
-        .checked_add(path.len())?
-        .checked_add(data.len())?;
-    if end > buffer.len() {
-        return None;
-    }
-    buffer[0] = op;
-    buffer[1..3].copy_from_slice(&(path.len() as u16).to_le_bytes());
-    buffer[3..11].copy_from_slice(&arg0.to_le_bytes());
-    buffer[11..19].copy_from_slice(&arg1.to_le_bytes());
-    buffer[19..19 + path.len()].copy_from_slice(path);
-    buffer[19 + path.len()..end].copy_from_slice(data);
-    Some(end)
+    wire::encode_request(
+        buffer,
+        RequestHeader::new(op, 0, arg0, arg1),
+        path.as_bytes(),
+        data,
+    )
 }
 
 /// 解码请求。
 pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
-    if bytes.len() < REQUEST_HEADER {
-        return None;
-    }
-    let length = u16::from_le_bytes([bytes[1], bytes[2]]) as usize;
-    let path_end = REQUEST_HEADER.checked_add(length)?;
-    if path_end > bytes.len() {
-        return None;
-    }
-    let path = core::str::from_utf8(&bytes[REQUEST_HEADER..path_end]).ok()?;
-    let arg0 = u64::from_le_bytes(bytes[3..11].try_into().ok()?);
-    let arg1 = u64::from_le_bytes(bytes[11..19].try_into().ok()?);
+    let request = wire::decode_request(bytes)?;
     Some(Request {
-        op: bytes[0],
-        path,
-        arg0,
-        arg1,
-        data: &bytes[path_end..],
+        op: request.header.op,
+        path: core::str::from_utf8(request.text).ok()?,
+        arg0: request.header.arg0,
+        arg1: request.header.arg1,
+        data: request.data,
     })
 }
 

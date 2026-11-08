@@ -1,10 +1,13 @@
-//! 服务响应框架：状态码与 `status + data_len + data` 编解码。
+//! 服务状态码与响应封装。
 //!
-//! VFS 与 Holy 文档协议共用这套响应形状；各协议的请求形状与操作码仍留在
-//! 自己的模块里。
+//! 所有服务协议共用一套状态码与 `status + data_len + data` 响应形状；需要
+//! 关联编号的协议（块设备）在响应头后追加固定 `extra`。各协议的请求形状与
+//! 操作码仍留在自己的模块里。
+
+use crate::wire;
 
 /// 响应头长度：status + data_len。
-pub(crate) const RESPONSE_HEADER: usize = 3;
+pub(crate) const RESPONSE_HEADER: usize = wire::RESPONSE_HEADER;
 
 /// 成功。
 pub const STATUS_OK: u8 = 0;
@@ -26,6 +29,10 @@ pub const STATUS_STALE: u8 = 7;
 pub const STATUS_DAMAGED: u8 = 8;
 /// 卷当前只读。
 pub const STATUS_READ_ONLY: u8 = 9;
+/// 访问范围越界。
+pub const STATUS_RANGE: u8 = 10;
+/// 队列已满，回收完成后再提交。
+pub const STATUS_BUSY: u8 = 11;
 
 /// 解码后的响应。
 pub struct Response<'a> {
@@ -37,32 +44,15 @@ pub struct Response<'a> {
 
 /// 编码响应。
 pub fn encode_response(buffer: &mut [u8], status: u8, data: &[u8]) -> Option<usize> {
-    if data.len() > u16::MAX as usize {
-        return None;
-    }
-    let end = RESPONSE_HEADER.checked_add(data.len())?;
-    if end > buffer.len() {
-        return None;
-    }
-    buffer[0] = status;
-    buffer[1..3].copy_from_slice(&(data.len() as u16).to_le_bytes());
-    buffer[3..end].copy_from_slice(data);
-    Some(end)
+    wire::encode_response(buffer, status, &[], data)
 }
 
 /// 解码响应。
 pub fn decode_response(bytes: &[u8]) -> Option<Response<'_>> {
-    if bytes.len() < RESPONSE_HEADER {
-        return None;
-    }
-    let length = u16::from_le_bytes([bytes[1], bytes[2]]) as usize;
-    let end = RESPONSE_HEADER.checked_add(length)?;
-    if end > bytes.len() {
-        return None;
-    }
+    let response = wire::decode_response(bytes, 0)?;
     Some(Response {
-        status: bytes[0],
-        data: &bytes[RESPONSE_HEADER..end],
+        status: response.status,
+        data: response.data,
     })
 }
 
