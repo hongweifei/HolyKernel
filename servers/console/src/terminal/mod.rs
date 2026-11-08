@@ -4,6 +4,9 @@ mod ansi;
 mod render;
 mod style;
 
+use alloc::boxed::Box;
+use alloc::vec;
+
 use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
 use hk_proto::display::{DISPLAY_SERVICE, Window};
@@ -29,22 +32,10 @@ pub(crate) const WIDTH: usize = COLUMNS * CELL_WIDTH;
 /// 初始表面高度（像素）。
 pub(crate) const HEIGHT: usize = ROWS * CELL_HEIGHT;
 
-/// 字符网格。
-pub(crate) type Grid = [[Cell; MAX_COLUMNS]; MAX_ROWS];
-
-/// 全局字符网格；Console 单线程持有唯一访问权。
-static mut GRID: Grid = [[Cell::BLANK; MAX_COLUMNS]; MAX_ROWS];
-
-/// 返回全局网格；一次方法调用内完成访问，不跨调用持有。
-fn grid() -> &'static mut Grid {
-    // SAFETY: Console 服务单线程运行，网格访问都在终端方法内串行完成。
-    unsafe { &mut *core::ptr::addr_of_mut!(GRID) }
-}
-
-/// 清空全局网格。
-fn reset_grid() {
-    grid().fill([Cell::BLANK; MAX_COLUMNS]);
-}
+/// 网格行。
+pub(crate) type Row = [Cell; MAX_COLUMNS];
+/// 字符网格；由终端独占持有，分配在堆上。
+pub(crate) type Grid = [Row];
 
 /// 增量 UTF-8 解码器。
 struct Utf8 {
@@ -105,6 +96,7 @@ pub(crate) struct Terminal {
     column: usize,
     row: usize,
     font: &'static Font,
+    grid: Box<Grid>,
     decoder: Utf8,
     style: Style,
     ansi: Ansi,
@@ -195,7 +187,7 @@ impl Terminal {
 
     fn erase_line(&mut self, mode: u16) {
         let blank = self.blank();
-        let grid = grid();
+        let grid = &mut self.grid;
         match mode {
             0 => {
                 for cell in grid[self.row]
@@ -222,7 +214,7 @@ impl Terminal {
 
     fn erase_display(&mut self, mode: u16) {
         let blank = self.blank();
-        let grid = grid();
+        let grid = &mut self.grid;
         match mode {
             0 => {
                 for cell in grid[self.row]
@@ -271,7 +263,7 @@ impl Terminal {
         if self.row >= MAX_ROWS || self.column >= MAX_COLUMNS {
             return;
         }
-        let grid = grid();
+        let grid = &mut self.grid;
         grid[self.row][self.column] = Cell {
             character,
             style: self.style,
@@ -306,21 +298,23 @@ impl Terminal {
         if self.column == 0 {
             return;
         }
-        let grid = grid();
+        let blank = self.blank();
+        let grid = &mut self.grid;
         self.column -= 1;
         if grid[self.row][self.column].character == '\0' && self.column > 0 {
-            grid[self.row][self.column] = self.blank();
+            grid[self.row][self.column] = blank;
             self.column -= 1;
         }
-        grid[self.row][self.column] = self.blank();
+        grid[self.row][self.column] = blank;
     }
 
     fn wrap(&mut self) {
-        let grid = grid();
+        let blank = self.blank();
+        let grid = &mut self.grid;
         while self.row >= self.rows {
             let rows = self.rows.max(1);
             grid.copy_within(1..rows, 0);
-            grid[rows - 1] = [self.blank(); MAX_COLUMNS];
+            grid[rows - 1] = [blank; MAX_COLUMNS];
             self.row = rows - 1;
         }
     }
@@ -341,7 +335,7 @@ impl Terminal {
             unsafe { Surface::from_raw(self.window.pixels(), self.width, self.height, self.width) };
         render::refresh(
             &frame,
-            grid(),
+            &self.grid,
             self.row,
             self.column,
             self.font,
@@ -377,7 +371,7 @@ impl Terminal {
 
     /// 清空终端并重绘。
     pub(crate) fn clear(&mut self) {
-        reset_grid();
+        self.grid.fill([Cell::BLANK; MAX_COLUMNS]);
         self.style = Style::DEFAULT;
         self.decoder = Utf8::new();
         self.ansi = Ansi::new();
@@ -404,7 +398,6 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         return None;
     }
     let window = Window::attach(endpoint, display, WIDTH, HEIGHT)?;
-    reset_grid();
     Some(Terminal {
         width: window.width(),
         height: window.height(),
@@ -414,6 +407,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         column: 0,
         row: 0,
         font: default_monospace(),
+        grid: vec![[Cell::BLANK; MAX_COLUMNS]; MAX_ROWS].into_boxed_slice(),
         decoder: Utf8::new(),
         style: Style::DEFAULT,
         ansi: Ansi::new(),
