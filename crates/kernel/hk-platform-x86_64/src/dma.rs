@@ -30,8 +30,3 @@ pub fn allocate(len: usize) -> Option<PhysRange> {
 pub fn free(range: PhysRange) {
     DMA.free(range);
 }
-
-/// 从 DMA 池切出独立 Capacity。
-pub fn take_capacity(len: usize, kind: hk_mem::hmp::CapacityKind) -> Option<hk_mem::hmp::Capacity> {
-    DMA.take_capacity(len, kind)
-}

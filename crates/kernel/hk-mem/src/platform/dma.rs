@@ -34,15 +34,6 @@ impl DmaPool {
             Capacity::new(id, range, hk_hal::PAGE_SIZE, CapacityKind::Dma, 0).ok();
     }
 
-    /// 从池尾切出一段独立 Capacity；切出的区间不再由池分配。
-    pub fn take_capacity(&self, len: usize, kind: CapacityKind) -> Option<Capacity> {
-        let mut capacity = self.capacity.lock();
-        let capacity = capacity.as_mut()?;
-        let id = CapacityId::next();
-        let child = capacity.split(id, len, kind).ok()?;
-        Some(child)
-    }
-
     /// 分配一段连续内存，长度按页向上取整。
     pub fn allocate(&self, len: usize) -> Option<PhysRange> {
         let mut capacity = self.capacity.lock();
@@ -114,30 +105,6 @@ mod tests {
         assert_eq!(
             pool.allocate(4096).expect("复用").start(),
             PhysAddr::new(0x10_0000)
-        );
-    }
-
-    #[test]
-    fn takes_capacity_from_pool_tail() {
-        let pool = DmaPool::new();
-        pool.init(
-            CapacityId::next(),
-            PhysRange::new(PhysAddr::new(0x10_0000), 0x4000),
-        );
-        let mut capacity = pool
-            .take_capacity(0x2000, CapacityKind::User)
-            .expect("子 Capacity");
-        assert_eq!(
-            capacity.range(),
-            PhysRange::new(PhysAddr::new(0x10_0000), 0x2000)
-        );
-        assert_eq!(
-            capacity.allocate(4096).expect("子页").phys(),
-            PhysAddr::new(0x10_0000)
-        );
-        assert_eq!(
-            pool.allocate(4096).expect("池页").start(),
-            PhysAddr::new(0x10_2000)
         );
     }
 

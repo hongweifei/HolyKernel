@@ -1,5 +1,6 @@
 //! 平台提供的用户态运行支持。
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_base::CivilTime;
@@ -63,6 +64,11 @@ pub trait UserPlatform {
         _len: usize,
         _kind: hk_mem::hmp::CapacityKind,
     ) -> Option<hk_mem::hmp::Capacity> {
+        None
+    }
+
+    /// 返回启动期建立、覆盖全部可用物理内存的 System Capacity。
+    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         None
     }
 

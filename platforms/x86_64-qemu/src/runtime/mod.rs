@@ -168,7 +168,13 @@ impl UserPlatform for X86Platform {
         len: usize,
         kind: hk_mem::hmp::CapacityKind,
     ) -> Option<hk_mem::hmp::Capacity> {
-        hk_platform_x86_64::dma::take_capacity(len, kind)
+        // 授予用容量从覆盖全部可用内存的 System Capacity 切出；DMA 池只是它
+        // 旁边一个已预留的窗口，不再作为其它容量的来源。
+        hk_platform_x86_64::system::split_capacity(len, kind)
+    }
+
+    fn system_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        hk_platform_x86_64::system::capacity()
     }
 
     fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {

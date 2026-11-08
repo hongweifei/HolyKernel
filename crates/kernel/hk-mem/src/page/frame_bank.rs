@@ -96,6 +96,8 @@ struct Inner {
     by_kind: [u64; FrameKind::COUNT],
     /// 已登记给容量的窗口，按起始地址索引。
     owned: BTreeMap<u64, OwnedWindow>,
+    /// 内核自用分配的归属容量；`None` 表示尚未建立 System Capacity。
+    kernel_owner: Option<CapacityId>,
 }
 
 impl Inner {
@@ -318,6 +320,7 @@ impl FrameBank {
                 allocations: BTreeMap::new(),
                 by_kind: [0; FrameKind::COUNT],
                 owned: BTreeMap::new(),
+                kernel_owner: None,
             }),
         }
     }
@@ -402,6 +405,9 @@ impl FrameBank {
             return None;
         }
         let mut inner = self.inner.lock();
+        // 未显式指定归属时落到内核自用容量（System Capacity），内核堆、页表与
+        // 镜像页因此计入同一份归因账。
+        let owner = owner.or(inner.kernel_owner);
         let start = match owner {
             Some(owner) => inner.find_free_in_owned(owner, length)?,
             None => inner.find_free_unowned(length)?,
@@ -511,6 +517,75 @@ impl FrameBank {
             },
         );
         Some(reserved)
+    }
+
+    /// 把当前全部未归属的空闲区间登记给 `owner`，返回这些区间的外接范围。
+    ///
+    /// 用于启动期建立覆盖全部可用物理内存的 System Capacity：已经预留的窗口
+    /// （如 DMA 池）保持原归属，其余空闲区间成为 `owner` 的窗口。一个容量因此
+    /// 可以持有多个窗口，分配与清理都按窗口逐个进行。
+    pub fn reserve_remaining(&self, owner: CapacityId) -> Option<PhysRange> {
+        let mut inner = self.inner.lock();
+        if inner.owned.values().any(|window| window.capacity == owner) {
+            return None;
+        }
+        let covered: Vec<PhysRange> = inner.owned.values().map(|window| window.range).collect();
+        let entries: Vec<PhysRange> = inner.free_by_start.values().copied().collect();
+        let mut windows: Vec<PhysRange> = Vec::new();
+        for entry in entries {
+            let end = entry.end().get();
+            let mut cursor = entry.start().get();
+            for window in &covered {
+                let start = window.start().get();
+                let finish = window.end().get();
+                if finish <= cursor || start >= end {
+                    continue;
+                }
+                if start > cursor {
+                    windows.push(PhysRange::new(PhysAddr::new(cursor), start - cursor));
+                }
+                cursor = cursor.max(finish);
+            }
+            if cursor < end {
+                windows.push(PhysRange::new(PhysAddr::new(cursor), end - cursor));
+            }
+        }
+        let first = windows.first()?.start();
+        let last = windows.last()?.end();
+        for window in &windows {
+            inner.owned.insert(
+                window.start().get(),
+                OwnedWindow {
+                    capacity: owner,
+                    range: *window,
+                },
+            );
+        }
+        Some(PhysRange::new(first, last.get() - first.get()))
+    }
+
+    /// 把一段已分配区间改归 `owner` 名下；区间必须与现有分配记录一致。
+    ///
+    /// 启动期内核堆在 System Capacity 建立前就已分配，这里把它并入系统归因，
+    /// 不改变已记入 Ledger 的用量。
+    pub fn adopt_owner(&self, owner: CapacityId, range: PhysRange) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
+            return false;
+        };
+        if allocation.range != range {
+            return false;
+        }
+        allocation.owner = Some(owner);
+        true
+    }
+
+    /// 设置内核自用分配的归属容量。
+    ///
+    /// 设置后 `allocate` / `allocate_for` / `allocate_contiguous_for` 不再从
+    /// 未归属空闲区间取页，而是从该容量的窗口取页并计入其用量。
+    pub fn set_kernel_owner(&self, owner: Option<CapacityId>) {
+        self.inner.lock().kernel_owner = owner;
     }
 
     /// 返回总字节数。
@@ -932,5 +1007,71 @@ mod tests {
         assert_eq!(carved.start(), PhysAddr::new(0x10_E000));
         assert_eq!(bank.used_owned(child), 0);
         assert_eq!(bank.used_owned(parent), 0xC000);
+    }
+
+    #[test]
+    fn reserve_remaining_claims_unowned_but_not_reserved_windows() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_8000);
+        let dma = CapacityId::next();
+        let system = CapacityId::next();
+        bank.reserve_for(dma, 0x2000).expect("预留 DMA 窗口");
+
+        let span = bank.reserve_remaining(system).expect("登记剩余窗口");
+        assert_eq!(span.start(), PhysAddr::new(0x10_2000));
+        assert_eq!(span.end(), PhysAddr::new(0x10_8000));
+
+        assert_eq!(
+            bank.allocate_owned(dma, CapacityKind::Dma, PAGE_SIZE as u64)
+                .expect("DMA 页")
+                .start(),
+            PhysAddr::new(0x10_0000)
+        );
+        assert_eq!(
+            bank.allocate_owned(system, CapacityKind::System, PAGE_SIZE as u64)
+                .expect("System 页")
+                .start(),
+            PhysAddr::new(0x10_2000)
+        );
+    }
+
+    #[test]
+    fn reserve_remaining_returns_none_when_all_free_is_owned() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_2000);
+        bank.reserve_for(CapacityId::next(), 0x2000)
+            .expect("占满全部空闲");
+        assert!(bank.reserve_remaining(CapacityId::next()).is_none());
+    }
+
+    #[test]
+    fn kernel_owner_attributes_kernel_allocations() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let system = CapacityId::next();
+        bank.reserve_remaining(system).expect("登记 System 窗口");
+        bank.set_kernel_owner(Some(system));
+
+        let page = bank.allocate_for(FrameKind::PageTable).expect("页表页");
+        assert_eq!(page, PhysAddr::new(0x10_0000));
+        assert_eq!(bank.used_owned(system), PAGE_SIZE as u64);
+
+        bank.free_for(FrameKind::PageTable, PhysRange::new(page, PAGE_SIZE as u64));
+        assert_eq!(bank.used_owned(system), 0);
+    }
+
+    #[test]
+    fn adopt_owner_attributes_existing_allocation() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let heap = bank
+            .allocate_contiguous_for(FrameKind::KernelHeap, 0x2000)
+            .expect("内核堆");
+        assert_eq!(heap.start(), PhysAddr::new(0x10_0000));
+
+        let system = CapacityId::next();
+        bank.reserve_remaining(system).expect("登记 System 窗口");
+        assert!(bank.adopt_owner(system, heap));
+        assert_eq!(bank.used_owned(system), 0x2000);
+
+        // 记录不一致时不改归属。
+        assert!(!bank.adopt_owner(system, PhysRange::new(heap.start(), 0x1000)));
+        assert_eq!(bank.used_owned(system), 0x2000);
     }
 }

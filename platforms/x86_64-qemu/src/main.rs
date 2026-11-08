@@ -150,20 +150,48 @@ extern "C" fn kmain() -> ! {
     hk_platform_x86_64::paging::register_backend();
     hk_platform_x86_64::cache::init(direct_map_base);
     let dma_capacity = hk_mem::hmp::CapacityId::next();
+    let mut dma_bytes = 0;
     if let Some(dma) = hk_platform_x86_64::paging::FRAME_BANK
         .reserve_for(dma_capacity, hk_platform_x86_64::dma::POOL_BYTES)
     {
+        dma_bytes = dma.len();
         hk_platform_x86_64::dma::init(dma_capacity, dma);
     }
+    if hk_platform_x86_64::system::establish(
+        &hk_platform_x86_64::paging::FRAME_BANK,
+        heap,
+        dma_bytes,
+    )
+    .is_none()
+    {
+        fail(
+            &console,
+            screen.as_ref(),
+            "无法从可用内存建立 System Capacity\n",
+            ExitCode::Failure(3),
+        );
+    }
     let stats = hk_platform_x86_64::paging::FRAME_BANK.stats();
+    let (system_used, system_limit, system_span) =
+        hk_platform_x86_64::system::capacity().map_or((0, 0, 0), |capacity| {
+            let capacity = capacity.lock();
+            (
+                capacity.used() / 1024,
+                capacity.limit() / 1024,
+                capacity.range().len() / 1024,
+            )
+        });
     announce(
         &console,
         screen.as_ref(),
         &format!(
-            "System Capacity：used {} KiB / total {} KiB，peak {} KiB；heap {}，page-table {}，cow {}，restore {}，image {}，dma {}，other {}\n",
+            "System Capacity：used {} KiB / total {} KiB，peak {} KiB；system {} / {} KiB（窗口 {} KiB）；heap {}，page-table {}，cow {}，restore {}，image {}，dma {}，other {}\n",
             stats.used / 1024,
             stats.total / 1024,
             stats.peak / 1024,
+            system_used,
+            system_limit,
+            system_span,
             stats.by_kind[0] / 1024,
             stats.by_kind[1] / 1024,
             stats.by_kind[2] / 1024,

@@ -15,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Arena as HmpArena, Capacity, CapacityKind, Charge, Ledger, RegionFlags};
+use hk_mem::hmp::{Arena as HmpArena, Capacity, Charge, Ledger, RegionFlags};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
@@ -65,7 +65,6 @@ const REGION_HANDLE_BASE: usize = 0x4000;
 const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
-const SYSTEM_CAPACITY_BYTES: usize = 32 * 1024 * 1024;
 
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
@@ -184,9 +183,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         for (index, task) in tasks.iter_mut().enumerate() {
             task.leader = index;
         }
-        let system_capacity = platform
-            .reserve_capacity(SYSTEM_CAPACITY_BYTES, CapacityKind::System)
-            .map(|capacity| Arc::new(spin::Mutex::new(capacity)));
+        let system_capacity = platform.system_capacity();
         Self {
             kernel,
             root,

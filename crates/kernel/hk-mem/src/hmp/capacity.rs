@@ -115,6 +115,38 @@ impl Capacity {
         })
     }
 
+    /// 以显式配额创建容量，不把配额裁剪到单个区间长度。
+    ///
+    /// 用于覆盖多个物理窗口的 System Capacity：`range` 只是窗口的外接范围，
+    /// 配额按全部窗口总量声明。物理分配仍由后端按 `CapacityId` 的窗口归因。
+    pub fn with_limit(
+        id: CapacityId,
+        range: PhysRange,
+        page_size: usize,
+        kind: CapacityKind,
+        limit: u64,
+    ) -> Result<Self, HmpError> {
+        if page_size == 0 || !page_size.is_power_of_two() || range.is_empty() {
+            return Err(HmpError::InvalidSize);
+        }
+        if !range.start().get().is_multiple_of(page_size as u64) {
+            return Err(HmpError::Unaligned);
+        }
+        if limit < page_size as u64 {
+            return Err(HmpError::InvalidSize);
+        }
+        Ok(Self {
+            id,
+            range,
+            page_size,
+            kind,
+            limit,
+            used: 0,
+            free: Vec::new(),
+            next: range.start().get(),
+        })
+    }
+
     /// 分配一段连续物理页，返回 Frame。
     ///
     /// 注册了物理后端时由后端统一分配并按 `id` 归因；否则退回本容量自带的
@@ -238,6 +270,17 @@ impl Capacity {
         if length == 0 || !phys.get().is_multiple_of(self.page_size as u64) {
             return Err(HmpError::Unaligned);
         }
+        // 注册了后端时由后端按分配记录校验归属；容量可能覆盖多个窗口，不能用
+        // 单个区间做地址范围检查。调用方只传入本容量名下的 Frame/区间。
+        if let Some(backend) = super::backend::physical_backend() {
+            scrub(phys, length as usize);
+            return if backend.release_owned(self.id, PhysRange::new(phys, length)) {
+                Ok(())
+            } else {
+                Err(HmpError::NotMapped)
+            };
+        }
+
         let start = phys.get();
         let end = start.checked_add(length).ok_or(HmpError::OutOfRange)?;
         let limit_end = self.range.start().get().saturating_add(self.limit);
@@ -245,13 +288,6 @@ impl Capacity {
             return Err(HmpError::OutOfRange);
         }
         scrub(phys, length as usize);
-
-        if let Some(backend) = super::backend::physical_backend() {
-            if !backend.release_owned(self.id, PhysRange::new(phys, length)) {
-                return Err(HmpError::NotMapped);
-            }
-            return Ok(());
-        }
 
         self.used = self.used.saturating_sub(length);
         self.free.push(PhysRange::new(phys, length));
@@ -271,18 +307,20 @@ impl Capacity {
             return Err(HmpError::InvalidSize);
         }
         let range = child.range;
-        let limit_end = self.range.start().get().saturating_add(self.limit);
-        if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
-            return Err(HmpError::OutOfRange);
-        }
         if child.used() != 0 {
             return Err(HmpError::PermissionDenied);
         }
 
+        // 后端是窗口归属的权威，容量可能覆盖多个窗口，不能用单个区间做范围
+        // 检查；未注册后端时才按自带的窗口分配器校验。
         if let Some(backend) = super::backend::physical_backend() {
             return backend.merge_owned(self.id, child.id, range);
         }
 
+        let limit_end = self.range.start().get().saturating_add(self.limit);
+        if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
+            return Err(HmpError::OutOfRange);
+        }
         if range.end().get() == self.next {
             self.next = range.start().get();
         } else {
@@ -477,6 +515,21 @@ mod tests {
         child.free(frame).expect("归还子页");
         assert_eq!(child.used(), 0);
         assert_eq!(parent.used(), 0);
+    }
+
+    #[test]
+    fn with_limit_keeps_quota_beyond_single_range() {
+        let capacity = Capacity::with_limit(
+            CapacityId::new(9),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x2000),
+            4096,
+            CapacityKind::System,
+            0x10_000,
+        )
+        .expect("System Capacity");
+        // 外接范围只描述窗口位置，配额按全部窗口总量声明。
+        assert_eq!(capacity.range().len(), 0x2000);
+        assert_eq!(capacity.limit(), 0x10_000);
     }
 
     #[test]

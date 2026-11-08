@@ -130,6 +130,11 @@ impl UserPlatform for MockPlatform {
         .ok()
     }
 
+    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
+            .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
+    }
+
     fn map_user(
         &self,
         _slot: usize,
@@ -680,6 +685,11 @@ fn transports_byte_payloads() {
                 0,
             )
             .ok()
+        }
+
+        fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+            self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
+                .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
         }
 
         fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
@@ -1614,6 +1624,11 @@ impl UserPlatform for ShortPlatform {
             0,
         )
         .ok()
+    }
+
+    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
+            .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
     }
 
     fn memory_limit(&self, _slot: usize) -> u64 {
