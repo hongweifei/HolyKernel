@@ -93,7 +93,7 @@ const PROTO_FORBIDDEN: &[&str] = &[
 ];
 
 /// 零依赖 crate：保持纯契约或纯库。
-const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall"];
+const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall", "hk-block"];
 
 /// crate 侧别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -368,7 +368,7 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-image" => IMPL_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-proto" => PROTO_FORBIDDEN,
-        "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-fs-ext4"
+        "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc" | "hk-fs-ext4"
         | "hk-fs-holyfs-vfs" | "hk-debug" | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" | "hk-drivers" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,

@@ -1,78 +1,29 @@
-//! 块协议的服务端循环与远端块设备客户端。
-//!
-//! 协议编码在 [`hk_proto::block`]；本模块把协议接到 [`AsyncBlockDevice`]，
-//! 供 Block Server、virtio 驱动服务与 VFS 复用。
-//!
-//! 客户端使用多个共享帧槽位与递增标签，服务端按发送者与槽位分别映射帧，
-//! 两边都只维护一个收发缓冲，数据面由帧承载。服务循环收下请求后立即提交给
-//! 设备，完成回收时再回复，因此同一时刻可以有多条请求在设备队列中。
+//! 块协议客户端与远端块设备适配。
 
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{AsyncBlockDevice, BlockDevice, BlockError, SECTOR_SIZE};
+use hk_block::{BlockDevice, BlockError, SECTOR_SIZE};
 use hk_proto::block::{
-    BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BLOCK_SHUTDOWN, BUFFER_LEN,
-    BUFFER_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR,
-    STATUS_INVALID, STATUS_OK, STATUS_RANGE, attach_length, attach_slot, attach_word,
-    decode_request, decode_response, encode_request, encode_response,
+    BLOCK_ATTACH, BLOCK_DETACH, BLOCK_REQUEST, BLOCK_RESPONSE, BUFFER_LEN, BUFFER_SLOTS,
+    OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR, STATUS_INVALID, STATUS_OK,
+    attach_word, decode_response, encode_request,
 };
 use hk_server_api::{
-    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info,
-    frame_map, handle_duplicate, recv_data_handle, recv_data_handle_try, region_info, region_unmap,
-    send, send_data, send_handle, service_endpoint, yield_now,
+    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
+    handle_duplicate, recv_data_handle_try, region_info, region_unmap, send, send_data,
+    send_handle, service_endpoint,
 };
+
+use crate::adapter::client_mapping_at;
+use crate::status::from_status;
 
 /// 直通帧（调用方已注册的帧）使用的槽位。
 const DIRECT_SLOT: usize = 0;
 /// 客户端自己管理的帧槽位起点。
 const OWN_SLOT_START: usize = 1;
-const CLIENT_BUFFER_SLOTS: usize = 8;
-static CLIENT_MAPPING_VIRT: [AtomicU64; CLIENT_BUFFER_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
-static CLIENT_MAPPING_HANDLE: [AtomicU64; CLIENT_BUFFER_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
-static CLIENT_BUFFER_LEN: [AtomicU64; CLIENT_BUFFER_SLOTS] =
-    [const { AtomicU64::new(0) }; CLIENT_BUFFER_SLOTS];
-
-/// 登记一个 VFS 客户端缓冲区映射，供块客户端识别直写缓冲区。
-pub fn register_client_mapping(virt: u64, handle: u64, len: usize) {
-    for (slot, virt_slot) in CLIENT_MAPPING_VIRT.iter().enumerate() {
-        let current = virt_slot.load(Ordering::Acquire);
-        if current == 0 || current == virt {
-            CLIENT_MAPPING_HANDLE[slot].store(handle, Ordering::Release);
-            CLIENT_BUFFER_LEN[slot].store(len as u64, Ordering::Release);
-            CLIENT_MAPPING_VIRT[slot].store(virt, Ordering::Release);
-            return;
-        }
-    }
-}
-
-/// 注销一个 VFS 客户端缓冲区映射。
-pub fn unregister_client_mapping(virt: u64) {
-    for virt_slot in &CLIENT_MAPPING_VIRT {
-        if virt_slot.load(Ordering::Acquire) == virt {
-            virt_slot.store(0, Ordering::Release);
-            return;
-        }
-    }
-}
-
-fn client_mapping_at(address: u64, len: usize) -> Option<(u64, u64, usize)> {
-    for (slot, virt_slot) in CLIENT_MAPPING_VIRT.iter().enumerate() {
-        let virt = virt_slot.load(Ordering::Acquire);
-        let frame_len = CLIENT_BUFFER_LEN[slot].load(Ordering::Acquire) as usize;
-        if virt != 0 && address == virt && len <= frame_len {
-            let handle = CLIENT_MAPPING_HANDLE[slot].load(Ordering::Acquire);
-            return Some((handle, virt, frame_len));
-        }
-    }
-    None
-}
 
 /// 一个客户端帧槽位。
 struct Slot {
@@ -551,15 +502,6 @@ fn body_u64(body: &[u8]) -> usize {
     u64::from_le_bytes(body[..8].try_into().unwrap_or([0; 8])) as usize
 }
 
-fn block_status(status: u8) -> BlockError {
-    match status {
-        STATUS_RANGE => BlockError::OutOfRange,
-        STATUS_INVALID => BlockError::InvalidLength,
-        STATUS_BUSY => BlockError::Busy,
-        _ => BlockError::Io,
-    }
-}
-
 /// 通过块协议访问远端块设备。
 pub struct ClientDisk {
     client: RefCell<BlockClient>,
@@ -602,13 +544,13 @@ impl ClientDisk {
                             submitted = Some((slot, tag));
                             (slot, tag)
                         }
-                        Err(status) => return core::task::Poll::Ready(Err(block_status(status))),
+                        Err(status) => return core::task::Poll::Ready(Err(from_status(status))),
                     }
                 }
             };
             if let Some((status, written)) = client.poll_for(tag) {
                 if status != STATUS_OK {
-                    return core::task::Poll::Ready(Err(block_status(status)));
+                    return core::task::Poll::Ready(Err(from_status(status)));
                 }
                 let written = written.min(buffer.len());
                 client.copy_out(slot, written, buffer, 0);
@@ -644,13 +586,13 @@ impl ClientDisk {
                             submitted = Some((slot, tag));
                             (slot, tag)
                         }
-                        Err(status) => return core::task::Poll::Ready(Err(block_status(status))),
+                        Err(status) => return core::task::Poll::Ready(Err(from_status(status))),
                     }
                 }
             };
             if let Some((status, written)) = client.poll_for(tag) {
                 if status != STATUS_OK {
-                    return core::task::Poll::Ready(Err(block_status(status)));
+                    return core::task::Poll::Ready(Err(from_status(status)));
                 }
                 return core::task::Poll::Ready(Ok(written.min(data.len())));
             }
@@ -716,7 +658,7 @@ impl ClientDisk {
             }
             if inflight.is_empty() {
                 return core::task::Poll::Ready(match failure {
-                    Some(status) => Err(block_status(status)),
+                    Some(status) => Err(from_status(status)),
                     None => Ok(submitted),
                 });
             }
@@ -784,7 +726,7 @@ impl ClientDisk {
             }
             if inflight.is_empty() {
                 return core::task::Poll::Ready(match failure {
-                    Some(status) => Err(block_status(status)),
+                    Some(status) => Err(from_status(status)),
                     None => Ok(submitted),
                 });
             }
@@ -808,322 +750,53 @@ impl BlockDevice for ClientDisk {
         self.client
             .borrow_mut()
             .read(block, buffer)
-            .map_err(block_status)
+            .map_err(from_status)
     }
 
     fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
         self.client
             .borrow_mut()
             .write(block, data)
-            .map_err(block_status)
+            .map_err(from_status)
     }
 
     fn flush(&mut self) -> Result<(), BlockError> {
-        self.client.borrow_mut().flush().map_err(block_status)
+        self.client.borrow_mut().flush().map_err(from_status)
     }
 
     fn read_blocks_bulk(&self, block: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
         self.client
             .borrow_mut()
             .read_bulk(block, buffer)
-            .map_err(block_status)
+            .map_err(from_status)
     }
 
     fn write_blocks_bulk(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
         self.client
             .borrow_mut()
             .write_bulk(block, data)
-            .map_err(block_status)
+            .map_err(from_status)
     }
 }
 
-/// 服务端映射的一个帧。
-struct ServerMapping {
-    virt: u64,
-    region: u64,
-    len: usize,
-    busy: bool,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// 等待完成的一条请求。
-struct Pending {
-    sender: u64,
-    slot: u32,
-}
-
-/// 在端点上服务块设备请求，直到任务退出或收到退出请求。
-pub fn serve(endpoint: u64, disk: &mut dyn AsyncBlockDevice) {
-    serve_with_hook(endpoint, disk, |_, _, _, _| {});
-}
-
-/// 服务块请求，并在共享帧映射时通知驱动登记 DMA 区域。
-pub fn serve_with_hook<F: FnMut(u64, u64, usize, u64)>(
-    endpoint: u64,
-    disk: &mut dyn AsyncBlockDevice,
-    hook: F,
-) {
-    serve_with_wait(endpoint, disk, hook, || {
-        yield_now();
-    });
-}
-
-/// 同 [`serve_with_hook`]，但等待在途完成时不轮询：`wait` 返回后读取设备中断状态。
-pub fn serve_with_wait<F, W>(endpoint: u64, disk: &mut dyn AsyncBlockDevice, hook: F, wait: W)
-where
-    F: FnMut(u64, u64, usize, u64),
-    W: FnMut(),
-{
-    serve_with_wait_and(endpoint, disk, hook, wait, |_, _, _, _, _| {});
-}
-
-/// 同 [`serve_with_wait`]，并把非块协议消息交给 `other` 处理。
-///
-/// `other` 收到 `(label, word, sender, 数据, 随消息收到的句柄)`；句柄由回调负责
-/// 关闭。块协议标签由本函数处理，不会传入回调。
-pub fn serve_with_wait_and<F, W, O>(
-    endpoint: u64,
-    disk: &mut dyn AsyncBlockDevice,
-    mut hook: F,
-    mut wait: W,
-    mut other: O,
-) where
-    F: FnMut(u64, u64, usize, u64),
-    W: FnMut(),
-    O: FnMut(u64, u64, u64, &[u8], u64),
-{
-    let mut buffer = vec![0_u8; 64 * 1024];
-    let mut response = vec![0_u8; 64 * 1024];
-    let mut frames: BTreeMap<(u64, u32), ServerMapping> = BTreeMap::new();
-    let mut inflight: BTreeMap<u64, Pending> = BTreeMap::new();
-
-    loop {
-        while let Some((token, result)) = disk.poll_complete() {
-            let Some(pending) = inflight.remove(&token) else {
-                continue;
-            };
-            if let Some(frame) = frames.get_mut(&(pending.sender, pending.slot)) {
-                frame.busy = false;
-            }
-            let (status, written) = match result {
-                Ok(written) => (STATUS_OK, written),
-                Err(error) => (status(error), 0),
-            };
-            reply(
-                pending.sender,
-                pending.slot,
-                status,
-                &(written as u64).to_le_bytes(),
-                &mut response,
-            );
-        }
-
-        let (label, word, sender, length, received) = if inflight.is_empty() {
-            recv_data_handle(endpoint, &mut buffer, 0)
-        } else {
-            let message = recv_data_handle_try(endpoint, &mut buffer, 0);
-            if message.0 == 0 {
-                wait();
-                disk.ack_interrupt();
-                continue;
-            }
-            message
-        };
-
-        if !is_block_label(label) {
-            other(
-                label,
-                word,
-                sender,
-                &buffer[..length.min(buffer.len())],
-                received,
-            );
-            continue;
-        }
-        if label == BLOCK_SHUTDOWN {
-            return;
-        }
-        if label == BLOCK_ATTACH {
-            let slot = attach_slot(word);
-            let length = attach_length(word);
-            if received == 0 || length == 0 || length > BUFFER_LEN || slot >= BUFFER_SLOTS {
-                if received != 0 {
-                    let _ = close_handle(received);
-                }
-                continue;
-            }
-            let key = (sender, slot);
-            let previous = frames.remove(&key);
-            if let Some(old) = &previous {
-                let _ = region_unmap(old.region);
-            }
-            let Some(info) = frame_info(received) else {
-                let _ = close_handle(received);
-                continue;
-            };
-            let duplicate = handle_duplicate(received, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
-            if duplicate == u64::MAX {
-                let _ = close_handle(received);
-                continue;
-            }
-            let Some(region) = frame_map(received, RIGHT_READ | RIGHT_WRITE, 0) else {
-                let _ = close_handle(received);
-                let _ = close_handle(duplicate);
-                continue;
-            };
-            let Some((virt, _)) = region_info(region) else {
-                let _ = region_unmap(region);
-                let _ = close_handle(duplicate);
-                continue;
-            };
-            hook(virt, info.phys, length, duplicate);
-            let _ = close_handle(duplicate);
-            frames.insert(
-                key,
-                ServerMapping {
-                    virt,
-                    region,
-                    len: length,
-                    busy: false,
-                },
-            );
-            continue;
-        }
-        if label == BLOCK_DETACH {
-            if word == u64::MAX {
-                detach_sender(&mut frames, sender);
-            } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
-                let _ = region_unmap(frame.region);
-            }
-            continue;
-        }
-        if label != BLOCK_REQUEST {
-            continue;
-        }
-        let Some(request) = decode_request(&buffer[..length.min(buffer.len())]) else {
-            reply(sender, 0, STATUS_INVALID, &[], &mut response);
-            continue;
-        };
-        let Some(frame) = frames.get(&(sender, request.tag)) else {
-            match request.op {
-                OP_CAPACITY => {
-                    reply(
-                        sender,
-                        request.tag,
-                        STATUS_OK,
-                        &disk.capacity_bytes().to_le_bytes(),
-                        &mut response,
-                    );
-                }
-                OP_FLUSH => {
-                    let status = match disk.flush() {
-                        Ok(()) => STATUS_OK,
-                        Err(error) => status(error),
-                    };
-                    reply(sender, request.tag, status, &[], &mut response);
-                }
-                _ => reply(sender, request.tag, STATUS_INVALID, &[], &mut response),
-            }
-            continue;
-        };
-        if frame.busy {
-            reply(sender, request.tag, STATUS_BUSY, &[], &mut response);
-            continue;
-        }
-        let (virt, frame_len) = (frame.virt, frame.len);
-        let result = match request.op {
-            OP_READ | OP_WRITE => {
-                let length = request.length as usize;
-                if length == 0 || length > frame_len {
-                    reply(sender, request.tag, STATUS_INVALID, &[], &mut response);
-                    continue;
-                }
-                // SAFETY: 帧在客户端持有期间保持映射；服务端单线程，完成前不再访问。
-                let data = unsafe { core::slice::from_raw_parts_mut(virt as *mut u8, frame_len) };
-                match request.op {
-                    OP_READ => disk.submit_read(request.block, &mut data[..length]),
-                    _ => disk.submit_write(request.block, &data[..length]),
-                }
-            }
-            OP_FLUSH => match disk.flush() {
-                Ok(()) => {
-                    reply(
-                        sender,
-                        request.tag,
-                        STATUS_OK,
-                        &0u64.to_le_bytes(),
-                        &mut response,
-                    );
-                    continue;
-                }
-                Err(error) => Err(error),
-            },
-            OP_CAPACITY => {
-                reply(
-                    sender,
-                    request.tag,
-                    STATUS_OK,
-                    &disk.capacity_bytes().to_le_bytes(),
-                    &mut response,
-                );
-                continue;
-            }
-            _ => {
-                reply(sender, request.tag, STATUS_INVALID, &[], &mut response);
-                continue;
-            }
-        };
-        match result {
-            Ok(token) => {
-                if let Some(frame) = frames.get_mut(&(sender, request.tag)) {
-                    frame.busy = true;
-                }
-                inflight.insert(
-                    token,
-                    Pending {
-                        sender,
-                        slot: request.tag,
-                    },
-                );
-            }
-            Err(error) => {
-                reply(sender, request.tag, status(error), &[], &mut response);
-            }
-        }
+    #[test]
+    fn starts_detached_with_all_slots() {
+        let mut client = BlockClient::new("hk-server-virtio", 1);
+        assert_eq!(client.slots.len(), BUFFER_SLOTS as usize);
+        assert_eq!(client.endpoint, 0);
+        assert!(client.poll().is_none());
+        assert!(client.poll_for(7).is_none());
     }
-}
 
-/// 判断标签是否属于块协议。
-fn is_block_label(label: u64) -> bool {
-    matches!(
-        label,
-        BLOCK_SHUTDOWN | BLOCK_ATTACH | BLOCK_DETACH | BLOCK_REQUEST
-    )
-}
-
-fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) {
-    let keys: Vec<(u64, u32)> = frames
-        .keys()
-        .filter(|(owner, _)| *owner == sender)
-        .copied()
-        .collect();
-    for key in keys {
-        if let Some(frame) = frames.remove(&key) {
-            let _ = region_unmap(frame.region);
-        }
-    }
-}
-
-fn status(error: BlockError) -> u8 {
-    match error {
-        BlockError::OutOfRange => STATUS_RANGE,
-        BlockError::InvalidLength => STATUS_INVALID,
-        BlockError::Busy => STATUS_BUSY,
-        BlockError::ReadOnly | BlockError::Io => STATUS_ERROR,
-    }
-}
-
-fn reply(sender: u64, tag: u32, status: u8, data: &[u8], response: &mut [u8]) {
-    if let Some(length) = encode_response(response, tag, status, data) {
-        let _ = send_data(sender, BLOCK_RESPONSE, &response[..length]);
+    #[test]
+    fn rejects_oversized_transfers_before_submitting() {
+        let mut client = BlockClient::new("hk-server-virtio", 1);
+        let mut buffer = vec![0_u8; BUFFER_LEN + 1];
+        assert_eq!(client.read(0, &mut buffer), Err(STATUS_INVALID));
+        assert_eq!(client.write(0, &buffer), Err(STATUS_INVALID));
     }
 }

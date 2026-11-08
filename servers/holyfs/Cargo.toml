@@ -12,7 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 hk-async = { version = "0.1.0", path = "../../crates/user/hk-async" }
-hk-block = { version = "0.1.0", path = "../../crates/user/hk-block", features = ["ipc"] }
+hk-block = { version = "0.1.0", path = "../../crates/user/hk-block" }
+hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
 hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
 hk-fs-holyfs = { version = "0.1.0", path = "../../crates/user/hk-fs-holyfs" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }

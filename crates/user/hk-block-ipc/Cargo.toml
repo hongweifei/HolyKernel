@@ -1,0 +1,16 @@
+[package]
+name = "hk-block-ipc"
+description = "HolyKernel 块服务线协议运行时：远端客户端、服务端循环与直写帧登记"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-async = { version = "0.1.0", path = "../hk-async" }
+hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-proto = { version = "0.1.0", path = "../hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+
+[lints]
+workspace = true

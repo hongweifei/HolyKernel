@@ -4,9 +4,6 @@
 
 extern crate alloc;
 
-#[cfg(feature = "ipc")]
-pub mod ipc;
-
 use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;

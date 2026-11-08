@@ -25,12 +25,12 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
 | L2 | 用户态 | `hk-server-api` | 内核提供给用户态服务的通用面：系统调用封装、HMP、Root 控制、设备授权、运行时样板 |
 | L2 | 用户态 | `hk-proto` | 服务线协议、固定缓冲客户端、共享响应框架与协议标签区间 |
-| L2 | 用户态 | `hk-block`、`hk-vfs`、`hk-fs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs` | 块契约、命名空间、文件系统契约与实现 |
+| L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约与实现 |
 | L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 适配、像素绘制、工作线程与并发库、符号化与回溯 |
 | L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
 | L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo`（规划）承载 Cadence 策略与准入 |
 
-`hk-shell` 与 `hk-syscall` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现。
+`hk-shell`、`hk-syscall` 与 `hk-block` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现；`hk-block` 只定义块设备契约与内存盘，IPC 运行时放在 `hk-block-ipc`。
 
 ---
 
@@ -43,7 +43,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 用户态 | 用户态、共享契约 | 内核侧 |
 | 宿主工具（`xtask`） | 任意（构建期） | — |
 
-侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。`hk-shell` 与 `hk-syscall` 另外要求零依赖。
+侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。`hk-shell`、`hk-syscall` 与 `hk-block` 另外要求零依赖；块服务的线协议运行时在 `hk-block-ipc` 的 `client`、`server` 与 `adapter` 模块，客户端与服务端可分别测试。
 
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；`hk-proto` 只依赖内核面与 ABI。
 

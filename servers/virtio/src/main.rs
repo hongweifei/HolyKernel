@@ -200,7 +200,7 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -
         b"hk-server-virtio: block irq polling\n"
     });
 
-    hk_block::ipc::serve_with_wait_and(
+    hk_block_ipc::serve_with_wait_and(
         endpoint,
         block.as_mut(),
         |virt, phys, length, frame| {

@@ -10,9 +10,9 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use hk_block::ipc::serve;
-#[cfg(target_os = "none")]
 use hk_block::{MemoryDisk, SECTOR_SIZE};
+#[cfg(target_os = "none")]
+use hk_block_ipc::serve;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]

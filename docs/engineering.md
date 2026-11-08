@@ -26,7 +26,7 @@ HolyKernel/
 │   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
 │   │   └── hk-kernel-shell hk-sim
 │   └── user/              用户态库
-│       ├── hk-server-api hk-proto hk-block hk-net hk-fs hk-vfs
+│       ├── hk-server-api hk-proto hk-block hk-block-ipc hk-net hk-fs hk-vfs
 │       ├── hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
 │       └── hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
 │           hk-async hk-coroutine hk-debug hk-server-build

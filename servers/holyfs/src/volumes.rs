@@ -6,8 +6,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use hk_block::ipc::ClientDisk;
 use hk_block::{BlockDevice, DiskSlice};
+use hk_block_ipc::ClientDisk;
 use hk_fs_holyfs::{
     DocId, HolyError, HolyFs, VolumeId, format_with_volume_id, is_formatted, volume_id_for_drive,
 };

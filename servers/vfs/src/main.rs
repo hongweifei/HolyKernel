@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_base::CivilTime;
 #[cfg(target_os = "none")]
-use hk_block::ipc::ClientDisk;
+use hk_block_ipc::ClientDisk;
 #[cfg(target_os = "none")]
 use hk_fs::Backend;
 #[cfg(target_os = "none")]

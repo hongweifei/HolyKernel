@@ -2,7 +2,6 @@
 
 use alloc::collections::BTreeMap;
 
-use hk_block::ipc::{register_client_mapping, unregister_client_mapping};
 use hk_server_api::{
     RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info, frame_map,
     handle_duplicate, region_info, region_unmap,
@@ -82,23 +81,20 @@ impl Sessions {
             let _ = close_handle(duplicate);
             return false;
         };
-        if let Some((old_virt, old_region, _old_len, old_handle)) = self
+        if let Some((_old_virt, old_region, _old_len, old_handle)) = self
             .frames
             .insert(sender, (virt, region, length, duplicate))
         {
             let _ = region_unmap(old_region);
             let _ = close_handle(old_handle);
-            unregister_client_mapping(old_virt);
         }
-        register_client_mapping(virt, duplicate, length);
         true
     }
 
     pub(crate) fn detach(&mut self, sender: u64, filesystem: &mut Vfs) {
-        if let Some((virt, region, _length, handle)) = self.frames.remove(&sender) {
+        if let Some((_virt, region, _length, handle)) = self.frames.remove(&sender) {
             let _ = region_unmap(region);
             let _ = close_handle(handle);
-            unregister_client_mapping(virt);
         }
         if let Some(session) = self.clients.remove(&sender) {
             for handle in session.handles.into_values() {

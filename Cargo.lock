@@ -228,8 +228,13 @@ version = "0.1.0"
 [[package]]
 name = "hk-block"
 version = "0.1.0"
+
+[[package]]
+name = "hk-block-ipc"
+version = "0.1.0"
 dependencies = [
  "hk-async",
+ "hk-block",
  "hk-proto",
  "hk-server-api",
 ]
@@ -514,6 +519,7 @@ name = "hk-server-block"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+ "hk-block-ipc",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -680,6 +686,7 @@ version = "0.1.0"
 dependencies = [
  "hk-async",
  "hk-block",
+ "hk-block-ipc",
  "hk-fs",
  "hk-fs-holyfs",
  "hk-proto",
@@ -749,7 +756,6 @@ dependencies = [
 name = "hk-server-path"
 version = "0.1.0"
 dependencies = [
- "hk-block",
  "hk-fs",
  "hk-proto",
  "hk-server-api",
@@ -810,7 +816,7 @@ name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
  "hk-base",
- "hk-block",
+ "hk-block-ipc",
  "hk-fs",
  "hk-fs-ext4",
  "hk-proto",
@@ -824,6 +830,7 @@ name = "hk-server-virtio"
 version = "0.1.0"
 dependencies = [
  "hk-block",
+ "hk-block-ipc",
  "hk-device",
  "hk-driver-virtio",
  "hk-proto",

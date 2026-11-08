@@ -12,9 +12,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_block::ipc::ClientDisk;
-#[cfg(target_os = "none")]
 use hk_block::{BlockDevice, DiskSlice};
+#[cfg(target_os = "none")]
+use hk_block_ipc::ClientDisk;
 #[cfg(target_os = "none")]
 use hk_fs_holyfs::{
     HolyError, HolyFs, VOLUME_H, VOLUME_I, VolumeId, format_with_volume_id, is_formatted,
