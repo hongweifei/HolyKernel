@@ -165,6 +165,16 @@ impl KernelObject {
         }
     }
 
+    /// 返回类型化能力的常驻字节数：后备区间加已装入页。
+    pub fn capability_resident(&self) -> u64 {
+        let ObjectPayload::Capability { backing, pages, .. } = &self.payload else {
+            return 0;
+        };
+        let mut total = backing.as_ref().map_or(0, |backing| backing.range().len());
+        total = total.saturating_add(pages.lock().len() as u64 * hk_hal::PAGE_SIZE as u64);
+        total
+    }
+
     /// 返回类型化能力的常驻物理区间。
     pub fn capability_backing(&self) -> Option<PhysRange> {
         match &self.payload {

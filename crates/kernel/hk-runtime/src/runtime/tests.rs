@@ -493,6 +493,17 @@ fn arena_alloc_is_lazy_and_charged() {
         runtime.process(index).ledger.charged(),
         before + hk_hal::PAGE_SIZE as u64
     );
+    assert_eq!(
+        runtime.process_resident(index),
+        hk_hal::PAGE_SIZE as u64,
+        "缺页后常驻快照包含 Arena 页"
+    );
+
+    context.rax = SYS_LEDGER_INFO;
+    context.rdi = 0x400;
+    context.rsi = 48;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 48);
     let _ = runtime.finish(0, index);
 }
 
@@ -1324,9 +1335,9 @@ fn capacity_merge_returns_child_range_to_parent() {
     context.rax = SYS_CAPACITY_INFO;
     context.rdi = parent;
     context.rsi = 0x4000;
-    context.rdx = 48;
+    context.rdx = 64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 48);
+    assert_eq!(context.rax, 64);
 
     context.rax = SYS_CAPACITY_SPLIT;
     context.rdi = parent;
@@ -1346,7 +1357,7 @@ fn capacity_merge_returns_child_range_to_parent() {
     context.rax = SYS_CAPACITY_INFO;
     context.rdi = child;
     context.rsi = 0x4000;
-    context.rdx = 48;
+    context.rdx = 64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX, "合并后子句柄已失效");
     let _ = runtime.finish(0, memory);

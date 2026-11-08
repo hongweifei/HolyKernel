@@ -215,26 +215,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn ledger_info(&mut self, index: usize, frame: &mut C) -> Switch {
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;
-        if out == 0 || capacity < 32 {
+        if out == 0 || capacity < 48 {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let (charged, limit, peak, pressure) = {
-            let ledger = &self.process(index).ledger;
+        let resident = self.process_resident(index);
+        let (charged, limit, peak, pressure, resident, soft_limit) = {
+            let ledger = &mut self.process_mut(index).ledger;
+            ledger.set_resident(resident);
             (
                 ledger.charged(),
                 ledger.limit(),
                 ledger.peak(),
                 ledger.pressure(),
+                ledger.resident(),
+                ledger.soft_limit(),
             )
         };
-        let mut bytes = [0_u8; 32];
+        let mut bytes = [0_u8; 48];
         bytes[..8].copy_from_slice(&charged.to_le_bytes());
         bytes[8..16].copy_from_slice(&limit.to_le_bytes());
         bytes[16..24].copy_from_slice(&peak.to_le_bytes());
-        bytes[24..].copy_from_slice(&pressure.to_le_bytes());
+        bytes[24..32].copy_from_slice(&pressure.to_le_bytes());
+        bytes[32..40].copy_from_slice(&resident.to_le_bytes());
+        bytes[40..].copy_from_slice(&soft_limit.to_le_bytes());
         frame.set_result(if self.platform.write_user(out, &bytes) {
-            32
+            48
         } else {
             u64::MAX
         });

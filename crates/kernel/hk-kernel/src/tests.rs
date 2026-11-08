@@ -5,8 +5,8 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{
-    Arena, ArenaId, Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, Ledger,
-    LedgerId, Region, RegionFlags,
+    Arena, ArenaId, Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, FrameBacking,
+    FrameLease, Ledger, LedgerId, Region, RegionFlags,
 };
 
 use crate::{Kernel, Priority, TcbId, ThreadState, TraceCategory};
@@ -163,6 +163,11 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
             .4,
         PAGE_SIZE as u64
     );
+    assert_eq!(
+        kernel.capacity_stats(worker, capacity),
+        Ok((PAGE_SIZE as u64, 0)),
+        "按容量记录峰值"
+    );
 
     kernel.close_handle(worker, frame).expect("关闭 Frame");
     assert_eq!(
@@ -171,6 +176,27 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
             .expect("Capacity 信息")
             .4,
         0
+    );
+}
+
+#[test]
+fn reports_capability_resident_bytes() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
+        .expect("能力");
+    let backing = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x70_0000), PAGE_SIZE));
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            Some(backing),
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("创建能力");
+    assert_eq!(
+        kernel.capability_resident(worker, handle),
+        Ok(PAGE_SIZE as u64)
     );
 }
 

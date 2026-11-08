@@ -260,6 +260,22 @@ impl Kernel {
         })
     }
 
+    /// 返回 Capacity 的峰值用量与软上限。
+    pub fn capacity_stats(&self, thread: TcbId, handle: Handle) -> Result<(u64, u64), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let capacity = capacity.lock();
+        Ok((capacity.peak(), capacity.soft_limit()))
+    }
+
+    /// 返回类型化能力的常驻字节数。
+    pub fn capability_resident(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_resident())
+    }
+
     /// 返回 Capacity 的区间、用途、页大小、配额与用量。
     pub fn capacity_info(
         &self,

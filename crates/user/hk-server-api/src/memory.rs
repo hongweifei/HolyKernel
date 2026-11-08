@@ -181,11 +181,15 @@ pub struct CapacityInfo {
     pub limit: u64,
     /// 已用字节数。
     pub used: u64,
+    /// 峰值用量。
+    pub peak: u64,
+    /// 软上限；0 表示未设置。
+    pub soft_limit: u64,
 }
 
 /// 查询 Capacity。
 pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
-    let mut bytes = [0_u8; 48];
+    let mut bytes = [0_u8; 64];
     // SAFETY: 缓冲区属于本进程；内核写入 Capacity 快照。
     let result = unsafe {
         syscall_call(
@@ -197,7 +201,7 @@ pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
         )
         .value
     };
-    if result != 48 {
+    if result != 64 {
         return None;
     }
     Some(CapacityInfo {
@@ -206,7 +210,9 @@ pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
         kind: u64::from_le_bytes(bytes[16..24].try_into().ok()?) as u8,
         page_size: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
         limit: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
-        used: u64::from_le_bytes(bytes[40..].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[40..48].try_into().ok()?),
+        peak: u64::from_le_bytes(bytes[48..56].try_into().ok()?),
+        soft_limit: u64::from_le_bytes(bytes[56..].try_into().ok()?),
     })
 }
 
@@ -418,11 +424,15 @@ pub struct LedgerInfo {
     pub peak: u64,
     /// 压力百分比。
     pub pressure: u64,
+    /// 常驻字节数。
+    pub resident: u64,
+    /// 软上限；0 表示未设置。
+    pub soft_limit: u64,
 }
 
 /// 查询当前任务的内存账本。
 pub fn ledger_info() -> Option<LedgerInfo> {
-    let mut bytes = [0_u8; 32];
+    let mut bytes = [0_u8; 48];
     // SAFETY: 缓冲区属于本进程；内核校验长度后写入账本快照。
     let result = unsafe {
         syscall_call(
@@ -434,14 +444,16 @@ pub fn ledger_info() -> Option<LedgerInfo> {
         )
         .value
     };
-    if result != 32 {
+    if result != 48 {
         return None;
     }
     Some(LedgerInfo {
         charged: u64::from_le_bytes(bytes[..8].try_into().ok()?),
         limit: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
         peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
-        pressure: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+        pressure: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        resident: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
+        soft_limit: u64::from_le_bytes(bytes[40..].try_into().ok()?),
     })
 }
 

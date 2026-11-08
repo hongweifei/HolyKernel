@@ -98,6 +98,8 @@ struct Inner {
     owned: BTreeMap<u64, OwnedWindow>,
     /// 内核自用分配的归属容量；`None` 表示尚未建立 System Capacity。
     kernel_owner: Option<CapacityId>,
+    /// 各容量的峰值用量。
+    peaks: BTreeMap<CapacityId, u64>,
 }
 
 impl Inner {
@@ -321,6 +323,7 @@ impl FrameBank {
                 by_kind: [0; FrameKind::COUNT],
                 owned: BTreeMap::new(),
                 kernel_owner: None,
+                peaks: BTreeMap::new(),
             }),
         }
     }
@@ -353,6 +356,7 @@ impl FrameBank {
         inner.allocations.clear();
         inner.by_kind = [0; FrameKind::COUNT];
         inner.owned.clear();
+        inner.peaks.clear();
         for region in regions {
             if !region.kind.is_usable() {
                 continue;
@@ -417,6 +421,11 @@ impl FrameBank {
             let _ = inner.ledger.release(charge);
             return None;
         };
+        if let Some(owner) = owner {
+            let used = inner.used_for(owner).saturating_add(length);
+            let peak = inner.peaks.entry(owner).or_insert(0);
+            *peak = (*peak).max(used);
+        }
         inner.allocations.insert(
             start,
             Allocation {
@@ -570,13 +579,18 @@ impl FrameBank {
     /// 不改变已记入 Ledger 的用量。
     pub fn adopt_owner(&self, owner: CapacityId, range: PhysRange) -> bool {
         let mut inner = self.inner.lock();
-        let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
-            return false;
-        };
-        if allocation.range != range {
-            return false;
+        {
+            let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
+                return false;
+            };
+            if allocation.range != range {
+                return false;
+            }
+            allocation.owner = Some(owner);
         }
-        allocation.owner = Some(owner);
+        let used = inner.used_for(owner);
+        let peak = inner.peaks.entry(owner).or_insert(0);
+        *peak = (*peak).max(used);
         true
     }
 

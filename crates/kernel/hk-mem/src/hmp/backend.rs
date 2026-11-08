@@ -37,6 +37,9 @@ pub trait PhysicalBackend: Send + Sync {
 
     /// 返回指定容量名下的已用字节数。
     fn used_owned(&self, owner: CapacityId) -> u64;
+
+    /// 返回指定容量名下的峰值用量。
+    fn peak_owned(&self, owner: CapacityId) -> u64;
 }
 
 static BACKEND: spin::Mutex<Option<&'static dyn PhysicalBackend>> = spin::Mutex::new(None);

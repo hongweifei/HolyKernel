@@ -306,6 +306,34 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    /// 返回进程常驻字节数：各能力后备区间与已装入页之和。
+    pub(crate) fn process_resident(&self, index: usize) -> u64 {
+        let tcb = self.tasks[index].tcb;
+        let mut total: u64 = 0;
+        for map in self.tasks[index].capabilities.iter().flatten() {
+            total = total.saturating_add(
+                self.kernel
+                    .capability_resident(tcb, map.handle)
+                    .unwrap_or(0),
+            );
+        }
+        for slot in self.tasks[index].extra.iter().flatten() {
+            total = total.saturating_add(
+                self.kernel
+                    .capability_resident(tcb, slot.handle)
+                    .unwrap_or(0),
+            );
+        }
+        if let Some(region) = &self.process(index).arena_region {
+            total = total.saturating_add(
+                self.kernel
+                    .capability_resident(tcb, region.capability)
+                    .unwrap_or(0),
+            );
+        }
+        total
+    }
+
     pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
         if number >= FRAME_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(FRAME_HANDLE_BASE + 1)

@@ -45,8 +45,10 @@ impl Charge {
 pub struct Ledger {
     id: LedgerId,
     limit: u64,
+    soft_limit: u64,
     charged: u64,
     peak: u64,
+    resident: u64,
 }
 
 impl Ledger {
@@ -55,8 +57,10 @@ impl Ledger {
         Self {
             id,
             limit,
+            soft_limit: 0,
             charged: 0,
             peak: 0,
+            resident: 0,
         }
     }
 
@@ -114,6 +118,29 @@ impl Ledger {
         self.peak
     }
 
+    /// 设置软上限；0 表示未设置。软上限只用于报告，不拒绝分配。
+    pub fn set_soft_limit(&mut self, limit: u64) {
+        self.soft_limit = limit;
+    }
+
+    /// 返回软上限。
+    pub const fn soft_limit(&self) -> u64 {
+        self.soft_limit
+    }
+
+    /// 更新常驻字节数快照。
+    ///
+    /// 常驻由运行时按能力后备与已装入页计算；这里只保存报告值，不参与硬配额
+    /// 判断（硬配额看 `charged`）。
+    pub fn set_resident(&mut self, resident: u64) {
+        self.resident = resident;
+    }
+
+    /// 返回常驻字节数快照。
+    pub const fn resident(&self) -> u64 {
+        self.resident
+    }
+
     /// 返回压力百分比（0–100）。
     pub const fn pressure(&self) -> u64 {
         if self.limit == 0 {
@@ -139,6 +166,18 @@ mod tests {
         ledger.release(first).expect("释放");
         assert_eq!(ledger.charged(), 0x2000);
         assert_eq!(ledger.peak(), 0x3000);
+    }
+
+    #[test]
+    fn reports_soft_limit_and_resident() {
+        let mut ledger = Ledger::new(LedgerId::new(3), 0x4000);
+        ledger.set_soft_limit(0x3000);
+        ledger.set_resident(0x1800);
+        assert_eq!(ledger.soft_limit(), 0x3000);
+        assert_eq!(ledger.resident(), 0x1800);
+        assert_eq!(ledger.pressure(), 0);
+        ledger.charge(0x2000).expect("记账");
+        assert_eq!(ledger.pressure(), 50);
     }
 
     #[test]

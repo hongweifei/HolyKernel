@@ -74,7 +74,9 @@ pub struct Capacity {
     page_size: usize,
     kind: CapacityKind,
     limit: u64,
+    soft_limit: u64,
     used: u64,
+    peak: u64,
     free: Vec<PhysRange>,
     next: u64,
 }
@@ -123,7 +125,9 @@ impl Capacity {
             page_size,
             kind,
             limit,
+            soft_limit: 0,
             used: 0,
+            peak: 0,
             free: Vec::new(),
             next: range.start().get(),
         })
@@ -183,6 +187,7 @@ impl Capacity {
             self.id,
         )?;
         self.used = self.used.saturating_add(length);
+        self.peak = self.peak.max(self.used);
         Ok(frame)
     }
 
@@ -337,6 +342,34 @@ impl Capacity {
         self.limit
     }
 
+    /// 设置软上限；0 表示未设置。软上限只用于报告，不拒绝分配。
+    pub fn set_soft_limit(&mut self, limit: u64) {
+        self.soft_limit = limit;
+    }
+
+    /// 返回软上限。
+    pub const fn soft_limit(&self) -> u64 {
+        self.soft_limit
+    }
+
+    /// 返回峰值用量。
+    ///
+    /// 注册了物理后端时读后端的按容量峰值记录；否则用本地峰值。
+    pub fn peak(&self) -> u64 {
+        if let Some(backend) = super::backend::physical_backend() {
+            return backend.peak_owned(self.id);
+        }
+        self.peak
+    }
+
+    /// 返回压力百分比（0–100）。
+    pub fn pressure(&self) -> u64 {
+        if self.limit == 0 {
+            return 100;
+        }
+        self.used().saturating_mul(100) / self.limit
+    }
+
     /// 返回已分配字节数。
     ///
     /// 注册了物理后端时直接读后端的归因记录，避免本地计数与权威账本分叉。
@@ -480,6 +513,24 @@ mod tests {
                 .err(),
             Some(HmpError::OutOfCapacity)
         );
+    }
+
+    #[test]
+    fn tracks_peak_and_soft_limit() {
+        let mut capacity = capacity();
+        capacity.set_soft_limit(0x8000);
+        assert_eq!(capacity.soft_limit(), 0x8000);
+
+        let first = capacity.allocate(0x1000).expect("第一页");
+        assert_eq!(capacity.peak(), 0x1000);
+        let second = capacity.allocate(0x2000).expect("第二段");
+        assert_eq!(capacity.peak(), 0x3000);
+
+        capacity.free(first).expect("归还第一页");
+        capacity.free(second).expect("归还第二段");
+        assert_eq!(capacity.used(), 0);
+        assert_eq!(capacity.peak(), 0x3000, "峰值不随释放回落");
+        assert_eq!(capacity.pressure(), 0);
     }
 
     #[test]

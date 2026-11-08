@@ -27,19 +27,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if capacity < 48 {
+        let Ok((peak, soft_limit)) = self.kernel.capacity_stats(self.tasks[index].tcb, handle)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capacity < 64 {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let mut bytes = [0_u8; 48];
+        let mut bytes = [0_u8; 64];
         bytes[..8].copy_from_slice(&range.start().get().to_le_bytes());
         bytes[8..16].copy_from_slice(&range.len().to_le_bytes());
         bytes[16..24].copy_from_slice(&(capacity_kind_code(kind) as u64).to_le_bytes());
         bytes[24..32].copy_from_slice(&(page_size as u64).to_le_bytes());
         bytes[32..40].copy_from_slice(&limit.to_le_bytes());
-        bytes[40..].copy_from_slice(&used.to_le_bytes());
+        bytes[40..48].copy_from_slice(&used.to_le_bytes());
+        bytes[48..56].copy_from_slice(&peak.to_le_bytes());
+        bytes[56..].copy_from_slice(&soft_limit.to_le_bytes());
         frame.set_result(if self.platform.write_user(out, &bytes) {
-            48
+            64
         } else {
             u64::MAX
         });

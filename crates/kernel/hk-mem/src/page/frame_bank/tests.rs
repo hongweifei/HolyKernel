@@ -85,9 +85,11 @@ fn released_owned_range_returns_to_window() {
         .allocate_owned(owner, CapacityKind::Dma, PAGE_SIZE as u64)
         .expect("归属页");
     assert_eq!(bank.used_owned(owner), PAGE_SIZE as u64);
+    assert_eq!(bank.peak_owned(owner), PAGE_SIZE as u64);
 
     assert!(bank.release_owned(owner, range));
     assert_eq!(bank.used_owned(owner), 0);
+    assert_eq!(bank.peak_owned(owner), PAGE_SIZE as u64, "峰值不随释放回落");
 
     let reused = bank
         .allocate_owned(owner, CapacityKind::Dma, PAGE_SIZE as u64)

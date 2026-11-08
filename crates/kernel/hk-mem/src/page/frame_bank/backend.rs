@@ -127,4 +127,8 @@ impl PhysicalBackend for FrameBank {
     fn used_owned(&self, owner: CapacityId) -> u64 {
         self.inner.lock().used_for(owner)
     }
+
+    fn peak_owned(&self, owner: CapacityId) -> u64 {
+        self.inner.lock().peaks.get(&owner).copied().unwrap_or(0)
+    }
 }
