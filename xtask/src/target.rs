@@ -37,7 +37,7 @@ impl Selection {
 }
 
 static HOSTED_PACKAGES: [&str; 1] = ["hk-hosted"];
-static KERNEL_PACKAGES: [&str; 7] = [
+pub static KERNEL_PACKAGES: [&str; 7] = [
     "hk-hal",
     "hk-handle",
     "hk-ipc",
@@ -78,6 +78,11 @@ impl Target {
             Self::X86_64Qemu => vec![vec!["hk-x86_64"], crate::catalog::SERVERS.to_vec()],
             Self::Aarch64Qemu => vec![KERNEL_PACKAGES.to_vec()],
         }
+    }
+
+    /// 返回内核侧包清单；预算统计与构建共用同一来源。
+    pub const fn kernel_packages() -> &'static [&'static str] {
+        &KERNEL_PACKAGES
     }
 
     /// 判断是否为 Hosted 目标。

@@ -8,9 +8,6 @@ use std::path::Path;
 use crate::failure::{Failure, Result};
 use crate::workspace;
 
-/// 计入统计的内核 crate。
-pub const KERNEL_CRATES: [&str; 5] = ["hk-hal", "hk-handle", "hk-ipc", "hk-kernel", "hk-mem"];
-
 /// 统计内核代码行数。
 pub fn run() -> Result<()> {
     let root = workspace::root();
@@ -18,10 +15,13 @@ pub fn run() -> Result<()> {
 
     println!("内核代码行数");
     println!("{:<14}{:>8}", "crate", "lines");
-    for name in KERNEL_CRATES {
-        let source = root.join("crates").join(name).join("src");
-        if !source.exists() {
-            continue;
+    for name in crate::target::Target::kernel_packages() {
+        let source = root.join("crates/kernel").join(name).join("src");
+        if !source.is_dir() {
+            return Err(Failure::new(format!(
+                "内核 crate {name} 缺少源码目录：{}",
+                source.display()
+            )));
         }
         let lines = count_lines(&source)?;
         total += lines;

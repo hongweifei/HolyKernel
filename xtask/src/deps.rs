@@ -295,7 +295,10 @@ fn check(
         .and_then(|name| name.as_str())
         .unwrap_or_default();
     if name.is_empty() {
-        return Ok(None);
+        return Err(Failure::new(format!(
+            "{} 缺少 package.name",
+            path.display()
+        )));
     }
     let Some(side) = side_of_path(path, root) else {
         violations.push(format!(
@@ -305,37 +308,34 @@ fn check(
         return Ok(None);
     };
 
-    let dependencies = manifest
-        .get("dependencies")
-        .and_then(|dependencies| dependencies.as_table());
+    let dependencies = collect_dependencies(&manifest)?;
 
     if ZERO_DEPENDENCY.contains(&name) {
-        if let Some(dependencies) = dependencies {
-            for dependency in dependencies.keys() {
-                violations.push(format!(
-                    "  {name} 必须零依赖，但依赖了 {dependency}（{}）",
-                    path.display()
-                ));
-            }
+        for dependency in dependencies
+            .iter()
+            .filter(|dependency| dependency.kind == Kind::Normal)
+        {
+            violations.push(format!(
+                "  {name} 必须零依赖，但依赖了 {}（{}）",
+                dependency.package,
+                path.display()
+            ));
         }
         return Ok(Some(side));
     }
 
-    let Some(dependencies) = dependencies else {
-        return Ok(Some(side));
-    };
-
-    for dependency in dependencies.keys() {
+    for dependency in &dependencies {
         let Some(dependency_side) = sides
             .iter()
-            .find(|(name, _)| name == dependency)
+            .find(|(name, _)| *name == dependency.package)
             .map(|(_, side)| *side)
         else {
             continue;
         };
         if violates(side, dependency_side) {
             violations.push(format!(
-                "  {name}（{}）不允许依赖 {dependency}（{}）—— {}",
+                "  {name}（{}）不允许依赖 {}（{}）—— {}",
+                dependency.package,
                 side_name(side),
                 side_name(dependency_side),
                 path.display()
@@ -344,18 +344,94 @@ fn check(
     }
 
     let forbidden = rules(name);
-    for dependency in dependencies.keys() {
+    for dependency in dependencies
+        .iter()
+        .filter(|dependency| dependency.kind == Kind::Normal)
+    {
         if forbidden
             .iter()
-            .any(|prefix| dependency.starts_with(prefix))
+            .any(|prefix| dependency.package.starts_with(prefix))
         {
             violations.push(format!(
-                "  {name} 不允许依赖 {dependency}（{}）",
+                "  {name} 不允许依赖 {}（{}）",
+                dependency.package,
                 path.display()
             ));
         }
     }
     Ok(Some(side))
+}
+
+/// 依赖类别。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Normal,
+    Dev,
+    Build,
+}
+
+/// 一条依赖：解析后的真实 crate 名与所属依赖段。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Dependency {
+    package: String,
+    kind: Kind,
+}
+
+fn collect_dependencies(manifest: &toml::Value) -> Result<Vec<Dependency>> {
+    let Some(table) = manifest.as_table() else {
+        return Err(Failure::new("Cargo.toml 顶层不是表"));
+    };
+    let mut dependencies = Vec::new();
+    for (section, kind) in [
+        ("dependencies", Kind::Normal),
+        ("dev-dependencies", Kind::Dev),
+        ("build-dependencies", Kind::Build),
+    ] {
+        collect_section(table.get(section), kind, &mut dependencies)?;
+    }
+    if let Some(targets) = table.get("target").and_then(|target| target.as_table()) {
+        for target in targets.values() {
+            if let Some(target) = target.as_table() {
+                for (section, kind) in [
+                    ("dependencies", Kind::Normal),
+                    ("dev-dependencies", Kind::Dev),
+                    ("build-dependencies", Kind::Build),
+                ] {
+                    collect_section(target.get(section), kind, &mut dependencies)?;
+                }
+            }
+        }
+    }
+    Ok(dependencies)
+}
+
+fn collect_section(
+    section: Option<&toml::Value>,
+    kind: Kind,
+    dependencies: &mut Vec<Dependency>,
+) -> Result<()> {
+    let Some(section) = section else {
+        return Ok(());
+    };
+    let Some(table) = section.as_table() else {
+        return Err(Failure::new("依赖段不是表"));
+    };
+    for (key, value) in table {
+        let package = match value
+            .as_table()
+            .and_then(|dependency| dependency.get("package"))
+        {
+            Some(package) => package
+                .as_str()
+                .ok_or_else(|| Failure::new(format!("依赖 {key} 的 package 字段不是字符串")))?,
+            None => key,
+        };
+        dependencies.push(Dependency {
+            package: package.to_string(),
+            kind,
+        });
+    }
+    Ok(())
 }
 
 fn rules(name: &str) -> &'static [&'static str] {
@@ -394,5 +470,47 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" | "hk-drivers" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,
         _ => &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_renames_and_every_dependency_table() {
+        let manifest: toml::Value = r#"
+[dependencies]
+alias = { package = "hk-fs", path = "../hk-fs" }
+plain = "1"
+
+[dev-dependencies]
+hk-platform-hosted = { path = "../hk-platform-hosted" }
+
+[build-dependencies]
+hk-server-build = { path = "../../crates/user/hk-server-build" }
+
+[target.'cfg(unix)'.dependencies]
+renamed = { package = "hk-vfs", path = "../hk-vfs" }
+"#
+        .parse()
+        .expect("清单");
+        let dependencies = collect_dependencies(&manifest).expect("收集依赖");
+        assert!(dependencies.contains(&Dependency {
+            package: "hk-fs".to_string(),
+            kind: Kind::Normal,
+        }));
+        assert!(dependencies.contains(&Dependency {
+            package: "hk-platform-hosted".to_string(),
+            kind: Kind::Dev,
+        }));
+        assert!(dependencies.contains(&Dependency {
+            package: "hk-server-build".to_string(),
+            kind: Kind::Build,
+        }));
+        assert!(dependencies.contains(&Dependency {
+            package: "hk-vfs".to_string(),
+            kind: Kind::Normal,
+        }));
     }
 }
