@@ -6,6 +6,15 @@ use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use hk_hal::{SyscallFrame, UserContext};
 
+/// 把平台预留的容量包装成测试用共享 System Capacity。
+fn test_system_capacity<P: UserPlatform>(
+    platform: &P,
+) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+    platform
+        .reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
+        .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
+}
+
 /// 最小用户现场。
 #[derive(Clone, Copy, Default)]
 struct MockContext {
@@ -131,8 +140,7 @@ impl UserPlatform for MockPlatform {
     }
 
     fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
-            .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
+        test_system_capacity(self)
     }
 
     fn map_user(
@@ -688,8 +696,7 @@ fn transports_byte_payloads() {
         }
 
         fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-            self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
-                .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
+            test_system_capacity(self)
         }
 
         fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
@@ -1627,8 +1634,7 @@ impl UserPlatform for ShortPlatform {
     }
 
     fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        self.reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
-            .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
+        test_system_capacity(self)
     }
 
     fn memory_limit(&self, _slot: usize) -> u64 {

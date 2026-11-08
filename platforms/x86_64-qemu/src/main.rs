@@ -17,6 +17,8 @@ mod allocator;
 #[cfg(target_os = "none")]
 mod loader;
 #[cfg(target_os = "none")]
+mod memory;
+#[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
 mod shell;
@@ -119,88 +121,17 @@ extern "C" fn kmain() -> ! {
         ),
     };
     let direct_map_base = direct_map.virt_base.get();
-    hk_platform_x86_64::paging::FRAME_BANK.init(info.memory_map, info.kernel_image);
-    if hk_platform_x86_64::paging::FRAME_BANK.total() == 0 {
-        fail(
+    let memory = match memory::bring_up(&info, direct_map_base) {
+        Ok(memory) => memory,
+        Err(error) => fail(
             &console,
             screen.as_ref(),
-            "没有可用的物理内存区域\n",
+            &format!("{error}\n"),
             ExitCode::Failure(3),
-        );
-    }
-    const KERNEL_HEAP_BYTES: usize = 16 * 1024 * 1024;
-    let Some(heap) = hk_platform_x86_64::paging::FRAME_BANK
-        .allocate_contiguous_for(hk_mem::FrameKind::KernelHeap, KERNEL_HEAP_BYTES)
-    else {
-        fail(
-            &console,
-            screen.as_ref(),
-            "内核堆物理内存不足\n",
-            ExitCode::Failure(3),
-        );
-    };
-    let heap_virt = direct_map_base.saturating_add(heap.start().get());
-    // SAFETY: heap 来自 FrameBank，direct map 已覆盖该物理区间。
-    unsafe {
-        core::ptr::write_bytes(heap_virt as *mut u8, 0, KERNEL_HEAP_BYTES);
-    }
-    crate::allocator::init_dynamic(heap_virt as usize, KERNEL_HEAP_BYTES);
-    let paging = PageTable::new(direct_map_base);
-    hk_platform_x86_64::paging::init_runtime(direct_map_base);
-    hk_platform_x86_64::paging::register_backend();
-    hk_platform_x86_64::cache::init(direct_map_base);
-    let dma_capacity = hk_mem::hmp::CapacityId::next();
-    let mut dma_bytes = 0;
-    if let Some(dma) = hk_platform_x86_64::paging::FRAME_BANK
-        .reserve_for(dma_capacity, hk_platform_x86_64::dma::POOL_BYTES)
-    {
-        dma_bytes = dma.len();
-        hk_platform_x86_64::dma::init(dma_capacity, dma);
-    }
-    if hk_platform_x86_64::system::establish(
-        &hk_platform_x86_64::paging::FRAME_BANK,
-        heap,
-        dma_bytes,
-    )
-    .is_none()
-    {
-        fail(
-            &console,
-            screen.as_ref(),
-            "无法从可用内存建立 System Capacity\n",
-            ExitCode::Failure(3),
-        );
-    }
-    let stats = hk_platform_x86_64::paging::FRAME_BANK.stats();
-    let (system_used, system_limit, system_span) =
-        hk_platform_x86_64::system::capacity().map_or((0, 0, 0), |capacity| {
-            let capacity = capacity.lock();
-            (
-                capacity.used() / 1024,
-                capacity.limit() / 1024,
-                capacity.range().len() / 1024,
-            )
-        });
-    announce(
-        &console,
-        screen.as_ref(),
-        &format!(
-            "System Capacity：used {} KiB / total {} KiB，peak {} KiB；system {} / {} KiB（窗口 {} KiB）；heap {}，page-table {}，cow {}，restore {}，image {}，dma {}，other {}\n",
-            stats.used / 1024,
-            stats.total / 1024,
-            stats.peak / 1024,
-            system_used,
-            system_limit,
-            system_span,
-            stats.by_kind[0] / 1024,
-            stats.by_kind[1] / 1024,
-            stats.by_kind[2] / 1024,
-            stats.by_kind[3] / 1024,
-            stats.by_kind[4] / 1024,
-            stats.by_kind[5] / 1024,
-            stats.by_kind[6] / 1024,
         ),
-    );
+    };
+    announce(&console, screen.as_ref(), &format!("{memory}\n"));
+    let paging = PageTable::new(direct_map_base);
 
     if let Err(error) = bootstrap::init_interrupts(
         &paging,

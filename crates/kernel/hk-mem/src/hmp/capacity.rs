@@ -88,31 +88,13 @@ impl Capacity {
         kind: CapacityKind,
         limit: u64,
     ) -> Result<Self, HmpError> {
-        if page_size == 0 || !page_size.is_power_of_two() || range.is_empty() {
-            return Err(HmpError::InvalidSize);
-        }
-        if !range.start().get().is_multiple_of(page_size as u64) {
-            return Err(HmpError::Unaligned);
-        }
         let available = range.len();
         let limit = if limit == 0 {
             available
         } else {
             limit.min(available)
         };
-        if limit < page_size as u64 {
-            return Err(HmpError::InvalidSize);
-        }
-        Ok(Self {
-            id,
-            range,
-            page_size,
-            kind,
-            limit,
-            used: 0,
-            free: Vec::new(),
-            next: range.start().get(),
-        })
+        Self::with_limit(id, range, page_size, kind, limit)
     }
 
     /// 以显式配额创建容量，不把配额裁剪到单个区间长度。
