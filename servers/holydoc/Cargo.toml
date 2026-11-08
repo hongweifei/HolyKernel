@@ -14,6 +14,7 @@ path = "src/main.rs"
 hk-canvas = { version = "0.1.0", path = "../../crates/user/hk-canvas" }
 hk-font = { version = "0.1.0", path = "../../crates/shared/hk-font" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 hk-worker = { version = "0.1.0", path = "../../crates/user/hk-worker" }
 

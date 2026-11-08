@@ -1,15 +1,15 @@
 //! H: 卷加载：集合递归、文档读取与标签索引。
 
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use hk_proto::holy::{
-    DocId, HolyClient, KIND_COLLECTION, TOKEN_RIGHT_READ, decode_doc_ids, decode_entries,
-    decode_tags,
+    DocId, KIND_COLLECTION, TOKEN_RIGHT_READ, decode_doc_ids, decode_entries, decode_tags,
 };
+#[cfg(any(target_os = "none", test))]
+use hk_proto_client::HolyClient;
 use hk_server_api::{service_endpoint, write, write_u64};
 
 use crate::document::{DocSet, DocTag};
@@ -41,7 +41,7 @@ pub(crate) fn load(set: &mut DocSet, endpoint: u64) -> Loaded {
             tags: 0,
         };
     }
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         write(b"hk-server-holydoc: no root\n");
         return Loaded {

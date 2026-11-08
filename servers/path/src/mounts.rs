@@ -4,7 +4,9 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_proto::holy::{HolyClient, decode_drives};
+use hk_proto::holy::decode_drives;
+#[cfg(any(target_os = "none", test))]
+use hk_proto_client::HolyClient;
 use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 
@@ -18,7 +20,7 @@ pub(crate) fn mount_drives(endpoint: u64, ext4_root: bool) -> Option<Vfs> {
             let _ = yield_now();
             continue;
         }
-        let mut probe = Box::new(HolyClient::new_with_service(endpoint, "hk-server-vfs"));
+        let mut probe = HolyClient::new_with_service(endpoint, "hk-server-vfs");
         let Ok(bytes) = probe.drives() else {
             let _ = yield_now();
             continue;

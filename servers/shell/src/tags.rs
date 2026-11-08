@@ -3,15 +3,16 @@
 //! 标签属于 H: 卷，命令通过 Holy 协议直接访问 VFS 服务；核心命令表保持
 //! 中立，宿主扩展负责本端能力。
 
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_proto::holy::{
-    DocId, HolyClient, STATUS_NOT_FOUND, STATUS_PERMISSION, decode_doc_ids, decode_tags, decode_u32,
+    DocId, STATUS_NOT_FOUND, STATUS_PERMISSION, decode_doc_ids, decode_tags, decode_u32,
 };
 use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO};
+#[cfg(target_os = "none")]
+use hk_proto_client::HolyClient;
 
 /// 处理标签扩展命令；不是标签命令时返回 `None`。
 pub(crate) fn extension(endpoint: u64, name: &str, args: &str) -> Option<String> {
@@ -27,8 +28,8 @@ pub(crate) fn extension(endpoint: u64, name: &str, args: &str) -> Option<String>
     }
 }
 
-fn client(endpoint: u64) -> Box<HolyClient> {
-    Box::new(HolyClient::new(endpoint))
+fn client(endpoint: u64) -> HolyClient {
+    HolyClient::new(endpoint)
 }
 
 /// 枚举标签及其成员数。

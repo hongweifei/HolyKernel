@@ -1,12 +1,7 @@
-//! VFS 客户端/服务端共享协议与固定缓冲客户端。
+//! VFS 客户端/服务端共享协议与轻量查询。
 
-use crate::status::RESPONSE_HEADER;
 use crate::wire::{self, RequestHeader};
-use hk_server_api::{
-    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
-    handle_duplicate, recv_data_from, region_info, region_unmap, send_data, send_handle,
-    service_endpoint,
-};
+use hk_server_api::{recv_data_from, send_data, service_endpoint};
 
 /// 请求标签。
 pub const VFS_REQUEST: u64 = crate::labels::VFS;
@@ -66,7 +61,39 @@ pub use crate::status::{
 const REQUEST_HEADER: usize = wire::REQUEST_HEADER;
 
 /// 单条 VFS 协议消息的缓冲上限。
-const BUFFER: usize = 64 * 1024;
+pub const VFS_MESSAGE_LEN: usize = 64 * 1024;
+
+/// 查询 VFS 挂载表，把挂载点逐行写入 `out`。
+///
+/// 这是轻量只读查询，不建立共享 Frame；返回完整数据长度，调用方可用
+/// `min(length, out.len())` 判断是否截断。
+pub fn list_mounts(own_endpoint: u64, out: &mut [u8]) -> Result<usize, u8> {
+    let endpoint = service_endpoint("hk-server-path");
+    if endpoint == 0 {
+        return Err(STATUS_IO);
+    }
+
+    let mut request = [0_u8; REQUEST_HEADER];
+    let Some(length) = encode_request(&mut request, OP_MOUNTS, "", 0, 0, &[]) else {
+        return Err(STATUS_INVALID);
+    };
+    if send_data(endpoint, VFS_REQUEST, &request[..length]) == u64::MAX {
+        return Err(STATUS_IO);
+    }
+
+    let mut response = [0_u8; 4096];
+    let (label, _word, _sender, length) = recv_data_from(own_endpoint, endpoint, &mut response);
+    if label != VFS_RESPONSE {
+        return Err(STATUS_IO);
+    }
+    let response = decode_response(&response[..length]).ok_or(STATUS_INVALID)?;
+    if response.status != STATUS_OK {
+        return Err(response.status);
+    }
+    let copy = response.data.len().min(out.len());
+    out[..copy].copy_from_slice(&response.data[..copy]);
+    Ok(response.data.len())
+}
 
 /// 解码后的请求。
 pub struct Request<'a> {
@@ -109,283 +136,6 @@ pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
         arg1: request.header.arg1,
         data: request.data,
     })
-}
-
-/// 固定缓冲 VFS 客户端。
-pub struct VfsClient {
-    service: &'static str,
-    endpoint: u64,
-    own_endpoint: u64,
-    request: [u8; BUFFER],
-    response: [u8; BUFFER],
-    frame: Option<u64>,
-    region: u64,
-    mapping_virt: u64,
-    attached: u64,
-}
-
-impl Drop for VfsClient {
-    fn drop(&mut self) {
-        if let Some(frame) = self.frame.take() {
-            let endpoint = service_endpoint(self.service);
-            if endpoint != 0 {
-                let _ = send_data(endpoint, VFS_DETACH, &[]);
-            }
-            let _ = region_unmap(self.region);
-            let _ = close_handle(frame);
-        }
-    }
-}
-
-/// 查询 VFS 挂载表，把挂载点逐行写入 `out`。
-///
-/// 这是轻量只读查询，不建立共享 Frame；返回完整数据长度，调用方可用
-/// `min(length, out.len())` 判断是否截断。
-pub fn list_mounts(own_endpoint: u64, out: &mut [u8]) -> Result<usize, u8> {
-    let endpoint = service_endpoint("hk-server-path");
-    if endpoint == 0 {
-        return Err(STATUS_IO);
-    }
-
-    let mut request = [0_u8; REQUEST_HEADER];
-    let Some(length) = encode_request(&mut request, OP_MOUNTS, "", 0, 0, &[]) else {
-        return Err(STATUS_INVALID);
-    };
-    if send_data(endpoint, VFS_REQUEST, &request[..length]) == u64::MAX {
-        return Err(STATUS_IO);
-    }
-
-    let mut response = [0_u8; 4096];
-    let (label, _word, _sender, length) = recv_data_from(own_endpoint, endpoint, &mut response);
-    if label != VFS_RESPONSE {
-        return Err(STATUS_IO);
-    }
-    let response = decode_response(&response[..length]).ok_or(STATUS_INVALID)?;
-    if response.status != STATUS_OK {
-        return Err(response.status);
-    }
-    let copy = response.data.len().min(out.len());
-    out[..copy].copy_from_slice(&response.data[..copy]);
-    Ok(response.data.len())
-}
-
-impl VfsClient {
-    /// 构造客户端；`service` 是 VFS 服务名，`own_endpoint` 是本任务端点。
-    pub const fn new(service: &'static str, own_endpoint: u64) -> Self {
-        Self {
-            service,
-            endpoint: 0,
-            own_endpoint,
-            request: [0; BUFFER],
-            response: [0; BUFFER],
-            frame: None,
-            region: 0,
-            mapping_virt: 0,
-            attached: 0,
-        }
-    }
-
-    fn ensure_attach(&mut self) -> Result<u64, u8> {
-        let endpoint = service_endpoint(self.service);
-        if endpoint == 0 {
-            return Err(STATUS_IO);
-        }
-        if self.attached == endpoint && self.frame.is_some() {
-            return Ok(endpoint);
-        }
-        if self.frame.is_none() {
-            let Some(frame) = MemoryClient::new(self.own_endpoint).frame(VFS_BUFFER_LEN) else {
-                return Err(STATUS_IO);
-            };
-            let attach = handle_duplicate(
-                frame,
-                RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
-            );
-            if attach == u64::MAX {
-                let _ = close_handle(frame);
-                return Err(STATUS_IO);
-            }
-            let Some(region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
-                let _ = close_handle(frame);
-                let _ = close_handle(attach);
-                return Err(STATUS_IO);
-            };
-            let Some((virt, _)) = region_info(region) else {
-                let _ = region_unmap(region);
-                let _ = close_handle(attach);
-                return Err(STATUS_IO);
-            };
-            self.frame = Some(attach);
-            self.region = region;
-            self.mapping_virt = virt;
-        }
-        let number = self.frame.ok_or(STATUS_IO)?;
-        let duplicate = handle_duplicate(
-            number,
-            RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
-        );
-        if duplicate == u64::MAX {
-            return Err(STATUS_IO);
-        }
-        if send_handle(endpoint, VFS_ATTACH, VFS_BUFFER_LEN as u64, duplicate) == u64::MAX {
-            return Err(STATUS_IO);
-        }
-        self.attached = endpoint;
-        Ok(endpoint)
-    }
-
-    /// 返回客户端共享帧。
-    pub fn buffer(&mut self) -> &mut [u8] {
-        // SAFETY: SYS_REGION_MAP 把 VFS_BUFFER_LEN 字节映射到自动分配的地址。
-        unsafe { core::slice::from_raw_parts_mut(self.mapping_virt as *mut u8, VFS_BUFFER_LEN) }
-    }
-
-    /// 从共享帧读取文件内容，返回字节数。
-    pub fn read_buffer(&mut self, handle: u64, offset: u64, length: usize) -> Result<usize, u8> {
-        if length > VFS_BUFFER_LEN {
-            return Err(STATUS_INVALID);
-        }
-        self.ensure_attach()?;
-        let argument = (length as u64).to_le_bytes();
-        let response = self.exchange(OP_READ_BUFFER, "", handle, offset, &argument)?;
-        if response < 8 {
-            return Err(STATUS_INVALID);
-        }
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
-        Ok(u64::from_le_bytes(bytes) as usize)
-    }
-
-    /// 把共享帧中的内容写入文件，返回字节数。
-    pub fn write_buffer(&mut self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
-        if data.len() > VFS_BUFFER_LEN {
-            return Err(STATUS_INVALID);
-        }
-        self.ensure_attach()?;
-        self.buffer()[..data.len()].copy_from_slice(data);
-        let argument = (data.len() as u64).to_le_bytes();
-        let response = self.exchange(OP_WRITE_BUFFER, "", handle, offset, &argument)?;
-        if response < 8 {
-            return Err(STATUS_INVALID);
-        }
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
-        Ok(u64::from_le_bytes(bytes) as usize)
-    }
-
-    /// 打开文件，返回句柄。
-    pub fn open(&mut self, path: &str, flags: u64) -> Result<u64, u8> {
-        let length = self.exchange(OP_OPEN, path, flags, 0, &[])?;
-        if length < 8 {
-            return Err(STATUS_INVALID);
-        }
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + 8]);
-        Ok(u64::from_le_bytes(bytes))
-    }
-
-    /// 关闭句柄。
-    pub fn close(&mut self, handle: u64) -> Result<(), u8> {
-        self.exchange(OP_CLOSE, "", handle, 0, &[]).map(|_| ())
-    }
-
-    /// 从偏移读取，返回实际拷贝到缓冲区的长度。
-    pub fn read(&mut self, handle: u64, offset: u64, buffer: &mut [u8]) -> Result<usize, u8> {
-        let length = self.exchange(OP_READ, "", handle, offset, &[])?;
-        let copy = length.min(buffer.len());
-        buffer[..copy].copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + copy]);
-        Ok(copy)
-    }
-
-    /// 从偏移写入。
-    pub fn write(&mut self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, u8> {
-        self.exchange(OP_WRITE, "", handle, offset, data)?;
-        Ok(data.len())
-    }
-
-    /// 查询元数据，返回 `(kind, size)`。
-    pub fn stat(&mut self, path: &str) -> Result<(u8, u64), u8> {
-        let length = self.exchange(OP_STAT, path, 0, 0, &[])?;
-        if length < 9 {
-            return Err(STATUS_INVALID);
-        }
-        let kind = self.response[RESPONSE_HEADER];
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(&self.response[RESPONSE_HEADER + 1..RESPONSE_HEADER + 9]);
-        Ok((kind, u64::from_le_bytes(bytes)))
-    }
-
-    /// 调整文件大小。
-    pub fn truncate(&mut self, path: &str, size: u64) -> Result<(), u8> {
-        self.exchange(OP_TRUNCATE, path, size, 0, &[]).map(|_| ())
-    }
-
-    /// 删除文件或空目录。
-    pub fn unlink(&mut self, path: &str) -> Result<(), u8> {
-        self.exchange(OP_UNLINK, path, 0, 0, &[]).map(|_| ())
-    }
-
-    /// 读取目录，返回服务端名称列表长度。
-    pub fn readdir(&mut self, path: &str, buffer: &mut [u8]) -> Result<usize, u8> {
-        let length = self.exchange(OP_LIST, path, 0, 0, &[])?;
-        let copy = length.min(buffer.len());
-        buffer[..copy].copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + copy]);
-        Ok(length)
-    }
-
-    /// 创建目录。
-    pub fn mkdir(&mut self, path: &str) -> Result<(), u8> {
-        self.exchange(OP_MKDIR, path, 0, 0, &[]).map(|_| ())
-    }
-
-    /// 卸载挂载点。
-    pub fn umount(&mut self, path: &str) -> Result<(), u8> {
-        self.exchange(OP_UMOUNT, path, 0, 0, &[]).map(|_| ())
-    }
-
-    /// 刷写后端挂起写入。
-    pub fn sync(&mut self) -> Result<(), u8> {
-        self.exchange(OP_SYNC, "", 0, 0, &[]).map(|_| ())
-    }
-
-    /// 列出挂载点。
-    pub fn mounts(&mut self, buffer: &mut [u8]) -> Result<usize, u8> {
-        let length = self.exchange(OP_MOUNTS, "", 0, 0, &[])?;
-        let copy = length.min(buffer.len());
-        buffer[..copy].copy_from_slice(&self.response[RESPONSE_HEADER..RESPONSE_HEADER + copy]);
-        Ok(length)
-    }
-
-    fn exchange(
-        &mut self,
-        op: u8,
-        path: &str,
-        arg0: u64,
-        arg1: u64,
-        data: &[u8],
-    ) -> Result<usize, u8> {
-        let Some(length) = encode_request(&mut self.request, op, path, arg0, arg1, data) else {
-            return Err(STATUS_INVALID);
-        };
-        let endpoint = service_endpoint(self.service);
-        if endpoint == 0 {
-            return Err(STATUS_IO);
-        }
-        self.endpoint = endpoint;
-        if send_data(self.endpoint, VFS_REQUEST, &self.request[..length]) == u64::MAX {
-            return Err(STATUS_IO);
-        }
-        let (label, _word, _sender, length) =
-            recv_data_from(self.own_endpoint, self.endpoint, &mut self.response);
-        if label != VFS_RESPONSE {
-            return Err(STATUS_IO);
-        }
-        let response = decode_response(&self.response[..length]).ok_or(STATUS_INVALID)?;
-        if response.status != STATUS_OK {
-            return Err(response.status);
-        }
-        Ok(response.data.len())
-    }
 }
 
 #[cfg(test)]

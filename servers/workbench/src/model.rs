@@ -3,13 +3,14 @@
 //! 文档经原生 Holy 协议读写；编辑器维护 UTF-8 字节游标，所有移动都落在字符
 //! 边界。构建与运行是文档内的轻量操作：构建统计指令，运行求值 `@exec`。
 
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_proto::holy::{DocId, HolyClient, KIND_COLLECTION, TOKEN_RIGHT_ADMIN, decode_entries};
+use hk_proto::holy::{DocId, KIND_COLLECTION, TOKEN_RIGHT_ADMIN, decode_entries};
+#[cfg(any(target_os = "none", test))]
+use hk_proto_client::HolyClient;
 use hk_server_api::{civil_time, kernel_stats, service_endpoint, ticks};
 
 /// 编辑器缓冲上限。
@@ -76,7 +77,7 @@ pub(crate) struct Editor {
 
 /// 工作台状态。
 pub(crate) struct Model {
-    client: Box<HolyClient>,
+    client: HolyClient,
     /// 文档树。
     pub(crate) entries: Vec<DocEntry>,
     /// 选中的树项。
@@ -97,7 +98,7 @@ impl Model {
     /// 构造模型并加载 H: 文档树。
     pub(crate) fn new(endpoint: u64) -> Self {
         let mut model = Self {
-            client: Box::new(HolyClient::new(endpoint)),
+            client: HolyClient::new(endpoint),
             entries: Vec::new(),
             selected: 0,
             nav_scroll: 0,

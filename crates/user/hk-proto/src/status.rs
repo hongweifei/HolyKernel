@@ -7,7 +7,7 @@
 use crate::wire;
 
 /// 响应头长度：status + data_len。
-pub(crate) const RESPONSE_HEADER: usize = wire::RESPONSE_HEADER;
+pub const RESPONSE_HEADER: usize = wire::RESPONSE_HEADER;
 
 /// 成功。
 pub const STATUS_OK: u8 = 0;

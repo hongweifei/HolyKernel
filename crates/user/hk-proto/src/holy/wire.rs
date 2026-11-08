@@ -188,10 +188,12 @@ pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
     })
 }
 
+/// 请求头长度；布局由 [`crate::wire`] 统一，`kind` 承载盘符。
+pub const REQUEST_HEADER: usize = crate::wire::REQUEST_HEADER;
 /// 请求缓冲上限。
-pub(super) const REQUEST: usize = 64 * 1024;
+pub const REQUEST_BUFFER: usize = 64 * 1024;
 /// 响应缓冲上限。
-pub(super) const RESPONSE: usize = 64 * 1024;
+pub const RESPONSE_BUFFER: usize = 64 * 1024;
 /// 集合项头：kind + DocId + 名字长度。
 pub(super) const ENTRY_HEADER: usize = 1 + 16 + 1;
 /// 文档视图长度。
@@ -199,7 +201,7 @@ pub(super) const DOCUMENT_LEN: usize = 1 + 8 + 8 + 8 + 8;
 /// 修订视图长度。
 pub(super) const REVISION_LEN: usize = 8 + 8 + 8 + 8 + 4;
 /// 文档身份编码长度。
-pub(super) const DOC_LEN: usize = 16;
+pub const DOC_LEN: usize = 16;
 /// 修订身份编码长度。
 pub(super) const REVISION_ID_LEN: usize = 8;
 /// 令牌编码长度。

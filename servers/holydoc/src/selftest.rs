@@ -1,14 +1,15 @@
 //! HolyDoc 自检：令牌、标签、标签页与脚本化导航。
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
 use hk_proto::holy::{
-    DocumentKind, HolyClient, QuotaView, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE,
-    TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_doc_ids, decode_drives,
-    decode_snapshots, decode_tags,
+    DocumentKind, QuotaView, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE, TOKEN_RIGHT_ADMIN,
+    TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_doc_ids, decode_drives, decode_snapshots,
+    decode_tags,
 };
+#[cfg(any(target_os = "none", test))]
+use hk_proto_client::HolyClient;
 use hk_server_api::{exit, send, write, write_u64};
 
 use crate::document::{DocSet, DocView, TAGS};
@@ -17,7 +18,7 @@ use crate::window::apply;
 
 /// 验证盘符注册、卷身份隔离与切盘读写。
 pub(crate) fn verify_drives(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(bytes) = client.drives() else {
         return false;
     };
@@ -98,7 +99,7 @@ pub(crate) fn verify_drives(endpoint: u64) -> bool {
 
 /// 验证快照固定、恢复与释放。
 pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         return false;
     };
@@ -162,7 +163,7 @@ pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
 
 /// 验证令牌收窄、撤销与固定修订读取。
 pub(crate) fn verify_tokens(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         return false;
     };
@@ -191,7 +192,7 @@ pub(crate) fn verify_tokens(endpoint: u64) -> bool {
 
 /// 验证标签创建、成员关系、标签页与删除。
 pub(crate) fn verify_tags(endpoint: u64, docs: &mut DocSet) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         return false;
     };
@@ -231,7 +232,7 @@ pub(crate) fn verify_tags(endpoint: u64, docs: &mut DocSet) -> bool {
 
 /// 验证在线完整性检查、泄漏回收与位图修复。
 pub(crate) fn verify_maintenance(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
@@ -248,7 +249,7 @@ pub(crate) fn verify_maintenance(endpoint: u64) -> bool {
 
 /// 验证封存、裁剪、GC 与显式销毁。
 pub(crate) fn verify_retention(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         return false;
     };
@@ -285,7 +286,7 @@ pub(crate) fn verify_retention(endpoint: u64) -> bool {
 
 /// 验证配额查询与设置。
 pub(crate) fn verify_quota(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
@@ -308,7 +309,7 @@ pub(crate) fn verify_quota(endpoint: u64) -> bool {
 
 /// 验证 staging 流式写、提交与清理。
 pub(crate) fn verify_streaming(endpoint: u64) -> bool {
-    let mut client = Box::new(HolyClient::new(endpoint));
+    let mut client = HolyClient::new(endpoint);
     let Ok(root) = client.root() else {
         return false;
     };

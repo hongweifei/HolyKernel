@@ -484,6 +484,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-proto-client"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+]
+
+[[package]]
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
@@ -547,6 +555,7 @@ name = "hk-server-checkpoint"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -608,6 +617,7 @@ dependencies = [
  "hk-async",
  "hk-coroutine",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
  "hk-sync",
@@ -686,6 +696,7 @@ dependencies = [
  "hk-canvas",
  "hk-font",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
  "hk-worker",
@@ -778,6 +789,7 @@ version = "0.1.0"
 dependencies = [
  "hk-fs",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
@@ -798,6 +810,7 @@ version = "0.1.0"
 dependencies = [
  "hk-debug",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
  "hk-shell",
@@ -841,6 +854,7 @@ dependencies = [
  "hk-fs-ext4",
  "hk-holy-proto",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
@@ -878,6 +892,7 @@ dependencies = [
  "hk-debug",
  "hk-font",
  "hk-proto",
+ "hk-proto-client",
  "hk-server-api",
  "hk-server-build",
 ]

@@ -17,6 +17,7 @@ hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
 hk-fs-ext4 = { version = "0.1.0", path = "../../crates/user/hk-fs-ext4" }
 hk-holy-proto = { version = "0.1.0", path = "../../crates/user/hk-holy-proto" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 hk-vfs = { version = "0.1.0", path = "../../crates/user/hk-vfs" }
 

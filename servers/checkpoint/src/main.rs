@@ -18,7 +18,9 @@ use hk_proto::checkpoint::{
     CHECKPOINT_LIST, CHECKPOINT_RESTORE, CHECKPOINT_RESULT, CHECKPOINT_SAVE,
 };
 #[cfg(target_os = "none")]
-use hk_proto::holy::{DocId, DocumentKind, HolyClient, decode_entries};
+use hk_proto::holy::{DocId, DocumentKind, decode_entries};
+#[cfg(target_os = "none")]
+use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]

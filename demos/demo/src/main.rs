@@ -31,7 +31,9 @@ use hk_proto::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
 use hk_proto::echo::{ENDPOINT_ECHO, WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
 #[cfg(target_os = "none")]
-use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE, VfsClient};
+use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE};
+#[cfg(target_os = "none")]
+use hk_proto_client::VfsClient;
 #[cfg(target_os = "none")]
 use hk_sync::{Condvar, Mutex, RwLock};
 

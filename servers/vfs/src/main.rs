@@ -23,11 +23,12 @@ use hk_fs::{Backend, DocSessions};
 use hk_fs_ext4::{Ext4Backend, WallClock};
 #[cfg(target_os = "none")]
 use hk_proto::holy::{
-    DocId as WireDocId, HOLY_REQUEST, HOLY_RESPONSE, HolyClient, VolumeView, decode_drives,
-    decode_request,
+    DocId as WireDocId, HOLY_REQUEST, HOLY_RESPONSE, VolumeView, decode_drives, decode_request,
 };
 #[cfg(target_os = "none")]
 use hk_proto::vfs::encode_response;
+#[cfg(target_os = "none")]
+use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
@@ -159,7 +160,7 @@ fn discover(endpoint: u64) -> Vec<u8> {
             let _ = yield_now();
             continue;
         }
-        let mut probe = Box::new(HolyClient::new_with_service(endpoint, "hk-server-holyfs"));
+        let mut probe = HolyClient::new_with_service(endpoint, "hk-server-holyfs");
         if let Ok(bytes) = probe.drives() {
             return decode_drives(bytes).map(|drive| drive.letter).collect();
         }

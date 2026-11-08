@@ -1,6 +1,5 @@
 //! 通过 IPC 访问独立 HolyFS 服务的 VFS 后端。
 
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -10,25 +9,27 @@ use hk_fs::{
     RevisionInfo,
 };
 use hk_proto::holy::{
-    DocId as WireDocId, DocumentKind as WireKind, HolyClient, KIND_COLLECTION,
-    RevisionId as WireRevisionId, VolumeView, decode_entries, decode_revisions,
+    DocId as WireDocId, DocumentKind as WireKind, KIND_COLLECTION, RevisionId as WireRevisionId,
+    VolumeView, decode_entries, decode_revisions,
 };
 use hk_proto::vfs::{
     STATUS_DAMAGED, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
     STATUS_READ_ONLY, STATUS_STALE,
 };
+#[cfg(any(target_os = "none", test))]
+use hk_proto_client::HolyClient;
 
 /// 独立 HolyFS 服务的远程后端。
 pub(crate) struct RemoteHolyFs {
     root: DocId,
     volume: VolumeView,
-    client: RefCell<Box<HolyClient>>,
+    client: RefCell<HolyClient>,
 }
 
 impl RemoteHolyFs {
     /// 连接独立服务并读取指定盘符的根文档。
     pub(crate) fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
-        let mut client = Box::new(HolyClient::new_with_service(own_endpoint, service));
+        let mut client = HolyClient::new_with_service(own_endpoint, service);
         client.set_drive(drive);
         let root = client.root().map_err(map_status)?;
         let volume = client.volume().map_err(map_status)?;

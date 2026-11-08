@@ -1,35 +1,33 @@
-//! 固定缓冲 Holy 文档客户端。
+//! Holy 文档客户端：收发缓冲按需分配。
 
-use crate::status::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
+use alloc::vec::Vec;
+
+use hk_proto::holy::{
+    DOC_LEN, DRIVE_SERVICE, DocId, DocumentKind, DocumentView, HOLY_REQUEST, HOLY_RESPONSE,
+    MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK,
+    OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID,
+    OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
+    OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION,
+    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
+    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA,
+    OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
+    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID,
+    OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, REQUEST_BUFFER, REQUEST_HEADER, RESPONSE_BUFFER,
+    RevisionId, VolumeView, decode_doc_id, decode_document, decode_maintenance, decode_quota,
+    decode_revision_id, decode_token, decode_u32, decode_u64, decode_volume, encode_quota,
+    encode_request, kind_code,
+};
+use hk_proto::status::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
 use hk_server_api::{recv_data_from, send_data, service_endpoint};
 
-use super::codec::{
-    DocumentView, MaintenanceView, QuotaView, VolumeView, decode_doc_id, decode_document,
-    decode_maintenance, decode_quota, decode_revision_id, decode_token, decode_u32, decode_u64,
-    decode_volume, encode_quota, kind_code,
-};
-use super::ids::{DocId, DocumentKind, RevisionId};
-use super::wire::encode_request;
-use super::wire::{
-    DOC_LEN, DRIVE_SERVICE, HOLY_REQUEST, HOLY_RESPONSE, OP_ABORT_STAGING, OP_ACQUIRE,
-    OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG,
-    OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
-    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
-    OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
-    OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
-    OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG,
-    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, REQUEST, RESPONSE,
-};
-
-/// 固定缓冲 Holy 文档客户端。
+/// Holy 文档客户端；缓冲在首次请求时分配。
 pub struct HolyClient {
     own_endpoint: u64,
     service: &'static str,
     endpoint: u64,
     drive: u8,
-    request: [u8; REQUEST],
-    response: [u8; RESPONSE],
+    request: Vec<u8>,
+    response: Vec<u8>,
 }
 
 impl HolyClient {
@@ -45,8 +43,17 @@ impl HolyClient {
             service,
             endpoint: 0,
             drive: b'H',
-            request: [0; REQUEST],
-            response: [0; RESPONSE],
+            request: Vec::new(),
+            response: Vec::new(),
+        }
+    }
+
+    fn ensure_buffers(&mut self) {
+        if self.request.len() < REQUEST_BUFFER {
+            self.request.resize(REQUEST_BUFFER, 0);
+        }
+        if self.response.len() < RESPONSE_BUFFER {
+            self.response.resize(RESPONSE_BUFFER, 0);
         }
     }
 
@@ -488,6 +495,7 @@ impl HolyClient {
         arg1: u64,
         data: &[u8],
     ) -> Result<usize, u8> {
+        self.ensure_buffers();
         let Some(length) =
             encode_request(&mut self.request, op, self.drive, path, arg0, arg1, data)
         else {
@@ -504,7 +512,8 @@ impl HolyClient {
         document: DocId,
         payload: &[u8],
     ) -> Result<usize, u8> {
-        let header = 1 + 1 + 2 + 8 + 8;
+        self.ensure_buffers();
+        let header = REQUEST_HEADER;
         let end = header + DOC_LEN + payload.len();
         if end > self.request.len() {
             return Err(STATUS_INVALID);
@@ -514,8 +523,9 @@ impl HolyClient {
         self.request[2..4].copy_from_slice(&0_u16.to_le_bytes());
         self.request[4..12].copy_from_slice(&arg0.to_le_bytes());
         self.request[12..20].copy_from_slice(&arg1.to_le_bytes());
-        self.request[20..20 + DOC_LEN].copy_from_slice(&document.to_le_bytes());
-        self.request[20 + DOC_LEN..end].copy_from_slice(payload);
+        self.request[REQUEST_HEADER..REQUEST_HEADER + DOC_LEN]
+            .copy_from_slice(&document.to_le_bytes());
+        self.request[REQUEST_HEADER + DOC_LEN..end].copy_from_slice(payload);
         self.submit(end)
     }
 
@@ -541,5 +551,20 @@ impl HolyClient {
             return Err(response.status);
         }
         Ok(response.data.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_stays_small_and_allocates_lazily() {
+        let mut client = HolyClient::new(1);
+        assert!(core::mem::size_of::<HolyClient>() < 256);
+        assert!(client.request.is_empty() && client.response.is_empty());
+        client.ensure_buffers();
+        assert_eq!(client.request.len(), REQUEST_BUFFER);
+        assert_eq!(client.response.len(), RESPONSE_BUFFER);
     }
 }
