@@ -125,6 +125,8 @@ Arena 是任务内存的根对象。
 - 每个 Task 有一个 Arena；Arena 绑定该任务的地址空间。
 - Arena 保存 Region 表、用户栈、堆与工作区；栈与堆都是 Arena 内的 Region。
 - Arena 从 Capacity 取得 Frame；Arena 自身计入任务 Ledger。
+- Arena 由一个覆盖固定 VA 窗口的惰性匿名 Region 承载；装载期不预映射，首次访问按页从任务 Capacity 装入零页。
+- `SYS_ALLOC` 只推进按页对齐的线性分配并计入任务 Ledger；栈仍在装载期映射。
 - Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。

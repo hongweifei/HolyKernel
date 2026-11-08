@@ -199,11 +199,11 @@ sequenceDiagram
 - **Task**：调度主体，持有 Cadence 与 Meter；同一 Task 的 TCB 共享契约与计量。
 - **TCB**：执行单元；寄存器上下文、所属 Task、状态；绑定 Arena，并引用 Task 的 HandleTable。
 - **调度**：Holy Cadence Model（Task 级 Cadence 契约 + TCB 级轮转、每 CPU Beat、SMP、Tickless、Lending）；见 [Holy Cadence Model](scheduling.md)。
-- **Arena**：每任务内存根；持有地址空间、页表、Region 表、栈与堆。
+- **Arena**：每任务内存根；持有地址空间、页表、Region 表、栈与堆。堆与工作区由惰性匿名 Region 承载，按页缺页装入。
 - **HMP**：Capacity 管物理容量，Frame 管物理页；Revision/Surface/TaskImage/DeviceAllocation/Anonymous 以类型化能力暴露，Mappable 是统一能力接口，Region 是唯一映射；Provider 按类型提供契约，Ledger 记账。内核与用户态服务使用同一对象图、Rights 与错误面。
 - **铸造链**：Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights。
 - **COW**：`fork` 复制 Region 表并标 `RegionFlags::COW`；未绑定 Provider 的 Anonymous 走内核快速路径，绑定 Provider 的能力由 Provider 处理。
-- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；`SYS_ALLOC` 对应 Arena 内 Region 的增长/提交。
+- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；`SYS_ALLOC` 在惰性 Arena Region 内按页推进分配并计入任务 Ledger，首次访问才装入零页。
 - **DMA**：用户态驱动获得 Frame、DeviceAllocation 与 DeviceGrant；IOMMU 可选。
 
 详见 [HMP 内存模型](hmp.md)、[执行模型](execution.md)。

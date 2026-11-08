@@ -45,7 +45,7 @@ HolyKernel/
 规则：
 
 - 内核 crate 使用 `no_std`；服务器 crate 可以使用 `std`（Hosted）。
-- 内核与服务堆使用可回收分配器（`linked_list_allocator`）；服务堆按需从 Arena 初始化，内核堆由 FrameBank 连续帧供给，启动早期使用 bootstrap 小堆。
+- 内核与服务堆使用可回收分配器（`linked_list_allocator`）；服务堆按需从 Arena 初始化，内核堆由 FrameBank 连续帧供给，启动早期使用 bootstrap 小堆。Arena 装载期不预映射：运行时建立惰性匿名 Region，每任务只预占栈与镜像页。
 - FrameBank 的每次分配生成 HMP `Ledger` 记账，并按 KernelHeap、PageTable、Cow、Restore、Image、Dma、Other 分类；输出 total/used/peak 与分类用量，启动日志打印 System Capacity 快照。
 - 大块协议缓冲放在堆上，服务栈只保留小对象；IPC 单消息上限 64 KiB。
 - 每个 crate 属于一个侧别：共享契约、内核侧或用户态，分别放在 `crates/shared`、`crates/kernel`、`crates/user`。内核侧只依赖内核侧与共享契约，用户态只依赖用户态与共享契约，共享契约只依赖更底层的共享契约；规则由 `cargo xtask deps` 强制。

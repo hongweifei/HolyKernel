@@ -221,7 +221,8 @@ impl Notification {
 - 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把 Frame 映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
 - Frame 的最后一个句柄释放时归还所属 Capacity；任务退出关闭句柄、客户端 detach 后回收。类型化能力与 Provider 页遵循同一套 Frame 归属。
 - x86_64 平台启动时先预留 64 MiB 连续 DMA 窗口，再从其余可用内存建立 System Capacity；DeviceGrant 的 DMA 缓冲与驱动共享映射来自 DMA 窗口，显示表面、背缓冲与匿名页从 System Capacity 分配。窗口放大时新旧表面会短暂并存，System 配额需要覆盖这一峰值。
-- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
+- `SYS_ALLOC(size, align)` 在任务 Arena 内推进按页对齐的线性分配并计入任务 Ledger；返回的区间首次访问才按页装入零页，装载期不再预映射 Arena。
+- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定（Arena 只固定 VA 窗口，物理页按需装入）；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
 
 ---
 
