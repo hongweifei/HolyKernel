@@ -17,13 +17,28 @@ use hk_server_api::{
     send_handle, service_endpoint,
 };
 
-use crate::adapter::client_mapping_at;
 use crate::status::from_status;
 
 /// 直通帧（调用方已注册的帧）使用的槽位。
 const DIRECT_SLOT: usize = 0;
 /// 客户端自己管理的帧槽位起点。
 const OWN_SLOT_START: usize = 1;
+
+/// 直写缓冲区登记错误。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MappingError {
+    /// 地址或长度为 0。
+    Invalid,
+    /// 客户端登记容量已满。
+    Full,
+}
+
+/// 客户端已映射的缓冲区；命中时直接借用，不再复制。
+struct Mapping {
+    virt: u64,
+    handle: u64,
+    len: usize,
+}
 
 /// 一个客户端帧槽位。
 struct Slot {
@@ -44,6 +59,9 @@ pub struct BlockClient {
     endpoint: u64,
     /// 已完成但尚未被对应请求取走的标签。
     deferred: Vec<(u32, u8, usize)>,
+    /// 直写缓冲区随客户端生命周期存在，不跨客户端共享。
+    mappings: Vec<Mapping>,
+    mapping_capacity: usize,
 }
 
 impl Drop for BlockClient {
@@ -61,8 +79,17 @@ impl Drop for BlockClient {
 }
 
 impl BlockClient {
-    /// 构造客户端。
+    /// 构造客户端，直写缓冲区容量与共享帧槽位一致。
     pub fn new(service: &str, own_endpoint: u64) -> Self {
+        Self::with_mapping_capacity(service, own_endpoint, BUFFER_SLOTS as usize)
+    }
+
+    /// 构造客户端并指定直写缓冲区容量；容量为 0 时关闭直写路径。
+    pub fn with_mapping_capacity(
+        service: &str,
+        own_endpoint: u64,
+        mapping_capacity: usize,
+    ) -> Self {
         let slots = (0..BUFFER_SLOTS as usize)
             .map(|_| Slot {
                 virt: 0,
@@ -80,7 +107,42 @@ impl BlockClient {
             response: vec![0_u8; 64 * 1024],
             endpoint: 0,
             deferred: Vec::new(),
+            mappings: Vec::new(),
+            mapping_capacity,
         }
+    }
+
+    /// 登记一个已映射缓冲区；容量满时返回错误，不静默丢弃。
+    pub fn register_mapping(
+        &mut self,
+        virt: u64,
+        handle: u64,
+        len: usize,
+    ) -> Result<(), MappingError> {
+        if virt == 0 || len == 0 {
+            return Err(MappingError::Invalid);
+        }
+        if let Some(entry) = self.mappings.iter_mut().find(|entry| entry.virt == virt) {
+            *entry = Mapping { virt, handle, len };
+            return Ok(());
+        }
+        if self.mappings.len() >= self.mapping_capacity {
+            return Err(MappingError::Full);
+        }
+        self.mappings.push(Mapping { virt, handle, len });
+        Ok(())
+    }
+
+    /// 注销一个已映射缓冲区。
+    pub fn unregister_mapping(&mut self, virt: u64) {
+        self.mappings.retain(|entry| entry.virt != virt);
+    }
+
+    fn mapping_at(&self, address: u64, len: usize) -> Option<(u64, u64, usize)> {
+        self.mappings
+            .iter()
+            .find(|entry| entry.virt == address && len <= entry.len)
+            .map(|entry| (entry.handle, entry.virt, entry.len))
     }
 
     fn buffer(&mut self, slot: usize) -> &mut [u8] {
@@ -262,7 +324,7 @@ impl BlockClient {
         if buffer.len() > BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
-        if let Some(frame) = client_mapping_at(buffer.as_ptr() as u64, buffer.len()) {
+        if let Some(frame) = self.mapping_at(buffer.as_ptr() as u64, buffer.len()) {
             if self.ensure_external(DIRECT_SLOT, frame).is_ok()
                 && let Ok(tag) = self.submit_raw(DIRECT_SLOT, OP_READ, block, buffer.len())
             {
@@ -298,7 +360,7 @@ impl BlockClient {
         if data.len() > BUFFER_LEN {
             return Err(STATUS_INVALID);
         }
-        if let Some(frame) = client_mapping_at(data.as_ptr() as u64, data.len()) {
+        if let Some(frame) = self.mapping_at(data.as_ptr() as u64, data.len()) {
             if self.ensure_external(DIRECT_SLOT, frame).is_ok()
                 && let Ok(tag) = self.submit_raw(DIRECT_SLOT, OP_WRITE, block, data.len())
             {
@@ -511,12 +573,32 @@ pub struct ClientDisk {
 impl ClientDisk {
     /// 连接块设备服务；连接失败时返回协议状态码。
     pub fn open(service: &str, own_endpoint: u64) -> Result<Self, u8> {
-        let mut client = BlockClient::new(service, own_endpoint);
+        Self::open_with_mapping_capacity(service, own_endpoint, BUFFER_SLOTS as usize)
+    }
+
+    /// 连接块设备服务，并指定直写缓冲区容量。
+    pub fn open_with_mapping_capacity(
+        service: &str,
+        own_endpoint: u64,
+        mapping_capacity: usize,
+    ) -> Result<Self, u8> {
+        let mut client =
+            BlockClient::with_mapping_capacity(service, own_endpoint, mapping_capacity);
         let capacity = client.capacity()?;
         Ok(Self {
             client: RefCell::new(client),
             capacity,
         })
+    }
+
+    /// 登记一个已映射缓冲区；容量满时返回错误。
+    pub fn register_mapping(&self, virt: u64, handle: u64, len: usize) -> Result<(), MappingError> {
+        self.client.borrow_mut().register_mapping(virt, handle, len)
+    }
+
+    /// 注销一个已映射缓冲区。
+    pub fn unregister_mapping(&self, virt: u64) {
+        self.client.borrow_mut().unregister_mapping(virt);
     }
 
     /// 返回设备容量，单位为字节。
@@ -798,5 +880,32 @@ mod tests {
         let mut buffer = vec![0_u8; BUFFER_LEN + 1];
         assert_eq!(client.read(0, &mut buffer), Err(STATUS_INVALID));
         assert_eq!(client.write(0, &buffer), Err(STATUS_INVALID));
+    }
+
+    #[test]
+    fn mappings_are_per_client_and_capacity_is_enforced() {
+        let mut first = BlockClient::with_mapping_capacity("hk-server-virtio", 1, 2);
+        assert_eq!(first.register_mapping(0x1000, 7, 512), Ok(()));
+        assert_eq!(first.register_mapping(0x2000, 8, 512), Ok(()));
+        assert_eq!(
+            first.register_mapping(0x3000, 9, 512),
+            Err(MappingError::Full)
+        );
+        assert_eq!(first.mapping_at(0x1000, 512), Some((7, 0x1000, 512)));
+
+        let second = BlockClient::with_mapping_capacity("hk-server-virtio", 1, 2);
+        assert_eq!(second.mapping_at(0x1000, 512), None);
+
+        assert_eq!(first.register_mapping(0x1000, 7, 1024), Ok(()));
+        assert_eq!(first.mapping_at(0x1000, 1024), Some((7, 0x1000, 1024)));
+        first.unregister_mapping(0x1000);
+        assert_eq!(first.mapping_at(0x1000, 1024), None);
+        assert_eq!(first.register_mapping(0x3000, 9, 512), Ok(()));
+
+        assert_eq!(first.register_mapping(0, 1, 1), Err(MappingError::Invalid));
+        assert_eq!(
+            first.register_mapping(0x4000, 1, 0),
+            Err(MappingError::Invalid)
+        );
     }
 }

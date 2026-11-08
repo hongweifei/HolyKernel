@@ -12,11 +12,9 @@
 
 extern crate alloc;
 
-pub mod adapter;
 pub mod client;
 pub mod server;
 mod status;
 
-pub use adapter::{register_client_mapping, unregister_client_mapping};
-pub use client::{BlockClient, ClientDisk};
+pub use client::{BlockClient, ClientDisk, MappingError};
 pub use server::{serve, serve_with_hook, serve_with_wait, serve_with_wait_and};
