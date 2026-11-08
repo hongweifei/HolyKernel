@@ -148,6 +148,9 @@ pub enum SmokeMode {
     /// Checkpoint Server 服务与客户端
     #[value(name = "checkpointsrv")]
     CheckpointServer,
+    /// HMP 内存对象面 conformance
+    #[value(name = "memory")]
+    Memory,
 }
 
 impl SmokeMode {
@@ -196,6 +199,7 @@ impl SmokeMode {
                 "checkpoint-test shell-test help;checkpoint hk-server-memory;restore-checkpoint hk-server-memory;tasks",
             ),
             Self::CheckpointServer => Some("checkpoint-srv-test"),
+            Self::Memory => Some("memory-test"),
         }
     }
 
@@ -530,6 +534,7 @@ impl SmokeMode {
                 "hk-server-checkpoint-test: listed ",
                 "hk-server-checkpoint-test: done",
             ],
+            Self::Memory => &["hk-server-memory-test: ok"],
         }
     }
 
@@ -568,6 +573,7 @@ impl SmokeMode {
             | Self::CheckpointServer
             | Self::DisplayRestart => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
+            Self::Memory => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
         }
     }
@@ -609,6 +615,7 @@ impl SmokeMode {
             Self::Hotswap => "build/serial-hotswap.log",
             Self::Checkpoint => "build/serial-checkpoint.log",
             Self::CheckpointServer => "build/serial-checkpointsrv.log",
+            Self::Memory => "build/serial-memory.log",
         }
     }
 

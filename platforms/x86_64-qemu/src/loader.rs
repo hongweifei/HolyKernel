@@ -42,6 +42,15 @@ pub fn run(
     {
         modules.push(module);
     }
+    let memory_test = hk_boot::cmdline().is_some_and(|line| line.contains("memory-test"));
+    if memory_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-memory-test")
+    {
+        modules.push(module);
+    }
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
@@ -165,6 +174,10 @@ pub fn run(
         if checkpoint_test {
             // 检查点自检需要一个阻塞、无线程且不持有设备或共享能力的任务。
             return name == "hk-server-memory";
+        }
+        if memory_test {
+            // 内存对象面 conformance 只需要被测服务本身。
+            return name == "hk-server-memory-test";
         }
         if checkpoint_srv_test {
             // Checkpoint Server 自检：服务、目标任务、客户端与 HolyFS 落盘链路。

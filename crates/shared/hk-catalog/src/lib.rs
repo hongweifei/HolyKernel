@@ -68,6 +68,7 @@ services![
     ("hk-server-display-restart-test", true, 9),
     ("hk-server-checkpoint", true, 9),
     ("hk-server-checkpoint-test", true, 9),
+    ("hk-server-memory-test", false, 9),
 ];
 
 /// 按名称查找服务。
