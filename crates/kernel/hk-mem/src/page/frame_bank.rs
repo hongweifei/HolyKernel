@@ -122,8 +122,9 @@ impl Inner {
 
     /// 在指定容量登记的窗口内寻找一段足够长的空闲区间。
     ///
-    /// 空闲条目可能与相邻容量合并成大块，因此不能要求条目起点落在窗口内；
-    /// 这里按窗口边界裁剪候选，只在窗口内的子区间里找。
+    /// 空闲条目可能与相邻容量合并成大块，也可能被窗口边界切成多段，因此不能
+    /// 只看单个条目：这里把落在窗口内的空闲段收集起来、按起点排序并合并相邻
+    /// 段，再找足够长的连续区间。
     fn find_free_in_owned(&self, owner: CapacityId, length: u64) -> Option<u64> {
         let windows: Vec<(u64, u64)> = self
             .owned
@@ -132,50 +133,112 @@ impl Inner {
             .map(|window| (window.range.start().get(), window.range.end().get()))
             .collect();
         for (ws, we) in windows {
-            for range in self.free_by_start.values() {
-                let start = range.start().get().max(ws);
-                let end = range.end().get().min(we);
-                if end >= start && end - start >= length {
-                    return Some(start);
+            let mut pieces: Vec<(u64, u64)> = self
+                .free_by_start
+                .values()
+                .filter_map(|range| {
+                    let start = range.start().get().max(ws);
+                    let end = range.end().get().min(we);
+                    (end > start).then_some((start, end))
+                })
+                .collect();
+            pieces.sort_unstable();
+            let mut cursor = None;
+            for (start, end) in pieces {
+                let run_start = match cursor {
+                    Some((run_start, run_end)) if run_end == start => run_start,
+                    Some(_) => {
+                        cursor = Some((start, end));
+                        continue;
+                    }
+                    None => start,
+                };
+                if end - run_start >= length {
+                    return Some(run_start);
                 }
+                cursor = Some((run_start, end));
             }
         }
         None
     }
 
     /// 从空闲表中切出 `[start, start+len)`，必要时拆分条目。
+    ///
+    /// 区间可能横跨多个相邻空闲条目；先把这些条目整体取出，再按前后残段
+    /// 分别插回。
     fn carve_free(&mut self, start: u64, len: u64) -> Option<PhysRange> {
-        let (free_start, free_range) = self
+        let end = start.checked_add(len)?;
+        // 收集所有与区间相交的空闲条目。
+        let covered: Vec<(u64, PhysRange)> = self
             .free_by_start
             .iter()
+            .filter(|(_, range)| range.start().get() < end && start < range.end().get())
             .map(|(key, range)| (*key, *range))
-            .find(|(_, range)| range.start().get() <= start && start + len <= range.end().get())?;
-        self.take_free(free_start)?;
-        if start > free_start {
+            .collect();
+        let (first_start, first_end) = {
+            let mut begin = u64::MAX;
+            let mut finish = 0;
+            for (_, range) in &covered {
+                begin = begin.min(range.start().get());
+                finish = finish.max(range.end().get());
+            }
+            (begin, finish)
+        };
+        if first_start > start || first_end < end {
+            return None;
+        }
+        // 覆盖范围必须连续无洞，否则切出的区间里混着别人的页。
+        let mut sorted: Vec<(u64, u64)> = covered
+            .iter()
+            .map(|(_, range)| (range.start().get(), range.end().get()))
+            .collect();
+        sorted.sort_unstable();
+        let mut reach = first_start;
+        for (piece_start, piece_end) in &sorted {
+            if *piece_start > reach {
+                return None;
+            }
+            reach = reach.max(*piece_end);
+        }
+        if reach < end {
+            return None;
+        }
+        for (key, _) in &covered {
+            self.take_free(*key)?;
+        }
+        if start > first_start {
             self.insert_free(PhysRange::new(
-                PhysAddr::new(free_start),
-                start - free_start,
+                PhysAddr::new(first_start),
+                start - first_start,
             ));
         }
-        let tail = free_range.end().get().saturating_sub(start + len);
+        let tail = first_end.saturating_sub(end);
         if tail > 0 {
-            self.insert_free(PhysRange::new(PhysAddr::new(start + len), tail));
+            self.insert_free(PhysRange::new(PhysAddr::new(end), tail));
         }
         Some(PhysRange::new(PhysAddr::new(start), len))
     }
 
     /// 在未登记给任何容量的空闲区间内寻找一段足够长的区间。
     ///
-    /// 候选空闲区间可能跨过已登记窗口；这里把窗口从候选中排除，只在剩余
-    /// 子区间里找，避免整块大区间因含有一小段归属区而被整体弃用。
+    /// 先把相邻空闲段合并成连续运行段，再跳过与已登记窗口相交的部分，避免
+    /// 整块大区间因含有一小段归属区而被整体弃用。
     fn find_free_unowned(&self, length: u64) -> Option<u64> {
-        let mut spans: Vec<(u64, u64)> = Vec::new();
-        for range in self.free_by_start.values() {
-            spans.push((range.start().get(), range.end().get()));
-        }
+        let mut spans: Vec<(u64, u64)> = self
+            .free_by_start
+            .values()
+            .map(|range| (range.start().get(), range.end().get()))
+            .collect();
+        spans.sort_unstable();
+        let mut runs: Vec<(u64, u64)> = Vec::new();
         for (start, end) in spans {
+            match runs.last_mut() {
+                Some(last) if last.1 == start => last.1 = end,
+                _ => runs.push((start, end)),
+            }
+        }
+        for (start, end) in runs {
             let mut cursor = start;
-            // 逐个跳过与 owned 窗口相交的部分。
             while cursor + length <= end {
                 let blocked = self
                     .owned
@@ -415,12 +478,18 @@ impl FrameBank {
     ///
     /// 预留会从空闲表中切出该区间，再把它记为容量归属；区间内仍按页空闲，
     /// 但只有该容量能分配。启动期为 DMA 池预留连续区域时使用。
+    ///
+    /// 每个容量只允许预留一次；重复预留会返回 `None`，避免同一 owner 名下
+    /// 出现多个窗口导致归因歧义。
     pub fn reserve_for(&self, owner: CapacityId, len: usize) -> Option<PhysRange> {
         let length = (len as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
         if length == 0 {
             return None;
         }
         let mut inner = self.inner.lock();
+        if inner.owned.values().any(|window| window.capacity == owner) {
+            return None;
+        }
         let start = inner.find_free_unowned(length)?;
         let range = inner.take_free(start)?;
         let start = range.start();
@@ -468,37 +537,6 @@ impl FrameBank {
 }
 
 impl PhysicalBackend for FrameBank {
-    fn assign(&self, owner: CapacityId, range: PhysRange) -> bool {
-        if range.is_empty() {
-            return false;
-        }
-        let mut inner = self.inner.lock();
-        let start = range.start().get();
-        let end = range.end().get();
-        // 窗口必须完整落在当前空闲区间内，且不与已登记窗口重叠。
-        let Some(free) = inner.free_by_start.get(&start).copied() else {
-            return false;
-        };
-        if free.len() < range.len() {
-            return false;
-        }
-        let overlaps = inner
-            .owned
-            .values()
-            .any(|window| window.range.start().get() < end && start < window.range.end().get());
-        if overlaps {
-            return false;
-        }
-        inner.owned.insert(
-            start,
-            OwnedWindow {
-                capacity: owner,
-                range,
-            },
-        );
-        true
-    }
-
     fn split_owned(&self, parent: CapacityId, child: CapacityId, len: u64) -> Option<PhysRange> {
         let mut inner = self.inner.lock();
         let (parent_start, parent_end) = {
@@ -542,17 +580,38 @@ impl PhysicalBackend for FrameBank {
             inner.owned.insert(start, window);
             return;
         }
-        // 把区间并回父容量窗口；不连续时扩展为多个窗口。
-        if let Some(parent_start) = inner
+        // 只在与父窗口相邻时并回，绝不把中间的其它区间吞进父窗口。
+        let adjacent = inner
             .owned
             .iter()
             .find(|(_, window)| window.capacity == parent)
-            .map(|(start, _)| *start)
-            && let Some(parent_window) = inner.owned.get_mut(&parent_start)
-        {
-            let begin = parent_window.range.start().get().min(start);
-            let end = parent_window.range.end().get().max(range.end().get());
-            parent_window.range = PhysRange::new(PhysAddr::new(begin), end - begin);
+            .map(|(&parent_start, window)| (parent_start, window.range));
+        let Some((parent_start, parent_range)) = adjacent else {
+            // 没有父窗口可并：区间保留在父容量名下。
+            inner.owned.insert(
+                start,
+                OwnedWindow {
+                    capacity: parent,
+                    range,
+                },
+            );
+            return;
+        };
+        if parent_range.end().get() == start || range.end().get() == parent_range.start().get() {
+            let begin = parent_range.start().get().min(start);
+            let end = parent_range.end().get().max(range.end().get());
+            if let Some(parent_window) = inner.owned.get_mut(&parent_start) {
+                parent_window.range = PhysRange::new(PhysAddr::new(begin), end - begin);
+            }
+        } else {
+            // 不相邻：作为父容量的另一个窗口保留，不扩张已有窗口。
+            inner.owned.insert(
+                start,
+                OwnedWindow {
+                    capacity: parent,
+                    range,
+                },
+            );
         }
     }
 
@@ -703,5 +762,66 @@ mod tests {
             .allocate_owned(parent, CapacityKind::User, PAGE_SIZE as u64)
             .expect("父分配");
         assert_eq!(parent_page.start(), PhysAddr::new(0x10_0000));
+    }
+
+    #[test]
+    fn reserve_rejects_second_window_for_same_owner() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let owner = CapacityId::next();
+        bank.reserve_for(owner, 0x2000).expect("首次预留");
+        assert!(
+            bank.reserve_for(owner, 0x2000).is_none(),
+            "同一容量不允许预留第二个窗口"
+        );
+        // 另一个容量仍可预留。
+        let other = CapacityId::next();
+        assert!(bank.reserve_for(other, 0x2000).is_some());
+    }
+
+    #[test]
+    fn merge_rejoins_adjacent_child_window() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let parent = CapacityId::next();
+        let child = CapacityId::next();
+        bank.reserve_for(parent, 0x4000).expect("预留父窗口");
+        let child_range = bank.split_owned(parent, child, 0x2000).expect("切出子窗口");
+
+        bank.merge_owned(parent, child, child_range);
+        // 子窗口并回父窗口后，父容量可以分配整段 0x4000。
+        let whole = bank
+            .allocate_owned(parent, CapacityKind::User, 0x4000)
+            .expect("父容量应能取回整段");
+        assert_eq!(whole.start(), PhysAddr::new(0x10_0000));
+        assert_eq!(whole.len(), 0x4000);
+    }
+
+    #[test]
+    fn merge_keeps_non_adjacent_window_separate() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_8000);
+        let parent = CapacityId::next();
+        let first = CapacityId::next();
+        let second = CapacityId::next();
+        bank.reserve_for(parent, 0x8000).expect("预留父窗口");
+
+        // 先切出后段给 second，再切出中段给 first，使它们不相邻。
+        let second_range = bank.split_owned(parent, second, 0x2000).expect("切后段");
+        let first_range = bank.split_owned(parent, first, 0x2000).expect("切中段");
+        assert_eq!(second_range.start(), PhysAddr::new(0x10_6000));
+        assert_eq!(first_range.start(), PhysAddr::new(0x10_4000));
+
+        // 父窗口是 0x10_0000..0x10_4000，first 紧邻其后 → 相邻合并。
+        bank.merge_owned(parent, first, first_range);
+        let page = bank
+            .allocate_owned(parent, CapacityKind::User, 0x4000)
+            .expect("相邻合并后父容量可取 0x4000");
+        assert_eq!(page.start(), PhysAddr::new(0x10_0000));
+
+        // second 与父窗口不相邻（中间隔着已分配的段），应保持独立窗口。
+        bank.merge_owned(parent, second, second_range);
+        assert!(
+            bank.allocate_owned(second, CapacityKind::User, PAGE_SIZE as u64)
+                .is_none(),
+            "并回后不再归 second 所有"
+        );
     }
 }

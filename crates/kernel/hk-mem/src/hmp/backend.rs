@@ -11,17 +11,14 @@ use hk_hal::PhysRange;
 use super::{CapacityId, CapacityKind};
 
 /// 物理页分配后端。
+///
+/// 窗口归属只由 `reserve_for` / `split_owned` / `merge_owned` 建立；分配与
+/// 归还都必须在已归属的窗口内发生。
 pub trait PhysicalBackend: Send + Sync {
-    /// 把一段尚未归属的物理区间登记给指定容量。
-    ///
-    /// 区间必须完整落在后端的空闲空间内且不与其它容量重叠。登记只改变归属，
-    /// 不改变空闲状态。
-    fn assign(&self, owner: CapacityId, range: PhysRange) -> bool;
-
     /// 从父容量的归属区间中切出一段给子容量；返回切出的区间。
     fn split_owned(&self, parent: CapacityId, child: CapacityId, len: u64) -> Option<PhysRange>;
 
-    /// 把子容量的归属区间并回父容量。
+    /// 把子容量已清空的归属区间并回父容量。
     fn merge_owned(&self, parent: CapacityId, child: CapacityId, range: PhysRange);
 
     /// 从指定容量的归属区间中分配连续物理页。

@@ -126,7 +126,7 @@ impl Capacity {
         }
 
         if let Some(backend) = super::backend::physical_backend() {
-            if backend.used_owned(self.id).saturating_add(length) > self.limit {
+            if self.used().saturating_add(length) > self.limit {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
@@ -250,7 +250,6 @@ impl Capacity {
             if !backend.release_owned(self.id, PhysRange::new(phys, length)) {
                 return Err(HmpError::NotMapped);
             }
-            self.used = self.used.saturating_sub(length);
             return Ok(());
         }
 
@@ -262,9 +261,8 @@ impl Capacity {
 
     /// 把一个已清空的子 Capacity 并回本容量。
     ///
-    /// 子 Capacity 的 Frame 必须全部归还（`used` 为零），否则拒绝。区间紧贴
-    /// 当前未分配尾部时直接回退 `next`；否则并入空闲列表并合并，两种路径都
-    /// 不会重复计数。子 Capacity 本身保持不变，调用方负责丢弃句柄。
+    /// 子 Capacity 的 Frame 必须全部归还（权威用量为零），否则拒绝。只有
+    /// 确认已清空才通知后端归还窗口，保证子容量名下的分配不会丢失归属。
     pub fn merge(&mut self, child: &Capacity) -> Result<(), HmpError> {
         if child.id == self.id {
             return Err(HmpError::WrongCapability);
@@ -277,13 +275,12 @@ impl Capacity {
         if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
             return Err(HmpError::OutOfRange);
         }
-        if child.used != 0 {
+        if child.used() != 0 {
             return Err(HmpError::PermissionDenied);
         }
 
         if let Some(backend) = super::backend::physical_backend() {
             backend.merge_owned(self.id, child.id, range);
-            self.used = self.used.saturating_sub(range.len());
             return Ok(());
         }
 
