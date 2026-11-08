@@ -7,9 +7,9 @@ use hk_proto::display::{
 };
 use hk_server_api::{close_handle, format::Line, region_unmap, send};
 
+use crate::compositor::set_scanout;
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};
 use crate::pointer::Cursor;
-use crate::set_scanout;
 use crate::window::{MAX_WINDOWS, Screen, Window, raise, taskbar_height, title_height};
 
 /// 最小化窗口并把焦点交给剩余最上层窗口。
