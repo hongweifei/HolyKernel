@@ -117,6 +117,9 @@ impl MockPlatform {
 /// 测试平台的每任务内存配额。
 const MEMORY_LIMIT: u64 = 1 << 20;
 
+/// 每个进程由内核持有的 Arena 容量与 Region 句柄数。
+const ARENA_HANDLES: usize = 2;
+
 impl UserPlatform for MockPlatform {
     fn timer_ticks(&self) -> u64 {
         7
@@ -283,11 +286,14 @@ fn memory_service_receives_shared_system_capacity() {
 
 #[test]
 fn arena_aligns_and_exhausts() {
-    let mut arena = Arena::new(0x1000, 4096);
+    let mut arena = Arena::new(0x1000, 0x3000);
     assert_eq!(arena.allocate(16, 8), Some(0x1000));
-    assert_eq!(arena.allocate(8, 64), Some(0x1040));
-    assert_eq!(arena.used(), 0x48);
-    assert_eq!(arena.allocate(4096, 8), None);
+    assert_eq!(arena.used(), 0x1000);
+    assert_eq!(arena.allocate(8, 64), Some(0x2000));
+    assert_eq!(arena.used(), 0x2000);
+    assert_eq!(arena.allocate(4096, 8), Some(0x3000));
+    assert_eq!(arena.used(), 0x3000);
+    assert_eq!(arena.allocate(1, 8), None);
     assert_eq!(arena.allocate(0, 8), None);
     assert_eq!(arena.allocate(8, 3), None);
 }
@@ -455,7 +461,39 @@ fn transfers_handle_over_ipc() {
     assert_eq!(context.rdx, 5);
     assert_eq!(context.rcx, 1);
     assert_eq!(context.r8, (EXTRA_HANDLE_BASE + 1) as u64);
-    assert_eq!(runtime.tasks()[receiver].handles, 5);
+    assert_eq!(runtime.tasks()[receiver].handles, 5 + ARENA_HANDLES);
+}
+
+#[test]
+fn arena_alloc_is_lazy_and_charged() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    assert!(
+        runtime.process(index).arena_region.is_some(),
+        "运行时应建立覆盖 Arena 的惰性 Region"
+    );
+    let before = runtime.process(index).ledger.charged();
+
+    context.rax = SYS_ALLOC;
+    context.rdi = 64;
+    context.rsi = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let start = context.rax;
+    assert_eq!(start, 0x10_0000);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64,
+        "Arena 分配按页计入进程 Ledger"
+    );
+    // 首次访问才装入零页；分配本身不建立页表映射。
+    assert!(runtime.anonymous_fault(0, start));
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64
+    );
+    let _ = runtime.finish(0, index);
 }
 
 #[test]
@@ -669,7 +707,7 @@ fn exit_releases_peer_endpoint_handles() {
     };
     let other = 1 - index;
     let before = runtime.tasks()[other].handles;
-    assert_eq!(before, 4);
+    assert_eq!(before, 4 + ARENA_HANDLES);
 
     context.rax = SYS_EXIT;
     context.rdi = 0;
@@ -689,7 +727,7 @@ fn exit_releases_peer_endpoint_handles() {
     assert_eq!(tasks[index].handles, 0);
     assert_eq!(tasks[other].handles, before);
     // 退出的端点与通知对象已释放，不再授予新任务。
-    assert_eq!(tasks[2].handles, 4);
+    assert_eq!(tasks[2].handles, 4 + ARENA_HANDLES);
 }
 
 #[test]
@@ -1028,7 +1066,7 @@ fn rejects_device_grant_without_authority() {
     context.rsi = hk_device::DEVICE_GRANT_BYTES as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
-    assert_eq!(runtime.tasks()[index].handles, 4);
+    assert_eq!(runtime.tasks()[index].handles, 4 + ARENA_HANDLES);
 }
 
 #[test]

@@ -20,6 +20,19 @@ struct FaultRegion {
     flags: RegionFlags,
 }
 
+/// 判断地址是否落在 Region 内，命中时返回解析缺页所需的快照。
+fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
+    let end = region.virt.checked_add(region.len as u64)?;
+    (address >= region.virt && address < end).then_some(FaultRegion {
+        tcb: region.owner,
+        capability: region.capability,
+        virt: region.virt,
+        offset: region.offset,
+        rights: region.rights,
+        flags: region.flags,
+    })
+}
+
 impl FaultRegion {
     /// 返回地址在能力内的页偏移。
     fn capability_offset(self, address: u64, page: u64) -> u64 {
@@ -263,18 +276,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     fn find_fault_region(&self, index: usize, address: u64) -> Option<FaultRegion> {
         let owner = self.leader_of(index);
-        self.process(owner).regions.iter().find_map(|region| {
-            let region = region.as_ref()?;
-            let end = region.virt.checked_add(region.len as u64)?;
-            (address >= region.virt && address < end).then_some(FaultRegion {
-                tcb: region.owner,
-                capability: region.capability,
-                virt: region.virt,
-                offset: region.offset,
-                rights: region.rights,
-                flags: region.flags,
+        let process = self.process(owner);
+        process
+            .regions
+            .iter()
+            .flatten()
+            .find_map(|region| fault_region(region, address))
+            .or_else(|| {
+                process
+                    .arena_region
+                    .as_ref()
+                    .and_then(|region| fault_region(region, address))
             })
-        })
     }
 
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。

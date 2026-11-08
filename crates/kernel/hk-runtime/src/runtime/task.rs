@@ -38,6 +38,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
         let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(index));
+        process.map_arena(&self.kernel, tcb)?;
         process.device_factory = device_factory;
         let mut task = UserTask::new(TaskInit {
             tcb,
@@ -313,6 +314,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let (arena_base, arena_size) = self.platform.arena_layout(slot);
         let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(slot));
         process.arena.set_used(arena_used);
+        process
+            .ledger
+            .charge(arena_used)
+            .map_err(|error| format!("{error}"))?;
+        process
+            .map_arena(&self.kernel, tcb)
+            .map_err(|error| format!("{error}"))?;
         let mut task = UserTask::new(TaskInit {
             tcb,
             process: slot,
@@ -407,6 +415,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let ledger_limit = self.process(index).ledger.limit();
         let mut process = Process::new(0, 0, ledger_limit);
         process.arena = arena;
+        if process.ledger.charge(arena.used()).is_err()
+            || process.map_arena(&self.kernel, child).is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,

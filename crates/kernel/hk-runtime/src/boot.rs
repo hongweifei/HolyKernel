@@ -81,6 +81,7 @@ where
         };
         let mut process = Process::new(arena_base, arena_size, platform.memory_limit(index));
         process.device_factory = factory;
+        process.map_arena(&kernel, service.tcb)?;
         let mut task = UserTask::new(TaskInit {
             tcb: service.tcb,
             process: index,

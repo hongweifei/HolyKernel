@@ -19,14 +19,19 @@ impl Arena {
     }
 
     /// 分配一段对齐区间，返回用户虚拟地址。
+    ///
+    /// 区间按页对齐并按整页推进：Arena 由惰性匿名 Region 覆盖，按页划分后
+    /// 每次分配都能独立缺页装入，不会与相邻分配共享同一页。
     pub fn allocate(&mut self, size: usize, align: usize) -> Option<u64> {
         if size == 0 || !align.is_power_of_two() {
             return None;
         }
 
-        let align = align.max(8) as u64;
+        let page = hk_hal::PAGE_SIZE as u64;
+        let align = (align.max(8) as u64).max(page);
+        let size = (size as u64).div_ceil(page) * page;
         let start = (self.next + align - 1) & !(align - 1);
-        let end = start.checked_add(size as u64)?;
+        let end = start.checked_add(size)?;
         if end > self.end {
             return None;
         }

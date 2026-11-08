@@ -4,8 +4,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn allocate(&mut self, index: usize, size: usize, align: usize) -> Option<u64> {
         // 线程共享进程 Arena，避免每个线程各自占用一段未映射的地址空间。
         let slot = self.leader_of(index);
-        let start = self.process_mut(slot).arena.allocate(size, align)?;
-        self.platform.zero(start, size);
+        let process = self.process_mut(slot);
+        let before = process.arena.used();
+        let start = process.arena.allocate(size, align)?;
+        let delta = process.arena.used() - before;
+        // Arena 由惰性匿名 Region 覆盖，首次访问才装入物理页；这里按分配量
+        // 计入进程 Ledger，超过配额则回退 bump 指针。
+        if process.ledger.charge(delta).is_err() {
+            process.arena.set_used(before);
+            return None;
+        }
         Some(start)
     }
 

@@ -15,7 +15,10 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Arena as HmpArena, Capacity, Charge, Ledger, RegionFlags};
+use hk_mem::hmp::{
+    Arena as HmpArena, Capability, CapabilityKind, Capacity, Charge, HmpError, Ledger, Region,
+    RegionFlags,
+};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
@@ -93,6 +96,8 @@ pub(crate) struct Process {
     pub regions: Vec<Option<RegionMap>>,
     pub region_free: Vec<usize>,
     pub arena: Arena,
+    /// 覆盖整个 Arena 的惰性匿名 Region；不对外暴露句柄。
+    pub arena_region: Option<RegionMap>,
     pub device_factory: Option<Handle>,
 }
 
@@ -106,8 +111,66 @@ impl Process {
             regions: Vec::new(),
             region_free: Vec::new(),
             arena: Arena::new(arena_base, arena_size),
+            arena_region: None,
             device_factory: None,
         }
+    }
+
+    /// 为任务 Arena 建立惰性匿名 Region。
+    ///
+    /// 装载期不再预映射 Arena：Region 覆盖固定的 VA 窗口，首次访问按页从任务
+    /// 容量装入零页；`SYS_ALLOC` 只推进线性分配并计入 Ledger。句柄只在内核侧
+    /// 持有，不暴露给用户态。
+    pub(crate) fn map_arena(&mut self, kernel: &Kernel, tcb: TcbId) -> Result<(), KernelError> {
+        if self.arena_region.is_some() {
+            return Ok(());
+        }
+        let base = self.arena.base();
+        let size = self.arena.size();
+        let len = usize::try_from(size).map_err(|_| KernelError::Hmp(HmpError::InvalidSize))?;
+        let rights = Rights::READ | Rights::WRITE;
+        let capability = Capability::new(CapabilityKind::Anonymous, size, hk_hal::PAGE_SIZE, None)
+            .map_err(KernelError::Hmp)?;
+        let capability_handle = kernel.create_capability(
+            tcb,
+            capability.clone(),
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )?;
+        let region = match Region::new(&capability, 0, len, rights, RegionFlags::empty()) {
+            Ok(region) => region,
+            Err(error) => {
+                let _ = kernel.close_handle(tcb, capability_handle);
+                return Err(KernelError::Hmp(error));
+            }
+        };
+        let mut region = region;
+        if let Err(error) = region.map(VirtAddr::new(base)) {
+            let _ = kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(error));
+        }
+        let region_id = region.id();
+        let region_handle =
+            match kernel.create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN) {
+                Ok(handle) => handle,
+                Err(error) => {
+                    let _ = kernel.close_handle(tcb, capability_handle);
+                    return Err(error);
+                }
+            };
+        self.arena_region = Some(RegionMap {
+            handle: region_handle,
+            capability: capability_handle,
+            owner: tcb,
+            region: region_id,
+            frame: None,
+            virt: base,
+            len,
+            offset: 0,
+            rights,
+            flags: RegionFlags::empty(),
+        });
+        Ok(())
     }
 }
 
