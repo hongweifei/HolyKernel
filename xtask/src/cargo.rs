@@ -13,6 +13,13 @@ pub fn command() -> Command {
     command
 }
 
+/// 构造带 `--locked` 的 cargo 命令；用于构建、测试与文档。
+pub fn locked() -> Command {
+    let mut command = command();
+    command.arg("--locked");
+    command
+}
+
 /// 运行命令；失败时把命令行附在错误里。
 pub fn run(mut command: Command) -> Result<()> {
     let description = format!("{command:?}");

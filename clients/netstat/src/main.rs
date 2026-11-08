@@ -15,9 +15,6 @@ use hk_proto::net::{
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_from, send, write, write_u64};
 
-/// 等待 Network Server 出现的重试次数。
-#[cfg(target_os = "none")]
-
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
