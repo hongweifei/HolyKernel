@@ -268,3 +268,165 @@ pub fn handle(
         _ => (STATUS_INVALID, 0),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    use hk_fs::{
+        Backend, Caps, DocId, DocumentInfo, DocumentKind, EntryInfo, Error, RevisionId,
+        RevisionInfo,
+    };
+    use hk_proto::holy::{OP_DOCUMENT_ID, OP_DRIVES, OP_ROOT, decode_drives};
+    use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK};
+
+    struct Fake {
+        root: DocId,
+    }
+
+    impl Backend for Fake {
+        fn root(&self) -> DocId {
+            self.root
+        }
+
+        fn caps(&self) -> Caps {
+            Caps::NATIVE
+        }
+
+        fn document(&self, document: DocId) -> Result<DocumentInfo, Error> {
+            Ok(DocumentInfo {
+                id: document,
+                kind: DocumentKind::Collection,
+                head: RevisionId::ROOT,
+                parent: None,
+                size: 0,
+                moment: 0,
+            })
+        }
+
+        fn resolve(&self, _collection: DocId, _name: &str) -> Result<DocId, Error> {
+            Err(Error::NotFound)
+        }
+
+        fn enumerate(&self, _collection: DocId) -> Result<Vec<EntryInfo>, Error> {
+            Ok(Vec::new())
+        }
+
+        fn create(
+            &mut self,
+            _collection: DocId,
+            _name: &str,
+            _kind: DocumentKind,
+        ) -> Result<DocId, Error> {
+            Err(Error::ReadOnly)
+        }
+
+        fn unbind(&mut self, _collection: DocId, _name: &str) -> Result<DocId, Error> {
+            Err(Error::ReadOnly)
+        }
+
+        fn read(
+            &self,
+            _document: DocId,
+            _revision: Option<RevisionId>,
+            _offset: u64,
+            _buffer: &mut [u8],
+        ) -> Result<usize, Error> {
+            Ok(0)
+        }
+
+        fn write(&mut self, _document: DocId, _offset: u64, _data: &[u8]) -> Result<usize, Error> {
+            Err(Error::ReadOnly)
+        }
+
+        fn truncate(&mut self, _document: DocId, _size: u64) -> Result<(), Error> {
+            Err(Error::ReadOnly)
+        }
+
+        fn revisions(&self, _document: DocId) -> Result<Vec<RevisionInfo>, Error> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn request<'a>(op: u8, drive: u8, data: &'a [u8]) -> Request<'a> {
+        Request {
+            op,
+            drive,
+            path: "",
+            arg0: 0,
+            arg1: 0,
+            data,
+        }
+    }
+
+    #[test]
+    fn dispatches_drives_roots_and_missing_drives() {
+        let mut drives = Drives::new();
+        assert!(drives.insert_local(
+            b'H',
+            Fake {
+                root: DocId::new(7)
+            }
+        ));
+        let mut sessions = DocSessions::new();
+        let mut body = [0_u8; 64];
+
+        let (status, written) = handle(
+            &mut drives,
+            &mut sessions,
+            1,
+            &request(OP_DRIVES, 0, &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        let listed: Vec<_> = decode_drives(&body[..written]).collect();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].letter, b'H');
+        assert_eq!(listed[0].volume.root.get(), 7);
+
+        let (status, written) = handle(
+            &mut drives,
+            &mut sessions,
+            1,
+            &request(OP_ROOT, b'H', &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(&body[..written], &7_u128.to_le_bytes());
+
+        let (status, _) = handle(
+            &mut drives,
+            &mut sessions,
+            1,
+            &request(OP_ROOT, b'Z', &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_NOT_FOUND);
+    }
+
+    #[test]
+    fn rejects_malformed_document_payloads() {
+        let mut drives = Drives::new();
+        assert!(drives.insert_local(
+            b'H',
+            Fake {
+                root: DocId::new(7)
+            }
+        ));
+        let mut sessions = DocSessions::new();
+        let mut body = [0_u8; 64];
+
+        for length in 0..16 {
+            let data = [0xFF_u8; 16];
+            let (status, _) = handle(
+                &mut drives,
+                &mut sessions,
+                1,
+                &request(OP_DOCUMENT_ID, b'H', &data[..length]),
+                &mut body,
+            );
+            assert_eq!(status, STATUS_INVALID);
+        }
+    }
+}

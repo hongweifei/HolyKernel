@@ -159,4 +159,15 @@ mod tests {
         assert_eq!(response.status, STATUS_OK);
         assert_eq!(response.data, b"ok");
     }
+
+    #[test]
+    fn rejects_truncated_and_invalid_utf8_requests() {
+        for length in 0..32 {
+            assert!(decode_request(&[0xFF_u8; 32][..length]).is_none());
+        }
+        let mut frame = [0_u8; 21];
+        frame[2] = 1;
+        frame[20] = 0xFF;
+        assert!(decode_request(&frame).is_none());
+    }
 }

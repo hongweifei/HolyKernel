@@ -128,10 +128,7 @@ pub fn decode_maintenance(bytes: &[u8]) -> Option<MaintenanceView> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MaintenanceView, QuotaView, decode_maintenance, decode_quota, encode_maintenance,
-        encode_quota,
-    };
+    use super::*;
 
     #[test]
     fn round_trips_maintenance_report() {
@@ -163,6 +160,72 @@ mod tests {
         let mut bytes = [0_u8; 40];
         assert_eq!(encode_quota(&mut bytes, quota), Some(40));
         assert_eq!(decode_quota(&bytes), Some(quota));
+    }
+    #[test]
+    fn truncated_sequences_stop_without_panicking() {
+        let mut bytes = [0_u8; 256];
+        let mut end = encode_drive(
+            &mut bytes,
+            0,
+            DriveView {
+                letter: b'H',
+                volume: VolumeView {
+                    volume: 1,
+                    generation: 2,
+                    epoch: 3,
+                    root: DocId::new(4),
+                },
+            },
+        )
+        .expect("盘符");
+        end = encode_entry(&mut bytes, end, 1, 5, "name").expect("集合项");
+        end = encode_revision(
+            &mut bytes,
+            end,
+            RevisionView {
+                id: 1,
+                parent: 0,
+                size: 2,
+                moment: 3,
+                flags: 0,
+            },
+        )
+        .expect("修订");
+        end = encode_tag(&mut bytes, end, 1, "tag").expect("标签");
+        end = encode_snapshot(&mut bytes, end, 1, 2, 3, 4, "snap").expect("快照");
+        bytes[end..end + DOC_LEN].copy_from_slice(&DocId::new(9).to_le_bytes());
+        end += DOC_LEN;
+
+        for length in 0..=end {
+            let _ = decode_drives(&bytes[..length]).count();
+            let _ = decode_entries(&bytes[..length]).count();
+            let _ = decode_revisions(&bytes[..length]).count();
+            let _ = decode_tags(&bytes[..length]).count();
+            let _ = decode_snapshots(&bytes[..length]).count();
+            let _ = decode_doc_ids(&bytes[..length]).count();
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_names_and_lengths() {
+        let mut entry = [0_u8; 19];
+        entry[17] = 1;
+        entry[18] = 0xFF;
+        assert_eq!(decode_entries(&entry).count(), 0);
+
+        let mut tag = [0_u8; 6];
+        tag[4] = 1;
+        tag[5] = 0xFF;
+        assert_eq!(decode_tags(&tag).count(), 0);
+
+        let mut snapshot = [0_u8; 30];
+        snapshot[28] = 1;
+        snapshot[29] = 0xFF;
+        assert_eq!(decode_snapshots(&snapshot).count(), 0);
+
+        let mut entry = [0_u8; 19];
+        entry[17] = 255;
+        assert_eq!(decode_entries(&entry).count(), 0);
     }
 }
 

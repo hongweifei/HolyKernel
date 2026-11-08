@@ -3,7 +3,7 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 extern crate alloc;
 
 #[cfg(target_os = "none")]
@@ -28,6 +28,8 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
 
+#[cfg(any(target_os = "none", test))]
+mod commit;
 #[cfg(target_os = "none")]
 mod holy;
 #[cfg(target_os = "none")]
@@ -184,20 +186,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             reply(sender, status, &body[..written], &mut response);
         }
 
-        let mut committed: Vec<(u8, u8)> = Vec::new();
-        for (letter, _) in &pending {
-            if committed.iter().any(|(done, _)| done == letter) {
-                continue;
-            }
-            committed.push((*letter, holy::sync(&mut volumes, *letter)));
-        }
-        for (letter, sender) in pending.drain(..) {
-            let status = committed
-                .iter()
-                .find(|(done, _)| *done == letter)
-                .map_or(1, |(_, status)| *status);
+        for (sender, status) in commit::commit(&pending, |letter| holy::sync(&mut volumes, letter))
+        {
             reply(sender, status, &[], &mut response);
         }
+        pending.clear();
     }
 }
 

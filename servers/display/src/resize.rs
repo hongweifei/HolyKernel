@@ -68,6 +68,23 @@ pub(crate) fn resized(
     rect
 }
 
+/// 拖拽后的窗口原点：按指针偏移并夹取在桌面内。
+pub(crate) fn dragged(
+    pointer: (usize, usize),
+    offset: (usize, usize),
+    width: usize,
+    height: usize,
+    desktop: (usize, usize),
+    title_height: usize,
+) -> (usize, usize) {
+    let max_x = desktop.0.saturating_sub(width);
+    let max_y = desktop.1.saturating_sub(height + title_height);
+    (
+        pointer.0.saturating_sub(offset.0).min(max_x),
+        pointer.1.saturating_sub(offset.1).min(max_y),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +205,25 @@ mod tests {
             10_000,
         );
         assert_eq!(rect.height, DESKTOP_HEIGHT - base().y - TITLE_HEIGHT);
+    }
+
+    #[test]
+    fn drag_follows_pointer_with_offset() {
+        assert_eq!(
+            dragged((640, 400), (100, 30), 400, 300, (1280, 772), 24),
+            (540, 370)
+        );
+    }
+
+    #[test]
+    fn drag_clamps_to_desktop() {
+        assert_eq!(
+            dragged((5000, 5000), (0, 0), 400, 300, (1280, 772), 24),
+            (880, 448)
+        );
+        assert_eq!(
+            dragged((10, 10), (20, 20), 400, 300, (1280, 772), 24),
+            (0, 0)
+        );
     }
 }

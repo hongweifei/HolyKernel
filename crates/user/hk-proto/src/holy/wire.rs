@@ -218,3 +218,19 @@ pub(super) const DRIVE_LEN: usize = 1 + VOLUME_LEN;
 pub(super) const MAINTENANCE_LEN: usize = 9 * 8;
 /// 配额视图：5 个 u64 限制字段。
 pub(super) const QUOTA_LEN: usize = 5 * 8;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_truncated_and_invalid_utf8_requests() {
+        for length in 0..32 {
+            assert!(decode_request(&[0xFF_u8; 32][..length]).is_none());
+        }
+        let mut frame = [0_u8; 21];
+        frame[2] = 1;
+        frame[20] = 0xFF;
+        assert!(decode_request(&frame).is_none());
+    }
+}

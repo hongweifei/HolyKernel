@@ -164,11 +164,15 @@ impl Compositor {
                 .find(|window| window.id == state.id)
                 .copied()
         {
-            let max_x = self.screen.width.saturating_sub(window.width);
             let desktop_height = self.screen.height.saturating_sub(taskbar_height());
-            let max_y = desktop_height.saturating_sub(window.height + title_height());
-            let new_x = next.0.saturating_sub(state.offset_x).min(max_x);
-            let new_y = next.1.saturating_sub(state.offset_y).min(max_y);
+            let (new_x, new_y) = resize::dragged(
+                next,
+                (state.offset_x, state.offset_y),
+                window.width,
+                window.height,
+                (self.screen.width, desktop_height),
+                title_height(),
+            );
             if (new_x, new_y) != (window.x, window.y) {
                 move_window(
                     &self.screen,

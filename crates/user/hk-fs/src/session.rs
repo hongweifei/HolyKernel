@@ -255,6 +255,18 @@ mod tests {
     }
 
     #[test]
+    fn transfers_are_scoped_to_the_drive() {
+        let mut sessions = DocSessions::new();
+        let token = sessions.doc(1, b'H').acquire(
+            document(),
+            RevisionId::ROOT,
+            HandleRights::READ | HandleRights::TRANSFER,
+        );
+        assert_eq!(sessions.transfer(1, 2, token, b'I'), Err(Error::NotFound));
+        assert!(sessions.doc(1, b'H').get(token).is_ok());
+    }
+
+    #[test]
     fn transfers_reject_same_sender() {
         let mut sessions = DocSessions::new();
         let token =
