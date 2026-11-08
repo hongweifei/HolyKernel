@@ -46,6 +46,8 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 
 侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。`hk-shell`、`hk-syscall` 与 `hk-block` 另外要求零依赖；块服务的线协议运行时在 `hk-block-ipc` 的 `client`、`server` 与 `adapter` 模块，客户端与服务端可分别测试。
 
+协议标签统一按 `0x100` 分段：基址只在 `hk-proto/src/labels.rs` 登记，各协议常量由基址派生，`LABEL_GROUPS` 登记全部服务协议标签（virtio 标签由驱动 crate 按 `labels::VIRTIO` 派生并自检）并由测试检查分段与全局唯一；Memory Server 与 Provider 缺页协议分别占 `0x1100`、`0x1200` 段。句柄权利使用 `RIGHT_*`，Holy 文档/卷令牌权利使用 `TOKEN_RIGHT_*`，两套按域命名。
+
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-syscall-client` 只依赖 `hk-base` 与 `hk-syscall`，并发库（`hk-sync`、`hk-thread`、`hk-async`、`hk-worker`、`hk-debug`）只依赖它而不是完整 `hk-server-api`；`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；`hk-proto` 只依赖内核面与 ABI，不引入会要求全局分配器的 `hk-fs`（无堆服务同样链接 `hk-proto`），原生文档的共享响应层放在 `hk-holy-proto`。
 
 HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable / Handle / Rights`；页表、固件解析、引导与架构库位于包装 crate 内部。
@@ -70,7 +72,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | --- | --- |
 | 系统调用编号与跨边界 ABI 编码 | `crates/shared/hk-syscall/src/lib.rs` |
 | 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
-| 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用 |
+| 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用；文档/卷令牌权利在 `hk-proto::holy` 的 `TOKEN_RIGHT_*` |
 | HMP 对外词汇、Rights 与授予面 | [HMP 文档](hmp.md) 与 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 调度契约、Cadence/Meter 词汇与授予面 | [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md)；共享类型 `hk-cadence`（规划） |
 | 服务角色元数据与 `.hk_service` 段 | `crates/shared/hk-image/src/role.rs` |
@@ -89,7 +91,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 服务线协议、客户端与编解码 | `crates/user/hk-proto/src/*` |
 | Holy 文档响应构造与错误映射 | `crates/user/hk-holy-proto/src/response.rs` |
 | 服务响应框架与状态码 | `crates/user/hk-proto/src/status.rs` |
-| 协议标签区间 | `crates/user/hk-proto/src/labels.rs`（含 virtio 驱动服务的独占段） |
+| 协议标签基址与登记表 | `crates/user/hk-proto/src/labels.rs`（`LABEL_GROUPS` 含各服务、memory 与 provider 段；virtio 标签在驱动 crate 内派生并自检） |
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
 | 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |

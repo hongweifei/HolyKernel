@@ -7,7 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use hk_proto::holy::{
-    DocId, HolyClient, KIND_COLLECTION, RIGHT_READ, decode_doc_ids, decode_entries, decode_tags,
+    DocId, HolyClient, KIND_COLLECTION, TOKEN_RIGHT_READ, decode_doc_ids, decode_entries,
+    decode_tags,
 };
 use hk_server_api::{service_endpoint, write, write_u64};
 
@@ -125,7 +126,7 @@ fn load_collection(
             continue;
         }
         let mut buffer = vec![0_u8; DOC_MAX];
-        let result = match client.acquire(document, RIGHT_READ) {
+        let result = match client.acquire(document, TOKEN_RIGHT_READ) {
             Ok(token) => {
                 let result = client.read_token(token, 0, &mut buffer);
                 let _ = client.release(token);

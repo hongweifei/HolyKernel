@@ -7,7 +7,8 @@ use hk_proto::holy::{
     DriveView, OP_ACQUIRE, OP_CREATE, OP_DOCUMENT_ID, OP_DRIVES, OP_ENUMERATE_ID, OP_GRANT,
     OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS_ID,
     OP_REVOKE, OP_ROOT, OP_SYNC, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, RIGHT_READ, RIGHT_WRITE, Request, decode_u64,
+    OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, Request, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE,
+    decode_u64,
 };
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
@@ -207,7 +208,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_READ == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_READ == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             let Some(length) = decode_u64(request.data) else {
@@ -229,7 +230,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_WRITE == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match backend.write(token.document, request.arg1, request.data) {
@@ -250,7 +251,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_WRITE == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match backend.truncate(token.document, request.arg1) {

@@ -1,8 +1,7 @@
 //! HMP 类型化能力与 Region 映射的系统调用封装。
 
 use hk_syscall::{
-    CapabilityKind, REGION_FLAG_COW, REGION_FLAG_GUARD, REGION_FLAG_PINNED, REGION_FLAG_SEALED,
-    RIGHT_EXECUTE, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_INFO, SYS_CAPABILITY_BIND_PROVIDER,
+    CapabilityKind, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_INFO, SYS_CAPABILITY_BIND_PROVIDER,
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
@@ -13,29 +12,14 @@ use hk_syscall::{
 
 use crate::syscall_call;
 
-/// Memory Server 分配请求。
-pub const MEMORY_ALLOC: u64 = 0x4D45_4D41;
+/// Memory Server 分配请求；与 `hk-proto::labels::MEMORY` 区间一致。
+pub const MEMORY_ALLOC: u64 = 0x1100;
 /// Memory Server 分配成功回复。
-pub const MEMORY_ALLOCATED: u64 = 0x4D45_4D42;
+pub const MEMORY_ALLOCATED: u64 = 0x1101;
 /// Memory Server 分配 Frame 请求。
-pub const MEMORY_FRAME: u64 = 0x4D45_4D43;
+pub const MEMORY_FRAME: u64 = 0x1102;
 /// Memory Server 分配 Frame 成功回复。
-pub const MEMORY_FRAME_ALLOCATED: u64 = 0x4D45_4D44;
-
-/// Region 可读。
-pub const REGION_READ: u32 = RIGHT_READ;
-/// Region 可写。
-pub const REGION_WRITE: u32 = RIGHT_WRITE;
-/// Region 可执行。
-pub const REGION_EXECUTE: u32 = RIGHT_EXECUTE;
-/// Region 写时复制。
-pub const REGION_COW: u32 = REGION_FLAG_COW;
-/// Region guard。
-pub const REGION_GUARD: u32 = REGION_FLAG_GUARD;
-/// Region 固定驻留。
-pub const REGION_PINNED: u32 = REGION_FLAG_PINNED;
-/// Region 只读共享。
-pub const REGION_SEALED: u32 = REGION_FLAG_SEALED;
+pub const MEMORY_FRAME_ALLOCATED: u64 = 0x1103;
 
 /// 创建类型化能力，返回能力句柄。
 pub fn capability_create(kind: CapabilityKind, length: usize) -> Option<u64> {
@@ -118,7 +102,7 @@ pub fn capability_phys(capability: u64) -> Option<(u64, u64)> {
 
 /// 在不要求常驻物理页的情况下映射能力。
 pub fn map_lazy(capability: u64, length: usize) -> Option<(u64, u64)> {
-    let region = region_map(capability, 0, length, REGION_READ | REGION_WRITE, 0)?;
+    let region = region_map(capability, 0, length, RIGHT_READ | RIGHT_WRITE, 0)?;
     let (virt, _) = region_info(region)?;
     Some((region, virt))
 }
@@ -130,7 +114,7 @@ pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
         capability,
         0,
         usize::try_from(length).ok()?,
-        REGION_READ | REGION_WRITE,
+        RIGHT_READ | RIGHT_WRITE,
         0,
     )?;
     let (virt, _) = region_info(region)?;

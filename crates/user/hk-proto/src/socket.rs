@@ -6,23 +6,23 @@
 use hk_server_api::{recv_data_try, send_data, service_endpoint, ticks, yield_now};
 
 /// 打开 socket；载荷为 [`SocketKind`]。
-pub const SOCK_OPEN: u64 = 0x800;
+pub const SOCK_OPEN: u64 = crate::labels::SOCKET;
 /// TCP 连接；载荷为句柄 + IPv4 + 端口。
-pub const SOCK_CONNECT: u64 = 0x801;
+pub const SOCK_CONNECT: u64 = crate::labels::SOCKET + 1;
 /// TCP 发送；载荷为句柄 + 数据。
-pub const SOCK_SEND: u64 = 0x802;
+pub const SOCK_SEND: u64 = crate::labels::SOCKET + 2;
 /// TCP 接收；载荷为句柄 + 最大长度。
-pub const SOCK_RECV: u64 = 0x803;
+pub const SOCK_RECV: u64 = crate::labels::SOCKET + 3;
 /// 关闭 socket；载荷为句柄。
-pub const SOCK_CLOSE: u64 = 0x804;
+pub const SOCK_CLOSE: u64 = crate::labels::SOCKET + 4;
 /// UDP 发送；载荷为句柄 + IPv4 + 端口 + 数据。
-pub const SOCK_UDP_SEND: u64 = 0x805;
+pub const SOCK_UDP_SEND: u64 = crate::labels::SOCKET + 5;
 /// 解析名称；载荷为 UTF-8 名称。
-pub const SOCK_RESOLVE: u64 = 0x806;
+pub const SOCK_RESOLVE: u64 = crate::labels::SOCKET + 6;
 /// 统一响应标签；载荷首 8 字节为结果。
-pub const SOCK_RESPONSE: u64 = 0x807;
+pub const SOCK_RESPONSE: u64 = crate::labels::SOCKET + 7;
 /// UDP 接收；载荷为句柄 + 最大长度。
-pub const SOCK_UDP_RECV: u64 = 0x808;
+pub const SOCK_UDP_RECV: u64 = crate::labels::SOCKET + 8;
 
 /// TCP socket。
 pub const SOCK_KIND_TCP: u8 = 1;

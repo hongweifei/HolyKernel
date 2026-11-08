@@ -1,41 +1,41 @@
 //! 网络服务协议：驱动信息、帧收发与轮询标签。
 
 /// 查询接口信息。
-pub const NET_INFO_REQUEST: u64 = 0x700;
+pub const NET_INFO_REQUEST: u64 = crate::labels::NET;
 /// 接口信息响应。
-pub const NET_INFO_RESPONSE: u64 = 0x701;
+pub const NET_INFO_RESPONSE: u64 = crate::labels::NET + 1;
 /// 请求网络驱动退出。
-pub const NET_SHUTDOWN: u64 = 0x702;
+pub const NET_SHUTDOWN: u64 = crate::labels::NET + 2;
 /// 发送以太网帧。
-pub const NET_TX: u64 = 0x703;
+pub const NET_TX: u64 = crate::labels::NET + 3;
 /// 接收以太网帧。
-pub const NET_RX: u64 = 0x704;
+pub const NET_RX: u64 = crate::labels::NET + 4;
 /// 轮询接收队列。
-pub const NET_POLL: u64 = 0x705;
+pub const NET_POLL: u64 = crate::labels::NET + 5;
 /// 驱动完成一次轮询。
-pub const NET_POLL_DONE: u64 = 0x706;
+pub const NET_POLL_DONE: u64 = crate::labels::NET + 6;
 /// 查询接口、Socket 与收发统计。
-pub const NET_STATUS_REQUEST: u64 = 0x707;
+pub const NET_STATUS_REQUEST: u64 = crate::labels::NET + 7;
 /// 状态响应。
-pub const NET_STATUS_RESPONSE: u64 = 0x708;
+pub const NET_STATUS_RESPONSE: u64 = crate::labels::NET + 8;
 /// 查询 ARP 邻居表。
-pub const NET_ARP_REQUEST: u64 = 0x709;
+pub const NET_ARP_REQUEST: u64 = crate::labels::NET + 9;
 /// ARP 邻居表响应。
-pub const NET_ARP_RESPONSE: u64 = 0x70a;
+pub const NET_ARP_RESPONSE: u64 = crate::labels::NET + 10;
 /// 查询原生网络配置。
-pub const NET_CONFIG_REQUEST: u64 = 0x70b;
+pub const NET_CONFIG_REQUEST: u64 = crate::labels::NET + 11;
 /// 原生网络配置响应。
-pub const NET_CONFIG_RESPONSE: u64 = 0x70c;
+pub const NET_CONFIG_RESPONSE: u64 = crate::labels::NET + 12;
 /// 驱动向 Network Server 移交共享帧（`word` 打包角色与索引）。
-pub const NET_MAPPING_ATTACH: u64 = 0x70d;
+pub const NET_MAPPING_ATTACH: u64 = crate::labels::NET + 13;
 /// 驱动通知一帧接收数据已就绪（`word` 打包索引、偏移与长度）。
-pub const NET_RX_FRAME: u64 = 0x70e;
+pub const NET_RX_FRAME: u64 = crate::labels::NET + 14;
 /// Network Server 归还接收帧（`word` 为索引）。
-pub const NET_RX_REFILL: u64 = 0x70f;
+pub const NET_RX_REFILL: u64 = crate::labels::NET + 15;
 /// Network Server 提交发送帧（`word` 打包索引与长度）。
-pub const NET_TX_FRAME: u64 = 0x710;
+pub const NET_TX_FRAME: u64 = crate::labels::NET + 16;
 /// 驱动通知发送帧已完成（`word` 为索引）。
-pub const NET_TX_DONE: u64 = 0x711;
+pub const NET_TX_DONE: u64 = crate::labels::NET + 17;
 
 /// 共享帧角色：接收。
 pub const NET_MAPPING_ROLE_RX: u64 = 0;

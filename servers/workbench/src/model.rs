@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_proto::holy::{DocId, HolyClient, KIND_COLLECTION, RIGHT_ADMIN, decode_entries};
+use hk_proto::holy::{DocId, HolyClient, KIND_COLLECTION, TOKEN_RIGHT_ADMIN, decode_entries};
 use hk_server_api::{civil_time, kernel_stats, service_endpoint, ticks};
 
 /// 编辑器缓冲上限。
@@ -482,7 +482,7 @@ impl Model {
 
     /// 销毁临时文档。
     pub(crate) fn purge_document(&mut self, document: u128) -> Result<(), u8> {
-        let admin = self.client.acquire_volume(RIGHT_ADMIN)?;
+        let admin = self.client.acquire_volume(TOKEN_RIGHT_ADMIN)?;
         let result = self.client.purge(admin, DocId::new(document));
         let _ = self.client.release_volume(admin);
         result

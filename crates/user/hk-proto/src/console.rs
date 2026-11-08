@@ -12,21 +12,21 @@ use hk_server_api::{notify, recv_data_from, send, send_data};
 pub const CONSOLE_SERVICE: &str = "hk-server-console";
 
 /// 写文本（UTF-8）；载荷为文本。
-pub const CONSOLE_WRITE: u64 = 0x900;
+pub const CONSOLE_WRITE: u64 = crate::labels::CONSOLE;
 /// 请求读取一行。
-pub const CONSOLE_READ_REQUEST: u64 = 0x901;
+pub const CONSOLE_READ_REQUEST: u64 = crate::labels::CONSOLE + 1;
 /// 一行输入（不含换行）；载荷为文本。
-pub const CONSOLE_READ_LINE: u64 = 0x902;
+pub const CONSOLE_READ_LINE: u64 = crate::labels::CONSOLE + 2;
 /// 请求 Console 服务退出。
-pub const CONSOLE_SHUTDOWN: u64 = 0x903;
+pub const CONSOLE_SHUTDOWN: u64 = crate::labels::CONSOLE + 3;
 /// 图形终端完成一次提交（仅终端模式发送）。
-pub const CONSOLE_WRITE_ACK: u64 = 0x904;
+pub const CONSOLE_WRITE_ACK: u64 = crate::labels::CONSOLE + 4;
 /// 清空终端。
-pub const CONSOLE_CLEAR: u64 = 0x905;
+pub const CONSOLE_CLEAR: u64 = crate::labels::CONSOLE + 5;
 /// 客户端握手。
-pub const CONSOLE_PING: u64 = 0x906;
+pub const CONSOLE_PING: u64 = crate::labels::CONSOLE + 6;
 /// 终端已进入接收循环。
-pub const CONSOLE_PONG: u64 = 0x907;
+pub const CONSOLE_PONG: u64 = crate::labels::CONSOLE + 7;
 
 /// 控制台客户端。
 #[derive(Clone, Copy)]

@@ -1,9 +1,9 @@
 //! 线上请求标签、操作码、权利位与记录长度。
 
 /// 请求标签。
-pub const HOLY_REQUEST: u64 = 0xF00;
+pub const HOLY_REQUEST: u64 = crate::labels::HOLY;
 /// 响应标签。
-pub const HOLY_RESPONSE: u64 = 0xF01;
+pub const HOLY_RESPONSE: u64 = crate::labels::HOLY + 1;
 
 /// 按 DocPath 枚举集合。
 pub const OP_ENUMERATE: u8 = 1;
@@ -124,17 +124,17 @@ pub const KIND_CONTENT: u8 = 0;
 pub const KIND_COLLECTION: u8 = 1;
 
 /// 查询视图。
-pub const RIGHT_INSPECT: u32 = 1 << 0;
+pub const TOKEN_RIGHT_INSPECT: u32 = 1 << 0;
 /// 读取内容。
-pub const RIGHT_READ: u32 = 1 << 1;
+pub const TOKEN_RIGHT_READ: u32 = 1 << 1;
 /// 写入内容。
-pub const RIGHT_WRITE: u32 = 1 << 2;
+pub const TOKEN_RIGHT_WRITE: u32 = 1 << 2;
 /// 集合变更。
-pub const RIGHT_BIND: u32 = 1 << 3;
+pub const TOKEN_RIGHT_BIND: u32 = 1 << 3;
 /// 管理操作。
-pub const RIGHT_ADMIN: u32 = 1 << 4;
+pub const TOKEN_RIGHT_ADMIN: u32 = 1 << 4;
 /// 转移令牌。
-pub const RIGHT_TRANSFER: u32 = 1 << 5;
+pub const TOKEN_RIGHT_TRANSFER: u32 = 1 << 5;
 
 /// 当前承载卷的服务名。
 pub const DRIVE_SERVICE: &str = "hk-server-holyfs";

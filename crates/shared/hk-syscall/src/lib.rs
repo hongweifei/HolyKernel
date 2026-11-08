@@ -378,11 +378,11 @@ pub const DISPLAY_SERVICE: &str = "hk-server-display";
 /// 内核投递原始异常现场使用的消息标签。
 pub const FAULT_EVENT: u64 = 0xD00;
 
-/// 内核发给 Provider 的缺页请求标签。
-pub const PROVIDER_FAULT: u64 = 0x5052_4F56;
+/// 内核发给 Provider 的缺页请求标签；属于 `hk-proto::labels::PROVIDER` 段。
+pub const PROVIDER_FAULT: u64 = 0x1200;
 
 /// Provider 回复缺页请求的标签。
-pub const PROVIDER_PROVIDE: u64 = 0x5052_4F50;
+pub const PROVIDER_PROVIDE: u64 = 0x1201;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

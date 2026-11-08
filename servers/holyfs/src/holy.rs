@@ -13,9 +13,9 @@ use hk_proto::holy::{
     OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
     OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG,
     OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, RIGHT_ADMIN,
-    RIGHT_INSPECT, RIGHT_READ, RIGHT_WRITE, Request, VolumeView, decode_quota, decode_u64,
-    encode_maintenance, encode_quota,
+    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, Request,
+    TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_INSPECT, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, VolumeView,
+    decode_quota, decode_u64, encode_maintenance, encode_quota,
 };
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
@@ -74,7 +74,7 @@ pub(crate) fn handle(
             request.arg0,
             volume_id,
             epoch,
-            HandleRights::from_bits(RIGHT_ADMIN),
+            HandleRights::from_bits(TOKEN_RIGHT_ADMIN),
         ) {
             return (response::status(error), 0);
         }
@@ -145,7 +145,7 @@ pub(crate) fn handle(
             request.arg0,
             drive.volume_id(),
             drive.epoch(),
-            HandleRights::from_bits(RIGHT_ADMIN),
+            HandleRights::from_bits(TOKEN_RIGHT_ADMIN),
         ) {
             return (response::status(error), 0);
         }
@@ -174,7 +174,7 @@ pub(crate) fn handle(
         request.arg0,
         drive.volume_id(),
         drive.epoch(),
-        HandleRights::from_bits(RIGHT_ADMIN),
+        HandleRights::from_bits(TOKEN_RIGHT_ADMIN),
     ) {
         return (response::status(error), 0);
     }
@@ -401,7 +401,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_READ == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_READ == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             let Some(length) = decode_u64(request.data) else {
@@ -435,7 +435,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_WRITE == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.write_range(token.document, request.arg1, request.data) {
@@ -454,7 +454,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_WRITE == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_WRITE == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.truncate(token.document, request.arg1) {
@@ -473,7 +473,7 @@ pub(crate) fn handle(
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
             };
-            if token.rights.bits() & RIGHT_INSPECT == 0 {
+            if token.rights.bits() & TOKEN_RIGHT_INSPECT == 0 {
                 return (STATUS_PERMISSION, 0);
             }
             match drive.document_info(token.document) {

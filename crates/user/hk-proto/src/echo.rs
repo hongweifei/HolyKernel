@@ -7,14 +7,14 @@
 pub const ENDPOINT_ECHO: u64 = 2;
 
 /// 计算请求：`word` 为任务编号。
-pub const WORK_REQUEST: u64 = 0xE00;
+pub const WORK_REQUEST: u64 = crate::labels::ECHO;
 /// 计算回复：`word` 为结果。
-pub const WORK_RESPONSE: u64 = 0xE01;
+pub const WORK_RESPONSE: u64 = crate::labels::ECHO + 1;
 /// 并发统计请求。
-pub const WORK_STATS: u64 = 0xE02;
+pub const WORK_STATS: u64 = crate::labels::ECHO + 2;
 /// 并发统计回复：`word` 为观测到的最大同时运行任务数。
-pub const WORK_STATS_RESPONSE: u64 = 0xE03;
+pub const WORK_STATS_RESPONSE: u64 = crate::labels::ECHO + 3;
 /// 工作线程完成通知：`word` 为任务 id，由服务自己发给自己的端点。
-pub const WORK_DONE: u64 = 0xE04;
+pub const WORK_DONE: u64 = crate::labels::ECHO + 4;
 /// 每个计算任务的忙等轮数。
 pub const WORK_ROUNDS: u64 = 2_000_000;

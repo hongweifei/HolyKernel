@@ -5,8 +5,9 @@ use alloc::vec::Vec;
 
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
 use hk_proto::holy::{
-    DocumentKind, HolyClient, QuotaView, RIGHT_ADMIN, RIGHT_READ, RIGHT_WRITE, STATUS_NOT_FOUND,
-    STATUS_PERMISSION, STATUS_STALE, decode_doc_ids, decode_drives, decode_snapshots, decode_tags,
+    DocumentKind, HolyClient, QuotaView, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE,
+    TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_doc_ids, decode_drives,
+    decode_snapshots, decode_tags,
 };
 use hk_server_api::{exit, send, write, write_u64};
 
@@ -59,7 +60,7 @@ pub(crate) fn verify_drives(endpoint: u64) -> bool {
             .map(|length| (length, data))
             .unwrap_or((0, data))
     };
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let attached = client.attach_drive(admin, "J", "hk-server-block").is_ok();
@@ -107,13 +108,13 @@ pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
     if client.write_id(document, 0, b"before").is_err() {
         return false;
     }
-    let Ok(token) = client.acquire(document, RIGHT_READ) else {
+    let Ok(token) = client.acquire(document, TOKEN_RIGHT_READ) else {
         return false;
     };
     let Ok(volume) = client.volume() else {
         return false;
     };
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let Ok(snapshot) = client.snapshot(admin, "smoke") else {
@@ -135,7 +136,7 @@ pub(crate) fn verify_snapshot(endpoint: u64) -> bool {
     let stale = client.read_token(token, 0, &mut buffer) == Err(STATUS_STALE);
     let stale_volume = client.snapshots(admin) == Err(STATUS_STALE);
     let epoch_advanced = client.volume().is_ok_and(|view| view.epoch > volume.epoch);
-    let Ok(fresh) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(fresh) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let listed = client.snapshots(fresh).is_ok_and(|bytes| {
@@ -168,10 +169,10 @@ pub(crate) fn verify_tokens(endpoint: u64) -> bool {
     let Ok(document) = client.resolve(root, "Welcome") else {
         return false;
     };
-    let Ok(token) = client.acquire(document, RIGHT_READ) else {
+    let Ok(token) = client.acquire(document, TOKEN_RIGHT_READ) else {
         return false;
     };
-    let Ok(child) = client.grant(token, RIGHT_READ) else {
+    let Ok(child) = client.grant(token, TOKEN_RIGHT_READ) else {
         let _ = client.release(token);
         return false;
     };
@@ -181,7 +182,7 @@ pub(crate) fn verify_tokens(endpoint: u64) -> bool {
         return false;
     };
     let read_ok = buffer[..length].starts_with(b"@title");
-    let grant_rejected = client.grant(token, RIGHT_WRITE) == Err(STATUS_PERMISSION);
+    let grant_rejected = client.grant(token, TOKEN_RIGHT_WRITE) == Err(STATUS_PERMISSION);
     let revoked = client.revoke(child).is_ok();
     let read_rejected = client.read_token(child, 0, &mut buffer) == Err(STATUS_NOT_FOUND);
     let _ = client.release(token);
@@ -231,7 +232,7 @@ pub(crate) fn verify_tags(endpoint: u64, docs: &mut DocSet) -> bool {
 /// 验证在线完整性检查、泄漏回收与位图修复。
 pub(crate) fn verify_maintenance(endpoint: u64) -> bool {
     let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let check = client.check(admin);
@@ -262,7 +263,7 @@ pub(crate) fn verify_retention(endpoint: u64) -> bool {
     {
         return false;
     }
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let sealed = client.seal(admin, first).is_ok();
@@ -285,7 +286,7 @@ pub(crate) fn verify_retention(endpoint: u64) -> bool {
 /// 验证配额查询与设置。
 pub(crate) fn verify_quota(endpoint: u64) -> bool {
     let mut client = Box::new(HolyClient::new(endpoint));
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let Ok(original) = client.quota(admin) else {
@@ -323,7 +324,7 @@ pub(crate) fn verify_streaming(endpoint: u64) -> bool {
     let content = client
         .read_id(document, 0, &mut buffer)
         .is_ok_and(|length| &buffer[..length] == b"stream");
-    let Ok(admin) = client.acquire_volume(RIGHT_ADMIN) else {
+    let Ok(admin) = client.acquire_volume(TOKEN_RIGHT_ADMIN) else {
         return false;
     };
     let purged = client.purge(admin, document).is_ok();

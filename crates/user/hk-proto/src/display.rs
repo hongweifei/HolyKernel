@@ -170,58 +170,58 @@ impl Window {
 }
 
 /// 请求显示服务退出（用于自检收尾）。
-pub const DISPLAY_SHUTDOWN: u64 = 0xA04;
+pub const DISPLAY_SHUTDOWN: u64 = crate::labels::DISPLAY + 0x04;
 /// 键盘事件；`word` 为打包的窗口编号与字节，发给焦点窗口的客户端。
-pub const DISPLAY_KEY: u64 = 0xA05;
+pub const DISPLAY_KEY: u64 = crate::labels::DISPLAY + 0x05;
 /// 设置窗口标题；载荷为 8 字节窗口编号 + UTF-8 标题。
-pub const DISPLAY_SET_TITLE: u64 = 0xA06;
+pub const DISPLAY_SET_TITLE: u64 = crate::labels::DISPLAY + 0x06;
 /// 窗口被鼠标点击；`word` 为窗口编号。
-pub const DISPLAY_CLICK: u64 = 0xA07;
+pub const DISPLAY_CLICK: u64 = crate::labels::DISPLAY + 0x07;
 /// 窗口被关闭；`word` 为窗口编号。
-pub const DISPLAY_CLOSE: u64 = 0xA08;
+pub const DISPLAY_CLOSE: u64 = crate::labels::DISPLAY + 0x08;
 /// 窗口正文点击位置；`word` 打包窗口编号与窗口内坐标。
-pub const DISPLAY_CLICK_AT: u64 = 0xA09;
+pub const DISPLAY_CLICK_AT: u64 = crate::labels::DISPLAY + 0x09;
 /// 请求 Display 以失败码退出，供热重启自检使用。
-pub const DISPLAY_RESTART: u64 = 0xA0A;
+pub const DISPLAY_RESTART: u64 = crate::labels::DISPLAY + 0x0A;
 /// 鼠标滚轮；`word` 打包窗口编号与有符号增量，发给焦点窗口的客户端。
-pub const DISPLAY_WHEEL: u64 = 0xA0B;
+pub const DISPLAY_WHEEL: u64 = crate::labels::DISPLAY + 0x0B;
 /// 窗口内容尺寸变化；`word` 打包窗口编号与新的内容宽高，发给窗口客户端。
-pub const DISPLAY_RESIZE: u64 = 0xA0C;
+pub const DISPLAY_RESIZE: u64 = crate::labels::DISPLAY + 0x0C;
 /// 指针在窗口正文内移动；`word` 打包窗口编号与窗口内坐标。
-pub const DISPLAY_POINTER: u64 = 0xA1E;
+pub const DISPLAY_POINTER: u64 = crate::labels::DISPLAY + 0x1E;
 /// 指针离开窗口正文；`word` 为窗口编号。
-pub const DISPLAY_POINTER_LEAVE: u64 = 0xA1F;
+pub const DISPLAY_POINTER_LEAVE: u64 = crate::labels::DISPLAY + 0x1F;
 /// 设置表面光标形状；`word` 由 [`crate::pointer::pack_surface_cursor`] 打包。
-pub const SURFACE_SET_CURSOR: u64 = 0xA20;
+pub const SURFACE_SET_CURSOR: u64 = crate::labels::DISPLAY + 0x20;
 
 /// 创建表面；`word` 打包宽高，随消息转移表面 Frame 句柄。
-pub const SURFACE_CREATE: u64 = 0xA10;
+pub const SURFACE_CREATE: u64 = crate::labels::DISPLAY + 0x10;
 /// 表面已创建；`word` 为表面编号。
-pub const SURFACE_CREATED: u64 = 0xA11;
+pub const SURFACE_CREATED: u64 = crate::labels::DISPLAY + 0x11;
 /// 标记表面 damage；`word` 为表面编号，载荷为 [`SURFACE_RECT_BYTES`] 字节矩形。
-pub const SURFACE_DAMAGE: u64 = 0xA12;
+pub const SURFACE_DAMAGE: u64 = crate::labels::DISPLAY + 0x12;
 /// 设置表面输入区域；`word` 为表面编号，载荷为矩形，空矩形表示整个表面。
-pub const SURFACE_SET_INPUT_REGION: u64 = 0xA13;
+pub const SURFACE_SET_INPUT_REGION: u64 = crate::labels::DISPLAY + 0x13;
 /// 提交表面；`word` 为表面编号。
-pub const SURFACE_COMMIT: u64 = 0xA14;
+pub const SURFACE_COMMIT: u64 = crate::labels::DISPLAY + 0x14;
 /// 表面一帧已合成；`word` 为表面编号。
-pub const SURFACE_FRAME_DONE: u64 = 0xA15;
+pub const SURFACE_FRAME_DONE: u64 = crate::labels::DISPLAY + 0x15;
 /// 销毁表面；`word` 为表面编号。
-pub const SURFACE_DESTROY: u64 = 0xA16;
+pub const SURFACE_DESTROY: u64 = crate::labels::DISPLAY + 0x16;
 /// 把表面挂到窗口；`word` 为表面编号，回复 [`WINDOW_CREATED`]。
-pub const WINDOW_CREATE: u64 = 0xA17;
+pub const WINDOW_CREATE: u64 = crate::labels::DISPLAY + 0x17;
 /// 窗口已创建；`word` 为窗口编号。
-pub const WINDOW_CREATED: u64 = 0xA18;
+pub const WINDOW_CREATED: u64 = crate::labels::DISPLAY + 0x18;
 /// 客户端替换窗口表面；`word` 打包窗口编号与新表面宽高，随消息转移 Frame 句柄。
-pub const WINDOW_RESIZE: u64 = 0xA1D;
+pub const WINDOW_RESIZE: u64 = crate::labels::DISPLAY + 0x1D;
 /// 设置焦点窗口；`word` 为窗口编号。
-pub const SEAT_FOCUS: u64 = 0xA19;
+pub const SEAT_FOCUS: u64 = crate::labels::DISPLAY + 0x19;
 /// 写入剪贴板；载荷为 UTF-8 文本。
-pub const SEAT_SET_CLIPBOARD: u64 = 0xA1A;
+pub const SEAT_SET_CLIPBOARD: u64 = crate::labels::DISPLAY + 0x1A;
 /// 请求剪贴板；回复 [`SEAT_CLIPBOARD`]。
-pub const SEAT_GET_CLIPBOARD: u64 = 0xA1B;
+pub const SEAT_GET_CLIPBOARD: u64 = crate::labels::DISPLAY + 0x1B;
 /// 剪贴板内容；载荷为 UTF-8 文本。
-pub const SEAT_CLIPBOARD: u64 = 0xA1C;
+pub const SEAT_CLIPBOARD: u64 = crate::labels::DISPLAY + 0x1C;
 
 /// 表面矩形载荷长度。
 pub const SURFACE_RECT_BYTES: usize = 8;

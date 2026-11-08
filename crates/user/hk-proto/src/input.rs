@@ -5,13 +5,13 @@
 //! 还原。内核控制台输入在输入驱动模式下关闭。
 
 /// 按键事件；`word` 为字节值。
-pub const INPUT_KEY: u64 = 0xB00;
+pub const INPUT_KEY: u64 = crate::labels::INPUT;
 /// 绝对指针位置；`word` 为打包的 16 位 x/y（0..=0x7FFF）。
-pub const INPUT_POINTER: u64 = 0xB01;
+pub const INPUT_POINTER: u64 = crate::labels::INPUT + 1;
 /// 指针按钮；`word` 非 0 为按下。
-pub const INPUT_BUTTON: u64 = 0xB02;
+pub const INPUT_BUTTON: u64 = crate::labels::INPUT + 2;
 /// 鼠标滚轮；`word` 为有符号增量，正值向上。
-pub const INPUT_WHEEL: u64 = 0xB03;
+pub const INPUT_WHEEL: u64 = crate::labels::INPUT + 3;
 
 /// 打包滚轮增量。
 pub const fn pack_wheel(delta: i32) -> u64 {

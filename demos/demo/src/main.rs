@@ -37,7 +37,7 @@ use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    MemoryClient, REGION_READ, REGION_WRITE, alloc, arena_info, boot_cmdline, call, close_handle,
+    MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, boot_cmdline, call, close_handle,
     exit, frame_info, frame_map, futex_wait, futex_wake, ledger_info, notify, recv, recv_data_try,
     region_info, region_unmap, self_notification, send, send_handle, service_endpoint,
     thread_create, thread_join, tsc, tsc_frequency, wait_notify, write, write_u64, yield_now,
@@ -642,7 +642,7 @@ fn verify_memory(endpoint: u64) -> bool {
     if frame_info.len != PAGE as u64 || frame_info.refs != 1 {
         return false;
     }
-    let Some(frame_region) = frame_map(frame, REGION_READ | REGION_WRITE, 0) else {
+    let Some(frame_region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
         return false;
     };
     let Some((frame_virt, _)) = region_info(frame_region) else {

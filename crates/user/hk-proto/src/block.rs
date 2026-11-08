@@ -5,9 +5,9 @@
 //! 分别映射，因此多个请求可以并行提交、乱序完成。
 
 /// 请求标签。
-pub const BLOCK_REQUEST: u64 = 0x600;
+pub const BLOCK_REQUEST: u64 = crate::labels::DEVICE_BLOCK;
 /// 响应标签。
-pub const BLOCK_RESPONSE: u64 = 0x601;
+pub const BLOCK_RESPONSE: u64 = crate::labels::DEVICE_BLOCK + 1;
 /// DeviceGrant 移交标签。
 pub use hk_server_api::device::DEVICE_GRANT as BLOCK_GRANT;
 /// 没有块设备标签。
@@ -15,11 +15,11 @@ pub use hk_server_api::device::DEVICE_NONE as BLOCK_NO_DEVICE;
 /// 驱动请求下发设备授权。
 pub use hk_server_api::device::DEVICE_REQUEST;
 /// 请求块设备服务退出（用于故障注入与重启测试）。
-pub const BLOCK_SHUTDOWN: u64 = 0x605;
+pub const BLOCK_SHUTDOWN: u64 = crate::labels::DEVICE_BLOCK + 5;
 /// 附加共享 Frame；消息字见 [`attach_word`]。
-pub const BLOCK_ATTACH: u64 = 0x606;
+pub const BLOCK_ATTACH: u64 = crate::labels::DEVICE_BLOCK + 6;
 /// 解除共享 Frame；消息字为槽位，`u64::MAX` 表示全部解除。
-pub const BLOCK_DETACH: u64 = 0x607;
+pub const BLOCK_DETACH: u64 = crate::labels::DEVICE_BLOCK + 7;
 
 /// 每个客户端可用的共享帧槽位数量。
 pub const BUFFER_SLOTS: u32 = 8;

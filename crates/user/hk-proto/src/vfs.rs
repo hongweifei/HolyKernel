@@ -8,13 +8,13 @@ use hk_server_api::{
 };
 
 /// 请求标签。
-pub const VFS_REQUEST: u64 = 0x500;
+pub const VFS_REQUEST: u64 = crate::labels::VFS;
 /// 响应标签。
-pub const VFS_RESPONSE: u64 = 0x501;
+pub const VFS_RESPONSE: u64 = crate::labels::VFS + 1;
 /// 附加共享 Frame。
-pub const VFS_ATTACH: u64 = 0x502;
+pub const VFS_ATTACH: u64 = crate::labels::VFS + 2;
 /// 解除共享 Frame。
-pub const VFS_DETACH: u64 = 0x503;
+pub const VFS_DETACH: u64 = crate::labels::VFS + 3;
 
 /// 打开文件。
 pub const OP_OPEN: u8 = 1;
