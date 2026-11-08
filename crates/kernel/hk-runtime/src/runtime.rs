@@ -422,6 +422,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 cpu_cycles: task.cpu_cycles,
                 arena_used: self.process(index).arena.used(),
                 arena_size: self.process(index).arena.size(),
+                ledger_charged: self.process(index).ledger.charged(),
+                ledger_resident: self.process(index).ledger.resident(),
                 vspace: self.platform.vspace(index),
                 exit_code: task.exited.then_some(task.exit_code),
             })

@@ -63,11 +63,21 @@ const BLOCKED: u32 = 0x00E8_C080;
 const EXITED: u32 = 0x00F0_8080;
 
 /// 进程页列左边界。
-const PROC_X: [i32; 8] = [16, 60, 240, 304, 360, 510, 554, 590];
+const PROC_X: [i32; 9] = [16, 60, 240, 304, 360, 486, 610, 654, 690];
 /// 进程页列宽。
-const PROC_WIDTH: [i32; 8] = [44, 180, 64, 56, 150, 44, 36, 44];
+const PROC_WIDTH: [i32; 9] = [44, 180, 64, 56, 120, 118, 44, 36, 44];
 /// 进程页列标题。
-const PROC_TITLE: [&str; 8] = ["TCB", "任务", "状态", "CPU", "Arena", "句柄", "父", "端点"];
+const PROC_TITLE: [&str; 9] = [
+    "TCB",
+    "任务",
+    "状态",
+    "CPU",
+    "Arena",
+    "提交/常驻",
+    "句柄",
+    "父",
+    "端点",
+];
 
 /// 绘制所需的只读快照。
 pub(crate) struct View<'a> {
@@ -145,7 +155,7 @@ pub(crate) fn render(view: &View<'_>, width: usize, height: usize, surface: &Sur
     );
     let hint = match view.page {
         Page::Processes => {
-            "↑/↓ 选择  PgUp/PgDn 翻页  r 刷新  空格 暂停  n/a/s/h/c/t 排序  Tab 性能  q 退出"
+            "↑/↓ 选择  PgUp/PgDn 翻页  r 刷新  空格 暂停  n/a/m/s/h/c/t 排序  Tab 性能  q 退出"
         }
         Page::Performance => "r 刷新  空格 暂停  Tab 进程  q 退出",
     };
@@ -189,16 +199,17 @@ fn render_tabs(active: Page, surface: &Surface) {
 fn render_processes(view: &View<'_>, width: i32, height: usize, surface: &Surface) {
     let table = hk_canvas::default_monospace();
     let summary = format!(
-        "任务 {} · 就绪 {} · CPU {} · System {} / {} MiB · Arena {} MiB",
+        "任务 {} · 就绪 {} · CPU {} · System {} / {} MiB · Arena {} MiB · 提交 {} MiB",
         view.sample.tasks,
         view.sample.runnable,
         percent_text(view.cpu_usage),
         mib_text(view.sample.memory_used()),
         mib_text(view.sample.memory_total()),
         mib_text(view.sample.arena_used()),
+        mib_text(view.sample.commit_used()),
     );
     let mut pen = MARGIN;
-    surface.draw_text(&mut pen, 52, &summary, MUTED, table);
+    surface.draw_text_ellipsis(&mut pen, 52, &summary, width - MARGIN * 2, MUTED, table);
     surface.fill(Rect::new(MARGIN, 62, width - MARGIN * 2, 1), LINE);
 
     for (index, title) in PROC_TITLE.iter().enumerate() {
@@ -254,6 +265,7 @@ fn draw_process_row(
         row.arena_size / 1024,
         row.arena_percent()
     );
+    let ledger = format!("{}/{}K", row.commit / 1024, row.resident / 1024);
 
     cell(surface, 0, y, &format!("{}", row.tcb), MUTED, font);
     cell(
@@ -274,9 +286,10 @@ fn draw_process_row(
         font,
     );
     cell(surface, 4, y, &memory, MUTED, font);
-    cell(surface, 5, y, &format!("{}", row.handles), INK, font);
-    cell(surface, 6, y, &parent, MUTED, font);
-    cell(surface, 7, y, &format!("{}", row.endpoint), MUTED, font);
+    cell(surface, 5, y, &ledger, MUTED, font);
+    cell(surface, 6, y, &format!("{}", row.handles), INK, font);
+    cell(surface, 7, y, &parent, MUTED, font);
+    cell(surface, 8, y, &format!("{}", row.endpoint), MUTED, font);
 }
 
 fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surface) {
@@ -337,30 +350,51 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
     let used = view.sample.memory_used();
     let total = view.sample.memory_total();
     let percent = used.saturating_mul(1000).checked_div(total).unwrap_or(0);
+    let soft = if view.sample.system.soft == 0 {
+        String::from("-")
+    } else {
+        mib_text(view.sample.system.soft)
+    };
     let memory_text = format!(
-        "{} / {} MiB  ({})  峰值 {} MiB",
+        "System {} / {} MiB  ({})  峰值 {} MiB  软 {} MiB",
         mib_text(used),
         mib_text(total),
         percent_text(percent),
         mib_text(view.sample.system.peak),
+        soft,
     );
     let memory_width = text_width(heading, &memory_text);
     let mut pen = memory_panel.right() - 12 - memory_width;
     surface.draw_text(&mut pen, memory_panel.y + 8, &memory_text, INK, heading);
-    let categories = format!(
-        "heap {} · 页表 {} · COW {} · 恢复 {} · 镜像 {} · DMA {} · 其他 {} MiB",
-        mib_text(view.sample.system.heap),
-        mib_text(view.sample.system.page_table),
-        mib_text(view.sample.system.cow),
-        mib_text(view.sample.system.restore),
-        mib_text(view.sample.system.image),
-        mib_text(view.sample.system.dma),
-        mib_text(view.sample.system.other),
+    let frame_bank = format!(
+        "FrameBank {} / {} MiB · 峰值 {} MiB",
+        mib_text(view.sample.frame_bank.used),
+        mib_text(view.sample.frame_bank.total),
+        mib_text(view.sample.frame_bank.peak),
     );
     let mut pen = memory_panel.x + 12;
     surface.draw_text_ellipsis(
         &mut pen,
         memory_panel.y + 26,
+        &frame_bank,
+        memory_panel.width - 24,
+        MUTED,
+        table,
+    );
+    let categories = format!(
+        "heap {} · 页表 {} · COW {} · 恢复 {} · 镜像 {} · DMA {} · 其他 {} MiB",
+        mib_text(view.sample.frame_bank.heap),
+        mib_text(view.sample.frame_bank.page_table),
+        mib_text(view.sample.frame_bank.cow),
+        mib_text(view.sample.frame_bank.restore),
+        mib_text(view.sample.frame_bank.image),
+        mib_text(view.sample.frame_bank.dma),
+        mib_text(view.sample.frame_bank.other),
+    );
+    let mut pen = memory_panel.x + 12;
+    surface.draw_text_ellipsis(
+        &mut pen,
+        memory_panel.y + 40,
         &categories,
         memory_panel.width - 24,
         MUTED,
@@ -368,9 +402,9 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
     );
     let memory_graph = Rect::new(
         memory_panel.x + 12,
-        memory_panel.y + 44,
+        memory_panel.y + 56,
         memory_panel.width - 24,
-        memory_panel.height - 56,
+        memory_panel.height - 68,
     );
     draw_graph(
         surface,

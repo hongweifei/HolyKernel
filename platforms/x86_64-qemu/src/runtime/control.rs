@@ -252,8 +252,9 @@ fn push_result(state: &mut ControlState, id: u64, data: Vec<u8>) {
 ///
 /// 文本格式稳定供任务管理器解析：
 /// `perf cpus=.. tasks=.. runnable=.. tsc=.. ticks=..`
-/// 之后每 CPU 一行 `cpu <编号> <忙周期> <恢复次数>`，每任务一行
-/// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <名称>`。
+/// 之后 `mem` 为全局 FrameBank 分类用量、`system` 为 System Capacity 快照，
+/// 每 CPU 一行 `cpu <编号> <忙周期> <恢复次数>`，每任务一行
+/// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <退出码> <提交> <常驻> <名称>`。
 fn perf() -> String {
     let stats = runtime::stats();
     let tasks = runtime::tasks();
@@ -289,6 +290,17 @@ fn perf() -> String {
         memory.by_kind[5],
         memory.by_kind[6],
     ));
+    if let Some(capacity) = hk_platform_x86_64::system::capacity() {
+        let capacity = capacity.lock();
+        text.push_str(&format!(
+            "system total={} used={} peak={} soft={} span={}\n",
+            capacity.limit(),
+            capacity.used(),
+            capacity.peak(),
+            capacity.soft_limit(),
+            capacity.range().len(),
+        ));
+    }
     for cpu in 0..cpus {
         text.push_str(&format!(
             "cpu {} {} {}\n",
@@ -305,7 +317,7 @@ fn perf() -> String {
             None => String::from("-"),
         };
         text.push_str(&format!(
-            "task {} {} {} {} {} {} {} {} {} {} {}\n",
+            "task {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
             task.tcb,
             task.cpu_cycles,
             task.arena_used,
@@ -316,6 +328,8 @@ fn perf() -> String {
             task.endpoint,
             task.pending,
             exit,
+            task.ledger_charged,
+            task.ledger_resident,
             task.name,
         ));
     }

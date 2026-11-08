@@ -57,6 +57,10 @@ pub struct TaskRow {
     pub arena_used: u64,
     /// Arena 总字节数。
     pub arena_size: u64,
+    /// Ledger 提交字节数。
+    pub commit: u64,
+    /// Ledger 常驻字节数。
+    pub resident: u64,
 }
 
 impl TaskRow {
@@ -80,9 +84,24 @@ impl TaskRow {
     }
 }
 
-/// System Capacity 记账快照。
+/// System Capacity 记账快照（按容量归因）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SystemMemory {
+pub struct SystemCapacity {
+    /// 硬上限字节数。
+    pub total: u64,
+    /// 已用字节数。
+    pub used: u64,
+    /// 峰值字节数。
+    pub peak: u64,
+    /// 软上限；0 表示未设置。
+    pub soft: u64,
+    /// 窗口外接字节数。
+    pub span: u64,
+}
+
+/// FrameBank 全局记账快照（含分类用量）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameBankMemory {
     /// 总字节数。
     pub total: u64,
     /// 已用字节数。
@@ -127,7 +146,9 @@ pub struct PerfSample {
     /// 任务行。
     pub rows: Vec<TaskRow>,
     /// System Capacity 快照。
-    pub system: SystemMemory,
+    pub system: SystemCapacity,
+    /// FrameBank 全局快照。
+    pub frame_bank: FrameBankMemory,
 }
 
 impl PerfSample {
@@ -141,10 +162,28 @@ impl PerfSample {
         self.system.total
     }
 
-    /// 所有任务 Arena 已用字节。
+    /// 所有进程 Arena 已用字节；同进程线程共享 Arena，只计一次。
     pub fn arena_used(&self) -> u64 {
-        self.rows.iter().map(|row| row.arena_used).sum()
+        sum_by_process(&self.rows, |row| row.arena_used)
     }
+
+    /// 所有进程 Ledger 提交字节；同进程线程共享 Ledger，只计一次。
+    pub fn commit_used(&self) -> u64 {
+        sum_by_process(&self.rows, |row| row.commit)
+    }
+}
+
+fn sum_by_process(rows: &[TaskRow], value: impl Fn(&TaskRow) -> u64) -> u64 {
+    let mut seen = Vec::new();
+    let mut total = 0_u64;
+    for row in rows {
+        if seen.contains(&row.endpoint) {
+            continue;
+        }
+        seen.push(row.endpoint);
+        total = total.saturating_add(value(row));
+    }
+    total
 }
 
 /// 排序键。
@@ -152,6 +191,8 @@ impl PerfSample {
 pub enum SortKey {
     /// 按 Arena 用量降序。
     Arena,
+    /// 按 Ledger 提交量降序。
+    Commit,
     /// 按名称。
     Name,
     /// 按状态分组。
@@ -168,7 +209,8 @@ impl SortKey {
     /// 状态栏显示的短名。
     pub const fn title(self) -> &'static str {
         match self {
-            Self::Arena => "内存",
+            Self::Arena => "Arena",
+            Self::Commit => "提交",
             Self::Name => "名称",
             Self::State => "状态",
             Self::Handles => "句柄",
@@ -181,6 +223,7 @@ impl SortKey {
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             b'a' => Some(Self::Arena),
+            b'm' => Some(Self::Commit),
             b'n' => Some(Self::Name),
             b's' => Some(Self::State),
             b'h' => Some(Self::Handles),
@@ -219,17 +262,32 @@ pub fn parse_perf(text: &str) -> PerfSample {
                 };
                 let value = value.parse().unwrap_or(0);
                 match key {
+                    "total" => sample.frame_bank.total = value,
+                    "used" => sample.frame_bank.used = value,
+                    "peak" => sample.frame_bank.peak = value,
+                    "free" => sample.frame_bank.free = value,
+                    "heap" => sample.frame_bank.heap = value,
+                    "page_table" => sample.frame_bank.page_table = value,
+                    "cow" => sample.frame_bank.cow = value,
+                    "restore" => sample.frame_bank.restore = value,
+                    "image" => sample.frame_bank.image = value,
+                    "dma" => sample.frame_bank.dma = value,
+                    "other" => sample.frame_bank.other = value,
+                    _ => {}
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("system ") {
+            for field in rest.split_whitespace() {
+                let Some((key, value)) = field.split_once('=') else {
+                    continue;
+                };
+                let value = value.parse().unwrap_or(0);
+                match key {
                     "total" => sample.system.total = value,
                     "used" => sample.system.used = value,
                     "peak" => sample.system.peak = value,
-                    "free" => sample.system.free = value,
-                    "heap" => sample.system.heap = value,
-                    "page_table" => sample.system.page_table = value,
-                    "cow" => sample.system.cow = value,
-                    "restore" => sample.system.restore = value,
-                    "image" => sample.system.image = value,
-                    "dma" => sample.system.dma = value,
-                    "other" => sample.system.other = value,
+                    "soft" => sample.system.soft = value,
+                    "span" => sample.system.span = value,
                     _ => {}
                 }
             }
@@ -276,7 +334,7 @@ fn ensure(values: &mut Vec<u64>, len: usize) {
 }
 
 fn parse_task(rest: &str) -> Option<TaskRow> {
-    let mut fields = rest.splitn(12, ' ');
+    let mut fields = rest.splitn(14, ' ');
     let tcb = fields.next()?.parse().ok()?;
     let cpu_cycles = fields.next()?.parse().ok()?;
     let arena_used = fields.next()?.parse().ok()?;
@@ -287,6 +345,8 @@ fn parse_task(rest: &str) -> Option<TaskRow> {
     let endpoint = fields.next()?.parse().ok()?;
     let pending = fields.next()?;
     let exit_code = fields.next()?;
+    let commit = fields.next()?.parse().ok()?;
+    let resident = fields.next()?.parse().ok()?;
     let name = fields.next()?.trim();
     if name.is_empty() {
         return None;
@@ -304,6 +364,8 @@ fn parse_task(rest: &str) -> Option<TaskRow> {
         cpu_percent: 0,
         arena_used,
         arena_size,
+        commit,
+        resident,
     })
 }
 
@@ -325,6 +387,10 @@ fn compare(left: &TaskRow, right: &TaskRow, key: SortKey) -> Ordering {
         SortKey::Arena => right
             .arena_used
             .cmp(&left.arena_used)
+            .then_with(|| left.name.cmp(&right.name)),
+        SortKey::Commit => right
+            .commit
+            .cmp(&left.commit)
             .then_with(|| left.name.cmp(&right.name)),
         SortKey::Name => left.name.cmp(&right.name),
         SortKey::State => left

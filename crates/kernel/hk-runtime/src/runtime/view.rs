@@ -25,6 +25,10 @@ pub struct TaskInfo {
     pub arena_used: u64,
     /// Arena 总字节数。
     pub arena_size: u64,
+    /// 任务 Ledger 提交字节数。
+    pub ledger_charged: u64,
+    /// 任务 Ledger 常驻字节数。
+    pub ledger_resident: u64,
     /// 页表根物理地址。
     pub vspace: u64,
     /// 退出码。
