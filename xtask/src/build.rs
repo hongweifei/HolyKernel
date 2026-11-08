@@ -12,9 +12,9 @@ pub fn run(selection: Selection, release: bool) -> Result<()> {
     Ok(())
 }
 
-fn build_target(target: Target, release: bool) -> Result<()> {
+pub(crate) fn build_target(target: Target, release: bool) -> Result<()> {
     for group in target.package_groups() {
-        let mut command = cargo::command();
+        let mut command = cargo::locked();
         command.arg("build");
         if let Some(triple) = target.triple() {
             command.arg("--target").arg(triple);

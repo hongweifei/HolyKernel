@@ -6,7 +6,6 @@ use std::process::Command;
 
 use hk_image::FILE_SUFFIX;
 
-use crate::cargo;
 use crate::catalog::{SCRIPT_MODULES, SERVERS};
 use crate::failure::{Failure, Result};
 use crate::native::{SYMBOL_MODULE, generate_symbols, native_image};
@@ -42,27 +41,9 @@ pub fn run(selection: Selection, release: bool, cmdline: Option<&str>) -> Result
         return Err(Failure::new("image 只支持 x86_64-qemu"));
     }
 
-    build_kernel(release)?;
+    crate::build::build_target(Target::X86_64Qemu, release)?;
     let symbols = generate_symbols(release)?;
     build_iso(release, cmdline, &symbols)
-}
-
-fn build_kernel(release: bool) -> Result<()> {
-    let mut command = cargo::command();
-    command.args([
-        "build",
-        "--target",
-        "x86_64-unknown-none",
-        "-p",
-        "hk-x86_64",
-    ]);
-    for service in SERVERS {
-        command.args(["-p", service]);
-    }
-    if release {
-        command.arg("--release");
-    }
-    cargo::run(command)
 }
 
 pub(crate) fn binary_path(name: &str, release: bool) -> PathBuf {
@@ -122,13 +103,26 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     copy(&limine.join("BOOTX64.EFI"), &efi.join("BOOTX64.EFI"))?;
     fs::write(boot.join("limine.conf"), limine_config(cmdline))
         .map_err(|error| Failure::new(format!("写入 limine.conf 失败：{error}")))?;
-
     let iso = root.join(format!("build/holy-x86_64{suffix}.iso"));
-    let status = Command::new("xorriso")
+    let key_path = iso.with_extension("key");
+    let key = staging_key(&staging)?;
+    if iso.is_file()
+        && fs::read_to_string(&key_path)
+            .ok()
+            .is_some_and(|cached| cached.trim() == key)
+    {
+        return Ok(iso);
+    }
+    let mut xorriso = Command::new("xorriso");
+    xorriso
         .current_dir(&staging)
+        .env("SOURCE_DATE_EPOCH", "0")
         .args([
             "-as",
             "mkisofs",
+            "--modification-date=1970010100000000",
+            "--set_all_file_dates",
+            "1970010100000000",
             "-b",
             "boot/limine-bios-cd.bin",
             "-no-emul-boot",
@@ -143,7 +137,8 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
             ".",
             "-o",
         ])
-        .arg(&iso)
+        .arg(&iso);
+    let status = xorriso
         .status()
         .map_err(|error| Failure::new(format!("启动 xorriso 失败：{error}")))?;
     if !status.success() {
@@ -158,6 +153,8 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     if !status.success() {
         return Err(Failure::new(format!("limine bios-install 失败：{status}")));
     }
+    fs::write(&key_path, format!("{key}\n"))
+        .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", key_path.display())))?;
 
     Ok(iso)
 }
@@ -192,5 +189,47 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
             to.display()
         ))
     })?;
+    Ok(())
+}
+
+/// 计算暂存树的内容键；内容相同则复用已生成的 ISO。
+fn staging_key(directory: &Path) -> Result<String> {
+    let mut files = Vec::new();
+    collect_files(directory, &mut files)?;
+    files.sort();
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in b"iso-format-v2" {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    for file in files {
+        let relative = file.strip_prefix(directory).unwrap_or(&file);
+        for byte in relative.to_string_lossy().as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let bytes = fs::read(&file)
+            .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", file.display())))?;
+        for byte in &bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    Ok(format!("{hash:016x}"))
+}
+
+fn collect_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = fs::read_dir(directory)
+        .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", directory.display())))?;
+    for entry in entries {
+        let path = entry
+            .map_err(|error| Failure::new(format!("读取目录项失败：{error}")))?
+            .path();
+        if path.is_dir() {
+            collect_files(&path, files)?;
+        } else {
+            files.push(path);
+        }
+    }
     Ok(())
 }

@@ -51,7 +51,7 @@ pub fn run(
 }
 
 fn launch_hosted(release: bool, arguments: &[String]) -> Result<()> {
-    let mut command = cargo::command();
+    let mut command = cargo::locked();
     command.args(["run", "-p", "hk-hosted"]);
     if release {
         command.arg("--release");

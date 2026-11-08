@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use hk_base::CivilTime;
 use hk_block::{BlockDevice, BlockError, MemoryDisk, SECTOR_SIZE};
@@ -39,9 +38,9 @@ impl hk_fs_ext4::WallClock for HostClock {
     }
 }
 
-/// std::time 的原点；宿主工具只在镜像生成时使用。
-const HOST_TIME_ORIGIN: CivilTime = CivilTime {
-    year: 1970,
+/// 镜像使用的固定时间戳，保证同一输入生成相同产物。
+const FIXED_TIME: CivilTime = CivilTime {
+    year: 2026,
     month: 1,
     day: 1,
     hour: 0,
@@ -51,8 +50,7 @@ const HOST_TIME_ORIGIN: CivilTime = CivilTime {
 };
 
 fn host_civil_time() -> Option<CivilTime> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    Some(HOST_TIME_ORIGIN.add_seconds(elapsed.as_secs(), elapsed.subsec_nanos()))
+    Some(FIXED_TIME)
 }
 
 /// 确保 ext4 运行磁盘存在；缺失时格式化。

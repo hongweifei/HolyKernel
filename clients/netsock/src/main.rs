@@ -13,30 +13,54 @@ use hk_server_api::{boot_cmdline, exit, tsc, tsc_frequency, write, yield_now};
 #[cfg(target_os = "none")]
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 #[cfg(target_os = "none")]
-const TCP_PORT: u16 = 45678;
+const DEFAULT_TCP_PORT: u16 = 45678;
 #[cfg(target_os = "none")]
-const UDP_PORT: u16 = 45679;
+const DEFAULT_UDP_PORT: u16 = 45679;
 #[cfg(target_os = "none")]
 const WAIT_MS: u64 = 8_000;
+
+/// 解析命令行中的宿主 echo 端口覆盖。
+#[cfg(target_os = "none")]
+fn test_ports(cmdline: &str) -> (u16, u16) {
+    let mut tcp = DEFAULT_TCP_PORT;
+    let mut udp = DEFAULT_UDP_PORT;
+    for part in cmdline.split_whitespace() {
+        if let Some(value) = part.strip_prefix("net.tcp=")
+            && let Ok(port) = value.parse()
+        {
+            tcp = port;
+        }
+        if let Some(value) = part.strip_prefix("net.udp=")
+            && let Ok(port) = value.parse()
+        {
+            udp = port;
+        }
+    }
+    (tcp, udp)
+}
 
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut buffer = [0_u8; 128];
-    if !boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.socket-test")) {
+    let Some(cmdline) = boot_cmdline(&mut buffer) else {
+        exit(0)
+    };
+    if !cmdline.contains("net.socket-test") {
         exit(0)
     }
+    let (tcp_port, udp_port) = test_ports(cmdline);
     let Some(client) = Client::discover(endpoint) else {
         write("hk-server-netsock: network server not found\n".as_bytes());
         exit(1)
     };
-    if !tcp_test(&client) {
+    if !tcp_test(&client, tcp_port) {
         write("hk-server-netsock: tcp failed\n".as_bytes());
         exit(2)
     }
     write("hk-server-netsock: tcp ok\n".as_bytes());
-    if !udp_test(&client) {
+    if !udp_test(&client, udp_port) {
         write("hk-server-netsock: udp failed\n".as_bytes());
         exit(3)
     }
@@ -50,14 +74,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn tcp_test(client: &Client) -> bool {
+fn tcp_test(client: &Client, tcp_port: u16) -> bool {
     let Some(handle) = client.open(SocketKind::Tcp) else {
         return false;
     };
     let deadline = now_ms().saturating_add(WAIT_MS);
     let mut connected = false;
     while now_ms() < deadline {
-        if client.connect(handle, GATEWAY, TCP_PORT) {
+        if client.connect(handle, GATEWAY, tcp_port) {
             connected = true;
             break;
         }
@@ -94,7 +118,7 @@ fn tcp_test(client: &Client) -> bool {
 }
 
 #[cfg(target_os = "none")]
-fn udp_test(client: &Client) -> bool {
+fn udp_test(client: &Client, udp_port: u16) -> bool {
     let Some(handle) = client.open(SocketKind::Udp) else {
         return false;
     };
@@ -105,7 +129,7 @@ fn udp_test(client: &Client) -> bool {
     while now_ms() < deadline {
         let now = now_ms();
         if now.saturating_sub(last_send) >= 200 {
-            let _ = client.udp_send(handle, GATEWAY, UDP_PORT, b"holy");
+            let _ = client.udp_send(handle, GATEWAY, udp_port, b"holy");
             last_send = now;
         }
         if client.udp_recv(handle, &mut reply) >= 4 {

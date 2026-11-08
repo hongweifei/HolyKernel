@@ -53,11 +53,12 @@ use protocol::{flush_tx, handle_socket, status_blob};
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 768 * 1024;
+/// 宿主 TCP echo 端口；测试命令行可用 `net.tcp=` 覆盖。
 #[cfg(target_os = "none")]
-pub(crate) const TCP_PORT: u16 = 45678;
-/// 宿主 UDP echo 端口。
+const DEFAULT_TCP_PORT: u16 = 45678;
+/// 宿主 UDP echo 端口；测试命令行可用 `net.udp=` 覆盖。
 #[cfg(target_os = "none")]
-pub(crate) const UDP_ECHO_PORT: u16 = 45679;
+const DEFAULT_UDP_PORT: u16 = 45679;
 /// UDP 自检使用的本地端口。
 #[cfg(target_os = "none")]
 pub(crate) const UDP_LOCAL_PORT: u16 = 40001;
@@ -167,15 +168,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
     write("hk-server-net: ready\n".as_bytes());
+    let (tcp_port, udp_port) = test_ports(cmdline);
     if !cmdline.is_some_and(|line| line.contains("net.no-selftest")) {
         selftest::run(
             &mut stack,
-            driver,
-            endpoint,
+            (driver, endpoint),
             gateway,
             &dns_servers,
             &mut stats,
             &mut frame,
+            (tcp_port, udp_port),
         );
     }
 
@@ -282,6 +284,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             _ => {}
         }
     }
+}
+
+/// 解析宿主 echo 端口覆盖。
+#[cfg(target_os = "none")]
+fn test_ports(cmdline: Option<&str>) -> (u16, u16) {
+    let mut tcp = DEFAULT_TCP_PORT;
+    let mut udp = DEFAULT_UDP_PORT;
+    for part in cmdline.unwrap_or("").split_whitespace() {
+        if let Some(value) = part.strip_prefix("net.tcp=")
+            && let Ok(port) = value.parse()
+        {
+            tcp = port;
+        }
+        if let Some(value) = part.strip_prefix("net.udp=")
+            && let Ok(port) = value.parse()
+        {
+            udp = port;
+        }
+    }
+    (tcp, udp)
 }
 
 /// 以 TSC 换算单调毫秒时间；TSC 未知时退回累计 tick（约 10 ms）。

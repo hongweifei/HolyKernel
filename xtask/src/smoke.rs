@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,12 +27,6 @@ const HOLYDOC_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// ext4 自检写入的标记内容。
 const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
-
-/// QEMU 用户网络中的宿主 TCP echo 端口。
-const NET_TCP_PORT: u16 = 45678;
-
-/// QEMU 用户网络中的宿主 UDP echo 端口。
-const NET_UDP_PORT: u16 = 45679;
 
 /// `isa-debug-exit` 的成功退出码：`(0 << 1) | 1`。
 const QEMU_SUCCESS: i32 = 1;
@@ -154,52 +148,70 @@ pub enum SmokeMode {
 }
 
 impl SmokeMode {
-    fn cmdline(self) -> Option<&'static str> {
+    fn cmdline(self, net: Option<(u16, u16)>) -> Option<String> {
         match self {
             Self::Boot => None,
-            Self::Ud2 => Some("fault-test"),
-            Self::Page => Some("page-fault-test"),
-            Self::Timer => Some("timer-test"),
-            Self::Framebuffer => Some("fb-test"),
-            Self::Shell => Some(
+            Self::Ud2 => Some(String::from("fault-test")),
+            Self::Page => Some(String::from("page-fault-test")),
+            Self::Timer => Some(String::from("timer-test")),
+            Self::Framebuffer => Some(String::from("fb-test")),
+            Self::Shell => Some(String::from(
                 "shell-test help;focus hk-server-echo;tasks;start hk-server-device;tasks;handles;services;restart hk-server-demo;services;start hk-server-fault;start hk-server-fork;start hk-server-latency;replace hk-server-echo hk-server-spin;tasks;trace;stats",
-            ),
-            Self::Input => Some("shell-interactive"),
+            )),
+            Self::Input => Some(String::from("shell-interactive")),
             Self::Preempt => None,
-            Self::Smp => Some("shell-test tasks;stats"),
-            Self::Restart => Some("restart-test"),
-            Self::Ext4Root => Some("vfs.root=ext4"),
-            Self::HolyFs => Some("vfs.fs=holyfs"),
-            Self::Net => Some("net-test net.dns=localhost shell-test net"),
-            Self::NetStatic => Some(
+            Self::Smp => Some(String::from("shell-test tasks;stats")),
+            Self::Restart => Some(String::from("restart-test")),
+            Self::Ext4Root => Some(String::from("vfs.root=ext4")),
+            Self::HolyFs => Some(String::from("vfs.fs=holyfs")),
+            Self::Net => Some(format!(
+                "net-test net.dns=localhost shell-test net net.tcp={} net.udp={}",
+                net.unwrap().0,
+                net.unwrap().1
+            )),
+            Self::NetStatic => Some(String::from(
                 "net-test net.dhcp=off net.ip=10.0.2.15 net.prefix=24 net.gw=10.0.2.2 net.resolver=10.0.2.3 net.dns=localhost shell-test net",
-            ),
-            Self::NetRestart => Some("net-test net.restart net.dns=localhost shell-test net"),
-            Self::NetZerocopy => Some("net-test net.zerocopy net.dns=localhost shell-test net"),
-            Self::NetSocket => Some("net-test net.no-selftest net.socket-test"),
-            Self::Console => Some("console-test"),
-            Self::Rng => Some("rng-test"),
-            Self::Vcon => Some("vcon-test"),
-            Self::Display => Some("theme=light ui.scale=2 display-test"),
-            Self::Terminal => Some("terminal-test"),
-            Self::InputDriver => Some("input-test input-driver terminal-test"),
-            Self::Pointer => Some("pointer-test input-driver"),
-            Self::Holydoc => Some("vfs.fs=holyfs holydoc-test"),
-            Self::HolyDocResize => Some("vfs.fs=holyfs holydoc-resize-test input-driver"),
-            Self::Workbench => Some("vfs.fs=holyfs workbench-test"),
-            Self::Debug => Some("debug-test"),
-            Self::Taskman => Some("taskman-test"),
-            Self::DebugFault => Some("debug-crash"),
-            Self::Dbg => Some("dbg-test"),
-            Self::DisplayRestart => Some("display-restart-test"),
-            Self::Hotswap => {
-                Some("hotswap-test shell-test help;replace hk-server-echo hk-server-fault;tasks")
-            }
-            Self::Checkpoint => Some(
+            )),
+            Self::NetRestart => Some(format!(
+                "net-test net.restart net.dns=localhost shell-test net net.tcp={} net.udp={}",
+                net.unwrap().0,
+                net.unwrap().1
+            )),
+            Self::NetZerocopy => Some(format!(
+                "net-test net.zerocopy net.dns=localhost shell-test net net.tcp={} net.udp={}",
+                net.unwrap().0,
+                net.unwrap().1
+            )),
+            Self::NetSocket => Some(format!(
+                "net-test net.no-selftest net.socket-test net.tcp={} net.udp={}",
+                net.unwrap().0,
+                net.unwrap().1
+            )),
+            Self::Console => Some(String::from("console-test")),
+            Self::Rng => Some(String::from("rng-test")),
+            Self::Vcon => Some(String::from("vcon-test")),
+            Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
+            Self::Terminal => Some(String::from("terminal-test")),
+            Self::InputDriver => Some(String::from("input-test input-driver terminal-test")),
+            Self::Pointer => Some(String::from("pointer-test input-driver")),
+            Self::Holydoc => Some(String::from("vfs.fs=holyfs holydoc-test")),
+            Self::HolyDocResize => Some(String::from(
+                "vfs.fs=holyfs holydoc-resize-test input-driver",
+            )),
+            Self::Workbench => Some(String::from("vfs.fs=holyfs workbench-test")),
+            Self::Debug => Some(String::from("debug-test")),
+            Self::Taskman => Some(String::from("taskman-test")),
+            Self::DebugFault => Some(String::from("debug-crash")),
+            Self::Dbg => Some(String::from("dbg-test")),
+            Self::DisplayRestart => Some(String::from("display-restart-test")),
+            Self::Hotswap => Some(String::from(
+                "hotswap-test shell-test help;replace hk-server-echo hk-server-fault;tasks",
+            )),
+            Self::Checkpoint => Some(String::from(
                 "checkpoint-test shell-test help;checkpoint hk-server-memory;restore-checkpoint hk-server-memory;tasks",
-            ),
-            Self::CheckpointServer => Some("checkpoint-srv-test"),
-            Self::Memory => Some("memory-test"),
+            )),
+            Self::CheckpointServer => Some(String::from("checkpoint-srv-test")),
+            Self::Memory => Some(String::from("memory-test")),
         }
     }
 
@@ -639,6 +651,78 @@ impl SmokeMode {
     }
 }
 
+/// 单次冒烟的统一产物目录。
+struct Artifacts {
+    log: PathBuf,
+    disk: PathBuf,
+    socket: PathBuf,
+}
+
+impl Artifacts {
+    fn new(mode: SmokeMode) -> Result<Self> {
+        let root = workspace::root();
+        let suffix = std::env::var("HK_ISO_SUFFIX").unwrap_or_default();
+        let stem = Path::new(mode.log_name())
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("boot");
+        let key = std::env::var("HK_SMOKE_KEY").unwrap_or_else(|_| {
+            let key = stem
+                .strip_prefix("serial")
+                .unwrap_or(stem)
+                .trim_start_matches('-');
+            let key = if key.is_empty() { "boot" } else { key };
+            format!("{key}{suffix}")
+        });
+        let dir = root.join("build/smoke").join(key);
+        fs::create_dir_all(&dir)
+            .map_err(|error| Failure::new(format!("创建 {} 失败：{error}", dir.display())))?;
+        let artifacts = Self {
+            log: dir.join("serial.log"),
+            disk: dir.join("disk.img"),
+            socket: dir.join("qmp.sock"),
+        };
+        let _ = fs::remove_file(&artifacts.log);
+        let _ = fs::remove_file(&artifacts.disk);
+        let _ = fs::remove_file(&artifacts.socket);
+        Ok(artifacts)
+    }
+
+    /// 保留 `build/serial.log` 作为 boot 模式的稳定查看入口。
+    fn mirror_boot_log(&self) {
+        let target = workspace::root().join("build/serial.log");
+        let _ = fs::copy(&self.log, target);
+    }
+}
+
+/// QEMU 子进程守卫：任何提前返回或超时都会 kill 并回收。
+struct QemuSession {
+    child: Child,
+}
+
+impl QemuSession {
+    fn new(child: Child) -> Self {
+        Self { child }
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    fn kill_and_wait(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for QemuSession {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            self.kill_and_wait();
+        }
+    }
+}
+
 /// 启动内核并校验串口输出。
 pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let targets = selection.targets();
@@ -646,36 +730,41 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         return Err(Failure::new("smoke 只支持 x86_64-qemu"));
     }
 
-    let iso = crate::image::run(selection, release, mode.cmdline())?;
-    let disk = prepare_disk(mode)?;
-    let log = workspace::root().join(mode.log_name());
-    let _ = fs::remove_file(&log);
-
-    let socket = workspace::root().join("build/qmp.sock");
-    if mode == SmokeMode::Input {
-        let _ = fs::remove_file(&socket);
-    }
-
-    let echo = if mode.is_network() {
-        let listener = TcpListener::bind(("0.0.0.0", NET_TCP_PORT))
+    let (echo, tcp_port) = if mode.is_network() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
             .map_err(|error| Failure::new(format!("绑定 TCP echo 失败：{error}")))?;
         listener
             .set_nonblocking(true)
             .map_err(|error| Failure::new(format!("设置 TCP echo 非阻塞失败：{error}")))?;
-        Some(listener)
+        let port = listener
+            .local_addr()
+            .map_err(|error| Failure::new(format!("读取 TCP echo 端口失败：{error}")))?
+            .port();
+        (Some(listener), port)
     } else {
-        None
+        (None, 0)
     };
-    let udp = if mode.is_network() {
-        let socket = UdpSocket::bind(("0.0.0.0", NET_UDP_PORT))
+    let (udp, udp_port) = if mode.is_network() {
+        let socket = UdpSocket::bind(("127.0.0.1", 0))
             .map_err(|error| Failure::new(format!("绑定 UDP echo 失败：{error}")))?;
         socket
             .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|error| Failure::new(format!("设置 UDP echo 超时失败：{error}")))?;
-        Some(socket)
+        let port = socket
+            .local_addr()
+            .map_err(|error| Failure::new(format!("读取 UDP echo 端口失败：{error}")))?
+            .port();
+        (Some(socket), port)
     } else {
-        None
+        (None, 0)
     };
+    let net_ports = mode.is_network().then_some((tcp_port, udp_port));
+    let cmdline = mode.cmdline(net_ports);
+    let iso = crate::image::run(selection, release, cmdline.as_deref())?;
+    let artifacts = Artifacts::new(mode)?;
+    let disk = prepare_disk(mode, &artifacts.disk)?;
+    let log = artifacts.log.clone();
+    let socket = artifacts.socket.clone();
 
     let vcon = if mode == SmokeMode::Vcon {
         let listener = TcpListener::bind(("127.0.0.1", 0))
@@ -712,9 +801,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         command.args(["-smp", "4"]);
     }
     if mode.is_network() {
-        command
-            .args(["-netdev", "user,id=net0"])
-            .args(["-device", "virtio-net-pci,netdev=net0"]);
+        command.args(["-netdev", "user,id=net0"]);
+        command.args(["-device", "virtio-net-pci,netdev=net0"]);
     }
     if mode == SmokeMode::Rng {
         command
@@ -749,11 +837,12 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             .arg(format!("unix:{},server=on,wait=off", socket.display()));
     }
 
-    let mut child = command
+    let child = command
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
+    let mut session = QemuSession::new(child);
 
     let vcon_peer = vcon.map(|(listener, _)| thread::spawn(move || serve_vcon_echo(listener)));
 
@@ -843,10 +932,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     };
     let deadline = Instant::now() + timeout;
     let status = loop {
-        match child.try_wait() {
+        match session.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) if Instant::now() > deadline => {
-                let _ = child.kill();
+                session.kill_and_wait();
                 break None;
             }
             Ok(None) => thread::sleep(Duration::from_millis(20)),
@@ -873,17 +962,24 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
         thread::sleep(Duration::from_millis(20));
     };
+    if mode == SmokeMode::Boot {
+        artifacts.mirror_boot_log();
+    }
     let expected_code = mode.exit_code();
     match status {
         Some(status) if status.code() == Some(expected_code) => {}
         Some(status) => {
             return Err(Failure::new(format!(
-                "QEMU 退出码 {:?}，期望 {expected_code}\n串口输出：\n{text}",
-                status.code()
+                "QEMU 退出码 {:?}，期望 {expected_code}\n串口输出：\n{}",
+                status.code(),
+                serial_tail(&text)
             )));
         }
         None => {
-            return Err(Failure::new(format!("QEMU 超时未退出\n串口输出：\n{text}")));
+            return Err(Failure::new(format!(
+                "QEMU 超时未退出\n串口输出：\n{}",
+                serial_tail(&text)
+            )));
         }
     }
 
@@ -1037,6 +1133,19 @@ fn serve_udp_echo(socket: UdpSocket) -> Result<()> {
     }
 }
 
+/// 截取串口日志尾部，避免超时错误淹没输出。
+fn serial_tail(text: &str) -> String {
+    const LIMIT: usize = 8000;
+    if text.len() <= LIMIT {
+        return text.to_string();
+    }
+    let mut start = text.len() - LIMIT;
+    while !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    format!("…（前文省略）\n{}", &text[start..])
+}
+
 /// 等待串口日志出现指定输出。
 fn wait_for(log: &Path, token: &str, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
@@ -1053,11 +1162,7 @@ fn wait_for(log: &Path, token: &str, timeout: Duration) -> Result<()> {
 }
 
 /// 生成新的测试磁盘。
-fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
-    let path = workspace::root().join(format!(
-        "build/test-disk{}.img",
-        std::env::var("HK_ISO_SUFFIX").unwrap_or_default()
-    ));
+fn prepare_disk(mode: SmokeMode, path: &Path) -> Result<PathBuf> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| Failure::new(format!("创建 {} 失败：{error}", parent.display())))?;
@@ -1077,9 +1182,9 @@ fn prepare_disk(mode: SmokeMode) -> Result<PathBuf> {
         hk_fs_ext4::format_with_wall_clock(disk, HostClock)
             .map_err(|error| Failure::new(format!("格式化 ext4 测试磁盘失败：{error}")))?
     };
-    fs::write(&path, disk.into_data())
+    fs::write(path, disk.into_data())
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
-    Ok(path)
+    Ok(path.to_path_buf())
 }
 
 /// 从磁盘镜像重新挂载 HolyFS，确认标记文件已经持久化。
@@ -1131,4 +1236,27 @@ fn verify_ext4(path: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serial_tail_keeps_the_end() {
+        let text = "a".repeat(9000) + "tail";
+        let tail = serial_tail(&text);
+        assert!(tail.ends_with("tail"));
+        assert!(tail.len() < text.len());
+        assert!(tail.starts_with('…'));
+    }
+
+    #[test]
+    fn serial_tail_handles_utf8_boundaries() {
+        let text = "测".repeat(3000);
+        let tail = serial_tail(&text);
+        assert!(tail.len() < text.len());
+        let body = tail.strip_prefix("…（前文省略）\n").expect("截断标记");
+        assert!(body.chars().all(|character| character == '测'));
+    }
 }

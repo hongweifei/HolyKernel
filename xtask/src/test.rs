@@ -13,7 +13,7 @@ pub fn run(selection: Selection) -> Result<()> {
         return Err(Failure::new("test 只接受 hosted；裸机测试由 QEMU 任务承担"));
     }
 
-    let mut command = cargo::command();
+    let mut command = cargo::locked();
     command.args(["test", "--workspace"]);
     cargo::run(command)
 }

@@ -12,15 +12,15 @@ use crate::failure::{Failure, Result};
 use crate::image::binary_path;
 use crate::workspace;
 
-/// 读取服务原生镜像；优先使用 build/iso，缺失时从目标 ELF 现场转换。
+/// 读取服务原生镜像；缓存比目标 ELF 新时复用，否则现场转换。
 pub(crate) fn service_image(service: &str, release: bool) -> Result<(String, Vec<u8>)> {
     let iso = workspace::root()
         .join("build/iso/boot")
         .join(format!("{service}{FILE_SUFFIX}"));
-    if iso.is_file() {
+    let binary = binary_path(service, release);
+    if fresh(&iso, &binary) {
         return Ok((iso.display().to_string(), read_image(&iso)?));
     }
-    let binary = binary_path(service, release);
     if !binary.is_file() {
         return Err(Failure::new(format!(
             "未找到 {service}；先运行 cargo xtask image 或 cargo xtask build --target x86_64-qemu"
@@ -35,7 +35,8 @@ pub(crate) fn service_image(service: &str, release: bool) -> Result<(String, Vec
 /// 读取构建期内核符号表；缺失时重新生成。
 pub(crate) fn kernel_symbols(release: bool) -> Result<Vec<(u64, String)>> {
     let path = workspace::root().join("build/kernel.sym");
-    let path = if path.is_file() {
+    let binary = binary_path("hk-x86_64", release);
+    let path = if fresh(&path, &binary) {
         path
     } else {
         generate_symbols(release)?
@@ -57,6 +58,17 @@ pub(crate) fn kernel_symbols(release: bool) -> Result<Vec<(u64, String)>> {
 
 pub(crate) fn read_image(path: &Path) -> Result<Vec<u8>> {
     fs::read(path).map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))
+}
+
+/// 缓存文件是否比源 ELF 新。
+fn fresh(cache: &Path, source: &Path) -> bool {
+    let Ok(cache) = fs::metadata(cache).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    let Ok(source) = fs::metadata(source).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    cache >= source
 }
 
 /// 镜像内的符号表模块名。

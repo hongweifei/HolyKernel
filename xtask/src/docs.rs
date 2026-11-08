@@ -11,7 +11,7 @@ use crate::workspace;
 
 /// 生成 rustdoc 并校验文档。
 pub fn run() -> Result<()> {
-    let mut rustdoc = cargo::command();
+    let mut rustdoc = cargo::locked();
     rustdoc.args(["doc", "--workspace", "--no-deps"]);
     cargo::run(rustdoc)?;
 
@@ -39,8 +39,7 @@ pub fn run() -> Result<()> {
 
 fn markdown_files(root: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    collect_markdown(&root.join("docs"), &mut files)?;
-    files.push(root.join("README.md"));
+    collect_markdown(root, &mut files)?;
     files.sort();
     Ok(files)
 }
@@ -53,6 +52,16 @@ fn collect_markdown(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
             .map_err(|error| Failure::new(format!("读取目录项失败：{error}")))?
             .path();
         if path.is_dir() {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if matches!(
+                name,
+                "target" | "build" | ".git" | ".commandcode" | "node_modules"
+            ) {
+                continue;
+            }
             collect_markdown(&path, files)?;
         } else if path.extension().is_some_and(|extension| extension == "md") {
             files.push(path);
@@ -68,7 +77,7 @@ fn check_links(root: &Path) -> Result<Vec<String>> {
             .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", file.display())))?;
         let directory = file.parent().expect("文档位于目录内");
         for (index, line) in text.lines().enumerate() {
-            for link in inline_links(line) {
+            for link in inline_links(line).into_iter().chain(reference_link(line)) {
                 let Some(path) = local_path(link) else {
                     continue;
                 };
@@ -128,6 +137,15 @@ fn inline_links(line: &str) -> Vec<&str> {
         rest = &after[end + 1..];
     }
     links
+}
+
+/// 引用式链接定义：`[label]: path "title"`。
+fn reference_link(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    let rest = line.strip_prefix('[')?;
+    let end = rest.find("]:")?;
+    let target = rest[end + 2..].trim();
+    (!target.is_empty()).then_some(target)
 }
 
 fn local_path(link: &str) -> Option<&str> {

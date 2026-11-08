@@ -7,20 +7,20 @@ use hk_server_api::{exit, write};
 
 use crate::driver::poll_once;
 use crate::format::write_address;
-use crate::{
-    DNS_WAIT_MS, NET_FRAME_MAX, Stats, TCP_PORT, UDP_ECHO_PORT, UDP_LOCAL_PORT, WAIT_MS, now_ms,
-};
+use crate::{DNS_WAIT_MS, NET_FRAME_MAX, Stats, UDP_LOCAL_PORT, WAIT_MS, now_ms};
 
 /// 运行启动自检；失败时以服务退出码结束。
 pub(crate) fn run(
     stack: &mut Stack,
-    driver: u64,
-    endpoint: u64,
+    link: (u64, u64),
     gateway: Ipv4Addr,
     dns_servers: &[Ipv4Addr],
     stats: &mut Stats,
     frame: &mut [u8; NET_FRAME_MAX],
+    ports: (u16, u16),
 ) {
+    let (driver, endpoint) = link;
+    let (tcp_port, udp_port) = ports;
     let icmp = match stack.open_icmp(0x1234) {
         Ok(handle) => handle,
         Err(_) => {
@@ -54,7 +54,7 @@ pub(crate) fn run(
             exit(7)
         }
     };
-    if stack.connect_tcp(tcp, gateway, TCP_PORT, 40000).is_err() {
+    if stack.connect_tcp(tcp, gateway, tcp_port, 40000).is_err() {
         write("hk-server-net: TCP 连接失败\n".as_bytes());
         exit(7)
     }
@@ -97,10 +97,7 @@ pub(crate) fn run(
             exit(8)
         }
     };
-    if stack
-        .send_udp(udp, gateway, UDP_ECHO_PORT, b"holy")
-        .is_err()
-    {
+    if stack.send_udp(udp, gateway, udp_port, b"holy").is_err() {
         write("hk-server-net: UDP 发送失败\n".as_bytes());
         exit(8)
     }

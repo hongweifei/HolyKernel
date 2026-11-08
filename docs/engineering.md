@@ -57,7 +57,7 @@ HolyKernel/
 
 ## 2. 工具链
 
-- 固定 `stable` 工具链，写入 `rust-toolchain.toml`；裸机目标由 `rustup` 提供的预编译 `core` 支撑。
+- 使用 `stable` 工具链，写入 `rust-toolchain.toml`；裸机目标由 `rustup` 提供的预编译 `core` 支撑。
 - 组件：`llvm-tools`、`rustfmt`、`clippy`；裸机三元组在 `rust-toolchain.toml` 的 `targets` 中声明。
 - Edition：2024。
 - 目标：`x86_64-unknown-none`、`aarch64-unknown-none`、host triple。
@@ -89,11 +89,13 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 `exit` 与冒烟测试通过 `isa-debug-exit` 退出 QEMU；缺少该设备时内核安全停机。
 
+冒烟产物按模式隔离到 `build/smoke/<mode>/`（`serial.log`、`disk.img`、`qmp.sock`）；`boot` 模式同时保留 `build/serial.log` 便于查看。`HK_SMOKE_KEY` 可覆盖目录键，`HK_ISO_SUFFIX` 可隔离并行构建。
+
 图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`xtask run` 在存在 `/dev/kvm` 时自动启用 `-accel kvm -cpu host`，手动 QEMU 可同样加速。
 
 当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。
 
-产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像。
+产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像；镜像构建使用固定磁盘时间戳与 `--locked`，ISO 以暂存树内容键缓存，重复构建校验和一致。
 
 `xtask` 与 `hk-server-build` 是宿主构建期成员（`std`）；裸机构建按平台包选择目标，避免对整个 workspace 使用裸机 target。
 
@@ -103,21 +105,15 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 | 任务 | 内容 |
 | --- | --- |
-| `fmt` | `cargo fmt --check` |
-| `clippy` | `cargo clippy -- -D warnings` |
+| `fmt` | `cargo fmt --all --check` |
+| `lint` | `cargo xtask lint`：host 与 x86_64-unknown-none 的 clippy、格式与依赖检查 |
 | `deps` | `cargo xtask deps`：crate 依赖方向 |
-| `host-test` | Hosted 单元测试 + 属性测试 |
+| `host-test` | Hosted 单元测试与属性测试 |
 | `build-matrix` | x86_64 / AArch64 / Hosted |
-| `qemu-smoke` | 启动到 HolyShell |
-| `qemu-arch` | AArch64/RISC-V smoke |
-| `sim` | 确定性 IPC/调度/重启/故障注入 |
-| `posix` | POSIX 测试套件子集 |
-| `vfs` | ext2/tmpfs/devfs/procfs 测试 |
-| `net` | virtio-net、TCP/UDP、DHCP、DNS、socket |
-| `fuzz` | 解析器、IPC、VFS、ELF、网络协议 |
-| `docs` | Markdown 链接、ADR 索引 |
-| `deny` | 许可证、安全公告、重复依赖 |
+| `qemu-smoke` | `boot`、`shell`、`memory` 三个 QEMU 冒烟模式 |
+| `docs` | rustdoc、Markdown 链接、ADR 与文档索引 |
 | `budget` | 内核代码行数统计 |
+| `deny` | 许可证、安全公告、重复依赖 |
 
 ---
 
