@@ -175,6 +175,62 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
 }
 
 #[test]
+fn releasing_last_reference_returns_frame_to_capacity() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(12),
+        PhysRange::new(PhysAddr::new(0x50_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+
+    assert_eq!(kernel.share_frame(worker, frame), Ok(2));
+    assert_eq!(kernel.release_frame(worker, frame), Ok(1));
+    assert_eq!(
+        kernel
+            .capacity_info(worker, capacity)
+            .expect("Capacity 信息")
+            .4,
+        PAGE_SIZE as u64,
+        "仍有引用时不归还"
+    );
+
+    assert_eq!(kernel.release_frame(worker, frame), Ok(0));
+    assert_eq!(
+        kernel
+            .capacity_info(worker, capacity)
+            .expect("Capacity 信息")
+            .4,
+        0,
+        "最后一个引用归还 Capacity"
+    );
+    assert!(matches!(
+        kernel.frame_info(worker, frame),
+        Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))
+    ));
+
+    // 句柄保留但负载已空；关闭它不会再次归还。
+    kernel.close_handle(worker, frame).expect("关闭 Frame");
+    assert_eq!(
+        kernel
+            .capacity_info(worker, capacity)
+            .expect("Capacity 信息")
+            .4,
+        0
+    );
+}
+
+#[test]
 fn tracks_arena_regions_and_frame_refs() {
     let kernel = kernel();
     let worker = thread(&kernel);
