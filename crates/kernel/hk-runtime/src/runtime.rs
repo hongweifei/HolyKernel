@@ -185,7 +185,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             task.leader = index;
         }
         let system_capacity = platform
-            .reserve_capacity(SYSTEM_CAPACITY_BYTES, CapacityKind::User)
+            .reserve_capacity(SYSTEM_CAPACITY_BYTES, CapacityKind::System)
             .map(|capacity| Arc::new(spin::Mutex::new(capacity)));
         Self {
             kernel,

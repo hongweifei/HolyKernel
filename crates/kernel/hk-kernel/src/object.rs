@@ -141,6 +141,14 @@ impl KernelObject {
         }
     }
 
+    /// 返回物理页归属的 Capacity；导入的区间为 `None`。
+    pub fn frame_capacity(&self) -> Option<&Arc<Mutex<Capacity>>> {
+        match &self.payload {
+            ObjectPayload::Frame { capacity, .. } => capacity.as_ref(),
+            _ => None,
+        }
+    }
+
     /// 取出物理页；取出后 Frame 对象保持为空。
     pub fn take_frame(&self) -> Option<Frame> {
         match &self.payload {

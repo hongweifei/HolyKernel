@@ -187,6 +187,10 @@ impl Capacity {
     }
 
     /// 归还 Frame 的物理区间。
+    ///
+    /// 只接受已无其他所有者的 Frame：引用计数为 1（仅持有者）或已归零
+    /// （最后一个引用已被 `Frame::release` 释放）。仍被共享或固定的 Frame
+    /// 拒绝归还。
     pub fn free(&mut self, frame: Frame) -> Result<(), HmpError> {
         if frame.capacity() != self.id {
             return Err(HmpError::WrongCapability);
@@ -194,7 +198,7 @@ impl Capacity {
         if frame.is_pinned() {
             return Err(HmpError::PermissionDenied);
         }
-        if frame.refs() != 1 {
+        if frame.refs() > 1 {
             return Err(HmpError::PermissionDenied);
         }
         self.release(frame.phys(), frame.len())
@@ -376,6 +380,20 @@ mod tests {
         let mut frame = capacity.allocate(4096).expect("页");
         assert_eq!(frame.share(), Ok(2));
         assert_eq!(capacity.free(frame).err(), Some(HmpError::PermissionDenied));
+    }
+
+    #[test]
+    fn frees_frame_after_last_reference_released() {
+        let mut capacity = capacity();
+        let mut frame = capacity.allocate(4096).expect("页");
+        assert_eq!(frame.share(), Ok(2));
+        assert_eq!(frame.release(), 1);
+        assert_eq!(frame.release(), 0);
+
+        capacity.free(frame).expect("归零后可归还");
+        assert_eq!(capacity.used(), 0);
+        let reused = capacity.allocate(4096).expect("复用");
+        assert_eq!(reused.phys(), PhysAddr::new(0x10_0000));
     }
 
     #[test]

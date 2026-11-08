@@ -143,16 +143,29 @@ impl Kernel {
     }
 
     /// 释放一次 Frame 共享引用。
+    ///
+    /// 引用降到零时 Frame 已无所有者，立即归还所属 Capacity 并从对象中取出。
+    /// 归还后句柄保留但内容为空，后续释放或关闭不会重复归还。
     pub fn release_frame(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
-        let frame = object.frame().ok_or(KernelError::WrongKind {
+        let frame_lock = object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
-        let mut frame = frame.lock();
-        let frame = frame
-            .as_mut()
-            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        Ok(frame.release())
+        let mut slot = frame_lock.lock();
+        let frame = slot.as_mut().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        let refs = frame.release();
+        if refs > 0 {
+            return Ok(refs);
+        }
+        let Some(capacity) = object.frame_capacity() else {
+            // 导入的区间没有 Capacity 归属，只丢弃描述。
+            slot.take();
+            return Ok(0);
+        };
+        let frame = slot.take().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        drop(slot);
+        capacity.lock().free(frame).map_err(KernelError::Hmp)?;
+        Ok(0)
     }
 
     /// 设置 Frame 的固定驻留状态。
@@ -200,7 +213,7 @@ impl Kernel {
         if frame.capacity() != capacity.id() {
             return Err(KernelError::Hmp(HmpError::WrongCapability));
         }
-        if frame.is_pinned() || frame.refs() != 1 {
+        if frame.is_pinned() || frame.refs() > 1 {
             return Err(KernelError::Hmp(HmpError::PermissionDenied));
         }
         let frame = slot.take().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
