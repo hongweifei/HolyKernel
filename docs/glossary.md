@@ -47,7 +47,7 @@
 | 术语 | 定义 |
 | --- | --- |
 | **HMP** | Holy Memory Plane；内存的唯一能力映射平面；内核与用户态服务共享同一对象图 |
-| **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆，堆与工作区按需缺页装入，任务退出时整体回收 |
+| **Arena** | 任务内存根；持有地址空间、Region 表、栈与堆，任务退出时整体回收 |
 | **Capacity** | Root Server 持有并通过 Handle 授予的物理容量能力；声明页大小、配额、用途与拆分 |
 | **Frame** | 连续物理页对象；带 FrameId、所属 Capacity、pin 与共享引用；最后一个引用归还 Capacity |
 | **Region** | 类型化能力在任务地址空间中的唯一映射视图；任务本地对象；带权利、COW、guard、pin 等标志 |
@@ -83,7 +83,7 @@
 | --- | --- |
 | **Root Server** | 启动服务器、分配初始 Capacity/Cadence/Handle、监督与重启 |
 | **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence |
-| **Memory Server** | 持有 System Capacity 共享视图，作为 Anonymous Provider 提供匿名能力与缺页 |
+| **Memory Server** | 持有 User Capacity，作为 Anonymous Provider 提供匿名能力与缺页 |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |

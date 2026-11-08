@@ -61,7 +61,7 @@ ABI 对所有持权服务统一开放 `Arena`、`Capacity`、`Frame`、`Region`�
 | 持有者 | 初始授予 |
 | --- | --- |
 | Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 Arena |
-| Memory Server | System Capacity 共享视图；Anonymous Provider 绑定权 |
+| Memory Server | User Capacity 子集；Anonymous Provider 绑定权 |
 | 驱动服务 | Dma/Gpu Capacity 子集；DeviceGrant；Frame 的 pin/export |
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |

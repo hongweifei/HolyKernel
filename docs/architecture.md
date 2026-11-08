@@ -199,11 +199,11 @@ sequenceDiagram
 - **Task**：调度主体，持有 Cadence 与 Meter；同一 Task 的 TCB 共享契约与计量。
 - **TCB**：执行单元；寄存器上下文、所属 Task、状态；绑定 Arena，并引用 Task 的 HandleTable。
 - **调度**：Holy Cadence Model（Task 级 Cadence 契约 + TCB 级轮转、每 CPU Beat、SMP、Tickless、Lending）；见 [Holy Cadence Model](scheduling.md)。
-- **Arena**：每任务内存根；持有地址空间、页表、Region 表、栈与堆。堆与工作区由惰性匿名 Region 承载，按页缺页装入。
+- **Arena**：每任务内存根；持有地址空间、页表、Region 表、栈与堆。
 - **HMP**：Capacity 管物理容量，Frame 管物理页；Revision/Surface/TaskImage/DeviceAllocation/Anonymous 以类型化能力暴露，Mappable 是统一能力接口，Region 是唯一映射；Provider 按类型提供契约，Ledger 记账。内核与用户态服务使用同一对象图、Rights 与错误面。
 - **铸造链**：Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights。
 - **COW**：`fork` 复制 Region 表并标 `RegionFlags::COW`；未绑定 Provider 的 Anonymous 走内核快速路径，绑定 Provider 的能力由 Provider 处理。
-- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；`SYS_ALLOC` 在惰性 Arena Region 内按页推进分配并计入任务 Ledger，首次访问才装入零页。
+- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；`SYS_ALLOC` 对应 Arena 内 Region 的增长/提交。
 - **DMA**：用户态驱动获得 Frame、DeviceAllocation 与 DeviceGrant；IOMMU 可选。
 
 详见 [HMP 内存模型](hmp.md)、[执行模型](execution.md)。
@@ -216,7 +216,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **Root Server** | 启动、监督、重启、初始授予 | 初始 Capacity、Cadence、HandleTable、Endpoint |
 | **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence | Cadence Pool、Meter |
-| **Memory Server** | Anonymous Provider、System Capacity 共享视图、Capability 分配 | System Capacity 共享视图、Capability、Frame |
+| **Memory Server** | Anonymous Provider、User Capacity、Capability 分配 | User Capacity、Capability、Frame |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
@@ -339,7 +339,7 @@ sequenceDiagram
 
 - **隔离**：每个 Task 独立 Arena；内核与用户态分离。
 - **最小权限**：服务器只获得完成职责所需的 Handle；HMP 的 Capacity/Frame/Region 由 Rights 约束，内存授权由 Handle 与 Rights 决定。
-- **内存授权**：Root Server 持有初始 Capacity 并通过 Handle 转移；Memory Server 持有 System Capacity 共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- **内存授权**：Root Server 持有初始 Capacity 并通过 Handle 转移；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
 - **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；当前 x86 使用软件 IOMMU 域表，硬件 VT-d 后端待接入；关闭时依赖驱动审计。
 - **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务；POSIX Server 在启用兼容环境时加入。

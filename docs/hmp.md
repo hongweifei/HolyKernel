@@ -125,8 +125,6 @@ Arena 是任务内存的根对象。
 - 每个 Task 有一个 Arena；Arena 绑定该任务的地址空间。
 - Arena 保存 Region 表、用户栈、堆与工作区；栈与堆都是 Arena 内的 Region。
 - Arena 从 Capacity 取得 Frame；Arena 自身计入任务 Ledger。
-- Arena 由一个覆盖固定 VA 窗口的惰性匿名 Region 承载；装载期不预映射，首次访问按页从任务 Capacity 装入零页。
-- `SYS_ALLOC` 只推进按页对齐的线性分配并计入任务 Ledger。
 - Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
@@ -142,14 +140,11 @@ Capacity 是物理容量的授予单位。
 
 - 声明用途：`System`、`User`、`Dma`、`Gpu`、`Numa`。
 - 声明页大小与 order；4 KiB 为起始档位，16 KiB、64 KiB、2 MiB、1 GiB 由 Capacity 拓扑与 Frame order 表达。
-- 声明配额、软上限、可回收属性与所属 Ledger；后端按 `CapacityId` 记录已用与峰值。
+- 声明配额、可回收属性与所属 Ledger。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Capacity 是记账边界：所有 Frame、Arena、Region 与对象元数据最终计入某个 Ledger。
-- Root Server 持有初始 Capacity；Memory Server 持有 System Capacity 的共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
-- `System` 从完整启动内存描述建立：`FrameBank` 初始化后，除已预留窗口（如 DMA 池）外的全部可用区间登记给它，因此一个容量可以持有多个窗口；内核堆、页表、镜像/栈/Arena 页与匿名页都计入它的用量。`Dma`/`Gpu` 与其它 `User` 子容量从 `System` 切出；Memory Server 直接持有 `System` 的共享视图，是用户内存的唯一来源。
+- Root Server 持有初始 Capacity；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
-- 用量 `used` 只统计已分配的 Frame，切出或并回窗口本身不计入用量，两条分配路径语义一致。
-- 后端是窗口归属的权威：子容量仍有未归还的分配、或窗口与容量不匹配时，`merge` 返回错误而不是静默成功；一个容量可能因不相邻合并持有多个窗口，`split` 从未被占用尾部空闲的窗口切出。
 
 ---
 
@@ -304,8 +299,7 @@ HMP 的文件页缓存以修订为中心。
 
 Ledger 是容量与内存使用的显式记账对象。
 
-- 记录提交（charged）、常驻（resident）、峰值、软/硬上限与压力状态；软上限只报告，硬上限拒绝分配。
-- 每个 Capacity 的用量与峰值由后端按 `CapacityId` 归因：`SYS_CAPACITY_INFO` 返回区间、用途、页大小、硬上限、已用、峰值与软上限；任务 Ledger 的常驻由运行时按能力后备与已装入页计算，`SYS_LEDGER_INFO` 返回提交、硬上限、峰值、压力、常驻与软上限。
+- 记录容量、常驻、提交、峰值、软/硬上限与压力状态。
 - 每个 Capacity、Arena、Region、类型化能力与 Task 都有关联 Ledger。
 - 内核执行硬上限；超过配额的申请失败。
 - 记账随 Handle 转移：发送方归还，接收方按能力大小重新记账；接收方超配额则拒绝。
@@ -336,7 +330,7 @@ flowchart LR
 | 持有者 | 初始授予 |
 | --- | --- |
 | Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 Arena |
-| Memory Server | System Capacity 共享视图；Anonymous Provider 绑定权 |
+| Memory Server | User Capacity 子集；Anonymous Provider 绑定权 |
 | 驱动服务 | Dma/Gpu Capacity 子集；DeviceGrant；Frame 的 pin/export |
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |
@@ -412,7 +406,7 @@ HMP 的对象与 ABI 与架构无关。以下只作为机制出现在包装 crat
 | **Region** | 类型化能力在 Arena 中的唯一映射视图 |
 | **Capability** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 的类型化能力 |
 | **Provider** | 缺页、回写、驱逐与驻留的 Endpoint 服务 |
-| **Ledger** | 容量、提交、常驻、峰值、软/硬上限与压力的显式记账 |
+| **Ledger** | 容量、常驻、提交、配额与压力的显式记账 |
 | **Mappable** | Region 可引用的统一能力接口 |
 | **铸造链** | Root Server → Capacity → Frame → Capability → Region → PTE |
 | **授予面** | Root Server 服务清单决定的初始 Arena/Capacity/Frame/Capability |

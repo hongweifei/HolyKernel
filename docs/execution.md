@@ -211,8 +211,6 @@ impl Notification {
 - 大消息通过 Frame Handle 传递；接收方创建自己的 Region，句柄权限决定只读/可写/可转移。
 - `SYS_RECV_DATA*` 返回实际写入缓冲区的字节数；载荷超过缓冲区时截断，调用方按返回长度切片。
 - 内核提供 `SYS_CAPACITY_*`、`SYS_FRAME_*`、`SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP_CAPABILITY`。
-- `SYS_CAPACITY_INFO` 返回 64 字节：区间起点/长度、用途、页大小、硬上限、已用、峰值与软上限；`SYS_LEDGER_INFO` 返回 48 字节：提交、硬上限、峰值、压力、常驻与软上限。
-- Memory Server 的 `MEMORY_ALLOC`、`MEMORY_FRAME` 与 Provider 页都从它持有的 System Capacity 共享视图出页，与 `SYS_CAPABILITY_CREATE` 的默认出页路径落在同一个容量上；用户内存因此只有一份归因。
 - `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
 - 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
@@ -221,9 +219,8 @@ impl Notification {
 - 块客户端登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一个 Frame 并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把 Frame 映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
 - Frame 的最后一个句柄释放时归还所属 Capacity；任务退出关闭句柄、客户端 detach 后回收。类型化能力与 Provider 页遵循同一套 Frame 归属。
-- x86_64 平台启动时先预留 64 MiB 连续 DMA 窗口，再从其余可用内存建立 System Capacity；DeviceGrant 的 DMA 缓冲与驱动共享映射来自 DMA 窗口，显示表面、背缓冲与匿名页从 System Capacity 分配。窗口放大时新旧表面会短暂并存，System 配额需要覆盖这一峰值。
-- `SYS_ALLOC(size, align)` 在任务 Arena 内推进按页对齐的线性分配并计入任务 Ledger；返回的区间首次访问才按页装入零页，装载期不再预映射 Arena。
-- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定（Arena 只固定 VA 窗口，物理页按需装入）；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
+- x86_64 平台启动时建立 64 MiB 连续 Dma Capacity，驱动共享映射与 DMA 缓冲从这里分配；显示表面与匿名内存来自 Memory Server 的 Capacity。窗口放大时新旧表面会短暂并存，容量需要覆盖这一峰值。
+- 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
 
 ---
 
