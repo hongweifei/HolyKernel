@@ -6,13 +6,7 @@ use super::SyscallResult;
 
 /// # Safety
 /// 调用方必须处于用户态或由内核显式调用；参数语义由调用号决定。
-pub(crate) unsafe fn call(
-    number: u64,
-    first: u64,
-    second: u64,
-    third: u64,
-    fourth: u64,
-) -> SyscallResult {
+pub unsafe fn call(number: u64, first: u64, second: u64, third: u64, fourth: u64) -> SyscallResult {
     let value: u64;
     let word: u64;
     let sender: u64;

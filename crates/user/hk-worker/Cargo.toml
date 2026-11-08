@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+hk-syscall-client = { version = "0.1.0", path = "../hk-syscall-client" }
 hk-sync = { version = "0.1.0", path = "../hk-sync" }
 hk-thread = { version = "0.1.0", path = "../hk-thread" }
 

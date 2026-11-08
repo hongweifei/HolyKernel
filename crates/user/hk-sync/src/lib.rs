@@ -10,7 +10,7 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use hk_server_api::{futex_wait, futex_wake};
+use hk_syscall_client::{futex_wait, futex_wake};
 
 /// 未加锁。
 const UNLOCKED: u32 = 0;

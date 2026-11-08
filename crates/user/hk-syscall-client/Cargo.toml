@@ -1,0 +1,14 @@
+[package]
+name = "hk-syscall-client"
+description = "HolyKernel 零分配系统调用薄客户端"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+
+[lints]
+workspace = true

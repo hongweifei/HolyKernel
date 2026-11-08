@@ -139,8 +139,8 @@ extern "C" fn worker(pointer: u64) -> ! {
         pool.completed.lock().push_back((id, result));
         let wake = *pool.wake.lock();
         if let Some((endpoint, label)) = wake {
-            let _ = hk_server_api::send(endpoint, label, id);
+            let _ = hk_syscall_client::send(endpoint, label, id);
         }
     }
-    hk_server_api::exit(0)
+    hk_syscall_client::exit(0)
 }

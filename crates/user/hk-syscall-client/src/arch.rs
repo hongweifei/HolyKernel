@@ -16,12 +16,12 @@ pub struct SyscallResult {
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
-pub(crate) use x86_64::call;
+pub use x86_64::call;
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 #[cfg(target_arch = "aarch64")]
-pub(crate) use aarch64::call;
+pub use aarch64::call;
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 compile_error!("当前架构未提供系统调用入口");

@@ -218,7 +218,7 @@ version = "0.1.0"
 name = "hk-async"
 version = "0.1.0"
 dependencies = [
- "hk-server-api",
+ "hk-syscall-client",
 ]
 
 [[package]]
@@ -270,7 +270,8 @@ version = "0.1.0"
 name = "hk-debug"
 version = "0.1.0"
 dependencies = [
- "hk-server-api",
+ "hk-syscall",
+ "hk-syscall-client",
  "spin",
 ]
 
@@ -518,6 +519,7 @@ version = "0.1.0"
 dependencies = [
  "hk-base",
  "hk-syscall",
+ "hk-syscall-client",
  "linked_list_allocator",
  "spin",
 ]
@@ -895,12 +897,20 @@ dependencies = [
 name = "hk-sync"
 version = "0.1.0"
 dependencies = [
- "hk-server-api",
+ "hk-syscall-client",
 ]
 
 [[package]]
 name = "hk-syscall"
 version = "0.1.0"
+
+[[package]]
+name = "hk-syscall-client"
+version = "0.1.0"
+dependencies = [
+ "hk-base",
+ "hk-syscall",
+]
 
 [[package]]
 name = "hk-test"
@@ -911,7 +921,7 @@ name = "hk-thread"
 version = "0.1.0"
 dependencies = [
  "hk-async",
- "hk-server-api",
+ "hk-syscall-client",
 ]
 
 [[package]]
@@ -926,8 +936,8 @@ dependencies = [
 name = "hk-worker"
 version = "0.1.0"
 dependencies = [
- "hk-server-api",
  "hk-sync",
+ "hk-syscall-client",
  "hk-thread",
 ]
 

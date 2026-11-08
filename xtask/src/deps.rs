@@ -95,6 +95,25 @@ const PROTO_FORBIDDEN: &[&str] = &[
 /// 零依赖 crate：保持纯契约或纯库。
 const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall", "hk-block"];
 
+/// 系统调用薄客户端禁止依赖的类别：只保留 ABI 与零分配基础类型。
+const SYSCALL_CLIENT_FORBIDDEN: &[&str] = &[
+    "hk-kernel",
+    "hk-runtime",
+    "hk-root-server",
+    "hk-platform-",
+    "hk-x86_64",
+    "hk-hosted",
+    "hk-server-",
+    "hk-proto",
+    "hk-fs",
+    "hk-vfs",
+    "hk-block",
+    "hk-net",
+    "hk-driver",
+    "linked_list_allocator",
+    "spin",
+];
+
 /// crate 侧别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Side {
@@ -344,6 +363,7 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-base" | "hk-hal" | "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => {
             IMPL_FORBIDDEN
         }
+        "hk-syscall-client" => SYSCALL_CLIENT_FORBIDDEN,
         "hk-server-api" => &[
             "hk-handle",
             "hk-kernel",

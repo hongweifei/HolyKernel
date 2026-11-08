@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+hk-syscall-client = { version = "0.1.0", path = "../hk-syscall-client" }
 linked_list_allocator = "0.10"
 spin = "0.9"
 

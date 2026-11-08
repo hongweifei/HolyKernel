@@ -1,20 +1,18 @@
 //! 内核提供给用户态服务的通用面。
 //!
-//! 本 crate 描述系统调用参数与返回约定、HMP 能力与 Region 封装、Root 控制、
-//! 设备授权与运行时样板；服务线协议与固定缓冲客户端在 `hk-proto`。
+//! 本 crate 描述 HMP 能力与 Region 封装、设备授权、帧缓冲与运行时样板；
+//! 系统调用薄封装由 `hk-syscall-client` 提供并在此重新导出，服务线协议与
+//! 固定缓冲客户端在 `hk-proto`。
 
 #![no_std]
 
-mod arch;
 pub mod device;
 pub mod format;
 pub mod framebuffer;
 pub mod heap;
 pub mod memory;
 pub mod memory_manager;
-pub mod root;
 pub mod runtime;
-pub mod syscall;
 
 pub use hk_syscall::{
     CapabilityKind, DISPLAY_SERVICE, FAULT_EVENT, RIGHT_ADMIN, RIGHT_EXECUTE, RIGHT_READ,
@@ -26,7 +24,7 @@ pub struct PanicWriter;
 
 impl core::fmt::Write for PanicWriter {
     fn write_str(&mut self, text: &str) -> core::fmt::Result {
-        crate::syscall::write(text.as_bytes());
+        crate::write(text.as_bytes());
         Ok(())
     }
 }
@@ -73,8 +71,9 @@ macro_rules! server_boilerplate {
     };
 }
 
-pub(crate) use arch::call as syscall_call;
+pub(crate) use hk_syscall_client::call as syscall_call;
 
+pub use hk_syscall_client::syscall::*;
+pub use hk_syscall_client::{root, syscall};
 pub use memory::*;
 pub use memory_manager::*;
-pub use syscall::*;

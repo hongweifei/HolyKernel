@@ -16,8 +16,8 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use hk_server_api::FAULT_EVENT;
-use hk_server_api::root::{ROOT_OP_LOOKUP, call};
+use hk_syscall::FAULT_EVENT;
+use hk_syscall_client::root::{ROOT_OP_LOOKUP, call};
 use spin::Mutex;
 
 /// 最近一次由内核投递的异常现场。

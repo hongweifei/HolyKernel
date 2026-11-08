@@ -35,7 +35,7 @@ impl Wake for Flag {
 /// 在当前线程执行 future，未就绪时让出 CPU。
 pub fn block_on<F: Future>(future: F) -> F::Output {
     block_on_with(future, || {
-        hk_server_api::yield_now();
+        hk_syscall_client::yield_now();
     })
 }
 
@@ -145,7 +145,7 @@ impl Future for SleepTicks {
 
     fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<()> {
         let this = self.get_mut();
-        let now = hk_server_api::ticks();
+        let now = hk_syscall_client::ticks();
         let started = *this.started.get_or_insert(now);
         if now.wrapping_sub(started) >= this.ticks {
             Poll::Ready(())
@@ -172,7 +172,7 @@ impl Future for NotificationWait {
     type Output = u64;
 
     fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<u64> {
-        let bits = hk_server_api::wait_notify_try(self.target, self.mask);
+        let bits = hk_syscall_client::wait_notify_try(self.target, self.mask);
         if bits != 0 {
             Poll::Ready(bits)
         } else {

@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-async = { version = "0.1.0", path = "../hk-async" }
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+hk-syscall-client = { version = "0.1.0", path = "../hk-syscall-client" }
 
 [lints]
 workspace = true

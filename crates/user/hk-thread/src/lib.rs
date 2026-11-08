@@ -10,7 +10,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use hk_async::SleepTicks;
-use hk_server_api::{alloc, exit, thread_create, thread_join, thread_set_tls};
+use hk_syscall_client::{alloc, exit, thread_create, thread_join, thread_set_tls};
 
 /// 最小线程栈尺寸。
 pub const MIN_STACK: usize = 16 * 1024;
@@ -96,5 +96,5 @@ pub fn set_tls(tls: u64) -> u64 {
 
 /// 让出 CPU。
 pub fn yield_now() {
-    hk_server_api::yield_now();
+    hk_syscall_client::yield_now();
 }
