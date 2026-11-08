@@ -1,0 +1,27 @@
+[package]
+name = "hk-server-ext4"
+description = "HolyKernel ext4 Server：独立挂载 ext4 并提供 Holy 文档协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-ext4"
+path = "src/main.rs"
+
+[dependencies]
+hk-base = { version = "0.1.0", path = "../../crates/shared/hk-base" }
+hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
+hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
+hk-fs-ext4 = { version = "0.1.0", path = "../../crates/user/hk-fs-ext4" }
+hk-holy-service = { version = "0.1.0", path = "../../crates/user/hk-holy-service" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-vfs = { version = "0.1.0", path = "../../crates/user/hk-vfs" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true

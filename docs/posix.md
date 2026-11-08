@@ -15,7 +15,7 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 1. **POSIX 兼容环境**：通过 `posix` 入口提供进程、文件、目录、信号、线程、管道、FIFO、Unix 套接字、共享内存、定时器；默认命令行走 HolyShell。
 2. **musl + ABI shim**：musl 提供 C 运行时、pthreads、stdio、malloc；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline、ELF 加载；`hk-libc` 作为薄兼容层。
 3. **用户态实现**：POSIX 语义由 POSIX Server 维护；内核提供 Task/TCB、Cadence/Meter、Arena、Endpoint、Notification、HMP（Capacity/Frame/Region）与 Handle。
-4. **VFS 集成**：文件与目录操作通过 Path Server 投影到 VFS Server；文件系统后端为 ext2/ext4、tmpfs、devfs、procfs；HolyFS 由独立服务提供，经 VFS 远程后端接入。
+4. **VFS 集成**：文件与目录操作通过 Path Server 投影到 VFS Server；ext2/ext4 与 HolyFS 由独立服务提供，经 VFS 远程后端接入；tmpfs、devfs、procfs 内建在 VFS。
 5. **进程模型**：`fork`、`exec`、`wait`、`exit`、进程组、会话、作业控制。
 6. **线程模型**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
 7. **兼容性测试**：POSIX 测试套件 + 自有回归 + 应用示例。
@@ -31,7 +31,7 @@ HolyKernel 的默认命令行是 **HolyShell + Holy 命令**；POSIX.1 是**兼�
 - IPC：pipe、FIFO、Unix 域套接字、POSIX 共享内存、信号量
 - `mmap`/`munmap`/`mprotect`/`brk`
 - 时间、`select`/`poll`、终端控制
-- ext2/ext4 根文件系统、tmpfs、devfs、procfs；HolyFS 作为 Holy 数据卷
+- ext2/ext4 根文件系统（独立服务）、内建 tmpfs/devfs/procfs；HolyFS 作为独立 Holy 数据卷
 
 **后续版本评估**
 
@@ -53,14 +53,15 @@ flowchart TB
     Path -->|盘符投影| VFS["VFS Server"]
     POSIX -->|socket| Net["Network Server"]
     POSIX -->|invoke| Kernel["Task · TCB · Cadence · HMP Region · Endpoint"]
-    VFS --> FS["ext2/ext4 · tmpfs · devfs · procfs"]
+    VFS --> Ext4["ext2/ext4 Server"]
     VFS --> Holy["HolyFS Server"]
+    VFS -.->|内建| Synthetic["tmpfs · devfs · procfs"]
 ```
 
 - **musl + `hk-abi`**：musl 提供 C 运行时与 POSIX 函数；`hk-abi` 把 POSIX 调用转换为 POSIX Server IPC；`hk-crt` 提供启动与 ELF 加载。
 - **POSIX Server**：维护进程、fd、信号、进程组、会话、管道、Unix 套接字。
 - **Path Server**：路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影。
-- **VFS Server**：Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌。
+- **VFS Server**：Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌；聚合独立 ext4/HolyFS 服务并内建 tmpfs/devfs/procfs。
 - **Network Server**：socket 后端。
 - **内核**：提供 Task/TCB、Cadence/Meter、Arena、HMP（Capacity/Frame/Region）与 Endpoint 等机制。
 

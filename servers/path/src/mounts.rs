@@ -10,7 +10,7 @@ use hk_proto_client::HolyClient;
 use hk_server_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 
-use crate::remote::RemoteHolyFs;
+use hk_fs_remote::RemoteHolyFs;
 
 /// 等待原生 VFS 就绪，并以原生盘符构造路径命名空间。
 #[cfg(target_os = "none")]

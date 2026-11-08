@@ -1,4 +1,11 @@
-//! 通过 IPC 访问独立 HolyFS 服务的 VFS 后端。
+//! 通过 IPC 访问 Holy 文档服务的客户端后端。
+//!
+//! VFS 与 Path Server 都把远程 Holy 服务当作普通 [`hk_fs::Backend`]；
+//! 服务名、盘符与端点解析都封装在这里。
+
+#![no_std]
+
+extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -12,19 +19,20 @@ use hk_proto::holy::{
     DocId as WireDocId, DocumentKind as WireKind, KIND_COLLECTION, RevisionId as WireRevisionId,
     VolumeView, decode_entries, decode_revisions,
 };
-#[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
 
-/// 独立 HolyFS 服务的远程后端。
-pub(crate) struct RemoteHolyFs {
+/// 通过 IPC 访问的远程文档后端。
+pub struct RemoteHolyFs {
     root: DocId,
     volume: VolumeView,
+    drive: u8,
     client: RefCell<HolyClient>,
 }
 
 impl RemoteHolyFs {
     /// 连接独立服务并读取指定盘符的根文档。
-    pub(crate) fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
+    /// 连接指定服务并读取盘符的根文档与卷视图。
+    pub fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
         let mut client = HolyClient::new_with_service(own_endpoint, service);
         client.set_drive(drive);
         let root = client.root().map_err(Error::from_status_code)?;
@@ -32,11 +40,13 @@ impl RemoteHolyFs {
         Ok(Self {
             root: DocId::new(root.get()),
             volume,
+            drive,
             client: RefCell::new(client),
         })
     }
 
-    pub(crate) fn volume(&self) -> VolumeView {
+    /// 返回盘符的卷视图。
+    pub fn volume(&self) -> VolumeView {
         self.volume
     }
 }
@@ -48,6 +58,10 @@ impl Backend for RemoteHolyFs {
 
     fn caps(&self) -> Caps {
         Caps::NATIVE
+    }
+
+    fn cacheable(&self, _document: DocId) -> bool {
+        self.drive != b'D' && self.drive != b'P'
     }
 
     fn document(&self, document: DocId) -> Result<DocumentInfo, Error> {

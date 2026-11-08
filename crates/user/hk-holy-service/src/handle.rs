@@ -1,6 +1,4 @@
-//! 原生 VFS 的 Holy 文档请求处理。
-
-#![cfg(target_os = "none")]
+//! Holy 文档请求分派。
 
 use hk_fs::{DocSessions, RevisionId};
 use hk_proto::holy::{
@@ -14,10 +12,10 @@ use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSI
 
 use hk_holy_proto::response;
 
-use crate::drives::Drives;
+use crate::Drives;
 
 /// 处理原生 VFS 请求。
-pub(crate) fn handle(
+pub fn handle(
     drives: &mut Drives,
     sessions: &mut DocSessions,
     sender: u64,

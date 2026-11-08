@@ -11,11 +11,9 @@ name = "hk-server-vfs"
 path = "src/main.rs"
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../../crates/shared/hk-base" }
-hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
 hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
-hk-fs-ext4 = { version = "0.1.0", path = "../../crates/user/hk-fs-ext4" }
-hk-holy-proto = { version = "0.1.0", path = "../../crates/user/hk-holy-proto" }
+hk-fs-remote = { version = "0.1.0", path = "../../crates/user/hk-fs-remote" }
+hk-holy-service = { version = "0.1.0", path = "../../crates/user/hk-holy-service" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
 hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }

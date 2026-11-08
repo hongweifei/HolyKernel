@@ -34,8 +34,6 @@ mod mounts;
 #[cfg(target_os = "none")]
 mod protocol;
 #[cfg(target_os = "none")]
-mod remote;
-#[cfg(target_os = "none")]
 mod sessions;
 
 #[cfg(target_os = "none")]

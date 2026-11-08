@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
+hk-fs-remote = { version = "0.1.0", path = "../../crates/user/hk-fs-remote" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
 hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }

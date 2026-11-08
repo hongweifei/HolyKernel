@@ -87,7 +87,7 @@
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |
-| **FS Backend** | ext2/ext4、HolyFS、tmpfs、devfs、procfs 等文件系统服务器 |
+| **FS Backend** | ext2/ext4、HolyFS（独立服务）与 VFS 内建的 tmpfs、devfs、procfs |
 | **HolyFS** | HolyKernel 原生文件系统；`H:` 盘符、文档、修订、集合、标签、快照 |
 | **Document** | HolyFS 文档；DocId + head 修订 + 校验和；内容与集合项住在修订里 |
 | **DocId** | HolyFS 文档的 128 位稳定身份 |

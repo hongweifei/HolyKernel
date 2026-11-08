@@ -19,10 +19,7 @@ flowchart TB
     Input["Input Driver<br/>virtio / PS2"]
     VFS["VFS Server<br/>DocId · 集合 · 修订 · 令牌"]
     Path["Path Server<br/>路径 · fd · 页缓存"]
-    Ext2["ext2/ext4 Server"]
-    Tmpfs["tmpfs Server"]
-    Devfs["devfs Server"]
-    Procfs["procfs Server"]
+    Ext2["ext2/ext4 Server<br/>E:"]
     POSIX["POSIX Server<br/>进程 · fd · 信号"]
     NetSrv["Network Server<br/>socket 后端"]
     HolyFS["HolyFS Server<br/>Holy 卷 · H: 盘符"]
@@ -43,12 +40,10 @@ flowchart TB
     DM --> Blk
     DM --> Net
     DM --> Input
-    Path --> Ext2
-    Path --> Tmpfs
-    Path --> Devfs
-    Path --> Procfs
     Path --> VFS
+    VFS --> Ext2
     VFS --> HolyFS
+    Ext2 --> Blk
     HolyFS --> Blk
     POSIX --> Path
     POSIX --> NetSrv
@@ -154,13 +149,11 @@ pub struct ServiceManifest {
 
 - **VFS Server**：Holy 原生命名空间；盘符、DocId、集合、修订、文档令牌；不维护路径或 fd。
 - **Path Server**：路径、目录、dentry、文件句柄与页缓存；为 POSIX 客户端提供 `/disk`、`/tmp`、`/dev`、`/proc` 投影，是原生 VFS 与路径后端之间的兼容层。
-- **ext2/ext4 Server**：POSIX 根文件系统；目录、inode、权限位。
+- **ext2/ext4 Server**（`hk-server-ext4`）：独立挂载 ext4，以 Holy 协议向 VFS 提供 `E:`；目录、inode、权限位。
 - **HolyFS Server**：HolyKernel 原生文件系统；`H:` 盘符与文档对象。
-- **tmpfs Server**：内存文件系统；`/tmp`、运行时文件。
-- **devfs Server**：`/dev` 设备节点；转发到设备 Endpoint。
-- **procfs Server**：`/proc` 进程信息；从 POSIX Server 获取数据。
-- VFS 与 HolyFS 通过 Holy 协议通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享 Frame 服务 POSIX 客户端。
-- Native VFS 通过独立 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）为 E:，并注册 tmpfs/devfs/procfs 为 T:/D:/P:；Path Server 不直接访问块设备，也没有本地 tmpfs 挂载入口，只把这些盘符投影到 `/` 或 `/disk`、`/tmp`、`/dev`、`/proc`。HolyFS 由独立服务提供 H:/I:，Path Server 通过原生 VFS 的远程后端访问。
+- **tmpfs/devfs/procfs**：VFS 进程内建的合成后端，分别提供 `/tmp`、`/dev`、`/proc`；不单独起服务。
+- VFS 通过 Holy 协议与 ext4、HolyFS 两个独立服务通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享 Frame 服务 POSIX 客户端。
+- `hk-server-ext4` 通过 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）为 E:，`hk-server-holyfs` 提供 H:/I:；VFS 只聚合远程后端并内建 T:/D:/P:。Path Server 不直接访问块设备，只把这些盘符投影到 `/` 或 `/disk`、`/tmp`、`/dev`、`/proc`。
 
 详见 [VFS](vfs.md)。
 

@@ -1,0 +1,15 @@
+[package]
+name = "hk-holy-service"
+description = "HolyKernel Holy 文档服务运行时：盘符注册表与请求分派"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-fs = { version = "0.1.0", path = "../hk-fs" }
+hk-holy-proto = { version = "0.1.0", path = "../hk-holy-proto" }
+hk-proto = { version = "0.1.0", path = "../hk-proto" }
+
+[lints]
+workspace = true

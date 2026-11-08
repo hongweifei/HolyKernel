@@ -1,0 +1,15 @@
+[package]
+name = "hk-fs-remote"
+description = "HolyKernel 远程 Holy 文档后端：VFS 与 Path Server 共用的客户端适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-fs = { version = "0.1.0", path = "../hk-fs" }
+hk-proto = { version = "0.1.0", path = "../hk-proto" }
+hk-proto-client = { version = "0.1.0", path = "../hk-proto-client" }
+
+[lints]
+workspace = true

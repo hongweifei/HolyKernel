@@ -27,7 +27,7 @@ HolyKernel/
 │   │   └── hk-kernel-shell hk-sim
 │   └── user/              用户态库
 │       ├── hk-server-api hk-syscall-client hk-proto hk-proto-client hk-block hk-block-ipc
-│       ├── hk-holy-proto
+│       ├── hk-holy-proto hk-holy-service hk-fs-remote
 │       ├── hk-net hk-fs hk-vfs
 │       ├── hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
 │       └── hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
@@ -138,7 +138,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 ### 单元
 
 - 内核：Task/TCB、Cadence/Meter、Beat、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region/Capability/Provider/Ledger）。
-- 服务器：Root/Tempo 状态机与 Cadence 授予、VFS/Path 缓存与路径、ext2、POSIX fd/信号。
+- 服务器：Root/Tempo 状态机与 Cadence 授予、VFS/Path 缓存与路径、ext4 独立服务、POSIX fd/信号。
 - 网络：ARP/IPv4/IPv6、TCP 状态机、UDP、DHCP、DNS、socket 表。
 - HolyFS：对象表、修订链、集合关系、allocator、checksum、COW 事务、压缩、快照、远程 VFS 后端。
 - 原生体验：HolyDoc 表单、Workbench 服务调用、Toolchain 构建缓存、Checkpoint/restore、Debug 符号化。

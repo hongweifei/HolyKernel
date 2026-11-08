@@ -228,6 +228,7 @@ impl SmokeMode {
                 "hk-server-demo 通知等待 ok",
                 "hk-server-device: 发现",
                 "hk-server-virtio: virtio-blk sectors=131072",
+                "hk-server-ext4: mounted E:",
                 "hk-server-path: rtc ok",
                 "hk-server-path: ext4 mounted",
                 "hk-server-demo fs ok",
@@ -294,6 +295,7 @@ impl SmokeMode {
                 "CPU1=",
             ],
             Self::Restart => &[
+                "hk-server-ext4: mounted E:",
                 "hk-server-path: rtc ok",
                 "hk-server-path: ext4 mounted",
                 "hk-server-demo fs ok",
@@ -302,6 +304,7 @@ impl SmokeMode {
                 "fs 1 MiB 读：",
             ],
             Self::Ext4Root => &[
+                "hk-server-ext4: mounted E:",
                 "hk-server-path: ext4 mounted",
                 "hk-server-demo fs ok",
                 "fs 1 MiB 读：",

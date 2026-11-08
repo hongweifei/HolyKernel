@@ -358,6 +358,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-fs-remote"
+version = "0.1.0"
+dependencies = [
+ "hk-fs",
+ "hk-proto",
+ "hk-proto-client",
+]
+
+[[package]]
 name = "hk-hal"
 version = "0.1.0"
 dependencies = [
@@ -379,6 +388,15 @@ name = "hk-holy-proto"
 version = "0.1.0"
 dependencies = [
  "hk-fs",
+ "hk-proto",
+]
+
+[[package]]
+name = "hk-holy-service"
+version = "0.1.0"
+dependencies = [
+ "hk-fs",
+ "hk-holy-proto",
  "hk-proto",
 ]
 
@@ -678,6 +696,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-ext4"
+version = "0.1.0"
+dependencies = [
+ "hk-base",
+ "hk-block-ipc",
+ "hk-fs",
+ "hk-fs-ext4",
+ "hk-holy-service",
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+ "hk-vfs",
+]
+
+[[package]]
 name = "hk-server-fault"
 version = "0.1.0"
 dependencies = [
@@ -792,6 +825,7 @@ name = "hk-server-path"
 version = "0.1.0"
 dependencies = [
  "hk-fs",
+ "hk-fs-remote",
  "hk-proto",
  "hk-proto-client",
  "hk-server-api",
@@ -852,11 +886,9 @@ dependencies = [
 name = "hk-server-vfs"
 version = "0.1.0"
 dependencies = [
- "hk-base",
- "hk-block-ipc",
  "hk-fs",
- "hk-fs-ext4",
- "hk-holy-proto",
+ "hk-fs-remote",
+ "hk-holy-service",
  "hk-proto",
  "hk-proto-client",
  "hk-server-api",

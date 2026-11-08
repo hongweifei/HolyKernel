@@ -10,15 +10,16 @@ HolyKernel 把文件访问拆成两个用户态服务：**VFS Server** 维护 Ho
 
 | 服务 | 职责 |
 | --- | --- |
-| **VFS Server**（`hk-server-vfs`） | 盘符、`DocId`、集合、修订、文档令牌；挂载 ext4、tmpfs、devfs、procfs；通过远程后端访问 HolyFS |
+| **VFS Server**（`hk-server-vfs`） | 盘符、`DocId`、集合、修订、文档令牌；聚合 ext4 与 HolyFS 的远程 Holy 后端，内建 tmpfs/devfs/procfs；不直接访问块设备 |
 | **Path Server**（`hk-server-path`） | 路径解析、`.`/`..`、符号链接、dentry/inode、文件句柄、页缓存；把盘符投影为 `/`、`/disk`、`/tmp`、`/dev`、`/proc` |
-| **FS Backend** | ext4（`rsext4`）、HolyFS、tmpfs、devfs、procfs；统一到 `hk-fs::Backend` 与 `PathBackend` 契约 |
-| **Block Driver** | 通过 Block Endpoint 提供 virtio-blk 块设备；VFS 负责挂载 ext4 |
+| **FS Backend** | ext4（`hk-server-ext4`，`rsext4`）、HolyFS（`hk-server-holyfs`）、tmpfs/devfs/procfs（VFS 内建）；统一到 `hk-fs::Backend` 与 `PathBackend` 契约 |
+| **Block Driver** | 通过 Block Endpoint 提供 virtio-blk；ext4 与 HolyFS 服务各自挂载自己的卷 |
 
 - VFS 暴露文档身份、集合、修订、偏移读写与文档令牌。
 - Path Server 做路径与 fd 投影，持有 dentry/inode 与页缓存。
-- ext4、tmpfs、devfs、procfs 由 VFS 注册为 `E:`、`T:`、`D:`、`P:` 盘符。
-- HolyFS 由独立 `hk-server-holyfs` 提供 `H:`/`I:`；VFS 通过远程 Holy 后端访问。
+- ext4 由独立 `hk-server-ext4` 挂载并通过 Holy 协议提供 `E:`；VFS 以远程后端接入。
+- tmpfs、devfs、procfs 由 VFS 进程内注册为 `T:`、`D:`、`P:`，不单独起服务。
+- HolyFS 由独立 `hk-server-holyfs` 提供 `H:`/`I:`；VFS 同样通过远程 Holy 后端访问。
 
 ---
 
@@ -30,19 +31,18 @@ flowchart TB
     Libc -->|IPC| POSIX["POSIX Server"]
     POSIX -->|fd → FileHandle| Path["Path Server"]
     Path -->|DocPath / 盘符投影| VFS["VFS Server"]
-    VFS -->|Block Endpoint| Block["Block Driver"]
-    VFS -->|PathBackend| Ext4["ext4 Backend"]
-    VFS -->|PathBackend| Tmpfs["tmpfs Backend"]
-    VFS -->|PathBackend| Devfs["devfs Backend"]
-    VFS -->|PathBackend| Procfs["procfs Backend"]
+    VFS -->|内建| Synthetic["tmpfs · devfs · procfs"]
+    VFS -->|Holy 远程后端| Ext4["ext4 Server"]
     VFS -->|Holy 远程后端| HolyFS["HolyFS Server"]
+    Ext4 -->|Block Endpoint| Block["Block Driver"]
+    HolyFS -->|Block Endpoint| Block
     Path --> Cache["Page Cache / Frame"]
     VFS --> Kernel["HMP Frame / Endpoint / Handle"]
 ```
 
 - POSIX Server 维护 fd 表；fd 指向 Path Server 的 `FileHandle`。
 - Path Server 解析路径、维护 dentry/inode 与页缓存，把请求投影到 VFS 盘符。
-- VFS 维护盘符与文档后端；ext4 通过 Block Endpoint 访问 virtio-blk。
+- VFS 只维护盘符与后端句柄；ext4 与 HolyFS 都由独立服务通过 Block Endpoint 访问 virtio-blk。
 - 数据通过共享 Frame 传输；Path Server 与 VFS 传递 Frame Handle 与元数据。
 - 原生 Holy 客户端直接访问 VFS 或 HolyFS，路径语义由客户端自行处理。
 
@@ -52,7 +52,7 @@ flowchart TB
 
 | 盘符 | 后端 | 默认路径投影 |
 | --- | --- | --- |
-| `E:` | ext4（virtio-blk，`rsext4`） | `vfs.root=ext4` 时映射 `/`；默认映射 `/disk` |
+| `E:` | ext4（`hk-server-ext4`，virtio-blk，`rsext4`） | `vfs.root=ext4` 时映射 `/`；默认映射 `/disk` |
 | `T:` | tmpfs | 默认映射 `/` 与 `/tmp` |
 | `D:` | devfs | `/dev` |
 | `P:` | procfs | `/proc` |
@@ -115,7 +115,8 @@ pub struct Request<'a> {
 - 客户端通过 `SYS_SERVICE_ENDPOINT` 解析当前端点；服务重启后新请求自动重连。
 - 在途请求通过 `SYS_RECV_DATA_FROM` 绑定旧端点；服务退出时返回空响应并映射为 `EIO`。
 - Path Server 重启后从 VFS 重新读取盘符，按策略重建文件句柄与页缓存。
-- HolyFS 重启后 VFS 的远程后端重新握手，`H:`/`I:` 继续可用。
+- ext4 或 HolyFS 重启后 VFS 的远程后端按服务名重新握手，`E:`/`H:`/`I:` 继续可用。
+- VFS 不持有块设备句柄，ext4 驱动重启不会牵动 VFS 的地址空间。
 
 ---
 
@@ -124,7 +125,7 @@ pub struct Request<'a> {
 1. VFS 是 Holy 原生命名空间的入口；Path Server 是 POSIX 路径与 fd 的投影层。
 2. 盘符、`DocId`、集合、修订与文档令牌由 VFS 维护。
 3. Path Server 持有路径、dentry、文件句柄与页缓存，通过 VFS 访问后端。
-4. ext4 通过 Block Endpoint 挂载；页缓存与共享 Frame 减少拷贝。
+4. ext4 由独立服务通过 Block Endpoint 挂载，VFS 只经 Holy 远程后端访问；页缓存与共享 Frame 减少拷贝。
 5. 服务重启后客户端按端点变化重连，在途请求明确失败。
 6. 挂载表、缓存命中、路径解析与后端请求都有 trace。
 
@@ -136,6 +137,6 @@ pub struct Request<'a> {
 | --- | --- |
 | Hosted 单元 | 盘符投影、DocId 解析、修订与页缓存失效、协议编解码 |
 | Hosted 模拟 | VFS/Path 重启重连、在途请求失败、HolyFS 远程后端 |
-| QEMU | ext4 挂载、`/tmp`/`/dev`/`/proc` 投影、HolyFS `H:`/`I:`、`OP_SYNC` 落盘 |
-| 故障注入 | VFS 退出、Path 退出、Block 退出、HolyFS 退出 |
+| QEMU | ext4 服务挂载、`/tmp`/`/dev`/`/proc` 投影、HolyFS `H:`/`I:`、`OP_SYNC` 落盘 |
+| 故障注入 | VFS 退出、Path 退出、Block 退出、ext4 退出、HolyFS 退出 |
 | 基准 | 1 MiB 顺序读写、页缓存命中、共享 Frame 零拷贝 |

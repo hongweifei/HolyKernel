@@ -21,7 +21,7 @@ flowchart TB
         Mem["Memory Server"]
         Device["Device Manager"]
         Drivers["Block / Input / Net 驱动"]
-        FS["VFS + ext2/ext4 · HolyFS · tmpfs"]
+        FS["VFS<br/>远程 ext4/HolyFS · 内建 tmpfs"]
         POSIX["POSIX Server"]
         Net["Network Server"]
         Native["HolyDoc / Display"]
@@ -77,7 +77,7 @@ flowchart TB
 
 - 微内核：TCB、Arena、HandleTable、Endpoint、Notification、Capacity、Frame、Region、IRQHandler
 - Root Server、Device Manager、virtio-blk/input/net 驱动
-- VFS Server与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端
+- VFS Server 聚合独立 ext4/HolyFS 服务，并内建 tmpfs/devfs/procfs 后端
 - POSIX.1 服务器 + musl + `hk-abi`/`hk-crt`
 - `fork`/`exec`/`wait`、信号、pthreads、管道、`mmap`、Unix 套接字
 - 可选服务：HolyFS 卷（盘符、文档、修订、快照）、HolyDoc、真彩 Display Server
@@ -221,9 +221,10 @@ sequenceDiagram
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
-| **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 | FS Backend Endpoint、Revision Region |
+| **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌；聚合远程 FS 服务 | FS Backend Endpoint、Revision Region |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存、POSIX 路径投影 | VFS Endpoint、Shared Frame |
-| **ext2/ext4 / HolyFS / tmpfs / devfs / procfs** | 具体文件系统后端 | Block Endpoint、设备 Endpoint |
+| **ext2/ext4 / HolyFS** | 独立文件系统服务；VFS 经 Holy 远程后端访问 | Block Endpoint |
+| **tmpfs / devfs / procfs** | VFS 进程内建的合成后端 | VFS 内部 |
 | **Compatibility Server** | 按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额 | POSIX/Linux/Harmony 实现 Endpoint、VFS/Display Handle |
 | **POSIX Server** | 进程、fd、信号、pthreads、管道、socket | Task/TCB/Cadence、Path/Network Endpoint |
 | **Wayland Server / XWayland** | Linux Wayland/X11 客户端表面与 seat 适配 | Surface/Seat、POSIX Endpoint |
@@ -255,8 +256,9 @@ flowchart LR
     Libc -->|IPC| POSIX["POSIX Server"]
     POSIX -->|IPC| Path["Path Server"]
     Path -->|IPC| VFS["VFS Server"]
-    VFS -->|IPC| FS["ext2/ext4 · tmpfs · devfs · procfs"]
+    VFS -->|IPC| FS["ext2/ext4 Server"]
     VFS -->|IPC| Holy["HolyFS Server"]
+    VFS -.->|内建| Synthetic["tmpfs · devfs · procfs"]
     POSIX -->|IPC| Net["Network Server"]
     POSIX -->|invoke| Kernel["Task / TCB / Cadence / HMP Region"]
     Kernel --> POSIX
@@ -267,7 +269,7 @@ flowchart LR
 - **musl + `hk-abi`**：musl 提供 C 运行时与 pthreads；`hk-abi` 提供 syscall shim 与头文件；`hk-crt` 提供启动、TLS、signal trampoline 与 ELF 加载。
 - **进程**：`fork` 复制 Arena 的 Region 表（COW）；`exec` 装载 TaskImage；`wait` 通过 Endpoint 通知。
 - **线程**：pthreads 映射到 TCB；libc 管理栈、TLS、join、取消。
-- **文件**：VFS 提供路径解析、挂载表与文件句柄；ext2/ext4 提供目录、inode、权限位；HolyFS 经适配层提供 Holy 文档。
+- **文件**：Path Server 提供路径解析与文件句柄；VFS 聚合盘符与后端；ext2/ext4、HolyFS 作为独立服务分别提供 POSIX 目录与 Holy 文档。
 - **网络**：socket 通过 POSIX Server 转发到用户态 Network Server；IPv4/IPv6、TCP/UDP、DHCP、DNS、POSIX socket。
 
 详见 [POSIX 与 libc](posix.md)。
@@ -385,7 +387,7 @@ Hosted 平台是确定性模拟器，使用虚拟时间、虚拟 CPU、模拟设
 4. 跨服务器调用通过 Endpoint；异步事件通过 Notification。
 5. 服务器崩溃由 Root Server 重启；Root Server 关闭旧句柄。
 6. POSIX 语义由用户态 POSIX Server 实现；内核提供机制。
-7. 文件系统通过 VFS Server 与 ext2/ext4、HolyFS、tmpfs、devfs、procfs 后端；块设备通过 Block Driver。
+7. 文件系统通过 VFS Server 与独立的 ext2/ext4、HolyFS 服务通信，tmpfs/devfs/procfs 内建在 VFS；块设备通过 Block Driver。
 8. 驱动运行在用户态，使用 DeviceGrant 访问 MMIO/DMA/IRQ。
 9. 内核 panic 路径使用静态缓冲与自旋锁，独立于调度器与堆。
 10. 每个服务器拥有最小权限集合与独立 Arena。

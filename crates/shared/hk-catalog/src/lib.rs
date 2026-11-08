@@ -41,6 +41,7 @@ services![
     ("hk-server-spin", true, 9),
     ("hk-server-virtio", true, 3),
     ("hk-server-memory", true, 9),
+    ("hk-server-ext4", true, 4),
     ("hk-server-holyfs", true, 4),
     ("hk-server-vfs", true, 5),
     ("hk-server-path", true, 6),
