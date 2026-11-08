@@ -79,6 +79,8 @@ struct MockPlatform {
     unmap_ok: bool,
     /// 地址空间激活次数。
     activations: Arc<AtomicUsize>,
+    /// 最近一次 `map_user` 的页表参数。
+    last_map: Arc<core::sync::atomic::AtomicU64>,
 }
 
 impl MockPlatform {
@@ -87,6 +89,7 @@ impl MockPlatform {
             zero: true,
             unmap_ok: true,
             activations: Arc::new(AtomicUsize::new(0)),
+            last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
         }
     }
 }
@@ -127,11 +130,23 @@ impl UserPlatform for MockPlatform {
         .ok()
     }
 
-    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+    fn map_user(
+        &self,
+        _slot: usize,
+        _virt: u64,
+        _phys: u64,
+        _len: usize,
+        rights: hk_handle::Rights,
+        flags: hk_mem::hmp::RegionFlags,
+    ) -> bool {
+        self.last_map.store(
+            rights.bits() as u64 | ((flags.bits() as u64) << 32),
+            Ordering::Release,
+        );
         true
     }
 
-    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+    fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
         self.unmap_ok
     }
 
@@ -1052,6 +1067,202 @@ fn lazy_anonymous_capability_maps_without_backing() {
 }
 
 #[test]
+fn region_offset_maps_capability_page_at_region_start() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x4000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    // 映射能力的第二个页（offset 0x1000），长度为 0x1000。
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0x1000;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    let virt = hk_base::user::AUTO_WINDOW_BASE;
+    assert!(runtime.anonymous_fault(0, virt), "缺页应装入能力第二页");
+
+    let map = runtime.process(0).regions.iter().flatten().next();
+    let map = map.expect("Region 已登记");
+    assert_eq!(map.offset, 0x1000, "Region 应保留能力内偏移");
+    assert_eq!(map.virt, virt);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn region_map_passes_rights_and_flags_to_page_table() {
+    let platform = MockPlatform::new();
+    let last_map = Arc::clone(&platform.last_map);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11_u64 | (1_u64 << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+
+    let packed = last_map.load(Ordering::Acquire);
+    let rights = hk_handle::Rights::from_bits_truncate(packed as u32);
+    let flags = hk_mem::hmp::RegionFlags::from_bits_truncate((packed >> 32) as u32);
+    assert_eq!(rights, hk_handle::Rights::READ | hk_handle::Rights::WRITE);
+    assert!(flags.contains(hk_mem::hmp::RegionFlags::COW));
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn region_protect_updates_rights_and_page_table() {
+    let platform = MockPlatform::new();
+    let last_map = Arc::clone(&platform.last_map);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    last_map.store(0, Ordering::Release);
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b101;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    let packed = last_map.load(Ordering::Acquire);
+    let rights = hk_handle::Rights::from_bits_truncate(packed as u32);
+    assert_eq!(
+        rights,
+        hk_handle::Rights::READ | hk_handle::Rights::EXECUTE,
+        "protect 应把页表切换为只读可执行"
+    );
+
+    let map = runtime.process(0).regions.iter().flatten().next().unwrap();
+    assert_eq!(map.rights, rights);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn region_protect_rejects_wx_conflict() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b111;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "W^X 冲突应被拒绝");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn capacity_merge_returns_child_range_to_parent() {
+    let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    let Step::Resume {
+        index: first,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    // 让第一个任务阻塞，接着调度到持有 User Capacity 的 memory 服务。
+    context.rax = SYS_RECV;
+    context.rdi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+
+    let Step::Resume {
+        index: memory,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("memory 服务应可运行");
+    };
+    assert_eq!(memory, 1);
+    assert_ne!(first, memory);
+
+    let parent = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    context.rax = SYS_CAPACITY_INFO;
+    context.rdi = parent;
+    context.rsi = 0x4000;
+    context.rdx = 48;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 48);
+
+    context.rax = SYS_CAPACITY_SPLIT;
+    context.rdi = parent;
+    context.rsi = 0x4000;
+    context.rdx = hk_syscall::CAPACITY_KIND_USER as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let child = context.rax;
+    assert_ne!(child, u64::MAX, "应切出子 Capacity");
+
+    context.rax = SYS_CAPACITY_MERGE;
+    context.rdi = parent;
+    context.rsi = child;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "并回应成功");
+
+    // 子句柄已关闭，再用它应失败。
+    context.rax = SYS_CAPACITY_INFO;
+    context.rdi = child;
+    context.rsi = 0x4000;
+    context.rdx = 48;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "合并后子句柄已失效");
+    let _ = runtime.finish(0, memory);
+}
+
+#[test]
 fn arena_tracks_mapped_regions() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -1360,11 +1571,19 @@ impl UserPlatform for ShortPlatform {
         ))
     }
 
-    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+    fn map_user(
+        &self,
+        _slot: usize,
+        _virt: u64,
+        _phys: u64,
+        _len: usize,
+        _rights: hk_handle::Rights,
+        _flags: hk_mem::hmp::RegionFlags,
+    ) -> bool {
         true
     }
 
-    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+    fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
         self.windows
             .fetch_add(1, core::sync::atomic::Ordering::AcqRel);
         true

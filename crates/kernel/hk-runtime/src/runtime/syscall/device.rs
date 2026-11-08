@@ -97,7 +97,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         if !self.install_device_mapping(index, tcb, range.base, aligned as usize, virt) {
-            let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+            let _ = self.platform.unmap_user(index, virt, aligned as usize);
             self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;

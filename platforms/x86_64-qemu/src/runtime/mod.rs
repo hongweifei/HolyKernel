@@ -107,12 +107,20 @@ impl UserPlatform for X86Platform {
         USER_VSPACES.map_mmio(slot, virt, phys, len)
     }
 
-    fn map_dma(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
-        USER_VSPACES.map_dma(slot, virt, phys, len)
+    fn map_user(
+        &self,
+        slot: usize,
+        virt: u64,
+        phys: u64,
+        len: usize,
+        rights: hk_mem::Rights,
+        flags: hk_mem::hmp::RegionFlags,
+    ) -> bool {
+        USER_VSPACES.map_user(slot, virt, phys, len, rights, flags)
     }
 
-    fn unmap_dma(&self, slot: usize, virt: u64, len: usize) -> bool {
-        USER_VSPACES.unmap_dma(slot, virt, len)
+    fn unmap_user(&self, slot: usize, virt: u64, len: usize) -> bool {
+        USER_VSPACES.unmap_user(slot, virt, len)
     }
 
     fn page_is_zero(&self, phys: hk_hal::PhysAddr) -> Option<bool> {

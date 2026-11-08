@@ -816,6 +816,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 capability,
                 index: page_index,
                 page,
+                rights,
+                flags,
             } => {
                 let caller = self.tasks[index].tcb;
                 let owner = self.leader_of(index);
@@ -838,11 +840,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 hk_mem::hmp::FrameBacking::Owned(frame),
                             )
                             .unwrap_or(false)
-                            && self.platform.map_dma(
+                            && self.platform.map_user(
                                 index,
                                 page,
                                 range.start().get(),
                                 range.len() as usize,
+                                rights,
+                                flags,
                             )
                         {
                             self.platform.zero(page, range.len() as usize);

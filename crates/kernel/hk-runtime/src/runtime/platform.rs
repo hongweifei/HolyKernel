@@ -27,13 +27,24 @@ pub trait UserPlatform {
     fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
-    /// 把 DMA 内存映射到任务地址空间。
-    fn map_dma(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
+    /// 按 Region 权利与标志把一段物理区间映射到任务地址空间。
+    ///
+    /// 只读 Region 映射为不可写页，不可执行 Region 映射为 NX 页；`COW` 标志
+    /// 映射为只读并置位 COW 标记。
+    fn map_user(
+        &self,
+        _slot: usize,
+        _virt: u64,
+        _phys: u64,
+        _len: usize,
+        _rights: hk_handle::Rights,
+        _flags: hk_mem::hmp::RegionFlags,
+    ) -> bool {
         false
     }
 
     /// 解除任务地址空间中的一段映射。
-    fn unmap_dma(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+    fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
         false
     }
     /// 判断一页物理内存是否全为零；平台不支持检查时返回 `None`。

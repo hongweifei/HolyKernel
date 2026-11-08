@@ -65,6 +65,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 把一个已清空的子 Capacity 并回父 Capacity，并关闭子句柄。
+    pub(crate) fn capacity_merge(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let parent = frame.arg0() as usize;
+        let child = frame.arg1() as usize;
+        let Some(parent_handle) = self.handle_at(index, parent) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(child_handle) = self.handle_at(index, child) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if self
+            .kernel
+            .merge_capacity(tcb, parent_handle, child_handle)
+            .is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let _ = self.kernel.close_handle(tcb, child_handle);
+        self.clear_handle(index, child);
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     pub(crate) fn capacity_alloc(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;
@@ -212,7 +238,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         if !self
             .platform
-            .map_dma(index, virt, range.start().get(), length)
+            .map_user(index, virt, range.start().get(), length, rights, flags)
         {
             self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
@@ -220,7 +246,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         if region.map(VirtAddr::new(virt)).is_err() {
-            let _ = self.platform.unmap_dma(index, virt, length);
+            let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
@@ -228,7 +254,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
-            let _ = self.platform.unmap_dma(index, virt, length);
+            let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             let _ = self.kernel.close_handle(tcb, capability_handle);
             frame.set_result(u64::MAX);
@@ -238,7 +264,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.kernel
                 .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)
         else {
-            let _ = self.platform.unmap_dma(index, virt, length);
+            let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
             let _ = self.kernel.close_handle(tcb, capability_handle);
@@ -254,6 +280,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(frame_handle),
             virt,
             length,
+            0,
+            rights,
+            flags,
         );
         self.clear_handle(index, number);
         frame.set_result(result);

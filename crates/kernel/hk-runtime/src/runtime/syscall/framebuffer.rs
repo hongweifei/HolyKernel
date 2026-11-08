@@ -63,7 +63,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return 0;
         };
         if mapped < length {
-            let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+            let _ = self.platform.unmap_user(index, virt, aligned as usize);
             self.process_mut(index).user_window.release(virt);
             return 0;
         }
@@ -74,7 +74,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             aligned as usize,
             virt,
         ) {
-            let _ = self.platform.unmap_dma(index, virt, aligned as usize);
+            let _ = self.platform.unmap_user(index, virt, aligned as usize);
             self.process_mut(index).user_window.release(virt);
             return 0;
         }

@@ -25,17 +25,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
     pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
-        let entries: Vec<(Handle, Handle, u64, usize)> = self
+        let entries: Vec<(Handle, Handle, u64, usize, u64)> = self
             .process(parent)
             .regions
             .iter()
             .flatten()
-            .map(|region| (region.handle, region.capability, region.virt, region.len))
+            .map(|region| {
+                (
+                    region.handle,
+                    region.capability,
+                    region.virt,
+                    region.len,
+                    region.offset,
+                )
+            })
             .collect();
         let parent_tcb = self.tasks[parent].tcb;
         let child_tcb = self.tasks[child].tcb;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
-        for (region_handle, capability_handle, virt, len) in entries {
+        for (region_handle, capability_handle, virt, len, offset) in entries {
             let Ok(capability) =
                 self.kernel
                     .duplicate_handle(parent_tcb, capability_handle, rights)
@@ -50,6 +58,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
+            let region_rights = region.rights();
+            let region_flags = region.flags();
             let region_id = region.id();
             if self.process_mut(child).hmp_arena.insert(&region).is_err() {
                 let _ = self.kernel.close_handle(child_tcb, capability);
@@ -75,7 +85,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             self.install_capability(child, capability, charge);
-            self.install_region(child, child_region, capability, region_id, None, virt, len);
+            self.install_region(
+                child,
+                child_region,
+                capability,
+                region_id,
+                None,
+                virt,
+                len,
+                offset,
+                region_rights,
+                region_flags,
+            );
         }
     }
 
@@ -144,6 +165,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         frame: Option<Handle>,
         virt: u64,
         len: usize,
+        offset: u64,
+        rights: Rights,
+        flags: hk_mem::hmp::RegionFlags,
     ) -> u64 {
         let slot = match self.process_mut(index).region_free.pop() {
             Some(slot) => slot,
@@ -161,6 +185,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame,
             virt,
             len,
+            offset,
+            rights,
+            flags,
         };
         self.process_mut(index).regions[slot] = Some(map);
         (REGION_HANDLE_BASE + slot + 1) as u64

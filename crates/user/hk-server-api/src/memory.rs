@@ -4,10 +4,10 @@ use hk_syscall::{
     CapabilityKind, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_INFO, SYS_CAPABILITY_BIND_PROVIDER,
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
-    SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_SPLIT,
-    SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP,
-    SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO, SYS_MEMORY_STATS,
-    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_UNMAP,
+    SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
+    SYS_CAPACITY_SPLIT, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO,
+    SYS_MEMORY_STATS, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
 use crate::syscall_call;
@@ -77,6 +77,13 @@ pub fn region_info(region: u64) -> Option<(u64, u64)> {
 pub fn region_unmap(region: u64) -> u64 {
     // SAFETY: 内核校验 Region 句柄并解除映射。
     unsafe { syscall_call(SYS_REGION_UNMAP, region, 0, 0, 0).value }
+}
+
+/// 修改已映射 Region 的权利与标志；成功返回 0。
+pub fn region_protect(region: u64, rights: u32, flags: u32) -> u64 {
+    let packed = rights as u64 | ((flags as u64) << 32);
+    // SAFETY: 内核校验 Region 句柄、权利与标志后同步页表。
+    unsafe { syscall_call(SYS_REGION_PROTECT, region, packed, 0, 0).value }
 }
 
 /// 查询类型化能力的物理地址与长度。
@@ -230,6 +237,12 @@ pub fn capacity_alloc(capacity: u64, length: usize) -> Option<u64> {
 pub fn capacity_free(capacity: u64, frame: u64) -> u64 {
     // SAFETY: 内核校验 Capacity、Frame 与引用状态。
     unsafe { syscall_call(SYS_CAPACITY_FREE, capacity, frame, 0, 0).value }
+}
+
+/// 把一个已清空的子 Capacity 并回父 Capacity；成功返回 0。
+pub fn capacity_merge(parent: u64, child: u64) -> u64 {
+    // SAFETY: 内核校验父子 Capacity、页大小与子容量用量后合并区间。
+    unsafe { syscall_call(SYS_CAPACITY_MERGE, parent, child, 0, 0).value }
 }
 
 /// Frame 快照。

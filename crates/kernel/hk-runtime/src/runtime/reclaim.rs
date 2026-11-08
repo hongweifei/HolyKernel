@@ -74,19 +74,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 解除映射该能力第 `page_index` 页的所有映射。
     fn unmap_capability_page(&self, index: usize, object: ObjectId, page_index: usize) -> bool {
         let page = PAGE_SIZE as u64;
-        let offset = page_index as u64 * page;
+        let capability_offset = page_index as u64 * page;
         let mut unmapped = false;
         for region in self.process(index).regions.iter().flatten() {
             let Ok(id) = self.kernel.capability_id(region.owner, region.capability) else {
                 continue;
             };
-            if id != object || offset + page > region.len as u64 {
+            if id != object {
                 continue;
             }
-            if self
-                .platform
-                .unmap_dma(index, region.virt + offset, page as usize)
-            {
+            let start = region.offset;
+            let end = start.saturating_add(region.len as u64);
+            if capability_offset < start || capability_offset + page > end {
+                continue;
+            }
+            let virt = region.virt + (capability_offset - start);
+            if self.platform.unmap_user(index, virt, page as usize) {
                 unmapped = true;
             }
         }

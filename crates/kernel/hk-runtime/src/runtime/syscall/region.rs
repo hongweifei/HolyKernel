@@ -9,11 +9,28 @@ use super::*;
 
 use hk_syscall::PROVIDER_FAULT;
 
+/// 命中的 Region 快照：解析缺页时需要的全部元数据。
 #[derive(Clone, Copy)]
 struct FaultRegion {
     tcb: TcbId,
     capability: Handle,
     virt: u64,
+    offset: u64,
+    rights: Rights,
+    flags: RegionFlags,
+}
+
+impl FaultRegion {
+    /// 返回地址在能力内的页偏移。
+    fn capability_offset(self, address: u64, page: u64) -> u64 {
+        let relative = address.saturating_sub(self.virt);
+        self.offset + relative / page * page
+    }
+
+    /// 返回能力内页偏移对应的用户虚拟地址。
+    fn page_address(self, capability_offset: u64) -> u64 {
+        self.virt + (capability_offset - self.offset)
+    }
 }
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
@@ -43,21 +60,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         if let Some(backing) = backing {
             let phys = backing.start().get().saturating_add(offset);
-            if !self.platform.map_dma(index, virt, phys, length) {
+            if !self
+                .platform
+                .map_user(index, virt, phys, length, rights, flags)
+            {
                 self.process_mut(index).user_window.release(virt);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         }
         if region.map(VirtAddr::new(virt)).is_err() {
-            let _ = self.platform.unmap_dma(index, virt, length);
+            let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
-            let _ = self.platform.unmap_dma(index, virt, length);
+            let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -69,7 +89,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
-                let _ = self.platform.unmap_dma(index, virt, length);
+                let _ = self.platform.unmap_user(index, virt, length);
                 self.process_mut(index).user_window.release(virt);
                 let _ = self.process_mut(index).hmp_arena.remove(region_id);
                 frame.set_result(u64::MAX);
@@ -84,7 +104,69 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None,
             virt,
             length,
+            offset,
+            rights,
+            flags,
         ));
+        Switch::Continue
+    }
+
+    /// 修改已映射 Region 的权利与标志，并同步页表。
+    ///
+    /// 只改变映射属性，不搬动物理页；能力层校验 W^X 与 sealed 约束。
+    pub(crate) fn region_protect(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let packed = frame.arg1();
+        let rights = Rights::from_bits_truncate(packed as u32);
+        let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
+        let Some((_, handle, virt, length)) = self.region_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if self
+            .kernel
+            .protect_region(tcb, handle, rights, flags)
+            .is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(slot) = self
+            .process(index)
+            .regions
+            .iter()
+            .position(|region| region.as_ref().is_some_and(|map| map.handle == handle))
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some((owner, capability, offset)) = self.process(index).regions[slot]
+            .as_ref()
+            .map(|map| (map.owner, map.capability, map.offset))
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
+            map.rights = rights;
+            map.flags = flags;
+        }
+        let backing = self
+            .kernel
+            .capability(owner, capability)
+            .ok()
+            .and_then(|(_, backing)| backing);
+        if let Some(backing) = backing {
+            let phys = backing.start().get().saturating_add(offset);
+            if !self
+                .platform
+                .map_user(index, virt, phys, length, rights, flags)
+            {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+        }
+        frame.set_result(0);
         Switch::Continue
     }
 
@@ -172,6 +254,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None,
             virt,
             len,
+            0,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
         );
         true
     }
@@ -185,6 +270,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 tcb: region.owner,
                 capability: region.capability,
                 virt: region.virt,
+                offset: region.offset,
+                rights: region.rights,
+                flags: region.flags,
             })
         })
     }
@@ -228,8 +316,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         provider: ObjectId,
     ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
-        let page_address = region.virt + (address.saturating_sub(region.virt) / page) * page;
-        let offset = page_address.saturating_sub(region.virt);
+        let offset = region.capability_offset(address, page);
         if offset >= capability.size() {
             return false;
         }
@@ -248,7 +335,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].pending = Pending::ProviderFault {
             capability: region.capability,
             index: (offset / page) as usize,
-            page: page_address,
+            page: region.page_address(offset),
+            rights: region.rights,
+            flags: region.flags,
         };
         true
     }
@@ -363,21 +452,27 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         capability: &Capability,
     ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
-        let offset = address.saturating_sub(region.virt) / page;
-        if offset >= capability.size() / page {
+        let offset = region.capability_offset(address, page);
+        if offset >= capability.size() {
             return false;
         }
-        let page_address = region.virt + offset * page;
+        let page_address = region.page_address(offset);
+        let page_index = (offset / page) as usize;
         if let Some(range) = self
             .kernel
-            .capability_page(region.tcb, region.capability, offset as usize)
+            .capability_page(region.tcb, region.capability, page_index)
             .ok()
             .flatten()
         {
             if !self.platform.user_mapped(page_address) {
-                let _ =
-                    self.platform
-                        .map_dma(index, page_address, range.start().get(), page as usize);
+                let _ = self.platform.map_user(
+                    index,
+                    page_address,
+                    range.start().get(),
+                    page as usize,
+                    region.rights,
+                    region.flags,
+                );
             }
             return self.platform.user_mapped(page_address);
         }
@@ -385,18 +480,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         let range = backing.range();
-        if !self
-            .platform
-            .map_dma(index, page_address, range.start().get(), page as usize)
-        {
+        if !self.platform.map_user(
+            index,
+            page_address,
+            range.start().get(),
+            page as usize,
+            region.rights,
+            region.flags,
+        ) {
             return false;
         }
         if !self
             .kernel
-            .set_capability_page(region.tcb, region.capability, offset as usize, backing)
+            .set_capability_page(region.tcb, region.capability, page_index, backing)
             .unwrap_or(false)
         {
-            let _ = self.platform.unmap_dma(index, page_address, page as usize);
+            let _ = self.platform.unmap_user(index, page_address, page as usize);
             return false;
         }
         self.platform.zero(page_address, page as usize);
@@ -423,13 +522,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let page = hk_hal::PAGE_SIZE as u64;
             let mut offset = 0;
             while offset < length as u64 {
-                if !self.platform.unmap_dma(index, virt + offset, page as usize) {
+                if !self
+                    .platform
+                    .unmap_user(index, virt + offset, page as usize)
+                {
                     frame.set_result(0);
                     return Switch::Continue;
                 }
                 offset += page;
             }
-        } else if !self.platform.unmap_dma(index, virt, length) {
+        } else if !self.platform.unmap_user(index, virt, length) {
             frame.set_result(0);
             return Switch::Continue;
         }

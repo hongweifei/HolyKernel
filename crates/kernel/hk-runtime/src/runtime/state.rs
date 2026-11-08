@@ -65,6 +65,10 @@ pub enum Pending {
         index: usize,
         /// 待安装页的用户虚拟地址。
         page: u64,
+        /// 该页所属 Region 的映射权利。
+        rights: Rights,
+        /// 该页所属 Region 的映射标志。
+        flags: RegionFlags,
     },
     /// 休眠到指定调度 tick。
     Sleep {

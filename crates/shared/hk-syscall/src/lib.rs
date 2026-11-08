@@ -176,6 +176,9 @@ pub const SYS_REGION_UNMAP: u64 = 0x44;
 /// 查询类型化能力的物理地址与长度。
 pub const SYS_CAPABILITY_PHYS: u64 = 0x45;
 
+/// 修改已映射 Region 的权利与标志。
+pub const SYS_REGION_PROTECT: u64 = 0x46;
+
 /// 把类型化能力绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP_CAPABILITY: u64 = 0x47;
 
@@ -243,6 +246,9 @@ pub const SYS_DMA_MAP_FRAME: u64 = 0x9B;
 
 /// 查询 System Capacity 的 FrameBank 记账快照。
 pub const SYS_MEMORY_STATS: u64 = 0x9C;
+
+/// 把一个已清空的子 Capacity 并回父 Capacity。
+pub const SYS_CAPACITY_MERGE: u64 = 0x9D;
 
 /// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
 pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
@@ -570,6 +576,7 @@ mod tests {
             SYS_REGION_INFO,
             SYS_REGION_UNMAP,
             SYS_CAPABILITY_PHYS,
+            SYS_REGION_PROTECT,
             SYS_DMA_MAP_CAPABILITY,
             SYS_DMA_SYNC,
             SYS_CAPABILITY_PIN,
@@ -614,6 +621,7 @@ mod tests {
             SYS_FRAME_MAP,
             SYS_DMA_MAP_FRAME,
             SYS_MEMORY_STATS,
+            SYS_CAPACITY_MERGE,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();
