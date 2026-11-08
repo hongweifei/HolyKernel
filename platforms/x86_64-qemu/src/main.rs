@@ -147,11 +147,13 @@ extern "C" fn kmain() -> ! {
     crate::allocator::init_dynamic(heap_virt as usize, KERNEL_HEAP_BYTES);
     let paging = PageTable::new(direct_map_base);
     hk_platform_x86_64::paging::init_runtime(direct_map_base);
+    hk_platform_x86_64::paging::register_backend();
     hk_platform_x86_64::cache::init(direct_map_base);
+    let dma_capacity = hk_mem::hmp::CapacityId::next();
     if let Some(dma) = hk_platform_x86_64::paging::FRAME_BANK
-        .allocate_contiguous_for(hk_mem::FrameKind::Dma, hk_platform_x86_64::dma::POOL_BYTES)
+        .reserve_for(dma_capacity, hk_platform_x86_64::dma::POOL_BYTES)
     {
-        hk_platform_x86_64::dma::init(dma);
+        hk_platform_x86_64::dma::init(dma_capacity, dma);
     }
     let stats = hk_platform_x86_64::paging::FRAME_BANK.stats();
     announce(

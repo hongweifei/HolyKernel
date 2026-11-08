@@ -47,6 +47,7 @@ pub trait UserPlatform {
     fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
         false
     }
+
     /// 判断一页物理内存是否全为零；平台不支持检查时返回 `None`。
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
         None

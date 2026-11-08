@@ -4,6 +4,7 @@
 //! 对象层。内核对象、系统调用与服务接入在后续阶段完成。
 
 pub mod arena;
+pub mod backend;
 pub mod capability;
 pub mod capacity;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod provider;
 pub mod region;
 
 pub use arena::{Arena, ArenaId, ArenaRegion};
+pub use backend::{PhysicalBackend, physical_backend, set_physical_backend};
 pub use capability::{Capability, CapabilityKind, CapabilityOp, Mappable};
 pub use capacity::{Capacity, CapacityId, CapacityKind, set_frame_scrubber};
 pub use error::HmpError;

@@ -25,29 +25,22 @@ impl DmaPool {
     }
 
     /// 注册启动期预留的连续 DMA 区域。
-    pub fn init(&self, range: PhysRange) {
-        *self.capacity.lock() = Capacity::new(
-            CapacityId::next(),
-            range,
-            hk_hal::PAGE_SIZE,
-            CapacityKind::Dma,
-            0,
-        )
-        .ok();
+    ///
+    /// `id` 用于在后端归因；调用方应先通过 `FrameBank::reserve_for` 用同一
+    /// 个 `id` 预留区间，这里只把描述交给池。未注册后端时容量使用自带的
+    /// 窗口分配器。
+    pub fn init(&self, id: CapacityId, range: PhysRange) {
+        *self.capacity.lock() =
+            Capacity::new(id, range, hk_hal::PAGE_SIZE, CapacityKind::Dma, 0).ok();
     }
 
     /// 从池尾切出一段独立 Capacity；切出的区间不再由池分配。
     pub fn take_capacity(&self, len: usize, kind: CapacityKind) -> Option<Capacity> {
         let mut capacity = self.capacity.lock();
-        let frame = capacity.as_mut()?.allocate(len).ok()?;
-        Capacity::new(
-            CapacityId::next(),
-            PhysRange::new(frame.phys(), frame.len() as u64),
-            hk_hal::PAGE_SIZE,
-            kind,
-            frame.len() as u64,
-        )
-        .ok()
+        let capacity = capacity.as_mut()?;
+        let id = CapacityId::next();
+        let child = capacity.split(id, len, kind).ok()?;
+        Some(child)
     }
 
     /// 分配一段连续内存，长度按页向上取整。
@@ -106,7 +99,10 @@ mod tests {
     #[test]
     fn allocates_reuses_and_splits() {
         let pool = DmaPool::new();
-        pool.init(PhysRange::new(PhysAddr::new(0x10_0000), 0x4000));
+        pool.init(
+            CapacityId::next(),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x4000),
+        );
         let first = pool.allocate(4096).expect("第一页");
         let second = pool.allocate(8192).expect("第二段");
         assert_eq!(first.start(), PhysAddr::new(0x10_0000));
@@ -124,7 +120,10 @@ mod tests {
     #[test]
     fn takes_capacity_from_pool_tail() {
         let pool = DmaPool::new();
-        pool.init(PhysRange::new(PhysAddr::new(0x10_0000), 0x4000));
+        pool.init(
+            CapacityId::next(),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x4000),
+        );
         let mut capacity = pool
             .take_capacity(0x2000, CapacityKind::User)
             .expect("子 Capacity");
@@ -145,7 +144,10 @@ mod tests {
     #[test]
     fn implements_dma_ops() {
         let pool = DmaPool::new();
-        pool.init(PhysRange::new(PhysAddr::new(0x20_0000), 0x2000));
+        pool.init(
+            CapacityId::next(),
+            PhysRange::new(PhysAddr::new(0x20_0000), 0x2000),
+        );
         let buffer = pool.alloc_coherent(4096).expect("一致性缓冲");
         assert_eq!(buffer.phys(), PhysAddr::new(0x20_0000));
         assert_eq!(buffer.len(), 4096);

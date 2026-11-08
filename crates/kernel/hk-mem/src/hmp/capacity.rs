@@ -116,9 +116,26 @@ impl Capacity {
     }
 
     /// 分配一段连续物理页，返回 Frame。
+    ///
+    /// 注册了物理后端时由后端统一分配并按 `id` 归因；否则退回本容量自带的
+    /// 窗口分配器（单元测试与 Hosted）。
     pub fn allocate(&mut self, len: usize) -> Result<Frame, HmpError> {
         let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
-        if length == 0 || self.used.saturating_add(length) > self.limit {
+        if length == 0 {
+            return Err(HmpError::InvalidSize);
+        }
+
+        if let Some(backend) = super::backend::physical_backend() {
+            if backend.used_owned(self.id).saturating_add(length) > self.limit {
+                return Err(HmpError::OutOfCapacity);
+            }
+            let range = backend
+                .allocate_owned(self.id, self.kind, length)
+                .ok_or(HmpError::OutOfCapacity)?;
+            return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
+        }
+
+        if self.used.saturating_add(length) > self.limit {
             return Err(HmpError::OutOfCapacity);
         }
 
@@ -158,7 +175,7 @@ impl Capacity {
     /// 从未分配尾部切出一个子 Capacity。
     ///
     /// 分割把尾部区间从当前 Capacity 的可用空间中移除；子 Capacity 从切出
-    /// 区间的起点开始分配。
+    /// 区间的起点开始分配。注册了物理后端时由后端登记子容量的归属窗口。
     pub fn split(
         &mut self,
         id: CapacityId,
@@ -169,6 +186,14 @@ impl Capacity {
         if length == 0 {
             return Err(HmpError::InvalidSize);
         }
+
+        if let Some(backend) = super::backend::physical_backend() {
+            let range = backend
+                .split_owned(self.id, id, length)
+                .ok_or(HmpError::OutOfCapacity)?;
+            return Self::new(id, range, self.page_size, kind, length);
+        }
+
         let start = self.next;
         let end = start.checked_add(length).ok_or(HmpError::OutOfCapacity)?;
         let limit_end = self.range.start().get().saturating_add(self.limit);
@@ -206,7 +231,8 @@ impl Capacity {
 
     /// 归还一段原始物理区间，供底层 DMA 池使用。
     ///
-    /// 归还前清零区间；敏感内容不会随 Frame 回到空闲池。
+    /// 归还前清零区间；敏感内容不会随 Frame 回到空闲池。注册了物理后端时
+    /// 由后端统一归还并释放归因。
     pub fn release(&mut self, phys: PhysAddr, len: usize) -> Result<(), HmpError> {
         let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
         if length == 0 || !phys.get().is_multiple_of(self.page_size as u64) {
@@ -219,6 +245,15 @@ impl Capacity {
             return Err(HmpError::OutOfRange);
         }
         scrub(phys, length as usize);
+
+        if let Some(backend) = super::backend::physical_backend() {
+            if !backend.release_owned(self.id, PhysRange::new(phys, length)) {
+                return Err(HmpError::NotMapped);
+            }
+            self.used = self.used.saturating_sub(length);
+            return Ok(());
+        }
+
         self.used = self.used.saturating_sub(length);
         self.free.push(PhysRange::new(phys, length));
         self.coalesce();
@@ -245,6 +280,13 @@ impl Capacity {
         if child.used != 0 {
             return Err(HmpError::PermissionDenied);
         }
+
+        if let Some(backend) = super::backend::physical_backend() {
+            backend.merge_owned(self.id, child.id, range);
+            self.used = self.used.saturating_sub(range.len());
+            return Ok(());
+        }
+
         if range.end().get() == self.next {
             self.next = range.start().get();
         } else {
@@ -281,7 +323,12 @@ impl Capacity {
     }
 
     /// 返回已分配字节数。
-    pub const fn used(&self) -> u64 {
+    ///
+    /// 注册了物理后端时直接读后端的归因记录，避免本地计数与权威账本分叉。
+    pub fn used(&self) -> u64 {
+        if let Some(backend) = super::backend::physical_backend() {
+            return backend.used_owned(self.id);
+        }
         self.used
     }
 

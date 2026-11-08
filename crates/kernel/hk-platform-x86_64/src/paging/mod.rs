@@ -23,6 +23,14 @@ pub use table::{PageTable, PagingError};
 /// 内核全局物理帧银行。
 pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
 
+/// 把全局帧银行注册为 HMP 的唯一物理后端。
+///
+/// 之后所有 Capacity 分配都从这里取页并按 `CapacityId` 归因，物理内存不再
+/// 有两本并行的账。
+pub fn register_backend() {
+    hk_mem::hmp::set_physical_backend(&FRAME_BANK);
+}
+
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
 

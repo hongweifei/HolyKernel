@@ -12,9 +12,9 @@ pub const POOL_BYTES: usize = 64 * 1024 * 1024;
 pub static DMA: DmaPool = DmaPool::new();
 
 /// 注册启动期预留的连续 DMA 区域。
-pub fn init(range: PhysRange) {
+pub fn init(id: hk_mem::hmp::CapacityId, range: PhysRange) {
     DMA.set_cache(&crate::cache::CACHE);
-    DMA.init(range);
+    DMA.init(id, range);
     hk_mem::hmp::set_frame_lease_releaser(|phys, len| {
         DMA.free(PhysRange::new(phys, len as u64));
     });

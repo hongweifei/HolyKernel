@@ -831,7 +831,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     });
                     if let Some(frame) = frame {
                         let range = frame.range();
-                        if self
+                        let stored = self
                             .kernel
                             .set_capability_page(
                                 owner_tcb,
@@ -839,7 +839,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 page_index,
                                 hk_mem::hmp::FrameBacking::Owned(frame),
                             )
-                            .unwrap_or(false)
+                            .unwrap_or(false);
+                        let mapped = stored
                             && self.platform.map_user(
                                 index,
                                 page,
@@ -847,8 +848,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 range.len() as usize,
                                 rights,
                                 flags,
-                            )
-                        {
+                            );
+                        if mapped {
                             self.platform.zero(page, range.len() as usize);
                         } else {
                             blocked_again = true;
