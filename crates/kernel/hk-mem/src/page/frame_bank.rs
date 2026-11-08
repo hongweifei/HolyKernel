@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, PhysRange};
 use spin::Mutex;
 
-use crate::hmp::{CapacityId, CapacityKind, Charge, Ledger, LedgerId, PhysicalBackend};
+use crate::hmp::{CapacityId, CapacityKind, Charge, HmpError, Ledger, LedgerId, PhysicalBackend};
 
 /// FrameBank 分配用途。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -539,46 +539,64 @@ impl FrameBank {
 impl PhysicalBackend for FrameBank {
     fn split_owned(&self, parent: CapacityId, child: CapacityId, len: u64) -> Option<PhysRange> {
         let mut inner = self.inner.lock();
-        let (parent_start, parent_end) = {
-            let window = inner
-                .owned
-                .values()
-                .find(|window| window.capacity == parent)?;
-            (window.range.start().get(), window.range.end().get())
-        };
-        let start = parent_end.checked_sub(len)?;
-        if start < parent_start {
-            return None;
+        // 一个容量可能因非相邻合并而持有多个窗口；逐个尝试从窗口尾部切出，
+        // 只有尾部整段空闲的窗口才能成为子窗口。
+        let windows: Vec<(u64, PhysRange)> = inner
+            .owned
+            .iter()
+            .filter(|(_, window)| window.capacity == parent)
+            .map(|(&start, window)| (start, window.range))
+            .collect();
+        for (parent_start, parent_range) in windows {
+            let parent_end = parent_range.end().get();
+            let Some(start) = parent_end.checked_sub(len) else {
+                continue;
+            };
+            if start < parent_start {
+                continue;
+            }
+            // 子窗口必须整段空闲；必要时从更大的空闲条目中切出。
+            let Some(range) = inner.carve_free(start, len) else {
+                continue;
+            };
+            // 子区间作为独立空闲条目重新插入，与它的窗口对齐。
+            inner.insert_free(range);
+            if start == parent_start {
+                // 整个窗口都切成子窗口：父窗口不再保留零长度条目。
+                inner.owned.remove(&parent_start);
+            } else if let Some(window) = inner.owned.get_mut(&parent_start) {
+                window.range = PhysRange::new(PhysAddr::new(parent_start), start - parent_start);
+            }
+            inner.owned.insert(
+                start,
+                OwnedWindow {
+                    capacity: child,
+                    range,
+                },
+            );
+            return Some(range);
         }
-        // 子窗口必须整段空闲；必要时从更大的空闲条目中切出。
-        let range = inner.carve_free(start, len)?;
-        // 子区间作为独立空闲条目重新插入，与它的窗口对齐。
-        inner.insert_free(range);
-        if let Some(window) = inner.owned.get_mut(&parent_start) {
-            window.range = PhysRange::new(PhysAddr::new(parent_start), start - parent_start);
-        }
-        inner.owned.insert(
-            start,
-            OwnedWindow {
-                capacity: child,
-                range,
-            },
-        );
-        Some(range)
+        None
     }
 
-    fn merge_owned(&self, parent: CapacityId, child: CapacityId, range: PhysRange) {
+    fn merge_owned(
+        &self,
+        parent: CapacityId,
+        child: CapacityId,
+        range: PhysRange,
+    ) -> Result<(), HmpError> {
         let mut inner = self.inner.lock();
         if inner.used_for(child) != 0 {
-            return;
+            return Err(HmpError::PermissionDenied);
         }
         let start = range.start().get();
         let Some(window) = inner.owned.remove(&start) else {
-            return;
+            // 后端没有该区间的窗口：视为已经并回，保持幂等。
+            return Ok(());
         };
         if window.capacity != child {
             inner.owned.insert(start, window);
-            return;
+            return Err(HmpError::WrongCapability);
         }
         // 只在与父窗口相邻时并回，绝不把中间的其它区间吞进父窗口。
         let adjacent = inner
@@ -595,7 +613,7 @@ impl PhysicalBackend for FrameBank {
                     range,
                 },
             );
-            return;
+            return Ok(());
         };
         if parent_range.end().get() == start || range.end().get() == parent_range.start().get() {
             let begin = parent_range.start().get().min(start);
@@ -613,6 +631,7 @@ impl PhysicalBackend for FrameBank {
                 },
             );
         }
+        Ok(())
     }
 
     fn allocate_owned(&self, owner: CapacityId, kind: CapacityKind, len: u64) -> Option<PhysRange> {
@@ -786,7 +805,8 @@ mod tests {
         bank.reserve_for(parent, 0x4000).expect("预留父窗口");
         let child_range = bank.split_owned(parent, child, 0x2000).expect("切出子窗口");
 
-        bank.merge_owned(parent, child, child_range);
+        bank.merge_owned(parent, child, child_range)
+            .expect("并回子窗口");
         // 子窗口并回父窗口后，父容量可以分配整段 0x4000。
         let whole = bank
             .allocate_owned(parent, CapacityKind::User, 0x4000)
@@ -810,18 +830,107 @@ mod tests {
         assert_eq!(first_range.start(), PhysAddr::new(0x10_4000));
 
         // 父窗口是 0x10_0000..0x10_4000，first 紧邻其后 → 相邻合并。
-        bank.merge_owned(parent, first, first_range);
+        bank.merge_owned(parent, first, first_range)
+            .expect("并回相邻子窗口");
         let page = bank
             .allocate_owned(parent, CapacityKind::User, 0x4000)
             .expect("相邻合并后父容量可取 0x4000");
         assert_eq!(page.start(), PhysAddr::new(0x10_0000));
 
-        // second 与父窗口不相邻（中间隔着已分配的段），应保持独立窗口。
-        bank.merge_owned(parent, second, second_range);
+        // second 之后并入父容量，不再归 second 所有。
+        bank.merge_owned(parent, second, second_range)
+            .expect("并回 second");
         assert!(
             bank.allocate_owned(second, CapacityKind::User, PAGE_SIZE as u64)
                 .is_none(),
             "并回后不再归 second 所有"
         );
+    }
+
+    #[test]
+    fn merge_owned_rejects_child_with_live_allocations() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let parent = CapacityId::next();
+        let child = CapacityId::next();
+        bank.reserve_for(parent, 0x4000).expect("预留父窗口");
+        let child_range = bank.split_owned(parent, child, 0x2000).expect("切出子窗口");
+        let page = bank
+            .allocate_owned(child, CapacityKind::User, PAGE_SIZE as u64)
+            .expect("子页");
+
+        assert_eq!(
+            bank.merge_owned(parent, child, child_range),
+            Err(HmpError::PermissionDenied),
+            "子容量仍有分配时后端拒绝合并"
+        );
+        // 拒绝后窗口与分配都保留在子容量名下。
+        assert_eq!(bank.used_owned(child), PAGE_SIZE as u64);
+        assert!(bank.release_owned(child, page));
+        assert_eq!(bank.used_owned(child), 0);
+    }
+
+    #[test]
+    fn merge_owned_rejects_window_of_other_capacity() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+        let parent = CapacityId::next();
+        let child = CapacityId::next();
+        let other = CapacityId::next();
+        bank.reserve_for(parent, 0x4000).expect("预留父窗口");
+        let child_range = bank.split_owned(parent, child, 0x2000).expect("切出子窗口");
+
+        assert_eq!(
+            bank.merge_owned(parent, other, child_range),
+            Err(HmpError::WrongCapability),
+            "窗口归属与传入容量不一致时拒绝"
+        );
+        // 窗口仍在 child 名下。
+        assert!(
+            bank.allocate_owned(child, CapacityKind::User, PAGE_SIZE as u64)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn merge_owned_is_idempotent_without_window() {
+        let bank = FrameBank::from_range(0x10_0000, 0x10_2000);
+        let range = PhysRange::new(PhysAddr::new(0x10_0000), 0x1000);
+        assert_eq!(
+            bank.merge_owned(CapacityId::next(), CapacityId::next(), range),
+            Ok(()),
+            "没有归属窗口时合并没有副作用"
+        );
+    }
+
+    #[test]
+    fn split_owned_uses_window_whose_tail_is_free() {
+        let bank = FrameBank::from_range(0x10_0000, 0x11_0000);
+        let parent = CapacityId::next();
+        let first = CapacityId::next();
+        let second = CapacityId::next();
+
+        bank.reserve_for(parent, 0x1_0000).expect("预留父窗口");
+        let second_range = bank.split_owned(parent, second, 0x2000).expect("切后段");
+        let first_range = bank.split_owned(parent, first, 0x2000).expect("切中段");
+        assert_eq!(second_range.start(), PhysAddr::new(0x10_E000));
+        assert_eq!(first_range.start(), PhysAddr::new(0x10_C000));
+
+        // 占满父容量第一个窗口（0x10_0000..0x10_C000）。
+        let whole = bank
+            .allocate_owned(parent, CapacityKind::User, 0xC000)
+            .expect("占满第一个窗口");
+        assert_eq!(whole.start(), PhysAddr::new(0x10_0000));
+
+        // second 与父窗口隔着 first 的区间，并回后成为父容量的第二个窗口。
+        bank.merge_owned(parent, second, second_range)
+            .expect("并回不相邻子窗口");
+
+        // 第一个窗口已无空闲尾部；切分应落到第二个窗口而不是误报失败。
+        let child = CapacityId::next();
+        let carved = bank
+            .split_owned(parent, child, 0x2000)
+            .expect("从第二个窗口切出");
+        assert_eq!(carved.start(), PhysAddr::new(0x10_E000));
+        assert_eq!(bank.used_owned(child), 0);
+        assert_eq!(bank.used_owned(parent), 0xC000);
     }
 }

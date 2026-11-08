@@ -176,6 +176,7 @@ impl Capacity {
     ///
     /// 分割把尾部区间从当前 Capacity 的可用空间中移除；子 Capacity 从切出
     /// 区间的起点开始分配。注册了物理后端时由后端登记子容量的归属窗口。
+    /// 两条路径的 `used` 都只统计已分配的 Frame，切出窗口本身不计入用量。
     pub fn split(
         &mut self,
         id: CapacityId,
@@ -201,7 +202,6 @@ impl Capacity {
             return Err(HmpError::OutOfCapacity);
         }
         self.next = end;
-        self.used = self.used.saturating_add(length);
         Self::new(
             id,
             PhysRange::new(PhysAddr::new(start), length),
@@ -280,8 +280,7 @@ impl Capacity {
         }
 
         if let Some(backend) = super::backend::physical_backend() {
-            backend.merge_owned(self.id, child.id, range);
-            return Ok(());
+            return backend.merge_owned(self.id, child.id, range);
         }
 
         if range.end().get() == self.next {
@@ -290,7 +289,6 @@ impl Capacity {
             self.free.push(range);
             self.coalesce();
         }
-        self.used = self.used.saturating_sub(range.len());
         Ok(())
     }
 
@@ -465,12 +463,29 @@ mod tests {
     }
 
     #[test]
+    fn split_window_does_not_charge_parent_usage() {
+        let mut parent = capacity();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        // 切出窗口只是把可用区间划走，`used` 只统计已分配的 Frame。
+        assert_eq!(parent.used(), 0);
+
+        let frame = child.allocate(4096).expect("子分配");
+        assert_eq!(child.used(), 4096);
+        assert_eq!(parent.used(), 0);
+        child.free(frame).expect("归还子页");
+        assert_eq!(child.used(), 0);
+        assert_eq!(parent.used(), 0);
+    }
+
+    #[test]
     fn merges_empty_child_back_into_tail() {
         let mut parent = capacity();
         let child = parent
             .split(CapacityId::new(2), 0x4000, CapacityKind::User)
             .expect("子 Capacity");
-        assert_eq!(parent.used(), 0x4000);
+        assert_eq!(parent.used(), 0);
 
         parent.merge(&child).expect("并回尾部");
         assert_eq!(parent.used(), 0);
