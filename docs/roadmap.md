@@ -75,7 +75,7 @@ flowchart LR
 - **页表与 MMIO**：Region 物化为页表；MMIO、DMA、帧缓冲与自动窗口统一走 Region；页表机制留在实现层。
 - **HMP ABI**：Arena/Capacity/Frame/Region/Capability/Provider/Ledger 操作统一；Memory Server、Device Manager、驱动、VFS、Display 与客户端接入同一对象面。
 - **Provider**：Anonymous、Revision、Surface、TaskImage、DeviceAllocation 的 fault、writeback、evict、commit、scanout、pin、export、swap 契约。
-- **Ledger**：Arena、Capacity、Frame、Region 与能力的容量与压力记账；Handle 转移时记账随对象转移。
+- **Ledger**：Arena、Capacity、Frame、Region 与能力的容量、提交/常驻、峰值、软/硬上限与压力记账；Handle 转移时记账随对象转移。
 - **Holy Cadence**：Cadence/Meter 对象、Tempo Server、Beat、Task 级与 TCB 级两阶段调度、Lending、Tickless、idle TCB、亲和性与负载均衡。
 - **调度 ABI**：`SYS_CADENCE_*`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`；Root 服务清单授予初始 Cadence。
 
@@ -224,7 +224,8 @@ flowchart LR
 
 ## 11. 当前状态
 
-- M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
+- M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。已落地单一物理后端与 Capacity 配额视图、System Capacity 覆盖全部可用内存并共享给 Memory Server、Arena 惰性 Region、按容量峰值/软上限与任务提交/常驻记账。
+- 按设计继续收口：镜像与栈页物化为 Region、每个 Capacity 建立显式 Ledger、软上限策略接到 Root/Tempo。
 - 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
 - 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 兼容层；按 M7–M10 继续深化。
 - 当前代码分层与清单见 [Crate 分层](crates.md)；构建、运行与冒烟入口见 [工程策略](engineering.md)。

@@ -126,7 +126,7 @@ Arena 是任务内存的根对象。
 - Arena 保存 Region 表、用户栈、堆与工作区；栈与堆都是 Arena 内的 Region。
 - Arena 从 Capacity 取得 Frame；Arena 自身计入任务 Ledger。
 - Arena 由一个覆盖固定 VA 窗口的惰性匿名 Region 承载；装载期不预映射，首次访问按页从任务 Capacity 装入零页。
-- `SYS_ALLOC` 只推进按页对齐的线性分配并计入任务 Ledger；栈仍在装载期映射。
+- `SYS_ALLOC` 只推进按页对齐的线性分配并计入任务 Ledger。
 - Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
@@ -412,7 +412,7 @@ HMP 的对象与 ABI 与架构无关。以下只作为机制出现在包装 crat
 | **Region** | 类型化能力在 Arena 中的唯一映射视图 |
 | **Capability** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 的类型化能力 |
 | **Provider** | 缺页、回写、驱逐与驻留的 Endpoint 服务 |
-| **Ledger** | 容量、常驻、提交、配额与压力的显式记账 |
+| **Ledger** | 容量、提交、常驻、峰值、软/硬上限与压力的显式记账 |
 | **Mappable** | Region 可引用的统一能力接口 |
 | **铸造链** | Root Server → Capacity → Frame → Capability → Region → PTE |
 | **授予面** | Root Server 服务清单决定的初始 Arena/Capacity/Frame/Capability |

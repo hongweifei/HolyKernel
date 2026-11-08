@@ -111,7 +111,7 @@ Hosted 模拟器提供种子化、可回放的调度、IPC、故障注入与服�
 | **Capability** | 类型化能力；Revision/Surface/TaskImage/Device/Anonymous/Frame |
 | **Region** | 类型化能力在任务地址空间中的唯一映射；任务本地对象 |
 | **Provider** | 缺页、回写、驱逐的 Endpoint 服务 |
-| **Ledger** | 容量、常驻、配额与压力的显式记账 |
+| **Ledger** | 容量、提交、常驻、峰值、软/硬上限与压力的显式记账 |
 | **IRQHandler** | 中断句柄；绑定 Endpoint、EOI |
 | **DeviceGrant** | 设备 MMIO / DMA / IRQ 句柄集合 |
 

@@ -52,7 +52,7 @@
 | **Frame** | 连续物理页对象；带 FrameId、所属 Capacity、pin 与共享引用；最后一个引用归还 Capacity |
 | **Region** | 类型化能力在任务地址空间中的唯一映射视图；任务本地对象；带权利、COW、guard、pin 等标志 |
 | **Provider** | 缺页、回写、驱逐的 Endpoint 服务；契约按类型定义 |
-| **Ledger** | 容量、常驻、配额、压力的显式记账对象；随 Handle 转移 |
+| **Ledger** | 容量、提交、常驻、峰值、软/硬上限与压力的显式记账对象；随 Handle 转移 |
 | **类型化能力** | Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame；ABI 使用 `Handle + ObjectKind`，库层提供 `Handle<T>` |
 | **Mappable** | 内核可见的统一能力接口；类型化能力实现它，由 Region 引用 |
 | **铸造链** | Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights |
