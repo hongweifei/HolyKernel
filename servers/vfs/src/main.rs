@@ -18,7 +18,7 @@ use hk_base::CivilTime;
 #[cfg(target_os = "none")]
 use hk_block_ipc::ClientDisk;
 #[cfg(target_os = "none")]
-use hk_fs::Backend;
+use hk_fs::{Backend, DocSessions};
 #[cfg(target_os = "none")]
 use hk_fs_ext4::{Ext4Backend, WallClock};
 #[cfg(target_os = "none")]
@@ -41,15 +41,11 @@ mod drives;
 mod holy;
 #[cfg(target_os = "none")]
 mod remote;
-#[cfg(target_os = "none")]
-mod sessions;
 
 #[cfg(target_os = "none")]
 use drives::Drives;
 #[cfg(target_os = "none")]
 use remote::RemoteHolyFs;
-#[cfg(target_os = "none")]
-use sessions::Sessions;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -96,7 +92,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     register(&mut drives, b'D', PathObject::new(Devfs::new()));
     register(&mut drives, b'P', PathObject::new(Procfs::new()));
 
-    let mut sessions = Sessions::new();
+    let mut sessions = DocSessions::new();
     let mut request = vec![0_u8; 64 * 1024];
     let mut body = vec![0_u8; 64 * 1024 - 4];
     let mut response = vec![0_u8; 64 * 1024];

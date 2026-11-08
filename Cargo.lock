@@ -371,6 +371,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-holy-proto"
+version = "0.1.0"
+dependencies = [
+ "hk-fs",
+ "hk-proto",
+]
+
+[[package]]
 name = "hk-hosted"
 version = "0.1.0"
 dependencies = [
@@ -689,6 +697,7 @@ dependencies = [
  "hk-block-ipc",
  "hk-fs",
  "hk-fs-holyfs",
+ "hk-holy-proto",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
@@ -819,6 +828,7 @@ dependencies = [
  "hk-block-ipc",
  "hk-fs",
  "hk-fs-ext4",
+ "hk-holy-proto",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",

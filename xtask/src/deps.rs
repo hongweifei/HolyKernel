@@ -368,8 +368,10 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-image" => IMPL_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-proto" => PROTO_FORBIDDEN,
-        "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc" | "hk-fs-ext4"
-        | "hk-fs-holyfs-vfs" | "hk-debug" | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
+        "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc"
+        | "hk-holy-proto" | "hk-fs-ext4" | "hk-fs-holyfs-vfs" | "hk-debug" | "hk-canvas" => {
+            USERSPACE_LIB_FORBIDDEN
+        }
         "hk-framebuffer" | "hk-acpi" | "hk-boot" | "hk-smp" | "hk-drivers" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,
         _ => &[],

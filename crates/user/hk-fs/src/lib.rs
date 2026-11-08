@@ -11,6 +11,7 @@ pub mod backend;
 pub mod caps;
 pub mod error;
 pub mod ids;
+pub mod session;
 pub mod token;
 pub mod types;
 
@@ -18,6 +19,7 @@ pub use backend::Backend;
 pub use caps::Caps;
 pub use error::Error;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
+pub use session::{DocSession, DocSessions, VolumeSession, VolumeSessions};
 pub use token::{Token, TokenTable, VolumeToken, VolumeTokenTable};
 pub use types::{
     DocumentInfo, DocumentKind, EntryInfo, RevisionFlags, RevisionInfo, SnapshotInfo, TagInfo,
