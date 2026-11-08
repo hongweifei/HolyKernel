@@ -8,6 +8,8 @@ use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
+use hk_mem::Rights;
+use hk_mem::hmp::RegionFlags;
 
 pub use hk_mem::FrameBank as PageAllocator;
 use hk_mem::FrameKind;
@@ -40,6 +42,19 @@ pub fn init_runtime(direct_map: u64) {
 /// 返回 direct map 基址；未初始化时为 0。
 pub fn direct_map_base() -> u64 {
     DIRECT_MAP.load(Ordering::Acquire)
+}
+
+/// 把一段物理区间清零；供 Frame 归还 Capacity 前擦除内容。
+pub fn scrub_phys(phys: PhysAddr, len: usize) {
+    let base = direct_map_base();
+    if base == 0 || len == 0 {
+        return;
+    }
+    let pointer = base.saturating_add(phys.get()) as *mut u8;
+    // SAFETY: 物理区间经 direct map 可写；调用方保证区间来自 Capacity 且未被映射。
+    unsafe {
+        core::ptr::write_bytes(pointer, 0, len);
+    }
 }
 
 /// 判断物理页是否全为零。
@@ -116,10 +131,29 @@ impl PageFlags {
     pub const KERNEL_RW: Self = Self(WRITABLE);
     /// 用户可读写页。
     pub const USER_RW: Self = Self(WRITABLE | USER);
-    /// 设备 MMIO 页：可写、写直达、禁止缓存。
-    pub const MMIO: Self = Self(WRITABLE | PWT | PCD);
-    /// 用户可访问的设备 MMIO 页。
-    pub const USER_MMIO: Self = Self(WRITABLE | USER | PWT | PCD);
+    /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
+    pub const MMIO: Self = Self(WRITABLE | PWT | PCD | NX);
+    /// 用户可访问的设备 MMIO 页：不可执行。
+    pub const USER_MMIO: Self = Self(WRITABLE | USER | PWT | PCD | NX);
+
+    /// 按 Region 权利与标志构造用户页属性。
+    ///
+    /// 写权限来自 `rights`；只要不带 `EXECUTE` 就设置 NX。`COW` 标志把页映射
+    /// 为只读并置位 COW 标记，写时由缺页处理复制。
+    pub fn user(rights: Rights, flags: RegionFlags) -> Self {
+        let mut bits = USER;
+        let cow = flags.contains(RegionFlags::COW);
+        if rights.contains(Rights::WRITE) && !cow {
+            bits |= WRITABLE;
+        }
+        if !rights.contains(Rights::EXECUTE) {
+            bits |= NX;
+        }
+        if cow {
+            bits |= COW;
+        }
+        Self(bits)
+    }
 
     const fn bits(self) -> u64 {
         self.0
@@ -670,6 +704,35 @@ fn read_cr3() -> PhysAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_flags_follow_region_rights() {
+        let read_only = PageFlags::user(Rights::READ, RegionFlags::empty());
+        assert_eq!(read_only.raw() & WRITABLE, 0);
+        assert_eq!(read_only.raw() & NX, NX);
+
+        let writable = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::empty());
+        assert_eq!(writable.raw() & WRITABLE, WRITABLE);
+        assert_eq!(writable.raw() & NX, NX);
+
+        let executable = PageFlags::user(Rights::READ | Rights::EXECUTE, RegionFlags::empty());
+        assert_eq!(executable.raw() & WRITABLE, 0);
+        assert_eq!(executable.raw() & NX, 0);
+    }
+
+    #[test]
+    fn cow_regions_map_read_only_with_marker() {
+        let cow = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::COW);
+        assert_eq!(cow.raw() & WRITABLE, 0);
+        assert_eq!(cow.raw() & COW, COW);
+        assert_eq!(cow.raw() & USER, USER);
+    }
+
+    #[test]
+    fn device_pages_are_not_executable() {
+        assert_eq!(PageFlags::MMIO.raw() & NX, NX);
+        assert_eq!(PageFlags::USER_MMIO.raw() & NX, NX);
+    }
 
     #[test]
     fn unmaps_absent_range_idempotently() {

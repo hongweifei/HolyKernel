@@ -18,6 +18,7 @@ pub fn init(range: PhysRange) {
     hk_mem::hmp::set_frame_lease_releaser(|phys, len| {
         DMA.free(PhysRange::new(phys, len as u64));
     });
+    hk_mem::hmp::set_frame_scrubber(crate::paging::scrub_phys);
 }
 
 /// 从 DMA 池分配一段连续内存。

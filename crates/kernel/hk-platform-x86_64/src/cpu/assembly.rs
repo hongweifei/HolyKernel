@@ -1,5 +1,52 @@
 //! x86_64 中断与用户态恢复汇编。
 
+/// EFER 寄存器的 MSR 编号。
+const IA32_EFER: u32 = 0xC000_0080;
+/// EFER.NXE：允许页表项表达不可执行。
+const EFER_NXE: u64 = 1 << 11;
+/// CPUID 扩展功能叶。
+const CPUID_EXTENDED: u32 = 0x8000_0001;
+/// 扩展功能叶 EDX 的 NX 支持位。
+const CPUID_NX: u32 = 1 << 20;
+
+/// 启用 EFER.NXE，让页表项的 NX 位生效。
+///
+/// # Panics
+/// CPU 不支持 NX 时 panic：HMP 的 W^X 依赖 NX 表达不可执行页。
+pub(super) fn enable_no_execute() {
+    // SAFETY: CPUID 是纯读取指令；写入的是当前 CPU 的 EFER。
+    unsafe {
+        let extended = core::arch::x86_64::__cpuid(0x8000_0000).eax;
+        assert!(
+            extended >= CPUID_EXTENDED,
+            "CPU 不支持扩展 CPUID，无法启用 NX"
+        );
+        assert!(
+            core::arch::x86_64::__cpuid(CPUID_EXTENDED).edx & CPUID_NX != 0,
+            "CPU 不支持 NX"
+        );
+
+        let low: u32;
+        let high: u32;
+        core::arch::asm!(
+            "rdmsr",
+            in("ecx") IA32_EFER,
+            out("eax") low,
+            out("edx") high,
+            options(nostack, preserves_flags),
+        );
+        let value = (u64::from(high) << 32) | u64::from(low);
+        let value = value | EFER_NXE;
+        core::arch::asm!(
+            "wrmsr",
+            in("ecx") IA32_EFER,
+            in("eax") value as u32,
+            in("edx") (value >> 32) as u32,
+            options(nostack, preserves_flags),
+        );
+    }
+}
+
 core::arch::global_asm!(
     ".macro ISR_NOERR n",
     ".global isr_\\n",

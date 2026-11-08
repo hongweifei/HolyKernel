@@ -15,6 +15,8 @@ static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);
 /// AP 初始化：建立 per-CPU TSS/GDT、加载共享 IDT、启用 LAPIC 与中断。
 pub fn init_ap(cpu: usize) {
     assert!(cpu < MAX_CPUS, "CPU 索引越界");
+    // EFER.NXE 是每 CPU 的；AP 也要启用，否则 NX 页在本核不生效。
+    super::assembly::enable_no_execute();
     init_gdt(cpu);
     load_idt();
 

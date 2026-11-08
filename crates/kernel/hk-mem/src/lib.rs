@@ -13,3 +13,6 @@ pub mod platform;
 
 pub use page::{FrameBank, FrameBankStats, FrameKind, UserVspace, VspaceRegistry};
 pub use platform::{DmaPool, SoftwareIommu};
+
+/// HMP 使用的句柄权利类型；映射路径按它决定页表写权限。
+pub use hk_handle::Rights;

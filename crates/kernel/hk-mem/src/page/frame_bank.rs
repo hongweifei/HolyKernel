@@ -227,51 +227,56 @@ impl FrameBank {
     }
 
     /// 按分配记录归还一段物理区间并与相邻空闲区间合并。
+    ///
+    /// 归还在释放内部锁后清零区间，避免在持锁期间访问物理内存。
     pub fn free_for(&self, _kind: FrameKind, range: PhysRange) {
         if range.is_empty() {
             return;
         }
-        let mut inner = self.inner.lock();
-        let start = range.start().get();
-        let matches = inner
-            .allocations
-            .get(&start)
-            .is_some_and(|allocation| allocation.range == range);
-        if !matches {
-            return;
-        }
-        let Some(allocation) = inner.allocations.remove(&start) else {
-            return;
-        };
-        let _ = inner.ledger.release(allocation.charge);
-        let slot = &mut inner.by_kind[allocation.kind.index()];
-        *slot = slot.saturating_sub(range.len());
-        let mut merged = range;
-        if let Some(previous) = inner
-            .free_by_start
-            .range(..start)
-            .next_back()
-            .map(|(_, range)| *range)
-            && previous.end().get() == merged.start().get()
         {
-            inner.take_free(previous.start().get());
-            merged = PhysRange::new(
-                previous.start(),
-                previous.len().saturating_add(merged.len()),
-            );
+            let mut inner = self.inner.lock();
+            let start = range.start().get();
+            let matches = inner
+                .allocations
+                .get(&start)
+                .is_some_and(|allocation| allocation.range == range);
+            if !matches {
+                return;
+            }
+            let Some(allocation) = inner.allocations.remove(&start) else {
+                return;
+            };
+            let _ = inner.ledger.release(allocation.charge);
+            let slot = &mut inner.by_kind[allocation.kind.index()];
+            *slot = slot.saturating_sub(range.len());
+            let mut merged = range;
+            if let Some(previous) = inner
+                .free_by_start
+                .range(..start)
+                .next_back()
+                .map(|(_, range)| *range)
+                && previous.end().get() == merged.start().get()
+            {
+                inner.take_free(previous.start().get());
+                merged = PhysRange::new(
+                    previous.start(),
+                    previous.len().saturating_add(merged.len()),
+                );
+            }
+            let next_start = merged.end().get();
+            if let Some(next) = inner
+                .free_by_start
+                .range(next_start..)
+                .next()
+                .map(|(_, range)| *range)
+                && next.start().get() == next_start
+            {
+                inner.take_free(next.start().get());
+                merged = PhysRange::new(merged.start(), merged.len().saturating_add(next.len()));
+            }
+            inner.insert_free(merged);
         }
-        let next_start = merged.end().get();
-        if let Some(next) = inner
-            .free_by_start
-            .range(next_start..)
-            .next()
-            .map(|(_, range)| *range)
-            && next.start().get() == next_start
-        {
-            inner.take_free(next.start().get());
-            merged = PhysRange::new(merged.start(), merged.len().saturating_add(next.len()));
-        }
-        inner.insert_free(merged);
+        crate::hmp::capacity::scrub(range.start(), range.len() as usize);
     }
 
     /// 归还一段用途为 `Other` 的物理区间。

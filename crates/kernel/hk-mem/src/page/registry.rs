@@ -2,7 +2,10 @@
 
 use alloc::vec::Vec;
 
+use hk_handle::Rights;
 use spin::Mutex;
+
+use crate::hmp::RegionFlags;
 
 /// 可登记的用户地址空间。
 pub trait UserVspace: Sized {
@@ -16,17 +19,27 @@ pub trait UserVspace: Sized {
     fn share_user(&self) -> Option<Self> {
         None
     }
+    /// 按 Region 权利与标志把一段物理区间映射进地址空间。
+    ///
+    /// 只读 Region 映射为不可写页，不可执行 Region 映射为 NX 页；能力层
+    /// 已校验 W^X，这里只负责把结果落到页表。
+    fn map_user(
+        &self,
+        _virt: u64,
+        _phys: u64,
+        _len: usize,
+        _rights: Rights,
+        _flags: RegionFlags,
+    ) -> bool {
+        false
+    }
     /// 在地址空间中映射一段设备 MMIO；不支持时返回 `false`。
     fn map_mmio(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
     }
-    /// 在地址空间中映射一段 DMA 内存；不支持时返回 `false`。
-    fn map_dma(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
-        false
-    }
 
     /// 解除一段用户映射；不支持时返回 `false`。
-    fn unmap_dma(&self, _virt: u64, _len: usize) -> bool {
+    fn unmap_user(&self, _virt: u64, _len: usize) -> bool {
         false
     }
 }
@@ -93,22 +106,30 @@ impl<T: UserVspace> VspaceRegistry<T> {
             .is_some_and(|table| table.map_mmio(virt, phys, len))
     }
 
-    /// 把 DMA 内存映射到任务地址空间。
-    pub fn map_dma(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
+    /// 按 Region 权利与标志把一段物理区间映射到任务地址空间。
+    pub fn map_user(
+        &self,
+        slot: usize,
+        virt: u64,
+        phys: u64,
+        len: usize,
+        rights: Rights,
+        flags: RegionFlags,
+    ) -> bool {
         self.tables
             .lock()
             .get(slot)
             .and_then(Option::as_ref)
-            .is_some_and(|table| table.map_dma(virt, phys, len))
+            .is_some_and(|table| table.map_user(virt, phys, len, rights, flags))
     }
 
     /// 解除任务地址空间中的一段映射。
-    pub fn unmap_dma(&self, slot: usize, virt: u64, len: usize) -> bool {
+    pub fn unmap_user(&self, slot: usize, virt: u64, len: usize) -> bool {
         self.tables
             .lock()
             .get(slot)
             .and_then(Option::as_ref)
-            .is_some_and(|table| table.unmap_dma(virt, len))
+            .is_some_and(|table| table.unmap_user(virt, len))
     }
 
     /// 让子任务与父任务共享同一地址空间。

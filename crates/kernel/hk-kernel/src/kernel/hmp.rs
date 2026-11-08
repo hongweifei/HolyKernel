@@ -267,6 +267,32 @@ impl Kernel {
         )
     }
 
+    /// 把一个已清空的子 Capacity 并回父 Capacity。
+    ///
+    /// 子 Capacity 的 Frame 必须全部归还；合并后子区间回到父 Capacity 的
+    /// 可用空间。子 Capacity 句柄仍由调用方持有并负责关闭。
+    pub fn merge_capacity(
+        &self,
+        thread: TcbId,
+        parent: Handle,
+        child: Handle,
+    ) -> Result<(), KernelError> {
+        let (parent_object, _) =
+            self.resolve(thread, parent, Rights::WRITE, ObjectKind::Capacity)?;
+        let (child_object, _) = self.resolve(thread, child, Rights::WRITE, ObjectKind::Capacity)?;
+        let parent_lock = parent_object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let child_lock = child_object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        let child_capacity = child_lock.lock();
+        parent_lock
+            .lock()
+            .merge(&child_capacity)
+            .map_err(KernelError::Hmp)
+    }
+
     /// 从 Capacity 分配 Frame 并返回 Frame 句柄。
     pub fn allocate_frame(
         &self,
@@ -526,5 +552,23 @@ impl Kernel {
         })?;
         region.lock().mark_cow();
         Ok(())
+    }
+
+    /// 修改 Region 的权利与标志；能力层校验 W^X 与 sealed 约束。
+    pub fn protect_region(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        rights: Rights,
+        flags: hk_mem::hmp::RegionFlags,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Region)?;
+        let region = object.region().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Region,
+        })?;
+        region
+            .lock()
+            .protect(rights, flags)
+            .map_err(KernelError::Hmp)
     }
 }

@@ -16,7 +16,7 @@ pub mod region;
 
 pub use arena::{Arena, ArenaId, ArenaRegion};
 pub use capability::{Capability, CapabilityKind, CapabilityOp, Mappable};
-pub use capacity::{Capacity, CapacityId, CapacityKind};
+pub use capacity::{Capacity, CapacityId, CapacityKind, set_frame_scrubber};
 pub use error::HmpError;
 pub use frame::{Frame, FrameId};
 pub use lease::{FrameLease, set_frame_lease_releaser};

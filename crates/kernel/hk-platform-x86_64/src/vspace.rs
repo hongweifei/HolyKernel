@@ -1,5 +1,7 @@
 //! 每任务用户页表登记、切换与写时复制分叉。
 
+use hk_mem::Rights;
+use hk_mem::hmp::RegionFlags;
 use hk_mem::{UserVspace, VspaceRegistry};
 
 use crate::paging::PageTable;
@@ -21,15 +23,27 @@ impl UserVspace for PageTable {
         Some(PageTable::share(self))
     }
 
+    fn map_user(
+        &self,
+        virt: u64,
+        phys: u64,
+        len: usize,
+        rights: Rights,
+        flags: RegionFlags,
+    ) -> bool {
+        self.map_user_range(
+            virt,
+            phys,
+            len,
+            crate::paging::PageFlags::user(rights, flags),
+        )
+    }
+
     fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
         self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_MMIO)
     }
 
-    fn map_dma(&self, virt: u64, phys: u64, len: usize) -> bool {
-        self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_RW)
-    }
-
-    fn unmap_dma(&self, virt: u64, len: usize) -> bool {
+    fn unmap_user(&self, virt: u64, len: usize) -> bool {
         self.unmap_user_range(hk_hal::VirtAddr::new(virt), len)
     }
 }

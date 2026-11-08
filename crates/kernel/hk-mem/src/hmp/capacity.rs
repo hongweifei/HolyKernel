@@ -1,13 +1,35 @@
 //! 物理容量能力。
 
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::{PhysAddr, PhysRange};
 
 use super::{Frame, HmpError};
 
 static NEXT_CAPACITY_ID: AtomicU64 = AtomicU64::new(1);
+
+/// 归还物理区间前的清零回调。
+static SCRUBBER: AtomicUsize = AtomicUsize::new(0);
+
+/// 注册归还物理区间前的清零回调；重复调用会替换旧回调。
+///
+/// 内核在启动期注册基于 direct map 的实现；Hosted 等无物理内存的平台不注册，
+/// 归还路径跳过清零。
+pub fn set_frame_scrubber(scrub: fn(PhysAddr, usize)) {
+    SCRUBBER.store(scrub as usize, Ordering::Release);
+}
+
+/// 归还物理区间前清零；未注册回调时跳过。
+pub fn scrub(phys: PhysAddr, len: usize) {
+    let scrub = SCRUBBER.load(Ordering::Acquire);
+    if scrub == 0 {
+        return;
+    }
+    // SAFETY: 回调由平台在启动期注册，签名与存储的地址一致。
+    let scrub: fn(PhysAddr, usize) = unsafe { core::mem::transmute(scrub) };
+    scrub(phys, len);
+}
 
 /// Capacity 标识。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -179,6 +201,8 @@ impl Capacity {
     }
 
     /// 归还一段原始物理区间，供底层 DMA 池使用。
+    ///
+    /// 归还前清零区间；敏感内容不会随 Frame 回到空闲池。
     pub fn release(&mut self, phys: PhysAddr, len: usize) -> Result<(), HmpError> {
         let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
         if length == 0 || !phys.get().is_multiple_of(self.page_size as u64) {
@@ -190,9 +214,40 @@ impl Capacity {
         if start < self.range.start().get() || end > limit_end {
             return Err(HmpError::OutOfRange);
         }
+        scrub(phys, length as usize);
         self.used = self.used.saturating_sub(length);
         self.free.push(PhysRange::new(phys, length));
         self.coalesce();
+        Ok(())
+    }
+
+    /// 把一个已清空的子 Capacity 并回本容量。
+    ///
+    /// 子 Capacity 的 Frame 必须全部归还（`used` 为零），否则拒绝。区间紧贴
+    /// 当前未分配尾部时直接回退 `next`；否则并入空闲列表并合并，两种路径都
+    /// 不会重复计数。子 Capacity 本身保持不变，调用方负责丢弃句柄。
+    pub fn merge(&mut self, child: &Capacity) -> Result<(), HmpError> {
+        if child.id == self.id {
+            return Err(HmpError::WrongCapability);
+        }
+        if child.page_size != self.page_size {
+            return Err(HmpError::InvalidSize);
+        }
+        let range = child.range;
+        let limit_end = self.range.start().get().saturating_add(self.limit);
+        if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
+            return Err(HmpError::OutOfRange);
+        }
+        if child.used != 0 {
+            return Err(HmpError::PermissionDenied);
+        }
+        if range.end().get() == self.next {
+            self.next = range.start().get();
+        } else {
+            self.free.push(range);
+            self.coalesce();
+        }
+        self.used = self.used.saturating_sub(range.len());
         Ok(())
     }
 
@@ -344,6 +399,50 @@ mod tests {
                 .split(CapacityId::new(3), 0x1_0000, CapacityKind::User)
                 .err(),
             Some(HmpError::OutOfCapacity)
+        );
+    }
+
+    #[test]
+    fn merges_empty_child_back_into_tail() {
+        let mut parent = capacity();
+        let child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        assert_eq!(parent.used(), 0x4000);
+
+        parent.merge(&child).expect("并回尾部");
+        assert_eq!(parent.used(), 0);
+        let frame = parent.allocate(0x4000).expect("并回后分配");
+        assert_eq!(frame.phys(), PhysAddr::new(0x10_0000));
+    }
+
+    #[test]
+    fn merge_rejects_child_with_live_frames() {
+        let mut parent = capacity();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        let _frame = child.allocate(4096).expect("子分配");
+        assert_eq!(parent.merge(&child).err(), Some(HmpError::PermissionDenied));
+    }
+
+    #[test]
+    fn merge_accepts_child_after_frames_return() {
+        let mut parent = capacity();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        let frame = child.allocate(4096).expect("子分配");
+        child.free(frame).expect("归还子页");
+        parent.merge(&child).expect("并回尾部");
+
+        // 子容量切走的区间回到父容量，父容量可以再次切出同等子容量。
+        let again = parent
+            .split(CapacityId::new(3), 0x4000, CapacityKind::User)
+            .expect("再次切出");
+        assert_eq!(
+            again.range(),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x4000)
         );
     }
 }

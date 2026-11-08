@@ -120,6 +120,7 @@ pub fn init() {
         !INITIALIZED.swap(true, Ordering::AcqRel),
         "CPU 表重复初始化"
     );
+    assembly::enable_no_execute();
     gdt::init_gdt(0);
     idt::init_idt();
 }
