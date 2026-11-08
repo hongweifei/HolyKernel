@@ -142,7 +142,7 @@ Capacity 是物理容量的授予单位。
 
 - 声明用途：`System`、`User`、`Dma`、`Gpu`、`Numa`。
 - 声明页大小与 order；4 KiB 为起始档位，16 KiB、64 KiB、2 MiB、1 GiB 由 Capacity 拓扑与 Frame order 表达。
-- 声明配额、可回收属性与所属 Ledger。
+- 声明配额、软上限、可回收属性与所属 Ledger；后端按 `CapacityId` 记录已用与峰值。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Capacity 是记账边界：所有 Frame、Arena、Region 与对象元数据最终计入某个 Ledger。
 - Root Server 持有初始 Capacity；Memory Server 持有 System Capacity 的共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
@@ -304,7 +304,8 @@ HMP 的文件页缓存以修订为中心。
 
 Ledger 是容量与内存使用的显式记账对象。
 
-- 记录容量、常驻、提交、峰值、软/硬上限与压力状态。
+- 记录提交（charged）、常驻（resident）、峰值、软/硬上限与压力状态；软上限只报告，硬上限拒绝分配。
+- 每个 Capacity 的用量与峰值由后端按 `CapacityId` 归因：`SYS_CAPACITY_INFO` 返回区间、用途、页大小、硬上限、已用、峰值与软上限；任务 Ledger 的常驻由运行时按能力后备与已装入页计算，`SYS_LEDGER_INFO` 返回提交、硬上限、峰值、压力、常驻与软上限。
 - 每个 Capacity、Arena、Region、类型化能力与 Task 都有关联 Ledger。
 - 内核执行硬上限；超过配额的申请失败。
 - 记账随 Handle 转移：发送方归还，接收方按能力大小重新记账；接收方超配额则拒绝。
