@@ -13,6 +13,7 @@ hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-image = { version = "0.1.0", path = "../../shared/hk-image" }
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 hk-runtime = { version = "0.1.0", path = "../hk-runtime" }
+hk-symbols = { version = "0.1.0", path = "../../shared/hk-symbols" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 spin = "0.9"
 

@@ -493,6 +493,7 @@ dependencies = [
  "hk-image",
  "hk-kernel",
  "hk-runtime",
+ "hk-symbols",
  "hk-syscall",
  "spin",
 ]
@@ -900,6 +901,10 @@ version = "0.1.0"
 dependencies = [
  "spin",
 ]
+
+[[package]]
+name = "hk-symbols"
+version = "0.1.0"
 
 [[package]]
 name = "hk-sync"

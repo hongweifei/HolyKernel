@@ -1,184 +1,18 @@
-//! 内核页表操作。
-//!
-//! 沿用 Limine 建立的页表，按需为 MMIO 建立 4 KiB 映射：缺失的中间级页表从物理
-//! 帧分配器取页并清零，页表本身经 HHDM 访问。
+//! 页表机制：创建、遍历、映射与解除映射。
 
 use alloc::vec::Vec;
 use core::arch::asm;
-use core::sync::atomic::{AtomicU64, Ordering};
 
-use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
-use hk_mem::Rights;
-use hk_mem::hmp::RegionFlags;
-
-pub use hk_mem::FrameBank as PageAllocator;
+use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::FrameKind;
+use hk_mem::page::PagePool;
 
-/// 内核全局物理帧银行。
-pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
+use super::flags::{COW, FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
+use super::{FRAME_BANK, PageAllocator, read_cr3};
 
-const PRESENT: u64 = 1 << 0;
-const WRITABLE: u64 = 1 << 1;
-const USER: u64 = 1 << 2;
-const PWT: u64 = 1 << 3;
-const PCD: u64 = 1 << 4;
-const HUGE: u64 = 1 << 7;
-const COW: u64 = 1 << 9;
-const NX: u64 = 1 << 63;
-const FLAGS_MASK: u64 = 0xFFF | NX;
-const ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
-const ENTRIES: usize = 512;
-const KERNEL_PML4_START: usize = 256;
-
-static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
-static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
-
-/// 设置页表运行时使用的 direct map 基址，并记录内核页表根。
-pub fn init_runtime(direct_map: u64) {
-    KERNEL_ROOT.store(read_cr3().get(), Ordering::Release);
-    DIRECT_MAP.store(direct_map, Ordering::Release);
-}
-
-/// 返回 direct map 基址；未初始化时为 0。
-pub fn direct_map_base() -> u64 {
-    DIRECT_MAP.load(Ordering::Acquire)
-}
-
-/// 把一段物理区间清零；供 Frame 归还 Capacity 前擦除内容。
-pub fn scrub_phys(phys: PhysAddr, len: usize) {
-    let base = direct_map_base();
-    if base == 0 || len == 0 {
-        return;
-    }
-    let pointer = base.saturating_add(phys.get()) as *mut u8;
-    // SAFETY: 物理区间经 direct map 可写；调用方保证区间来自 Capacity 且未被映射。
-    unsafe {
-        core::ptr::write_bytes(pointer, 0, len);
-    }
-}
-
-/// 判断物理页是否全为零。
-pub fn page_is_zero(phys: PhysAddr) -> bool {
-    let base = direct_map_base();
-    let address = base.saturating_add(phys.get()) as *const u64;
-    for word in 0..hk_hal::PAGE_SIZE / size_of::<u64>() {
-        // SAFETY: 物理页经 direct map 映射为可读，按 64 位读取不超过一页。
-        if unsafe { core::ptr::read_volatile(address.add(word)) } != 0 {
-            return false;
-        }
-    }
-    true
-}
-
-/// 返回启动时记录的内核页表句柄；与当前 CR3 无关。
-pub fn kernel_table() -> PageTable {
-    PageTable {
-        direct_map: DIRECT_MAP.load(Ordering::Acquire),
-        root: PhysAddr::new(KERNEL_ROOT.load(Ordering::Acquire)),
-    }
-}
-
-fn take_cow_page() -> Option<PhysAddr> {
-    FRAME_BANK.allocate_for(FrameKind::Cow)
-}
-
-/// 取出一个检查点恢复帧。
-pub fn take_restore_page() -> Option<PhysAddr> {
-    FRAME_BANK.allocate_for(FrameKind::Restore)
-}
-
-/// 归还一个检查点恢复帧。
-pub fn give_restore_page(frame: PhysAddr) {
-    FRAME_BANK.free_for(FrameKind::Restore, PhysRange::new(frame, PAGE_SIZE as u64));
-}
-
-fn take_user_table_frame() -> Option<PhysAddr> {
-    FRAME_BANK.allocate_for(FrameKind::PageTable)
-}
-
-/// 解析用户写保护页错误；成功复制页帧时返回 `true`。
-pub fn resolve_cow(address: u64) -> bool {
-    let direct_map = DIRECT_MAP.load(Ordering::Acquire);
-    if direct_map == 0 {
-        return false;
-    }
-    let table = PageTable {
-        direct_map,
-        root: read_cr3(),
-    };
-    table.resolve_cow(address)
-}
-
-/// 判断当前页表中地址是否为用户可访问页。
-pub fn is_user_mapped(address: u64) -> bool {
-    let direct_map = DIRECT_MAP.load(Ordering::Acquire);
-    if direct_map == 0 {
-        return false;
-    }
-    let table = PageTable {
-        direct_map,
-        root: read_cr3(),
-    };
-    table.is_user_mapped(address)
-}
-
-/// 页表项属性。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PageFlags(u64);
-
-impl PageFlags {
-    /// 内核可读写页。
-    pub const KERNEL_RW: Self = Self(WRITABLE);
-    /// 用户可读写页。
-    pub const USER_RW: Self = Self(WRITABLE | USER);
-    /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
-    pub const MMIO: Self = Self(WRITABLE | PWT | PCD | NX);
-    /// 用户可访问的设备 MMIO 页：不可执行。
-    pub const USER_MMIO: Self = Self(WRITABLE | USER | PWT | PCD | NX);
-
-    /// 按 Region 权利与标志构造用户页属性。
-    ///
-    /// 写权限来自 `rights`；只要不带 `EXECUTE` 就设置 NX。`COW` 标志把页映射
-    /// 为只读并置位 COW 标记，写时由缺页处理复制。
-    pub fn user(rights: Rights, flags: RegionFlags) -> Self {
-        let mut bits = USER;
-        let cow = flags.contains(RegionFlags::COW);
-        if rights.contains(Rights::WRITE) && !cow {
-            bits |= WRITABLE;
-        }
-        if !rights.contains(Rights::EXECUTE) {
-            bits |= NX;
-        }
-        if cow {
-            bits |= COW;
-        }
-        Self(bits)
-    }
-
-    const fn bits(self) -> u64 {
-        self.0
-    }
-
-    /// 返回原始页表属性位。
-    pub const fn raw(self) -> u64 {
-        self.0
-    }
-
-    /// 从原始页表属性位构造。
-    pub const fn from_raw(bits: u64) -> Self {
-        Self(bits)
-    }
-}
-
-/// 把快照属性转换为恢复用属性：清除 COW 与大页位，COW 页恢复为可写私有页。
-pub const fn restore_flags(bits: u64) -> PageFlags {
-    let writable = if bits & COW != 0 {
-        WRITABLE
-    } else {
-        bits & WRITABLE
-    };
-    PageFlags((bits & !COW & !HUGE) | writable | USER)
-}
+pub(crate) const ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
+pub(crate) const ENTRIES: usize = 512;
+pub(crate) const KERNEL_PML4_START: usize = 256;
 
 /// 页表操作错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,8 +34,8 @@ pub enum PagingError {
 
 /// 页表操作句柄。
 pub struct PageTable {
-    direct_map: u64,
-    root: PhysAddr,
+    pub(crate) direct_map: u64,
+    pub(crate) root: PhysAddr,
 }
 
 impl PageTable {
@@ -415,131 +249,6 @@ impl PageTable {
         }
     }
 
-    /// 复制用户低半区并标记写时复制，返回子页表。
-    pub fn fork_user(&self) -> Option<Self> {
-        let child_root = take_cow_page()?;
-        self.zero_page(child_root);
-
-        for index in KERNEL_PML4_START..ENTRIES {
-            // SAFETY: 两侧 PML4 均经 HHDM 映射，索引在 0..512 范围内。
-            let value = unsafe { self.entry(self.root, index).read_volatile() };
-            // SAFETY: 目标 PML4 已清零且经 HHDM 可写，索引在 0..512 范围内。
-            unsafe {
-                self.entry(child_root, index).write_volatile(value);
-            }
-        }
-
-        for index in 0..KERNEL_PML4_START {
-            // SAFETY: 读取模板 PML4 项，索引在 0..512 范围内。
-            let value = unsafe { self.entry(self.root, index).read_volatile() };
-            if value & PRESENT == 0 {
-                continue;
-            }
-            if value & HUGE != 0 {
-                return None;
-            }
-
-            let child = take_cow_page()?;
-            self.zero_page(child);
-            // SAFETY: 父页表处于活动状态，条目地址经 HHDM 映射。
-            let source = PhysAddr::new(value & ADDRESS_MASK);
-            self.clone_level(source, child, 3)?;
-            // SAFETY: 子 PML4 项指向新分配的 PDPT，并保留原有权限位。
-            unsafe {
-                self.entry(child_root, index)
-                    .write_volatile(child.get() | (value & !ADDRESS_MASK));
-            }
-        }
-
-        if !crate::cpu::shootdown_tlb(None) {
-            return None;
-        }
-        self.activate();
-        Some(Self {
-            direct_map: self.direct_map,
-            root: child_root,
-        })
-    }
-
-    fn clone_level(&self, source: PhysAddr, target: PhysAddr, level: u32) -> Option<()> {
-        for index in 0..ENTRIES {
-            // SAFETY: 源页表经 HHDM 映射，索引在 0..512 范围内。
-            let value = unsafe { self.entry(source, index).read_volatile() };
-            if value & PRESENT == 0 {
-                continue;
-            }
-            if value & HUGE != 0 {
-                return None;
-            }
-
-            let physical = value & ADDRESS_MASK;
-            let flags = value & !ADDRESS_MASK;
-            if level == 1 {
-                let mut leaf = flags;
-                if leaf & WRITABLE != 0 {
-                    leaf = (leaf & !WRITABLE) | COW;
-                    // SAFETY: 父页表叶项经 HHDM 可写，保持不变共享页帧。
-                    unsafe {
-                        self.entry(source, index).write_volatile(physical | leaf);
-                    }
-                }
-                // SAFETY: 子页表叶项指向共享页帧，并带有 COW 标记。
-                unsafe {
-                    self.entry(target, index).write_volatile(physical | leaf);
-                }
-            } else {
-                let child = take_cow_page()?;
-                self.zero_page(child);
-                self.clone_level(PhysAddr::new(physical), child, level - 1)?;
-                // SAFETY: 子中间级项指向新页表，并保留原有权限位。
-                unsafe {
-                    self.entry(target, index)
-                        .write_volatile(child.get() | flags);
-                }
-            }
-        }
-        Some(())
-    }
-
-    /// 处理写时复制页错误：复制页帧并恢复可写映射。
-    pub fn resolve_cow(&self, address: u64) -> bool {
-        let mut table = self.root;
-        for level in [39_u32, 30, 21] {
-            let index = ((address >> level) & 0x1FF) as usize;
-            // SAFETY: 页表项经 HHDM 映射，索引在 0..512 范围内。
-            let value = unsafe { self.entry(table, index).read_volatile() };
-            if value & PRESENT == 0 || value & HUGE != 0 {
-                return false;
-            }
-            table = PhysAddr::new(value & ADDRESS_MASK);
-        }
-
-        let index = ((address >> 12) & 0x1FF) as usize;
-        // SAFETY: 末级页表项经 HHDM 映射，索引在 0..512 范围内。
-        let value = unsafe { self.entry(table, index).read_volatile() };
-        if value & PRESENT == 0 || value & COW == 0 || value & WRITABLE != 0 {
-            return false;
-        }
-
-        let Some(frame) = take_cow_page() else {
-            return false;
-        };
-        let source = (self.direct_map + (value & ADDRESS_MASK)) as *const u8;
-        let target = (self.direct_map + frame.get()) as *mut u8;
-        // SAFETY: 源页帧与目标页帧均经 HHDM 映射，长度为整页。
-        unsafe {
-            core::ptr::copy_nonoverlapping(source, target, PAGE_SIZE);
-        }
-
-        let updated = frame.get() | (value & !ADDRESS_MASK & !COW) | WRITABLE;
-        // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
-        unsafe {
-            self.entry(table, index).write_volatile(updated);
-            asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
-        }
-        true
-    }
-
     /// 判断地址是否映射为用户可访问页；大页直接视为已映射。
     pub fn is_user_mapped(&self, address: u64) -> bool {
         let mut table = self.root;
@@ -668,22 +377,24 @@ impl PageTable {
         true
     }
 
-    /// 使用 MMIO 页表帧池建立映射。
+    /// 使用页表帧池建立映射。
     pub fn map_mmio(
         &self,
         virt: VirtAddr,
         phys: PhysAddr,
         flags: PageFlags,
     ) -> Result<(), PagingError> {
-        self.map_with(virt, phys, flags, take_user_table_frame)
+        self.map_with(virt, phys, flags, || {
+            PagePool::new(&FRAME_BANK).page_table()
+        })
     }
 
-    fn entry(&self, table: PhysAddr, index: usize) -> *mut u64 {
+    pub(crate) fn entry(&self, table: PhysAddr, index: usize) -> *mut u64 {
         debug_assert!(index < ENTRIES);
         ((self.direct_map + table.get()) as *mut u64).wrapping_add(index)
     }
 
-    fn zero_page(&self, frame: PhysAddr) {
+    pub(crate) fn zero_page(&self, frame: PhysAddr) {
         let pointer = (self.direct_map + frame.get()) as *mut u8;
         // SAFETY: 新分配的帧来自可用内存区域，经 HHDM 可写。
         unsafe {
@@ -692,47 +403,9 @@ impl PageTable {
     }
 }
 
-fn read_cr3() -> PhysAddr {
-    let value: u64;
-    // SAFETY: 读取 CR3 不改变机器状态；只在 ring 0 执行。
-    unsafe {
-        asm!("mov {}, cr3", out(reg) value, options(nomem, nostack));
-    }
-    PhysAddr::new(value & ADDRESS_MASK)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn user_flags_follow_region_rights() {
-        let read_only = PageFlags::user(Rights::READ, RegionFlags::empty());
-        assert_eq!(read_only.raw() & WRITABLE, 0);
-        assert_eq!(read_only.raw() & NX, NX);
-
-        let writable = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::empty());
-        assert_eq!(writable.raw() & WRITABLE, WRITABLE);
-        assert_eq!(writable.raw() & NX, NX);
-
-        let executable = PageFlags::user(Rights::READ | Rights::EXECUTE, RegionFlags::empty());
-        assert_eq!(executable.raw() & WRITABLE, 0);
-        assert_eq!(executable.raw() & NX, 0);
-    }
-
-    #[test]
-    fn cow_regions_map_read_only_with_marker() {
-        let cow = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::COW);
-        assert_eq!(cow.raw() & WRITABLE, 0);
-        assert_eq!(cow.raw() & COW, COW);
-        assert_eq!(cow.raw() & USER, USER);
-    }
-
-    #[test]
-    fn device_pages_are_not_executable() {
-        assert_eq!(PageFlags::MMIO.raw() & NX, NX);
-        assert_eq!(PageFlags::USER_MMIO.raw() & NX, NX);
-    }
 
     #[test]
     fn unmaps_absent_range_idempotently() {
