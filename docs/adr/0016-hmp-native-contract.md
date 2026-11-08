@@ -51,7 +51,7 @@ flowchart LR
 ABI 对所有持权服务统一开放 `Arena`、`Capacity`、`Frame`、`Region`：
 
 - `Arena`：`query`、`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
-- `Capacity`：`query`、`allocate`、`release`、`split`、`transfer`。
+- `Capacity`：`query`、`allocate`、`release`、`split`、`merge`、`transfer`。
 - `Frame`：`map`、`phys`、`pin/unpin`、`export/import`、`transfer`。
 - `Region`：`map`、`unmap`、`protect`、`query`、`fault`、`grow`。
 - 所有调用校验 `Handle + Rights + ObjectKind`；内存策略由这些对象表达。
