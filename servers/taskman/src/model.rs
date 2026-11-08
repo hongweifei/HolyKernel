@@ -254,10 +254,10 @@ pub fn parse_perf(text: &str) -> PerfSample {
             ensure(&mut sample.cpu_resumes, index + 1);
             sample.cpu_busy[index] = busy;
             sample.cpu_resumes[index] = resumes;
-        } else if let Some(rest) = line.strip_prefix("task ") {
-            if let Some(row) = parse_task(rest) {
-                sample.rows.push(row);
-            }
+        } else if let Some(rest) = line.strip_prefix("task ")
+            && let Some(row) = parse_task(rest)
+        {
+            sample.rows.push(row);
         }
     }
     if sample.cpus > MAX_CORES {

@@ -20,6 +20,8 @@ mod actions;
 #[cfg(target_os = "none")]
 mod compositor;
 #[cfg(target_os = "none")]
+mod selftest;
+#[cfg(target_os = "none")]
 mod theme;
 #[cfg(target_os = "none")]
 mod window;

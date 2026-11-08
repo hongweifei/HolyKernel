@@ -31,6 +31,8 @@ use hk_server_api::{
 
 #[cfg(target_os = "none")]
 mod editor;
+#[cfg(any(target_os = "none", test))]
+mod selftest;
 #[cfg(target_os = "none")]
 mod terminal;
 
@@ -60,10 +62,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 
     let mut ever_attached = terminal.is_some();
-    let mut reconnected = false;
     let mut cmdline_buffer = [0_u8; 128];
-    let restart_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("display-restart-test"));
+    let mut restart = selftest::Restart::new(hk_server_api::boot_cmdline(&mut cmdline_buffer));
     let mut buffer = [0_u8; 256];
     let mut editor = Editor::new();
     let mut keys = Decoder::new();
@@ -80,9 +80,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             terminal = attach_terminal(endpoint);
             if let Some(terminal) = &mut terminal {
-                if ever_attached && !reconnected {
+                if ever_attached && !restart.reconnected() {
                     write(b"hk-server-console: reconnected\n");
-                    reconnected = true;
+                    restart.mark_reconnected();
                 }
                 write(b"hk-server-console: window ");
                 write_u64(terminal.window());
@@ -91,7 +91,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 ever_attached = true;
             }
         }
-        if restart_test && reconnected && current_display == 0 {
+        if restart.finished(current_display) {
             write(b"hk-server-console: done\n");
             exit(0)
         }

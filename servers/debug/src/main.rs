@@ -16,6 +16,8 @@ use alloc::format;
 mod pages;
 #[cfg(target_os = "none")]
 mod render;
+#[cfg(target_os = "none")]
+mod selftest;
 
 #[cfg(target_os = "none")]
 use hk_canvas::Surface;
@@ -31,9 +33,7 @@ use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{
-    exit, fault_subscribe, kernel_stats, recv_data, recv_data_try, send, write, write_u64,
-};
+use hk_server_api::{exit, fault_subscribe, kernel_stats, recv_data, send, write, write_u64};
 #[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use pages::Page;
@@ -49,7 +49,7 @@ const HEAP_SIZE: usize = 512 * 1024;
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
-fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &Window) {
+pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &Window) {
     let title = format!("Debug: {}", page.title());
     window.set_title(&title);
     let (width, height) = (window.width(), window.height());
@@ -105,70 +105,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let mut cmdline_buffer = [0_u8; 128];
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
-    let fault_test = cmdline.contains("debug-crash");
-    let test = fault_test || cmdline.contains("debug-test");
     let _ = fault_subscribe(endpoint);
-    if test {
-        let base =
-            u64::from_str_radix(env!("HK_IMAGE_BASE").trim_start_matches("0x"), 16).unwrap_or(0);
-        for page in Page::ALL {
-            let text = page.fetch();
-            show(page, &text, 0, font, &window);
-            write(b"hk-server-debug: view ");
-            write(page.slug().as_bytes());
-            write(b"\n");
-        }
-        if fault_test {
-            let child = hk_server_api::fork();
-            if child == 0 {
-                // SAFETY: 自检子任务故意触发非法指令，验证异常记录与符号化。
-                unsafe {
-                    core::arch::asm!("ud2", options(noreturn));
-                }
-            }
-            let mut fault = Page::Fault.fetch();
-            let mut buffer = [0_u8; 2048];
-            for _ in 0..100_000 {
-                let (label, _word, _sender, length) = recv_data_try(endpoint, &mut buffer);
-                if label == hk_server_api::FAULT_EVENT {
-                    hk_debug::ingest(label, &buffer[..length]);
-                }
-                fault = Page::Fault.fetch();
-                if fault.contains("异常：") {
-                    break;
-                }
-                let _ = hk_server_api::yield_now();
-            }
-            show(Page::Fault, &fault, 0, font, &window);
-            if fault.contains("[hk-server-debug]") {
-                write(b"hk-server-debug: fault symbolized\n");
-            } else {
-                write(b"hk-server-debug: fault raw\n");
-            }
-        }
-        let mut symbol = [0_u8; 256];
-        if let Ok(length) = hk_server_api::root::call(
-            hk_server_api::root::ROOT_OP_SYMBOLIZE,
-            "0xffffffff80000000",
-            &mut symbol,
-        ) {
-            write(b"hk-server-debug: symbol ");
-            write(
-                core::str::from_utf8(&symbol[..length])
-                    .unwrap_or("?")
-                    .trim_end()
-                    .as_bytes(),
-            );
-            write(b"\n");
-        }
-        if let Some((name, offset)) = hk_debug::lookup("hk-server-debug", base) {
-            write(b"hk-server-debug: service symbol ");
-            write(format!("{base:#018x} {name}+0x{offset:x}").as_bytes());
-            write(b"\n");
-        }
-        write(b"hk-server-debug: done\n");
-        let _ = send(display, DISPLAY_SHUTDOWN, 0);
-        exit(0)
+    if let Some(fault_test) = selftest::selected(cmdline) {
+        selftest::run(endpoint, display, font, &window, fault_test);
     }
 
     let mut keys = Decoder::new();

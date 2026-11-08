@@ -11,12 +11,14 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
-    capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc,
-    capacity_free, capacity_info, exit, frame_info, frame_pin, frame_release, frame_share,
+    capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc, exit,
     recv_data, reply, reply_handle, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_PROVIDE};
+
+#[cfg(target_os = "none")]
+mod selftest;
 
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 64 * 1024;
@@ -38,16 +40,18 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-memory: ready\n");
-    if verify_capacity() {
+    if selftest::verify_capacity() {
         write(b"hk-server-memory: capacity ok\n");
     }
     loop {
         let mut request = [0_u8; REQUEST_BYTES];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
         if label == MEMORY_FRAME {
-            let size = (length >= 8)
-                .then(|| u64::from_le_bytes(request[..8].try_into().unwrap_or([0; 8])))
-                .unwrap_or(0) as usize;
+            let size = if length >= 8 {
+                u64::from_le_bytes(request[..8].try_into().unwrap_or([0; 8])) as usize
+            } else {
+                0
+            };
             let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, size) else {
                 let _ = send_handle(sender, MEMORY_FRAME_ALLOCATED, u64::MAX, 0);
                 continue;
@@ -97,35 +101,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(2);
         }
     }
-}
-
-/// 验证 Root Server 授予的初始 Capacity 与 Frame 生命周期。
-#[cfg(target_os = "none")]
-fn verify_capacity() -> bool {
-    let capacity = INITIAL_CAPACITY_HANDLE;
-    let Some(before) = capacity_info(capacity) else {
-        return false;
-    };
-    let Some(frame) = capacity_alloc(capacity, PAGE) else {
-        return false;
-    };
-    let Some(info) = frame_info(frame) else {
-        return false;
-    };
-    if info.len != PAGE as u64 || info.refs != 1 || info.pinned {
-        return false;
-    }
-    if frame_share(frame) != Some(2)
-        || frame_pin(frame, true) != 0
-        || frame_pin(frame, false) != 0
-        || frame_release(frame) != Some(1)
-    {
-        return false;
-    }
-    if capacity_free(capacity, frame) != 1 {
-        return false;
-    }
-    capacity_info(capacity).is_some_and(|after| after.used == before.used)
 }
 
 hk_server_api::server_boilerplate!();

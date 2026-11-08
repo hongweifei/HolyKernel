@@ -100,6 +100,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | Holy 服务端盘符注册与请求分派 | `crates/user/hk-holy-service/src/{drives,handle}.rs`；VFS 与 ext4 服务共用 |
 | 远程 Holy 后端适配 | `crates/user/hk-fs-remote/src/lib.rs`；VFS 与 Path Server 共用 |
 | ext4 独立服务入口 | `servers/ext4/src/main.rs`；挂载 `E:` 并进入统一 Holy 请求循环 |
+| 服务自检入口 | `servers/*/src/selftest.rs`；net、debug、taskman、console、display、memory、holydoc、workbench，`_start` 只做选择与转交 |
 | 服务响应封装 | `crates/user/hk-proto/src/status.rs`；VFS、Holy 与块设备共用同一套状态值（含 `RANGE`/`BUSY`） |
 | 协议标签基址与登记表 | `crates/user/hk-proto/src/labels.rs`（`LABEL_GROUPS` 含各服务、memory 与 provider 段；virtio 标签在驱动 crate 内派生并自检） |
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |

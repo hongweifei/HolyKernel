@@ -15,7 +15,6 @@ use crate::compositor::render::{
     compose_region, damage_taskbar, damage_title, damage_window, surface_pixel,
 };
 use crate::surface::{Surface, clip};
-use crate::theme;
 use crate::window::{Window, raise, taskbar_height, title_height};
 
 impl Compositor {
@@ -246,24 +245,7 @@ impl Compositor {
         if !self.display_test {
             return;
         }
-        let titled = self
-            .windows
-            .iter()
-            .flatten()
-            .find(|window| window.id == id)
-            .is_some_and(|window| {
-                let palette = theme::theme();
-                let color = if window.id == self.focus {
-                    palette.title_focus
-                } else {
-                    palette.title_color
-                };
-                (window.y + 4..(window.y + title_height()).min(self.screen.height)).any(|row| {
-                    (window.x + 4..(window.x + window.width).min(self.screen.width))
-                        .any(|column| self.screen.get(column, row) != color)
-                })
-            });
-        if titled {
+        if crate::selftest::title_visible(&self.screen, &self.windows, self.focus, id) {
             write(b"hk-server-display: title ok\n");
         }
     }

@@ -336,11 +336,7 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
     surface.draw_text(&mut pen, memory_panel.y + 10, "内存", MUTED, heading);
     let used = view.sample.memory_used();
     let total = view.sample.memory_total();
-    let percent = if total == 0 {
-        0
-    } else {
-        used.saturating_mul(1000) / total
-    };
+    let percent = used.saturating_mul(1000).checked_div(total).unwrap_or(0);
     let memory_text = format!(
         "{} / {} MiB  ({})  峰值 {} MiB",
         mib_text(used),

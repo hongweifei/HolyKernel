@@ -21,6 +21,8 @@ use alloc::vec::Vec;
 mod model;
 #[cfg(target_os = "none")]
 mod render;
+#[cfg(target_os = "none")]
+mod selftest;
 
 #[cfg(target_os = "none")]
 use hk_canvas::Surface;
@@ -36,7 +38,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{self, ROOT_OP_PERF};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write, write_u64};
+use hk_server_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write};
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
 
@@ -187,7 +189,7 @@ impl App {
 
 /// 绘制并提交一帧。
 #[cfg(target_os = "none")]
-fn show(app: &App, window: &Window) {
+pub(crate) fn show(app: &App, window: &Window) {
     let title = format!("任务管理器 · {}", app.page.title());
     window.set_title(&title);
     let view = render::View {
@@ -207,61 +209,6 @@ fn show(app: &App, window: &Window) {
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render::render(&view, width, height, &frame);
     window.commit();
-}
-
-/// 输出自检标记。
-#[cfg(target_os = "none")]
-fn log_test(app: &App, window: u64) {
-    write(b"hk-server-taskman: ready ");
-    write_u64(window);
-    write(b"\n");
-    write(b"hk-server-taskman: cpus ");
-    write_u64(app.sample.cpus as u64);
-    write(b"\n");
-    write(b"hk-server-taskman: tasks ");
-    write_u64(app.sample.tasks);
-    write(b"\n");
-    write(b"hk-server-taskman: rows ");
-    write_u64(app.sample.rows.len() as u64);
-    write(b"\n");
-    write(b"hk-server-taskman: cpu ");
-    write_u64(app.cpu_usage);
-    write(b"\n");
-    for row in app.rows().iter().take(8) {
-        write(b"hk-server-taskman: task ");
-        write(row.name.as_bytes());
-        write(b" ");
-        write(row.state.as_bytes());
-        write(b"\n");
-    }
-    let busy: u64 = app.sample.cpu_busy.iter().sum();
-    write(b"hk-server-taskman: busy ");
-    write_u64(busy);
-    write(b"\n");
-    write(b"hk-server-taskman: memory ");
-    write_u64(app.sample.memory_used());
-    write(b" ");
-    write_u64(app.sample.memory_total());
-    write(b" ");
-    write_u64(app.sample.system.peak);
-    write(b"\n");
-    write(b"hk-server-taskman: memory-kinds ");
-    write_u64(app.sample.system.heap);
-    write(b" ");
-    write_u64(app.sample.system.page_table);
-    write(b" ");
-    write_u64(app.sample.system.cow);
-    write(b" ");
-    write_u64(app.sample.system.restore);
-    write(b" ");
-    write_u64(app.sample.system.image);
-    write(b" ");
-    write_u64(app.sample.system.dma);
-    write(b" ");
-    write_u64(app.sample.system.other);
-    write(b"\n");
-    write(b"hk-server-taskman: render ok\n");
-    write(b"hk-server-taskman: done\n");
 }
 
 /// 处理选中、排序与页面切换；返回是否需要重绘。
@@ -358,19 +305,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     show(&app, &window);
 
     let mut cmdline_buffer = [0_u8; 128];
-    let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("taskman-test"));
-    if test {
-        // 空闲采样一个刷新周期，验证 CPU 占用率不会因为轮询而持续打满。
-        let _ = sleep_ticks(REFRESH_TICKS);
-        app.refresh();
-        app.switch_page(Page::Processes);
-        show(&app, &window);
-        app.switch_page(Page::Performance);
-        show(&app, &window);
-        log_test(&app, window.window());
-        let _ = send(display, DISPLAY_SHUTDOWN, 0);
-        exit(0)
+    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    if selftest::selected(cmdline) {
+        selftest::run(&mut app, &window, display);
     }
 
     let mut keys = Decoder::new();
