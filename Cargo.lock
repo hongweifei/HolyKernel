@@ -326,6 +326,9 @@ dependencies = [
 [[package]]
 name = "hk-fs"
 version = "0.1.0"
+dependencies = [
+ "hk-status",
+]
 
 [[package]]
 name = "hk-fs-ext4"
@@ -480,6 +483,7 @@ name = "hk-proto"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
+ "hk-status",
  "hk-syscall",
 ]
 
@@ -916,6 +920,10 @@ version = "0.1.0"
 dependencies = [
  "spin",
 ]
+
+[[package]]
+name = "hk-status"
+version = "0.1.0"
 
 [[package]]
 name = "hk-symbols"

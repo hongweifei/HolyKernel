@@ -4,6 +4,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
+use hk_fs::Status;
+
 /// 后端节点编号。
 pub type NodeId = u64;
 
@@ -114,6 +116,23 @@ pub enum VfsError {
     Backend,
 }
 
+impl VfsError {
+    /// 映射到服务状态；新增错误变体时只需在这里补一处。
+    pub const fn status(self) -> Status {
+        match self {
+            Self::NotFound => Status::NotFound,
+            Self::InvalidPath => Status::Invalid,
+            Self::PermissionDenied => Status::Permission,
+            Self::AlreadyExists => Status::Exists,
+            Self::NotDirectory
+            | Self::IsDirectory
+            | Self::ReadOnly
+            | Self::InvalidOffset
+            | Self::Backend => Status::Error,
+        }
+    }
+}
+
 impl fmt::Display for VfsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -163,5 +182,19 @@ pub trait PathBackend {
     /// 把后端缓存与挂起写入刷到稳定存储。
     fn sync(&mut self) -> Result<(), VfsError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_errors_to_status() {
+        assert_eq!(VfsError::NotFound.status(), Status::NotFound);
+        assert_eq!(VfsError::InvalidPath.status(), Status::Invalid);
+        assert_eq!(VfsError::PermissionDenied.status(), Status::Permission);
+        assert_eq!(VfsError::AlreadyExists.status(), Status::Exists);
+        assert_eq!(VfsError::Backend.status(), Status::Error);
     }
 }

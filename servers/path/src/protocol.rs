@@ -3,11 +3,11 @@
 use hk_proto::vfs::{
     OP_CLOSE, OP_LIST, OP_MKDIR, OP_MOUNTS, OP_OPEN, OP_READ, OP_READ_BUFFER, OP_STAT, OP_SYNC,
     OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_BUFFER, OPEN_CREATE, OPEN_READ,
-    OPEN_WRITE, Request, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK,
-    STATUS_PERMISSION, VFS_RESPONSE, encode_response,
+    OPEN_WRITE, Request, STATUS_ERROR, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, VFS_RESPONSE,
+    encode_response,
 };
 use hk_server_api::send_data;
-use hk_vfs::{FileType, OpenFlags, Vfs, VfsError};
+use hk_vfs::{FileType, OpenFlags, Vfs};
 
 use crate::sessions::Session;
 
@@ -44,7 +44,7 @@ pub(crate) fn handle(
                     body[..8].copy_from_slice(&id.to_le_bytes());
                     (STATUS_OK, 8)
                 }
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_CLOSE => {
@@ -53,7 +53,7 @@ pub(crate) fn handle(
             };
             match filesystem.close(handle) {
                 Ok(()) => (STATUS_OK, 0),
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_READ => {
@@ -62,7 +62,7 @@ pub(crate) fn handle(
             };
             match filesystem.read_at(handle, request.arg1, body) {
                 Ok(length) => (STATUS_OK, length),
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_WRITE => {
@@ -74,7 +74,7 @@ pub(crate) fn handle(
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)
                 }
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_READ_BUFFER => {
@@ -95,7 +95,7 @@ pub(crate) fn handle(
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)
                 }
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_WRITE_BUFFER => {
@@ -116,7 +116,7 @@ pub(crate) fn handle(
                     body[..8].copy_from_slice(&(length as u64).to_le_bytes());
                     (STATUS_OK, 8)
                 }
-                Err(error) => (status(error), 0),
+                Err(error) => (error.status().as_u8(), 0),
             }
         }
         OP_STAT => match filesystem.metadata(request.path) {
@@ -128,15 +128,15 @@ pub(crate) fn handle(
                 body[1..9].copy_from_slice(&metadata.size.to_le_bytes());
                 (STATUS_OK, 9)
             }
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_TRUNCATE => match filesystem.truncate(request.path, request.arg0) {
             Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_UNLINK => match filesystem.unlink(request.path) {
             Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_LIST => match filesystem.readdir(request.path) {
             Ok(entries) => {
@@ -153,19 +153,19 @@ pub(crate) fn handle(
                 }
                 (STATUS_OK, length)
             }
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_MKDIR => match filesystem.create_dir(request.path) {
             Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_UMOUNT => match filesystem.umount(request.path) {
             Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_SYNC => match filesystem.sync_all() {
             Ok(()) => (STATUS_OK, 0),
-            Err(error) => (status(error), 0),
+            Err(error) => (error.status().as_u8(), 0),
         },
         OP_MOUNTS => {
             let mut length = 0;
@@ -182,15 +182,5 @@ pub(crate) fn handle(
             (STATUS_OK, length)
         }
         _ => (STATUS_INVALID, 0),
-    }
-}
-#[cfg(target_os = "none")]
-fn status(error: VfsError) -> u8 {
-    match error {
-        VfsError::NotFound => STATUS_NOT_FOUND,
-        VfsError::InvalidPath => STATUS_INVALID,
-        VfsError::PermissionDenied => STATUS_PERMISSION,
-        VfsError::AlreadyExists => STATUS_EXISTS,
-        _ => STATUS_ERROR,
     }
 }

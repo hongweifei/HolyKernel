@@ -3,9 +3,9 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
-use hk_fs::{Backend, DocId, Error as FsError, RevisionId};
+use hk_fs::{Backend, DocId, RevisionId};
 
-use crate::vfs::VfsError;
+use crate::vfs::{VfsError, map_fs_error};
 
 /// 页大小。
 pub const PAGE_SIZE: usize = 4096;
@@ -90,7 +90,7 @@ impl PageCache {
         if limit >= PAGE_SIZE * 4 && offset.is_multiple_of(PAGE_SIZE as u64) {
             return backend
                 .read(document, Some(revision), offset, &mut buffer[..limit])
-                .map_err(map_error);
+                .map_err(map_fs_error);
         }
         let mut done = 0;
 
@@ -118,7 +118,9 @@ impl PageCache {
         if data.is_empty() {
             return Ok(0);
         }
-        let written = backend.write(document, offset, data).map_err(map_error)?;
+        let written = backend
+            .write(document, offset, data)
+            .map_err(map_fs_error)?;
         self.invalidate(instance, document);
         Ok(written)
     }
@@ -156,7 +158,7 @@ impl PageCache {
                     index * PAGE_SIZE as u64,
                     &mut page[..],
                 )
-                .map_err(map_error)?;
+                .map_err(map_fs_error)?;
             self.pages.insert(
                 key,
                 Entry {
@@ -175,18 +177,6 @@ impl PageCache {
 impl Default for PageCache {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn map_error(error: FsError) -> VfsError {
-    match error {
-        FsError::NotFound => VfsError::NotFound,
-        FsError::NotDirectory => VfsError::NotDirectory,
-        FsError::IsDirectory => VfsError::IsDirectory,
-        FsError::Exists => VfsError::AlreadyExists,
-        FsError::ReadOnly | FsError::Refused => VfsError::PermissionDenied,
-        FsError::Invalid | FsError::Stale => VfsError::InvalidOffset,
-        _ => VfsError::Backend,
     }
 }
 

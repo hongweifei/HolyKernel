@@ -1,7 +1,7 @@
 //! Holy 文档协议的响应构造：状态映射与常见响应编码。
 //!
 //! 两个 Holy 文档服务共用这套构造，业务侧只负责调用后端并选择响应形状；
-//! 新增文件系统错误变体时只需要改 [`status`] 一处。
+//! 新增文件系统错误变体时只需要改 `hk_fs::Error::status` 一处。
 
 use hk_fs::{
     DocId, DocumentInfo, DocumentKind, EntryInfo, Error, RevisionId, RevisionInfo, SnapshotInfo,
@@ -14,24 +14,16 @@ use hk_proto::holy::{
     encode_document, encode_drive, encode_entry, encode_revision, encode_revision_id,
     encode_snapshot, encode_tag, encode_token, encode_u32, encode_u64, encode_volume,
 };
-use hk_proto::status::{
-    STATUS_DAMAGED, STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
-    STATUS_OK, STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
-};
+use hk_proto::status::{STATUS_ERROR, STATUS_OK};
 
 /// 文件系统错误转协议状态码。
 pub fn status(error: Error) -> u8 {
-    match error {
-        Error::NotFound => STATUS_NOT_FOUND,
-        Error::Exists => STATUS_EXISTS,
-        Error::Invalid | Error::NotDirectory | Error::IsDirectory => STATUS_INVALID,
-        Error::Io => STATUS_IO,
-        Error::Refused => STATUS_PERMISSION,
-        Error::Stale => STATUS_STALE,
-        Error::Damaged => STATUS_DAMAGED,
-        Error::ReadOnly => STATUS_READ_ONLY,
-        _ => STATUS_ERROR,
-    }
+    error.status().as_u8()
+}
+
+/// 协议状态码还原文件系统错误；未知状态按 I/O 错误处理。
+pub fn error(status: u8) -> Error {
+    Error::from_status_code(status)
 }
 
 /// 把线编码结果包装成响应状态与长度。
@@ -234,6 +226,10 @@ pub const fn document_kind(code: u64) -> Option<DocumentKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hk_proto::status::{
+        STATUS_DAMAGED, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND,
+        STATUS_PERMISSION, STATUS_READ_ONLY, STATUS_STALE,
+    };
 
     #[test]
     fn maps_every_error_class() {
@@ -249,6 +245,15 @@ mod tests {
         assert_eq!(status(Error::ReadOnly), STATUS_READ_ONLY);
         assert_eq!(status(Error::Busy), STATUS_ERROR);
         assert_eq!(status(Error::Quota), STATUS_ERROR);
+    }
+
+    #[test]
+    fn restores_errors_from_status() {
+        assert_eq!(error(STATUS_NOT_FOUND), Error::NotFound);
+        assert_eq!(error(STATUS_INVALID), Error::Invalid);
+        assert_eq!(error(STATUS_IO), Error::Io);
+        assert_eq!(error(STATUS_PERMISSION), Error::Refused);
+        assert_eq!(error(STATUS_OK), Error::Io);
     }
 
     #[test]

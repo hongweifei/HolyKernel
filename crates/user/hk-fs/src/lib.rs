@@ -18,6 +18,7 @@ pub mod types;
 pub use backend::Backend;
 pub use caps::Caps;
 pub use error::Error;
+pub use hk_status::Status;
 pub use ids::{DocId, HandleRights, RevisionId, VolumeId};
 pub use session::{DocSession, DocSessions, VolumeSession, VolumeSessions};
 pub use token::{Token, TokenTable, VolumeToken, VolumeTokenTable};

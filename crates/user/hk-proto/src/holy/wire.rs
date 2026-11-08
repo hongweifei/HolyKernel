@@ -188,7 +188,7 @@ pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
     })
 }
 
-/// 请求头长度；布局由 [`crate::wire`] 统一，`kind` 承载盘符。
+/// 请求头长度；布局由 公共帧头 统一，`kind` 承载盘符。
 pub const REQUEST_HEADER: usize = crate::wire::REQUEST_HEADER;
 /// 请求缓冲上限。
 pub const REQUEST_BUFFER: usize = 64 * 1024;

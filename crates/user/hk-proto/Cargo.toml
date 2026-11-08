@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+hk-status = { version = "0.1.0", path = "../../shared/hk-status" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 
 [lints]

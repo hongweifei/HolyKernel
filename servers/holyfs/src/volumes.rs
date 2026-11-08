@@ -11,10 +11,8 @@ use hk_block_ipc::ClientDisk;
 use hk_fs_holyfs::{
     DocId, HolyError, HolyFs, VolumeId, format_with_volume_id, is_formatted, volume_id_for_drive,
 };
-use hk_proto::vfs::{
-    STATUS_ERROR, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
-    STATUS_STALE,
-};
+use hk_holy_proto::response;
+use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND};
 
 /// 多个卷共享同一个块客户端，避免同一服务上的重复 Frame 映射。
 #[derive(Clone)]
@@ -118,10 +116,10 @@ impl Volumes {
         let disk = if is_formatted(&disk) {
             disk
         } else {
-            format_with_volume_id(disk, volume_id_for_drive(letter)).map_err(status)?
+            format_with_volume_id(disk, volume_id_for_drive(letter)).map_err(response::status)?
         };
-        let volume = HolyFs::mount(disk).map_err(status)?;
-        self.insert(letter, volume).map_err(status)?;
+        let volume = HolyFs::mount(disk).map_err(response::status)?;
+        self.insert(letter, volume).map_err(response::status)?;
         self.services.insert(letter, String::from(service));
         Ok(())
     }
@@ -131,7 +129,7 @@ impl Volumes {
         let mut volume = self.drives.remove(&letter).ok_or(STATUS_NOT_FOUND)?;
         if let Err(error) = volume.sync() {
             self.drives.insert(letter, volume);
-            return Err(status(error));
+            return Err(response::status(error));
         }
         self.services.remove(&letter);
         Ok(())
@@ -154,18 +152,6 @@ impl Volumes {
                 root: volume.root(),
             })
             .collect()
-    }
-}
-
-fn status(error: HolyError) -> u8 {
-    match error {
-        HolyError::NotFound => STATUS_NOT_FOUND,
-        HolyError::Exists => STATUS_EXISTS,
-        HolyError::Invalid => STATUS_INVALID,
-        HolyError::Io => STATUS_IO,
-        HolyError::Refused => STATUS_PERMISSION,
-        HolyError::Stale => STATUS_STALE,
-        _ => STATUS_ERROR,
     }
 }
 

@@ -57,7 +57,7 @@ pub use crate::status::{
     decode_response, encode_response,
 };
 
-/// 请求头长度；布局由 [`crate::wire`] 统一。
+/// 请求头长度；布局由 公共帧头 统一。
 const REQUEST_HEADER: usize = wire::REQUEST_HEADER;
 
 /// 单条 VFS 协议消息的缓冲上限。

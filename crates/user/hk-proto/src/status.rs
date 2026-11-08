@@ -6,33 +6,35 @@
 
 use crate::wire;
 
+pub use hk_status::Status;
+
 /// 响应头长度：status + data_len。
 pub const RESPONSE_HEADER: usize = wire::RESPONSE_HEADER;
 
 /// 成功。
-pub const STATUS_OK: u8 = 0;
+pub const STATUS_OK: u8 = Status::Ok.as_u8();
 /// 未找到。
-pub const STATUS_NOT_FOUND: u8 = 1;
+pub const STATUS_NOT_FOUND: u8 = Status::NotFound.as_u8();
 /// 参数非法。
-pub const STATUS_INVALID: u8 = 2;
+pub const STATUS_INVALID: u8 = Status::Invalid.as_u8();
 /// 后端错误。
-pub const STATUS_ERROR: u8 = 3;
+pub const STATUS_ERROR: u8 = Status::Error.as_u8();
 /// 服务不可用。
-pub const STATUS_IO: u8 = 4;
+pub const STATUS_IO: u8 = Status::Io.as_u8();
 /// 权限不足。
-pub const STATUS_PERMISSION: u8 = 5;
+pub const STATUS_PERMISSION: u8 = Status::Permission.as_u8();
 /// 已存在。
-pub const STATUS_EXISTS: u8 = 6;
+pub const STATUS_EXISTS: u8 = Status::Exists.as_u8();
 /// 期望值或令牌代际已过期。
-pub const STATUS_STALE: u8 = 7;
+pub const STATUS_STALE: u8 = Status::Stale.as_u8();
 /// 卷已损坏并进入只读。
-pub const STATUS_DAMAGED: u8 = 8;
+pub const STATUS_DAMAGED: u8 = Status::Damaged.as_u8();
 /// 卷当前只读。
-pub const STATUS_READ_ONLY: u8 = 9;
+pub const STATUS_READ_ONLY: u8 = Status::ReadOnly.as_u8();
 /// 访问范围越界。
-pub const STATUS_RANGE: u8 = 10;
+pub const STATUS_RANGE: u8 = Status::Range.as_u8();
 /// 队列已满，回收完成后再提交。
-pub const STATUS_BUSY: u8 = 11;
+pub const STATUS_BUSY: u8 = Status::Busy.as_u8();
 
 /// 解码后的响应。
 pub struct Response<'a> {

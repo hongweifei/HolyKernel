@@ -16,6 +16,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单与桌面排序的单一清单；零依赖 |
 | L0 | 共享契约 | `hk-cadence`（规划） | Cadence/Meter 类型、调度类别、虚拟时间数学与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
+| L0 | 共享契约 | `hk-status` | 服务状态枚举：协议、文件系统与 VFS 共用的状态词表；零依赖 |
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
 | L1 | 共享契约 | `hk-shell`、`hk-font`、`hk-symbols` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化）；文本符号表解析与符号化 |
@@ -95,7 +96,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | Holy/VFS 协议客户端（缓冲按需分配） | `crates/user/hk-proto-client/src/{holy,vfs}.rs` |
 | Holy 文档响应构造与错误映射 | `crates/user/hk-holy-proto/src/response.rs` |
 | 协议公共帧头（请求/响应） | `crates/user/hk-proto/src/wire.rs`；块设备响应在头后追加固定 `tag` |
-| 服务状态码与响应封装 | `crates/user/hk-proto/src/status.rs`；VFS、Holy 与块设备共用同一套状态词表（含 `RANGE`/`BUSY`） |
+| 服务状态枚举 | `crates/shared/hk-status/src/lib.rs`；协议常量、`hk_fs::Error::status()` 与 `VfsError::status()` 都从它派生 |
+| 服务响应封装 | `crates/user/hk-proto/src/status.rs`；VFS、Holy 与块设备共用同一套状态值（含 `RANGE`/`BUSY`） |
 | 协议标签基址与登记表 | `crates/user/hk-proto/src/labels.rs`（`LABEL_GROUPS` 含各服务、memory 与 provider 段；virtio 标签在驱动 crate 内派生并自检） |
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 内核符号表与异常现场 | `crates/kernel/hk-root-server/src/debug/{symbols,fault}.rs`；文本符号解析与符号化在 `hk-symbols` |

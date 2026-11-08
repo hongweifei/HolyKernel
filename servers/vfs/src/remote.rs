@@ -12,10 +12,6 @@ use hk_proto::holy::{
     DocId as WireDocId, DocumentKind as WireKind, KIND_COLLECTION, RevisionId as WireRevisionId,
     VolumeView, decode_entries, decode_revisions,
 };
-use hk_proto::vfs::{
-    STATUS_DAMAGED, STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND, STATUS_PERMISSION,
-    STATUS_READ_ONLY, STATUS_STALE,
-};
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
 
@@ -31,8 +27,8 @@ impl RemoteHolyFs {
     pub(crate) fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
         let mut client = HolyClient::new_with_service(own_endpoint, service);
         client.set_drive(drive);
-        let root = client.root().map_err(map_status)?;
-        let volume = client.volume().map_err(map_status)?;
+        let root = client.root().map_err(Error::from_status_code)?;
+        let volume = client.volume().map_err(Error::from_status_code)?;
         Ok(Self {
             root: DocId::new(root.get()),
             volume,
@@ -59,7 +55,7 @@ impl Backend for RemoteHolyFs {
             .client
             .borrow_mut()
             .document_id(wire_doc(document))
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(DocumentInfo {
             id: document,
             kind: kind_of(view.kind),
@@ -75,7 +71,7 @@ impl Backend for RemoteHolyFs {
             .client
             .borrow_mut()
             .resolve(wire_doc(collection), name)
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(native_doc(document))
     }
 
@@ -83,7 +79,7 @@ impl Backend for RemoteHolyFs {
         let mut client = self.client.borrow_mut();
         let bytes = client
             .enumerate_id(wire_doc(collection))
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(decode_entries(bytes)
             .map(|entry| EntryInfo {
                 name: String::from(entry.name),
@@ -103,7 +99,7 @@ impl Backend for RemoteHolyFs {
             .client
             .borrow_mut()
             .create(wire_doc(collection), name, wire_kind(kind))
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(native_doc(document))
     }
 
@@ -112,7 +108,7 @@ impl Backend for RemoteHolyFs {
             .client
             .borrow_mut()
             .unbind(wire_doc(collection), name)
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(native_doc(document))
     }
 
@@ -132,10 +128,10 @@ impl Backend for RemoteHolyFs {
                     offset,
                     buffer,
                 )
-                .map_err(map_status),
+                .map_err(Error::from_status_code),
             None => client
                 .read_id(wire_doc(document), offset, buffer)
-                .map_err(map_status),
+                .map_err(Error::from_status_code),
         }
     }
 
@@ -143,7 +139,7 @@ impl Backend for RemoteHolyFs {
         self.client
             .borrow_mut()
             .write_id(wire_doc(document), offset, data)
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(data.len())
     }
 
@@ -151,14 +147,14 @@ impl Backend for RemoteHolyFs {
         self.client
             .borrow_mut()
             .truncate_id(wire_doc(document), size)
-            .map_err(map_status)
+            .map_err(Error::from_status_code)
     }
 
     fn revisions(&self, document: DocId) -> Result<Vec<RevisionInfo>, Error> {
         let mut client = self.client.borrow_mut();
         let bytes = client
             .revisions_id(wire_doc(document))
-            .map_err(map_status)?;
+            .map_err(Error::from_status_code)?;
         Ok(decode_revisions(bytes)
             .map(|revision| RevisionInfo {
                 id: RevisionId::new(revision.id),
@@ -171,7 +167,10 @@ impl Backend for RemoteHolyFs {
     }
 
     fn sync(&mut self) -> Result<(), Error> {
-        self.client.borrow_mut().sync().map_err(map_status)
+        self.client
+            .borrow_mut()
+            .sync()
+            .map_err(Error::from_status_code)
     }
 }
 
@@ -195,19 +194,5 @@ fn wire_kind(kind: DocumentKind) -> WireKind {
     match kind {
         DocumentKind::Content => WireKind::Content,
         DocumentKind::Collection => WireKind::Collection,
-    }
-}
-
-fn map_status(status: u8) -> Error {
-    match status {
-        STATUS_NOT_FOUND => Error::NotFound,
-        STATUS_INVALID => Error::Invalid,
-        STATUS_IO => Error::Io,
-        STATUS_PERMISSION => Error::Refused,
-        STATUS_EXISTS => Error::Exists,
-        STATUS_STALE => Error::Stale,
-        STATUS_DAMAGED => Error::Damaged,
-        STATUS_READ_ONLY => Error::ReadOnly,
-        _ => Error::Io,
     }
 }

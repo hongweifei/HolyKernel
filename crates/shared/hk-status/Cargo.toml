@@ -1,0 +1,10 @@
+[package]
+name = "hk-status"
+description = "HolyKernel 服务状态枚举：协议、文件系统与 VFS 共用的状态词表"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
