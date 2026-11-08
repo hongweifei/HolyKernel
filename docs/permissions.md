@@ -65,7 +65,7 @@ flowchart LR
 - `Region` 是任务本地对象；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`。
 - `Region` 是唯一映射视图；内核页表是 Region 的物化。
 - ABI 面对所有持权服务统一开放 `Capacity`、`Frame`、`Region`；内存授权由 `Handle + Rights + ObjectKind` 决定。
-- 初始授予由 Root Server 的服务清单决定；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- 初始授予由 Root Server 的服务清单决定；Memory Server 持有 System Capacity 共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 - Root Server 持有初始 Cadence 池；Tempo Server 持有普通服务 Cadence 的创建、拆分、调整、准入与撤销权；普通 Task 持有自身 Cadence/Meter 的 READ。
 - Cadence 的 WRITE 限制在父契约范围内；ADMIN 只授予 Root/Tempo。Task 通过 Handle 转移获得契约，epoch 撤销使旧 Handle 失效。
 

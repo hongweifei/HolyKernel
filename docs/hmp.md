@@ -143,8 +143,8 @@ Capacity 是物理容量的授予单位。
 - 声明配额、可回收属性与所属 Ledger。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Capacity 是记账边界：所有 Frame、Arena、Region 与对象元数据最终计入某个 Ledger。
-- Root Server 持有初始 Capacity；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
-- `System` 从完整启动内存描述建立：`FrameBank` 初始化后，除已预留窗口（如 DMA 池）外的全部可用区间登记给它，因此一个容量可以持有多个窗口；内核堆、页表、镜像/栈/Arena 页与匿名页都计入它的用量。`User`/`Dma`/`Gpu` 授予从 `System` 切出。
+- Root Server 持有初始 Capacity；Memory Server 持有 System Capacity 的共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- `System` 从完整启动内存描述建立：`FrameBank` 初始化后，除已预留窗口（如 DMA 池）外的全部可用区间登记给它，因此一个容量可以持有多个窗口；内核堆、页表、镜像/栈/Arena 页与匿名页都计入它的用量。`Dma`/`Gpu` 与其它 `User` 子容量从 `System` 切出；Memory Server 直接持有 `System` 的共享视图，是用户内存的唯一来源。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 - 用量 `used` 只统计已分配的 Frame，切出或并回窗口本身不计入用量，两条分配路径语义一致。
 - 后端是窗口归属的权威：子容量仍有未归还的分配、或窗口与容量不匹配时，`merge` 返回错误而不是静默成功；一个容量可能因不相邻合并持有多个窗口，`split` 从未被占用尾部空闲的窗口切出。
@@ -333,7 +333,7 @@ flowchart LR
 | 持有者 | 初始授予 |
 | --- | --- |
 | Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 Arena |
-| Memory Server | User Capacity 子集；Anonymous Provider 绑定权 |
+| Memory Server | System Capacity 共享视图；Anonymous Provider 绑定权 |
 | 驱动服务 | Dma/Gpu Capacity 子集；DeviceGrant；Frame 的 pin/export |
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |

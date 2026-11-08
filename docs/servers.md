@@ -12,7 +12,7 @@ HolyKernel 的内核只提供机制；服务器承载策略。本文描述 Root 
 flowchart TB
     Root["Root Server<br/>监督与初始授予"]
     Tempo["Tempo Server<br/>Cadence 策略 · 准入"]
-    Mem["Memory Server<br/>User Capacity · Anonymous"]
+    Mem["Memory Server<br/>System Capacity 共享 · Anonymous"]
     DM["Device Manager<br/>PCI / DTB"]
     Blk["Block Driver<br/>virtio-blk / AHCI"]
     Net["Network Driver<br/>virtio-net"]
@@ -81,7 +81,7 @@ pub struct ServiceManifest {
 ## 3. Root Server
 
 - 启动时获得初始 Capacity、Cadence、HandleTable、Endpoint 与设备句柄。
-- 持有 System / User / Dma / Gpu 顶层 Capacity 与初始 Cadence 池；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle 与 Cadence Handle。Memory Server 取得 User Capacity 子集，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
+- 持有 System / User / Dma / Gpu 顶层 Capacity 与初始 Cadence 池；按服务清单授予 Capacity/Frame/Capability Handle 与 Cadence Handle。Memory Server 取得 System Capacity 共享视图，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
 - 解析服务清单，创建服务器 Task/TCB，附加 Cadence，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
 - 维护服务表：Task、Cadence、Meter、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
@@ -103,9 +103,9 @@ pub struct ServiceManifest {
 
 ### 3.2 Memory Server
 
-- Root Server 从 Dma Capacity 尾部切出 1 MiB 初始 User Capacity，授予 Memory Server 句柄 `0x5001`。
+- Root Server 把启动期建立的 System Capacity 共享视图授予 Memory Server（句柄 `0x5001`）；`MEMORY_ALLOC`、`MEMORY_FRAME` 与 Provider 页都从同一个容量出页。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
-- `MEMORY_FRAME` 从初始 Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
+- `MEMORY_FRAME` 从共享 System Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
 - 缺页请求 `PROVIDER_FAULT` 通过 `SYS_CAPACITY_ALLOC` 分配 Frame，`PROVIDER_PROVIDE` 返回 Frame 句柄；内核取得归属并装入能力页，回收时归还 Capacity。
 - 启动自检覆盖 `CAPACITY_INFO`、`CAPACITY_ALLOC`、`FRAME_INFO`、`FRAME_PIN`、`FRAME_SHARE`、`FRAME_RELEASE` 与 `CAPACITY_FREE`。
 - 内存授权由 Handle 与 Rights 决定；任何持有 Capacity/Capability 的服务使用同一组 HMP 对象操作。

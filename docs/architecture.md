@@ -216,7 +216,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **Root Server** | 启动、监督、重启、初始授予 | 初始 Capacity、Cadence、HandleTable、Endpoint |
 | **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence | Cadence Pool、Meter |
-| **Memory Server** | Anonymous Provider、User Capacity、Capability 分配 | User Capacity、Capability、Frame |
+| **Memory Server** | Anonymous Provider、System Capacity 共享视图、Capability 分配 | System Capacity 共享视图、Capability、Frame |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
@@ -339,7 +339,7 @@ sequenceDiagram
 
 - **隔离**：每个 Task 独立 Arena；内核与用户态分离。
 - **最小权限**：服务器只获得完成职责所需的 Handle；HMP 的 Capacity/Frame/Region 由 Rights 约束，内存授权由 Handle 与 Rights 决定。
-- **内存授权**：Root Server 持有初始 Capacity 并通过 Handle 转移；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- **内存授权**：Root Server 持有初始 Capacity 并通过 Handle 转移；Memory Server 持有 System Capacity 共享视图，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
 - **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；当前 x86 使用软件 IOMMU 域表，硬件 VT-d 后端待接入；关闭时依赖驱动审计。
 - **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务；POSIX Server 在启用兼容环境时加入。

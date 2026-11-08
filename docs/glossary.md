@@ -83,7 +83,7 @@
 | --- | --- |
 | **Root Server** | 启动服务器、分配初始 Capacity/Cadence/Handle、监督与重启 |
 | **Tempo Server** | 调度策略；创建、拆分、调整、准入与撤销 Cadence |
-| **Memory Server** | 持有 User Capacity，作为 Anonymous Provider 提供匿名能力与缺页 |
+| **Memory Server** | 持有 System Capacity 共享视图，作为 Anonymous Provider 提供匿名能力与缺页 |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 |
 | **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌 |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存与 POSIX 路径投影 |
