@@ -235,7 +235,7 @@ Meter 字段：
 
 - `TaskInfo` 暴露 Cadence 与 Meter 快照。
 - trace 记录；`enqueue`、`dequeue`、`dispatch`、`preempt`、`block`、`wake`、`throttle`、`refill`、`lend`、`return`、`migrate`、`overrun`。
-- Holy 命令：`cadence <task>`、`meter <task>`、`tempo`、`admit <task>`、`revoke <task>`。
+- Holy 命令：`cadence <task>`、`meter <task>`、`tempo`、`admit <task>`、`revoke <task>`；准入/撤销走 `TEMPO_ADMIT`/`TEMPO_REVOKE`，内核用 `SYS_TASK_ATTACH_NAMED`/`SYS_TASK_REGRANT_NAMED` 按任务名执行。
 - 任务管理器性能页直接读取 Cadence/Meter，展示契约、份额、预算、等待与节流。
 
 ---
@@ -303,7 +303,7 @@ Meter 字段：
 | `hk-runtime` | 已实现 | Task 创建与契约继承、fork/线程共享 Task、Meter 记账、契约时钟推进 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF` 编号与内核分派；`handle = 0` 表示当前 Task |
-| `hk-server-tempo` | 已实现 | `servers/tempo`：在 Root 授予的初始契约池内派生收窄子契约并把句柄转移给调用方；默认启动，`smoke --mode tempo` 覆盖申请/附加/读回 |
+| `hk-server-tempo` | 已实现 | `servers/tempo`：在 Root 授予的初始契约池内派生收窄子契约，支持自准入与按名准入/撤销重授予；用户态 Shell 提供 `cadence`/`meter`/`tempo`/`admit`/`revoke`，`smoke --mode tempo` 覆盖全链路 |
 | Tickless | 已实现 | 周期 tick 保留为 watchdog/统计；Grant 结束、预算补充与 sleep 到期按契约微秒编程一次性 LAPIC 唤醒（`next_deadline` 取最早者） |
 | 亲和与迁移 | 已实现 | 每 CPU Beat；入队按亲和性与加权负载选核；空闲 CPU 从最忙 Beat 窃取可迁移 Task；跨核运行计入 `Meter.migrations`。缓存热度模型仍待补 |
 | Lending | 已实现 | `call` 期间服务端 TCB 压入 lending frame，类别/队列键/时间片取调用方与服务端更强的一个；执行时间同时记入调用方 Meter 与预算，`reply`/退出时弹栈 |

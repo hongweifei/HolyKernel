@@ -117,13 +117,16 @@ where
             "replace" => Some(self.replace(args)),
             "checkpoint" => Some(self.checkpoint(args)),
             "restore-checkpoint" => Some(self.restore_checkpoint(args)),
+            "cadence" => Some(self.runtime.cadence_text(args.trim())),
+            "meter" => Some(self.runtime.meter_text(args.trim())),
+            "tempo" => Some(self.runtime.tempo_text()),
             _ => None,
         }
     }
 
     fn help_extra(&self) -> String {
         String::from(
-            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>\n",
+            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、cadence <任务>、meter <任务>、tempo\n",
         )
     }
 

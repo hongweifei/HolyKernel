@@ -864,6 +864,7 @@ dependencies = [
 name = "hk-server-shell"
 version = "0.1.0"
 dependencies = [
+ "hk-cadence",
  "hk-debug",
  "hk-proto",
  "hk-proto-client",

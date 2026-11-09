@@ -128,8 +128,8 @@ holy> debug app
 | `cadence <task>` | 查看 Task 的 Cadence 契约：类别、权重、预算、周期、截止期、亲和性、lending |
 | `meter <task>` | 查看 Task 的 Meter：消耗、等待、节流、超限、迁移、切换、虚拟进度 |
 | `tempo` | 查看 Tempo 策略、准入与全局 Cadence 池 |
-| `admit <task>` | 由特权 Shell 请求 Tempo 准入 Realtime 契约 |
-| `revoke <task>` | 由特权 Shell 请求 Tempo 撤销并重新授予契约 |
+| `admit <task>` | 由特权 Shell 请求 Tempo 准入契约（类别继承策略池） |
+| `revoke <task>` | 由特权 Shell 请求 Tempo 撤销旧 epoch 并重新授予契约 |
 | `focus` | 选择当前 Native Task（会话焦点） |
 | `start` | 按需装载并启动服务模块 |
 | `restart` | 重新装载并启动已退出的服务模块 |

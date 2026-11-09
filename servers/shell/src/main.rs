@@ -22,19 +22,27 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
+use hk_cadence::CadenceSnapshot;
+#[cfg(target_os = "none")]
 use hk_proto::console::{CONSOLE_PING, CONSOLE_PONG, Client};
 #[cfg(target_os = "none")]
+use hk_proto::tempo::{MAX_NAME, SNAPSHOT_LEN};
+#[cfg(target_os = "none")]
 use hk_proto::vfs::list_mounts;
+#[cfg(target_os = "none")]
+use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_REPLACE, ROOT_OP_RESTART,
-    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
-    ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_CADENCE, ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_METER, ROOT_OP_REPLACE,
+    ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START,
+    ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TEMPO, ROOT_OP_TRACE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, fault_subscribe, recv_data_try, send_data, write, write_u64, yield_now};
+use hk_server_api::{
+    exit, fault_subscribe, recv_data_try, send_data, service_endpoint, write, write_u64, yield_now,
+};
 #[cfg(target_os = "none")]
 use hk_shell::{
     Command, RuntimeStats, ServiceInfo, Session, ShellHost, ShellIo, TaskInfo, TraceEvent,
@@ -124,13 +132,18 @@ impl ShellHost for UserHost {
             "replace" => Some(root_text(ROOT_OP_REPLACE, args)),
             "checkpoint" => Some(root_text(ROOT_OP_CHECKPOINT, args)),
             "restore-checkpoint" => Some(root_text(ROOT_OP_RESTORE_CHECKPOINT, args)),
+            "cadence" => Some(root_text(ROOT_OP_CADENCE, args)),
+            "meter" => Some(root_text(ROOT_OP_METER, args)),
+            "tempo" => Some(root_text(ROOT_OP_TEMPO, "")),
+            "admit" => Some(tempo_policy(self.endpoint, args, false)),
+            "revoke" => Some(tempo_policy(self.endpoint, args, true)),
             _ => tags::extension(self.endpoint, name, args),
         }
     }
 
     fn help_extra(&self) -> String {
         String::from(
-            "扩展：mounts、debug（最近异常回溯）、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>\n标签：tags、tag <路径> <编号>、untag <路径> <编号>、tags-of <路径>、tag-members <编号>、tag-create <名字>、tag-drop <编号>\n",
+            "扩展：mounts、debug（最近异常回溯）、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、cadence <任务>、meter <任务>、tempo、admit <任务>、revoke <任务>\n标签：tags、tag <路径> <编号>、untag <路径> <编号>、tags-of <路径>、tag-members <编号>、tag-create <名字>、tag-drop <编号>\n",
         )
     }
 
@@ -162,6 +175,44 @@ fn mount_text(endpoint: u64) -> String {
         }
         Err(code) => format!("VFS 不可用：{code}\n"),
     }
+}
+
+/// 请求 Tempo 准入或撤销重授予，并回读新契约。
+#[cfg(target_os = "none")]
+fn tempo_policy(endpoint: u64, arguments: &str, regrant: bool) -> String {
+    let name = arguments.trim();
+    if name.is_empty() {
+        return format!(
+            "用法：{} <任务>\n",
+            if regrant { "revoke" } else { "admit" }
+        );
+    }
+    if name.len() > MAX_NAME {
+        return format!("任务名过长：{name}\n");
+    }
+    let tempo = service_endpoint("hk-server-tempo");
+    if tempo == 0 {
+        return String::from("Tempo 未运行\n");
+    }
+    let mut snapshot = CadenceSnapshot::default();
+    snapshot.weight = 1024;
+    snapshot.budget = 2_000;
+    snapshot.period = 16_000;
+    snapshot.latency = 2_000;
+    let mut encoded = [0_u8; SNAPSHOT_LEN];
+    if snapshot.encode(&mut encoded).is_none() {
+        return String::from("契约编码失败\n");
+    }
+    let mut client = TempoClient::new(tempo, endpoint);
+    if !client.admit_named(name, &encoded, regrant) {
+        return format!("Tempo 拒绝：{name}\n");
+    }
+    let action = if regrant {
+        "撤销并重新授予"
+    } else {
+        "准入"
+    };
+    format!("已{action}：{name}\n{}", root_text(ROOT_OP_CADENCE, name))
 }
 
 #[cfg(target_os = "none")]
