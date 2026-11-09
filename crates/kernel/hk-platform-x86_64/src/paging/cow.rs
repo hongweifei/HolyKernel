@@ -1,7 +1,5 @@
 //! 写时复制：fork 时共享可写页，缺页时复制页帧并恢复写权限。
 
-use core::arch::asm;
-
 use hk_hal::{PAGE_SIZE, PhysAddr};
 use hk_mem::page::PagePool;
 
@@ -132,10 +130,8 @@ impl PageTable {
 
         let updated = frame.get() | (value & !ADDRESS_MASK & !COW) | WRITABLE;
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
-        unsafe {
-            self.entry(table, index).write_volatile(updated);
-            asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
-        }
+        unsafe { self.entry(table, index).write_volatile(updated) };
+        hk_arch::flush_tlb_page(address);
         true
     }
 }

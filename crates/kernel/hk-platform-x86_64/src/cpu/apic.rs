@@ -1,6 +1,5 @@
 //! 本地 APIC 与跨核 IPI。
 
-use core::arch::asm;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use crate::port::outb;
@@ -25,10 +24,8 @@ pub fn init_ap(cpu: usize) {
     lapic_write(LAPIC_SIVR, SPURIOUS_ENABLE | SPURIOUS_VECTOR);
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
     APIC_IDS[cpu].store(u32::from(lapic_id()), Ordering::Release);
-    // SAFETY: GDT/TSS/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
-    unsafe {
-        asm!("sti", options(nomem, nostack));
-    }
+    // GDT/TSS/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
+    hk_arch::enable_interrupts();
 }
 
 /// 向指定本地 APIC 发送固定投递 IPI。

@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "aarch64-cpu"
+version = "11.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44171e22925ec72b63d86747bc3655c7849a5b8d865c980222128839f45ac034"
+dependencies = [
+ "tock-registers",
+]
+
+[[package]]
 name = "acpi"
 version = "7.0.0-pre1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -142,6 +151,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
+name = "const_fn"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413d67b29ef1021b4d60f4aa1e925ca031751e213832b4b1d588fae623c05c60"
+
+[[package]]
 name = "core_maths"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -238,6 +253,14 @@ checksum = "89e0de208fa9b99664812350b33072d0d9b3a63caaebb03eeb23316eeedfb8d0"
 [[package]]
 name = "hk-acpi"
 version = "0.1.0"
+
+[[package]]
+name = "hk-arch"
+version = "0.1.0"
+dependencies = [
+ "aarch64-cpu",
+ "x86_64",
+]
 
 [[package]]
 name = "hk-async"
@@ -533,6 +556,7 @@ dependencies = [
 name = "hk-platform-x86_64"
 version = "0.1.0"
 dependencies = [
+ "hk-arch",
  "hk-base",
  "hk-device",
  "hk-drivers",
@@ -1239,6 +1263,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
 name = "safe-mmio"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1384,6 +1414,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tock-registers"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d2d250f87fb3fb6f225c907cf54381509f47b40b74b1d1f12d2dccbc915bdfe"
+
+[[package]]
 name = "toml"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1460,6 +1496,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "volatile"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "442887c63f2c839b346c192d047a7c87e73d0689c9157b00b53dcc27dd5ea793"
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1481,6 +1523,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "x86_64"
+version = "0.15.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be4ec631e1a81d50e46c35a4a00322bd076c47491b64c2fb10a7ffa89002c697"
+dependencies = [
+ "bit_field",
+ "bitflags 2.13.2",
+ "const_fn",
+ "rustversion",
+ "volatile",
 ]
 
 [[package]]

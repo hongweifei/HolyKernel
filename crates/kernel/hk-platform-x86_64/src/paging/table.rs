@@ -1,7 +1,6 @@
 //! 页表机制：创建、遍历、映射与解除映射。
 
 use alloc::vec::Vec;
-use core::arch::asm;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::FrameKind;
@@ -244,9 +243,7 @@ impl PageTable {
     /// 切换到该页表。
     pub fn activate(&self) {
         // SAFETY: 根物理地址来自页表或帧分配器；写入 CR3 只影响当前 CPU。
-        unsafe {
-            asm!("mov cr3, {}", in(reg) self.root.get(), options(nostack, preserves_flags));
-        }
+        unsafe { hk_arch::write_cr3(self.root.get()) }
     }
 
     /// 判断地址是否映射为用户可访问页；大页直接视为已映射。
@@ -330,10 +327,8 @@ impl PageTable {
         unsafe {
             entry.write_volatile(phys.get() | flags.bits() | PRESENT);
         }
-        // SAFETY: 刷新已修改的页对应的一级 TLB 项。
-        unsafe {
-            asm!("invlpg [{}]", in(reg) virt.get(), options(nostack, preserves_flags));
-        }
+        // 刷新已修改的页对应的一级 TLB 项。
+        hk_arch::flush_tlb_page(virt.get());
         Ok(())
     }
 
@@ -368,10 +363,8 @@ impl PageTable {
             let index = ((address >> 12) & 0x1FF) as usize;
             let entry = self.entry(table, index);
             // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
-            unsafe {
-                entry.write_volatile(0);
-                asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
-            }
+            unsafe { entry.write_volatile(0) };
+            hk_arch::flush_tlb_page(address);
             offset += PAGE_SIZE;
         }
         true

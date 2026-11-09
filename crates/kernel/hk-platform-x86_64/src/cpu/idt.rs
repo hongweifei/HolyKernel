@@ -1,9 +1,7 @@
 //! IDT 与中断入口。
 
-use core::arch::asm;
 use core::cell::UnsafeCell;
 
-use super::gdt::DescriptorPointer;
 use super::*;
 
 #[repr(C)]
@@ -178,10 +176,7 @@ pub(super) fn load_idt() {
     // SAFETY: IDT 已由 BSP 初始化且此后只读。
     unsafe {
         let idt = &*IDT.0.get();
-        let pointer = DescriptorPointer {
-            limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
-            base: idt.as_ptr() as u64,
-        };
-        asm!("lidt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
+        let limit = (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16;
+        hk_arch::load_idt(idt.as_ptr() as u64, limit);
     }
 }

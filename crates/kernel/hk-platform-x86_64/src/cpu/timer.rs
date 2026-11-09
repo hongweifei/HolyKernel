@@ -1,6 +1,5 @@
 //! LAPIC 定时器与调度 tick。
 
-use core::arch::asm;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use super::apic::{lapic_read, lapic_write};
@@ -26,15 +25,15 @@ pub fn arm_timer(target: u64) {
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, TIMER_INITIAL_COUNT);
 
-    // SAFETY: 开中断允许定时器中断进入；IDT 与本地 APIC 已就绪。
-    unsafe { asm!("sti", options(nomem, nostack)) };
+    // 开中断允许定时器中断进入；IDT 与本地 APIC 已就绪。
+    hk_arch::enable_interrupts();
 }
 
 /// 停止定时器并关中断。
 pub fn disarm_timer() {
     TICK_ARMED.store(false, Ordering::SeqCst);
-    // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
-    unsafe { asm!("cli", options(nomem, nostack)) };
+    // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
+    hk_arch::disable_interrupts();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
@@ -52,8 +51,8 @@ pub fn start_tick() {
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     TICK_ENABLED.store(true, Ordering::SeqCst);
 
-    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    unsafe { asm!("sti", options(nomem, nostack)) };
+    // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    hk_arch::enable_interrupts();
 }
 
 /// 启动 AP 的周期性调度 tick，复用 BSP 校准的计数，不重置全局 tick 计数。
@@ -61,10 +60,8 @@ pub fn start_ap_tick() {
     lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
-    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    unsafe {
-        asm!("sti", options(nomem, nostack));
-    }
+    // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    hk_arch::enable_interrupts();
 }
 
 /// 重新装载 tick 计数并启用定时器。
@@ -78,14 +75,14 @@ pub fn rearm_tick() {
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     TICK_ENABLED.store(true, Ordering::SeqCst);
 
-    // SAFETY: 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    unsafe { asm!("sti", options(nomem, nostack)) };
+    // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
+    hk_arch::enable_interrupts();
 }
 
 /// 停止调度 tick 并关中断。
 pub fn stop_tick() {
-    // SAFETY: 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
-    unsafe { asm!("cli", options(nomem, nostack)) };
+    // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
+    hk_arch::disable_interrupts();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
     TICK_ENABLED.store(false, Ordering::SeqCst);
 }

@@ -10,7 +10,6 @@ mod cow;
 mod flags;
 mod table;
 
-use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::PhysAddr;
@@ -116,10 +115,5 @@ pub fn is_user_mapped(address: u64) -> bool {
 }
 
 pub(crate) fn read_cr3() -> PhysAddr {
-    let value: u64;
-    // SAFETY: 读取 CR3 不改变机器状态；只在 ring 0 执行。
-    unsafe {
-        asm!("mov {}, cr3", out(reg) value, options(nomem, nostack));
-    }
-    PhysAddr::new(value & table::ADDRESS_MASK)
+    PhysAddr::new(hk_arch::read_cr3() & table::ADDRESS_MASK)
 }

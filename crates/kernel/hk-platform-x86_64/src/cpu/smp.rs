@@ -1,6 +1,5 @@
 //! 跨核 TLB shootdown 与空闲唤醒。
 
-use core::arch::asm;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use hk_smp::{IdleState, TlbHardware, TlbShootdown};
@@ -69,19 +68,15 @@ pub fn idle_cpus() -> usize {
 pub fn idle(cpu: usize) {
     assert!(cpu < MAX_CPUS, "CPU 索引越界");
     IDLE.enter(cpu);
-    // SAFETY: 关中断后检查唤醒标志；`sti` 延迟到下一条指令，`hlt` 会等待
-    // 任何在途 IPI 或中断。
-    unsafe {
-        asm!("cli", options(nomem, nostack));
-    }
+    // 关中断后检查唤醒标志；`enable_and_halt` 原子地开中断并 `hlt`，不会丢失
+    // 在途 IPI 或中断。
+    hk_arch::disable_interrupts();
     loop {
         if IDLE.take_wake(cpu) {
             break;
         }
-        // SAFETY: 同上；`hlt` 在中断关闭期间不会丢失已挂起的 IPI。
-        unsafe {
-            asm!("sti; hlt; cli", options(nomem, nostack));
-        }
+        hk_arch::enable_and_halt();
+        hk_arch::disable_interrupts();
         if IDLE.take_wake(cpu) {
             break;
         }
@@ -134,17 +129,8 @@ pub(super) fn handle_tlb_ipi() {
 }
 
 fn flush_local(address: Option<u64>) {
-    // SAFETY: `invlpg` 接受任意虚拟地址；整表刷新只读写 CR3，不改变页表内容。
-    unsafe {
-        match address {
-            Some(address) => {
-                asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
-            }
-            None => {
-                let cr3: u64;
-                asm!("mov {}, cr3", out(reg) cr3, options(nostack, preserves_flags));
-                asm!("mov cr3, {}", in(reg) cr3, options(nostack, preserves_flags));
-            }
-        }
+    match address {
+        Some(address) => hk_arch::flush_tlb_page(address),
+        None => hk_arch::flush_tlb_all(),
     }
 }

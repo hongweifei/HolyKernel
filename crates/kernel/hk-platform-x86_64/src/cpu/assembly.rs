@@ -14,37 +14,19 @@ const CPUID_NX: u32 = 1 << 20;
 /// # Panics
 /// CPU 不支持 NX 时 panic：HMP 的 W^X 依赖 NX 表达不可执行页。
 pub(super) fn enable_no_execute() {
-    // SAFETY: CPUID 是纯读取指令；写入的是当前 CPU 的 EFER。
-    unsafe {
-        let extended = core::arch::x86_64::__cpuid(0x8000_0000).eax;
-        assert!(
-            extended >= CPUID_EXTENDED,
-            "CPU 不支持扩展 CPUID，无法启用 NX"
-        );
-        assert!(
-            core::arch::x86_64::__cpuid(CPUID_EXTENDED).edx & CPUID_NX != 0,
-            "CPU 不支持 NX"
-        );
+    let extended = core::arch::x86_64::__cpuid(0x8000_0000).eax;
+    assert!(
+        extended >= CPUID_EXTENDED,
+        "CPU 不支持扩展 CPUID，无法启用 NX"
+    );
+    assert!(
+        core::arch::x86_64::__cpuid(CPUID_EXTENDED).edx & CPUID_NX != 0,
+        "CPU 不支持 NX"
+    );
 
-        let low: u32;
-        let high: u32;
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") IA32_EFER,
-            out("eax") low,
-            out("edx") high,
-            options(nostack, preserves_flags),
-        );
-        let value = (u64::from(high) << 32) | u64::from(low);
-        let value = value | EFER_NXE;
-        core::arch::asm!(
-            "wrmsr",
-            in("ecx") IA32_EFER,
-            in("eax") value as u32,
-            in("edx") (value >> 32) as u32,
-            options(nostack, preserves_flags),
-        );
-    }
+    let value = hk_arch::read_msr(IA32_EFER) | EFER_NXE;
+    // SAFETY: EFER.NXE 是合法位；写入只影响当前 CPU。
+    unsafe { hk_arch::write_msr(IA32_EFER, value) };
 }
 
 /// 启用 x87/SSE：清除 CR0.EM/TS，置 CR0.MP/NE 与 CR4.OSFXSR/OSXMMEXCPT。
@@ -52,43 +34,22 @@ pub(super) fn enable_no_execute() {
 /// # Panics
 /// CPU 未报告 FXSR 或 SSE 时 panic：用户态恢复依赖 `FXSAVE`/`FXRSTOR`。
 pub(super) fn enable_fpu() {
-    // SAFETY: CPUID 是纯读取指令；写入的是当前 CPU 的 CR0/CR4。
-    unsafe {
-        let features = core::arch::x86_64::__cpuid(1).edx;
-        const FXSR: u32 = 1 << 24;
-        const SSE: u32 = 1 << 25;
-        assert!(
-            features & FXSR != 0 && features & SSE != 0,
-            "CPU 不支持 FXSAVE/SSE"
-        );
+    let features = core::arch::x86_64::__cpuid(1).edx;
+    const FXSR: u32 = 1 << 24;
+    const SSE: u32 = 1 << 25;
+    assert!(
+        features & FXSR != 0 && features & SSE != 0,
+        "CPU 不支持 FXSAVE/SSE"
+    );
 
-        let mut cr0: u64;
-        core::arch::asm!(
-            "mov {}, cr0",
-            out(reg) cr0,
-            options(nomem, nostack, preserves_flags),
-        );
-        cr0 &= !((1 << 2) | (1 << 3));
-        cr0 |= (1 << 1) | (1 << 5);
-        core::arch::asm!(
-            "mov cr0, {}",
-            in(reg) cr0,
-            options(nomem, nostack, preserves_flags),
-        );
+    let cr0 = hk_arch::read_cr0();
+    let cr0 = (cr0 & !((1 << 2) | (1 << 3))) | (1 << 1) | (1 << 5);
+    // SAFETY: 清除 EM/TS 并置 MP/NE 是启用 x87/SSE 的合法组合。
+    unsafe { hk_arch::write_cr0(cr0) };
 
-        let mut cr4: u64;
-        core::arch::asm!(
-            "mov {}, cr4",
-            out(reg) cr4,
-            options(nomem, nostack, preserves_flags),
-        );
-        cr4 |= (1 << 9) | (1 << 10);
-        core::arch::asm!(
-            "mov cr4, {}",
-            in(reg) cr4,
-            options(nomem, nostack, preserves_flags),
-        );
-    }
+    let cr4 = hk_arch::read_cr4();
+    // SAFETY: OSFXSR/OSXMMEXCPT 是启用 SSE 状态保存的合法组合。
+    unsafe { hk_arch::write_cr4(cr4 | (1 << 9) | (1 << 10)) };
 }
 
 core::arch::global_asm!(

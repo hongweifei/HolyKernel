@@ -20,12 +20,6 @@ fn double_fault_stack_top(cpu: usize) -> u64 {
 }
 
 #[repr(C, packed)]
-pub(super) struct DescriptorPointer {
-    pub(super) limit: u16,
-    pub(super) base: u64,
-}
-
-#[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct TaskStateSegment {
     reserved0: u32,
@@ -133,11 +127,8 @@ fn load_gdt(cpu: usize) {
     // SAFETY: GDT 已由本 CPU 初始化；加载后立即切换到同一 GDT 的段选择子。
     unsafe {
         let gdt = &*state.gdt.get();
-        let pointer = DescriptorPointer {
-            limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
-            base: gdt.as_ptr() as u64,
-        };
-        asm!("lgdt [{}]", in(reg) &pointer, options(readonly, nostack, preserves_flags));
+        let limit = (core::mem::size_of::<[u64; 7]>() - 1) as u16;
+        hk_arch::load_gdt(gdt.as_ptr() as u64, limit);
 
         let code = u64::from(KERNEL_CODE);
         asm!(
@@ -160,15 +151,9 @@ fn load_gdt(cpu: usize) {
             in("ax") data,
             options(nostack, preserves_flags),
         );
-        asm!("ltr ax", in("ax") TSS_SELECTOR, options(nostack, preserves_flags));
+        hk_arch::load_tss(TSS_SELECTOR);
 
         let base = USER_RETURNS[cpu].0.get() as u64;
-        asm!(
-            "wrmsr",
-            in("ecx") 0xC000_0101_u32,
-            in("eax") base as u32,
-            in("edx") (base >> 32) as u32,
-            options(nostack, preserves_flags),
-        );
+        hk_arch::write_msr(0xC000_0101, base);
     }
 }
