@@ -3,37 +3,38 @@
 //! I/O APIC 通过 MMIO 访问：先向 `IOREGSEL` 写寄存器编号，再读写 `IOWIN`。
 //! 每个重定向表项占两个 32 位寄存器，低半部分包含向量与投递属性。
 
-use core::ptr::{read_volatile, write_volatile};
+use hk_mmio::Mmio;
 
-const IOREGSEL: u64 = 0x00;
-const IOWIN: u64 = 0x10;
+const IOREGSEL: usize = 0x00;
+const IOWIN: usize = 0x10;
 const IOAPICVER: u32 = 0x01;
 const IOREDTBL: u32 = 0x10;
 
 /// I/O APIC 寄存器页句柄。
 pub struct IoApic {
-    base: u64,
+    regs: Mmio,
 }
 
 impl IoApic {
     /// 以 MMIO 虚拟基址构造句柄。
     pub const fn new(base: u64) -> Self {
-        Self { base }
+        Self {
+            // SAFETY: 调用方保证基址映射为 I/O APIC 设备页。
+            regs: unsafe { Mmio::new(base as usize) },
+        }
     }
 
     fn read(&self, register: u32) -> u32 {
         // SAFETY: 基址由调用方映射为设备页，寄存器偏移在 I/O APIC 页内。
-        unsafe {
-            write_volatile((self.base + IOREGSEL) as *mut u32, register);
-            read_volatile((self.base + IOWIN) as *const u32)
-        }
+        unsafe { self.regs.write_u32(IOREGSEL, register) };
+        self.regs.read_u32(IOWIN)
     }
 
     fn write(&self, register: u32, value: u32) {
         // SAFETY: 同上，写入 I/O APIC 选择寄存器与数据寄存器。
         unsafe {
-            write_volatile((self.base + IOREGSEL) as *mut u32, register);
-            write_volatile((self.base + IOWIN) as *mut u32, value);
+            self.regs.write_u32(IOREGSEL, register);
+            self.regs.write_u32(IOWIN, value);
         }
     }
 

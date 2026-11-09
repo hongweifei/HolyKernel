@@ -60,14 +60,17 @@ pub(super) fn lapic_write(offset: u64, value: u32) {
     let base = LAPIC_BASE.load(Ordering::SeqCst);
     assert!(base != 0, "本地 APIC 未初始化");
     // SAFETY: 基址由调用方映射为设备页，偏移是 LAPIC 寄存器。
-    unsafe { ((base + offset) as *mut u32).write_volatile(value) };
+    unsafe {
+        hk_mmio::Mmio::new(base as usize).write_u32(offset as usize, value);
+    }
 }
 
 pub(super) fn lapic_read(offset: u64) -> u32 {
     let base = LAPIC_BASE.load(Ordering::SeqCst);
     assert!(base != 0, "本地 APIC 未初始化");
     // SAFETY: 基址由调用方映射为设备页，偏移是 LAPIC 寄存器。
-    unsafe { ((base + offset) as *const u32).read_volatile() }
+    let mmio = unsafe { hk_mmio::Mmio::new(base as usize) };
+    mmio.read_u32(offset as usize)
 }
 
 /// 返回本地 APIC 编号，用于配置 I/O APIC 的目标。

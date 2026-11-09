@@ -1,5 +1,7 @@
 //! PCI 配置空间访问。
 
+use hk_mmio::Mmio;
+
 /// PCI 配置空间地址。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PciAddress {
@@ -63,22 +65,19 @@ impl EcamPci {
             | (((address.function & 0x07) as u64) << 12)
             | ((address.offset & 0xFC) as u64)
     }
-
-    fn pointer(&self, address: PciAddress) -> *mut u32 {
-        (self.base + Self::offset(address)) as *mut u32
-    }
 }
 
 impl PciConfig for EcamPci {
     fn read32(&self, address: PciAddress) -> u32 {
         // SAFETY: 调用方保证 ECAM 区域已映射为可读设备内存。
-        unsafe { self.pointer(address).read_volatile() }
+        let mmio = unsafe { Mmio::new(self.base as usize) };
+        mmio.read_u32(Self::offset(address) as usize)
     }
 
     fn write32(&self, address: PciAddress, value: u32) {
         // SAFETY: 调用方保证 ECAM 区域已映射为可写设备内存。
         unsafe {
-            self.pointer(address).write_volatile(value);
+            Mmio::new(self.base as usize).write_u32(Self::offset(address) as usize, value);
         }
     }
 }

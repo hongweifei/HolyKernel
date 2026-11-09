@@ -15,6 +15,7 @@ hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
 hk-fw = { version = "0.1.0", path = "../hk-fw" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
+hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
 hk-smp = { version = "0.1.0", path = "../hk-smp" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 hk-test = { version = "0.1.0", path = "../hk-test" }

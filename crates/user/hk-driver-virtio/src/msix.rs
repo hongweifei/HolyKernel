@@ -8,9 +8,8 @@
 //! - 用专用的 MSI 向量（不复用 INTx 线路）并核对 `SYS_MSI_BIND` 的绑定结果；
 //! - 在 QEMU 侧确认 `virtio_notify` 与中断数量的对应关系，定位重复投递来源。
 
-use core::ptr::write_volatile;
-
 use hk_base::IRQ_VECTOR_BASE;
+use hk_mmio::Mmio;
 
 use crate::pci_config::Config;
 
@@ -49,16 +48,18 @@ pub fn enable(grant: u64) -> Option<Msix> {
     }
     let table = crate::hal::mmio_virt(grant, &descriptor, bar)? + table_offset;
 
+    // SAFETY: 表项落在已授权的 MSI-X BAR 内。
+    let table = unsafe { Mmio::new(table as usize) };
     for entry in 0..u64::from(entries) {
-        write_control(table + entry * 16, 1);
+        write_control(&table, entry * 16, 1);
     }
     // SAFETY: 表项落在已授权的 MSI-X BAR 内。
     unsafe {
-        write_volatile((table + 8) as *mut u32, u32::from(vector));
-        write_volatile((table + 4) as *mut u32, 0);
-        write_volatile(table as *mut u32, MSI_ADDRESS);
+        table.write_u32(8, u32::from(vector));
+        table.write_u32(4, 0);
+        table.write_u32(0, MSI_ADDRESS);
     }
-    write_control(table, 0);
+    write_control(&table, 0, 0);
 
     config.write16(capability + 2, (control | 0x8000) & !0x4000);
     config.write(0x04, config.read(0x04) | 0x0400);
@@ -90,18 +91,19 @@ fn route_queues(grant: u64, config: &Config, descriptor: &hk_device::DeviceGrant
     let Some(base) = crate::hal::mmio_virt(grant, descriptor, bar as usize) else {
         return;
     };
-    let common = base + config_offset;
     // SAFETY: common config 落在已授权的 MMIO BAR 内。
+    let common = unsafe { Mmio::new((base + config_offset) as usize) };
+    // SAFETY: 队列选择与 MSI-X 表项索引写入设备寄存器。
     unsafe {
-        let count = core::ptr::read_volatile((common + 18) as *const u16);
+        let count = common.read_u16(18);
         for queue in 0..count {
-            write_volatile((common + 22) as *mut u16, queue);
-            write_volatile((common + 26) as *mut u16, 0);
+            common.write_u16(22, queue);
+            common.write_u16(26, 0);
         }
     }
 }
 
-fn write_control(table: u64, value: u32) {
+fn write_control(table: &Mmio, offset: u64, value: u32) {
     // SAFETY: 表项落在已授权的 MSI-X BAR 内。
-    unsafe { write_volatile((table + 12) as *mut u32, value) };
+    unsafe { table.write_u32(offset as usize, value) };
 }

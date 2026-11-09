@@ -10,6 +10,7 @@ repository.workspace = true
 hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
 hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
 hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
 hk-proto = { version = "0.1.0", path = "../hk-proto" }
 hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
 spin = "0.9"

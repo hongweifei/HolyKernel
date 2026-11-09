@@ -18,6 +18,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
 | L0 | 共享契约 | `hk-status` | 服务状态枚举：协议、文件系统与 VFS 共用的状态词表；零依赖 |
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
+| L0 | 共享契约 | `hk-mmio` | MMIO 寄存器窗口（`volatile-register` 包装）；内核设备页与用户态驱动共用 |
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
 | L1 | 共享契约 | `hk-shell`、`hk-font`、`hk-symbols` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化）；文本符号表解析与符号化 |
 | L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
@@ -81,6 +82,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
 | 设备授权描述与 PCI 枚举 | `crates/shared/hk-device/src/{device,grant,pci,scan}.rs` |
+| MMIO 寄存器访问（volatile-register 包装） | `crates/shared/hk-mmio/src/lib.rs` |
 | 固件描述（ACPI/DTB 外部库包装） | `crates/kernel/hk-fw/src/{acpi,dtb}.rs`；`acpi`、`hermit-dtb` 只在此 crate 内出现 |
 | 架构原语（寄存器/指令/屏障） | `crates/kernel/hk-arch/src/{x86_64_impl,aarch64_impl}.rs`；`x86_64`、`aarch64-cpu` 只在此 crate 内出现 |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |

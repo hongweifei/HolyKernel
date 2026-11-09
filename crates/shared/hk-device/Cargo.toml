@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-base = { version = "0.1.0", path = "../hk-base" }
+hk-mmio = { version = "0.1.0", path = "../hk-mmio" }
 
 [dev-dependencies]
 spin = "0.9"
