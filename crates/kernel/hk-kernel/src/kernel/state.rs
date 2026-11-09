@@ -41,19 +41,24 @@ impl Kernel {
         let runnable = self.runnable();
         let _ = writeln!(
             text,
-            "kernel: threads={} objects={} runnable={}",
+            "kernel: threads={} tasks={} objects={} runnable={}",
             self.thread_count(),
+            self.tasks.lock().len(),
             self.live_objects(),
             runnable
         );
 
         for tcb in self.threads.lock().values() {
+            let class = self
+                .task(tcb.task())
+                .map_or("missing", |task| task.lock().class().name());
             let _ = writeln!(
                 text,
-                "  tcb={} state={:?} priority={} handles={} blocked={:?} pending={}",
+                "  tcb={} task={} state={:?} class={} handles={} blocked={:?} pending={}",
                 tcb.id().get(),
+                tcb.task().get(),
                 tcb.state(),
-                tcb.priority().level(),
+                class,
                 tcb.handles().live(),
                 tcb.blocked(),
                 tcb.pending_deliveries()

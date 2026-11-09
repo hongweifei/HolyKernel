@@ -1,0 +1,13 @@
+[package]
+name = "hk-cadence"
+description = "HolyKernel 调度契约：Cadence/Meter 类型、类别、权重、虚拟时间与快照"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-base = { path = "../hk-base" }
+
+[lints]
+workspace = true

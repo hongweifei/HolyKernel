@@ -256,6 +256,22 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::timing::tsc_frequency()
     }
 
+    fn arm_wakeup(&self, deadline: Option<u64>) {
+        let Some(at) = deadline else {
+            hk_platform_x86_64::cpu::resume_periodic();
+            return;
+        };
+        let frequency = hk_platform_x86_64::timing::tsc_frequency();
+        if frequency == 0 {
+            return;
+        }
+        let now = (u128::from(hk_platform_x86_64::timing::rdtsc()) * 1_000_000
+            / u128::from(frequency))
+        .min(u128::from(u64::MAX)) as u64;
+        let delta = at.saturating_sub(now).clamp(1, 10_000);
+        hk_platform_x86_64::cpu::arm_oneshot(delta);
+    }
+
     fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
         framebuffer_info()
     }
@@ -380,6 +396,9 @@ pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
     RUNTIME.boot(specs, X86Platform, |_index, endpoint| {
         cpu::user_frame(0, 0, endpoint)
     })?;
+    let online = 1 + hk_smp::AP_POOL.online();
+    RUNTIME.set_online_cpus(online);
+    RUNTIME.enable_idle_cpus(online);
 
     cpu::set_syscall_hook(dispatch);
     cpu::set_preempt_hook(preempt);

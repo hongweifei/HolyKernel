@@ -43,6 +43,27 @@ pub const SYS_THREAD_SET_TLS: u64 = 0x05;
 /// 休眠指定调度 tick 数；到期后由内核唤醒。
 pub const SYS_SLEEP: u64 = 0x06;
 
+/// 查询 Cadence 契约；`handle = 0` 表示当前 Task。
+pub const SYS_CADENCE_INFO: u64 = 0x07;
+
+/// 在父契约范围内调整 Cadence。
+pub const SYS_CADENCE_UPDATE: u64 = 0x08;
+
+/// 派生一个子 Cadence 契约。
+pub const SYS_CADENCE_SPLIT: u64 = 0x09;
+
+/// 撤销 Cadence 契约；递增 epoch 使旧句柄失效。
+pub const SYS_CADENCE_REVOKE: u64 = 0x0A;
+
+/// 查询 Meter 计量；`handle = 0` 表示当前 Task。
+pub const SYS_METER_INFO: u64 = 0x0B;
+
+/// 为 Task 附加 Cadence 契约；`task = 0` 表示当前 Task。
+pub const SYS_TASK_ATTACH_CADENCE: u64 = 0x0C;
+
+/// 取得当前 Task 的 Cadence 句柄；持有策略授权的 Task 同时获得 ADMIN。
+pub const SYS_CADENCE_SELF: u64 = 0x0D;
+
 // === 句柄 0x10-0x1F ===
 
 /// 关闭端点句柄。
@@ -510,7 +531,7 @@ mod tests {
 
     #[test]
     fn syscall_numbers_stay_in_their_groups() {
-        const { assert!(SYS_THREAD_SET_TLS < 0x10) };
+        const { assert!(SYS_THREAD_SET_TLS < 0x10 && SYS_CADENCE_SELF < 0x10) };
         const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
         const { assert!(SYS_SEND >= 0x20 && SYS_REPLY_HANDLE < 0x40) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
@@ -548,6 +569,14 @@ mod tests {
             SYS_THREAD_CREATE,
             SYS_THREAD_JOIN,
             SYS_THREAD_SET_TLS,
+            SYS_SLEEP,
+            SYS_CADENCE_INFO,
+            SYS_CADENCE_UPDATE,
+            SYS_CADENCE_SPLIT,
+            SYS_CADENCE_REVOKE,
+            SYS_METER_INFO,
+            SYS_TASK_ATTACH_CADENCE,
+            SYS_CADENCE_SELF,
             SYS_HANDLE_CLOSE,
             SYS_HANDLE_COUNT,
             SYS_HANDLE_DUPLICATE,

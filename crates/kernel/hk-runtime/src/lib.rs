@@ -17,9 +17,14 @@ pub use runtime::{
 
 use alloc::vec::Vec;
 
+use hk_cadence::{CadenceClass, CadenceSpec, DEFAULT_SPEC, millis};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
-use hk_kernel::{Kernel, KernelError, Priority, TcbId};
+use hk_kernel::{Kernel, KernelError, TcbId};
 use hk_mem::hmp::CapacityKind;
+
+/// Root Server 的初始契约。
+const ROOT_CADENCE: CadenceSpec =
+    CadenceSpec::new(CadenceClass::Latency, 4096).with_latency(millis(1));
 
 /// 初始 Capacity 授予方式。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,8 +44,10 @@ pub struct ServiceSpec {
     pub device_authority: bool,
     /// 初始 Capacity 授予。
     pub capacity: Option<CapacityGrant>,
-    /// 调度优先级。
-    pub priority: u8,
+    /// 初始 Cadence 契约。
+    pub cadence: CadenceSpec,
+    /// 是否持有调度策略授权；由 Root 在启动时授予 Tempo。
+    pub policy_authority: bool,
 }
 
 impl ServiceSpec {
@@ -50,7 +57,8 @@ impl ServiceSpec {
             name,
             device_authority: false,
             capacity: None,
-            priority: 16,
+            cadence: DEFAULT_SPEC,
+            policy_authority: false,
         }
     }
 
@@ -60,7 +68,8 @@ impl ServiceSpec {
             name,
             device_authority: true,
             capacity: None,
-            priority: 16,
+            cadence: DEFAULT_SPEC,
+            policy_authority: false,
         }
     }
 
@@ -76,9 +85,15 @@ impl ServiceSpec {
         self
     }
 
-    /// 指定调度优先级。
-    pub const fn with_priority(mut self, priority: u8) -> Self {
-        self.priority = priority;
+    /// 指定初始 Cadence 契约。
+    pub const fn with_cadence(mut self, cadence: CadenceSpec) -> Self {
+        self.cadence = cadence;
+        self
+    }
+
+    /// 授予调度策略授权。
+    pub const fn with_policy_authority(mut self) -> Self {
+        self.policy_authority = true;
         self
     }
 }
@@ -121,22 +136,23 @@ impl RootServer {
         specs: &[ServiceSpec],
         parked: bool,
     ) -> Result<Self, KernelError> {
-        let spawn = |handles, priority| {
+        let spawn = |handles, cadence| {
             if parked {
-                kernel.spawn_parked(handles, priority)
+                kernel.spawn_task_parked(handles, cadence)
             } else {
-                kernel.spawn_thread(handles, priority)
+                kernel.spawn_task(handles, cadence)
             }
         };
 
-        let root = spawn(HandleTable::with_default_quota(), Priority::HIGHEST);
+        let root = spawn(HandleTable::with_default_quota(), ROOT_CADENCE)?;
         let mut services = Vec::with_capacity(specs.len());
 
         for spec in specs {
-            let tcb = spawn(
-                HandleTable::with_default_quota(),
-                Priority::new(spec.priority),
-            );
+            let tcb = spawn(HandleTable::with_default_quota(), spec.cadence)?;
+            if spec.policy_authority {
+                let task = kernel.task_of(tcb).ok_or(KernelError::UnknownThread(tcb))?;
+                kernel.set_policy_authority(task, true)?;
+            }
             let endpoint =
                 kernel.create_endpoint(root, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
             let endpoint_id = kernel.handle_id(root, endpoint)?;
@@ -212,7 +228,9 @@ mod tests {
         let kernel = Kernel::new();
         let server = RootServer::boot(&kernel, &[ServiceSpec::new("clock")]).expect("启动");
         let service = server.service("clock").expect("服务存在");
-        let client = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+        let client = kernel
+            .spawn_task(HandleTable::with_default_quota(), DEFAULT_SPEC)
+            .expect("创建客户端任务");
 
         let handle = kernel
             .grant(

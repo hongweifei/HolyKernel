@@ -22,7 +22,7 @@ pub(crate) const RECORD_CAPABILITY: u16 = 3;
 pub(crate) const RECORD_SYMBOL: u16 = 4;
 pub(crate) const RECORD_DEPENDENCY: u16 = 5;
 
-pub(crate) const TASK_LEN: usize = 4 + 1 + 3 + 8 + 4 + 4 + 2;
+pub(crate) const TASK_LEN: usize = 4 + 8 + 4 + 4 + 2;
 pub(crate) const REGION_LEN: usize = 8 + 8 + 4 + 4;
 pub(crate) const CAPABILITY_LEN: usize = 1 + 4 + 2;
 pub(crate) const SYMBOL_LEN: usize = 8 + 2;

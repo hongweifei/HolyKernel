@@ -11,10 +11,18 @@ use hk_ipc::{Endpoint, Notification};
 use hk_mem::hmp::{Arena, Capability, Capacity, Frame, FrameBacking, Ledger, OwnedFrame, Region};
 use spin::Mutex;
 
+use crate::task::Task;
+
 /// 内核对象的负载。
 pub enum ObjectPayload {
     /// 同步 IPC 端点。
     Endpoint(Endpoint),
+    /// 调度主体。
+    Task(Arc<Mutex<Task>>),
+    /// 时间契约。
+    Cadence(Arc<Mutex<hk_cadence::Cadence>>),
+    /// 调度计量。
+    Meter(Arc<Mutex<hk_cadence::Meter>>),
     /// 异步事件通知。
     Notification(Notification),
     /// 设备授权。
@@ -60,6 +68,9 @@ impl ObjectPayload {
     pub const fn kind(&self) -> ObjectKind {
         match self {
             Self::Endpoint(_) => ObjectKind::Endpoint,
+            Self::Task(_) => ObjectKind::Task,
+            Self::Cadence(_) => ObjectKind::Cadence,
+            Self::Meter(_) => ObjectKind::Meter,
             Self::Notification(_) => ObjectKind::Notification,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
@@ -97,6 +108,30 @@ impl KernelObject {
     pub fn endpoint(&self) -> Option<&Endpoint> {
         match &self.payload {
             ObjectPayload::Endpoint(endpoint) => Some(endpoint),
+            _ => None,
+        }
+    }
+
+    /// 返回调度主体。
+    pub fn task(&self) -> Option<&Arc<Mutex<Task>>> {
+        match &self.payload {
+            ObjectPayload::Task(task) => Some(task),
+            _ => None,
+        }
+    }
+
+    /// 返回时间契约。
+    pub fn cadence(&self) -> Option<&Arc<Mutex<hk_cadence::Cadence>>> {
+        match &self.payload {
+            ObjectPayload::Cadence(cadence) => Some(cadence),
+            _ => None,
+        }
+    }
+
+    /// 返回调度计量。
+    pub fn meter(&self) -> Option<&Arc<Mutex<hk_cadence::Meter>>> {
+        match &self.payload {
+            ObjectPayload::Meter(meter) => Some(meter),
             _ => None,
         }
     }

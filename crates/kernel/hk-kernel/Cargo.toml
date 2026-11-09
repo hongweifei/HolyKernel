@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
+hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
 hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }

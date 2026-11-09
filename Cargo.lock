@@ -248,6 +248,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-cadence"
+version = "0.1.0"
+dependencies = [
+ "hk-base",
+]
+
+[[package]]
 name = "hk-canvas"
 version = "0.1.0"
 dependencies = [
@@ -257,10 +264,16 @@ dependencies = [
 [[package]]
 name = "hk-catalog"
 version = "0.1.0"
+dependencies = [
+ "hk-cadence",
+]
 
 [[package]]
 name = "hk-checkpoint"
 version = "0.1.0"
+dependencies = [
+ "hk-cadence",
+]
 
 [[package]]
 name = "hk-coroutine"
@@ -405,6 +418,7 @@ name = "hk-hosted"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hk-cadence",
  "hk-hal",
  "hk-handle",
  "hk-ipc",
@@ -432,6 +446,8 @@ dependencies = [
 name = "hk-kernel"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
+ "hk-cadence",
  "hk-device",
  "hk-hal",
  "hk-handle",
@@ -517,6 +533,7 @@ dependencies = [
 name = "hk-root-server"
 version = "0.1.0"
 dependencies = [
+ "hk-cadence",
  "hk-catalog",
  "hk-checkpoint",
  "hk-hal",
@@ -533,6 +550,7 @@ name = "hk-runtime"
 version = "0.1.0"
 dependencies = [
  "hk-base",
+ "hk-cadence",
  "hk-checkpoint",
  "hk-device",
  "hk-hal",
@@ -874,6 +892,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-tempo"
+version = "0.1.0"
+dependencies = [
+ "hk-cadence",
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-server-tempo-test"
+version = "0.1.0"
+dependencies = [
+ "hk-cadence",
+ "hk-proto-client",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-terminal-test"
 version = "0.1.0"
 dependencies = [
@@ -921,6 +959,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-wakeup"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-workbench"
 version = "0.1.0"
 dependencies = [
@@ -941,6 +987,7 @@ version = "0.1.0"
 name = "hk-sim"
 version = "0.1.0"
 dependencies = [
+ "hk-cadence",
  "hk-handle",
  "hk-ipc",
  "hk-kernel",

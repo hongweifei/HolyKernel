@@ -21,8 +21,6 @@ pub fn build(
     let mut record_count = 0_usize;
     let mut task_payload = Vec::new();
     push_u32(&mut task_payload, task.role);
-    task_payload.push(task.priority);
-    task_payload.extend_from_slice(&[0; 3]);
     push_u64(&mut task_payload, task.entry);
     push_u32(&mut task_payload, task.stack_size);
     push_u32(&mut task_payload, task.arena_size);
@@ -96,7 +94,7 @@ fn push_record(records: &mut Vec<u8>, kind: u16, payload: &[u8]) {
 
 // 保持布局常量在构建模块可见，避免未使用告警的同时固定记录长度。
 const _: () = {
-    assert!(TASK_LEN == 26);
+    assert!(TASK_LEN == 22);
     assert!(REGION_LEN == 24);
     assert!(CAPABILITY_LEN == 7);
     assert!(SYMBOL_LEN == 10);

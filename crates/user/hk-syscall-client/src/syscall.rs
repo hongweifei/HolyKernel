@@ -513,3 +513,111 @@ pub fn exit(code: u64) -> ! {
         core::hint::spin_loop();
     }
 }
+
+/// 取得当前 Task 的 Cadence 句柄；策略 Task 同时获得 ADMIN。
+pub fn cadence_self_handle() -> u64 {
+    // SAFETY: 只登记当前 Task 的契约句柄，不携带用户指针。
+    unsafe { syscall_call(SYS_CADENCE_SELF, 0, 0, 0, 0).value }
+}
+
+/// 查询当前任务的 Cadence，编码写入 `buffer`；返回写入字节数。
+pub fn cadence_self(buffer: &mut [u8]) -> u64 {
+    // SAFETY: 缓冲区属于本进程；内核按长度写入编码后的契约。
+    unsafe {
+        syscall_call(
+            SYS_CADENCE_INFO,
+            0,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 查询指定 Cadence 句柄，编码写入 `buffer`。
+pub fn cadence_info(handle: u64, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 句柄由内核授予；缓冲区属于本进程。
+    unsafe {
+        syscall_call(
+            SYS_CADENCE_INFO,
+            handle,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 在当前契约范围内更新 Cadence；`snapshot` 是 80 字节编码。
+pub fn cadence_update(handle: u64, snapshot: &[u8]) -> u64 {
+    // SAFETY: 句柄与缓冲区均由本进程持有；内核只读该范围。
+    unsafe {
+        syscall_call(
+            SYS_CADENCE_UPDATE,
+            handle,
+            snapshot.as_ptr() as u64,
+            snapshot.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 派生一个子契约；`snapshot` 描述权重与预算，返回新句柄编号。
+pub fn cadence_split(parent: u64, snapshot: &[u8]) -> u64 {
+    // SAFETY: 父句柄与缓冲区均由本进程持有；内核只读该范围。
+    unsafe {
+        syscall_call(
+            SYS_CADENCE_SPLIT,
+            parent,
+            snapshot.as_ptr() as u64,
+            snapshot.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 撤销 Cadence；返回新 epoch。
+pub fn cadence_revoke(handle: u64) -> u64 {
+    // SAFETY: 句柄由内核授予，撤销只递增 epoch。
+    unsafe { syscall_call(SYS_CADENCE_REVOKE, handle, 0, 0, 0).value }
+}
+
+/// 查询当前任务的 Meter，编码写入 `buffer`。
+pub fn meter_self(buffer: &mut [u8]) -> u64 {
+    // SAFETY: 缓冲区属于本进程；内核按长度写入计量快照。
+    unsafe {
+        syscall_call(
+            SYS_METER_INFO,
+            0,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 查询指定 Meter 句柄，编码写入 `buffer`。
+pub fn meter_info(handle: u64, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 句柄由内核授予；缓冲区属于本进程。
+    unsafe {
+        syscall_call(
+            SYS_METER_INFO,
+            handle,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 为 Task 重新附加 Cadence；需要 Task 的 ADMIN 权利。
+pub fn task_attach_cadence(task: u64, cadence: u64) -> u64 {
+    // SAFETY: 两个句柄均由内核授予；内核校验 Tasks/Cadence 权利。
+    unsafe { syscall_call(SYS_TASK_ATTACH_CADENCE, task, cadence, 0, 0).value }
+}

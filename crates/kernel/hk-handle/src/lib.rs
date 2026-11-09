@@ -43,6 +43,12 @@ fn allocate_object_id() -> ObjectId {
 pub enum ObjectKind {
     /// 线程控制块。
     Tcb,
+    /// 调度主体。
+    Task,
+    /// 时间契约。
+    Cadence,
+    /// 调度计量。
+    Meter,
     /// 句柄表。
     HandleTable,
     /// 同步 IPC 端点。
@@ -74,6 +80,9 @@ impl ObjectKind {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Tcb => "tcb",
+            Self::Task => "task",
+            Self::Cadence => "cadence",
+            Self::Meter => "meter",
             Self::HandleTable => "handle-table",
             Self::Endpoint => "endpoint",
             Self::Notification => "notification",

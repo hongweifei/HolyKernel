@@ -31,13 +31,6 @@ pub fn service_has_device_authority(bytes: &[u8]) -> bool {
     hk_image::Image::parse(bytes).is_some_and(|image| image.has_capability(hk_image::CAP_DEVICE))
 }
 
-/// 读取原生镜像声明的调度优先级；缺失或无效时返回默认值。
-pub fn service_priority(bytes: &[u8]) -> u8 {
-    hk_image::Image::parse(bytes)
-        .and_then(|image| image.task())
-        .map_or(16, |task| task.priority)
-}
-
 /// 镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadError {

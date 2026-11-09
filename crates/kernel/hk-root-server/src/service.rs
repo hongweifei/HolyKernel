@@ -7,6 +7,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_cadence::CadenceSpec;
 use hk_hal::{SyscallFrame, UserContext};
 
 use hk_runtime::UserPlatform;
@@ -54,9 +55,9 @@ pub trait ServiceLoader<C> {
         0
     }
 
-    /// 返回服务镜像声明的调度优先级；未知时使用默认值。
-    fn priority(&self, _name: &str) -> u8 {
-        16
+    /// 返回服务的默认 Cadence；未知时取 `hk-catalog` 的默认契约。
+    fn cadence(&self, name: &str) -> CadenceSpec {
+        hk_catalog::default_cadence(name)
     }
 }
 
@@ -189,13 +190,16 @@ where
     let role = loader.role(source);
     let device_authority =
         services.device_authority(name) || role & hk_image::ServiceRole::DEVICE != 0;
-    let priority = loader.priority(source);
-    if let Err(error) = host.start(name, device_authority, priority, context, parent) {
+    let cadence = loader.cadence(source);
+    if let Err(error) = host.start(name, device_authority, cadence, context, parent) {
         return format!("启动失败：{error}\n");
     }
 
     if device_authority {
         services.set_device_authority(name, true);
+    }
+    if hk_catalog::policy_authority(name) {
+        host.grant_policy_authority(name);
     }
     services.mark_running(name);
     if run {

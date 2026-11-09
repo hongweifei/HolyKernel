@@ -144,6 +144,9 @@ pub trait UserPlatform {
     fn tsc_frequency(&self) -> u64 {
         0
     }
+
+    /// 编程下一次唤醒；`deadline` 为契约 tick（微秒），`None` 表示只需 watchdog。
+    fn arm_wakeup(&self, _deadline: Option<u64>) {}
     /// 返回平台帧缓冲描述。
     fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
         None

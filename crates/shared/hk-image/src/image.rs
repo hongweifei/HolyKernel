@@ -140,22 +140,17 @@ fn task(payload: &[u8]) -> Option<Task<'_>> {
     if payload.len() < TASK_LEN {
         return None;
     }
-    let name_len = usize::from(read_u16(payload, 24)?);
+    let name_len = usize::from(read_u16(payload, 20)?);
     if payload.len() != TASK_LEN + name_len {
         return None;
     }
     let name = core::str::from_utf8(payload.get(TASK_LEN..TASK_LEN + name_len)?).ok()?;
-    let priority = payload[4];
-    if priority >= 32 {
-        return None;
-    }
     Some(Task {
         name,
         role: read_u32(payload, 0)?,
-        priority,
-        entry: read_u64(payload, 8)?,
-        stack_size: read_u32(payload, 16)?,
-        arena_size: read_u32(payload, 20)?,
+        entry: read_u64(payload, 4)?,
+        stack_size: read_u32(payload, 12)?,
+        arena_size: read_u32(payload, 16)?,
     })
 }
 

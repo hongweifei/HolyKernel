@@ -21,6 +21,16 @@ pub struct TaskInfo {
     pub handles: usize,
     /// 累计运行周期数。
     pub cpu_cycles: u64,
+    /// 调度类别。
+    pub class: &'static str,
+    /// Cadence 权重。
+    pub weight: u32,
+    /// Meter 累计实际执行时间（微秒）。
+    pub consumed: u64,
+    /// Meter 虚拟进度。
+    pub virtual_pass: u64,
+    /// Meter 预算耗尽次数。
+    pub throttled: u64,
     /// Arena 已用字节数。
     pub arena_used: u64,
     /// Arena 总字节数。

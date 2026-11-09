@@ -59,10 +59,7 @@ fn show(path: &str, bytes: &[u8], symbols: bool, limit: usize) -> Result<()> {
         bytes.len()
     );
     println!("Task：{}", task.name);
-    println!(
-        "  角色：{:#x}  优先级：{}  入口：{:#018x}",
-        task.role, task.priority, task.entry
-    );
+    println!("  角色：{:#x}  入口：{:#018x}", task.role, task.entry);
     println!(
         "  栈：{} KiB  Arena：{} KiB",
         task.stack_size / 1024,
@@ -142,9 +139,9 @@ fn summary() -> Result<()> {
             println!("{service:<28} 镜像无效");
             continue;
         };
-        let Some(task) = image.task() else {
+        if image.task().is_none() {
             continue;
-        };
+        }
         let capabilities: Vec<_> = image
             .capabilities()
             .map(|capability| capability_name(capability.kind))
@@ -158,7 +155,7 @@ fn summary() -> Result<()> {
             "{service:<28} {:>7} {:>8} {:>7} {}",
             image.regions().count(),
             image.symbols().count(),
-            task.priority,
+            image.capabilities().count(),
             capabilities
         );
     }

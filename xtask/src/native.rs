@@ -148,7 +148,6 @@ pub(crate) fn native_image(path: &Path) -> Result<Vec<u8>> {
         TaskData {
             name,
             role,
-            priority: 16,
             entry,
             stack_size: USER_STACK_SIZE,
             arena_size: USER_ARENA_SIZE,

@@ -1,12 +1,13 @@
 [package]
 name = "hk-catalog"
-description = "HolyKernel 服务目录：镜像构建、启动白名单与桌面排序的单一清单"
+description = "HolyKernel 服务目录：服务名称、启动白名单、桌面排序与默认 Cadence"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hk-cadence = { path = "../hk-cadence" }
 
 [lints]
 workspace = true

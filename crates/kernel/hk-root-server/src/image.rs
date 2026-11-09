@@ -100,7 +100,6 @@ mod tests {
             TaskData {
                 name: "test",
                 role: 0,
-                priority: 16,
                 entry: 0x4000,
                 stack_size: 0,
                 arena_size: 0,

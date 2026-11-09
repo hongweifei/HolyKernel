@@ -21,7 +21,8 @@ use hk_mem::hmp::{
 };
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CALL,
+    FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CADENCE_INFO,
+    SYS_CADENCE_REVOKE, SYS_CADENCE_SELF, SYS_CADENCE_SPLIT, SYS_CADENCE_UPDATE, SYS_CALL,
     SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
     SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN,
     SYS_CAPABILITY_SCANOUT, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO,
@@ -31,15 +32,16 @@ use hk_syscall::{
     SYS_FORK, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE,
     SYS_FRAME_SHARE, SYS_FRAMEBUFFER_INFO, SYS_FRAMEBUFFER_MAP, SYS_FUTEX_WAIT, SYS_FUTEX_WAKE,
     SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS,
-    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ, SYS_PCI_WRITE,
-    SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE, SYS_RECV_DATA_HANDLE_TRY,
-    SYS_RECV_DATA_TRY, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
-    SYS_REPLY, SYS_REPLY_HANDLE, SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE,
-    SYS_SERVICE_ENDPOINT, SYS_SLEEP, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS,
-    SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
+    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_METER_INFO, SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ,
+    SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE,
+    SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY, SYS_REGION_INFO, SYS_REGION_MAP,
+    SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE, SYS_SELF_NOTIFICATION,
+    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_SLEEP,
+    SYS_TASK_ATTACH_CADENCE, SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS,
+    SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
-use hk_kernel::{Kernel, KernelError, Priority, ReplyToken, TcbId, ThreadState};
+use hk_kernel::{Kernel, KernelError, ReplyToken, TcbId, ThreadState};
 use user_window::UserWindow;
 
 /// 随消息接收的句柄编号起点。
@@ -193,6 +195,10 @@ pub struct CheckpointCapture<C> {
     pub parent: Option<u64>,
     /// Arena 已用字节数。
     pub arena_used: u64,
+    /// Cadence 契约快照。
+    pub cadence: hk_cadence::CadenceSnapshot,
+    /// Meter 计量快照。
+    pub meter: hk_cadence::MeterSnapshot,
     /// 用户页。
     pub pages: Vec<Page>,
 }
@@ -370,6 +376,27 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.root
     }
 
+    /// 授予具名任务的调度策略授权；用于 shell 启动 Tempo。
+    pub fn grant_policy_authority(&mut self, name: &str) -> bool {
+        let Some(task) = self.tasks.iter().find(|task| task.name == name) else {
+            return false;
+        };
+        let Some(task_id) = self.kernel.task_of(task.tcb) else {
+            return false;
+        };
+        self.kernel.set_policy_authority(task_id, true).is_ok()
+    }
+
+    /// 设置调度器可见的在线 CPU 数。
+    pub fn set_online_cpus(&self, online: usize) {
+        self.kernel.set_online_cpus(online);
+    }
+
+    /// 为每个在线 CPU 建立 idle TCB。
+    pub fn enable_idle_cpus(&self, online: usize) {
+        self.kernel.enable_idle_cpus(online);
+    }
+
     /// 按名称返回任务的 TCB 编号。
     pub fn tcb_of(&self, name: &str) -> Option<u64> {
         self.tasks
@@ -411,21 +438,29 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks
             .iter()
             .enumerate()
-            .map(|(index, task)| TaskInfo {
-                tcb: task.tcb.get(),
-                name: task.name.clone(),
-                parent: task.parent,
-                endpoint: task.leader as u64 + 1,
-                state: state_name(self.kernel.state_of(task.tcb)),
-                pending: pending_name(task.pending),
-                handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
-                cpu_cycles: task.cpu_cycles,
-                arena_used: self.process(index).arena.used(),
-                arena_size: self.process(index).arena.size(),
-                ledger_charged: self.process(index).ledger.charged(),
-                ledger_resident: self.process(index).ledger.resident(),
-                vspace: self.platform.vspace(index),
-                exit_code: task.exited.then_some(task.exit_code),
+            .map(|(index, task)| {
+                let metrics = self.kernel.task_metrics(task.tcb);
+                TaskInfo {
+                    tcb: task.tcb.get(),
+                    name: task.name.clone(),
+                    parent: task.parent,
+                    endpoint: task.leader as u64 + 1,
+                    state: state_name(self.kernel.state_of(task.tcb)),
+                    pending: pending_name(task.pending),
+                    handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
+                    cpu_cycles: task.cpu_cycles,
+                    class: metrics.map_or("missing", |metrics| metrics.class.name()),
+                    weight: metrics.map_or(0, |metrics| metrics.weight),
+                    consumed: metrics.map_or(0, |metrics| metrics.consumed),
+                    virtual_pass: metrics.map_or(0, |metrics| metrics.virtual_pass),
+                    throttled: metrics.map_or(0, |metrics| metrics.throttled),
+                    arena_used: self.process(index).arena.used(),
+                    arena_size: self.process(index).arena.size(),
+                    ledger_charged: self.process(index).ledger.charged(),
+                    ledger_resident: self.process(index).ledger.resident(),
+                    vspace: self.platform.vspace(index),
+                    exit_code: task.exited.then_some(task.exit_code),
+                }
             })
             .collect()
     }

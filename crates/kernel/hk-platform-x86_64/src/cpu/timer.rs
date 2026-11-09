@@ -13,6 +13,10 @@ static TICK_COUNT: AtomicU32 = AtomicU32::new(TICK_INITIAL_COUNT);
 static TICK_ARMED: AtomicBool = AtomicBool::new(false);
 /// 当前 CPU 的调度 tick 是否处于投递状态。
 static TICK_ENABLED: AtomicBool = AtomicBool::new(false);
+/// 每 CPU 是否已编程一次性唤醒。
+static ONESHOT: AtomicU32 = AtomicU32::new(0);
+/// 上次 watchdog tick 的契约时刻（微秒）。
+static LAST_TICK_US: AtomicU64 = AtomicU64::new(0);
 /// 启动周期定时器，目标中断次数为 `target`。
 pub fn arm_timer(target: u64) {
     TICK_ARMED.store(true, Ordering::SeqCst);
@@ -122,6 +126,55 @@ pub fn calibrate_tick(tsc_frequency: u64) {
 pub(super) fn note_tick() {
     TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
     UPTIME_TICKS.fetch_add(1, Ordering::SeqCst);
+    LAST_TICK_US.store(now_us(), Ordering::Relaxed);
+}
+
+/// 返回当前契约时刻（微秒）。
+fn now_us() -> u64 {
+    let frequency = crate::timing::tsc_frequency();
+    if frequency == 0 {
+        return 0;
+    }
+    ((u128::from(crate::timing::rdtsc()) * 1_000_000) / u128::from(frequency)) as u64
+}
+
+/// 编程一次性唤醒；`micros` 为契约微秒。
+///
+/// 不主动开中断：调用方在调度锁内，中断进入内核态时不会触发抢占。
+pub fn arm_oneshot(micros: u64) {
+    if !TICK_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    let per_10ms = u64::from(TICK_COUNT.load(Ordering::SeqCst));
+    let counts = (micros.saturating_mul(per_10ms) / 10_000).clamp(1, u64::from(u32::MAX)) as u32;
+    ONESHOT.fetch_or(1 << super::apic::cpu_index(), Ordering::SeqCst);
+    lapic_write(LAPIC_LVT_TIMER, TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, counts);
+}
+
+/// 恢复周期 watchdog。
+pub fn resume_periodic() {
+    if !TICK_ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
+}
+
+/// 记录一次定时器中断；返回是否为一次性唤醒。
+///
+/// 一次性唤醒不改变 `SYS_TICKS` 的 10 ms 语义：距上次 watchdog tick 满 10 ms
+/// 时补记一次，这样频繁的 Grant 抢占不会让 tick 计数停摆。
+pub fn note_timer_interrupt() -> bool {
+    let bit = 1 << super::apic::cpu_index();
+    if ONESHOT.fetch_and(!bit, Ordering::SeqCst) & bit != 0 {
+        if now_us().saturating_sub(LAST_TICK_US.load(Ordering::Relaxed)) >= 10_000 {
+            note_tick();
+        }
+        return true;
+    }
+    note_tick();
+    false
 }
 
 /// 返回已记录的定时器中断次数。

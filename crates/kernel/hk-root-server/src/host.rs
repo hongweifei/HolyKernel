@@ -6,6 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_cadence::CadenceSpec;
 use hk_checkpoint::Page;
 use hk_hal::{SyscallFrame, UserContext};
 use spin::Mutex;
@@ -235,13 +236,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         context: C,
         parent: Option<u64>,
         arena_used: u64,
+        cadence: CadenceSpec,
+        meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
     ) -> Result<usize, String> {
         self.runtime
             .lock()
             .as_mut()
             .ok_or_else(|| String::from("运行时未初始化"))?
-            .restore_parts(name, slot, context, parent, arena_used, pages)
+            .restore_parts(
+                name, slot, context, parent, arena_used, cadence, meter, pages,
+            )
     }
 
     /// 读取快照镜像片段。
@@ -265,7 +270,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         &self,
         name: &str,
         device_authority: bool,
-        priority: u8,
+        cadence: CadenceSpec,
         context: C,
         parent: Option<u64>,
     ) -> Result<u64, String> {
@@ -275,11 +280,33 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                 .as_mut()
                 .ok_or_else(|| String::from("运行时未初始化"))?;
             runtime
-                .start(name, device_authority, priority, context, parent)
+                .start(name, device_authority, cadence, context, parent)
                 .map_err(|error| format!("{error}"))
         };
         self.wake_aps();
         result
+    }
+
+    /// 授予具名服务的调度策略授权。
+    pub fn grant_policy_authority(&self, name: &str) -> bool {
+        self.runtime
+            .lock()
+            .as_mut()
+            .is_some_and(|runtime| runtime.grant_policy_authority(name))
+    }
+
+    /// 设置调度器可见的在线 CPU 数。
+    pub fn set_online_cpus(&self, online: usize) {
+        if let Some(runtime) = self.runtime.lock().as_ref() {
+            runtime.set_online_cpus(online);
+        }
+    }
+
+    /// 为每个在线 CPU 建立 idle TCB。
+    pub fn enable_idle_cpus(&self, online: usize) {
+        if let Some(runtime) = self.runtime.lock().as_ref() {
+            runtime.enable_idle_cpus(online);
+        }
     }
 
     /// 生成任务视图快照。
@@ -329,11 +356,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                 return false;
             }
             steps += 1;
-            let step = self
-                .runtime
-                .lock()
-                .as_mut()
-                .map(|runtime| runtime.step(cpu));
+            let step = self.runtime.lock().as_mut().map(|runtime| {
+                let step = runtime.step(cpu);
+                runtime.arm_wakeup();
+                step
+            });
             match step {
                 Some(Step::Resume { index, context }) => {
                     context.resume();

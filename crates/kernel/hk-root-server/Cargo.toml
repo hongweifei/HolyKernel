@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-catalog = { version = "0.1.0", path = "../../shared/hk-catalog" }
+hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
 hk-checkpoint = { version = "0.1.0", path = "../../shared/hk-checkpoint" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-image = { version = "0.1.0", path = "../../shared/hk-image" }

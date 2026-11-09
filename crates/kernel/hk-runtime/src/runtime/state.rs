@@ -70,9 +70,9 @@ pub enum Pending {
         /// 该页所属 Region 的映射标志。
         flags: RegionFlags,
     },
-    /// 休眠到指定调度 tick。
+    /// 休眠到指定契约时刻（微秒）。
     Sleep {
-        /// 唤醒的调度 tick。
+        /// 唤醒时刻（契约 tick）。
         wake: u64,
     },
 }

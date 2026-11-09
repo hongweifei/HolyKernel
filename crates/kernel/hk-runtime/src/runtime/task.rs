@@ -1,5 +1,7 @@
 //! 任务生命周期与调度。
 
+use hk_cadence::{CadenceSpec, DEFAULT_SPEC};
+
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
@@ -8,7 +10,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         name: &str,
         device_authority: bool,
-        priority: u8,
+        cadence: CadenceSpec,
         mut context: C,
         parent: Option<u64>,
     ) -> Result<u64, KernelError> {
@@ -17,7 +19,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context.set_start_argument(endpoint);
 
         let kernel = &self.kernel;
-        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::new(priority));
+        let tcb = kernel.spawn_task_parked(HandleTable::with_default_quota(), cadence)?;
         let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
         self.endpoints.push(Some(own_id));
@@ -149,6 +151,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             &context,
             capture.parent,
             capture.arena_used,
+            capture.cadence,
+            capture.meter,
             &capture.pages,
         );
         let size = image.len();
@@ -193,6 +197,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let context = task.context;
         let parent = task.parent;
         let arena_used = self.process(index).arena.used();
+        let cadence = self
+            .kernel
+            .task_cadence_snapshot(task.tcb)
+            .unwrap_or_default();
+        let meter = self
+            .kernel
+            .task_meter_snapshot(task.tcb)
+            .unwrap_or_default();
         let pages = self
             .platform
             .capture_pages(index)
@@ -202,6 +214,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             parent,
             arena_used,
+            cadence,
+            meter,
             pages,
         })
     }
@@ -247,6 +261,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             checkpoint.context,
             checkpoint.parent,
             checkpoint.arena_used,
+            snapshot.cadence.spec(),
+            snapshot.meter,
             &snapshot.pages,
         );
         if result.is_err() {
@@ -256,6 +272,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 按快照重建任务槽中的地址空间与 TCB。
+    #[allow(clippy::too_many_arguments)]
     pub fn restore_parts(
         &mut self,
         name: &str,
@@ -263,6 +280,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context: C,
         parent: Option<u64>,
         arena_used: u64,
+        cadence: CadenceSpec,
+        meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
     ) -> Result<usize, String> {
         if self
@@ -291,7 +310,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        let tcb = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+        let tcb = kernel
+            .spawn_task_parked(HandleTable::with_default_quota(), cadence)
+            .map_err(|error| format!("{error}"))?;
+        if let Some(task) = kernel.task_of(tcb) {
+            let _ = kernel.restore_meter(task, meter);
+        }
         let own = kernel
             .create_endpoint(tcb, rights)
             .map_err(|error| format!("{error}"))?;
@@ -351,6 +375,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             snapshot.parent,
             snapshot.arena_used,
+            snapshot.cadence.spec(),
+            snapshot.meter,
             &snapshot.pages,
         )?;
         Ok((snapshot.name, slot))
@@ -378,7 +404,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        let child = kernel.spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+        let cadence = kernel
+            .task_of(tcb)
+            .and_then(|task| kernel.cadence_spec(task))
+            .unwrap_or(DEFAULT_SPEC);
+        let child = kernel
+            .spawn_task_parked(HandleTable::with_default_quota(), cadence)
+            .expect("子任务创建");
 
         let Ok(own_endpoint) = kernel.create_endpoint(child, rights) else {
             frame.set_result(u64::MAX);
@@ -537,6 +569,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
+        self.kernel.set_clock(self.contract_now());
         self.drain_irqs();
         self.wake_sleepers();
         if self.platform.take_console_input()
@@ -584,6 +617,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let cycles = now - started;
             self.tasks[index].cpu_cycles = self.tasks[index].cpu_cycles.saturating_add(cycles);
             self.cpu_busy[cpu] = self.cpu_busy[cpu].saturating_add(cycles);
+            let elapsed = self.contract_ticks(cycles);
+            self.kernel.charge(self.tasks[index].tcb, elapsed);
         }
         self.last_finish = Some(now);
         if !self.tasks[index].exited {
@@ -721,7 +756,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.sleeping.is_empty() {
             return;
         }
-        let now = self.platform.timer_ticks();
+        let now = self.contract_now();
         let mut kept = Vec::new();
         for index in core::mem::take(&mut self.sleeping) {
             let Some(task) = self.tasks.get(index) else {
@@ -744,6 +779,45 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     fn next_task(&mut self, cpu: usize) -> Option<usize> {
         let tcb = self.kernel.schedule(cpu)?;
         self.tasks.iter().position(|task| task.tcb == tcb)
+    }
+
+    /// 返回当前契约时钟（微秒）。平台没有 TSC 频率时按调度 tick 的 10 ms 折算。
+    pub(crate) fn contract_now(&self) -> u64 {
+        let frequency = self.platform.tsc_frequency();
+        if frequency == 0 {
+            return self.platform.timer_ticks().saturating_mul(10_000);
+        }
+        self.contract_ticks(self.platform.timestamp())
+    }
+
+    /// 返回下一次需要唤醒的契约时刻：Grant 结束、预算补充或 sleep 到期。
+    pub fn next_wakeup(&self) -> Option<u64> {
+        let mut earliest = self.kernel.next_deadline();
+        for index in &self.sleeping {
+            let Some(task) = self.tasks.get(*index) else {
+                continue;
+            };
+            if let Pending::Sleep { wake } = task.pending {
+                earliest = Some(earliest.map_or(wake, |value: u64| value.min(wake)));
+            }
+        }
+        earliest
+    }
+
+    /// 把下一次唤醒写给平台；没有待办时只保留 watchdog。
+    pub fn arm_wakeup(&self) {
+        self.platform.arm_wakeup(self.next_wakeup());
+    }
+
+    /// 把平台周期数换算为契约 tick。
+    fn contract_ticks(&self, cycles: u64) -> u64 {
+        let frequency = self.platform.tsc_frequency();
+        if frequency == 0 {
+            return 0;
+        }
+        let micros =
+            (u128::from(cycles) * 1_000_000 / u128::from(frequency)).min(u128::from(u64::MAX));
+        micros as u64
     }
 
     fn prepare(&mut self, cpu: usize, index: usize) -> bool {

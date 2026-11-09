@@ -260,6 +260,39 @@ fn runtime() -> UserRuntime<MockContext, MockPlatform> {
 }
 
 #[test]
+fn reports_self_cadence_and_meter() {
+    let mut runtime = runtime();
+    let Step::Resume { mut context, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_CADENCE_INFO;
+    context.rdi = 0;
+    context.rsi = 0x1000;
+    context.rdx = hk_cadence::CadenceSnapshot::ENCODED_LEN as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_cadence::CadenceSnapshot::ENCODED_LEN as u64);
+
+    context.rax = hk_syscall::SYS_METER_INFO;
+    context.rdx = hk_cadence::MeterSnapshot::ENCODED_LEN as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_cadence::MeterSnapshot::ENCODED_LEN as u64);
+}
+
+#[test]
+fn arms_wakeup_at_sleep_deadline() {
+    let mut runtime = runtime();
+    let Step::Resume { mut context, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = hk_syscall::SYS_SLEEP;
+    context.rdi = 3;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    // 契约时钟按 timer_ticks=7 折算为 70 000 µs，再休眠 3 个 10 ms tick。
+    assert_eq!(runtime.next_wakeup(), Some(100_000));
+}
+
+#[test]
 fn memory_service_receives_shared_system_capacity() {
     let runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let system = runtime
@@ -687,6 +720,7 @@ fn activates_address_space_once_per_step() {
 #[test]
 fn schedules_on_multiple_cpus() {
     let mut runtime = runtime();
+    runtime.set_online_cpus(2);
     let Step::Resume { index: first, .. } = runtime.step(0) else {
         panic!("BSP 应可调度");
     };
@@ -730,7 +764,13 @@ fn exit_releases_peer_endpoint_handles() {
     assert_eq!(tasks[other].handles, before - 2);
 
     let endpoint = runtime
-        .start("c", false, 16, MockContext::default(), None)
+        .start(
+            "c",
+            false,
+            hk_cadence::DEFAULT_SPEC,
+            MockContext::default(),
+            None,
+        )
         .expect("启动任务");
     assert_eq!(endpoint, 3);
 

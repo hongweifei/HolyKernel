@@ -7,8 +7,6 @@ pub struct Task<'a> {
     pub name: &'a str,
     /// 服务角色位。
     pub role: u32,
-    /// 调度优先级。
-    pub priority: u8,
     /// 入口地址。
     pub entry: u64,
     /// 用户栈大小。
@@ -66,8 +64,6 @@ pub struct TaskData<'a> {
     pub name: &'a str,
     /// 服务角色位。
     pub role: u32,
-    /// 调度优先级。
-    pub priority: u8,
     /// 入口地址。
     pub entry: u64,
     /// 用户栈大小。

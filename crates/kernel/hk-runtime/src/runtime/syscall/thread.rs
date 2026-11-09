@@ -21,9 +21,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        let child = self
+        let Some(task) = self.kernel.task_of(self.tasks[leader].tcb) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(child) = self
             .kernel
-            .spawn_parked(HandleTable::with_default_quota(), Priority::NORMAL);
+            .spawn_thread_parked(task, HandleTable::with_default_quota())
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
 
         self.endpoints.push(None);
         self.notifications.push(None);
@@ -102,7 +110,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        let wake = self.platform.timer_ticks().saturating_add(ticks);
+        let wake = self
+            .contract_now()
+            .saturating_add(ticks.saturating_mul(10_000));
         self.tasks[index].pending = Pending::Sleep { wake };
         if !self.sleeping.contains(&index) {
             self.sleeping.push(index);

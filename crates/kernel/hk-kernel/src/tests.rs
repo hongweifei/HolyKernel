@@ -9,14 +9,17 @@ use hk_mem::hmp::{
     FrameLease, Ledger, LedgerId, Region, RegionFlags,
 };
 
-use crate::{Kernel, Priority, TcbId, ThreadState, TraceCategory};
+use crate::{Kernel, TcbId, ThreadState, TraceCategory};
+use hk_cadence::{CadenceClass, CadenceSpec, DEFAULT_SPEC, millis};
 
 fn kernel() -> Kernel {
     Kernel::new()
 }
 
 fn thread(kernel: &Kernel) -> TcbId {
-    kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL)
+    kernel
+        .spawn_task(HandleTable::with_default_quota(), DEFAULT_SPEC)
+        .expect("创建任务")
 }
 
 #[test]
@@ -672,7 +675,9 @@ fn transfers_handles_over_ipc() {
 fn handle_transfer_failure_preserves_sender_and_receiver() {
     let kernel = kernel();
     let client = thread(&kernel);
-    let server = kernel.spawn_thread(HandleTable::new(1), Priority::NORMAL);
+    let server = kernel
+        .spawn_task(HandleTable::new(1), DEFAULT_SPEC)
+        .expect("创建服务端任务");
 
     let endpoint = kernel
         .create_endpoint(client, Rights::READ | Rights::WRITE)
@@ -795,27 +800,393 @@ fn transfers_handles_to_self_without_moving_them() {
 }
 
 #[test]
+fn idle_tcb_runs_when_no_work() {
+    let kernel = kernel();
+    kernel.enable_idle_cpus(1);
+    let idle = kernel.schedule(0).expect("idle TCB");
+    assert!(kernel.is_idle(idle));
+    assert!(!kernel.has_runnable(), "idle 不计入可运行任务");
+    assert_eq!(kernel.thread_count(), 1);
+    assert_eq!(kernel.idle_thread(0), Some(idle));
+}
+
+#[test]
+fn real_task_preempts_idle_tcb() {
+    let kernel = kernel();
+    kernel.enable_idle_cpus(1);
+    let idle = kernel.schedule(0).expect("idle TCB");
+    let real = thread(&kernel);
+
+    assert_eq!(kernel.schedule(0), Some(real));
+    kernel.exit(real).expect("退出真实任务");
+    assert_eq!(kernel.schedule(0), Some(idle));
+}
+
+#[test]
+fn idle_tcb_stays_on_its_cpu() {
+    let kernel = kernel();
+    kernel.enable_idle_cpus(1);
+    assert!(kernel.idle_thread(1).is_none());
+    assert_eq!(kernel.schedule(1), None);
+}
+
+#[test]
+fn distributes_tasks_across_idle_cpus() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let first = thread(&kernel);
+    let second = thread(&kernel);
+
+    assert_eq!(kernel.schedule(0), Some(first));
+    assert_eq!(kernel.schedule(1), Some(second));
+}
+
+#[test]
 fn schedules_higher_priority_first() {
     let kernel = kernel();
-    let low = kernel.spawn_thread(HandleTable::new(8), Priority::LOWEST);
-    let high = kernel.spawn_thread(HandleTable::new(8), Priority::HIGHEST);
+    let low = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("低延迟任务");
+    let high = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("实时任务");
 
     assert_eq!(kernel.schedule(0), Some(high));
     assert_eq!(kernel.state_of(high), Some(ThreadState::Running));
 
-    kernel.exit(high).expect("退出高优先级线程");
+    kernel.exit(high).expect("退出实时任务");
     assert_eq!(kernel.schedule(0), Some(low));
 }
 
 #[test]
 fn rotates_threads_of_equal_priority() {
     let kernel = kernel();
-    let first = thread(&kernel);
-    let second = thread(&kernel);
+    let pinned = CadenceSpec::new(CadenceClass::Latency, 1024)
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let first = kernel
+        .spawn_task(HandleTable::new(8), pinned)
+        .expect("第一个任务");
+    let second = kernel
+        .spawn_task(HandleTable::new(8), pinned)
+        .expect("第二个任务");
 
     assert_eq!(kernel.schedule(0), Some(first));
     assert_eq!(kernel.schedule(0), Some(second));
     assert_eq!(kernel.schedule(0), Some(first));
+}
+
+#[test]
+fn throttles_budgeted_task_and_refills_next_period() {
+    let kernel = kernel();
+    let realtime = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(2)),
+        )
+        .expect("实时任务");
+
+    assert_eq!(kernel.schedule(0), Some(realtime));
+    kernel.charge(realtime, millis(1).ticks() + 1);
+    assert_eq!(kernel.schedule(0), None);
+
+    kernel.set_clock(millis(4).ticks());
+    assert_eq!(kernel.schedule(0), Some(realtime));
+}
+
+#[test]
+fn shares_cpu_in_weight_proportion() {
+    let kernel = kernel();
+    let heavy = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Throughput, 2048)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("高权重任务");
+    let light = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Throughput, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("低权重任务");
+
+    let mut heavy_runs = 0_u32;
+    let mut light_runs = 0_u32;
+    for _ in 0..30 {
+        let next = kernel.schedule(0).expect("可调度任务");
+        kernel.charge(next, 10);
+        if next == heavy {
+            heavy_runs += 1;
+        } else {
+            assert_eq!(next, light);
+            light_runs += 1;
+        }
+    }
+    assert!(
+        heavy_runs.abs_diff(light_runs * 2) <= 2,
+        "权重比 2:1 的运行次数异常：{heavy_runs}:{light_runs}"
+    );
+}
+
+#[test]
+fn grants_cadence_and_meter_handles() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+    let cadence = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("授予 Cadence");
+    let meter = kernel
+        .grant_meter(thread, task, rights)
+        .expect("授予 Meter");
+
+    assert_eq!(
+        kernel.handle_kind(thread, cadence),
+        Some(hk_handle::ObjectKind::Cadence)
+    );
+    assert_eq!(
+        kernel.handle_kind(thread, meter),
+        Some(hk_handle::ObjectKind::Meter)
+    );
+    let spec = kernel.cadence_spec(task).expect("契约快照");
+    assert_eq!(spec.class, CadenceClass::Latency);
+}
+
+#[test]
+fn updates_splits_revokes_and_reattaches_cadence() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+    let cadence = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("授予 Cadence");
+    let task_handle = kernel.grant_task(thread, task, rights).expect("授予 Task");
+
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.weight = 2048;
+    kernel
+        .update_cadence(thread, cadence, spec)
+        .expect("更新契约");
+    assert_eq!(kernel.cadence_spec(task).expect("契约").weight, 2048);
+
+    let child = kernel
+        .split_cadence(thread, cadence, 512, 0)
+        .expect("派生子契约");
+    let snapshot = kernel.cadence_snapshot(thread, child).expect("子契约快照");
+    assert_eq!(snapshot.weight, 512);
+    assert_eq!(snapshot.parent, task.get());
+
+    kernel
+        .attach_cadence(thread, task_handle, child)
+        .expect("重新附加");
+    assert_eq!(kernel.cadence_spec(task).expect("契约").weight, 512);
+
+    let epoch = kernel.revoke_cadence(thread, child).expect("撤销契约");
+    assert_eq!(epoch, 1);
+    assert_eq!(kernel.schedule(0), None);
+}
+
+#[test]
+fn policy_task_can_split_and_attach_own_cadence() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    kernel
+        .set_policy_authority(task, true)
+        .expect("授予策略授权");
+
+    let pool = kernel.self_cadence_handle(thread).expect("策略句柄");
+    let child = kernel
+        .split_cadence(thread, pool, 512, 0)
+        .expect("在池内派生");
+    kernel
+        .attach_own_cadence(thread, child)
+        .expect("附加到自身");
+    assert_eq!(kernel.cadence_spec(task).expect("契约").weight, 512);
+}
+
+#[test]
+fn lends_caller_contract_to_server_and_restores() {
+    let kernel = kernel();
+    let caller_spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(2), millis(16))
+        .with_deadline(millis(8));
+    let caller = kernel
+        .spawn_task(HandleTable::new(8), caller_spec)
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("调用");
+    assert_eq!(kernel.lending_depth(server), 0);
+    let received = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("收到调用");
+    let token = received.reply.expect("回复令牌");
+    assert_eq!(kernel.lending_depth(server), 1);
+    assert_eq!(
+        kernel.queue_entry(server).map(|entry| entry.0),
+        Some(CadenceClass::Realtime),
+        "服务端借用调用方的实时类别"
+    );
+
+    kernel.charge(server, 1_000);
+    assert_eq!(
+        kernel
+            .task_meter_snapshot(caller)
+            .expect("调用方计量")
+            .consumed,
+        1_000
+    );
+    assert_eq!(
+        kernel.task_metrics(server).expect("服务端计量").consumed,
+        1_000
+    );
+
+    kernel.charge(server, 1_500);
+    kernel.reply(server, token, Message::new(2)).expect("回复");
+    assert_eq!(kernel.lending_depth(server), 0);
+    kernel.charge(server, 500);
+    assert_eq!(
+        kernel
+            .task_meter_snapshot(caller)
+            .expect("调用方计量")
+            .consumed,
+        2_500
+    );
+    assert_eq!(
+        kernel.task_metrics(server).expect("服务端计量").consumed,
+        3_000
+    );
+}
+
+#[test]
+fn disabled_lending_does_not_charge_caller() {
+    let kernel = kernel();
+    let caller_spec =
+        CadenceSpec::new(CadenceClass::Latency, 1024).with_lending(hk_cadence::Lending::disabled());
+    let caller = kernel
+        .spawn_task(HandleTable::new(8), caller_spec)
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("调用");
+    let _ = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("收到调用");
+    assert_eq!(kernel.lending_depth(server), 0);
+    kernel.charge(server, 1_000);
+    assert_eq!(
+        kernel
+            .task_meter_snapshot(caller)
+            .expect("调用方计量")
+            .consumed,
+        0
+    );
+}
+
+#[test]
+fn respects_cpu_affinity() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let pinned = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(1).expect("CPU 1")),
+        )
+        .expect("任务");
+    assert_eq!(kernel.schedule(0), None);
+    assert_eq!(kernel.schedule(1), Some(pinned));
+}
+
+#[test]
+fn pinned_task_stays_on_first_cpu() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let fixed = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024).with_migratable(false),
+        )
+        .expect("任务");
+    assert_eq!(kernel.schedule(0), Some(fixed));
+    kernel.block(fixed, crate::BlockReason::Park).expect("停泊");
+    kernel.wake_thread(fixed);
+    assert_eq!(kernel.schedule(1), None);
+    assert_eq!(kernel.schedule(0), Some(fixed));
+}
+
+#[test]
+fn records_migration_when_picked_by_another_cpu() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let task = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024),
+        )
+        .expect("任务");
+    assert_eq!(kernel.schedule(0), Some(task));
+    kernel.block(task, crate::BlockReason::Park).expect("停泊");
+    kernel.wake_thread(task);
+    assert_eq!(kernel.schedule(1), Some(task));
+    assert_eq!(
+        kernel.task_meter_snapshot(task).expect("计量").migrations,
+        1
+    );
+}
+
+#[test]
+fn restores_meter_watermark() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let before = kernel.task_meter_snapshot(thread).expect("计量");
+    kernel.charge(thread, 1234);
+    assert!(kernel.task_meter_snapshot(thread).expect("计量").consumed >= 1234);
+    kernel.restore_meter(task, before).expect("恢复计量");
+    assert_eq!(
+        kernel.task_meter_snapshot(thread).expect("计量").consumed,
+        before.consumed
+    );
 }
 
 #[test]

@@ -7,7 +7,6 @@ fn sample() -> alloc::vec::Vec<u8> {
         TaskData {
             name: "hk-server-demo",
             role: 1,
-            priority: 16,
             entry: 0x4000,
             stack_size: 4096,
             arena_size: 8192,

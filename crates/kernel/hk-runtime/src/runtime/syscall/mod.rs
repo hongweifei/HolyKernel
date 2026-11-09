@@ -3,6 +3,7 @@
 use super::*;
 
 mod arena;
+mod cadence;
 mod capability;
 mod capacity;
 mod device;
@@ -94,6 +95,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.tasks[index].context = *frame;
                 self.tasks[index].pending = Pending::None;
                 Switch::Block
+            }
+            SYS_CADENCE_INFO => self.cadence_info(index, frame),
+            SYS_METER_INFO => self.meter_info(index, frame),
+            SYS_CADENCE_UPDATE => self.cadence_update(index, tcb, frame),
+            SYS_CADENCE_SPLIT => self.cadence_split(index, tcb, frame),
+            SYS_CADENCE_REVOKE => self.cadence_revoke(index, tcb, frame),
+            SYS_TASK_ATTACH_CADENCE => self.task_attach_cadence(index, tcb, frame),
+            SYS_CADENCE_SELF => {
+                let result = match self.kernel.self_cadence_handle(tcb) {
+                    Ok(handle) => self.install_extra_handle(index, handle),
+                    Err(_) => u64::MAX,
+                };
+                frame.set_result(result);
+                Switch::Continue
             }
             SYS_SLEEP => self.sleep(index, tcb, frame),
             SYS_EXIT => {

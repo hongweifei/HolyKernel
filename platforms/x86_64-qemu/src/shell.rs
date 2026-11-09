@@ -96,21 +96,6 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
             .map(hk_root_server::loader::service_role)
             .unwrap_or(0)
     }
-
-    fn priority(&self, name: &str) -> u8 {
-        let Some(module) = self
-            .info
-            .server_modules
-            .iter()
-            .find(|module| hk_root_server::loader::service_name(module.name) == name)
-        else {
-            return 16;
-        };
-        self.info
-            .module_bytes(module)
-            .map(hk_root_server::loader::service_priority)
-            .unwrap_or(16)
-    }
 }
 
 impl ScriptSource for Loader<'_> {

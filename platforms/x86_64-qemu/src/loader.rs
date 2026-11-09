@@ -51,6 +51,24 @@ pub fn run(
     {
         modules.push(module);
     }
+    let tempo_test = hk_boot::cmdline().is_some_and(|line| line.contains("tempo-test"));
+    if tempo_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-tempo-test")
+    {
+        modules.push(module);
+    }
+    let wakeup_test = hk_boot::cmdline().is_some_and(|line| line.contains("wakeup-test"));
+    if wakeup_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-wakeup")
+    {
+        modules.push(module);
+    }
     let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
     let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
     let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
@@ -74,6 +92,13 @@ pub fn run(
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
         let name = loader::service_name(module.name);
+        if tempo_test {
+            // Tempo 自检只装载策略服务与自检客户端。
+            return matches!(name, "hk-server-tempo" | "hk-server-tempo-test");
+        }
+        if wakeup_test {
+            return name == "hk-server-wakeup";
+        }
         if dbg_test {
             // 调试客户端自检只装载客户端本身，结果经 Root 控制读取。
             return name == "hk-server-dbg";
@@ -296,7 +321,6 @@ pub fn run(
         .map(|(module, name)| {
             let bytes = info.module_bytes(module);
             let device = bytes.is_some_and(loader::service_has_device_authority);
-            let priority = bytes.map(loader::service_priority).unwrap_or(16);
             let mut spec = if device {
                 ServiceSpec::device(name)
             } else {
@@ -309,7 +333,11 @@ pub fn run(
             } else if device {
                 spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
             }
-            spec.with_priority(priority)
+            let mut spec = spec.with_cadence(hk_catalog::default_cadence(name));
+            if hk_catalog::policy_authority(name) {
+                spec = spec.with_policy_authority();
+            }
+            spec
         })
         .collect();
     runtime::init_symbols(info);

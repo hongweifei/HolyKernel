@@ -2,9 +2,11 @@
 
 use core::fmt;
 
+use hk_cadence::CadenceError;
 use hk_handle::{HandleError, ObjectId, ObjectKind};
 use hk_mem::hmp::HmpError;
 
+use crate::task::TaskId;
 use crate::tcb::TcbId;
 
 /// 内核操作错误。
@@ -14,6 +16,8 @@ pub enum KernelError {
     Handle(HandleError),
     /// 线程编号不存在。
     UnknownThread(TcbId),
+    /// Task 编号不存在。
+    UnknownTask(TaskId),
     /// 对象已析构，注册表项失效。
     StaleObject(ObjectId),
     /// 对象类别与操作不符。
@@ -33,6 +37,8 @@ pub enum KernelError {
     ScanoutActive,
     /// HMP 对象操作失败。
     Hmp(HmpError),
+    /// Cadence 契约无效。
+    Cadence(CadenceError),
 }
 
 impl fmt::Display for KernelError {
@@ -40,6 +46,7 @@ impl fmt::Display for KernelError {
         match self {
             Self::Handle(error) => write!(formatter, "句柄错误：{error}"),
             Self::UnknownThread(id) => write!(formatter, "线程 {} 不存在", id.get()),
+            Self::UnknownTask(id) => write!(formatter, "Task {} 不存在", id.get()),
             Self::StaleObject(id) => write!(formatter, "对象 {} 已析构", id.get()),
             Self::WrongKind { expected } => {
                 write!(formatter, "对象类别不是 {}", expected.name())
@@ -50,6 +57,7 @@ impl fmt::Display for KernelError {
             Self::QueueFull => formatter.write_str("Endpoint 消息队列已满"),
             Self::ScanoutActive => formatter.write_str("能力正在 scanout，不能解除固定"),
             Self::Hmp(error) => write!(formatter, "HMP 错误：{error}"),
+            Self::Cadence(error) => write!(formatter, "调度契约错误：{error}"),
         }
     }
 }
@@ -72,5 +80,11 @@ impl From<HandleError> for KernelError {
 impl From<HmpError> for KernelError {
     fn from(error: HmpError) -> Self {
         Self::Hmp(error)
+    }
+}
+
+impl From<CadenceError> for KernelError {
+    fn from(error: CadenceError) -> Self {
+        Self::Cadence(error)
     }
 }

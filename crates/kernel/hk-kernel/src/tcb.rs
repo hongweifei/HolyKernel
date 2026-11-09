@@ -1,9 +1,13 @@
 //! TCB、线程状态与调用回复。
 
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 
+use hk_cadence::CadenceClass;
 use hk_handle::{HandleTable, ObjectId};
 use hk_ipc::Message;
+
+use crate::task::TaskId;
 
 /// 线程编号。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,35 +21,6 @@ impl TcbId {
 
     /// 返回编号。
     pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-/// 线程优先级：0 最高，31 为 idle。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Priority(u8);
-
-impl Priority {
-    /// 优先级层数。
-    pub const LEVELS: usize = 32;
-    /// 最高优先级。
-    pub const HIGHEST: Self = Self(0);
-    /// 默认优先级。
-    pub const NORMAL: Self = Self(16);
-    /// 最低优先级。
-    pub const LOWEST: Self = Self(31);
-
-    /// 以层数构造优先级。
-    ///
-    /// # Panics
-    /// 层数超出 `0..=31` 时 panic：优先级是调度器的硬性约束。
-    pub const fn new(level: u8) -> Self {
-        assert!((level as usize) < Self::LEVELS, "优先级超出 0..=31 范围");
-        Self(level)
-    }
-
-    /// 返回层数。
-    pub const fn level(self) -> u8 {
         self.0
     }
 }
@@ -135,29 +110,49 @@ pub struct PendingDelivery {
     pub reply: Option<ReplyToken>,
 }
 
+/// 一次 caller-pays 借贷。
+///
+/// 服务端 TCB 在 `call` 期间借用调用方契约：类别、队列键与时间片取两者中更强
+/// 的一个，执行时间同时记入调用方 Meter 与预算。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LendingFrame {
+    /// 调用方 Task。
+    pub caller: TaskId,
+    /// 调用序号。
+    pub sequence: u64,
+    /// 调用方类别。
+    pub class: CadenceClass,
+    /// 调用方队列键。
+    pub key: u64,
+    /// 调用方时间片（契约 tick）。
+    pub slice: u64,
+}
+
 /// 线程控制块。
 pub struct Tcb {
     id: TcbId,
-    priority: Priority,
+    task: TaskId,
     state: ThreadState,
     handles: HandleTable,
     blocked: Option<BlockReason>,
     pending_call: Option<PendingCall>,
     deliveries: VecDeque<PendingDelivery>,
+    lending: Vec<LendingFrame>,
     sequence: u64,
 }
 
 impl Tcb {
     /// 创建线程控制块，初始状态为就绪。
-    pub fn new(id: TcbId, priority: Priority, handles: HandleTable) -> Self {
+    pub fn new(id: TcbId, task: TaskId, handles: HandleTable) -> Self {
         Self {
             id,
-            priority,
+            task,
             state: ThreadState::Runnable,
             handles,
             blocked: None,
             pending_call: None,
             deliveries: VecDeque::new(),
+            lending: Vec::new(),
             sequence: 0,
         }
     }
@@ -167,9 +162,9 @@ impl Tcb {
         self.id
     }
 
-    /// 返回优先级。
-    pub fn priority(&self) -> Priority {
-        self.priority
+    /// 返回所属 Task。
+    pub fn task(&self) -> TaskId {
+        self.task
     }
 
     /// 返回线程状态。
@@ -249,6 +244,53 @@ impl Tcb {
         self.sequence
     }
 
+    /// 压入一次借贷；超过深度上限时返回 `false`。
+    pub fn push_lending(&mut self, frame: LendingFrame, depth: u64) -> bool {
+        if depth == 0 || self.lending.len() as u64 >= depth {
+            return false;
+        }
+        self.lending.push(frame);
+        true
+    }
+
+    /// 按调用方与序号弹出借贷。
+    pub fn pop_lending(&mut self, caller: TaskId, sequence: u64) -> bool {
+        let Some(index) = self
+            .lending
+            .iter()
+            .position(|frame| frame.caller == caller && frame.sequence == sequence)
+        else {
+            return false;
+        };
+        self.lending.remove(index);
+        true
+    }
+
+    /// 移除某个调用方的全部借贷；返回移除数量。
+    pub fn remove_lending_for(&mut self, caller: TaskId) -> usize {
+        let before = self.lending.len();
+        self.lending.retain(|frame| frame.caller != caller);
+        before - self.lending.len()
+    }
+
+    /// 返回最强借贷：类别优先，其次队列键。
+    pub fn strongest_lending(&self) -> Option<LendingFrame> {
+        self.lending
+            .iter()
+            .copied()
+            .min_by_key(|frame| (frame.class, frame.key))
+    }
+
+    /// 返回当前借贷数量。
+    pub fn lending_depth(&self) -> usize {
+        self.lending.len()
+    }
+
+    /// 返回当前借贷栈。
+    pub fn lending(&self) -> &[LendingFrame] {
+        &self.lending
+    }
+
     pub(crate) fn set_state(&mut self, state: ThreadState) {
         self.state = state;
     }
@@ -268,7 +310,7 @@ mod tests {
 
     #[test]
     fn assigns_increasing_call_sequences() {
-        let mut tcb = Tcb::new(TcbId::new(1), Priority::NORMAL, HandleTable::new(8));
+        let mut tcb = Tcb::new(TcbId::new(1), TaskId::new(1), HandleTable::new(8));
 
         assert_eq!(tcb.next_sequence(), 1);
         assert_eq!(tcb.next_sequence(), 2);
@@ -276,7 +318,7 @@ mod tests {
 
     #[test]
     fn take_reply_clears_pending_call() {
-        let mut tcb = Tcb::new(TcbId::new(1), Priority::NORMAL, HandleTable::new(8));
+        let mut tcb = Tcb::new(TcbId::new(1), TaskId::new(1), HandleTable::new(8));
         tcb.set_pending_call(Some(PendingCall {
             endpoint: ObjectId::new(3),
             sequence: 1,
@@ -287,11 +329,5 @@ mod tests {
         assert_eq!(tcb.take_reply(), Some(Message::new(42)));
         assert!(tcb.pending_call().is_none());
         assert_eq!(tcb.take_reply(), None);
-    }
-
-    #[test]
-    #[should_panic(expected = "优先级超出")]
-    fn rejects_out_of_range_priority() {
-        let _ = Priority::new(32);
     }
 }

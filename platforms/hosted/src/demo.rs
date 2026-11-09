@@ -5,9 +5,10 @@
 
 use std::fmt::Write;
 
+use hk_cadence::DEFAULT_SPEC;
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
-use hk_kernel::{Kernel, Priority};
+use hk_kernel::Kernel;
 use hk_root_server::{RootServer, ServiceSpec};
 use hk_sim::{RunReport, Simulator, ThreadStep};
 
@@ -39,7 +40,9 @@ pub fn run(seed: u64) -> Result<DemoReport, String> {
         .service("log")
         .ok_or_else(|| String::from("服务清单缺少 log"))?;
 
-    let client = kernel.spawn_thread(HandleTable::with_default_quota(), Priority::NORMAL);
+    let client = kernel
+        .spawn_task(HandleTable::with_default_quota(), DEFAULT_SPEC)
+        .map_err(|error| format!("创建客户端任务失败：{error}"))?;
     let clock_client = kernel
         .grant(client, clock.endpoint, Rights::READ | Rights::WRITE)
         .map_err(|error| format!("授予 clock 句柄失败：{error}"))?;

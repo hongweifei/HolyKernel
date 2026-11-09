@@ -86,17 +86,22 @@ impl Kernel {
         expected: Option<TcbId>,
         block_when_empty: bool,
     ) -> Result<Option<Received>, KernelError> {
-        if let Some(delivery) = self
-            .threads
-            .lock()
-            .get_mut(&thread)
-            .and_then(|tcb| tcb.take_delivery_from(expected))
         {
-            return Ok(Some(Received {
-                sender: delivery.sender,
-                message: delivery.message,
-                reply: delivery.reply,
-            }));
+            let mut threads = self.threads.lock();
+            if let Some(delivery) = threads
+                .get_mut(&thread)
+                .and_then(|tcb| tcb.take_delivery_from(expected))
+            {
+                drop(threads);
+                if let Some(token) = delivery.reply {
+                    self.lend_contract(thread, token);
+                }
+                return Ok(Some(Received {
+                    sender: delivery.sender,
+                    message: delivery.message,
+                    reply: delivery.reply,
+                }));
+            }
         }
 
         let (object, endpoint_id) =
@@ -122,6 +127,8 @@ impl Kernel {
                 }
                 if reply.is_none() {
                     self.wake(sender);
+                } else if let Some(token) = reply {
+                    self.lend_contract(thread, token);
                 }
                 self.record(thread.get(), Category::Ipc, TRACE_RECV, endpoint_id.get());
                 Ok(Some(Received {
@@ -301,6 +308,7 @@ impl Kernel {
             pending.reply = Some(message);
             pending.answered = true;
         }
+        self.return_lending(thread, token);
         self.wake(token.caller);
         self.record(thread.get(), Category::Ipc, TRACE_REPLY, token.caller.get());
         Ok(())
