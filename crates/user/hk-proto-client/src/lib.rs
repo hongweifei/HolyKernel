@@ -8,7 +8,9 @@
 extern crate alloc;
 
 pub mod holy;
+pub mod tempo;
 pub mod vfs;
 
 pub use holy::HolyClient;
+pub use tempo::TempoClient;
 pub use vfs::VfsClient;

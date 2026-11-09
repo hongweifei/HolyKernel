@@ -18,5 +18,6 @@ pub mod net;
 pub mod pointer;
 pub mod socket;
 pub mod status;
+pub mod tempo;
 pub mod vfs;
 pub(crate) mod wire;

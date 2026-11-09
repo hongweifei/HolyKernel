@@ -32,6 +32,8 @@ pub const VIRTIO: u64 = 0x1000;
 pub const MEMORY: u64 = 0x1100;
 /// 内核与 Provider 之间的缺页协议基址。
 pub const PROVIDER: u64 = 0x1200;
+/// Tempo 调度策略协议基址。
+pub const TEMPO: u64 = 0x1300;
 
 /// 返回标签所属区间的基址。
 pub const fn base_of(label: u64) -> u64 {
@@ -54,6 +56,7 @@ pub const BASES: &[(&str, u64)] = &[
     ("virtio", VIRTIO),
     ("memory", MEMORY),
     ("provider", PROVIDER),
+    ("tempo", TEMPO),
 ];
 
 /// 已登记的协议标签；每组的第一项是基址。
@@ -218,6 +221,15 @@ pub const LABEL_GROUPS: &[(&str, u64, &[u64])] = &[
         "provider",
         PROVIDER,
         &[hk_syscall::PROVIDER_FAULT, hk_syscall::PROVIDER_PROVIDE],
+    ),
+    (
+        "tempo",
+        TEMPO,
+        &[
+            crate::tempo::TEMPO_REQUEST,
+            crate::tempo::TEMPO_RESPONSE,
+            crate::tempo::TEMPO_REJECTED,
+        ],
     ),
 ];
 

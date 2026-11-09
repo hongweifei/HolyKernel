@@ -1,0 +1,22 @@
+[package]
+name = "hk-server-tempo-test"
+description = "Tempo 策略服务自检：申请子契约并附加到自身"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-tempo-test"
+path = "src/main.rs"
+
+[dependencies]
+hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
+hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true
