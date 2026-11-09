@@ -4,9 +4,11 @@ use core::fmt;
 
 use crate::arch::{Arch, CpuId};
 use crate::boot::{BootInfo, BootInfoError};
+use crate::cache::CacheOps;
 use crate::console::Console;
 use crate::dma::DmaOps;
 use crate::entropy::Entropy;
+use crate::iommu::Iommu;
 use crate::irq::InterruptController;
 use crate::mmu::Mmu;
 use crate::physical::PhysicalAccess;
@@ -92,4 +94,14 @@ pub trait Platform: Send + Sync {
 
     /// 返回熵源。
     fn entropy(&self) -> &dyn Entropy;
+
+    /// 返回 IOMMU；平台没有时返回 `None`。
+    fn iommu(&self) -> Option<&dyn Iommu> {
+        None
+    }
+
+    /// 返回缓存维护接口；平台没有时返回 `None`。
+    fn cache(&self) -> Option<&dyn CacheOps> {
+        None
+    }
 }

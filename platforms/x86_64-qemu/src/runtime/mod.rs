@@ -80,7 +80,7 @@ fn user_range(address: u64, length: usize) -> bool {
             .is_some_and(|end| end <= USER_LIMIT)
 }
 
-pub(crate) struct X86Platform;
+pub(crate) struct X86Platform(&'static dyn hk_hal::Platform);
 
 impl UserPlatform for X86Platform {
     fn timer_ticks(&self) -> u64 {
@@ -96,11 +96,19 @@ impl UserPlatform for X86Platform {
     }
 
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
-        hk_platform_x86_64::pci::config_read(bus, device, function, offset)
+        let Some(pci) = self.0.pci() else {
+            return u32::MAX;
+        };
+        pci.read32(hk_device::PciAddress::new(bus, device, function, offset))
     }
 
     fn pci_write(&self, bus: u8, device: u8, function: u8, offset: u8, value: u32) {
-        hk_platform_x86_64::pci::config_write(bus, device, function, offset, value);
+        if let Some(pci) = self.0.pci() {
+            pci.write32(
+                hk_device::PciAddress::new(bus, device, function, offset),
+                value,
+            );
+        }
     }
 
     fn map_mmio(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
@@ -124,7 +132,18 @@ impl UserPlatform for X86Platform {
     }
 
     fn page_is_zero(&self, phys: hk_hal::PhysAddr) -> Option<bool> {
-        Some(hk_platform_x86_64::paging::page_is_zero(phys))
+        let physical = self.0.physical();
+        let mut buffer = [0_u8; 256];
+        let mut offset = 0;
+        while offset < hk_hal::PAGE_SIZE {
+            let address = hk_hal::PhysAddr::new(phys.get() + offset as u64);
+            physical.read(address, &mut buffer).ok()?;
+            if buffer.iter().any(|byte| *byte != 0) {
+                return Some(false);
+            }
+            offset += buffer.len();
+        }
+        Some(true)
     }
 
     fn take_irqs(&self, pending: &mut [u64; 4]) {
@@ -144,23 +163,26 @@ impl UserPlatform for X86Platform {
     }
 
     fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
-        Some(&hk_platform_x86_64::bootstrap::CONTROLLER)
+        Some(self.0.irq())
     }
 
     fn iommu(&self) -> Option<&dyn hk_hal::Iommu> {
-        Some(&hk_platform_x86_64::iommu::IOMMU)
+        self.0.iommu()
     }
 
     fn cache_ops(&self) -> Option<&dyn hk_hal::CacheOps> {
-        Some(&hk_platform_x86_64::cache::CACHE)
+        self.0.cache()
     }
 
     fn dma_window(&self, len: usize) -> Option<hk_hal::PhysRange> {
-        hk_platform_x86_64::dma::allocate(len)
+        let buffer = self.0.dma().alloc_coherent(len).ok()?;
+        Some(hk_hal::PhysRange::new(buffer.phys(), buffer.len() as u64))
     }
 
     fn dma_free(&self, range: hk_hal::PhysRange) {
-        hk_platform_x86_64::dma::free(range);
+        self.0
+            .dma()
+            .free_coherent(hk_hal::DmaBuffer::new(range.start(), range.len() as usize));
     }
 
     fn reserve_capacity(
@@ -253,11 +275,11 @@ impl UserPlatform for X86Platform {
     }
 
     fn timestamp(&self) -> u64 {
-        hk_platform_x86_64::timing::rdtsc()
+        self.0.timer().now().ticks()
     }
 
     fn tsc_frequency(&self) -> u64 {
-        hk_platform_x86_64::timing::tsc_frequency()
+        self.0.timer().frequency()
     }
 
     fn arm_wakeup(&self, deadline: Option<u64>) {
@@ -377,7 +399,7 @@ static RUNTIME: Runtime = RuntimeHost::new();
 
 /// 返回任务槽位的 Arena 基址与大小。
 pub fn arena(slot: usize) -> (u64, u64) {
-    X86Platform.arena_layout(slot)
+    X86Platform(&hk_platform_x86_64::platform::PLATFORM).arena_layout(slot)
 }
 
 /// 解析镜像符号表；平台只负责定位模块字节。
@@ -397,9 +419,11 @@ pub fn init_symbols(info: &hk_hal::BootInfo) {
 
 /// 按服务清单装配用户态运行时。
 pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
-    RUNTIME.boot(specs, X86Platform, |_index, endpoint| {
-        cpu::user_frame(0, 0, endpoint)
-    })?;
+    RUNTIME.boot(
+        specs,
+        X86Platform(&hk_platform_x86_64::platform::PLATFORM),
+        |_index, endpoint| cpu::user_frame(0, 0, endpoint),
+    )?;
     let online = 1 + hk_smp::AP_POOL.online();
     RUNTIME.set_resched_hook(resched);
     RUNTIME.set_online_cpus(online);

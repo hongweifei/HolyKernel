@@ -102,6 +102,14 @@ impl Platform for X86Platform {
     fn entropy(&self) -> &dyn Entropy {
         &crate::entropy::ENTROPY
     }
+
+    fn iommu(&self) -> Option<&dyn hk_hal::Iommu> {
+        Some(&crate::iommu::IOMMU)
+    }
+
+    fn cache(&self) -> Option<&dyn hk_hal::CacheOps> {
+        Some(&crate::cache::CACHE)
+    }
 }
 
 /// 串口控制台。

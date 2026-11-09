@@ -95,7 +95,7 @@ flowchart LR
 
 ### 交付
 
-- HAL：`Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`。Hosted 与 x86_64 均已实现 `Platform`；x86_64 另补 CPUID 特性矩阵、RDRAND 熵源、XSAVE/AVX 上下文、SMEP/SMAP 与用户镜像 W^X。
+- HAL：`Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`、`Iommu`、`CacheOps`。Hosted 与 x86_64 均已实现 `Platform`；x86_64 另补 CPUID 特性矩阵、RDRAND 熵源、XSAVE/AVX 上下文、SMEP/SMAP、用户镜像 W^X 与 guard page；运行时硬件访问已收敛到 `Platform`。
 - BootInfo：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务模块；统一校验。
 - `hk-fw`：ACPI 与 DTB 解析，产出 Arena/Capacity/设备描述。已落地 ACPI MADT（x86 IOAPIC/本地 APIC/中断覆盖，接入 I/O APIC 初始化）与 DTB 内存/CPU/通用设备描述；Arena/Capacity 物化输入待平台后端接入。
 - `hk-mmio`：包装 `volatile-register`，统一 LAPIC、I/O APIC、PCI ECAM 与 MSI-X 的 MMIO 读写；内核与用户态驱动共用。
