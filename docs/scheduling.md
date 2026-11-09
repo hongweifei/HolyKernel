@@ -313,6 +313,7 @@ Meter 字段：
 | Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；有效契约按类别→队列键→时间片取更强的一方（并列取较短时间片），同类别下也取更强键；重调度判定使用运行中 TCB 的有效契约 |
 | Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，父契约缺失时提升为独立契约；仅 Realtime 契约经 Tempo 密度准入（失败或缺 Tempo 时回退默认 Throughput），其他类别保持原契约不回退；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；恢复后仍由 Checkpoint/Shell 通过 `TEMPO_READMIT` 复核 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
+| 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |
 | `hk-sim` | 部分 | 多 CPU 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；有界时间响应分析与随机调度压力回放待补 |
 
 实现约定：

@@ -53,6 +53,30 @@ pub struct TaskRow {
     pub cpu_cycles: u64,
     /// 最近一个采样区间的 CPU 占用百分比。
     pub cpu_percent: u64,
+    /// 调度类别。
+    pub class: String,
+    /// Cadence 权重。
+    pub weight: u32,
+    /// Cadence 周期内预算（微秒）。
+    pub budget: u64,
+    /// Cadence 预算周期（微秒）。
+    pub period: u64,
+    /// Cadence 相对截止期（微秒）。
+    pub deadline: u64,
+    /// Meter 累计实际执行时间（微秒）。
+    pub consumed: u64,
+    /// Meter 就绪等待时间（微秒）。
+    pub waited: u64,
+    /// Meter 预算耗尽次数。
+    pub throttled: u64,
+    /// Meter 超限次数。
+    pub overruns: u64,
+    /// Meter 上下文切换次数。
+    pub switches: u64,
+    /// Meter 跨 CPU 迁移次数。
+    pub migrations: u64,
+    /// 最近运行的 CPU；`None` 表示尚未运行。
+    pub last_cpu: Option<u32>,
     /// Arena 已用字节数。
     pub arena_used: u64,
     /// Arena 总字节数。
@@ -64,6 +88,17 @@ pub struct TaskRow {
 }
 
 impl TaskRow {
+    /// 契约类别短名，用于表格展示。
+    pub fn class_short(&self) -> &'static str {
+        match self.class.as_str() {
+            "realtime" => "RT",
+            "latency" => "LAT",
+            "throughput" => "THR",
+            "idle" => "IDL",
+            _ => "-",
+        }
+    }
+
     /// 状态排序权重：运行中优先，其后就绪、阻塞、退出。
     pub fn state_rank(&self) -> u8 {
         match self.state.as_str() {
@@ -316,6 +351,8 @@ pub fn parse_perf(text: &str) -> PerfSample {
             && let Some(row) = parse_task(rest)
         {
             sample.rows.push(row);
+        } else if let Some(rest) = line.strip_prefix("sched ") {
+            apply_sched(&mut sample, rest);
         }
     }
     if sample.cpus > MAX_CORES {
@@ -362,11 +399,64 @@ fn parse_task(rest: &str) -> Option<TaskRow> {
         handles,
         cpu_cycles,
         cpu_percent: 0,
+        class: String::new(),
+        weight: 0,
+        budget: 0,
+        period: 0,
+        deadline: 0,
+        consumed: 0,
+        waited: 0,
+        throttled: 0,
+        overruns: 0,
+        switches: 0,
+        migrations: 0,
+        last_cpu: None,
         arena_used,
         arena_size,
         commit,
         resident,
     })
+}
+
+/// 把 `sched <TCB> <类别> <权重> <预算> <周期> <截止期> <消耗> <等待> <节流>
+/// <超限> <切换> <迁移> <CPU>` 应用到对应任务行。
+fn apply_sched(sample: &mut PerfSample, rest: &str) {
+    let mut fields = rest.split_whitespace();
+    let Some(tcb) = fields.next().and_then(|value| value.parse::<u64>().ok()) else {
+        return;
+    };
+    let Some(class) = fields.next() else {
+        return;
+    };
+    let number = |field: Option<&str>| field.and_then(|value| value.parse::<u64>().ok());
+    let weight = number(fields.next()).unwrap_or(0) as u32;
+    let budget = number(fields.next()).unwrap_or(0);
+    let period = number(fields.next()).unwrap_or(0);
+    let deadline = number(fields.next()).unwrap_or(0);
+    let consumed = number(fields.next()).unwrap_or(0);
+    let waited = number(fields.next()).unwrap_or(0);
+    let throttled = number(fields.next()).unwrap_or(0);
+    let overruns = number(fields.next()).unwrap_or(0);
+    let switches = number(fields.next()).unwrap_or(0);
+    let migrations = number(fields.next()).unwrap_or(0);
+    let last_cpu = fields
+        .next()
+        .and_then(|value| value.parse::<u32>().ok());
+    let Some(row) = sample.rows.iter_mut().find(|row| row.tcb == tcb) else {
+        return;
+    };
+    row.class = String::from(class);
+    row.weight = weight;
+    row.budget = budget;
+    row.period = period;
+    row.deadline = deadline;
+    row.consumed = consumed;
+    row.waited = waited;
+    row.throttled = throttled;
+    row.overruns = overruns;
+    row.switches = switches;
+    row.migrations = migrations;
+    row.last_cpu = last_cpu;
 }
 
 /// 把 `delta` 周期换算成 `wall` 区间的千分比。

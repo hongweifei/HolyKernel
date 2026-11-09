@@ -450,7 +450,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .enumerate()
             .map(|(index, task)| {
-                let metrics = self.kernel.task_metrics(task.tcb);
+                let cadence = self.kernel.task_cadence_snapshot(task.tcb);
+                let meter = self.kernel.task_meter_snapshot(task.tcb);
                 TaskInfo {
                     tcb: task.tcb.get(),
                     name: task.name.clone(),
@@ -460,11 +461,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     pending: pending_name(task.pending),
                     handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
                     cpu_cycles: task.cpu_cycles,
-                    class: metrics.map_or("missing", |metrics| metrics.class.name()),
-                    weight: metrics.map_or(0, |metrics| metrics.weight),
-                    consumed: metrics.map_or(0, |metrics| metrics.consumed),
-                    virtual_pass: metrics.map_or(0, |metrics| metrics.virtual_pass),
-                    throttled: metrics.map_or(0, |metrics| metrics.throttled),
+                    class: cadence.map_or("missing", |cadence| cadence.class.name()),
+                    weight: cadence.map_or(0, |cadence| cadence.weight),
+                    budget: cadence.map_or(0, |cadence| cadence.budget),
+                    period: cadence.map_or(0, |cadence| cadence.period),
+                    deadline: cadence.map_or(0, |cadence| cadence.deadline),
+                    consumed: meter.map_or(0, |meter| meter.consumed),
+                    waited: meter.map_or(0, |meter| meter.waited),
+                    virtual_pass: meter.map_or(0, |meter| meter.virtual_pass),
+                    throttled: meter.map_or(0, |meter| meter.throttled),
+                    overruns: meter.map_or(0, |meter| meter.overruns),
+                    switches: meter.map_or(0, |meter| meter.switches),
+                    migrations: meter.map_or(0, |meter| meter.migrations),
+                    last_cpu: meter.map_or(u32::MAX, |meter| meter.last_cpu),
                     arena_used: self.process(index).arena.used(),
                     arena_size: self.process(index).arena.size(),
                     ledger_charged: self.process(index).ledger.charged(),

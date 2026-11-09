@@ -63,11 +63,11 @@ const BLOCKED: u32 = 0x00E8_C080;
 const EXITED: u32 = 0x00F0_8080;
 
 /// 进程页列左边界。
-const PROC_X: [i32; 9] = [16, 60, 240, 304, 360, 486, 610, 654, 690];
+const PROC_X: [i32; 10] = [16, 60, 240, 304, 360, 486, 610, 654, 690, 740];
 /// 进程页列宽。
-const PROC_WIDTH: [i32; 9] = [44, 180, 64, 56, 120, 118, 44, 36, 44];
+const PROC_WIDTH: [i32; 10] = [44, 180, 64, 56, 120, 118, 44, 36, 44, 96];
 /// 进程页列标题。
-const PROC_TITLE: [&str; 9] = [
+const PROC_TITLE: [&str; 10] = [
     "TCB",
     "任务",
     "状态",
@@ -77,6 +77,7 @@ const PROC_TITLE: [&str; 9] = [
     "句柄",
     "父",
     "端点",
+    "契约",
 ];
 
 /// 绘制所需的只读快照。
@@ -159,15 +160,26 @@ pub(crate) fn render(view: &View<'_>, width: usize, height: usize, surface: &Sur
         }
         Page::Performance => "r 刷新  空格 暂停  Tab 进程  q 退出",
     };
-    let status = format!(
-        "{} · 排序 {}",
-        if view.auto_refresh {
-            "自动刷新 1s"
-        } else {
-            "已暂停"
-        },
-        view.sort.title(),
-    );
+    let mode = if view.auto_refresh {
+        "自动刷新 1s"
+    } else {
+        "已暂停"
+    };
+    let status = match view.sample.rows.get(view.selected) {
+        Some(row) if view.page == Page::Processes => format!(
+            "{} · {} {}/{} · 预算 {}/{}µs · 等待 {}µs · 节流 {} · 排序 {}",
+            mode,
+            row.name,
+            row.class_short(),
+            row.weight,
+            row.budget,
+            row.period,
+            row.waited,
+            row.throttled,
+            view.sort.title(),
+        ),
+        _ => format!("{} · 排序 {}", mode, view.sort.title()),
+    };
     let table = hk_canvas::default_monospace();
     let status_width = text_width(table, &status);
     let hint_limit = (width_i32 - MARGIN * 2 - status_width - 16).max(0);
@@ -290,6 +302,19 @@ fn draw_process_row(
     cell(surface, 6, y, &format!("{}", row.handles), INK, font);
     cell(surface, 7, y, &parent, MUTED, font);
     cell(surface, 8, y, &format!("{}", row.endpoint), MUTED, font);
+    let contract = format!("{}/{}", row.class_short(), row.weight);
+    cell(
+        surface,
+        9,
+        y,
+        &contract,
+        if row.class == "realtime" {
+            RUNNABLE
+        } else {
+            MUTED
+        },
+        font,
+    );
 }
 
 fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surface) {
@@ -415,12 +440,33 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
     );
 
     let handles: u64 = view.sample.rows.iter().map(|row| row.handles).sum();
+    let weight: u64 = view
+        .sample
+        .rows
+        .iter()
+        .map(|row| u64::from(row.weight))
+        .sum();
+    let realtime = view
+        .sample
+        .rows
+        .iter()
+        .filter(|row| row.class == "realtime")
+        .count();
+    let throttled: u64 = view.sample.rows.iter().map(|row| row.throttled).sum();
+    let waited: u64 = view.sample.rows.iter().map(|row| row.waited).sum();
+    let overruns: u64 = view.sample.rows.iter().map(|row| row.overruns).sum();
+    let migrations: u64 = view.sample.rows.iter().map(|row| row.migrations).sum();
     let stats = format!(
-        "任务 {} · 就绪 {} · 句柄 {} · tick {} · TSC {} MHz",
+        "任务 {} · 就绪 {} · 句柄 {} · 权重 {} · 实时 {} · 节流 {} · 等待 {}ms · 超限 {} · 迁移 {} · TSC {} MHz",
         view.sample.tasks,
         view.sample.runnable,
         handles,
-        view.sample.ticks,
+        weight,
+        realtime,
+        throttled,
+        waited / 1_000,
+        overruns,
+        migrations,
         view.sample.tsc_hz / 1_000_000,
     );
     let mut pen = MARGIN;

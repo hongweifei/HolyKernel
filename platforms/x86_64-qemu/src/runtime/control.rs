@@ -257,7 +257,10 @@ fn push_result(state: &mut ControlState, id: u64, data: Vec<u8>) {
 /// `perf cpus=.. tasks=.. runnable=.. tsc=.. ticks=..`
 /// 之后 `mem` 为全局 FrameBank 分类用量、`system` 为 System Capacity 快照，
 /// 每 CPU 一行 `cpu <编号> <忙周期> <恢复次数>`，每任务一行
-/// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <退出码> <提交> <常驻> <名称>`。
+/// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <退出码> <提交> <常驻> <名称>`，
+/// 随后每任务一行
+/// `sched <TCB> <类别> <权重> <预算> <周期> <截止期> <消耗> <等待> <节流> <超限> <切换> <迁移> <CPU>`，
+/// 供任务管理器展示 Cadence/Meter。
 fn perf() -> String {
     let stats = runtime::stats();
     let tasks = runtime::tasks();
@@ -334,6 +337,29 @@ fn perf() -> String {
             task.ledger_charged,
             task.ledger_resident,
             task.name,
+        ));
+    }
+    for task in &tasks {
+        let last_cpu = if task.last_cpu == u32::MAX {
+            String::from("-")
+        } else {
+            format!("{}", task.last_cpu)
+        };
+        text.push_str(&format!(
+            "sched {} {} {} {} {} {} {} {} {} {} {} {} {}\n",
+            task.tcb,
+            task.class,
+            task.weight,
+            task.budget,
+            task.period,
+            task.deadline,
+            task.consumed,
+            task.waited,
+            task.throttled,
+            task.overruns,
+            task.switches,
+            task.migrations,
+            last_cpu,
         ));
     }
     text
