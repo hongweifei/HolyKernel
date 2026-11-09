@@ -11,14 +11,18 @@ use x86_64::registers::segmentation::SegmentSelector;
 
 use super::*;
 
-#[repr(C, align(16))]
+#[repr(C, align(64))]
 struct SyscallStack(UnsafeCell<[u8; SYSCALL_STACK_SIZE]>);
 
 #[repr(C, align(16))]
 struct DoubleFaultStack(UnsafeCell<[u8; DOUBLE_FAULT_STACK_SIZE]>);
 
+/// 系统调用/中断栈顶。
+///
+/// 留出 16 字节，使压入硬件帧与 15 个通用寄存器（共 176 字节）后的
+/// `rsp` 为 64 字节对齐，满足 XSAVE 区域的对齐要求。
 fn syscall_stack_top(cpu: usize) -> u64 {
-    CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64
+    CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64 - 16
 }
 
 fn double_fault_stack_top(cpu: usize) -> u64 {
@@ -55,6 +59,7 @@ impl TaskStateSegment {
     }
 }
 
+#[repr(C)]
 struct CpuState {
     gdt: UnsafeCell<[u64; 7]>,
     tss: UnsafeCell<TaskStateSegment>,

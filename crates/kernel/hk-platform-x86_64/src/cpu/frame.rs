@@ -2,11 +2,11 @@
 
 use alloc::vec::Vec;
 
-/// FXSAVE/FXRSTOR 区域字节数。
-pub const FPU_BYTES: usize = 512;
+/// XSAVE 区域字节数：x87/SSE 的 512 字节 legacy 区 + XSAVE 头 64 字节。
+pub const FPU_BYTES: usize = 576;
 
-/// x87/SSE 状态，布局与 `FXSAVE` 一致。
-#[repr(C, align(16))]
+/// x87/SSE/AVX 状态，布局与 `XSAVE`（标准格式）一致。
+#[repr(C, align(64))]
 #[derive(Clone, Copy)]
 pub struct FpuState {
     bytes: [u8; FPU_BYTES],
@@ -16,11 +16,14 @@ impl FpuState {
     /// 返回与 `FINIT` 等价的初始状态。
     ///
     /// x87 控制字 0x037F 与 MXCSR 0x1F80 屏蔽全部异常；其余寄存器清空。
+    /// 同时把 `XSTATE_BV` 置为当前 XCR0 的启用项，避免首跑继承旧值。
     pub fn reset() -> Self {
         let mut bytes = [0_u8; FPU_BYTES];
         bytes[0..2].copy_from_slice(&0x037F_u16.to_le_bytes());
         bytes[24..28].copy_from_slice(&0x1F80_u32.to_le_bytes());
         bytes[28..32].copy_from_slice(&0xFFFF_u32.to_le_bytes());
+        let xstate = crate::cpu::fpu_xstate_mask() & 0x7;
+        bytes[512..520].copy_from_slice(&xstate.to_le_bytes());
         Self { bytes }
     }
 
@@ -105,8 +108,8 @@ const _: () = {
     assert!(core::mem::offset_of!(InterruptFrame, rflags) == 152);
     assert!(core::mem::offset_of!(InterruptFrame, rsp) == 160);
     assert!(core::mem::offset_of!(InterruptFrame, ss) == 168);
-    assert!(core::mem::offset_of!(InterruptFrame, fpu) == 176);
-    assert!(core::mem::size_of::<InterruptFrame>() == 176 + FPU_BYTES);
+    assert!(core::mem::offset_of!(InterruptFrame, fpu) == 192);
+    assert!(core::mem::size_of::<InterruptFrame>() == 192 + FPU_BYTES);
 };
 
 /// 现场字段数。

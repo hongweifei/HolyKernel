@@ -30,6 +30,7 @@ pub trait PageSink {
         virtual_address: u64,
         file: &[u8],
         memory_size: u64,
+        flags: u32,
     ) -> Result<(), MapError>;
 }
 
@@ -38,8 +39,13 @@ pub fn load(image: &[u8], sink: &mut impl PageSink) -> Result<u64, ImageError> {
     let image = Image::parse(image).ok_or(ImageError::Parse)?;
     let task = image.task().ok_or(ImageError::Parse)?;
     for region in image.regions() {
-        sink.map_segment(region.virtual_address, region.file, region.memory_size)
-            .map_err(|MapError| ImageError::Map)?;
+        sink.map_segment(
+            region.virtual_address,
+            region.file,
+            region.memory_size,
+            region.flags,
+        )
+        .map_err(|MapError| ImageError::Map)?;
     }
     Ok(task.entry)
 }
@@ -62,22 +68,30 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
         virtual_address: u64,
         file: &[u8],
         memory_size: u64,
+        flags: u32,
     ) -> Result<(), MapError> {
         let page_size = PAGE_SIZE as u64;
         let pages = memory_size.div_ceil(page_size);
+        // ELF p_flags：1 = 可执行，2 = 可写，4 = 可读。W+X 段退化为只读可执行。
+        let executable = flags & 1 != 0;
+        let writable = flags & 2 != 0 && !executable;
 
         for page in 0..pages {
             let offset = page * page_size;
-            let slice = self
-                .memory
-                .map_page(virtual_address + offset)
-                .ok_or(MapError)?;
+            {
+                let slice = self
+                    .memory
+                    .map_page(virtual_address + offset)
+                    .ok_or(MapError)?;
 
-            let start = offset as usize;
-            if start < file.len() {
-                let length = min(PAGE_SIZE, file.len() - start);
-                slice[..length].copy_from_slice(&file[start..start + length]);
+                let start = offset as usize;
+                if start < file.len() {
+                    let length = min(PAGE_SIZE, file.len() - start);
+                    slice[..length].copy_from_slice(&file[start..start + length]);
+                }
             }
+            self.memory
+                .protect_page(virtual_address + offset, writable, executable);
         }
         Ok(())
     }
@@ -122,7 +136,7 @@ mod tests {
     struct NullSink;
 
     impl PageSink for NullSink {
-        fn map_segment(&mut self, _: u64, _: &[u8], _: u64) -> Result<(), MapError> {
+        fn map_segment(&mut self, _: u64, _: &[u8], _: u64, _: u32) -> Result<(), MapError> {
             Ok(())
         }
     }
@@ -132,7 +146,7 @@ mod tests {
     }
 
     impl PageSink for CountingSink {
-        fn map_segment(&mut self, _: u64, _: &[u8], _: u64) -> Result<(), MapError> {
+        fn map_segment(&mut self, _: u64, _: &[u8], _: u64, _: u32) -> Result<(), MapError> {
             self.segments += 1;
             Ok(())
         }

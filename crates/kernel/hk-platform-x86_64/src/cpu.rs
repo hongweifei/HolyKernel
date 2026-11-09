@@ -18,6 +18,7 @@ mod timer;
 mod user;
 
 pub use apic::{cpu_index, init_ap, init_apic, ipi_count, lapic_id, send_ipi};
+pub use assembly::{fpu_xstate_mask, user_access_begin, user_access_end};
 pub use features::Features;
 pub use frame::InterruptFrame;
 pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_aps};
@@ -125,6 +126,7 @@ pub fn init() {
     );
     assembly::enable_no_execute();
     assembly::enable_fpu();
+    assembly::enable_hardening();
     gdt::init_gdt(0);
     idt::init_idt();
 }

@@ -18,6 +18,7 @@ pub fn init_ap(cpu: usize) {
     super::assembly::enable_no_execute();
     // CR0/CR4 也是每 CPU 的；没有 SSE 位 AP 上的 FXSAVE/FXRSTOR 会触发 #UD。
     super::assembly::enable_fpu();
+    super::assembly::enable_hardening();
     init_gdt(cpu);
     load_idt();
 

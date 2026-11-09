@@ -1,7 +1,57 @@
 //! x86_64 中断与用户态恢复汇编。
 
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+
 use x86_64::registers::control::{Cr0, Cr4};
 use x86_64::registers::model_specific::Msr;
+
+/// 是否启用了 SMAP（决定 STAC/CLAC 是否可执行）。
+static SMAP_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// 是否启用 XSAVE/XRSTOR 上下文保存；0 表示使用 FXSAVE/FXRSTOR。
+#[unsafe(no_mangle)]
+pub static HK_XSAVE_ENABLED: AtomicU8 = AtomicU8::new(0);
+
+/// 当前 XCR0 掩码；XSAVE/XRSTOR 的 EDX:EAX 必须与之一致。
+#[unsafe(no_mangle)]
+pub static HK_XSAVE_MASK: AtomicU64 = AtomicU64::new(0);
+
+/// 返回当前 XCR0 掩码；未启用 XSAVE 时为 0。
+pub fn fpu_xstate_mask() -> u64 {
+    HK_XSAVE_MASK.load(Ordering::Acquire)
+}
+
+/// 启用 SMEP/SMAP；CPU 不支持时跳过。
+pub(super) fn enable_hardening() {
+    let features = crate::cpu::Features::detect();
+    let mut cr4 = Cr4::read_raw();
+    if features.smep {
+        cr4 |= 1 << 20;
+    }
+    if features.smap {
+        cr4 |= 1 << 21;
+        SMAP_ENABLED.store(true, Ordering::Release);
+    }
+    // SAFETY: 只置 CPUID 报告的 SMEP/SMAP 位。
+    unsafe { Cr4::write_raw(cr4) };
+}
+
+/// 开始访问用户内存；启用 SMAP 时清除 AC。
+pub fn user_access_begin() {
+    if SMAP_ENABLED.load(Ordering::Acquire) {
+        // SAFETY: CPUID 已确认支持 SMAP；STAC 只设置 AC 标志。
+        // 不声明 nomem/preserves_flags：AC 属于 EFLAGS，且必须阻止用户访问被移出保护区。
+        unsafe { core::arch::asm!("stac", options(nostack)) };
+    }
+}
+
+/// 结束用户内存访问；启用 SMAP 时恢复 AC。
+pub fn user_access_end() {
+    if SMAP_ENABLED.load(Ordering::Acquire) {
+        // SAFETY: CLAC 只清除 AC 标志。
+        unsafe { core::arch::asm!("clac", options(nostack)) };
+    }
+}
 
 /// EFER 寄存器的 MSR 编号。
 const IA32_EFER: u32 = 0xC000_0080;
@@ -39,22 +89,46 @@ pub(super) fn enable_no_execute() {
 /// # Panics
 /// CPU 未报告 FXSR 或 SSE 时 panic：用户态恢复依赖 `FXSAVE`/`FXRSTOR`。
 pub(super) fn enable_fpu() {
-    let features = core::arch::x86_64::__cpuid(1).edx;
+    let edx = core::arch::x86_64::__cpuid(1).edx;
     const FXSR: u32 = 1 << 24;
     const SSE: u32 = 1 << 25;
-    assert!(
-        features & FXSR != 0 && features & SSE != 0,
-        "CPU 不支持 FXSAVE/SSE"
-    );
+    assert!(edx & FXSR != 0 && edx & SSE != 0, "CPU 不支持 FXSAVE/SSE");
+    let features = crate::cpu::Features::detect();
 
     let cr0 = Cr0::read_raw();
     let cr0 = (cr0 & !((1 << 2) | (1 << 3))) | (1 << 1) | (1 << 5);
     // SAFETY: 清除 EM/TS 并置 MP/NE 是启用 x87/SSE 的合法组合。
     unsafe { Cr0::write_raw(cr0) };
 
-    let cr4 = Cr4::read_raw();
-    // SAFETY: OSFXSR/OSXMMEXCPT 是启用 SSE 状态保存的合法组合。
-    unsafe { Cr4::write_raw(cr4 | (1 << 9) | (1 << 10)) };
+    let mut cr4 = Cr4::read_raw() | (1 << 9) | (1 << 10);
+    if features.xsave {
+        cr4 |= 1 << 18; // OSXSAVE
+    }
+    // SAFETY: OSFXSR/OSXMMEXCPT（以及可选的 OSXSAVE）是合法组合。
+    unsafe { Cr4::write_raw(cr4) };
+
+    if features.xsave {
+        // 只启用 x87/SSE，CPU 支持 AVX 时再启用 AVX；不启用 AVX-512。
+        let supported = core::arch::x86_64::__cpuid_count(0xD, 0).eax as u64;
+        let mut xcr0 = 0b11;
+        if features.avx && supported & 0b100 != 0 {
+            xcr0 |= 0b100;
+        }
+        if supported & 0b11 == 0b11 {
+            // SAFETY: CR4.OSXSAVE 已置位，XCR0 只写 CPUID 支持的位。
+            unsafe {
+                core::arch::asm!(
+                    "xsetbv",
+                    in("ecx") 0_u32,
+                    in("eax") xcr0 as u32,
+                    in("edx") (xcr0 >> 32) as u32,
+                    options(nostack),
+                );
+            }
+            HK_XSAVE_MASK.store(xcr0, Ordering::Release);
+            HK_XSAVE_ENABLED.store(1, Ordering::Release);
+        }
+    }
 }
 
 core::arch::global_asm!(
@@ -157,11 +231,12 @@ core::arch::global_asm!(
     "    push rcx",
     "    push rbx",
     "    push rax",
-    // 仅用户态现场保存 FPU/SSE；用户栈来自 16 字节对齐的 TSS.rsp0，
-    // 因此 [rsp + 176] 满足 FXSAVE 的对齐要求。内核态中断不触碰 FPU。
+    // 仅用户态现场保存 FPU/AVX；TSS.rsp0 调整为 64 字节对齐减 16，
+    // 因此 [rsp + 192] 满足 XSAVE/FXSAVE 的对齐要求。内核态中断不触碰 FPU。
     "    test byte ptr [rsp + 144], 3",
     "    jz 7f",
-    "    fxsave [rsp + 176]",
+    "    lea rdi, [rsp + 192]",
+    "    call hk_fpu_save",
     "7:",
     "    mov rbx, rsp",
     "    mov rdi, rsp",
@@ -170,7 +245,8 @@ core::arch::global_asm!(
     "    mov rsp, rbx",
     "    test byte ptr [rsp + 144], 3",
     "    jz 8f",
-    "    fxrstor [rsp + 176]",
+    "    lea rdi, [rsp + 192]",
+    "    call hk_fpu_restore",
     "8:",
     "    pop rax",
     "    pop rbx",
@@ -200,7 +276,8 @@ core::arch::global_asm!(
     "    push r15",
     "    mov gs:[0], rsp",
     "    mov rbx, rdi",
-    "    fxrstor [rbx + 176]",
+    "    lea rdi, [rbx + 192]",
+    "    call hk_fpu_restore",
     "    mov ax, 0x2b",
     "    mov ds, ax",
     "    mov es, ax",
@@ -243,4 +320,30 @@ core::arch::global_asm!(
     // 返回标签是固定的，直接用 RIP 相对地址，避免依赖可能被清零的 gs:[8]。
     "    lea rax, [rip + hk_user_return]",
     "    jmp rax",
+);
+
+core::arch::global_asm!(
+    ".section .text",
+    ".global hk_fpu_save",
+    "hk_fpu_save:",
+    "    cmp byte ptr [rip + HK_XSAVE_ENABLED], 0",
+    "    je hk_fpu_save_legacy",
+    "    mov eax, dword ptr [rip + HK_XSAVE_MASK]",
+    "    mov edx, dword ptr [rip + HK_XSAVE_MASK + 4]",
+    "    xsave [rdi]",
+    "    ret",
+    "hk_fpu_save_legacy:",
+    "    fxsave [rdi]",
+    "    ret",
+    ".global hk_fpu_restore",
+    "hk_fpu_restore:",
+    "    cmp byte ptr [rip + HK_XSAVE_ENABLED], 0",
+    "    je hk_fpu_restore_legacy",
+    "    mov eax, dword ptr [rip + HK_XSAVE_MASK]",
+    "    mov edx, dword ptr [rip + HK_XSAVE_MASK + 4]",
+    "    xrstor [rdi]",
+    "    ret",
+    "hk_fpu_restore_legacy:",
+    "    fxrstor [rdi]",
+    "    ret",
 );

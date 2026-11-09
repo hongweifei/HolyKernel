@@ -96,9 +96,10 @@ fn map_region<M: UserMemory>(memory: &mut M, base: u64, size: u64) -> Result<(),
     let page_size = PAGE_SIZE as u64;
     let pages = size.div_ceil(page_size);
     for page in 0..pages {
-        memory
-            .map_page(base + page * page_size)
-            .ok_or(LoadError::OutOfMemory)?;
+        let address = base + page * page_size;
+        memory.map_page(address).ok_or(LoadError::OutOfMemory)?;
+        // 用户栈可写但不可执行。
+        memory.protect_page(address, true, false);
     }
     Ok(())
 }

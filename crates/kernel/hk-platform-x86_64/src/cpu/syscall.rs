@@ -93,14 +93,17 @@ fn user_range_valid(pointer: u64, length: usize) -> bool {
 }
 
 fn write_user(pointer: u64, length: usize) -> u64 {
+    user_access_begin();
     // SAFETY: 调用前已校验地址落在用户可访问范围内，且进程页表中有映射。
     let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length) };
-    match core::str::from_utf8(bytes) {
+    let result = match core::str::from_utf8(bytes) {
         Ok(text) => {
             let _guard = WRITE_LOCK.lock();
             Serial::new(COM1).write_str(text);
             length as u64
         }
         Err(_) => u64::MAX,
-    }
+    };
+    user_access_end();
+    result
 }

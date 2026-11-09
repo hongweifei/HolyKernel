@@ -199,10 +199,12 @@ impl UserPlatform for X86Platform {
         if !user_range(address, buffer.len()) {
             return false;
         }
+        hk_platform_x86_64::cpu::user_access_begin();
         // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
         unsafe {
             core::ptr::copy_nonoverlapping(address as *const u8, buffer.as_mut_ptr(), buffer.len());
         }
+        hk_platform_x86_64::cpu::user_access_end();
         true
     }
 
@@ -213,10 +215,12 @@ impl UserPlatform for X86Platform {
         if !user_range(address, data.len()) {
             return false;
         }
+        hk_platform_x86_64::cpu::user_access_begin();
         // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
         unsafe {
             core::ptr::copy_nonoverlapping(data.as_ptr(), address as *mut u8, data.len());
         }
+        hk_platform_x86_64::cpu::user_access_end();
         true
     }
 

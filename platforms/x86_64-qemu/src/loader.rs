@@ -7,7 +7,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use hk_hal::{BootInfo, BootModule, PAGE_SIZE, UserMemory, VirtAddr};
+use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{PageAllocator, PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
@@ -462,6 +462,21 @@ impl UserMemory for UserPages<'_> {
 
         // SAFETY: 帧经 HHDM 映射为整页可写；映射建立后返回该页视图。
         Some(unsafe { core::slice::from_raw_parts_mut(destination, PAGE_SIZE) })
+    }
+
+    fn protect_page(&mut self, virtual_address: u64, writable: bool, executable: bool) {
+        let mut flags = MapFlags::READ;
+        if writable {
+            flags |= MapFlags::WRITE;
+        }
+        if executable {
+            flags |= MapFlags::EXECUTE;
+        }
+        let _ = self.paging.protect_user_range(
+            VirtAddr::new(virtual_address),
+            PAGE_SIZE,
+            PageFlags::from_map(flags),
+        );
     }
 }
 

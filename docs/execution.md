@@ -115,7 +115,7 @@ stateDiagram-v2
 - 跨 CPU 抢占发送 reschedule IPI。
 - 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。
 - 空闲 CPU 运行 idle TCB 并执行 `hlt`；IPI 与定时器中断负责唤醒。
-- 上下文切换保存 callee-saved 寄存器、栈指针、FPU/向量状态；目标热切换 ≤ 1µs（QEMU 基准）。
+- 上下文切换保存 callee-saved 寄存器、栈指针、FPU/向量状态；x86_64 使用 XSAVE（x87/SSE/AVX，64 字节对齐，CPU 不支持时回退 FXSAVE）；目标热切换 ≤ 1µs（QEMU 基准）。
 
 ---
 
