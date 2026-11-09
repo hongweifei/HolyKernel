@@ -4,6 +4,7 @@
 //! 的映射、系统调用语义与 Arena 记账。平台只提供现场保存/恢复、PCI 访问、
 //! 计时与 Arena 布局。
 
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -23,7 +24,7 @@ use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ALLOC, SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CADENCE_INFO,
     SYS_CADENCE_REVOKE, SYS_CADENCE_SELF, SYS_CADENCE_SPLIT, SYS_CADENCE_UPDATE, SYS_CALL,
-    SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
+    SYS_CALL_TIMEOUT, SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
     SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN,
     SYS_CAPABILITY_SCANOUT, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO,
     SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT, SYS_CIVIL_TIME, SYS_CONSOLE_READ,
@@ -34,12 +35,12 @@ use hk_syscall::{
     SYS_HANDLE_CLOSE, SYS_HANDLE_COUNT, SYS_HANDLE_DUPLICATE, SYS_IRQ_BIND, SYS_KERNEL_STATS,
     SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_METER_INFO, SYS_MSI_BIND, SYS_NOTIFY, SYS_PCI_READ,
     SYS_PCI_WRITE, SYS_RECV, SYS_RECV_DATA, SYS_RECV_DATA_FROM, SYS_RECV_DATA_HANDLE,
-    SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TRY, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE, SYS_SELF_NOTIFICATION,
-    SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT, SYS_SLEEP,
-    SYS_TASK_ATTACH_CADENCE, SYS_TASK_ATTACH_NAMED, SYS_TASK_REGRANT_NAMED, SYS_THREAD_CREATE,
-    SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ, SYS_WAIT_NOTIFY,
-    SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
+    SYS_RECV_DATA_HANDLE_TRY, SYS_RECV_DATA_TIMEOUT, SYS_RECV_DATA_TRY, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_REPLY, SYS_REPLY_HANDLE,
+    SYS_SELF_NOTIFICATION, SYS_SEND, SYS_SEND_DATA, SYS_SEND_HANDLE, SYS_SERVICE_ENDPOINT,
+    SYS_SLEEP, SYS_TASK_ATTACH_CADENCE, SYS_TASK_ATTACH_NAMED, SYS_TASK_REGRANT_NAMED,
+    SYS_THREAD_CREATE, SYS_THREAD_JOIN, SYS_THREAD_SET_TLS, SYS_TICKS, SYS_TSC, SYS_TSC_FREQ,
+    SYS_WAIT_NOTIFY, SYS_WAIT_NOTIFY_TRY, SYS_YIELD,
 };
 
 use hk_kernel::{Kernel, KernelError, ReplyToken, TcbId, ThreadState};
@@ -215,8 +216,10 @@ pub struct UserRuntime<C, P> {
     checkpoints: Vec<(String, Checkpoint<C>)>,
     /// 等待线程退出的 (目标 TCB, 等待者 TCB)。
     joiners: Vec<(TcbId, TcbId)>,
-    /// 正在休眠的任务槽位。
-    sleeping: Vec<usize>,
+    /// 休眠 deadline -> 任务槽位。
+    sleeping: BTreeMap<u64, Vec<usize>>,
+    /// IPC 超时 deadline -> 任务槽位。
+    timeouts: BTreeMap<u64, Vec<usize>>,
     /// 共享内存字上的等待者：(进程主线程槽位, 地址, 线程)。
     futex_waiters: Vec<(usize, u64, TcbId)>,
     /// 异常事件订阅者：(任务槽位, 端点句柄)。
@@ -263,7 +266,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             notifications,
             checkpoints: Vec::new(),
             joiners: Vec::new(),
-            sleeping: Vec::new(),
+            sleeping: BTreeMap::new(),
+            timeouts: BTreeMap::new(),
             futex_waiters: Vec::new(),
             fault_subscribers: Vec::new(),
             current: [None; MAX_CPUS],
@@ -310,7 +314,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 是否有尚未到期的休眠任务。
     pub fn has_sleepers(&self) -> bool {
-        !self.sleeping.is_empty()
+        !self.sleeping.is_empty() || !self.timeouts.is_empty()
     }
 
     /// 唤醒空闲 CPU。
@@ -386,6 +390,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         self.kernel.set_policy_authority(task_id, true).is_ok()
+    }
+
+    /// 注册跨核抢占回调。
+    pub fn set_resched_hook(&self, hook: fn(usize)) {
+        self.kernel.set_resched_hook(hook);
     }
 
     /// 设置调度器可见的在线 CPU 数。

@@ -1,6 +1,6 @@
 //! 任务生命周期与调度。
 
-use hk_cadence::{CadenceSpec, DEFAULT_SPEC};
+use hk_cadence::{Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC};
 
 use super::*;
 
@@ -261,7 +261,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             checkpoint.context,
             checkpoint.parent,
             checkpoint.arena_used,
-            snapshot.cadence.spec(),
+            snapshot.cadence,
             snapshot.meter,
             &snapshot.pages,
         );
@@ -280,7 +280,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context: C,
         parent: Option<u64>,
         arena_used: u64,
-        cadence: CadenceSpec,
+        cadence: hk_cadence::CadenceSnapshot,
         meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
     ) -> Result<usize, String> {
@@ -310,11 +310,43 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let mut restored = Cadence::restore(
+            CadenceId::new(cadence.id),
+            cadence.parent(),
+            cadence.epoch,
+            cadence.spec(),
+        )
+        .map_err(|error| format!("{error}"))?;
+        if let Some(tempo) = self
+            .tasks
+            .iter()
+            .find(|task| !task.exited && task.name == "hk-server-tempo")
+            && let Some(tempo_task) = self.kernel.task_of(tempo.tcb)
+            && let Some(pool) = self.kernel.cadence_spec(tempo_task)
+        {
+            let request = restored.spec();
+            let in_range = request.class == pool.class
+                && request.weight <= pool.weight
+                && request.budget.ticks() <= pool.budget.ticks()
+                && (request.class != hk_cadence::CadenceClass::Realtime
+                    || hk_cadence::admits_realtime(self.realtime_used(), request));
+            if !in_range {
+                let weight = request.weight.min(pool.weight).max(1);
+                let budget = request.budget.ticks().min(pool.budget.ticks());
+                if let Ok(child) = self.kernel.admit_task_cadence(tempo_task, weight, budget) {
+                    restored = child;
+                }
+            }
+        }
+        let base = self.average_virtual_pass(restored.class());
         let tcb = kernel
-            .spawn_task_parked(HandleTable::with_default_quota(), cadence)
+            .spawn_task_with_cadence(HandleTable::with_default_quota(), restored)
             .map_err(|error| format!("{error}"))?;
         if let Some(task) = kernel.task_of(tcb) {
+            let mut meter = meter;
+            meter.virtual_pass = base;
             let _ = kernel.restore_meter(task, meter);
+            kernel.reset_budget_period(task, self.contract_now());
         }
         let own = kernel
             .create_endpoint(tcb, rights)
@@ -375,7 +407,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
             snapshot.parent,
             snapshot.arena_used,
-            snapshot.cadence.spec(),
+            snapshot.cadence,
             snapshot.meter,
             &snapshot.pages,
         )?;
@@ -404,13 +436,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        let cadence = kernel
-            .task_of(tcb)
-            .and_then(|task| kernel.cadence_spec(task))
-            .unwrap_or(DEFAULT_SPEC);
-        let child = kernel
-            .spawn_task_parked(HandleTable::with_default_quota(), cadence)
-            .expect("子任务创建");
+        let child = match kernel.task_of(tcb) {
+            Some(parent) => kernel
+                .spawn_task_child_parked(HandleTable::with_default_quota(), parent)
+                .expect("子任务创建"),
+            None => kernel
+                .spawn_task_parked(HandleTable::with_default_quota(), DEFAULT_SPEC)
+                .expect("子任务创建"),
+        };
 
         let Ok(own_endpoint) = kernel.create_endpoint(child, rights) else {
             frame.set_result(u64::MAX);
@@ -572,6 +605,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.kernel.set_clock(self.contract_now());
         self.drain_irqs();
         self.wake_sleepers();
+        self.wake_timeouts();
         if self.platform.take_console_input()
             && let Some(index) = self.console_subscriber
             && let Some(task) = self.tasks.get(index)
@@ -752,28 +786,93 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 唤醒到期的休眠任务。
+    /// 登记休眠；同一任务只保留一个 deadline。
+    pub(crate) fn add_sleep(&mut self, index: usize, wake: u64) {
+        let entries = self.sleeping.entry(wake).or_default();
+        if !entries.contains(&index) {
+            entries.push(index);
+        }
+    }
+
+    /// 从 deadline 表移除任务。
+    pub(crate) fn remove_sleep(&mut self, index: usize) {
+        self.sleeping.retain(|_, entries| {
+            entries.retain(|slot| *slot != index);
+            !entries.is_empty()
+        });
+        self.timeouts.retain(|_, entries| {
+            entries.retain(|slot| *slot != index);
+            !entries.is_empty()
+        });
+    }
+
     fn wake_sleepers(&mut self) {
-        if self.sleeping.is_empty() {
-            return;
-        }
         let now = self.contract_now();
-        let mut kept = Vec::new();
-        for index in core::mem::take(&mut self.sleeping) {
-            let Some(task) = self.tasks.get(index) else {
-                continue;
-            };
-            if task.exited {
-                continue;
+        while let Some((&deadline, _)) = self.sleeping.first_key_value() {
+            if deadline > now {
+                break;
             }
-            match task.pending {
-                Pending::Sleep { wake } if now >= wake => {
-                    self.kernel.wake_thread(task.tcb);
+            let Some(entries) = self.sleeping.remove(&deadline) else {
+                break;
+            };
+            for index in entries {
+                let Some(task) = self.tasks.get(index) else {
+                    continue;
+                };
+                if task.exited {
+                    continue;
                 }
-                Pending::Sleep { .. } => kept.push(index),
-                _ => {}
+                match task.pending {
+                    Pending::Sleep { wake } if now >= wake => {
+                        self.kernel.wake_thread(task.tcb);
+                    }
+                    Pending::Sleep { wake } => self.add_sleep(index, wake),
+                    _ => {}
+                }
             }
         }
-        self.sleeping = kept;
+    }
+
+    fn wake_timeouts(&mut self) {
+        let now = self.contract_now();
+        while let Some((&deadline, _)) = self.timeouts.first_key_value() {
+            if deadline > now {
+                break;
+            }
+            let Some(entries) = self.timeouts.remove(&deadline) else {
+                break;
+            };
+            for index in entries {
+                let Some((tcb, pending, exited)) = self
+                    .tasks
+                    .get(index)
+                    .map(|task| (task.tcb, task.pending, task.exited))
+                else {
+                    continue;
+                };
+                if exited {
+                    continue;
+                }
+                match pending {
+                    Pending::RecvData {
+                        handle,
+                        deadline: Some(at),
+                        ..
+                    } if at <= now => {
+                        let _ = self.kernel.cancel_recv(tcb, handle);
+                        self.tasks[index].context.set_result(u64::MAX);
+                        self.tasks[index].pending = Pending::None;
+                        self.kernel.wake_thread(tcb);
+                    }
+                    Pending::RecvData {
+                        deadline: Some(at), ..
+                    } => {
+                        self.timeouts.entry(at).or_default().push(index);
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     fn next_task(&mut self, cpu: usize) -> Option<usize> {
@@ -790,23 +889,63 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.contract_ticks(self.platform.timestamp())
     }
 
-    /// 返回下一次需要唤醒的契约时刻：Grant 结束、预算补充或 sleep 到期。
-    pub fn next_wakeup(&self) -> Option<u64> {
-        let mut earliest = self.kernel.next_deadline();
-        for index in &self.sleeping {
-            let Some(task) = self.tasks.get(*index) else {
+    /// 返回系统内 Realtime 契约的累计利用率。
+    fn realtime_used(&self) -> u64 {
+        let mut used = 0_u64;
+        for task in &self.tasks {
+            if task.exited {
+                continue;
+            }
+            let Some(cadence) = self.kernel.task_cadence_snapshot(task.tcb) else {
                 continue;
             };
-            if let Pending::Sleep { wake } = task.pending {
-                earliest = Some(earliest.map_or(wake, |value: u64| value.min(wake)));
+            if cadence.class == hk_cadence::CadenceClass::Realtime {
+                used = used.saturating_add(hk_cadence::utilization(
+                    hk_base::Duration::from_ticks(cadence.budget),
+                    hk_base::Duration::from_ticks(cadence.period),
+                ));
             }
+        }
+        used
+    }
+
+    /// 计算同类 Task 的平均虚拟进度，用于恢复时重定基。
+    fn average_virtual_pass(&self, class: hk_cadence::CadenceClass) -> u64 {
+        let mut total = 0_u64;
+        let mut count = 0_u64;
+        for task in &self.tasks {
+            if task.exited {
+                continue;
+            }
+            let Some(cadence) = self.kernel.task_cadence_snapshot(task.tcb) else {
+                continue;
+            };
+            if cadence.class != class {
+                continue;
+            }
+            if let Some(meter) = self.kernel.task_meter_snapshot(task.tcb) {
+                total = total.saturating_add(meter.virtual_pass);
+                count += 1;
+            }
+        }
+        total.checked_div(count).unwrap_or(0)
+    }
+
+    /// 返回 `cpu` 下一次需要唤醒的契约时刻：本地 Grant 结束、预算补充或 sleep 到期。
+    pub fn next_wakeup(&self, cpu: usize) -> Option<u64> {
+        let mut earliest = self.kernel.next_deadline(cpu);
+        if let Some((&deadline, _)) = self.sleeping.first_key_value() {
+            earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
+        }
+        if let Some((&deadline, _)) = self.timeouts.first_key_value() {
+            earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
         }
         earliest
     }
 
-    /// 把下一次唤醒写给平台；没有待办时只保留 watchdog。
-    pub fn arm_wakeup(&self) {
-        self.platform.arm_wakeup(self.next_wakeup());
+    /// 把 `cpu` 的下一次唤醒写给平台；没有待办时只保留 watchdog。
+    pub fn arm_wakeup(&self, cpu: usize) {
+        self.platform.arm_wakeup(self.next_wakeup(cpu));
     }
 
     /// 把平台周期数换算为契约 tick。
@@ -853,6 +992,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 capacity,
                 expected,
                 handle_out,
+                deadline,
             } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.recv_from(tcb, handle, expected) {
@@ -869,7 +1009,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         }
                         self.tasks[index].context = frame;
                     }
-                    Ok(None) => blocked_again = true,
+                    Ok(None) => {
+                        if deadline.is_some_and(|at| self.contract_now() >= at) {
+                            self.tasks[index].context.set_result(u64::MAX);
+                        } else {
+                            blocked_again = true;
+                        }
+                    }
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
                 }
             }
@@ -881,7 +1027,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
                 }
             }
-            Pending::Call { endpoint, started } => {
+            Pending::Call {
+                endpoint, started, ..
+            } => {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.take_reply(tcb) {
                     Some(message) => {

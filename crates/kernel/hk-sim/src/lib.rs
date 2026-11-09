@@ -155,7 +155,7 @@ impl Simulator {
             let Some(thread) = self.kernel.schedule(0) else {
                 // 只剩被节流或等待补充的 Task：把时钟推进到下一个补充点再试，
                 // 这样预算周期与 `Throttled → Eligible` 在回放中可见。
-                if let Some(deadline) = self.kernel.next_deadline() {
+                if let Some(deadline) = self.kernel.next_deadline(0) {
                     let now = self.kernel.now();
                     if deadline > now {
                         self.clock = deadline;

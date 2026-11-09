@@ -117,11 +117,20 @@ impl Kernel {
         let task = self
             .task(task_id)
             .ok_or(KernelError::UnknownTask(task_id))?;
+        let was_suspended = task.lock().state() == TaskState::Suspended;
+        let previous = task.lock().cadence();
+        if !Arc::ptr_eq(&previous, &cadence) {
+            self.release_child_budget(&previous.lock());
+        }
         {
             let mut task = task.lock();
             task.set_cadence(cadence);
         }
-        self.enqueue_task(task_id);
+        if was_suspended {
+            self.resume_task(task_id);
+        } else {
+            self.enqueue_next_thread(task_id, None);
+        }
         Ok(())
     }
 
@@ -137,6 +146,41 @@ impl Kernel {
         let replacement = Cadence::restore(guard.id(), guard.parent(), guard.epoch(), spec)?;
         *guard = replacement;
         Ok(())
+    }
+
+    /// 归还子契约占用的父预算。
+    pub(crate) fn release_child_budget(&self, child: &Cadence) {
+        let Some(parent) = child.parent() else {
+            return;
+        };
+        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
+        for task in tasks {
+            let cadence = task.lock().cadence();
+            let mut cadence = cadence.lock();
+            if cadence.id() == parent {
+                cadence.release_child_budget(child.budget().ticks());
+                return;
+            }
+        }
+    }
+
+    /// 以某个 Task 的契约为父，派生收窄子契约；用于恢复时重准入。
+    pub fn admit_task_cadence(
+        &self,
+        task: TaskId,
+        weight: u32,
+        budget: u64,
+    ) -> Result<Cadence, KernelError> {
+        let task = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        let cadence = task.lock().cadence();
+        cadence
+            .lock()
+            .split(
+                CadenceId::next(),
+                Weight::new(weight)?,
+                Duration::from_ticks(budget),
+            )
+            .map_err(KernelError::from)
     }
 
     /// 派生一个子契约并在调用方句柄表中返回新 Handle。
@@ -178,14 +222,20 @@ impl Kernel {
     ) -> Result<(), KernelError> {
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
         let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        let was_suspended = target.lock().state() == TaskState::Suspended;
+        let previous = target.lock().cadence();
+        if !Arc::ptr_eq(&previous, &cadence) {
+            self.release_child_budget(&previous.lock());
+        }
         {
             let mut target = target.lock();
             target.set_cadence(cadence);
-            if target.state() == TaskState::Suspended {
-                target.set_state(TaskState::Eligible);
-            }
         }
-        self.enqueue_task(task);
+        if was_suspended {
+            self.resume_task(task);
+        } else {
+            self.enqueue_next_thread(task, None);
+        }
         Ok(())
     }
 
@@ -198,16 +248,19 @@ impl Kernel {
     ) -> Result<u32, KernelError> {
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
         let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        let was_suspended = target.lock().state() == TaskState::Suspended;
         let previous = { target.lock().cadence() };
         let epoch = previous.lock().revoke();
+        self.release_child_budget(&previous.lock());
         {
             let mut target = target.lock();
             target.set_cadence(cadence);
-            if target.state() == TaskState::Suspended {
-                target.set_state(TaskState::Eligible);
-            }
         }
-        self.enqueue_task(task);
+        if was_suspended {
+            self.resume_task(task);
+        } else {
+            self.enqueue_next_thread(task, None);
+        }
         Ok(epoch)
     }
 
@@ -223,30 +276,53 @@ impl Kernel {
             expected: ObjectKind::Task,
         })?;
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
+        let was_suspended = task.lock().state() == TaskState::Suspended;
+        let previous = task.lock().cadence();
+        if !Arc::ptr_eq(&previous, &cadence) {
+            self.release_child_budget(&previous.lock());
+        }
         let task_id = {
             let mut task = task.lock();
             task.set_cadence(Arc::clone(&cadence));
             task.id()
         };
-        self.enqueue_task(task_id);
+        if was_suspended {
+            self.resume_task(task_id);
+        } else {
+            self.enqueue_next_thread(task_id, None);
+        }
         Ok(())
     }
 
     fn suspend_using(&self, cadence: &Arc<spin::Mutex<Cadence>>) {
         let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
         for task in tasks {
-            let matches = {
+            let (matches, threads) = {
                 let task = task.lock();
-                Arc::ptr_eq(&task.cadence(), cadence)
+                (
+                    Arc::ptr_eq(&task.cadence(), cadence),
+                    task.threads().to_vec(),
+                )
             };
             if !matches {
                 continue;
             }
-            let threads = {
+            {
                 let mut task = task.lock();
                 task.set_state(TaskState::Suspended);
-                task.threads().to_vec()
-            };
+                task.set_active(None);
+                task.clear_queued();
+            }
+            {
+                let mut thread_map = self.threads.lock();
+                for thread in &threads {
+                    if let Some(tcb) = thread_map.get_mut(thread)
+                        && tcb.state() == ThreadState::Running
+                    {
+                        tcb.set_state(ThreadState::Runnable);
+                    }
+                }
+            }
             let mut scheduler = self.scheduler.lock();
             for thread in threads {
                 scheduler.remove(thread);
@@ -255,27 +331,19 @@ impl Kernel {
         }
     }
 
-    fn enqueue_task(&self, task: TaskId) {
-        let Some(task) = self.task(task) else {
+    /// 重新选择一个 Grant；阻塞中的 TCB 保持原状态。
+    fn resume_task(&self, task: TaskId) {
+        let Some(task_ref) = self.task(task) else {
             return;
         };
-        let threads = {
-            let task = task.lock();
-            task.threads().to_vec()
-        };
-        let runnable: Vec<TcbId> = {
-            let thread_map = self.threads.lock();
-            threads
-                .into_iter()
-                .filter(|id| {
-                    thread_map
-                        .get(id)
-                        .is_some_and(|tcb| tcb.state() == ThreadState::Runnable)
-                })
-                .collect()
-        };
-        for thread in runnable {
-            self.enqueue_thread(thread);
+        {
+            let mut task = task_ref.lock();
+            task.set_active(None);
+            task.clear_queued();
+            if task.state() == TaskState::Suspended {
+                task.set_state(TaskState::Eligible);
+            }
         }
+        self.enqueue_next_thread(task, None);
     }
 }

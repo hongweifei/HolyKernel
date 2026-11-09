@@ -397,6 +397,7 @@ pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
         cpu::user_frame(0, 0, endpoint)
     })?;
     let online = 1 + hk_smp::AP_POOL.online();
+    RUNTIME.set_resched_hook(resched);
     RUNTIME.set_online_cpus(online);
     RUNTIME.enable_idle_cpus(online);
 
@@ -674,6 +675,10 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 
 fn preempt(frame: &InterruptFrame) -> bool {
     RUNTIME.preempt(cpu::cpu_index(), *frame)
+}
+
+fn resched(cpu: usize) {
+    cpu::reschedule(cpu);
 }
 
 fn fault(frame: &mut InterruptFrame) -> FaultAction {

@@ -36,6 +36,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_RECV_DATA_TRY => self.recv_data_try(index, tcb, frame),
             SYS_RECV_DATA_HANDLE => self.recv_data_handle(index, tcb, frame),
             SYS_RECV_DATA_HANDLE_TRY => self.recv_data_handle_try(index, tcb, frame),
+            SYS_RECV_DATA_TIMEOUT => self.recv_data_timeout(index, tcb, frame),
             SYS_RECV_DATA_FROM => self.recv_data(index, tcb, frame),
             SYS_SERVICE_ENDPOINT => {
                 let length = frame.arg1() as usize;
@@ -74,6 +75,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_CALL => self.call(index, tcb, frame),
+            SYS_CALL_TIMEOUT => self.call_timeout(index, tcb, frame),
             SYS_REPLY => {
                 let result = self.reply(index, tcb, frame, false);
                 frame.set_result(result);

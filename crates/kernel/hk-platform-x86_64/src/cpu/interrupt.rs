@@ -1,7 +1,7 @@
 //! 中断分派。
 
 use super::apic::lapic_write;
-use super::smp::{handle_tlb_ipi, note_ipi};
+use super::smp::{handle_tlb_ipi, note_ipi, take_resched};
 use super::syscall::{handle_syscall, preempt};
 use super::timer::note_timer_interrupt;
 use super::user::{dispatch_fault, leave_user, report_exception};
@@ -39,7 +39,12 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == u64::from(IPI_VECTOR) {
         note_ipi();
         handle_tlb_ipi();
+        let resched = take_resched(cpu_index());
+        let switch = resched && frame.cs == u64::from(USER_CODE_SELECTOR) && preempt(frame);
         lapic_write(LAPIC_EOI, 0);
+        if switch {
+            leave_user();
+        }
         return;
     }
 

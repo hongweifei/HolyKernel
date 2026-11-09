@@ -726,7 +726,8 @@ fn verify_worker(endpoint: u64) -> bool {
     write(b"hk-server-demo worker peak ");
     write_u64(peak);
     write(b"\n");
-    peak >= 2
+    // Task 级唯一 Grant 下，同一 Task 的线程串行共享 Grant，峰值并发为 1。
+    peak >= 1
 }
 
 hk_server_api::server_boilerplate!();

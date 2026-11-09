@@ -18,7 +18,7 @@ mod user;
 
 pub use apic::{cpu_index, init_ap, init_apic, ipi_count, lapic_id, send_ipi};
 pub use frame::InterruptFrame;
-pub use smp::{idle, idle_cpus, shootdown_tlb, tlb_shootdowns, wake_aps};
+pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_aps};
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
     arm_oneshot, arm_timer, calibrate_tick, disarm_timer, note_timer_interrupt, rearm_tick,

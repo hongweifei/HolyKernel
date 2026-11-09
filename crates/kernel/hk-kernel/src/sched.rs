@@ -148,9 +148,10 @@ impl Scheduler {
         affinity: u64,
         last_cpu: u32,
         migratable: bool,
-    ) -> bool {
-        let cpu = self.choose_cpu(affinity, last_cpu, migratable);
-        self.enqueue(id, class, key, cpu, weight)
+        heat: u32,
+    ) -> Option<usize> {
+        let cpu = self.choose_cpu(affinity, last_cpu, migratable, heat);
+        self.enqueue(id, class, key, cpu, weight).then_some(cpu)
     }
 
     /// 从队列移除 TCB。
@@ -162,8 +163,9 @@ impl Scheduler {
     }
 
     /// 按亲和性与负载选择入队 CPU。
-    pub fn choose_cpu(&self, affinity: u64, last_cpu: u32, migratable: bool) -> usize {
-        if !migratable && last_cpu != NO_CPU && affinity & (1_u64 << last_cpu) != 0 {
+    pub fn choose_cpu(&self, affinity: u64, last_cpu: u32, migratable: bool, heat: u32) -> usize {
+        let last_valid = last_cpu != NO_CPU && affinity & (1_u64 << last_cpu) != 0;
+        if last_valid && !migratable {
             return last_cpu as usize;
         }
         let mut best = 0_usize;
@@ -176,6 +178,13 @@ impl Scheduler {
             if load < best_load {
                 best = cpu;
                 best_load = load;
+            }
+        }
+        if last_valid {
+            let last = last_cpu as usize;
+            let last_load = self.beats[last].load;
+            if heat > 0 && last_load <= best_load.saturating_add(u64::from(heat)) {
+                return last;
             }
         }
         best
@@ -357,18 +366,28 @@ mod tests {
     fn balances_new_tasks_across_cpus() {
         let mut scheduler = Scheduler::new();
         scheduler.set_online(2);
-        let first = scheduler.choose_cpu(u64::MAX, NO_CPU, true);
+        let first = scheduler.choose_cpu(u64::MAX, NO_CPU, true, 0);
         scheduler.enqueue(id(1), CadenceClass::Latency, 10, first, 1024);
-        let second = scheduler.choose_cpu(u64::MAX, NO_CPU, true);
+        let second = scheduler.choose_cpu(u64::MAX, NO_CPU, true, 0);
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn keeps_hot_task_on_cpu_within_load_bias() {
+        let mut scheduler = Scheduler::new();
+        scheduler.set_online(2);
+        scheduler.enqueue(id(1), CadenceClass::Latency, 0, 0, 1024);
+        scheduler.enqueue(id(2), CadenceClass::Latency, 0, 1, 1020);
+        assert_eq!(scheduler.choose_cpu(0b11, 0, true, 8), 0);
+        assert_eq!(scheduler.choose_cpu(0b11, 0, true, 1), 1);
     }
 
     #[test]
     fn pinned_task_keeps_last_cpu() {
         let mut scheduler = Scheduler::new();
         scheduler.set_online(3);
-        assert_eq!(scheduler.choose_cpu(u64::MAX, 2, false), 2);
-        assert_eq!(scheduler.choose_cpu(0b100, NO_CPU, false), 2);
+        assert_eq!(scheduler.choose_cpu(u64::MAX, 2, false, 0), 2);
+        assert_eq!(scheduler.choose_cpu(0b100, NO_CPU, false, 0), 2);
     }
 
     #[test]

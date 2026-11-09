@@ -42,6 +42,8 @@ pub enum Pending {
         expected: Option<TcbId>,
         /// 是否把随消息收到的句柄编号打包返回。
         handle_out: bool,
+        /// 超时 deadline；`None` 表示无限等待。
+        deadline: Option<u64>,
     },
     /// 通知等待已登记。
     Notify {
@@ -56,6 +58,8 @@ pub enum Pending {
         endpoint: u64,
         /// 调用开始时间戳。
         started: u64,
+        /// 超时 deadline；`None` 表示无限等待。
+        deadline: Option<u64>,
     },
     /// 缺页请求已发给 Provider，等待物理页回包。
     ProviderFault {

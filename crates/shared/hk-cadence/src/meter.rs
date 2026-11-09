@@ -18,6 +18,7 @@ pub struct Meter {
     throttled: u64,
     overruns: u64,
     migrations: u64,
+    migration_cost: u64,
     switches: u64,
     virtual_pass: u64,
     last_cpu: u32,
@@ -32,6 +33,7 @@ impl Meter {
             throttled: 0,
             overruns: 0,
             migrations: 0,
+            migration_cost: 0,
             switches: 0,
             virtual_pass: 0,
             last_cpu: NO_CPU,
@@ -74,6 +76,16 @@ impl Meter {
         self.last_cpu = cpu;
     }
 
+    /// 记入一次迁移的缓存成本。
+    pub fn charge_migration(&mut self, cost: u64) {
+        self.migration_cost = self.migration_cost.saturating_add(cost);
+    }
+
+    /// 返回迁移累计成本。
+    pub const fn migration_cost(&self) -> u64 {
+        self.migration_cost
+    }
+
     /// 直接推进虚拟时间。
     pub fn advance_virtual(&mut self, amount: u64) {
         self.virtual_pass = self.virtual_pass.saturating_add(amount);
@@ -92,6 +104,7 @@ impl Meter {
             throttled: snapshot.throttled,
             overruns: snapshot.overruns,
             migrations: snapshot.migrations,
+            migration_cost: snapshot.migration_cost,
             switches: snapshot.switches,
             virtual_pass: snapshot.virtual_pass,
             last_cpu: snapshot.last_cpu,

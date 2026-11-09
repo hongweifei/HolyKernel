@@ -114,11 +114,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .contract_now()
             .saturating_add(ticks.saturating_mul(10_000));
         self.tasks[index].pending = Pending::Sleep { wake };
-        if !self.sleeping.contains(&index) {
-            self.sleeping.push(index);
-        }
+        self.add_sleep(index, wake);
         if self.kernel.park(tcb).is_err() {
-            self.sleeping.retain(|slot| *slot != index);
+            self.remove_sleep(index);
             self.tasks[index].pending = Pending::None;
             self.tasks[index].context.set_result(u64::MAX);
             return Switch::Continue;

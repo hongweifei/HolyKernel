@@ -236,7 +236,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         context: C,
         parent: Option<u64>,
         arena_used: u64,
-        cadence: CadenceSpec,
+        cadence: hk_cadence::CadenceSnapshot,
         meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
     ) -> Result<usize, String> {
@@ -319,6 +319,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         )
     }
 
+    /// 注册跨核抢占回调。
+    pub fn set_resched_hook(&self, hook: fn(usize)) {
+        if let Some(runtime) = self.runtime.lock().as_ref() {
+            runtime.set_resched_hook(hook);
+        }
+    }
+
     /// 设置调度器可见的在线 CPU 数。
     pub fn set_online_cpus(&self, online: usize) {
         if let Some(runtime) = self.runtime.lock().as_ref() {
@@ -382,7 +389,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             steps += 1;
             let step = self.runtime.lock().as_mut().map(|runtime| {
                 let step = runtime.step(cpu);
-                runtime.arm_wakeup();
+                runtime.arm_wakeup(cpu);
                 step
             });
             match step {

@@ -12,6 +12,14 @@ use hk_mem::hmp::{
 use crate::{Kernel, TcbId, ThreadState, TraceCategory};
 use hk_cadence::{CadenceClass, CadenceSpec, DEFAULT_SPEC, millis};
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+static RESCHED_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+fn count_resched(_cpu: usize) {
+    RESCHED_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
 fn kernel() -> Kernel {
     Kernel::new()
 }
@@ -885,6 +893,119 @@ fn rotates_threads_of_equal_priority() {
 }
 
 #[test]
+fn child_task_inherits_narrowed_cadence() {
+    let kernel = kernel();
+    let spec = CadenceSpec::new(CadenceClass::Latency, 2048).with_budget(millis(4), millis(8));
+    let parent = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    let child = kernel
+        .spawn_task_child_parked(HandleTable::new(8), parent_id)
+        .expect("子任务");
+    let child_id = kernel.task_of(child).expect("子 Task");
+    let child_task = kernel.task(child_id).expect("子 Task 存在");
+    assert_eq!(child_task.lock().parent(), Some(parent_id));
+    let child_spec = kernel.cadence_spec(child_id).expect("子契约");
+    assert_eq!(child_spec.weight, 1024);
+    assert_eq!(child_spec.budget.ticks(), millis(2).ticks());
+    assert_eq!(kernel.cadence_spec(parent_id).expect("父契约").weight, 2048);
+}
+
+#[test]
+fn requests_resched_for_higher_priority_wake() {
+    RESCHED_CALLS.store(0, Ordering::SeqCst);
+    let kernel = kernel();
+    let pinned = CadenceSpec::new(CadenceClass::Throughput, 1024)
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let low = kernel
+        .spawn_task(HandleTable::new(8), pinned)
+        .expect("低优先级任务");
+    assert_eq!(kernel.schedule(0), Some(low));
+
+    kernel.set_resched_hook(count_resched);
+    let _high = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(1))
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("高优先级任务");
+    assert!(
+        RESCHED_CALLS.load(Ordering::SeqCst) > 0,
+        "更弱的当前任务应触发 resched"
+    );
+}
+
+#[test]
+fn task_serializes_threads_and_rotates_them() {
+    let kernel = kernel();
+    let spec = CadenceSpec::new(CadenceClass::Latency, 1024)
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let first = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("主线程");
+    let task = kernel.task_of(first).expect("任务");
+    let second = kernel
+        .spawn_thread(task, HandleTable::new(8))
+        .expect("第二线程");
+
+    let a = kernel.schedule(0).expect("首个 Grant");
+    assert!(a == first || a == second);
+    assert_eq!(
+        kernel.schedule(1),
+        None,
+        "同一 Task 不能同时获得第二个 Grant"
+    );
+    let b = kernel.schedule(0).expect("轮转");
+    assert_ne!(a, b);
+    assert_eq!(kernel.schedule(0).expect("轮转回"), a);
+}
+
+#[test]
+fn task_budget_is_shared_by_threads() {
+    let kernel = kernel();
+    let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(1), millis(4))
+        .with_deadline(millis(2))
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let first = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("主线程");
+    let task = kernel.task_of(first).expect("任务");
+    let _second = kernel
+        .spawn_thread(task, HandleTable::new(8))
+        .expect("第二线程");
+
+    let running = kernel.schedule(0).expect("Grant");
+    kernel.charge(running, millis(1).ticks() + 1);
+    assert_eq!(kernel.schedule(0), None, "预算耗尽后整个 Task 节流");
+    kernel.set_clock(millis(4).ticks());
+    assert!(kernel.schedule(0).is_some(), "周期补充后恢复一个 Grant");
+}
+
+#[test]
+fn records_waited_switches_and_overruns() {
+    let kernel = kernel();
+    let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(1), millis(4))
+        .with_deadline(millis(1))
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let thread = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("实时任务");
+    kernel.set_clock(millis(2).ticks());
+    assert!(kernel.schedule(0).is_some());
+
+    let meter = kernel.task_meter_snapshot(thread).expect("计量");
+    assert_eq!(meter.waited, millis(2).ticks());
+    assert_eq!(meter.switches, 1);
+    assert_eq!(meter.overruns, 1);
+}
+
+#[test]
 fn throttles_budgeted_task_and_refills_next_period() {
     let kernel = kernel();
     let realtime = kernel
@@ -1194,10 +1315,9 @@ fn records_migration_when_picked_by_another_cpu() {
     kernel.block(task, crate::BlockReason::Park).expect("停泊");
     kernel.wake_thread(task);
     assert_eq!(kernel.schedule(1), Some(task));
-    assert_eq!(
-        kernel.task_meter_snapshot(task).expect("计量").migrations,
-        1
-    );
+    let meter = kernel.task_meter_snapshot(task).expect("计量");
+    assert_eq!(meter.migrations, 1);
+    assert!(meter.migration_cost > 0);
 }
 
 #[test]

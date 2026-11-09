@@ -138,7 +138,40 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.tasks[index].pending = Pending::Call {
                     endpoint: endpoint as u64,
                     started: self.platform.timestamp(),
+                    deadline: None,
                 };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    /// 带超时调用端点；超时返回 `u64::MAX`。
+    pub(crate) fn call_timeout(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let timeout = frame.arg3();
+        let mut words = [0; 8];
+        words[0] = frame.arg2();
+        let message = Message::new(frame.arg1()).with_words(words);
+        match self.kernel.call(tcb, handle, message) {
+            Ok(()) => {
+                let deadline = self.contract_now().saturating_add(timeout);
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::Call {
+                    endpoint: endpoint as u64,
+                    started: self.platform.timestamp(),
+                    deadline: Some(deadline),
+                };
+                self.timeouts.entry(deadline).or_default().push(index);
                 Switch::Block
             }
             Err(_) => {
@@ -237,7 +270,51 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     capacity,
                     expected,
                     handle_out: false,
+                    deadline: None,
                 };
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
+    /// 带超时接收字节载荷；超时返回 `u64::MAX`。
+    pub(crate) fn recv_data_timeout(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let buffer = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        if capacity > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let timeout = frame.arg3();
+        match self.kernel.recv_from(tcb, handle, None) {
+            Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
+            Ok(None) if timeout == 0 => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+            Ok(None) => {
+                let deadline = self.contract_now().saturating_add(timeout);
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::RecvData {
+                    handle,
+                    buffer,
+                    capacity,
+                    expected: None,
+                    handle_out: false,
+                    deadline: Some(deadline),
+                };
+                self.timeouts.entry(deadline).or_default().push(index);
                 Switch::Block
             }
             Err(_) => {
@@ -300,6 +377,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     capacity,
                     expected,
                     handle_out: true,
+                    deadline: None,
                 };
                 Switch::Block
             }

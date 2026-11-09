@@ -50,6 +50,13 @@ const TRACE_HANDLE_TRANSFER: u32 = 13;
 const TRACE_HANDLE_RELEASE: u32 = 14;
 const TRACE_LEND: u32 = 15;
 const TRACE_RETURN: u32 = 16;
+const TRACE_ENQUEUE: u32 = 17;
+const TRACE_DEQUEUE: u32 = 18;
+const TRACE_THROTTLE: u32 = 19;
+const TRACE_REFILL: u32 = 20;
+const TRACE_MIGRATE: u32 = 21;
+const TRACE_OVERRUN: u32 = 22;
+const TRACE_PREEMPT: u32 = 23;
 
 /// 接收方取到的消息。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,7 +78,9 @@ pub struct Kernel {
     next_task: AtomicU64,
     scheduler: Mutex<Scheduler>,
     trace: Mutex<TraceRing<TRACE_CAPACITY>>,
+    resched: core::sync::atomic::AtomicUsize,
     idle: Mutex<BTreeMap<usize, TcbId>>,
+    refills: Mutex<BTreeMap<u64, Vec<TaskId>>>,
     idle_enabled: core::sync::atomic::AtomicBool,
     moment: AtomicU64,
     clock: AtomicU64,
@@ -88,7 +97,9 @@ impl Kernel {
             next_task: AtomicU64::new(1),
             scheduler: Mutex::new(Scheduler::new()),
             trace: Mutex::new(TraceRing::new()),
+            resched: core::sync::atomic::AtomicUsize::new(0),
             idle: Mutex::new(BTreeMap::new()),
+            refills: Mutex::new(BTreeMap::new()),
             idle_enabled: core::sync::atomic::AtomicBool::new(false),
             moment: AtomicU64::new(0),
             clock: AtomicU64::new(0),
@@ -103,6 +114,22 @@ impl Kernel {
     /// 设置调度时钟。
     pub fn set_clock(&self, now: u64) {
         self.clock.store(now, Ordering::Relaxed);
+    }
+
+    /// 注册跨核抢占回调；平台在初始化时设置。
+    pub fn set_resched_hook(&self, hook: fn(usize)) {
+        self.resched
+            .store(hook as usize, core::sync::atomic::Ordering::Release);
+    }
+
+    /// 请求目标 CPU 重新调度。
+    fn request_resched(&self, cpu: usize) {
+        let hook = self.resched.load(core::sync::atomic::Ordering::Acquire);
+        if hook != 0 {
+            // SAFETY: 回调只在平台初始化时注册，指向静态函数并覆盖内核运行期。
+            let hook: fn(usize) = unsafe { core::mem::transmute(hook) };
+            hook(cpu);
+        }
     }
 
     /// 设置调度器可见的在线 CPU 数。

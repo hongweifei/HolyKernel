@@ -302,7 +302,7 @@ fn arms_wakeup_at_sleep_deadline() {
     context.rdi = 3;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
     // 契约时钟按 timer_ticks=7 折算为 70 000 µs，再休眠 3 个 10 ms tick。
-    assert_eq!(runtime.next_wakeup(), Some(100_000));
+    assert_eq!(runtime.next_wakeup(0), Some(100_000));
 }
 
 #[test]
@@ -1177,6 +1177,7 @@ fn failed_service_wakes_inflight_recv_with_empty_response() {
         capacity: 4096,
         expected: Some(other_tcb),
         handle_out: false,
+        deadline: None,
     };
     runtime.tasks[other].exited = true;
 

@@ -178,6 +178,19 @@ impl Kernel {
         Ok(())
     }
 
+    /// 取消挂起的调用；超时路径使用。
+    pub fn cancel_call(&self, thread: TcbId) -> bool {
+        let mut threads = self.threads.lock();
+        let Some(tcb) = threads.get_mut(&thread) else {
+            return false;
+        };
+        if tcb.pending_call().is_none() {
+            return false;
+        }
+        tcb.set_pending_call(None);
+        true
+    }
+
     /// 调用端点；调用方阻塞，服务端回复后由 [`Kernel::take_reply`] 取回结果。
     pub fn call(
         &self,

@@ -142,6 +142,12 @@ pub const SYS_FUTEX_WAIT: u64 = 0x30;
 /// 唤醒共享内存字上的等待者。
 pub const SYS_FUTEX_WAKE: u64 = 0x31;
 
+/// 带超时接收带字节载荷的消息；超时返回 `u64::MAX`。
+pub const SYS_RECV_DATA_TIMEOUT: u64 = 0x33;
+
+/// 带超时调用端点；超时返回 `u64::MAX`。
+pub const SYS_CALL_TIMEOUT: u64 = 0x34;
+
 /// `SYS_FUTEX_WAIT`：值已变化，无需等待。
 pub const FUTEX_CHANGED: u64 = 1;
 
@@ -603,7 +609,9 @@ mod tests {
             SYS_RECV_DATA_HANDLE,
             SYS_RECV_DATA_TRY,
             SYS_RECV_DATA_HANDLE_TRY,
+            SYS_RECV_DATA_TIMEOUT,
             SYS_CALL,
+            SYS_CALL_TIMEOUT,
             SYS_REPLY,
             SYS_REPLY_HANDLE,
             SYS_NOTIFY,

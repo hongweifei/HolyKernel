@@ -77,11 +77,14 @@ pub struct Task {
     cadence: Arc<Mutex<Cadence>>,
     meter: Arc<Mutex<Meter>>,
     threads: Vec<TcbId>,
+    active: Option<TcbId>,
     state: TaskState,
     policy_authority: bool,
     period_start: u64,
     budget_left: u64,
     grant_end: u64,
+    queued_at: Option<u64>,
+    cache_heat: u32,
 }
 
 impl Task {
@@ -94,11 +97,14 @@ impl Task {
             cadence: Arc::new(Mutex::new(cadence)),
             meter: Arc::new(Mutex::new(meter)),
             threads: Vec::new(),
+            active: None,
             state: TaskState::Created,
             policy_authority: false,
             period_start: 0,
             budget_left,
             grant_end: 0,
+            queued_at: None,
+            cache_heat: 0,
         }
     }
 
@@ -138,6 +144,16 @@ impl Task {
     /// 返回全部 TCB。
     pub fn threads(&self) -> &[TcbId] {
         &self.threads
+    }
+
+    /// 返回当前持有 Grant 的 TCB；同一 Task 同时只有一个。
+    pub const fn active(&self) -> Option<TcbId> {
+        self.active
+    }
+
+    /// 设置当前持有 Grant 的 TCB。
+    pub fn set_active(&mut self, active: Option<TcbId>) {
+        self.active = active;
     }
 
     /// 返回 Task 状态。
@@ -208,6 +224,12 @@ impl Task {
     /// 返回本周期剩余预算（契约 tick）。
     pub const fn budget_left(&self) -> u64 {
         self.budget_left
+    }
+
+    /// 从当前时刻重新开始预算周期。
+    pub fn reset_period(&mut self, now: u64) {
+        self.period_start = now;
+        self.budget_left = self.cadence.lock().budget().ticks();
     }
 
     /// 判断契约是否带硬预算。
@@ -310,9 +332,71 @@ impl Task {
         self.meter.lock().last_cpu()
     }
 
-    /// 记录 Task 本次运行的 CPU，并累计迁移次数。
-    pub fn record_cpu(&mut self, cpu: usize) {
-        self.meter.lock().migrate(cpu as u32);
+    /// 记录 Task 本次运行的 CPU；返回是否发生跨核迁移。
+    pub fn record_cpu(&mut self, cpu: usize) -> bool {
+        let weight = u64::from(self.cadence.lock().weight().get());
+        let heat = self.cache_heat;
+        let mut meter = self.meter.lock();
+        let previous = meter.last_cpu();
+        meter.migrate(cpu as u32);
+        let migrated = previous != NO_CPU && previous != cpu as u32;
+        if migrated {
+            meter.charge_migration(u64::from(heat).saturating_mul(weight));
+        }
+        self.cache_heat = if migrated {
+            1
+        } else {
+            heat.saturating_add(1).min(8)
+        };
+        migrated
+    }
+
+    /// 返回缓存热度；连续在同一 CPU 运行会升高，迁移后回到 1。
+    pub const fn cache_heat(&self) -> u32 {
+        self.cache_heat
+    }
+
+    /// 标记 Task 进入就绪队列；已在等待时保留最早时刻。
+    pub fn mark_queued(&mut self, now: u64) {
+        if self.queued_at.is_none() {
+            self.queued_at = Some(now);
+        }
+    }
+
+    /// 清除等待起点。
+    pub fn clear_queued(&mut self) {
+        self.queued_at = None;
+    }
+
+    /// 记入一次调度：等待时间、切换次数与超限；返回（等待, 是否超限）。
+    pub fn dispatch(&mut self, now: u64) -> (u64, bool) {
+        let waited = self
+            .queued_at
+            .take()
+            .map_or(0, |queued| now.saturating_sub(queued));
+        self.meter.lock().wait(Duration::from_ticks(waited));
+        self.meter.lock().switch();
+        let (class, deadline, period, latency) = {
+            let cadence = self.cadence.lock();
+            (
+                cadence.class(),
+                cadence.deadline().ticks(),
+                cadence.period().ticks(),
+                cadence.latency().ticks(),
+            )
+        };
+        let overrun = match class {
+            CadenceClass::Realtime => {
+                let limit = if deadline == 0 { period } else { deadline };
+                limit > 0 && now > self.period_start.saturating_add(limit)
+            }
+            CadenceClass::Latency => latency > 0 && waited > latency,
+            CadenceClass::Throughput | CadenceClass::Idle => false,
+        };
+        if overrun {
+            self.meter.lock().overrun();
+        }
+        (waited, overrun)
     }
 
     /// 周期到期时补充预算；返回是否发生补充。

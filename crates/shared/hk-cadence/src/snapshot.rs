@@ -161,6 +161,8 @@ pub struct MeterSnapshot {
     pub overruns: u64,
     /// 迁移次数。
     pub migrations: u64,
+    /// 迁移累计成本。
+    pub migration_cost: u64,
     /// 切换次数。
     pub switches: u64,
     /// 虚拟进度。
@@ -177,7 +179,7 @@ impl Default for MeterSnapshot {
 
 impl MeterSnapshot {
     /// 编码长度。
-    pub const ENCODED_LEN: usize = 64;
+    pub const ENCODED_LEN: usize = 72;
 
     /// 从计量生成快照。
     pub fn from_meter(meter: &Meter) -> Self {
@@ -187,6 +189,7 @@ impl MeterSnapshot {
             throttled: meter.throttled(),
             overruns: meter.overruns(),
             migrations: meter.migrations(),
+            migration_cost: meter.migration_cost(),
             switches: meter.switches(),
             virtual_pass: meter.virtual_pass(),
             last_cpu: meter.last_cpu(),
@@ -203,10 +206,11 @@ impl MeterSnapshot {
         buffer[16..24].copy_from_slice(&self.throttled.to_le_bytes());
         buffer[24..32].copy_from_slice(&self.overruns.to_le_bytes());
         buffer[32..40].copy_from_slice(&self.migrations.to_le_bytes());
-        buffer[40..48].copy_from_slice(&self.switches.to_le_bytes());
-        buffer[48..56].copy_from_slice(&self.virtual_pass.to_le_bytes());
-        buffer[56..60].copy_from_slice(&self.last_cpu.to_le_bytes());
-        buffer[60..64].fill(0);
+        buffer[40..48].copy_from_slice(&self.migration_cost.to_le_bytes());
+        buffer[48..56].copy_from_slice(&self.switches.to_le_bytes());
+        buffer[56..64].copy_from_slice(&self.virtual_pass.to_le_bytes());
+        buffer[64..68].copy_from_slice(&self.last_cpu.to_le_bytes());
+        buffer[68..72].fill(0);
         Some(Self::ENCODED_LEN)
     }
 
@@ -221,9 +225,10 @@ impl MeterSnapshot {
             throttled: u64::from_le_bytes(bytes[16..24].try_into().expect("定长")),
             overruns: u64::from_le_bytes(bytes[24..32].try_into().expect("定长")),
             migrations: u64::from_le_bytes(bytes[32..40].try_into().expect("定长")),
-            switches: u64::from_le_bytes(bytes[40..48].try_into().expect("定长")),
-            virtual_pass: u64::from_le_bytes(bytes[48..56].try_into().expect("定长")),
-            last_cpu: u32::from_le_bytes(bytes[56..60].try_into().expect("定长")),
+            migration_cost: u64::from_le_bytes(bytes[40..48].try_into().expect("定长")),
+            switches: u64::from_le_bytes(bytes[48..56].try_into().expect("定长")),
+            virtual_pass: u64::from_le_bytes(bytes[56..64].try_into().expect("定长")),
+            last_cpu: u32::from_le_bytes(bytes[64..68].try_into().expect("定长")),
         })
     }
 }

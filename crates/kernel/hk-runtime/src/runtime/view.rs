@@ -55,12 +55,13 @@ where
             format!("{}", snapshot.last_cpu)
         };
         format!(
-            "meter {name}：consumed={}us waited={}us throttled={} overruns={} migrations={} switches={} virtual_pass={} last_cpu={}\n",
+            "meter {name}：consumed={}us waited={}us throttled={} overruns={} migrations={} migration_cost={} switches={} virtual_pass={} last_cpu={}\n",
             snapshot.consumed,
             snapshot.waited,
             snapshot.throttled,
             snapshot.overruns,
             snapshot.migrations,
+            snapshot.migration_cost,
             snapshot.switches,
             snapshot.virtual_pass,
             cpu

@@ -118,6 +118,23 @@ impl CadenceSpec {
 /// 默认契约：Latency 类、基准权重、无硬预算。
 pub const DEFAULT_SPEC: CadenceSpec = CadenceSpec::new(CadenceClass::Latency, WEIGHT_REFERENCE);
 
+/// 利用率固定点标度（1.0 = 1_000_000）。
+pub const UTILIZATION_SCALE: u64 = 1_000_000;
+
+/// 计算 `budget / period` 的固定点利用率。
+pub fn utilization(budget: Duration, period: Duration) -> u64 {
+    if period.ticks() == 0 {
+        return 0;
+    }
+    (budget.ticks().saturating_mul(UTILIZATION_SCALE) / period.ticks()).min(UTILIZATION_SCALE)
+}
+
+/// Realtime 准入：类别必须是 Realtime，且累计利用率不超过 1.0。
+pub fn admits_realtime(used: u64, spec: CadenceSpec) -> bool {
+    spec.class == CadenceClass::Realtime
+        && used.saturating_add(utilization(spec.budget, spec.period)) <= UTILIZATION_SCALE
+}
+
 /// 空闲契约：Idle 类、最小权重。
 pub const IDLE_SPEC: CadenceSpec = CadenceSpec::new(CadenceClass::Idle, 1);
 
@@ -139,6 +156,7 @@ pub struct Cadence {
     affinity: CpuMask,
     migratable: bool,
     lending: Lending,
+    children_budget: u64,
 }
 
 impl Cadence {
@@ -157,6 +175,7 @@ impl Cadence {
             affinity: CpuMask::ALL,
             migratable: true,
             lending: Lending::caller_pays(),
+            children_budget: 0,
         }
     }
 
@@ -185,6 +204,7 @@ impl Cadence {
             affinity: spec.affinity,
             migratable: spec.migratable,
             lending: spec.lending,
+            children_budget: 0,
         };
         cadence.validate()?;
         Ok(cadence)
@@ -260,7 +280,7 @@ impl Cadence {
 
     /// 从本契约派生子契约；子契约只收窄权重、预算与借贷。
     pub fn split(
-        &self,
+        &mut self,
         id: CadenceId,
         weight: Weight,
         budget: Duration,
@@ -272,7 +292,9 @@ impl Cadence {
             if !budget.is_zero() {
                 return Err(CadenceError::BudgetExceedsParent);
             }
-        } else if budget > self.budget {
+        } else if budget > self.budget
+            || self.children_budget.saturating_add(budget.ticks()) > self.budget.ticks()
+        {
             return Err(CadenceError::BudgetExceedsParent);
         }
         let spec = CadenceSpec {
@@ -286,7 +308,34 @@ impl Cadence {
             migratable: self.migratable,
             lending: self.lending.narrowed_to(self.lending)?,
         };
-        Self::restore(id, Some(self.id), self.epoch, spec)
+        let child = Self::restore(id, Some(self.id), self.epoch, spec)?;
+        self.children_budget = self.children_budget.saturating_add(budget.ticks());
+        Ok(child)
+    }
+
+    /// 返回契约描述。
+    pub fn spec(&self) -> CadenceSpec {
+        CadenceSpec {
+            class: self.class,
+            weight: self.weight.get(),
+            budget: self.budget,
+            period: self.period,
+            deadline: self.deadline,
+            latency: self.latency,
+            affinity: self.affinity,
+            migratable: self.migratable,
+            lending: self.lending,
+        }
+    }
+
+    /// 返回已派生子契约占用的预算总和。
+    pub const fn children_budget(&self) -> u64 {
+        self.children_budget
+    }
+
+    /// 归还一个已释放子契约的预算。
+    pub fn release_child_budget(&mut self, budget: u64) {
+        self.children_budget = self.children_budget.saturating_sub(budget);
     }
 
     /// 递增 epoch，使旧句柄失效；返回新 epoch。
@@ -444,8 +493,42 @@ mod tests {
     }
 
     #[test]
+    fn releases_child_budget() {
+        let mut parent = CadenceSpec::new(CadenceClass::Latency, 4096)
+            .with_budget(Duration::from_ticks(8), Duration::from_ticks(32))
+            .cadence(CadenceId::new(1))
+            .expect("父契约");
+        parent
+            .split(CadenceId::new(2), weight(1024), Duration::from_ticks(4))
+            .expect("子契约");
+        assert_eq!(parent.children_budget(), 4);
+        parent.release_child_budget(4);
+        assert_eq!(parent.children_budget(), 0);
+        parent
+            .split(CadenceId::new(3), weight(1024), Duration::from_ticks(7))
+            .expect("释放后可重新分配");
+    }
+
+    #[test]
+    fn computes_realtime_utilization_and_admission() {
+        let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+            .with_budget(Duration::from_ticks(2_000), Duration::from_ticks(16_000));
+        assert_eq!(
+            utilization(Duration::from_ticks(2_000), Duration::from_ticks(16_000)),
+            125_000
+        );
+        assert!(admits_realtime(0, spec));
+        assert!(admits_realtime(875_000, spec));
+        assert!(!admits_realtime(900_000, spec));
+        assert!(!admits_realtime(
+            0,
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+        ));
+    }
+
+    #[test]
     fn splits_only_narrowing() {
-        let parent = CadenceSpec::new(CadenceClass::Latency, 4096)
+        let mut parent = CadenceSpec::new(CadenceClass::Latency, 4096)
             .with_budget(Duration::from_ticks(8), Duration::from_ticks(32))
             .cadence(CadenceId::new(1))
             .expect("父契约");
@@ -466,6 +549,12 @@ mod tests {
         assert_eq!(
             parent
                 .split(CadenceId::new(4), weight(1024), Duration::from_ticks(16))
+                .err(),
+            Some(CadenceError::BudgetExceedsParent)
+        );
+        assert_eq!(
+            parent
+                .split(CadenceId::new(5), weight(1024), Duration::from_ticks(7))
                 .err(),
             Some(CadenceError::BudgetExceedsParent)
         );

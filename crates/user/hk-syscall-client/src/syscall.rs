@@ -142,6 +142,33 @@ pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     )
 }
 
+/// 带超时调用端点；超时返回标签 `u64::MAX`。
+pub fn call_timeout(endpoint: u64, label: u64, word: u64, timeout: u64) -> (u64, u64, u64) {
+    // SAFETY: 端点编号由内核分配；超时按契约 tick 计。
+    let result = unsafe { syscall_call(SYS_CALL_TIMEOUT, endpoint, label, word, timeout) };
+    (result.value, result.word, result.sender)
+}
+
+/// 带超时接收带字节载荷的消息；超时返回标签 `u64::MAX`。
+pub fn recv_data_timeout(endpoint: u64, buffer: &mut [u8], timeout: u64) -> (u64, u64, u64, usize) {
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_TIMEOUT,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            timeout,
+        )
+    };
+    (
+        result.value,
+        result.word,
+        result.sender,
+        (result.extra as usize).min(buffer.len()),
+    )
+}
+
 /// 非阻塞接收带字节载荷的消息；无消息时返回标签 0。
 pub fn recv_data_try(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     // SAFETY: 缓冲区属于本进程；内核校验范围后写入；无消息时立即返回。

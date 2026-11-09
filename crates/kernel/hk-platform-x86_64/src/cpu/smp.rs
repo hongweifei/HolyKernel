@@ -1,7 +1,7 @@
 //! 跨核 TLB shootdown 与空闲唤醒。
 
 use core::arch::asm;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use hk_smp::{IdleState, TlbHardware, TlbShootdown};
 
@@ -11,6 +11,7 @@ use super::*;
 pub(super) static IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
 static TLB: TlbShootdown<MAX_CPUS> = TlbShootdown::new();
 static IDLE: IdleState<MAX_CPUS> = IdleState::new();
+static RESCHED: AtomicU64 = AtomicU64::new(0);
 
 /// x86 TLB/IPI 硬件适配。
 struct X86Tlb {
@@ -104,6 +105,24 @@ pub fn wake_aps() {
             send_ipi(id as u8, IPI_VECTOR);
         }
     }
+}
+
+/// 请求目标 CPU 重新调度；本地 CPU 由调度循环自然处理。
+pub fn reschedule(cpu: usize) {
+    if cpu >= MAX_CPUS || cpu == cpu_index() {
+        return;
+    }
+    let id = APIC_IDS[cpu].load(Ordering::Acquire);
+    if id == u32::MAX || id > u32::from(u8::MAX) {
+        return;
+    }
+    RESCHED.fetch_or(1_u64 << cpu, Ordering::SeqCst);
+    send_ipi(id as u8, IPI_VECTOR);
+}
+
+/// 取出并清除指定 CPU 的抢占请求。
+pub(super) fn take_resched(cpu: usize) -> bool {
+    cpu < MAX_CPUS && RESCHED.fetch_and(!(1_u64 << cpu), Ordering::SeqCst) != 0
 }
 
 pub(super) fn note_ipi() {

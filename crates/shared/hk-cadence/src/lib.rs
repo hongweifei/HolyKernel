@@ -21,7 +21,10 @@ mod time;
 mod weight;
 
 pub use affinity::{CpuMask, MAX_CPUS};
-pub use cadence::{Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC, IDLE_SPEC};
+pub use cadence::{
+    Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC, IDLE_SPEC, UTILIZATION_SCALE, admits_realtime,
+    utilization,
+};
 pub use class::CadenceClass;
 pub use error::CadenceError;
 pub use lending::{DEFAULT_LENDING_DEPTH, Lending, MAX_LENDING_DEPTH};

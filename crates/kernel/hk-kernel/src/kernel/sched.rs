@@ -1,7 +1,7 @@
 //! Task 生命周期与 Beat 调度决策。
 
-use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, Meter};
-use hk_hal::MAX_CPUS;
+use hk_base::Duration;
+use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, Meter, Weight};
 
 use super::*;
 
@@ -30,6 +30,60 @@ impl Kernel {
         task.lock().attach(thread);
         self.tasks.lock().insert(id, task);
         Ok(thread)
+    }
+
+    /// 以父 Task 的契约创建收窄子 Task，但不进入调度队列。
+    pub fn spawn_task_child_parked(
+        &self,
+        handles: HandleTable,
+        parent: TaskId,
+    ) -> Result<TcbId, KernelError> {
+        let parent_task = self.task(parent).ok_or(KernelError::UnknownTask(parent))?;
+        let (weight, budget) = {
+            let cadence = parent_task.lock().cadence();
+            let cadence = cadence.lock();
+            (
+                (cadence.weight().get() / 2).max(1),
+                cadence.budget().ticks() / 2,
+            )
+        };
+        let child = parent_task.lock().cadence().lock().split(
+            CadenceId::next(),
+            Weight::new(weight)?,
+            Duration::from_ticks(budget),
+        )?;
+        let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
+        let task = Arc::new(spin::Mutex::new(Task::new(
+            id,
+            Some(parent),
+            child,
+            Meter::new(),
+        )));
+        let thread = self.allocate_thread(id, handles);
+        task.lock().attach(thread);
+        self.tasks.lock().insert(id, task);
+        Ok(thread)
+    }
+
+    /// 以现成 Cadence 创建 Task；checkpoint 恢复使用。
+    pub fn spawn_task_with_cadence(
+        &self,
+        handles: HandleTable,
+        cadence: Cadence,
+    ) -> Result<TcbId, KernelError> {
+        let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
+        let task = Arc::new(spin::Mutex::new(Task::new(id, None, cadence, Meter::new())));
+        let thread = self.allocate_thread(id, handles);
+        task.lock().attach(thread);
+        self.tasks.lock().insert(id, task);
+        Ok(thread)
+    }
+
+    /// 从恢复时刻重新开始预算周期。
+    pub fn reset_budget_period(&self, task: TaskId, now: u64) {
+        if let Some(task) = self.task(task) {
+            task.lock().reset_period(now);
+        }
     }
 
     /// 在已有 Task 内创建 TCB，并立即激活。
@@ -106,9 +160,19 @@ impl Kernel {
             scheduler.remove(thread);
             scheduler.clear_current_if(thread);
         }
-        if !self.task_has_runnable(task_id, thread)
-            && let Some(task) = self.task(task_id)
-        {
+        self.clear_active_if(thread);
+        if let Some(task) = self.task(task_id) {
+            task.lock().clear_queued();
+        }
+        if self.task_has_runnable(task_id, thread) {
+            if let Some(task) = self.task(task_id) {
+                let mut task = task.lock();
+                if task.state() == TaskState::Running {
+                    task.set_state(TaskState::Eligible);
+                }
+            }
+            self.enqueue_next_thread(task_id, Some(thread));
+        } else if let Some(task) = self.task(task_id) {
             task.lock().set_state(TaskState::Suspended);
         }
         Ok(())
@@ -138,21 +202,31 @@ impl Kernel {
                 }
             };
             if let Some(task_id) = task_id {
-                let eligible = self.task(task_id).is_some_and(|task| {
+                self.record(current.get(), Category::Sched, TRACE_PREEMPT, 0);
+                let (eligible, throttled) = self.task(task_id).map_or((false, false), |task| {
                     let mut task = task.lock();
                     task.replenish(now);
                     if task.budget_exhausted() {
                         task.throttle();
-                        false
+                        (false, true)
                     } else {
                         if task.state() == TaskState::Running {
                             task.set_state(TaskState::Eligible);
                         }
-                        true
+                        (true, false)
                     }
                 });
                 if eligible {
-                    self.enqueue_thread(current);
+                    self.enqueue_next_thread(task_id, Some(current));
+                } else {
+                    self.clear_active_if(current);
+                    if throttled {
+                        if let Some(task) = self.task(task_id) {
+                            task.lock().clear_queued();
+                        }
+                        self.schedule_refill(task_id);
+                        self.record(current.get(), Category::Sched, TRACE_THROTTLE, 0);
+                    }
                 }
             }
         }
@@ -164,23 +238,47 @@ impl Kernel {
                 .pick_with(cpu, |thread| self.thread_cpu_allowed(thread, cpu))?;
             let task_id = self.threads.lock().get(&next).map(Tcb::task)?;
             let slice = self.slice_for_thread(next);
+            let mut throttled = false;
+            let mut overrun = false;
+            let mut migrated = false;
             let valid = self.task(task_id).is_some_and(|task| {
                 let mut task = task.lock();
                 task.replenish(now);
                 if task.budget_exhausted() {
                     task.throttle();
+                    throttled = true;
                     false
-                } else if matches!(task.state(), TaskState::Exited | TaskState::Suspended) {
+                } else if matches!(task.state(), TaskState::Exited | TaskState::Suspended)
+                    || task.active().is_some_and(|active| active != next)
+                {
                     false
                 } else {
+                    let (_, late) = task.dispatch(now);
+                    overrun = late;
+                    migrated = task.record_cpu(cpu);
+                    task.set_active(Some(next));
                     task.set_state(TaskState::Running);
                     task.set_grant_end(now.saturating_add(slice.unwrap_or(0)));
-                    task.record_cpu(cpu);
                     true
                 }
             });
             if !valid {
+                self.clear_active_if(next);
+                if throttled {
+                    if let Some(task) = self.task(task_id) {
+                        task.lock().clear_queued();
+                    }
+                    self.schedule_refill(task_id);
+                    self.record(next.get(), Category::Sched, TRACE_THROTTLE, 0);
+                }
                 continue;
+            }
+            self.record(next.get(), Category::Sched, TRACE_DEQUEUE, 0);
+            if overrun {
+                self.record(next.get(), Category::Sched, TRACE_OVERRUN, 0);
+            }
+            if migrated {
+                self.record(next.get(), Category::Sched, TRACE_MIGRATE, cpu as u64);
             }
             {
                 let mut threads = self.threads.lock();
@@ -205,7 +303,14 @@ impl Kernel {
         if let Some(caller) = caller
             && let Some(task) = self.task(caller)
         {
-            task.lock().charge_borrowed(elapsed);
+            let throttled = {
+                let mut task = task.lock();
+                task.charge_borrowed(elapsed);
+                task.state() == TaskState::Throttled
+            };
+            if throttled {
+                self.schedule_refill(caller);
+            }
         }
         let Some(task_id) = self.task_of(thread) else {
             return;
@@ -226,15 +331,110 @@ impl Kernel {
         task.lock().cpu_allowed(cpu)
     }
 
-    /// 按亲和性与负载把 TCB 入队到某个 CPU。
-    pub(crate) fn enqueue_thread(&self, thread: TcbId) -> bool {
-        let Some((class, key)) = self.queue_entry(thread) else {
-            return false;
-        };
+    /// 为 Task 保留唯一 Grant；已有 active TCB 时不再入队。
+    fn reserve_thread(&self, thread: TcbId) -> bool {
         let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) else {
             return false;
         };
-        let (affinity, migratable, weight, last_cpu) = {
+        let mut task = task.lock();
+        if matches!(
+            task.state(),
+            TaskState::Throttled | TaskState::Suspended | TaskState::Exited
+        ) {
+            return false;
+        }
+        match task.active() {
+            None => {
+                task.set_active(Some(thread));
+                true
+            }
+            Some(active) => active == thread,
+        }
+    }
+
+    /// 清除 TCB 的 active 标记。
+    pub(crate) fn clear_active_if(&self, thread: TcbId) {
+        if let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) {
+            let mut task = task.lock();
+            if task.active() == Some(thread) {
+                task.set_active(None);
+            }
+        }
+    }
+
+    /// 选择 Task 内下一个可运行 TCB 入队；`exclude` 优先轮转到它之后。
+    pub(crate) fn enqueue_next_thread(&self, task_id: TaskId, exclude: Option<TcbId>) -> bool {
+        let Some(task_ref) = self.task(task_id) else {
+            return false;
+        };
+        let (threads, state) = {
+            let task = task_ref.lock();
+            (task.threads().to_vec(), task.state())
+        };
+        if matches!(
+            state,
+            TaskState::Throttled | TaskState::Suspended | TaskState::Exited
+        ) {
+            task_ref.lock().set_active(None);
+            return false;
+        }
+        let chosen = {
+            let thread_map = self.threads.lock();
+            let count = threads.len();
+            let start = exclude
+                .and_then(|id| threads.iter().position(|thread| *thread == id))
+                .map_or(0, |index| index + 1);
+            let mut fallback = None;
+            let mut chosen = None;
+            for offset in 0..count {
+                let id = threads[(start + offset) % count];
+                if !thread_map
+                    .get(&id)
+                    .is_some_and(|tcb| tcb.state() == ThreadState::Runnable)
+                {
+                    continue;
+                }
+                if Some(id) == exclude {
+                    fallback = Some(id);
+                } else {
+                    chosen = Some(id);
+                    break;
+                }
+            }
+            chosen.or(fallback)
+        };
+        match chosen {
+            Some(thread) => {
+                {
+                    let mut task = task_ref.lock();
+                    task.set_active(Some(thread));
+                    if matches!(task.state(), TaskState::Blocked | TaskState::Created) {
+                        task.set_state(TaskState::Eligible);
+                    }
+                }
+                self.enqueue_thread(thread)
+            }
+            None => {
+                task_ref.lock().set_active(None);
+                false
+            }
+        }
+    }
+
+    /// 按亲和性与负载把 TCB 入队到某个 CPU。
+    pub(crate) fn enqueue_thread(&self, thread: TcbId) -> bool {
+        if !self.reserve_thread(thread) {
+            return false;
+        }
+        let Some((class, key)) = self.queue_entry(thread) else {
+            self.clear_active_if(thread);
+            return false;
+        };
+        let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) else {
+            self.clear_active_if(thread);
+            return false;
+        };
+        let (affinity, migratable, weight, last_cpu, heat) = {
             let task = task.lock();
             let (affinity, migratable, weight) = {
                 let cadence = task.cadence();
@@ -245,9 +445,16 @@ impl Kernel {
                     cadence.weight().get(),
                 )
             };
-            (affinity, migratable, weight, task.last_cpu())
+            (
+                affinity,
+                migratable,
+                weight,
+                task.last_cpu(),
+                task.cache_heat(),
+            )
         };
-        self.scheduler.lock().enqueue_best(
+        let now = self.now();
+        let enqueued = self.scheduler.lock().enqueue_best(
             thread,
             class,
             key,
@@ -255,7 +462,41 @@ impl Kernel {
             affinity,
             last_cpu,
             migratable,
-        )
+            heat,
+        );
+        if let Some(cpu) = enqueued {
+            if let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) {
+                task.lock().mark_queued(now);
+            }
+            self.record(
+                thread.get(),
+                Category::Sched,
+                TRACE_ENQUEUE,
+                u64::from(class.as_u8()),
+            );
+            self.request_resched_if_needed(thread, class, key, cpu);
+        }
+        enqueued.is_some()
+    }
+
+    /// 目标 CPU 正在运行的 Task 更弱时，请求该 CPU 立即重新调度。
+    fn request_resched_if_needed(&self, thread: TcbId, class: CadenceClass, key: u64, cpu: usize) {
+        let Some(current) = self.scheduler.lock().current(cpu) else {
+            return;
+        };
+        if current == thread {
+            return;
+        }
+        let Some(task) = self.task_of(current).and_then(|id| self.task(id)) else {
+            return;
+        };
+        let (current_class, current_key) = {
+            let task = task.lock();
+            (task.class(), task.queue_key())
+        };
+        if (class.as_u8(), key) < (current_class.as_u8(), current_key) {
+            self.request_resched(cpu);
+        }
     }
 
     /// 返回 TCB 的入队类别与键；借贷 frame 更强时使用调用方的值。
@@ -288,26 +529,14 @@ impl Kernel {
         Some(lending.map_or(slice, |frame| slice.min(frame.slice)))
     }
 
-    /// 返回下一个需要唤醒的调度时刻：预算补充或当前 Grant 结束。
-    pub fn next_deadline(&self) -> Option<u64> {
-        let mut earliest = None;
-        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
-        for task in tasks {
-            if let Some(at) = task.lock().refill_at() {
-                earliest = Some(earliest.map_or(at, |value: u64| value.min(at)));
-            }
-        }
-        let currents: Vec<Option<TcbId>> = {
-            let scheduler = self.scheduler.lock();
-            (0..MAX_CPUS).map(|cpu| scheduler.current(cpu)).collect()
-        };
-        for thread in currents.into_iter().flatten() {
-            let Some(task_id) = self.task_of(thread) else {
-                continue;
-            };
-            let Some(task) = self.task(task_id) else {
-                continue;
-            };
+    /// 返回 `cpu` 下一个需要唤醒的调度时刻：全局预算补充或本地 Grant 结束。
+    pub fn next_deadline(&self, cpu: usize) -> Option<u64> {
+        let mut earliest = self.refills.lock().keys().next().copied();
+        let current = self.scheduler.lock().current(cpu);
+        if let Some(thread) = current
+            && let Some(task_id) = self.task_of(thread)
+            && let Some(task) = self.task(task_id)
+        {
             let end = task.lock().grant_end();
             if end > 0 {
                 earliest = Some(earliest.map_or(end, |value: u64| value.min(end)));
@@ -319,6 +548,7 @@ impl Kernel {
     /// 终止 TCB；Task 的最后一个 TCB 退出时回收 Task。
     pub fn exit(&self, thread: TcbId) -> Result<(), KernelError> {
         self.release_lending(thread);
+        self.clear_active_if(thread);
         let tcb = self
             .threads
             .lock()
@@ -343,7 +573,16 @@ impl Kernel {
             scheduler.clear_current_if(thread);
         }
         if empty {
+            if let Some(task) = self.task(task_id) {
+                let cadence = task.lock().cadence();
+                self.release_child_budget(&cadence.lock());
+            }
             self.tasks.lock().remove(&task_id);
+        } else {
+            if let Some(task) = self.task(task_id) {
+                task.lock().clear_queued();
+            }
+            self.enqueue_next_thread(task_id, Some(thread));
         }
         self.record(thread.get(), Category::Sched, TRACE_EXIT, 0);
         self.record(
@@ -380,10 +619,27 @@ impl Kernel {
             scheduler.remove(thread);
             scheduler.clear_current_if(thread);
         }
-        if !self.task_has_runnable(task_id, thread)
-            && let Some(task) = self.task(task_id)
-        {
-            task.lock().set_state(TaskState::Blocked);
+        self.clear_active_if(thread);
+        if self.task_has_runnable(task_id, thread) {
+            if let Some(task) = self.task(task_id) {
+                let mut task = task.lock();
+                if matches!(
+                    task.state(),
+                    TaskState::Running | TaskState::Created | TaskState::Blocked
+                ) {
+                    task.set_state(TaskState::Eligible);
+                }
+            }
+            self.enqueue_next_thread(task_id, Some(thread));
+        } else if let Some(task) = self.task(task_id) {
+            let mut task = task.lock();
+            if !matches!(
+                task.state(),
+                TaskState::Throttled | TaskState::Suspended | TaskState::Exited
+            ) {
+                task.set_state(TaskState::Blocked);
+            }
+            task.set_active(None);
         }
         self.record(thread.get(), Category::Sched, TRACE_BLOCK, 0);
         Ok(())
@@ -435,29 +691,61 @@ impl Kernel {
         })
     }
 
+    /// 把节流任务放入全局补充队列。
+    fn schedule_refill(&self, task: TaskId) {
+        let Some(task_ref) = self.task(task) else {
+            return;
+        };
+        let refill = task_ref.lock().refill_at();
+        if let Some(at) = refill {
+            let mut refills = self.refills.lock();
+            let entries = refills.entry(at).or_default();
+            if !entries.contains(&task) {
+                entries.push(task);
+            }
+        }
+    }
+
     fn refill_throttled(&self, now: u64) {
-        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
-        for task in tasks {
-            let threads = {
-                let mut task = task.lock();
-                if task.state() != TaskState::Throttled || !task.replenish(now) {
+        loop {
+            let Some((&deadline, _)) = self.refills.lock().keys().next().map(|key| (key, ()))
+            else {
+                break;
+            };
+            if deadline > now {
+                break;
+            }
+            let tasks = {
+                let mut refills = self.refills.lock();
+                refills.remove(&deadline).unwrap_or_default()
+            };
+            for task_id in tasks {
+                let Some(task_ref) = self.task(task_id) else {
+                    continue;
+                };
+                let (thread, refill) = {
+                    let mut task = task_ref.lock();
+                    if task.state() != TaskState::Throttled {
+                        continue;
+                    }
+                    if !task.replenish(now) {
+                        (None, task.refill_at())
+                    } else {
+                        (task.threads().first().copied(), None)
+                    }
+                };
+                if let Some(at) = refill {
+                    let mut refills = self.refills.lock();
+                    let entries = refills.entry(at).or_default();
+                    if !entries.contains(&task_id) {
+                        entries.push(task_id);
+                    }
                     continue;
                 }
-                task.threads().to_vec()
-            };
-            let runnable: Vec<TcbId> = {
-                let thread_map = self.threads.lock();
-                threads
-                    .into_iter()
-                    .filter(|id| {
-                        thread_map
-                            .get(id)
-                            .is_some_and(|tcb| tcb.state() == ThreadState::Runnable)
-                    })
-                    .collect()
-            };
-            for thread in runnable {
-                self.enqueue_thread(thread);
+                if let Some(thread) = thread {
+                    self.record(thread.get(), Category::Sched, TRACE_REFILL, task_id.get());
+                }
+                self.enqueue_next_thread(task_id, None);
             }
         }
     }
