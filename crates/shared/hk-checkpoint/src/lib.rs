@@ -19,6 +19,9 @@ pub const MAGIC: [u8; 4] = *b"HKCK";
 /// 当前格式版本。
 pub const VERSION: u32 = 1;
 
+/// 快照中的共享页标记；不是硬件 PTE 位，恢复时由平台清除。
+pub const PAGE_FLAG_SHARED: u64 = 1 << 63;
+
 /// 一页用户内存。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Page {

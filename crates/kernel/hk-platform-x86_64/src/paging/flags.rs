@@ -1,7 +1,7 @@
-//! 页表项属性，以及 CoW 与检查点恢复的属性策略。
+//! 页表项属性，以及检查点恢复的属性策略。
 //!
 //! 硬件位来自 `page_table_entry` 的 x86_64 `PTF`，权限到位的转换使用其
-//! `MappingFlags`；本模块只保留软件 COW 位与检查点掩码。
+//! `MappingFlags`；COW 共享状态由 `hk-paging::FrameRefs` 维护。
 
 use hk_hal::MapFlags;
 use hk_mem::Rights;
@@ -43,7 +43,7 @@ impl PageFlags {
     /// 按 Region 权利与标志构造用户页属性。
     ///
     /// 写权限来自 `rights`；不带 `EXECUTE` 时由 `MappingFlags` 转出 NX。
-    /// `COW` 标志把页映射为只读并置位 COW 标记，写时由缺页处理复制。
+    /// `COW` Region 映射为只读，共享引用由 `hk-paging::FrameRefs` 维护。
     pub fn user(rights: Rights, flags: RegionFlags) -> Self {
         let cow = flags.contains(RegionFlags::COW);
         let mut mapping = MappingFlags::READ | MappingFlags::USER;
@@ -53,11 +53,7 @@ impl PageFlags {
         if rights.contains(Rights::EXECUTE) {
             mapping |= MappingFlags::EXECUTE;
         }
-        let mut bits = encode(mapping);
-        if cow {
-            bits |= COW;
-        }
-        Self(bits)
+        Self(encode(mapping))
     }
 
     /// 按 HAL 映射属性构造用户页属性。
@@ -79,11 +75,6 @@ impl PageFlags {
 
     pub(crate) const fn bits(self) -> u64 {
         self.0
-    }
-
-    /// 是否为写时复制页。
-    pub(crate) const fn is_cow(self) -> bool {
-        self.0 & COW != 0
     }
 
     /// 返回原始页表属性位。
@@ -115,14 +106,11 @@ pub(crate) fn map_flags(raw: u64) -> MapFlags {
     flags
 }
 
-/// 把快照属性转换为恢复用属性：清除 COW 与大页位，COW 页恢复为可写私有页。
+/// 把快照属性转换为恢复用属性：清除共享/COW 与大页位，共享页恢复为可写私有页。
 pub const fn restore_flags(bits: u64) -> PageFlags {
-    let writable = if bits & COW != 0 {
-        WRITABLE
-    } else {
-        bits & WRITABLE
-    };
-    PageFlags((bits & !COW & !HUGE) | writable | USER)
+    let shared = bits & (COW | hk_checkpoint::PAGE_FLAG_SHARED) != 0;
+    let writable = if shared { WRITABLE } else { bits & WRITABLE };
+    PageFlags((bits & !COW & !HUGE & !hk_checkpoint::PAGE_FLAG_SHARED) | writable | USER)
 }
 
 #[cfg(test)]
@@ -145,10 +133,10 @@ mod tests {
     }
 
     #[test]
-    fn cow_regions_map_read_only_with_marker() {
+    fn cow_regions_map_read_only_without_architecture_marker() {
         let cow = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::COW);
         assert_eq!(cow.raw() & WRITABLE, 0);
-        assert_eq!(cow.raw() & COW, COW);
+        assert_eq!(cow.raw() & COW, 0);
         assert_eq!(cow.raw() & USER, USER);
     }
 
@@ -176,10 +164,10 @@ mod tests {
     }
 
     #[test]
-    fn restore_makes_cow_pages_writable_and_clears_markers() {
-        let restored = restore_flags(PRESENT | COW | HUGE | USER);
+    fn restore_makes_shared_pages_writable_and_clears_markers() {
+        let restored = restore_flags(PRESENT | hk_checkpoint::PAGE_FLAG_SHARED | HUGE | USER);
         assert_eq!(restored.raw() & WRITABLE, WRITABLE);
-        assert_eq!(restored.raw() & COW, 0);
+        assert_eq!(restored.raw() & hk_checkpoint::PAGE_FLAG_SHARED, 0);
         assert_eq!(restored.raw() & HUGE, 0);
         assert_eq!(restored.raw() & USER, USER);
     }

@@ -433,7 +433,7 @@ fn load(
         cpu::user_frame(entry, stack_top, endpoint)
     })
     .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
-    hk_platform_x86_64::USER_VSPACES.install(index, table);
+    hk_platform_x86_64::USER_VSPACES.install(index, hk_platform_x86_64::UserSpace::new(table));
     Ok(context)
 }
 

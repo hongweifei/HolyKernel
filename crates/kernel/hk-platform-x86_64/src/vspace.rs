@@ -1,26 +1,47 @@
 //! 每任务用户页表登记、切换与写时复制分叉。
 
+use core::ops::Deref;
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
+
 use hk_mem::{UserVspace, VspaceRegistry};
+use hk_paging::UserSpace as PagingUserSpace;
 
 use crate::paging::PageTable;
 
-impl UserVspace for PageTable {
+/// 平台侧用户地址空间：在通用包装上实现 `hk-mem` 的登记契约。
+pub struct UserSpace(PagingUserSpace<PageTable>);
+
+impl UserSpace {
+    /// 包装一个 x86_64 用户页表。
+    pub const fn new(table: PageTable) -> Self {
+        Self(PagingUserSpace::new(table))
+    }
+}
+
+impl Deref for UserSpace {
+    type Target = PageTable;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.backend()
+    }
+}
+
+impl UserVspace for UserSpace {
     fn activate(&self) {
-        PageTable::activate(self);
+        PageTable::activate(self.0.backend());
     }
 
     fn root(&self) -> u64 {
-        PageTable::root(self).get()
+        PageTable::root(self.0.backend()).get()
     }
 
     fn fork_user(&self) -> Option<Self> {
-        PageTable::fork_user(self)
+        PageTable::fork_user(self.0.backend()).map(UserSpace::new)
     }
 
     fn share_user(&self) -> Option<Self> {
-        Some(PageTable::share(self))
+        Some(UserSpace::new(PageTable::share(self.0.backend())))
     }
 
     fn map_user(
@@ -31,20 +52,29 @@ impl UserVspace for PageTable {
         rights: Rights,
         flags: RegionFlags,
     ) -> bool {
-        self.map_user_range(
+        PageTable::map_user_range(
+            self.0.backend(),
             virt,
             phys,
             len,
             crate::paging::PageFlags::user(rights, flags),
+            flags.contains(RegionFlags::COW),
         )
     }
 
     fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
-        self.map_user_range(virt, phys, len, crate::paging::PageFlags::USER_MMIO)
+        PageTable::map_user_range(
+            self.0.backend(),
+            virt,
+            phys,
+            len,
+            crate::paging::PageFlags::USER_MMIO,
+            false,
+        )
     }
 
     fn unmap_user(&self, virt: u64, len: usize) -> bool {
-        self.unmap_user_range(hk_hal::VirtAddr::new(virt), len)
+        PageTable::unmap_user_range(self.0.backend(), hk_hal::VirtAddr::new(virt), len)
     }
 }
 
@@ -55,6 +85,7 @@ impl PageTable {
         phys: u64,
         len: usize,
         flags: crate::paging::PageFlags,
+        cow: bool,
     ) -> bool {
         if len == 0
             || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
@@ -67,7 +98,7 @@ impl PageTable {
             let virt = virt + offset as u64;
             let phys = phys + offset as u64;
             let remaining = len - offset;
-            let size = if !flags.is_cow() {
+            let size = if !cow {
                 if remaining >= (1 << 30)
                     && virt.is_multiple_of(1 << 30)
                     && phys.is_multiple_of(1 << 30)
@@ -116,4 +147,4 @@ impl PageTable {
 }
 
 /// 全局用户页表登记表。
-pub static USER_VSPACES: VspaceRegistry<PageTable> = VspaceRegistry::new();
+pub static USER_VSPACES: VspaceRegistry<UserSpace> = VspaceRegistry::new();

@@ -12,10 +12,12 @@ mod table;
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use spin::Mutex;
 use x86_64::registers::control::Cr3;
 
-use hk_hal::PhysAddr;
-use hk_mem::PagePool;
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
+use hk_mem::{FrameKind, PagePool};
+use hk_paging::FrameRefs;
 
 pub(crate) use flags::map_flags;
 pub use flags::{PageFlags, restore_flags};
@@ -24,6 +26,9 @@ pub use table::{PageTable, PagingError, has_1g_pages, init_cpu};
 
 /// 内核全局物理帧银行。
 pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
+
+/// 用户帧的 COW 共享引用。
+static FRAME_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
 
 /// 把全局帧银行注册为 HMP 的唯一物理后端。
 ///
@@ -104,6 +109,20 @@ pub fn resolve_cow(address: u64) -> bool {
         pcid: 0,
     };
     table.resolve_cow(address)
+}
+
+/// 释放地址空间：共享帧只递减引用，最后一个引用持有者归还物理帧。
+pub fn release_user(table: &PageTable) {
+    let mut refs = FRAME_REFS.lock();
+    for frame in table.user_frames() {
+        if refs.release(frame) == 0 {
+            FRAME_BANK.free_for(FrameKind::Cow, PhysRange::new(frame, PAGE_SIZE as u64));
+        }
+    }
+}
+
+pub(crate) fn frame_refs() -> &'static Mutex<FrameRefs> {
+    &FRAME_REFS
 }
 
 /// 判断当前页表中地址是否为用户可访问页。

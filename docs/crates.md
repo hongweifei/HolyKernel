@@ -23,7 +23,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
 | L1 | 共享契约 | `hk-shell`、`hk-font`、`hk-symbols` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化）；文本符号表解析与符号化 |
 | L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
-| L1 | 内核侧 | `hk-boot`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 引导后端（Limine/DTB）与启动信息、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
+| L1 | 内核侧 | `hk-paging`、`hk-boot`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 通用用户地址空间包装与帧引用计数 COW、引导后端（Limine/DTB）与启动信息、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
 | L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
 | L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
 | L2 | 用户态 | `hk-syscall-client` | 零分配系统调用薄客户端：参数整理、返回值解包与 Root 控制；并发库直接使用 |
@@ -52,7 +52,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 
 协议标签统一按 `0x100` 分段：基址只在 `hk-proto/src/labels.rs` 登记，各协议常量由基址派生，`LABEL_GROUPS` 登记全部服务协议标签（virtio 标签由驱动 crate 按 `labels::VIRTIO` 派生并自检）并由测试检查分段与全局唯一；Memory Server 与 Provider 缺页协议分别占 `0x1100`、`0x1200` 段。句柄权利使用 `RIGHT_*`，Holy 文档/卷令牌权利使用 `TOKEN_RIGHT_*`，两套按域命名。
 
-P2 将新增内核侧 `hk-paging`：统一 `UserSpace`、内核高半区继承、`FrameRefs` 与去写式 COW；当前用户页表与 COW 仍由 x86 平台后端维护。`cargo xtask deps` 已预留 `hk-paging` 规则：不得依赖用户态 crate。
+内核侧 `hk-paging` 提供通用 `UserSpace` 包装与 `FrameRefs`：COW 共享状态不再依赖 x86 软件 PTE 位；x86 平台保留页表编码、TLB、PCID 与大页机制。`cargo xtask deps` 要求 `hk-paging` 不得依赖用户态 crate。
 
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-base` 与 `hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能依赖 `hk-base` 与固件库；`hk-paging` 不得依赖用户态 crate；`hk-syscall-client` 只依赖 `hk-base` 与 `hk-syscall`，并发库（`hk-sync`、`hk-thread`、`hk-async`、`hk-worker`、`hk-debug`）只依赖它而不是完整 `hk-server-api`；`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；服务端 Holy 分派 `hk-holy-service` 与远程后端适配 `hk-fs-remote` 都不依赖服务二进制；`hk-proto` 只依赖内核面与 ABI，不引入会要求全局分配器的 `hk-fs`（无堆服务同样链接 `hk-proto`），原生文档的共享响应层放在 `hk-holy-proto`。
 
@@ -97,7 +97,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | Dma Capacity 与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、栅格化、缓存与内置字体数据 | `crates/shared/hk-font/src/{font,glyph,raster,cache,data}.rs` |
-| x86_64 页表项属性（`page_table_entry`）、页表机制与写时复制 | `crates/kernel/hk-platform-x86_64/src/paging/{flags,table,cow}.rs` |
+| 通用用户地址空间与帧引用计数 COW | `crates/kernel/hk-paging/src/{space,cow}.rs` |
+| x86_64 页表项属性（`page_table_entry`）、页表机制与 TLB/PCID | `crates/kernel/hk-platform-x86_64/src/paging/{flags,table,cow}.rs` |
 | Holy 文件系统契约与后端接口 | `crates/user/hk-fs/src/backend.rs` |
 | 文档与卷级令牌会话（复用 `TokenTable`） | `crates/user/hk-fs/src/session.rs` |
 | 系统调用薄封装、Root 控制与架构入口 | `crates/user/hk-syscall-client/src/{syscall,root,arch}.rs` |
@@ -115,7 +116,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 内核符号表与异常现场 | `crates/kernel/hk-root-server/src/debug/{symbols,fault}.rs`；文本符号解析与符号化在 `hk-symbols` |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
-| 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
+| 检查点快照格式与共享页标记 | `crates/shared/hk-checkpoint/src/lib.rs`（`PAGE_FLAG_SHARED` 不是硬件 PTE 位） |
 | 镜像服务清单、启动白名单与桌面排序 | `crates/shared/hk-catalog/src/lib.rs` |
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 默认启动服务白名单读取 | `crates/kernel/hk-root-server/src/loader.rs` 读取 `hk-catalog` |

@@ -66,7 +66,7 @@ hk-base（共享契约）
 
 - **P0（已完成）**：ADR、平台/crate/工程文档、三条依赖守卫；`hk-fw` 迁入共享层，`hk-acpi` 并入。
 - **P1（已完成）**：`hk-fw` 产出统一的 `FirmwareInfo` 与 `FirmwareDeviceTable`；ACPI 表按表类型拆分；平台只消费中性 IOMMU 描述，DMAR/IVRS 原始字段不再从 `Tables` 暴露；ACPI/DTB 归一化测试已加入。
-- **P2**：落地 `hk-paging`，把 x86 用户页表与 COW 迁移到通用层。
+- **P2（核心已完成）**：`hk-paging` 提供 `UserSpace` 与 `FrameRefs`；x86 fork/缺页复制/释放改用帧引用计数，不再使用软件 COW PTE 位。checkpoint 用引用计数标记共享页并以 `PAGE_FLAG_SHARED` 跨层传递。页表编码、PCID、大页与 TLB 仍留在 x86 平台。
 - **P3–P7**：x86 后端收口、AArch64/RISC-V、Limine/UEFI、设备发现与 conformance。
 
 过渡依赖必须记录在对应阶段的提交说明中，并由 `cargo xtask deps` 保持可检查；不得把平台实现重新引入 `hk-base`、`hk-hal` 或 `hk-fw`。
@@ -82,7 +82,7 @@ hk-base（共享契约）
 
 **成本与取舍**
 
-- P2 仍需迁移现有 x86 用户页表与 COW 调用点，短期内会保留过渡 API。
+- P2 仍需把 AArch64/RISC-V 页表后端接入 `hk-paging` 的 `UserSpace`；x86 的页表编码、PCID、大页与 TLB 继续保留在平台层。
 - 统一 `FirmwareInfo` 会引入一次数据模型转换；对启动路径有少量分配与拷贝。
 - 依赖守卫要求新增 crate 先确定侧别与允许依赖，增加提交前的结构成本。
 - AArch64/RISC-V 的页表、TLB 与中断差异仍需后端实现，通用层不能消除所有架构代码。

@@ -99,7 +99,7 @@ flowchart LR
 - BootInfo：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务模块；统一校验。
 - `hk-fw`：ACPI 与 DTB 解析，统一产出 `FirmwareInfo` 与 `FirmwareDeviceTable`（MMIO、IRQ、PCI ECAM、兼容字符串）。已落地 ACPI MADT（x86 IOAPIC/本地 APIC/中断覆盖，接入 I/O APIC 初始化）、DTB 内存/CPU/通用设备描述与中性 IOMMU 描述；Arena/Capacity 物化输入待平台后端接入。
 - `hk-mmio`：包装 `volatile-register`，统一 LAPIC、I/O APIC、PCI ECAM 与 MSI-X 的 MMIO 读写；内核与用户态驱动共用。
-- `page_table_entry`：统一 x86_64 PTE 位与属性编码（`PTF`/`MappingFlags`）；页表遍历、所有权、COW 与检查点语义仍由平台维护。
+- `page_table_entry`：统一 x86_64 PTE 位与属性编码（`PTF`/`MappingFlags`）；页表遍历、PCID、大页与 TLB 由平台维护，COW 共享状态由 `hk-paging::FrameRefs` 维护。
 - x86_64 平台：GDT/TSS/IDT、LAPIC/IOAPIC、PCI legacy/ECAM、串口、帧缓冲、SMP。
 - AArch64 平台：PL011、GICv3、Generic Timer、PSCI、DTB、页表。
 - 引导：`hk-boot` 已提供 `BootBackend` 抽象、Limine（x86_64/AArch64/RISC-V）与 DTB（AArch64/RISC-V `-kernel`）后端；UEFI loader 待后续；`platforms/*` 启动目录与镜像。

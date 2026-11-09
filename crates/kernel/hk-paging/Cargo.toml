@@ -1,0 +1,13 @@
+[package]
+name = "hk-paging"
+description = "HolyKernel 通用分页契约：帧引用计数与 COW"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-hal = { version = "0.1.0", path = "../hk-hal" }
+
+[lints]
+workspace = true

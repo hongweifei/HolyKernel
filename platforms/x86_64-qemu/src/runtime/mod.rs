@@ -348,9 +348,6 @@ impl UserPlatform for X86Platform {
 
     fn capture_pages(&self, slot: usize) -> Option<Vec<Page>> {
         USER_VSPACES.with(slot, |table| {
-            if table.has_cow_user_page() {
-                return None;
-            }
             let mut pages = Vec::new();
             table.user_pages(|virt, flags, phys| {
                 let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
@@ -358,6 +355,11 @@ impl UserPlatform for X86Platform {
                 if data.iter().all(|byte| *byte == 0) {
                     data.clear();
                 }
+                let flags = if table.is_shared_frame(hk_hal::PhysAddr::new(phys)) {
+                    flags | hk_checkpoint::PAGE_FLAG_SHARED
+                } else {
+                    flags
+                };
                 pages.push(Page { virt, flags, data });
             });
             if pages.is_empty() { None } else { Some(pages) }
@@ -367,9 +369,7 @@ impl UserPlatform for X86Platform {
     fn restore_pages(&self, slot: usize, pages: &[Page]) -> bool {
         paging::kernel_table().activate();
         if let Some(old) = USER_VSPACES.take(slot) {
-            for frame in old.user_frames() {
-                paging::give_restore_page(frame);
-            }
+            paging::release_user(&old);
         }
         let template = paging::kernel_table();
         let Ok(table) = template.create_user_with(paging::take_restore_page) else {
@@ -397,16 +397,14 @@ impl UserPlatform for X86Platform {
                 return false;
             }
         }
-        USER_VSPACES.install(slot, table);
+        USER_VSPACES.install(slot, hk_platform_x86_64::UserSpace::new(table));
         true
     }
 
     fn release_pages(&self, slot: usize) {
         paging::kernel_table().activate();
         if let Some(old) = USER_VSPACES.take(slot) {
-            for frame in old.user_frames() {
-                paging::give_restore_page(frame);
-            }
+            paging::release_user(&old);
         }
     }
 }

@@ -22,7 +22,7 @@ HolyKernel/
 │   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态） hk-symbols
 │   ├── kernel/            内核侧
 │   │   ├── hk-hal hk-handle hk-ipc hk-mem hk-kernel
-│   │   ├── hk-paging（P2：通用用户页表与 COW）
+│   │   ├── hk-paging（UserSpace、FrameRefs、COW）
 │   │   ├── hk-boot hk-framebuffer hk-smp hk-test hk-drivers
 │   │   ├── hk-runtime（用户任务、syscall 分派、RootServer 原语）
 │   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
@@ -212,7 +212,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - 依赖精简、可审计、维护活跃。
 - `build.rs` 与过程宏经过审查。
 - HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表项格式、固件解析、引导与架构库在平台或包装边界内。
-- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表遍历、所有权与 COW 语义在 P2 前仍由平台维护，之后归 `hk-paging`。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
+- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表编码、TLB、PCID 与大页机制由平台维护；COW 共享状态与 `UserSpace` 契约归 `hk-paging`。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
 - `cargo-deny` 检查许可证与安全公告。
 
 ---

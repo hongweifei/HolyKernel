@@ -883,6 +883,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-paging"
+version = "0.1.0"
+dependencies = [
+ "hk-hal",
+]
+
+[[package]]
 name = "hk-platform-hosted"
 version = "0.1.0"
 dependencies = [
@@ -897,6 +904,7 @@ version = "0.1.0"
 dependencies = [
  "amd-iommu",
  "hk-base",
+ "hk-checkpoint",
  "hk-device",
  "hk-drivers",
  "hk-framebuffer",
@@ -904,6 +912,7 @@ dependencies = [
  "hk-hal",
  "hk-mem",
  "hk-mmio",
+ "hk-paging",
  "hk-smp",
  "hk-syscall",
  "hk-test",

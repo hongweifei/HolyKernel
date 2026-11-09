@@ -11,7 +11,7 @@ use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::FrameKind;
 use hk_mem::page::PagePool;
 
-use super::flags::{COW, FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
+use super::flags::{FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
 use super::{FRAME_BANK, PageAllocator, read_cr3};
 
 #[cfg(not(test))]
@@ -242,42 +242,6 @@ impl PageTable {
                 }
             }
         }
-    }
-
-    /// 判断低半区是否存在写时复制页；此类任务暂不支持检查点。
-    pub fn has_cow_user_page(&self) -> bool {
-        for pml4 in 0..KERNEL_PML4_START {
-            // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
-            let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
-            if pml4e & PRESENT == 0 {
-                continue;
-            }
-            let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
-            for pdpt_index in 0..ENTRIES {
-                // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
-                let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
-                if pdp & PRESENT == 0 {
-                    continue;
-                }
-                let pd = PhysAddr::new(pdp & ADDRESS_MASK);
-                for pd_index in 0..ENTRIES {
-                    // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
-                    let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
-                    if pde & PRESENT == 0 || pde & HUGE != 0 {
-                        continue;
-                    }
-                    let pt = PhysAddr::new(pde & ADDRESS_MASK);
-                    for pt_index in 0..ENTRIES {
-                        // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
-                        let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
-                        if pte & PRESENT != 0 && pte & COW != 0 {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// 收集低半区用户页表与数据帧，供检查点释放或复用。
