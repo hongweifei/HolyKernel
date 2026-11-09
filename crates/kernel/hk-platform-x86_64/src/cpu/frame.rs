@@ -3,7 +3,13 @@
 use alloc::vec::Vec;
 
 /// XSAVE 区域字节数：x87/SSE 的 512 字节 legacy 区 + XSAVE 头 64 字节。
-pub const FPU_BYTES: usize = 576;
+pub const FPU_BYTES: usize = 832;
+
+/// 系统调用/中断栈顶为中断帧与 FPU 现场预留的空间。
+///
+/// 入口固定压入 176 字节，`InterruptFrame::fpu` 位于 `rsp + 192`；
+/// AVX 的 XSAVE 区域为 832 字节，栈顶需低于栈尾 848 字节。
+pub const STACK_RESERVE: usize = 192 + FPU_BYTES - 176;
 
 /// x87/SSE/AVX 状态，布局与 `XSAVE`（标准格式）一致。
 #[repr(C, align(64))]

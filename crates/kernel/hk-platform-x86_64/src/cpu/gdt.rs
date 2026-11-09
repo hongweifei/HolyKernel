@@ -31,7 +31,8 @@ fn syscall_stack_top(cpu: usize) -> u64 {
     if dynamic != 0 {
         return dynamic;
     }
-    CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64 - 16
+    CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64
+        - super::frame::STACK_RESERVE as u64
 }
 
 /// 为 CPU 设置动态系统调用栈顶，并同步 TSS.rsp0。

@@ -52,8 +52,8 @@ pub fn init(paging: &PageTable, allocator: &PageAllocator) -> bool {
         {
             return false;
         }
-        // 与静态栈一致，留 16 字节使中断帧后的 rsp 为 64 字节对齐。
-        let top = stack_base + STACK_PAGES * PAGE - 16;
+        // 预留中断帧与 FPU 现场，并保持 FPU 区域 64 字节对齐。
+        let top = stack_base + STACK_PAGES * PAGE - super::frame::STACK_RESERVE as u64;
         crate::cpu::set_syscall_stack_top(cpu, top);
     }
     true
