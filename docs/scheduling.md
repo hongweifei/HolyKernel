@@ -336,9 +336,9 @@ Meter 字段：
 
 | 构建 | min | avg | max |
 | --- | --- | --- | --- |
-| x86_64 QEMU release（单次） | 102 µs | 193 µs | 565 µs |
-| x86_64 QEMU debug（4 次） | 55–164 µs | 151–420 µs | 289–764 µs |
+| x86_64 QEMU release（3 次） | 11–22 µs | 43–93 µs | 100–164 µs |
+| x86_64 QEMU debug（多轮） | 35–95 µs | 100–352 µs | 213–2464 µs |
 
-QEMU 的定时器虚拟化与调度路径使 release 平均值仍高于 100 µs 目标；debug 多轮抖动明显（平均 151–420 µs）。该区间作为当前基线，后续优化一次性定时器路径与唤醒 IPI 后再收紧；探针在平均超过 2 ms 时失败。
+release 路径已进入 100 µs 目标；debug 仍有 QEMU 调度抖动与离群值（平均可达 352 µs、最大 2.4 ms）。空闲路径在 `stop_tick` 后重新编程一次性 deadline，AP idle 也会在一次性定时器到期时返回调度循环；探针在平均超过 2 ms 时失败。
 
 Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 的硬保证与 Tempo 准入在 M11 验收。Latency、Throughput 与 Idle 构成 1.0 的调度基线。

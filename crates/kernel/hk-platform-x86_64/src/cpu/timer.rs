@@ -81,6 +81,13 @@ pub fn rearm_tick() {
     interrupts::enable();
 }
 
+/// 为 idle 一次性唤醒启用本地定时器，不重置周期计数。
+pub fn enable_wakeup_timer() {
+    TICK_ARMED.store(true, Ordering::SeqCst);
+    TICK_ENABLED.store(true, Ordering::SeqCst);
+    interrupts::enable();
+}
+
 /// 停止调度 tick 并关中断。
 pub fn stop_tick() {
     // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
@@ -145,10 +152,19 @@ pub fn arm_oneshot(micros: u64) {
         return;
     }
     let per_10ms = u64::from(TICK_COUNT.load(Ordering::SeqCst));
-    let counts = (micros.saturating_mul(per_10ms) / 10_000).clamp(1, u64::from(u32::MAX)) as u32;
+    let counts = (micros
+        .saturating_mul(per_10ms)
+        .saturating_add(9_999)
+        / 10_000)
+        .clamp(1, u64::from(u32::MAX)) as u32;
     ONESHOT.fetch_or(1 << super::apic::cpu_index(), Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, counts);
+}
+
+/// 指定 CPU 是否已编程一次性唤醒。
+pub fn oneshot_armed(cpu: usize) -> bool {
+    ONESHOT.load(Ordering::SeqCst) & (1 << cpu) != 0
 }
 
 /// 恢复周期 watchdog。

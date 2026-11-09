@@ -156,6 +156,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or(0, UserRuntime::task_count)
     }
 
+    /// 重新编程当前 CPU 的 idle 唤醒。
+    pub fn arm_wakeup(&self, cpu: usize) {
+        if let Some(runtime) = self.runtime.lock().as_ref() {
+            runtime.arm_wakeup(cpu);
+        }
+    }
+
+    /// `cpu` 是否有下一次唤醒期限。
+    pub fn has_deadline(&self, cpu: usize) -> bool {
+        self.runtime
+            .lock()
+            .as_ref()
+            .is_some_and(|runtime| runtime.next_wakeup(cpu).is_some())
+    }
+
     /// 是否有尚未到期的休眠任务。
     pub fn has_sleepers(&self) -> bool {
         self.runtime

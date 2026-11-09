@@ -70,6 +70,7 @@ pub fn idle_cpus() -> usize {
 /// 调用前应关闭本地定时器；返回时中断仍关闭，由调用方重新启动 tick。
 pub fn idle(cpu: usize) {
     assert!(cpu < MAX_CPUS, "CPU 索引越界");
+    let armed = super::timer::oneshot_armed(cpu);
     IDLE.enter(cpu);
     // 关中断后检查唤醒标志；`enable_and_halt` 原子地开中断并 `hlt`，不会丢失
     // 在途 IPI 或中断。
@@ -80,7 +81,7 @@ pub fn idle(cpu: usize) {
         }
         interrupts::enable_and_hlt();
         interrupts::disable();
-        if IDLE.take_wake(cpu) {
+        if IDLE.take_wake(cpu) || (armed && !super::timer::oneshot_armed(cpu)) {
             break;
         }
     }

@@ -383,7 +383,7 @@ pub fn run(
             // 休眠任务需要周期性 tick 才能到期，外部输入则通过中断唤醒空闲 CPU。
             let keep_alive = desktop || console_test || runtime::has_sleepers();
             if keep_alive && !runtime::tasks().iter().all(|task| task.state == "exited") {
-                cpu::rearm_tick();
+                runtime::arm_idle_wakeup();
                 // SAFETY: 中断已开启；`hlt` 等待下一次中断，随后关中断回到调度循环。
                 unsafe {
                     core::arch::asm!("hlt; cli", options(nomem, nostack));

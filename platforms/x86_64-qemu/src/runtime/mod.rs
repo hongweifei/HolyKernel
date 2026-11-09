@@ -465,6 +465,12 @@ pub fn tempo_text() -> String {
     RUNTIME.tempo_text()
 }
 
+/// 在 stop_tick 之后重新编程 idle 的一次性 deadline。
+pub fn arm_idle_wakeup() {
+    cpu::enable_wakeup_timer();
+    RUNTIME.arm_wakeup(0);
+}
+
 /// 是否有尚未到期的休眠任务。
 pub fn has_sleepers() -> bool {
     RUNTIME.has_sleepers()
@@ -527,7 +533,12 @@ fn watchdog_snapshot() {
 pub fn run_ap(cpu: usize) -> ! {
     loop {
         RUNTIME.run_cpu(cpu, None);
-        cpu::stop_tick();
+        if RUNTIME.has_deadline(cpu) {
+            cpu::enable_wakeup_timer();
+            RUNTIME.arm_wakeup(cpu);
+        } else {
+            cpu::stop_tick();
+        }
         cpu::idle(cpu);
         cpu::start_ap_tick();
     }
