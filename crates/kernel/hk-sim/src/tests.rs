@@ -332,6 +332,196 @@ fn replays_periodic_refill_after_throttle() {
     assert!(meter.consumed > 1_000, "补充后应继续运行");
 }
 
+fn lending_replay(seed: u64) -> RunReport {
+    let kernel = Kernel::new();
+    let caller_spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(1), millis(4))
+        .with_deadline(millis(1));
+    let caller = kernel
+        .spawn_task(HandleTable::with_default_quota(), caller_spec)
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(HandleTable::with_default_quota(), DEFAULT_SPEC)
+        .expect("服务端");
+
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予客户端句柄");
+
+    let mut simulator = Simulator::new(kernel, seed).with_quantum(50);
+    simulator.register(
+        server,
+        Box::new(
+            move |kernel, tid| match kernel.recv(tid, endpoint).expect("接收") {
+                Some(received) => {
+                    if let Some(token) = received.reply {
+                        kernel.reply(tid, token, Message::new(2)).expect("回复");
+                    }
+                    ThreadStep::Exit
+                }
+                None => ThreadStep::Continue,
+            },
+        ),
+    );
+    let mut requested = false;
+    simulator.register(
+        caller,
+        Box::new(move |kernel, tid| {
+            if requested {
+                assert_eq!(kernel.take_reply(tid), Some(Message::new(2)));
+                ThreadStep::Exit
+            } else {
+                kernel
+                    .call(tid, client_endpoint, Message::new(1))
+                    .expect("调用");
+                requested = true;
+                ThreadStep::Continue
+            }
+        }),
+    );
+
+    simulator.run().expect("lending 回放完成")
+}
+
+#[test]
+fn replays_lending_deterministically() {
+    let first = lending_replay(21);
+    let second = lending_replay(21);
+    assert_eq!(first, second, "相同种子应产生相同 lending 回放");
+    assert_eq!(first.exits, 2);
+}
+
+fn migration_replay(seed: u64) -> (RunReport, u64) {
+    let kernel = Kernel::new();
+    let spec = CadenceSpec::new(CadenceClass::Throughput, 1024);
+    let first = kernel
+        .spawn_task(HandleTable::with_default_quota(), spec)
+        .expect("任务 1");
+    let second = kernel
+        .spawn_task(HandleTable::with_default_quota(), spec)
+        .expect("任务 2");
+    let third = kernel
+        .spawn_task(HandleTable::with_default_quota(), spec)
+        .expect("任务 3");
+
+    let mut simulator = Simulator::new(kernel, seed)
+        .with_cpus(2)
+        .with_quantum(10)
+        .with_step_limit(200);
+    let migrations = Arc::new(AtomicU64::new(0));
+    for thread in [first, second, third] {
+        let runs = Arc::new(AtomicU64::new(0));
+        let observed = migrations.clone();
+        simulator.register(
+            thread,
+            Box::new(move |kernel, tid| {
+                if let Some(meter) = kernel.task_meter_snapshot(tid) {
+                    observed.fetch_max(meter.migrations, Ordering::Relaxed);
+                }
+                if runs.fetch_add(1, Ordering::Relaxed) >= 2 {
+                    ThreadStep::Exit
+                } else {
+                    ThreadStep::Continue
+                }
+            }),
+        );
+    }
+
+    let report = simulator.run().expect("迁移回放完成");
+    (report, migrations.load(Ordering::Relaxed))
+}
+
+#[test]
+fn replays_migration_deterministically() {
+    let (first, first_migrations) = migration_replay(33);
+    let (second, second_migrations) = migration_replay(33);
+    assert_eq!(first, second, "相同种子应产生相同迁移回放");
+    assert_eq!(first_migrations, second_migrations);
+    assert!(first_migrations > 0, "多核回放应产生跨核迁移");
+}
+
+#[test]
+fn replays_wakeup_preemption() {
+    let kernel = Kernel::new();
+    let realtime = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(1)),
+        )
+        .expect("实时任务");
+    let background = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Throughput, 1024),
+        )
+        .expect("后台任务");
+    let client = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Throughput, 1024),
+        )
+        .expect("客户端");
+
+    let endpoint = kernel
+        .create_endpoint(realtime, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(realtime, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(client, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予客户端句柄");
+
+    let mut simulator = Simulator::new(kernel, 17)
+        .with_quantum(10)
+        .with_step_limit(400);
+    simulator.register(
+        realtime,
+        Box::new(
+            move |kernel, tid| match kernel.recv(tid, endpoint).expect("接收") {
+                Some(_) => ThreadStep::Exit,
+                None => ThreadStep::Continue,
+            },
+        ),
+    );
+    let background_runs = Arc::new(AtomicU64::new(0));
+    simulator.register(
+        background,
+        Box::new(move |_, _| {
+            if background_runs.fetch_add(1, Ordering::Relaxed) >= 20 {
+                ThreadStep::Exit
+            } else {
+                ThreadStep::Continue
+            }
+        }),
+    );
+    simulator.register(
+        client,
+        Box::new(move |kernel, tid| {
+            kernel
+                .send(tid, client_endpoint, Message::new(1))
+                .expect("发送");
+            ThreadStep::Exit
+        }),
+    );
+
+    let report = simulator.run().expect("唤醒抢占回放完成");
+    let client_position = report
+        .order
+        .iter()
+        .position(|thread| *thread == client)
+        .expect("客户端应被调度");
+    assert_eq!(
+        report.order.get(client_position + 1),
+        Some(&realtime),
+        "发送唤醒后实时任务应立即抢占后台任务"
+    );
+}
+
 #[test]
 fn reports_kernel_state_after_run() {
     let kernel = Kernel::new();

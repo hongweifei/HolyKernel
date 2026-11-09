@@ -103,6 +103,7 @@ pub struct Simulator {
     clock: u64,
     order: Vec<TcbId>,
     seed: u64,
+    cpus: usize,
 }
 
 impl Simulator {
@@ -117,12 +118,19 @@ impl Simulator {
             clock: 0,
             order: Vec::new(),
             seed,
+            cpus: 1,
         }
     }
 
     /// 设置步数上限。
     pub fn with_step_limit(mut self, step_limit: u64) -> Self {
         self.step_limit = step_limit;
+        self
+    }
+
+    /// 设置仿真的在线 CPU 数；至少 1，最多 64。
+    pub fn with_cpus(mut self, cpus: usize) -> Self {
+        self.cpus = cpus.clamp(1, 64);
         self
     }
 
@@ -149,44 +157,56 @@ impl Simulator {
     /// 并把时钟推进同样长度，使预算、`Throttled` 与周期补充在回放中可见。
     pub fn run(&mut self) -> Result<RunReport, SimError> {
         let mut exits = 0;
+        self.kernel.set_online_cpus(self.cpus);
 
         while self.kernel.thread_count() > 0 {
             self.kernel.set_clock(self.clock);
-            let Some(thread) = self.kernel.schedule(0) else {
-                // 只剩被节流或等待补充的 Task：把时钟推进到下一个补充点再试，
-                // 这样预算周期与 `Throttled → Eligible` 在回放中可见。
-                if let Some(deadline) = self.kernel.next_deadline(0) {
-                    let now = self.kernel.now();
-                    if deadline > now {
-                        self.clock = deadline;
-                        self.kernel.set_clock(deadline);
-                        continue;
-                    }
+            let mut progressed = false;
+            for cpu in 0..self.cpus {
+                let Some(thread) = self.kernel.schedule(cpu) else {
+                    continue;
+                };
+                progressed = true;
+
+                self.steps += 1;
+                if self.steps > self.step_limit {
+                    return Err(SimError::StepLimit { steps: self.steps });
                 }
-                return Err(SimError::Deadlock {
-                    blocked: self.kernel.thread_count(),
-                });
-            };
+                self.order.push(thread);
+                self.kernel.charge(thread, self.quantum);
+                self.clock = self.clock.saturating_add(self.quantum);
 
-            self.steps += 1;
-            if self.steps > self.step_limit {
-                return Err(SimError::StepLimit { steps: self.steps });
+                let body = self
+                    .bodies
+                    .get_mut(&thread)
+                    .expect("线程缺少执行体：启动流程未注册该线程");
+                let step = body(&self.kernel, thread);
+
+                if step == ThreadStep::Exit {
+                    self.kernel.exit(thread)?;
+                    self.bodies.remove(&thread);
+                    exits += 1;
+                }
             }
-            self.order.push(thread);
-            self.kernel.charge(thread, self.quantum);
-            self.clock = self.clock.saturating_add(self.quantum);
-
-            let body = self
-                .bodies
-                .get_mut(&thread)
-                .expect("线程缺少执行体：启动流程未注册该线程");
-            let step = body(&self.kernel, thread);
-
-            if step == ThreadStep::Exit {
-                self.kernel.exit(thread)?;
-                self.bodies.remove(&thread);
-                exits += 1;
+            if progressed {
+                continue;
             }
+
+            // 所有 CPU 都没有可运行线程：只剩被节流或等待补充的 Task，把时钟
+            // 推进到最早 deadline 再试，使预算周期与 `Throttled → Eligible` 可见。
+            let deadline = (0..self.cpus)
+                .filter_map(|cpu| self.kernel.next_deadline(cpu))
+                .min();
+            if let Some(deadline) = deadline
+                && deadline > self.clock
+            {
+                self.clock = deadline;
+                self.kernel.set_clock(deadline);
+                continue;
+            }
+            return Err(SimError::Deadlock {
+                blocked: self.kernel.thread_count(),
+            });
         }
 
         Ok(RunReport {
