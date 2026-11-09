@@ -1,9 +1,31 @@
 //! Task 生命周期与 Beat 调度决策。
 
+use core::cmp::Ordering as CmpOrdering;
+
 use hk_base::Duration;
 use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, Meter, Weight};
 
 use super::*;
+
+/// 取服务端契约与调用方借贷 frame 中更强的一个。
+///
+/// 比较顺序为调度类别、队列键、时间片：类别更小、键更小者更强；两类键完全
+/// 相同时取较短时间片，保证抢占响应性。返回 `(类别, 键, 时间片)`。
+fn lending_contract(
+    server_class: CadenceClass,
+    server_key: u64,
+    server_slice: u64,
+    frame: Option<crate::tcb::LendingFrame>,
+) -> (CadenceClass, u64, u64) {
+    let Some(frame) = frame else {
+        return (server_class, server_key, server_slice);
+    };
+    match (frame.class.as_u8(), frame.key).cmp(&(server_class.as_u8(), server_key)) {
+        CmpOrdering::Less => (frame.class, frame.key, frame.slice),
+        CmpOrdering::Greater => (server_class, server_key, server_slice),
+        CmpOrdering::Equal => (server_class, server_key, frame.slice.min(server_slice)),
+    }
+}
 
 impl Kernel {
     /// 创建 Task 与它的主 TCB，并立即激活。
@@ -498,19 +520,16 @@ impl Kernel {
         if current == thread {
             return;
         }
-        let Some(task) = self.task_of(current).and_then(|id| self.task(id)) else {
+        // 比较运行中 TCB 的有效契约（含借贷 frame），而非其 Task 自身契约。
+        let Some((current_class, current_key)) = self.queue_entry(current) else {
             return;
-        };
-        let (current_class, current_key) = {
-            let task = task.lock();
-            (task.class(), task.queue_key())
         };
         if (class.as_u8(), key) < (current_class.as_u8(), current_key) {
             self.request_resched(cpu);
         }
     }
 
-    /// 返回 TCB 的入队类别与键；借贷 frame 更强时使用调用方的值。
+    /// 返回 TCB 的有效入队类别与键；借贷 frame 更强时使用调用方的值。
     pub(crate) fn queue_entry(&self, thread: TcbId) -> Option<(CadenceClass, u64)> {
         let lending = self
             .threads
@@ -518,27 +537,28 @@ impl Kernel {
             .get(&thread)
             .and_then(Tcb::strongest_lending);
         let task = self.task(self.task_of(thread)?)?;
-        let (class, key) = {
+        let (class, key, slice) = {
             let task = task.lock();
-            (task.class(), task.queue_key())
+            (task.class(), task.queue_key(), task.slice_ticks())
         };
-        match lending {
-            Some(frame) if frame.class < class => Some((frame.class, frame.key)),
-            Some(frame) if frame.class == class => Some((class, key.min(frame.key))),
-            _ => Some((class, key)),
-        }
+        let (class, key, _) = lending_contract(class, key, slice, lending);
+        Some((class, key))
     }
 
-    /// 返回 TCB 的 Grant 时间片；借贷时取调用方与服务端中较短的一个。
-    fn slice_for_thread(&self, thread: TcbId) -> Option<u64> {
+    /// 返回 TCB 的有效 Grant 时间片；借贷时取更强契约的时间片。
+    pub(crate) fn slice_for_thread(&self, thread: TcbId) -> Option<u64> {
         let lending = self
             .threads
             .lock()
             .get(&thread)
             .and_then(Tcb::strongest_lending);
         let task = self.task(self.task_of(thread)?)?;
-        let slice = task.lock().slice_ticks();
-        Some(lending.map_or(slice, |frame| slice.min(frame.slice)))
+        let (class, key, slice) = {
+            let task = task.lock();
+            (task.class(), task.queue_key(), task.slice_ticks())
+        };
+        let (_, _, slice) = lending_contract(class, key, slice, lending);
+        Some(slice)
     }
 
     /// 返回 `cpu` 下一个需要唤醒的调度时刻：全局预算补充或本地 Grant 结束。

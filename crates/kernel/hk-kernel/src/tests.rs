@@ -1381,6 +1381,77 @@ fn lends_caller_contract_to_server_and_restores() {
     );
 }
 
+fn lending_server(
+    kernel: &Kernel,
+    caller_spec: CadenceSpec,
+    server_spec: CadenceSpec,
+) -> TcbId {
+    let caller = kernel
+        .spawn_task(HandleTable::new(8), caller_spec)
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(HandleTable::new(8), server_spec)
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("调用");
+    let received = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("收到调用");
+    assert!(received.reply.is_some(), "调用应携带回复令牌");
+    server
+}
+
+#[test]
+fn lending_uses_caller_contract_when_class_is_stronger() {
+    let kernel = kernel();
+    let caller = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(2), millis(16))
+        .with_deadline(millis(8));
+    let server = CadenceSpec::new(CadenceClass::Latency, 128);
+
+    let server_tcb = lending_server(&kernel, caller, server);
+
+    assert_eq!(
+        kernel.queue_entry(server_tcb).map(|entry| entry.0),
+        Some(CadenceClass::Realtime),
+        "实时调用方的类别更强"
+    );
+    assert_eq!(
+        kernel.slice_for_thread(server_tcb),
+        Some(2_000),
+        "应使用调用方更强契约的时间片"
+    );
+}
+
+#[test]
+fn lending_uses_stronger_key_within_same_class() {
+    let kernel = kernel();
+    let caller = CadenceSpec::new(CadenceClass::Latency, 2048);
+    let server = CadenceSpec::new(CadenceClass::Latency, 128).with_latency(millis(4));
+
+    let server_tcb = lending_server(&kernel, caller, server);
+
+    assert_eq!(
+        kernel.queue_entry(server_tcb),
+        Some((CadenceClass::Latency, 0)),
+        "同类别下调用方虚拟截止期更小"
+    );
+    assert_eq!(
+        kernel.slice_for_thread(server_tcb),
+        Some(1_000),
+        "应使用调用方更强契约的时间片"
+    );
+}
+
 #[test]
 fn cancel_call_releases_lending_and_discards_late_reply() {
     let kernel = kernel();
