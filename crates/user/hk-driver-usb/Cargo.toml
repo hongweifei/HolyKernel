@@ -1,0 +1,16 @@
+[package]
+name = "hk-driver-usb"
+description = "crab-usb 的 HolyKernel 宿主适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ax-crate-interface = "0.5"
+ax-sync = "0.6"
+crab-usb = "0.12"
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+
+[lints]
+workspace = true

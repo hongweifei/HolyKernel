@@ -219,7 +219,8 @@ sequenceDiagram
 | **Memory Server** | Anonymous Provider、User Capacity、Capability 分配 | User Capacity、Capability、Frame |
 | **Device Manager** | 枚举 PCI/DTB、创建 DeviceGrant、启动驱动 | PCI ECAM、DTB、IRQ |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
-| **Block Driver** | virtio-blk 等 virtio 设备类别 / AHCI | DeviceGrant（MMIO/DMA/IRQ） |
+| **Block Driver** | virtio-blk / AHCI / NVMe | DeviceGrant（MMIO/DMA/IRQ） |
+| **USB Driver** | xHCI HID（`crab-usb`） | DeviceGrant + Input Endpoint |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌；聚合远程 FS 服务 | FS Backend Endpoint、Revision Region |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存、POSIX 路径投影 | VFS Endpoint、Shared Frame |

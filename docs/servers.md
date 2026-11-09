@@ -14,7 +14,7 @@ flowchart TB
     Tempo["Tempo Server<br/>Cadence 策略 · 准入"]
     Mem["Memory Server<br/>User Capacity · Anonymous"]
     DM["Device Manager<br/>PCI / DTB"]
-    Blk["Block Driver<br/>virtio-blk / AHCI"]
+    Blk["Block Driver<br/>virtio-blk / AHCI / NVMe"]
     Net["Network Driver<br/>virtio-net"]
     Input["Input Driver<br/>virtio / PS2"]
     VFS["VFS Server<br/>DocId · 集合 · 修订 · 令牌"]
@@ -135,6 +135,7 @@ pub struct ServiceManifest {
 | **virtio 驱动** | virtio-blk / virtio-rng / virtio-console | Block Endpoint；熵源请求；控制台字节流 |
 | **AHCI** | SATA 块设备 | Block Endpoint；中断驱动、32 命令槽、Frame 直接 PRDT |
 | **NVMe** | NVMe 块设备 | Block Endpoint；rdif-block 控制器/队列桥 |
+| **USB** | xHCI HID | `crab-usb` xHCI 后端；boot keyboard/mouse 经 Input 协议转发 |
 | **virtio-net** | 网络设备 | Net Endpoint：tx/rx |
 | **virtio-input** | 键盘/鼠标 | Input Endpoint |
 | **PS/2** | 键盘/鼠标 | Input Endpoint |

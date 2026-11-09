@@ -229,6 +229,7 @@ pub fn run(
                     | "hk-server-console"
                     | "hk-server-device"
                     | "hk-server-input"
+                    | "hk-server-usb"
                     | "hk-server-virtio"
                     | "hk-server-holyfs"
                     | "hk-server-vfs"

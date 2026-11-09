@@ -23,3 +23,5 @@ pub const DEVICE_CLASS_CONSOLE: u64 = 5;
 pub const DEVICE_CLASS_AHCI: u64 = 6;
 /// NVMe 控制器。
 pub const DEVICE_CLASS_NVME: u64 = 7;
+/// USB 主机控制器。
+pub const DEVICE_CLASS_USB: u64 = 8;

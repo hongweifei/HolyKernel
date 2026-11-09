@@ -1,0 +1,24 @@
+[package]
+name = "hk-server-usb"
+description = "HolyKernel USB HID 服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-usb"
+path = "src/main.rs"
+
+[dependencies]
+hk-device = { version = "0.1.0", path = "../../crates/shared/hk-device" }
+hk-driver-host = { version = "0.1.0", path = "../../crates/user/hk-driver-host" }
+hk-driver-usb = { version = "0.1.0", path = "../../crates/user/hk-driver-usb" }
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true

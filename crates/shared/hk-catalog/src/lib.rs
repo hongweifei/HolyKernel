@@ -99,6 +99,7 @@ services![
     ("hk-server-display-test", true, 9, THROUGHPUT),
     ("hk-server-terminal-test", true, 9, THROUGHPUT),
     ("hk-server-input", true, 2, REALTIME),
+    ("hk-server-usb", true, 2, LATENCY_HIGH),
     ("hk-server-pointer-test", true, 9, THROUGHPUT),
     ("hk-server-holydoc", true, 7, LATENCY),
     ("hk-server-workbench", true, 7, LATENCY),
