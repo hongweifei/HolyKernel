@@ -133,7 +133,7 @@ pub struct ServiceManifest {
 | --- | --- | --- |
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint：read/write/flush/capacity |
 | **virtio 驱动** | virtio-blk / virtio-rng / virtio-console | Block Endpoint；熵源请求；控制台字节流 |
-| **AHCI** | SATA 块设备 | Block Endpoint |
+| **AHCI** | SATA 块设备 | Block Endpoint；中断驱动、32 命令槽、Frame 直接 PRDT |
 | **virtio-net** | 网络设备 | Net Endpoint：tx/rx |
 | **virtio-input** | 键盘/鼠标 | Input Endpoint |
 | **PS/2** | 键盘/鼠标 | Input Endpoint |

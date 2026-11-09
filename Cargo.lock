@@ -339,6 +339,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-driver-ahci"
+version = "0.1.0"
+dependencies = [
+ "hk-block",
+ "hk-device",
+ "hk-server-api",
+ "spin",
+]
+
+[[package]]
 name = "hk-driver-virtio"
 version = "0.1.0"
 dependencies = [
@@ -622,6 +632,17 @@ dependencies = [
  "hk-mem",
  "hk-syscall",
  "spin",
+]
+
+[[package]]
+name = "hk-server-ahci"
+version = "0.1.0"
+dependencies = [
+ "hk-block-ipc",
+ "hk-device",
+ "hk-driver-ahci",
+ "hk-server-api",
+ "hk-server-build",
 ]
 
 [[package]]
