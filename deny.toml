@@ -2,7 +2,9 @@
 yanked = "deny"
 # RUSTSEC-2026-0192：ttf-parser 已停止维护。hk-font 只解析编译期由
 # include_bytes! 嵌入的字体，不接触外部输入；迁移到 skrifa 前暂时保留。
-ignore = ["RUSTSEC-2026-0192"]
+# RUSTSEC-2024-0436：paste 已停止维护。它是 rdif-base（rdif-block 驱动栈）
+# 的传递依赖，仅在构建期做宏展开，无直接升级路径；迁移到 pastey 前暂时保留。
+ignore = ["RUSTSEC-2026-0192", "RUSTSEC-2024-0436"]
 
 [licenses]
 version = 2
