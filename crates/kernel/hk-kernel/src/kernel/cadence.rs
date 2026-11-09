@@ -124,7 +124,7 @@ impl Kernel {
         }
         {
             let mut task = task.lock();
-            task.set_cadence(cadence);
+            task.set_cadence(cadence, self.now());
         }
         if was_suspended {
             self.resume_task(task_id);
@@ -182,12 +182,27 @@ impl Kernel {
         let replacement = Cadence::restore(guard.id(), guard.parent(), guard.epoch(), spec)?;
         *guard = replacement;
         drop(guard);
+        // 新契约从当前时刻开始预算周期，避免 Realtime 绝对截止期落到过去。
+        if let Some(owner) = self.task_with_cadence(&cadence) {
+            owner.lock().reset_period(self.now());
+        }
         if let Some(parent) = parent {
             let mut parent = parent.lock();
             parent.release_child_budget(old_budget);
             parent.reserve_child_budget(spec.budget.ticks());
         }
         Ok(())
+    }
+
+    /// 返回持有指定 Cadence 的 Task。
+    fn task_with_cadence(
+        &self,
+        cadence: &Arc<spin::Mutex<Cadence>>,
+    ) -> Option<Arc<spin::Mutex<Task>>> {
+        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
+        tasks
+            .into_iter()
+            .find(|task| Arc::ptr_eq(&task.lock().cadence(), cadence))
     }
 
     /// 按契约标识查找持有的 Cadence；仅用于父契约范围校验。
@@ -283,7 +298,7 @@ impl Kernel {
         }
         {
             let mut target = target.lock();
-            target.set_cadence(cadence);
+            target.set_cadence(cadence, self.now());
         }
         if was_suspended {
             self.resume_task(task);
@@ -308,7 +323,7 @@ impl Kernel {
         self.release_child_budget(&previous.lock());
         {
             let mut target = target.lock();
-            target.set_cadence(cadence);
+            target.set_cadence(cadence, self.now());
         }
         if was_suspended {
             self.resume_task(task);
@@ -337,7 +352,7 @@ impl Kernel {
         }
         let task_id = {
             let mut task = task.lock();
-            task.set_cadence(Arc::clone(&cadence));
+            task.set_cadence(Arc::clone(&cadence), self.now());
             task.id()
         };
         if was_suspended {

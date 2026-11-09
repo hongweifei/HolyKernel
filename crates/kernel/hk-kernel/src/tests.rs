@@ -1236,6 +1236,33 @@ fn update_cadence_rejects_escalation_without_policy_authority() {
 }
 
 #[test]
+fn cadence_switch_restarts_realtime_deadline_at_now() {
+    let kernel = kernel();
+    kernel.set_clock(50_000);
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    kernel.set_policy_authority(task, true).expect("策略权限");
+    let cadence = kernel
+        .grant_cadence(thread, task, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        .expect("授予 Cadence");
+
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.class = CadenceClass::Realtime;
+    spec.budget = millis(1);
+    spec.period = millis(4);
+    spec.deadline = millis(1);
+    kernel
+        .update_cadence(thread, cadence, spec)
+        .expect("切换为 Realtime");
+
+    assert_eq!(
+        kernel.queue_entry(thread),
+        Some((CadenceClass::Realtime, 51_000)),
+        "新契约的绝对截止期应从当前时刻起算"
+    );
+}
+
+#[test]
 fn attaches_and_regrants_named_cadence() {
     let kernel = kernel();
     let thread = thread(&kernel);

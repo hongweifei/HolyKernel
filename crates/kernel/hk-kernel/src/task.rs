@@ -181,10 +181,13 @@ impl Task {
         self.policy_authority = policy_authority;
     }
 
-    /// 替换 Task 的 Cadence，并重置预算周期。
-    pub fn set_cadence(&mut self, cadence: Arc<Mutex<Cadence>>) {
+    /// 替换 Task 的 Cadence，并从 `now` 开始新的预算周期。
+    ///
+    /// `period_start` 必须落在当前时刻，否则 Realtime 的绝对截止期会落到过去，
+    /// 导致 EDF 排序与超限统计失真。
+    pub fn set_cadence(&mut self, cadence: Arc<Mutex<Cadence>>, now: u64) {
         self.cadence = cadence;
-        self.period_start = 0;
+        self.period_start = now;
         self.budget_left = self.cadence.lock().budget().ticks();
         if matches!(self.state, TaskState::Suspended | TaskState::Created) {
             self.state = TaskState::Eligible;
