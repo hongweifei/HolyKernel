@@ -60,7 +60,8 @@ jobs:
           sudo apt-get install -y qemu-system-x86 xorriso build-essential
       - name: Install Limine
         run: |
-          curl -sSL -o /tmp/limine-binary.tar.gz \
+          curl -fSL --retry 5 --retry-delay 5 --retry-all-errors \
+            -o /tmp/limine-binary.tar.gz \
             https://github.com/Limine-Bootloader/Limine/releases/download/v12.9.6/limine-binary.tar.gz
           echo "b38aabb042b0c0f9f562b7741be3c1204838d7bbacfa78bb411c674bd5b984ee  /tmp/limine-binary.tar.gz" | sha256sum -c -
           tar -xzf /tmp/limine-binary.tar.gz -C /tmp
