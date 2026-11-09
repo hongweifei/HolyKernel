@@ -36,6 +36,11 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         handle_mce(frame);
         return;
     }
+    if frame.vector == SCI_VECTOR {
+        crate::bootstrap::handle_sci();
+        lapic_write(LAPIC_EOI, 0);
+        return;
+    }
     if (u64::from(crate::irq::IRQ_VECTOR_BASE)
         ..u64::from(crate::irq::IRQ_VECTOR_BASE + crate::irq::IRQ_LINES))
         .contains(&frame.vector)

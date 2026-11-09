@@ -60,6 +60,9 @@ pub const SYSCALL_VECTOR: u64 = 0x80;
 /// 定时器中断向量。
 pub const TIMER_VECTOR: u64 = 32;
 
+/// ACPI SCI 中断向量。
+pub const SCI_VECTOR: u64 = 159;
+
 /// 双重故障使用的中断栈表序号。
 const DOUBLE_FAULT_IST: u8 = 1;
 

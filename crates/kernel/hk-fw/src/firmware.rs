@@ -75,6 +75,30 @@ impl GenericAddress {
 /// 固定 ACPI 描述表（FADT）的电源相关视图。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Fadt {
+    /// 固件控制结构（FACS）物理地址。
+    pub firmware_ctrl: u32,
+    /// 扩展固件控制结构地址（FADT rev 6+）。
+    pub x_firmware_ctrl: u64,
+    /// DSDT 物理地址（32 位字段；0 表示使用扩展字段）。
+    pub dsdt: u64,
+    /// SCI 中断号。
+    pub sci_interrupt: u16,
+    /// PM1a 事件块 I/O 端口。
+    pub pm1a_event: u32,
+    /// PM1b 事件块 I/O 端口。
+    pub pm1b_event: u32,
+    /// PM1 事件寄存器长度（字节）。
+    pub pm1_event_length: u8,
+    /// GPE0 块 I/O 端口。
+    pub gpe0_block: u32,
+    /// GPE0 块长度。
+    pub gpe0_length: u8,
+    /// GPE1 块 I/O 端口。
+    pub gpe1_block: u32,
+    /// GPE1 块长度。
+    pub gpe1_length: u8,
+    /// GPE1 基址。
+    pub gpe1_base: u8,
     /// PM1a 控制块 I/O 端口。
     pub pm1a_control: u32,
     /// PM1b 控制块 I/O 端口；0 表示不存在。
@@ -103,6 +127,31 @@ pub fn parse_fadt(bytes: &[u8]) -> Option<Fadt> {
         return None;
     }
     Some(Fadt {
+        firmware_ctrl: u32_at(bytes, 36)?,
+        x_firmware_ctrl: if bytes.len() >= 140 {
+            u64_at(bytes, 132).unwrap_or(0)
+        } else {
+            0
+        },
+        dsdt: if bytes.len() >= 148 {
+            let extended = u64_at(bytes, 140).unwrap_or(0);
+            if extended != 0 {
+                extended
+            } else {
+                u64::from(u32_at(bytes, 40)?)
+            }
+        } else {
+            u64::from(u32_at(bytes, 40)?)
+        },
+        sci_interrupt: u16_at(bytes, 49)?,
+        pm1a_event: u32_at(bytes, 56)?,
+        pm1b_event: u32_at(bytes, 60)?,
+        pm1_event_length: u8_at(bytes, 88)?,
+        gpe0_block: u32_at(bytes, 80)?,
+        gpe0_length: u8_at(bytes, 92)?,
+        gpe1_block: u32_at(bytes, 84)?,
+        gpe1_length: u8_at(bytes, 93)?,
+        gpe1_base: u8_at(bytes, 94)?,
         pm1a_control: u32_at(bytes, 64)?,
         pm1b_control: u32_at(bytes, 68)?,
         pm1_control_length: u8_at(bytes, 89)?,
@@ -401,6 +450,137 @@ pub fn parse_hpet(bytes: &[u8]) -> Option<Hpet> {
     })
 }
 
+/// 固件控制结构（FACS）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Facs {
+    /// 硬件签名。
+    pub hardware_signature: u32,
+    /// 固件唤醒向量（32 位）。
+    pub firmware_waking_vector: u32,
+    /// 全局锁。
+    pub global_lock: u32,
+    /// 标志。
+    pub flags: u32,
+    /// 扩展固件唤醒向量。
+    pub x_firmware_waking_vector: u64,
+    /// 版本。
+    pub version: u8,
+}
+
+/// 解析 FACS（无校验和，按长度截断）。
+pub fn parse_facs(bytes: &[u8]) -> Option<Facs> {
+    if bytes.len() < 64 || bytes.get(0..4)? != b"FACS" {
+        return None;
+    }
+    let length = u32_at(bytes, 4)? as usize;
+    if length < 64 || length > bytes.len() {
+        return None;
+    }
+    Some(Facs {
+        hardware_signature: u32_at(bytes, 8)?,
+        firmware_waking_vector: u32_at(bytes, 12)?,
+        global_lock: u32_at(bytes, 16)?,
+        flags: u32_at(bytes, 20)?,
+        x_firmware_waking_vector: if length >= 32 { u64_at(bytes, 24)? } else { 0 },
+        version: if length >= 33 { u8_at(bytes, 32)? } else { 0 },
+    })
+}
+
+fn read_facs<F>(read: &mut F, fadt: &Fadt) -> Option<Facs>
+where
+    F: FnMut(u64, usize) -> Option<Vec<u8>>,
+{
+    let address = if fadt.x_firmware_ctrl != 0 {
+        fadt.x_firmware_ctrl
+    } else {
+        u64::from(fadt.firmware_ctrl)
+    };
+    if address == 0 {
+        return None;
+    }
+    let header = read(address, 8)?;
+    let length = u32_at(&header, 4)? as usize;
+    if !(64..=4096).contains(&length) {
+        return None;
+    }
+    let bytes = read(address, length)?;
+    parse_facs(&bytes)
+}
+
+/// 读取并按表头校验一张 ACPI 表（如 DSDT）。
+pub fn read_table<F>(phys: u64, read: F) -> Option<Vec<u8>>
+where
+    F: FnMut(u64, usize) -> Option<Vec<u8>>,
+{
+    hk_acpi::read_table(phys, read)
+}
+
+/// 从 DSDT 中解析 `_S5` 包的前两个 SLP_TYP 值。
+///
+/// 只做最小 AML 扫描：定位 `Name (\_S5_, Package (...))`，读取前两个整数元素。
+/// 找不到或结构不符时返回 `None`，调用方可使用固件默认值。
+pub fn parse_s5(dsdt: &[u8]) -> Option<(u8, u8)> {
+    const NAME_S5: [u8; 6] = [0x08, 0x5C, 0x5F, 0x53, 0x35, 0x5F];
+    let mut from = 0;
+    while let Some(position) = dsdt
+        .get(from..)
+        .and_then(|bytes| bytes.windows(NAME_S5.len()).position(|w| w == NAME_S5))
+    {
+        let mut at = from + position + NAME_S5.len();
+        from = at;
+        if dsdt.get(at) != Some(&0x12) {
+            continue;
+        }
+        at += 1;
+        let first = *dsdt.get(at)?;
+        at += match first >> 6 {
+            0 => 1,
+            1 => 2,
+            2 => 3,
+            _ => 4,
+        };
+        let elements = *dsdt.get(at)?;
+        if elements < 2 {
+            continue;
+        }
+        at += 1;
+        let first = read_aml_integer(dsdt, &mut at)?;
+        let second = read_aml_integer(dsdt, &mut at)?;
+        return Some((first as u8, second as u8));
+    }
+    None
+}
+
+fn read_aml_integer(bytes: &[u8], at: &mut usize) -> Option<u64> {
+    let opcode = *bytes.get(*at)?;
+    *at += 1;
+    match opcode {
+        0x00 => Some(0),
+        0x01 => Some(1),
+        0x0A => {
+            let value = u64::from(*bytes.get(*at)?);
+            *at += 1;
+            Some(value)
+        }
+        0x0B => {
+            let value = u64::from(u16_at(bytes, *at)?);
+            *at += 2;
+            Some(value)
+        }
+        0x0C => {
+            let value = u64::from(u32_at(bytes, *at)?);
+            *at += 4;
+            Some(value)
+        }
+        0x0E => {
+            let value = u64_at(bytes, *at)?;
+            *at += 8;
+            Some(value)
+        }
+        _ => None,
+    }
+}
+
 /// 一次解析全部需要固定表；缺失的表为 `None`。
 #[derive(Clone, Debug, Default)]
 pub struct Tables {
@@ -416,6 +596,8 @@ pub struct Tables {
     pub dmar: Option<Dmar>,
     /// HPET。
     pub hpet: Option<Hpet>,
+    /// FACS。
+    pub facs: Option<Facs>,
 }
 
 /// 从 RSDP 解析固定表与拓扑表。
@@ -423,14 +605,22 @@ pub fn parse<F>(rsdp_phys: u64, mut read: F) -> Tables
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    let mut table = |signature: &[u8; 4]| hk_acpi::find_table(rsdp_phys, signature, &mut read);
+    let find = |signature: &[u8; 4], read: &mut F| hk_acpi::find_table(rsdp_phys, signature, read);
+    let fadt = find(SIGNATURE_FADT, &mut read).and_then(|bytes| parse_fadt(&bytes));
+    let mcfg = find(SIGNATURE_MCFG, &mut read).and_then(|bytes| parse_mcfg(&bytes));
+    let srat = find(SIGNATURE_SRAT, &mut read).and_then(|bytes| parse_srat(&bytes));
+    let pptt = find(SIGNATURE_PPTT, &mut read).and_then(|bytes| parse_pptt(&bytes));
+    let dmar = find(SIGNATURE_DMAR, &mut read).and_then(|bytes| parse_dmar(&bytes));
+    let hpet = find(SIGNATURE_HPET, &mut read).and_then(|bytes| parse_hpet(&bytes));
+    let facs = fadt.and_then(|fadt| read_facs(&mut read, &fadt));
     Tables {
-        fadt: table(SIGNATURE_FADT).and_then(|bytes| parse_fadt(&bytes)),
-        mcfg: table(SIGNATURE_MCFG).and_then(|bytes| parse_mcfg(&bytes)),
-        srat: table(SIGNATURE_SRAT).and_then(|bytes| parse_srat(&bytes)),
-        pptt: table(SIGNATURE_PPTT).and_then(|bytes| parse_pptt(&bytes)),
-        dmar: table(SIGNATURE_DMAR).and_then(|bytes| parse_dmar(&bytes)),
-        hpet: table(SIGNATURE_HPET).and_then(|bytes| parse_hpet(&bytes)),
+        fadt,
+        mcfg,
+        srat,
+        pptt,
+        dmar,
+        hpet,
+        facs,
     }
 }
 
@@ -538,6 +728,36 @@ mod tests {
         assert_eq!(dmar.units.len(), 1);
         assert_eq!(dmar.units[0].address, 0xFED9_0000);
         assert_eq!(dmar.units[0].flags, 1);
+    }
+
+    #[test]
+    fn parses_facs() {
+        let mut bytes = alloc::vec![0_u8; 64];
+        bytes[0..4].copy_from_slice(b"FACS");
+        bytes[4..8].copy_from_slice(&64_u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&0x1234_u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&0x1000_u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&7_u32.to_le_bytes());
+        bytes[20..24].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[24..32].copy_from_slice(&0x2000_u64.to_le_bytes());
+        bytes[32] = 2;
+        let facs = parse_facs(&bytes).expect("FACS");
+        assert_eq!(facs.hardware_signature, 0x1234);
+        assert_eq!(facs.firmware_waking_vector, 0x1000);
+        assert_eq!(facs.global_lock, 7);
+        assert_eq!(facs.x_firmware_waking_vector, 0x2000);
+        assert_eq!(facs.version, 2);
+    }
+
+    #[test]
+    fn parses_s5_package_from_dsdt() {
+        // Name (\_S5_, Package (2) { 0x05, 0x05 })
+        let dsdt = [
+            0x14, 0x10, 0x08, 0x5C, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x06, 0x02, 0x0A, 0x05, 0x0A,
+            0x05,
+        ];
+        assert_eq!(parse_s5(&dsdt), Some((5, 5)));
+        assert_eq!(parse_s5(&[0_u8; 8]), None);
     }
 
     #[test]

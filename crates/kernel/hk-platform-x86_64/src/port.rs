@@ -59,6 +59,15 @@ pub unsafe fn inl(port: u16) -> u32 {
     unsafe { Port::new(port).read() }
 }
 
+/// 从端口读取一个 16 位值。
+///
+/// # Safety
+/// 调用方保证端口号对当前上下文可访问。
+pub unsafe fn inw(port: u16) -> u16 {
+    // SAFETY: 由调用方保证端口可访问。
+    unsafe { Port::new(port).read() }
+}
+
 /// 向端口写入一个 16 位值。
 ///
 /// # Safety

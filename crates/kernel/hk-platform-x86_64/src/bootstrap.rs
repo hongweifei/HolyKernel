@@ -51,6 +51,7 @@ struct IoApicState {
 
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static POWER: Mutex<Option<Fadt>> = Mutex::new(None);
+static S5_TYPES: Mutex<Option<(u8, u8)>> = Mutex::new(None);
 static FIRMWARE: Mutex<Option<hk_fw::firmware::Tables>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
@@ -271,6 +272,13 @@ pub fn init_ioapic(
         }
     }
     *FIRMWARE.lock() = Some(tables);
+    if let Some(fadt) = *POWER.lock()
+        && fadt.dsdt != 0
+        && let Some(dsdt) =
+            hk_fw::firmware::read_table(fadt.dsdt, |phys, length| window.read(phys, length))
+    {
+        *S5_TYPES.lock() = hk_fw::firmware::parse_s5(&dsdt);
+    }
     let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
     let Some(madt) = madt else {
@@ -289,15 +297,26 @@ pub fn init_ioapic(
     let ioapic = IoApic::new(virt.get());
     ioapic.init();
     let gsi = madt.gsi(1);
+    let gsi_base = madt.gsi_base();
     let cpus = madt.cpu_count();
     let vector = crate::board::KEYBOARD_VECTOR as u8;
     let destination = crate::cpu::lapic_id();
-    ioapic.route(gsi, madt.gsi_base(), vector, destination);
+    ioapic.route(gsi, gsi_base, vector, destination);
     *MADT.lock() = Some(madt);
     *IOAPIC.lock() = Some(IoApicState {
         base: virt.get(),
         destination,
     });
+    if let Some(fadt) = *POWER.lock()
+        && fadt.sci_interrupt != 0
+    {
+        ioapic.route_level(
+            u32::from(fadt.sci_interrupt),
+            gsi_base,
+            crate::cpu::SCI_VECTOR as u8,
+            destination,
+        );
+    }
 
     Ok(Some(IoApicSetup {
         gsi,
@@ -371,13 +390,74 @@ pub fn power_off() -> bool {
     if fadt.pm1a_control == 0 {
         return false;
     }
-    // SLP_TYP=5、SLP_EN=1；QEMU/大多数 x86 固件的 S5 类型。
-    let value = (5_u16 << 10) | (1 << 13);
-    write_pm1(fadt.pm1a_control, value, fadt.pm1_control_length);
+    // 优先使用 DSDT `_S5`；缺失时使用 QEMU/常见固件的 5。
+    let (a, b) = S5_TYPES.lock().unwrap_or((5, 5));
+    let value_a = (u16::from(a & 0x07) << 10) | (1 << 13);
+    let value_b = (u16::from(b & 0x07) << 10) | (1 << 13);
+    write_pm1(fadt.pm1a_control, value_a, fadt.pm1_control_length);
     if fadt.pm1b_control != 0 {
-        write_pm1(fadt.pm1b_control, value, fadt.pm1_control_length);
+        write_pm1(fadt.pm1b_control, value_b, fadt.pm1_control_length);
     }
     true
+}
+
+/// 处理 ACPI SCI：清除 PM1/GPE 状态，电源按钮触发 S5。
+pub fn handle_sci() {
+    let Some(fadt) = *POWER.lock() else {
+        return;
+    };
+    let mut power_button = false;
+    for (block, length) in [
+        (fadt.pm1a_event, fadt.pm1_event_length),
+        (fadt.pm1b_event, fadt.pm1_event_length),
+    ] {
+        if block == 0 || length == 0 {
+            continue;
+        }
+        let status = read_pm1(block, length);
+        if status != 0 {
+            write_pm1(block, status, length);
+        }
+        power_button |= status & (1 << 8) != 0;
+    }
+    if fadt.gpe0_block != 0 && fadt.gpe0_length != 0 {
+        for index in 0..u16::from(fadt.gpe0_length) {
+            let port = (fadt.gpe0_block as u16).wrapping_add(index);
+            // SAFETY: GPE0 块由 FADT 描述为标准 I/O 端口。
+            let value = unsafe { crate::port::inb(port) };
+            if value != 0 {
+                // SAFETY: 写 1 清除对应 GPE 状态。
+                unsafe { crate::port::outb(port, value) };
+            }
+        }
+    }
+    if fadt.gpe1_block != 0 && fadt.gpe1_length != 0 {
+        for index in 0..u16::from(fadt.gpe1_length) {
+            let port = (fadt.gpe1_block as u16).wrapping_add(index);
+            // SAFETY: GPE1 块由 FADT 描述为标准 I/O 端口。
+            let value = unsafe { crate::port::inb(port) };
+            if value != 0 {
+                // SAFETY: 写 1 清除对应 GPE 状态。
+                unsafe { crate::port::outb(port, value) };
+            }
+        }
+    }
+    if power_button && power_off() {
+        loop {
+            x86_64::instructions::hlt();
+        }
+    }
+}
+
+fn read_pm1(port: u32, length: u8) -> u16 {
+    // SAFETY: PM1 事件块由 FADT 描述为标准 I/O 端口。
+    unsafe {
+        if length <= 1 {
+            u16::from(crate::port::inb(port as u16))
+        } else {
+            crate::port::inw(port as u16)
+        }
+    }
 }
 
 /// 通过 FADT reset register 复位；无该寄存器时返回 `false`。

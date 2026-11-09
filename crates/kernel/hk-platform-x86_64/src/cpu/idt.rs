@@ -125,6 +125,7 @@ unsafe extern "C" {
     fn isr_94();
     fn isr_95();
     fn isr_128();
+    fn isr_159();
     fn isr_240();
 }
 
@@ -171,6 +172,7 @@ pub(super) fn init_idt() {
             IdtEntry::new(isr_33 as *const () as usize, 0);
         idt[SYSCALL_VECTOR as usize] =
             IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
+        idt[SCI_VECTOR as usize] = IdtEntry::new(isr_159 as *const () as usize, 0);
         idt[IPI_VECTOR as usize] = IdtEntry::new(isr_240 as *const () as usize, 0);
     }
     load_idt();

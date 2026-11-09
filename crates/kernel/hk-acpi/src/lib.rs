@@ -28,6 +28,14 @@ where
 
     let (root_phys, extended) = if rsdp[15] >= 2 {
         let extra = read(rsdp_phys + RSDP_MIN_LENGTH as u64, RSDP_V2_EXTRA_LENGTH)?;
+        // RSDP v2 的扩展校验和覆盖完整的 36 字节。
+        let sum = rsdp
+            .iter()
+            .chain(extra.iter())
+            .fold(0_u8, |sum, byte| sum.wrapping_add(*byte));
+        if sum != 0 {
+            return None;
+        }
         let length = u32::from_le_bytes(extra[0..4].try_into().ok()?);
         if (length as usize) < HEADER_LENGTH {
             return None;
@@ -81,6 +89,17 @@ where
     }
 
     None
+}
+
+/// 读取并按 ACPI 表头校验一张表（不含 RSDT/XSDT 遍历）。
+pub fn read_table<F>(phys: u64, mut read: F) -> Option<Vec<u8>>
+where
+    F: FnMut(u64, usize) -> Option<Vec<u8>>,
+{
+    let header = read(phys, HEADER_LENGTH)?;
+    let length = table_length(&header)?;
+    let table = read(phys, length)?;
+    checksum(&table).then_some(table)
 }
 
 fn table_length(header: &[u8]) -> Option<usize> {
