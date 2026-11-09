@@ -2,7 +2,7 @@
 
 状态：**已接受** · 关联：[ADR-0017](adr/0017-holy-cadence.md) · 上级：[总体架构](architecture.md)
 
-实现状态：对象面（`hk-cadence`）、内核 Task/Cadence/Meter 对象与 Beat 类别队列已落地；Tempo 策略服务、lending、tickless、亲和与 checkpoint 集成仍在推进，逐项状态见 §12。
+实现状态：对象面（`hk-cadence`）、Task 级唯一 Grant 与 TCB 轮转、Beat 类别队列、Meter 记账、Tempo 策略、lending、tickless、亲和、缓存热度与 checkpoint 均已落地基础版本；唤醒抢占、reschedule IPI、refill/sleep/接收超时 deadline 队列与 Realtime 利用率检查已接入，剩余差距逐项见 §12。
 
 Holy Cadence Model 是 HolyKernel 的原生调度契约。它把 CPU 时间表达为与内存同级的显式资源：**Task 持有 Cadence，内核执行 Cadence，Tempo 授予 Cadence，Meter 记录 Cadence。**
 
@@ -59,7 +59,7 @@ flowchart LR
 | 服务角色 | 默认 Cadence |
 | --- | --- |
 | Root Server | `Latency { weight: 4096, latency: 1ms }` |
-| Tempo Server | `Latency { weight: 2048, latency: 1ms }` |
+| Tempo Server | `Realtime { weight: 4096, budget: 8ms, period: 16ms, latency: 2ms }` |
 | Display / Input / Console | `Realtime { budget: 3ms, period: 16ms, deadline: 8ms }` |
 | VFS / HolyFS / VirtIO | `Latency { weight: 3072, latency: 4ms }` |
 | Network / POSIX / Checkpoint / Debug | `Latency { weight: 2048, latency: 4ms }` |
@@ -110,7 +110,7 @@ Task、Cadence、Meter 都使用统一 Handle 表示；Rust 客户端库提供�
 1. **Task 级**：Beat 在所有 Eligible Task 之间选择下一个 Grant。
 2. **TCB 级**：Task 获得 Grant 后，其可运行 TCB 轮转使用该 Grant；任务阻塞时切换下一个 TCB。
 
-公平、预算与计量都记在 Task 上，同一 Task 的 TCB 共享同一份 Cadence 与 Meter。
+公平、预算与计量都记在 Task 上，同一 Task 的 TCB 共享同一份 Cadence 与 Meter。实现上 Task 只有 `active` 一个 TCB 持有 Grant；Grant 结束时在该 Task 的 Runnable TCB 间按 attach 顺序轮转。
 
 ### 5.2 类别
 
@@ -195,7 +195,7 @@ stateDiagram-v2
 ### 5.9 阻塞、sleep 与超时
 
 - Endpoint、Notification、futex、sleep、IPC 超时统一表达为 Task 的 `Blocked` 状态与唤醒条件。
-- sleep 与 IPC 超时进入全局 deadline 队列；到期由 Beat 唤醒对应 Task。
+- sleep、带超时接收与带超时调用进入全局 deadline 队列；到期由 Beat 唤醒对应 Task，超时调用取消挂起调用记录。
 - Endpoint 等待队列按 Cadence 类别与虚拟键值排序；同一类别内保持 FIFO。
 - 取消、退出与撤销会清理等待队列与 lending frame。
 
@@ -227,6 +227,7 @@ Meter 字段：
 | `throttled` | 预算耗尽次数 |
 | `overruns` | 超过 Realtime 截止期或 Latency 目标的次数 |
 | `migrations` | 跨 CPU 迁移次数 |
+| `migration_cost` | 迁移累计缓存成本（热度 × 权重） |
 | `switches` | 上下文切换次数 |
 | `virtual_pass` | 同类公平队列中的虚拟进度 |
 | `last_cpu` | 最近运行的 CPU |
@@ -299,17 +300,17 @@ Meter 字段：
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
 | `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
-| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、Grant、EDF/CBS 键、WFQ 虚拟时间、预算与 `Throttled`、周期补充；trace 记录 spawn/dispatch/block/wake/exit |
-| `hk-runtime` | 已实现 | Task 创建与契约继承、fork/线程共享 Task、Meter 记账、契约时钟推进 |
+| `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun trace 已记账；refill、sleep、接收与调用超时进入全局 deadline 队列 |
+| `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时、Realtime 利用率检查已接入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
-| `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF` 编号与内核分派；`handle = 0` 表示当前 Task |
-| `hk-server-tempo` | 已实现 | `servers/tempo`：在 Root 授予的初始契约池内派生收窄子契约，支持自准入与按名准入/撤销重授予；用户态 Shell 提供 `cadence`/`meter`/`tempo`/`admit`/`revoke`，`smoke --mode tempo` 覆盖全链路 |
-| Tickless | 已实现 | 周期 tick 保留为 watchdog/统计；Grant 结束、预算补充与 sleep 到期按契约微秒编程一次性 LAPIC 唤醒（`next_deadline` 取最早者） |
-| 亲和与迁移 | 已实现 | 每 CPU Beat；入队按亲和性与加权负载选核；空闲 CPU 从最忙 Beat 窃取可迁移 Task；跨核运行计入 `Meter.migrations`。缓存热度模型仍待补 |
-| Lending | 已实现 | `call` 期间服务端 TCB 压入 lending frame，类别/队列键/时间片取调用方与服务端更强的一个；执行时间同时记入调用方 Meter 与预算，`reply`/退出时弹栈 |
-| Checkpoint | 已实现 | 快照写入 Cadence/Meter 水位；恢复时按契约描述重建 Task 并回填 Meter |
+| `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |
+| `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护利用率账本并拒绝超限申请，恢复路径复用同一门禁。完整响应时间可调度性分析未做 |
+| Tickless | 部分 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收超时的最早者；refill、sleep、接收与调用超时使用 deadline 队列 |
+| 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本仍只按次数记录，没有独立成本模型 |
+| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账与 reply/退出弹栈已落地；同类别下未取调用方更强的队列键，IPC 超时恢复未实现 |
+| Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，按 Tempo 池范围校验重准入（不经过用户态 IPC），`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
-| `hk-sim` | 已实现 | 虚拟时钟、量子计费与确定性重放；覆盖 WFQ 2:1 份额、Realtime 优先、预算节流与周期补充 |
+| `hk-sim` | 部分 | 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充；lending、迁移与唤醒抢占回放待补 |
 
 实现约定：
 
