@@ -3,7 +3,7 @@
 //! 把目标 Cadence 快照发给 Tempo，接收随回复转移的子契约句柄。
 
 use hk_proto::tempo::{
-    MAX_NAME, SNAPSHOT_LEN, TEMPO_ADMIT, TEMPO_REQUEST, TEMPO_RESPONSE, TEMPO_REVOKE,
+    MAX_NAME, SNAPSHOT_LEN, TEMPO_ADMIT, TEMPO_READMIT, TEMPO_REQUEST, TEMPO_RESPONSE, TEMPO_REVOKE,
 };
 use hk_server_api::{recv_data, recv_data_handle, send_data};
 
@@ -37,6 +37,21 @@ impl TempoClient {
         let (label, _word, _sender, _size, handle) =
             recv_data_handle(self.local, &mut self.buffer, 0);
         (label == TEMPO_RESPONSE && handle != 0).then_some(handle)
+    }
+
+    /// 按任务名读取当前契约并重准入。
+    pub fn readmit_named(&mut self, name: &str) -> bool {
+        if name.is_empty() || name.len() > MAX_NAME {
+            return false;
+        }
+        let mut payload = [0_u8; 2 + MAX_NAME];
+        payload[..2].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        payload[2..2 + name.len()].copy_from_slice(name.as_bytes());
+        if send_data(self.remote, TEMPO_READMIT, &payload[..2 + name.len()]) != 0 {
+            return false;
+        }
+        let (reply, _word, _sender, _size) = recv_data(self.local, &mut self.buffer);
+        reply == TEMPO_RESPONSE
     }
 
     /// 按任务名准入或撤销重授予；成功返回 `true`。

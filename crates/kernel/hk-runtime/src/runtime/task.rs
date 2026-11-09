@@ -900,8 +900,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             if cadence.class == hk_cadence::CadenceClass::Realtime {
-                used = used.saturating_add(hk_cadence::utilization(
+                used = used.saturating_add(hk_cadence::density(
                     hk_base::Duration::from_ticks(cadence.budget),
+                    hk_base::Duration::from_ticks(cadence.deadline),
                     hk_base::Duration::from_ticks(cadence.period),
                 ));
             }

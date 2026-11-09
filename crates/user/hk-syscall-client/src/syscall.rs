@@ -142,6 +142,21 @@ pub fn recv_data(endpoint: u64, buffer: &mut [u8]) -> (u64, u64, u64, usize) {
     )
 }
 
+/// 按任务名读取 Cadence 快照；仅策略授权任务可用。
+pub fn cadence_named(name: &str, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 名称与缓冲区属于本进程；内核校验策略授权。
+    unsafe {
+        syscall_call(
+            SYS_CADENCE_NAMED,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+        )
+        .value
+    }
+}
+
 /// 带超时调用端点；超时返回标签 `u64::MAX`。
 pub fn call_timeout(endpoint: u64, label: u64, word: u64, timeout: u64) -> (u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；超时按契约 tick 计。

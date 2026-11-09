@@ -112,6 +112,23 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-tempo-test: over-limit accepted\n");
         exit(1);
     }
+    if !client.readmit_named("hk-server-tempo-test") {
+        write(b"hk-server-tempo-test: readmit failed\n");
+        exit(1);
+    }
+    let mut snapshot = [0_u8; CadenceSnapshot::ENCODED_LEN];
+    if cadence_self(&mut snapshot) != CadenceSnapshot::ENCODED_LEN as u64 {
+        write(b"hk-server-tempo-test: readmit info failed\n");
+        exit(1);
+    }
+    let Ok(snapshot) = CadenceSnapshot::decode(&snapshot) else {
+        write(b"hk-server-tempo-test: readmit decode failed\n");
+        exit(1);
+    };
+    if snapshot.weight != REQUEST_WEIGHT {
+        write(b"hk-server-tempo-test: readmit wrong weight\n");
+        exit(1);
+    }
 
     write(b"hk-server-tempo-test: ok weight=");
     write_u64(u64::from(attached.weight));

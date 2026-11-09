@@ -231,6 +231,7 @@ pub const LABEL_GROUPS: &[(&str, u64, &[u64])] = &[
             crate::tempo::TEMPO_REJECTED,
             crate::tempo::TEMPO_ADMIT,
             crate::tempo::TEMPO_REVOKE,
+            crate::tempo::TEMPO_READMIT,
         ],
     ),
 ];

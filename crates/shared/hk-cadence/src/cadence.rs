@@ -129,10 +129,24 @@ pub fn utilization(budget: Duration, period: Duration) -> u64 {
     (budget.ticks().saturating_mul(UTILIZATION_SCALE) / period.ticks()).min(UTILIZATION_SCALE)
 }
 
-/// Realtime 准入：类别必须是 Realtime，且累计利用率不超过 1.0。
+/// 计算 `budget / deadline` 的固定点密度；deadline 为 0 时按 period。
+pub fn density(budget: Duration, deadline: Duration, period: Duration) -> u64 {
+    let limit = if deadline.ticks() == 0 {
+        period.ticks()
+    } else {
+        deadline.ticks()
+    };
+    if limit == 0 {
+        return 0;
+    }
+    (budget.ticks().saturating_mul(UTILIZATION_SCALE) / limit).min(UTILIZATION_SCALE)
+}
+
+/// Realtime 准入：类别必须是 Realtime，且累计 EDF 密度不超过 1.0。
 pub fn admits_realtime(used: u64, spec: CadenceSpec) -> bool {
     spec.class == CadenceClass::Realtime
-        && used.saturating_add(utilization(spec.budget, spec.period)) <= UTILIZATION_SCALE
+        && used.saturating_add(density(spec.budget, spec.deadline, spec.period))
+            <= UTILIZATION_SCALE
 }
 
 /// 空闲契约：Idle 类、最小权重。

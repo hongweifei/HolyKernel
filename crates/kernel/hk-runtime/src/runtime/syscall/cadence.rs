@@ -139,6 +139,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// `SYS_CADENCE_NAMED(name, len, out, out_len)`；仅策略授权任务可用。
+    pub(crate) fn cadence_named(&mut self, _index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let result = if !self.kernel.is_policy_authority(tcb) {
+            u64::MAX
+        } else {
+            self.read_task_name(frame.arg0(), frame.arg1() as usize)
+                .and_then(|name| {
+                    let index = self
+                        .tasks
+                        .iter()
+                        .position(|task| !task.exited && task.name == name)?;
+                    self.kernel.task_cadence_snapshot(self.tasks[index].tcb)
+                })
+                .and_then(|snapshot| {
+                    let mut bytes = [0_u8; CadenceSnapshot::ENCODED_LEN];
+                    snapshot.encode(&mut bytes);
+                    let written = self.write_bytes(frame.arg2(), frame.arg3() as usize, &bytes);
+                    (written != u64::MAX).then_some(written)
+                })
+                .unwrap_or(u64::MAX)
+        };
+        frame.set_result(result);
+        Switch::Continue
+    }
+
     /// `SYS_TASK_ATTACH_NAMED(name, len, cadence)`；仅策略授权任务可用。
     pub(crate) fn task_attach_named(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let result = self

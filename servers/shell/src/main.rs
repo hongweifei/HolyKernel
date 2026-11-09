@@ -131,7 +131,13 @@ impl ShellHost for UserHost {
             }
             "replace" => Some(root_text(ROOT_OP_REPLACE, args)),
             "checkpoint" => Some(root_text(ROOT_OP_CHECKPOINT, args)),
-            "restore-checkpoint" => Some(root_text(ROOT_OP_RESTORE_CHECKPOINT, args)),
+            "restore-checkpoint" => {
+                let text = root_text(ROOT_OP_RESTORE_CHECKPOINT, args);
+                if text.starts_with("已恢复") && !args.trim().is_empty() {
+                    tempo_readmit(self.endpoint, args.trim());
+                }
+                Some(text)
+            }
             "cadence" => Some(root_text(ROOT_OP_CADENCE, args)),
             "meter" => Some(root_text(ROOT_OP_METER, args)),
             "tempo" => Some(root_text(ROOT_OP_TEMPO, "")),
@@ -174,6 +180,15 @@ fn mount_text(endpoint: u64) -> String {
             }
         }
         Err(code) => format!("VFS 不可用：{code}\n"),
+    }
+}
+
+/// 恢复后让 Tempo 按当前契约重新准入。
+#[cfg(target_os = "none")]
+fn tempo_readmit(endpoint: u64, name: &str) {
+    let tempo = service_endpoint("hk-server-tempo");
+    if tempo != 0 {
+        let _ = TempoClient::new(tempo, endpoint).readmit_named(name);
     }
 }
 

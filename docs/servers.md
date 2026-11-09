@@ -97,7 +97,7 @@ pub struct ServiceManifest {
 - 已实现 `servers/tempo`：Root Server 按服务清单授予带硬预算的初始契约池（`TEMPO_POOL`，Realtime 4096、8 ms/16 ms），Tempo 在池内派生收窄子契约，把句柄降权为 READ|WRITE 后随回复转移给调用方。
 - 调用方用 `SYS_TASK_ATTACH_CADENCE(task = 0, cadence)` 把子契约附加到自己；Tempo 自检服务 `hk-server-tempo-test` 覆盖“申请 → 附加 → 读回权重 → 按名准入/撤销重授予”，`smoke --mode tempo` 验证。
 - 特权调用方可以用 `TEMPO_ADMIT`/`TEMPO_REVOKE` 按任务名请求准入或撤销重授予；Tempo 通过 `SYS_TASK_ATTACH_NAMED`/`SYS_TASK_REGRANT_NAMED` 在池内派生并附加契约。
-- 准入执行父契约范围校验、子契约预算总和限制与 Realtime 利用率账本（`budget/period` 累计不超过 1.0）；完整响应时间可调度性分析尚未实现。
+- 准入执行父契约范围校验、子契约预算总和限制与 Realtime EDF 密度账本（`budget/deadline` 累计不超过 1.0）；Checkpoint/Shell 恢复后通过 `TEMPO_READMIT` 触发 Tempo 重新准入。完整响应时间可调度性分析仍以密度判据为保守近似。
 - 读取 Meter、按负载调整权重与预算、服务重启/热替换/检查点恢复时重新授予 Cadence 仍在后续阶段。
 - Holy 命令 `cadence <task>`、`meter <task>`、`tempo`、`admit <task>`、`revoke <task>` 已接入用户态 Shell：只读视图经 Root 控制通道，准入/撤销经 Tempo 协议。
 - Tempo 崩溃由 Root Server 重启；重启后按服务清单重新授予初始池。

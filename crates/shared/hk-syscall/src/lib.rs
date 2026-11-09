@@ -148,6 +148,9 @@ pub const SYS_RECV_DATA_TIMEOUT: u64 = 0x33;
 /// 带超时调用端点；超时返回 `u64::MAX`。
 pub const SYS_CALL_TIMEOUT: u64 = 0x34;
 
+/// 按任务名读取 Cadence 快照；仅策略授权任务可用。
+pub const SYS_CADENCE_NAMED: u64 = 0x35;
+
 /// `SYS_FUTEX_WAIT`：值已变化，无需等待。
 pub const FUTEX_CHANGED: u64 = 1;
 
@@ -612,6 +615,7 @@ mod tests {
             SYS_RECV_DATA_TIMEOUT,
             SYS_CALL,
             SYS_CALL_TIMEOUT,
+            SYS_CADENCE_NAMED,
             SYS_REPLY,
             SYS_REPLY_HANDLE,
             SYS_NOTIFY,

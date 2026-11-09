@@ -76,6 +76,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_CALL => self.call(index, tcb, frame),
             SYS_CALL_TIMEOUT => self.call_timeout(index, tcb, frame),
+            SYS_CADENCE_NAMED => self.cadence_named(index, tcb, frame),
             SYS_REPLY => {
                 let result = self.reply(index, tcb, frame, false);
                 frame.set_result(result);

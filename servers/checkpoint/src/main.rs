@@ -22,6 +22,8 @@ use hk_proto::holy::{DocId, DocumentKind, decode_entries};
 #[cfg(target_os = "none")]
 use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
+use hk_proto_client::TempoClient;
+#[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::root::{
@@ -29,7 +31,7 @@ use hk_server_api::root::{
     ROOT_OP_RESTORE_CHECKPOINT, call, call_data,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data, send_data, write};
+use hk_server_api::{recv_data, send_data, service_endpoint, write};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -81,11 +83,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 text
             }
             CHECKPOINT_RESTORE => {
-                if disk {
+                let text = if disk {
                     restore(endpoint, name)
                 } else {
                     root_text(ROOT_OP_RESTORE_CHECKPOINT, name)
+                };
+                if text.starts_with("已恢复") && !name.is_empty() {
+                    tempo_readmit(endpoint, name);
                 }
+                text
             }
             CHECKPOINT_LIST => {
                 if disk {
@@ -97,6 +103,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             _ => String::from("未知检查点操作\n"),
         };
         let _ = send_data(sender, CHECKPOINT_RESULT, text.as_bytes());
+    }
+}
+
+/// 恢复成功后让 Tempo 按当前契约重新准入。
+#[cfg(target_os = "none")]
+fn tempo_readmit(endpoint: u64, name: &str) {
+    let tempo = service_endpoint("hk-server-tempo");
+    if tempo != 0 {
+        let _ = TempoClient::new(tempo, endpoint).readmit_named(name);
     }
 }
 

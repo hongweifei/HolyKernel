@@ -15,6 +15,8 @@ pub const TEMPO_REJECTED: u64 = crate::labels::TEMPO + 2;
 pub const TEMPO_ADMIT: u64 = crate::labels::TEMPO + 3;
 /// 按任务名撤销并重新授予：载荷同 `TEMPO_ADMIT`。
 pub const TEMPO_REVOKE: u64 = crate::labels::TEMPO + 4;
+/// 按任务名读取当前契约并重准入：载荷只有名字。
+pub const TEMPO_READMIT: u64 = crate::labels::TEMPO + 5;
 
 /// 任务名上限。
 pub const MAX_NAME: usize = 64;
