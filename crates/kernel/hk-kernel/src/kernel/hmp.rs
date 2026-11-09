@@ -151,20 +151,24 @@ impl Kernel {
         let frame_lock = object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
+        let capacity = object.frame_capacity();
+        let mut capacity_guard = capacity.map(|capacity| capacity.lock());
         let mut slot = frame_lock.lock();
         let frame = slot.as_mut().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        // 固定驻留的 Frame 必须先解除 pin；直接释放会把计数降到 0 又归还失败。
+        if frame.is_pinned() {
+            return Err(KernelError::Hmp(HmpError::PermissionDenied));
+        }
         let refs = frame.release();
         if refs > 0 {
             return Ok(refs);
         }
-        let Some(capacity) = object.frame_capacity() else {
+        if let Some(capacity) = capacity_guard.as_mut() {
+            capacity.free(&mut slot).map_err(KernelError::Hmp)?;
+        } else {
             // 导入的区间没有 Capacity 归属，只丢弃描述。
             slot.take();
-            return Ok(0);
-        };
-        let frame = slot.take().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        drop(slot);
-        capacity.lock().free(frame).map_err(KernelError::Hmp)?;
+        }
         Ok(0)
     }
 
@@ -209,16 +213,10 @@ impl Kernel {
             expected: ObjectKind::Frame,
         })?;
         let mut slot = frame_lock.lock();
-        let frame = slot.as_ref().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        if frame.capacity() != capacity.id() {
-            return Err(KernelError::Hmp(HmpError::WrongCapability));
+        if slot.is_none() {
+            return Err(KernelError::Hmp(HmpError::NotMapped));
         }
-        if frame.is_pinned() || frame.refs() > 1 {
-            return Err(KernelError::Hmp(HmpError::PermissionDenied));
-        }
-        let frame = slot.take().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        drop(slot);
-        capacity.free(frame).map_err(KernelError::Hmp)
+        capacity.free(&mut slot).map_err(KernelError::Hmp)
     }
 
     /// 在指定线程的句柄表中创建物理容量能力。

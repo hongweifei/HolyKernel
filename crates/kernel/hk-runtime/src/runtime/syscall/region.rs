@@ -561,9 +561,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if let Some(frame_handle) = frame_handle {
             let _ = self.kernel.pin_frame(owner, frame_handle, false);
             let _ = self.kernel.close_handle(owner, frame_handle);
+            // `SYS_FRAME_MAP` 的 capability 是内核代建的，只被这个 Region 持有；
+            // 解除映射时必须一并关闭，否则 capability 与它的 lease 会泄漏。
+            let _ = self.kernel.close_handle(owner, capability);
         }
         let _ = self.kernel.close_handle(owner, handle);
         self.process_mut(index).regions[slot] = None;
+        self.process_mut(index).region_free.push(slot);
         frame.set_result(1);
         Switch::Continue
     }

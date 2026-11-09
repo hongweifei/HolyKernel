@@ -234,18 +234,24 @@ impl Capacity {
     ///
     /// 只接受已无其他所有者的 Frame：引用计数为 1（仅持有者）或已归零
     /// （最后一个引用已被 `Frame::release` 释放）。仍被共享或固定的 Frame
-    /// 拒绝归还。
-    pub fn free(&mut self, frame: Frame) -> Result<(), HmpError> {
-        if frame.capacity() != self.id {
+    /// 拒绝归还，且 Frame 保留在调用方的槽位中，不会因错误路径丢失。
+    pub fn free(&mut self, frame: &mut Option<Frame>) -> Result<(), HmpError> {
+        let Some(inner) = frame.as_ref() else {
+            return Ok(());
+        };
+        if inner.capacity() != self.id {
             return Err(HmpError::WrongCapability);
         }
-        if frame.is_pinned() {
+        if inner.is_pinned() {
             return Err(HmpError::PermissionDenied);
         }
-        if frame.refs() > 1 {
+        if inner.refs() > 1 {
             return Err(HmpError::PermissionDenied);
         }
-        self.release(frame.phys(), frame.len())
+        let (phys, len) = (inner.phys(), inner.len());
+        self.release(phys, len)?;
+        frame.take();
+        Ok(())
     }
 
     /// 归还一段原始物理区间，供底层 DMA 池使用。
@@ -258,9 +264,9 @@ impl Capacity {
             return Err(HmpError::Unaligned);
         }
         // 注册了后端时由后端按分配记录校验归属；容量可能覆盖多个窗口，不能用
-        // 单个区间做地址范围检查。调用方只传入本容量名下的 Frame/区间。
+        // 单个区间做地址范围检查。后端在校验通过并移除分配记录后、把区间交回
+        // 空闲表之前清零，避免先擦掉已经重新分配给其他租户的页。
         if let Some(backend) = super::backend::physical_backend() {
-            scrub(phys, length as usize);
             return if backend.release_owned(self.id, PhysRange::new(phys, length)) {
                 Ok(())
             } else {
@@ -434,7 +440,9 @@ mod tests {
         assert_eq!(second.phys(), PhysAddr::new(0x10_1000));
         assert_eq!(second.len(), 8192);
 
-        capacity.free(first).expect("归还");
+        let mut first = Some(first);
+        capacity.free(&mut first).expect("归还");
+        assert!(first.is_none());
         assert_eq!(capacity.used(), 8192);
         let reused = capacity.allocate(4096).expect("复用");
         assert_eq!(reused.phys(), PhysAddr::new(0x10_0000));
@@ -462,11 +470,21 @@ mod tests {
         let mut first = capacity();
         let mut second = capacity_with_id(2);
         let frame = first.allocate(4096).expect("页");
-        assert_eq!(second.free(frame).err(), Some(HmpError::WrongCapability));
+        let mut frame = Some(frame);
+        assert_eq!(
+            second.free(&mut frame).err(),
+            Some(HmpError::WrongCapability)
+        );
+        assert!(frame.is_some(), "拒绝归还时 Frame 不能丢失");
 
         let mut frame = first.allocate(4096).expect("页");
         frame.pin();
-        assert_eq!(first.free(frame).err(), Some(HmpError::PermissionDenied));
+        let mut frame = Some(frame);
+        assert_eq!(
+            first.free(&mut frame).err(),
+            Some(HmpError::PermissionDenied)
+        );
+        assert!(frame.is_some(), "pinned Frame 不能丢失");
     }
 
     #[test]
@@ -474,7 +492,12 @@ mod tests {
         let mut capacity = capacity();
         let mut frame = capacity.allocate(4096).expect("页");
         assert_eq!(frame.share(), Ok(2));
-        assert_eq!(capacity.free(frame).err(), Some(HmpError::PermissionDenied));
+        let mut slot = Some(frame);
+        assert_eq!(
+            capacity.free(&mut slot).err(),
+            Some(HmpError::PermissionDenied)
+        );
+        assert!(slot.is_some(), "共享 Frame 不能丢失");
     }
 
     #[test]
@@ -485,7 +508,9 @@ mod tests {
         assert_eq!(frame.release(), 1);
         assert_eq!(frame.release(), 0);
 
-        capacity.free(frame).expect("归零后可归还");
+        let mut frame = Some(frame);
+        capacity.free(&mut frame).expect("归零后可归还");
+        assert!(frame.is_none());
         assert_eq!(capacity.used(), 0);
         let reused = capacity.allocate(4096).expect("复用");
         assert_eq!(reused.phys(), PhysAddr::new(0x10_0000));
@@ -526,8 +551,10 @@ mod tests {
         let second = capacity.allocate(0x2000).expect("第二段");
         assert_eq!(capacity.peak(), 0x3000);
 
-        capacity.free(first).expect("归还第一页");
-        capacity.free(second).expect("归还第二段");
+        let mut first = Some(first);
+        let mut second = Some(second);
+        capacity.free(&mut first).expect("归还第一页");
+        capacity.free(&mut second).expect("归还第二段");
         assert_eq!(capacity.used(), 0);
         assert_eq!(capacity.peak(), 0x3000, "峰值不随释放回落");
         assert_eq!(capacity.pressure(), 0);
@@ -545,7 +572,8 @@ mod tests {
         let frame = child.allocate(4096).expect("子分配");
         assert_eq!(child.used(), 4096);
         assert_eq!(parent.used(), 0);
-        child.free(frame).expect("归还子页");
+        let mut frame = Some(frame);
+        child.free(&mut frame).expect("归还子页");
         assert_eq!(child.used(), 0);
         assert_eq!(parent.used(), 0);
     }
@@ -596,7 +624,8 @@ mod tests {
             .split(CapacityId::new(2), 0x4000, CapacityKind::User)
             .expect("子 Capacity");
         let frame = child.allocate(4096).expect("子分配");
-        child.free(frame).expect("归还子页");
+        let mut frame = Some(frame);
+        child.free(&mut frame).expect("归还子页");
         parent.merge(&child).expect("并回尾部");
 
         // 子容量切走的区间回到父容量，父容量可以再次切出同等子容量。

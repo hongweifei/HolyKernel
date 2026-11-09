@@ -120,6 +120,9 @@ impl PhysicalBackend for FrameBank {
         let _ = inner.ledger.release(allocation.charge);
         let slot = &mut inner.by_kind[allocation.kind.index()];
         *slot = slot.saturating_sub(range.len());
+        // 归属已校验、分配记录已移除；在把区间交回空闲表前清零。此刻持锁，
+        // 其他分配无法拿到这段物理区间。
+        crate::hmp::capacity::scrub(range.start(), range.len() as usize);
         inner.coalesce_free(range);
         true
     }

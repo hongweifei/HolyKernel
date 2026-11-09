@@ -48,15 +48,40 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = self.handle_at(index, endpoint) else {
             return u64::MAX;
         };
-        if (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint)
-            && let Some(frame) = endpoint
-                .checked_sub(REGION_HANDLE_BASE + 1)
-                .and_then(|slot| self.process(index).regions.get(slot))
+        if (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint) {
+            let Some(slot) = endpoint.checked_sub(REGION_HANDLE_BASE + 1) else {
+                return u64::MAX;
+            };
+            if self
+                .process(index)
+                .regions
+                .get(slot)
                 .and_then(|region| region.as_ref())
-                .and_then(|region| region.frame)
-        {
-            let _ = self.kernel.pin_frame(tcb, frame, false);
-            let _ = self.kernel.close_handle(tcb, frame);
+                .is_none()
+            {
+                return u64::MAX;
+            }
+            self.teardown_region(index, slot, true);
+            return 0;
+        }
+        if (CAPABILITY_HANDLE_BASE..REGION_HANDLE_BASE).contains(&endpoint) {
+            // 关闭 capability 前先解除所有基于它的 Region，避免 PTE 继续指向
+            // 已经随 capability 对象释放的物理页。
+            let slots: Vec<usize> = self
+                .process(index)
+                .regions
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, region)| {
+                    region
+                        .as_ref()
+                        .filter(|region| region.capability == handle)
+                        .map(|_| slot)
+                })
+                .collect();
+            for slot in slots {
+                self.teardown_region(index, slot, false);
+            }
         }
 
         match self.kernel.close_handle(tcb, handle) {

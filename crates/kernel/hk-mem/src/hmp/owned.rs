@@ -52,9 +52,8 @@ impl OwnedFrame {
 
 impl Drop for OwnedFrame {
     fn drop(&mut self) {
-        if let Some(frame) = self.frame.take() {
-            let _ = self.capacity.lock().free(frame);
-        }
+        let mut frame = self.frame.take();
+        let _ = self.capacity.lock().free(&mut frame);
     }
 }
 

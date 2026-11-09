@@ -149,6 +149,49 @@ fn allocates_splits_and_frees_capacity_frames() {
 }
 
 #[test]
+fn pinned_release_is_refused_without_losing_frame() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(12),
+        PhysRange::new(PhysAddr::new(0x50_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+    kernel.pin_frame(worker, frame, true).expect("pin");
+    assert_eq!(
+        kernel.release_frame(worker, frame).err(),
+        Some(crate::KernelError::Hmp(
+            hk_mem::hmp::HmpError::PermissionDenied
+        ))
+    );
+    let (_, _, _, refs, pinned) = kernel.frame_info(worker, frame).expect("Frame 仍在");
+    assert_eq!(refs, 1, "拒绝释放不能消耗引用计数");
+    assert!(pinned);
+
+    kernel.pin_frame(worker, frame, false).expect("unpin");
+    assert_eq!(kernel.release_frame(worker, frame), Ok(0));
+    assert_eq!(
+        kernel.capacity_info(worker, capacity).expect("Capacity").4,
+        0,
+        "释放后物理区间归还容量"
+    );
+    assert!(matches!(
+        kernel.frame_info(worker, frame),
+        Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))
+    ));
+}
+
+#[test]
 fn closing_last_frame_handle_returns_it_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);

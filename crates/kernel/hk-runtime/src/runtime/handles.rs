@@ -353,16 +353,45 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         } else if number >= REGION_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(REGION_HANDLE_BASE + 1)
-                && let Some(slot) = self.process_mut(index).regions.get_mut(slot_index)
-                && let Some(map) = slot.take()
+                && self
+                    .process(index)
+                    .regions
+                    .get(slot_index)
+                    .is_some_and(|slot| slot.is_some())
             {
-                let _ = self.process_mut(index).hmp_arena.remove(map.region);
-                self.process_mut(index).region_free.push(slot_index);
+                self.teardown_region(index, slot_index, true);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
-            if let Some(slot_index) = number.checked_sub(CAPABILITY_HANDLE_BASE + 1)
-                && let Some(slot) = self.tasks[index].capabilities.get_mut(slot_index)
-                && let Some(map) = slot.take()
+            let Some(slot_index) = number.checked_sub(CAPABILITY_HANDLE_BASE + 1) else {
+                return;
+            };
+            let Some(handle) = self.tasks[index]
+                .capabilities
+                .get(slot_index)
+                .and_then(|slot| slot.as_ref())
+                .map(|map| map.handle)
+            else {
+                return;
+            };
+            let slots: Vec<usize> = self
+                .process(index)
+                .regions
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, region)| {
+                    region
+                        .as_ref()
+                        .filter(|region| region.capability == handle)
+                        .map(|_| slot)
+                })
+                .collect();
+            for slot in slots {
+                self.teardown_region(index, slot, false);
+            }
+            if let Some(map) = self.tasks[index]
+                .capabilities
+                .get_mut(slot_index)
+                .and_then(|slot| slot.take())
             {
                 let _ = self.process_mut(index).ledger.release(map.charge);
                 self.tasks[index].capability_free.push(slot_index);
@@ -392,5 +421,49 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             *slot = None;
         }
+    }
+
+    /// 解除 Region 的映射并关闭它持有的内部句柄。
+    ///
+    /// `close_capability` 为 true 时同时关闭 `SYS_FRAME_MAP` 内部创建的
+    /// capability；用户自己持有的 capability 不在这里关闭。
+    pub(crate) fn teardown_region(&mut self, index: usize, slot: usize, close_capability: bool) {
+        let Some(region) = self
+            .process(index)
+            .regions
+            .get(slot)
+            .and_then(|region| region.as_ref())
+        else {
+            return;
+        };
+        let owner = region.owner;
+        let capability = region.capability;
+        let frame = region.frame;
+        let virt = region.virt;
+        let length = region.len;
+        let region_id = region.region;
+        let region_handle = region.handle;
+        // 逐页解除，兼容惰性 Region 与已物化 Region；也避免在关闭 capability
+        // 之后再去解析它来决定映射范围。
+        let page = hk_hal::PAGE_SIZE as u64;
+        let mut offset = 0;
+        while offset < length as u64 {
+            let _ = self
+                .platform
+                .unmap_user(index, virt + offset, page as usize);
+            offset += page;
+        }
+        self.process_mut(index).user_window.release(virt);
+        let _ = self.process_mut(index).hmp_arena.remove(region_id);
+        if let Some(frame) = frame {
+            let _ = self.kernel.pin_frame(owner, frame, false);
+            let _ = self.kernel.close_handle(owner, frame);
+        }
+        let _ = self.kernel.close_handle(owner, region_handle);
+        if close_capability && frame.is_some() {
+            let _ = self.kernel.close_handle(owner, capability);
+        }
+        self.process_mut(index).regions[slot] = None;
+        self.process_mut(index).region_free.push(slot);
     }
 }

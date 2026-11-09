@@ -359,9 +359,7 @@ impl Drop for KernelObject {
             return;
         };
         let mut capacity = capacity.lock();
-        let Some(frame) = frame.lock().take() else {
-            return;
-        };
-        let _ = capacity.free(frame);
+        let mut frame = frame.lock();
+        let _ = capacity.free(&mut frame);
     }
 }
