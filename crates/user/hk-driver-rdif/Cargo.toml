@@ -1,0 +1,17 @@
+[package]
+name = "hk-driver-rdif"
+description = "rdif-block 到 hk_block 的宿主运行时桥"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dma-api = "0.10"
+hk-block = { version = "0.1.0", path = "../hk-block" }
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+rdif-block = "0.13"
+spin = "0.9"
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "hk-driver-host"
+description = "HolyKernel 外部驱动 crate 的 DMA/MMIO/log 宿主适配"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dma-api = "0.10"
+hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+log = { version = "0.4", default-features = false }
+mmio-api = "0.3"
+spin = "0.9"
+
+[lints]
+workspace = true
