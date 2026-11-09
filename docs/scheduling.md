@@ -2,6 +2,8 @@
 
 状态：**已接受** · 关联：[ADR-0017](adr/0017-holy-cadence.md) · 上级：[总体架构](architecture.md)
 
+实现状态：对象面（`hk-cadence`）、内核 Task/Cadence/Meter 对象与 Beat 类别队列已落地；Tempo 策略服务、lending、tickless、亲和与 checkpoint 集成仍在推进，逐项状态见 §12。
+
 Holy Cadence Model 是 HolyKernel 的原生调度契约。它把 CPU 时间表达为与内存同级的显式资源：**Task 持有 Cadence，内核执行 Cadence，Tempo 授予 Cadence，Meter 记录 Cadence。**
 
 ---
@@ -292,17 +294,29 @@ Meter 字段：
 
 ---
 
-## 12. 实现结构
+## 12. 实现状态
 
-| 层 | 职责 |
-| --- | --- |
-| `hk-cadence` | 共享契约：Cadence/Meter 类型、类别、权重、虚拟时间数学、快照格式 |
-| `hk-kernel` | Beat：Task/TCB 调度对象、类别队列、Grant、EDF/CBS/WFQ、定时器、抢占、idle |
-| `hk-runtime` | Task 附加 Cadence、lending frame、Meter 记账、checkpoint 集成 |
-| `hk-server-tempo` | 策略服务：授予、拆分、调整、准入、撤销、Holy 命令；实现位于 `servers/tempo` |
-| `hk-server-root` | 初始 Cadence 池与服务清单授予 |
-| `hk-server-api` / `hk-abi` | `SYS_CADENCE_*`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE` |
-| `hk-sim` | 虚拟时钟、确定性 IPI、调度 trace 回放 |
+| 层 | 状态 | 落点与边界 |
+| --- | --- | --- |
+| `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
+| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、Grant、EDF/CBS 键、WFQ 虚拟时间、预算与 `Throttled`、周期补充；trace 记录 spawn/dispatch/block/wake/exit |
+| `hk-runtime` | 已实现 | Task 创建与契约继承、fork/线程共享 Task、Meter 记账、契约时钟推进 |
+| `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
+| `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF` 编号与内核分派；`handle = 0` 表示当前 Task |
+| `hk-server-tempo` | 已实现 | `servers/tempo`：在 Root 授予的初始契约池内派生收窄子契约并把句柄转移给调用方；默认启动，`smoke --mode tempo` 覆盖申请/附加/读回 |
+| Tickless | 已实现 | 周期 tick 保留为 watchdog/统计；Grant 结束、预算补充与 sleep 到期按契约微秒编程一次性 LAPIC 唤醒（`next_deadline` 取最早者） |
+| 亲和与迁移 | 已实现 | 每 CPU Beat；入队按亲和性与加权负载选核；空闲 CPU 从最忙 Beat 窃取可迁移 Task；跨核运行计入 `Meter.migrations`。缓存热度模型仍待补 |
+| Lending | 已实现 | `call` 期间服务端 TCB 压入 lending frame，类别/队列键/时间片取调用方与服务端更强的一个；执行时间同时记入调用方 Meter 与预算，`reply`/退出时弹栈 |
+| Checkpoint | 已实现 | 快照写入 Cadence/Meter 水位；恢复时按契约描述重建 Task 并回填 Meter |
+| Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
+| `hk-sim` | 已实现 | 虚拟时钟、量子计费与确定性重放；覆盖 WFQ 2:1 份额、Realtime 优先、预算节流与周期补充 |
+
+实现约定：
+
+- Cadence 的预算、周期、截止期与延迟目标使用固定 1 MHz 契约时基（1 tick = 1 µs），与平台硬件 tick 频率无关。
+- Beat 的队列键：实时类为绝对截止期，低延迟类为虚拟截止期，吞吐类为虚拟进度；同键按入队顺序轮转。
+- 一个 Task 的多个 TCB 共享同一份 Cadence/Meter；计量与预算记在 Task 上。
+- 每次调度决策后扫描当前 Grant、预算补充与 sleep 期限，取最早者编程一次性唤醒；周期 tick 只负责 watchdog 与统计，不承担 deadline 精度。
 
 ---
 
@@ -316,5 +330,14 @@ Meter 字段：
 - Lending 深度、caller-pays 与超时恢复通过 Hosted 回放。
 - 亲和性与迁移在 4 核 QEMU 上通过；迁移事件可观测。
 - checkpoint/restore 后 Cadence、Meter 与 TCB 状态一致。
+
+唤醒延迟实测（`smoke --mode wakeup`，64 次 `SYS_SLEEP(1)`，从到期到任务恢复运行）：
+
+| 构建 | min | avg | max |
+| --- | --- | --- | --- |
+| x86_64 QEMU release（单次） | 102 µs | 193 µs | 565 µs |
+| x86_64 QEMU debug（4 次） | 55–164 µs | 151–420 µs | 289–764 µs |
+
+QEMU 的定时器虚拟化与调度路径使 release 平均值仍高于 100 µs 目标；debug 多轮抖动明显（平均 151–420 µs）。该区间作为当前基线，后续优化一次性定时器路径与唤醒 IPI 后再收紧；探针在平均超过 2 ms 时失败。
 
 Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 的硬保证与 Tempo 准入在 M11 验收。Latency、Throughput 与 Idle 构成 1.0 的调度基线。

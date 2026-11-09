@@ -13,8 +13,8 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
 | L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
-| L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单与桌面排序的单一清单；零依赖 |
-| L0 | 共享契约 | `hk-cadence`（规划） | Cadence/Meter 类型、调度类别、虚拟时间数学与快照格式；依赖 `hk-base` |
+| L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单、桌面排序与默认 Cadence 的单一清单；依赖 `hk-cadence` |
+| L0 | 共享契约 | `hk-cadence` | Cadence/Meter 类型、调度类别、虚拟时间数学、亲和性、借贷与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
 | L0 | 共享契约 | `hk-status` | 服务状态枚举：协议、文件系统与 VFS 共用的状态词表；零依赖 |
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
@@ -31,7 +31,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-holy-proto`、`hk-holy-service`、`hk-fs-remote`、`hk-fs-ext4`、`hk-fs-holyfs`、`hk-fs-holyfs-vfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约、原生文档响应层、服务端分派、远程后端适配与实现 |
 | L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 适配、像素绘制、工作线程与并发库、符号化与回溯 |
 | L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
-| L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo`（规划）承载 Cadence 策略与准入 |
+| L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo` 承载 Cadence 策略与准入 |
 
 `hk-shell`、`hk-syscall`、`hk-status` 与 `hk-block` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现；`hk-block` 只定义块设备契约与内存盘，IPC 运行时放在 `hk-block-ipc`。
 
@@ -76,7 +76,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
 | 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用；文档/卷令牌权利在 `hk-proto::holy` 的 `TOKEN_RIGHT_*` |
 | HMP 对外词汇、Rights 与授予面 | [HMP 文档](hmp.md) 与 [ADR-0016](adr/0016-hmp-native-contract.md) |
-| 调度契约、Cadence/Meter 词汇与授予面 | [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md)；共享类型 `hk-cadence`（规划） |
+| 调度契约、Cadence/Meter 词汇与授予面 | [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md)；共享类型 `hk-cadence`，服务默认契约在 `crates/shared/hk-catalog/src/lib.rs` |
 | 服务角色元数据与 `.hk_service` 段 | `crates/shared/hk-image/src/role.rs` |
 | 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
