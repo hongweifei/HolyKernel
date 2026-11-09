@@ -216,6 +216,7 @@ impl Capacity {
                 .ok_or(HmpError::OutOfCapacity)?;
             let mut child = Self::new(id, range, self.page_size, kind, length)?;
             child.parent = Some(self.id);
+            self.limit = self.limit.saturating_sub(length);
             return Ok(child);
         }
 
@@ -234,6 +235,7 @@ impl Capacity {
             length,
         )?;
         child.parent = Some(self.id);
+        self.limit = self.limit.saturating_sub(length);
         Ok(child)
     }
 
@@ -317,10 +319,18 @@ impl Capacity {
         // 后端是窗口归属的权威，容量可能覆盖多个窗口，不能用单个区间做范围
         // 检查；未注册后端时才按自带的窗口分配器校验。
         if let Some(backend) = super::backend::physical_backend() {
-            return backend.merge_owned(self.id, child.id, range);
+            backend.merge_owned(self.id, child.id, range)?;
+            self.limit = self.limit.saturating_add(child.limit);
+            return Ok(());
         }
 
-        let limit_end = self.range.start().get().saturating_add(self.limit);
+        // 父容量的 limit 在 split 时已扣除子容量；校验区间时先把子容量
+        // 的配额加回来，再在成功并回后恢复父容量配额。
+        let limit_end = self
+            .range
+            .start()
+            .get()
+            .saturating_add(self.limit.saturating_add(child.limit));
         if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
             return Err(HmpError::OutOfRange);
         }
@@ -330,6 +340,7 @@ impl Capacity {
             self.free.push(range);
             self.coalesce();
         }
+        self.limit = self.limit.saturating_add(child.limit);
         Ok(())
     }
 
@@ -615,6 +626,18 @@ mod tests {
         assert_eq!(parent.used(), 0);
         let frame = parent.allocate(0x4000).expect("并回后分配");
         assert_eq!(frame.phys(), PhysAddr::new(0x10_0000));
+    }
+
+    #[test]
+    fn split_reduces_parent_limit_and_merge_restores() {
+        let mut parent = capacity();
+        let original = parent.limit();
+        let child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        assert_eq!(parent.limit(), original - 0x4000);
+        parent.merge(&child).expect("并回");
+        assert_eq!(parent.limit(), original);
     }
 
     #[test]

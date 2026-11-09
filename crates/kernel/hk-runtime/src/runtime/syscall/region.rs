@@ -189,6 +189,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
+        } else {
+            // 惰性 Region 只更新已装入页的 PTE；未装入的页在下次缺页时按
+            // RegionMap 中的新 rights/flags 建立映射。
+            let page = hk_hal::PAGE_SIZE as u64;
+            let mut relative = 0_u64;
+            while relative < length as u64 {
+                let page_index = (offset.saturating_add(relative) / page) as usize;
+                if let Ok(Some(range)) = self.kernel.capability_page(owner, capability, page_index)
+                    && !self.platform.map_user(
+                        index,
+                        virt + relative,
+                        range.start().get(),
+                        page as usize,
+                        rights,
+                        flags,
+                    )
+                {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+                relative += page;
+            }
         }
         frame.set_result(0);
         Switch::Continue

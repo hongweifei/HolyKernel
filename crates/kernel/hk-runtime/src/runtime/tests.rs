@@ -1472,6 +1472,35 @@ fn region_protect_updates_rights_and_page_table() {
 }
 
 #[test]
+fn region_protect_updates_lazy_pages() {
+    let platform = MockPlatform::new();
+    let last_map = Arc::clone(&platform.last_map);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    last_map.store(0, Ordering::Release);
+
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = 0x4001;
+    context.rsi = 0b1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    let packed = last_map.load(Ordering::Acquire);
+    let rights = hk_handle::Rights::from_bits_truncate(packed as u32);
+    assert_eq!(
+        rights,
+        hk_handle::Rights::READ,
+        "惰性 Region 的已装入页也必须更新 PTE"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn region_protect_rejects_wx_conflict() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
