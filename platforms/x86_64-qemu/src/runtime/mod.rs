@@ -99,6 +99,14 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::bootstrap::take_acpi_events()
     }
 
+    fn set_acpi_listener(&self) {
+        hk_platform_x86_64::bootstrap::set_acpi_listener();
+    }
+
+    fn temperature_celsius(&self) -> Option<u8> {
+        self.0.temperature_celsius()
+    }
+
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
         let Some(pci) = self.0.pci() else {
             return u32::MAX;

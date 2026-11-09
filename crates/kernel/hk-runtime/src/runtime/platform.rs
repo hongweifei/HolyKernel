@@ -25,6 +25,14 @@ pub trait UserPlatform {
     fn take_acpi_events(&self) -> u64 {
         0
     }
+
+    /// 登记 ACPI 事件监听者，使电源按钮交由用户态策略处理。
+    fn set_acpi_listener(&self) {}
+
+    /// 返回 CPU 温度（摄氏度）；不支持时返回 `None`。
+    fn temperature_celsius(&self) -> Option<u8> {
+        None
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。

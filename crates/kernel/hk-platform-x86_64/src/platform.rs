@@ -120,6 +120,25 @@ impl Platform for X86Platform {
     fn cache(&self) -> Option<&dyn hk_hal::CacheOps> {
         Some(&crate::cache::CACHE)
     }
+
+    fn temperature_celsius(&self) -> Option<u8> {
+        // CPUID.06H:EAX[0] 表示数字温度传感器可用。
+        if core::arch::x86_64::__cpuid(6).eax & 1 == 0 {
+            return None;
+        }
+        const IA32_THERM_STATUS: u32 = 0x19C;
+        const IA32_TEMPERATURE_TARGET: u32 = 0x1A2;
+        // SAFETY: CPUID 已确认 DTS；读取当前 CPU 的热状态 MSR。
+        let (target, status) = unsafe {
+            (
+                x86_64::registers::model_specific::Msr::new(IA32_TEMPERATURE_TARGET).read(),
+                x86_64::registers::model_specific::Msr::new(IA32_THERM_STATUS).read(),
+            )
+        };
+        let tj_max = ((target >> 16) & 0xFF) as u8;
+        let reading = ((status >> 16) & 0x7F) as u8;
+        Some(tj_max.saturating_sub(reading))
+    }
 }
 
 /// 串口控制台。

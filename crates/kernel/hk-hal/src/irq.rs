@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::CpuId;
 
-pub use hk_base::{ACPI_SCI_IRQ, IRQ_VECTOR_BASE};
+pub use hk_base::{ACPI_POWER_IRQ, ACPI_SCI_IRQ, ACPI_SLEEP_IRQ, IRQ_VECTOR_BASE};
 
 /// 硬件中断号。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

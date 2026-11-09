@@ -150,6 +150,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(self.platform.take_acpi_events());
                 Switch::Continue
             }
+            SYS_THERMAL => {
+                frame.set_result(
+                    self.platform
+                        .temperature_celsius()
+                        .map_or(u64::MAX, u64::from),
+                );
+                Switch::Continue
+            }
             SYS_SELF_NOTIFICATION => {
                 frame.set_result(index as u64 + 1);
                 Switch::Continue

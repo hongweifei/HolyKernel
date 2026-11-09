@@ -31,6 +31,13 @@ pub fn acpi_events() -> u64 {
     unsafe { syscall_call(SYS_ACPI_EVENTS, 0, 0, 0, 0).value }
 }
 
+/// 读取当前 CPU 温度（摄氏度）；不支持时返回 `None`。
+pub fn thermal_celsius() -> Option<u8> {
+    // SAFETY: 只读取 CPU 热状态 MSR。
+    let value = unsafe { syscall_call(SYS_THERMAL, 0, 0, 0, 0).value };
+    (value != u64::MAX).then_some(value as u8)
+}
+
 /// 把文本写入内核控制台。
 pub fn write(bytes: &[u8]) {
     // SAFETY: 指针与长度来自本进程的只读数据。

@@ -104,4 +104,9 @@ pub trait Platform: Send + Sync {
     fn cache(&self) -> Option<&dyn CacheOps> {
         None
     }
+
+    /// 返回当前 CPU 温度（摄氏度）；平台不支持时返回 `None`。
+    fn temperature_celsius(&self) -> Option<u8> {
+        None
+    }
 }

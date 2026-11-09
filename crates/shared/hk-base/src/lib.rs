@@ -19,5 +19,5 @@ pub use boot::{
     BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
-pub use irq::{ACPI_SCI_IRQ, IRQ_VECTOR_BASE};
+pub use irq::{ACPI_POWER_IRQ, ACPI_SCI_IRQ, ACPI_SLEEP_IRQ, IRQ_VECTOR_BASE};
 pub use time::{CivilClock, CivilTime, Duration, Moment};

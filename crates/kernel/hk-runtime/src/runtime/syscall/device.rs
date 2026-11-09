@@ -124,12 +124,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let line = hk_hal::irq::ACPI_SCI_IRQ;
         let count = &mut self.irq_routes[line as usize];
         *count = count.saturating_add(1);
-        self.tasks[index].bound_irqs.push((
-            hk_handle::Handle::new(u32::MAX, u32::MAX),
-            line,
-            hk_hal::NotificationId::new(notification_id.get()),
-            1,
-        ));
+        self.platform.set_acpi_listener();
+        let notification = hk_hal::NotificationId::new(notification_id.get());
+        for (line, bits) in [
+            (hk_hal::irq::ACPI_SCI_IRQ, 1),
+            (hk_hal::irq::ACPI_POWER_IRQ, 2),
+            (hk_hal::irq::ACPI_SLEEP_IRQ, 4),
+        ] {
+            self.tasks[index].bound_irqs.push((
+                hk_handle::Handle::new(u32::MAX, u32::MAX),
+                line,
+                notification,
+                bits,
+            ));
+            let count = &mut self.irq_routes[line as usize];
+            *count = count.saturating_add(1);
+        }
         frame.set_result(0);
         Switch::Continue
     }

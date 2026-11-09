@@ -329,6 +329,9 @@ pub const SYS_ACPI_LISTEN: u64 = 0x57;
 /// 取出并清除待处理的 ACPI GPE 事件位图。
 pub const SYS_ACPI_EVENTS: u64 = 0x58;
 
+/// 读取当前 CPU 温度（摄氏度）；不支持时返回 `u64::MAX`。
+pub const SYS_THERMAL: u64 = 0x59;
+
 // === 时间与系统信息 0x60-0x6F ===
 
 /// 读取调度 tick 计数。
@@ -656,6 +659,7 @@ mod tests {
             SYS_MSI_BIND,
             SYS_ACPI_LISTEN,
             SYS_ACPI_EVENTS,
+            SYS_THERMAL,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

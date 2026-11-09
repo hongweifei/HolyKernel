@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::{
     BootInfo, CpuId, InterruptController, Ipi, Irq, IrqError, NotificationId, PAGE_SIZE, PhysAddr,
@@ -54,6 +54,8 @@ static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static POWER: Mutex<Option<Fadt>> = Mutex::new(None);
 static S5_TYPES: Mutex<Option<(u8, u8)>> = Mutex::new(None);
 static GPE_EVENTS: AtomicU64 = AtomicU64::new(0);
+/// 已订阅 ACPI 电源/睡眠事件的用户监听者数量。
+static ACPI_LISTENERS: AtomicUsize = AtomicUsize::new(0);
 static FIRMWARE: Mutex<Option<hk_fw::firmware::Tables>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
@@ -416,6 +418,11 @@ pub fn power_off() -> bool {
     true
 }
 
+/// 登记一个用户态 ACPI 事件监听者。
+pub fn set_acpi_listener() {
+    ACPI_LISTENERS.fetch_add(1, Ordering::AcqRel);
+}
+
 /// 取出并清除待处理的 GPE 事件位图。
 pub fn take_acpi_events() -> u64 {
     GPE_EVENTS.swap(0, Ordering::AcqRel)
@@ -427,6 +434,7 @@ pub fn handle_sci() {
         return;
     };
     let mut power_button = false;
+    let mut sleep_button = false;
     for (block, length) in [
         (fadt.pm1a_event, fadt.pm1_event_length),
         (fadt.pm1b_event, fadt.pm1_event_length),
@@ -439,6 +447,7 @@ pub fn handle_sci() {
             write_pm1(block, status, length);
         }
         power_button |= status & (1 << 8) != 0;
+        sleep_button |= status & (1 << 9) != 0;
     }
     if fadt.gpe0_block != 0 && fadt.gpe0_length != 0 {
         for index in 0..u16::from(fadt.gpe0_length) {
@@ -473,7 +482,14 @@ pub fn handle_sci() {
     if GPE_EVENTS.load(Ordering::Acquire) != 0 {
         crate::irq::note(hk_hal::irq::ACPI_SCI_IRQ);
     }
-    if power_button && power_off() {
+    if power_button {
+        crate::irq::note(hk_hal::irq::ACPI_POWER_IRQ);
+    }
+    if sleep_button {
+        crate::irq::note(hk_hal::irq::ACPI_SLEEP_IRQ);
+    }
+    // 没有用户监听者时保留默认策略：电源按钮直接进入 S5。
+    if power_button && ACPI_LISTENERS.load(Ordering::Acquire) == 0 && power_off() {
         loop {
             x86_64::instructions::hlt();
         }
