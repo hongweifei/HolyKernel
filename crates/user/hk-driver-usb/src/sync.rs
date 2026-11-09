@@ -50,12 +50,7 @@ impl SpinOps for SpinProvider {
         AcquireResult::new(acquired, ContextState::new(0, 0))
     }
 
-    fn release(
-        locked: &AtomicBool,
-        _lock_addr: usize,
-        _context: u8,
-        _context_state: ContextState,
-    ) {
+    fn release(locked: &AtomicBool, _lock_addr: usize, _context: u8, _context_state: ContextState) {
         locked.store(false, Ordering::Release);
     }
 
@@ -120,12 +115,7 @@ impl RwLockOps for RwProvider {
             let current = state.load(Ordering::Relaxed);
             current & WRITER == 0
                 && state
-                    .compare_exchange(
-                        current,
-                        current + 1,
-                        Ordering::Acquire,
-                        Ordering::Relaxed,
-                    )
+                    .compare_exchange(current, current + 1, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok()
         } else {
             state
