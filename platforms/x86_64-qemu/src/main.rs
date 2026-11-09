@@ -74,7 +74,7 @@ extern "C" fn kmain() -> ! {
         None => console.write_str("TSC 校准失败\n"),
     }
 
-    let info = match hk_boot::boot_info() {
+    let info = match hk_boot::limine::boot_info() {
         Ok(info) => info,
         Err(error) => {
             announce(&console, None, &format!("启动失败：{error}\n"));
@@ -223,7 +223,7 @@ extern "C" fn kmain() -> ! {
         frequency,
     );
 
-    match hk_boot::cmdline() {
+    match hk_boot::limine::cmdline() {
         Some(line) if line.contains("page-fault-test") => {
             announce(&console, screen.as_ref(), "触发异常测试：空指针写入\n");
             // SAFETY: 故意写入空指针触发 #PF，用于验证异常现场输出。
@@ -289,7 +289,7 @@ extern "C" fn kmain() -> ! {
             };
 
             let interactive =
-                hk_boot::cmdline().is_some_and(|line| line.contains("shell-interactive"));
+                hk_boot::limine::cmdline().is_some_and(|line| line.contains("shell-interactive"));
             if interactive {
                 if let Err(error) =
                     shell::interactive(&console, screen.as_ref(), &mut services, &mut shell_loader)
@@ -301,7 +301,7 @@ extern "C" fn kmain() -> ! {
                         ExitCode::Failure(5),
                     );
                 }
-            } else if let Some(line) = hk_boot::cmdline()
+            } else if let Some(line) = hk_boot::limine::cmdline()
                 && line.contains("shell-test")
             {
                 let script: alloc::vec::Vec<&str> = line

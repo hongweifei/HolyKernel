@@ -284,6 +284,7 @@ name = "hk-boot"
 version = "0.1.0"
 dependencies = [
  "hk-base",
+ "hk-fw",
  "limine",
 ]
 

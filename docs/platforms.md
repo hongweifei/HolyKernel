@@ -124,6 +124,7 @@ Firmware / Bootloader → Kernel → Root Server
 - Root Server 按服务清单启动服务器，分配最小 Handle 与初始 Cadence；HolyShell 是默认命令行。
 - POSIX Server 是可选兼容环境，启用时启动 `/sbin/init`。
 - 服务器镜像由 bootloader 作为模块提供；Root Server 加载原生任务镜像（HKX）。
+- 引导后端：`hk-boot` 的 crate 根只定义 `BootBackend`、`BootError` 与 DTB 后端；`hk_boot::limine` 覆盖 x86_64/AArch64/RISC-V（帧缓冲、RSDP、DTB 请求与 MP 协议按架构取字段），直接 `-kernel` 启动也可用 `hk_boot::dtb`。新增平台只需选择或实现后端，并把产出的 `BootInfo` 交给内核。
 
 ---
 

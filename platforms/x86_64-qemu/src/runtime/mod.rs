@@ -92,7 +92,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn boot_cmdline(&self) -> Option<&'static str> {
-        hk_boot::cmdline()
+        hk_boot::limine::cmdline()
     }
 
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
@@ -133,7 +133,7 @@ impl UserPlatform for X86Platform {
 
     fn console_read(&self) -> Option<u8> {
         // 用户态输入驱动接管键盘后，内核不再提供控制台输入。
-        if hk_boot::cmdline().is_some_and(|line| line.contains("input-driver")) {
+        if hk_boot::limine::cmdline().is_some_and(|line| line.contains("input-driver")) {
             return None;
         }
         hk_platform_x86_64::keyboard::read().or_else(|| Serial::new(COM1).try_read_byte())
@@ -465,7 +465,7 @@ pub fn run_budgeted(table: &mut ServiceTable, steps: usize) -> bool {
 
 /// 是否通过 `watchdog` 启动参数开启活性看门狗。
 fn watchdog_enabled() -> bool {
-    hk_boot::cmdline().is_some_and(|line| line.contains("watchdog"))
+    hk_boot::limine::cmdline().is_some_and(|line| line.contains("watchdog"))
 }
 
 /// 系统未空闲但持续运行时，周期性输出任务快照，便于定位活性停顿。

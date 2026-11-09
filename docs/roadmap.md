@@ -102,7 +102,7 @@ flowchart LR
 - `page_table_entry`：统一 x86_64 PTE 位与属性编码（`PTF`/`MappingFlags`）；页表遍历、所有权、COW 与检查点语义仍由平台维护。
 - x86_64 平台：GDT/TSS/IDT、LAPIC/IOAPIC、PCI legacy/ECAM、串口、帧缓冲、SMP。
 - AArch64 平台：PL011、GICv3、Generic Timer、PSCI、DTB、页表。
-- 引导：Limine 多架构后端与 UEFI loader；`platforms/*` 启动目录与镜像。
+- 引导：`hk-boot` 已提供 `BootBackend` 抽象、Limine（x86_64/AArch64/RISC-V）与 DTB（AArch64/RISC-V `-kernel`）后端；UEFI loader 待后续；`platforms/*` 启动目录与镜像。
 - `xtask`：aarch64 构建、运行与冒烟模式。
 
 ### 退出标准

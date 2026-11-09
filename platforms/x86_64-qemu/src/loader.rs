@@ -33,7 +33,7 @@ pub fn run(
     services: &mut ServiceTable,
 ) -> Result<(), String> {
     let mut modules = loader::boot_modules(info.server_modules);
-    let dbg_test = hk_boot::cmdline().is_some_and(|line| line.contains("dbg-test"));
+    let dbg_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("dbg-test"));
     if dbg_test
         && let Some(module) = info
             .server_modules
@@ -42,7 +42,7 @@ pub fn run(
     {
         modules.push(module);
     }
-    let memory_test = hk_boot::cmdline().is_some_and(|line| line.contains("memory-test"));
+    let memory_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("memory-test"));
     if memory_test
         && let Some(module) = info
             .server_modules
@@ -51,7 +51,7 @@ pub fn run(
     {
         modules.push(module);
     }
-    let tempo_test = hk_boot::cmdline().is_some_and(|line| line.contains("tempo-test"));
+    let tempo_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("tempo-test"));
     if tempo_test
         && let Some(module) = info
             .server_modules
@@ -60,7 +60,7 @@ pub fn run(
     {
         modules.push(module);
     }
-    let wakeup_test = hk_boot::cmdline().is_some_and(|line| line.contains("wakeup-test"));
+    let wakeup_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("wakeup-test"));
     if wakeup_test
         && let Some(module) = info
             .server_modules
@@ -69,25 +69,27 @@ pub fn run(
     {
         modules.push(module);
     }
-    let network_enabled = hk_boot::cmdline().is_some_and(|line| line.contains("net-test"));
-    let console_test = hk_boot::cmdline().is_some_and(|line| line.contains("console-test"));
-    let display_test = hk_boot::cmdline().is_some_and(|line| line.contains("display-test"));
-    let holydoc_test = hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-test"));
+    let network_enabled = hk_boot::limine::cmdline().is_some_and(|line| line.contains("net-test"));
+    let console_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("console-test"));
+    let display_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("display-test"));
+    let holydoc_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("holydoc-test"));
     let holydoc_resize_test =
-        hk_boot::cmdline().is_some_and(|line| line.contains("holydoc-resize-test"));
-    let workbench_test = hk_boot::cmdline().is_some_and(|line| line.contains("workbench-test"));
-    let debug_test = hk_boot::cmdline()
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("holydoc-resize-test"));
+    let workbench_test =
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("workbench-test"));
+    let debug_test = hk_boot::limine::cmdline()
         .is_some_and(|line| line.contains("debug-test") || line.contains("debug-crash"));
-    let taskman_test = hk_boot::cmdline().is_some_and(|line| line.contains("taskman-test"));
+    let taskman_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("taskman-test"));
     let display_restart_test =
-        hk_boot::cmdline().is_some_and(|line| line.contains("display-restart-test"));
-    let hotswap_test = hk_boot::cmdline().is_some_and(|line| line.contains("hotswap-test"));
-    let checkpoint_test = hk_boot::cmdline().is_some_and(|line| line.contains("checkpoint-test"));
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("display-restart-test"));
+    let hotswap_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("hotswap-test"));
+    let checkpoint_test =
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("checkpoint-test"));
     let checkpoint_srv_test =
-        hk_boot::cmdline().is_some_and(|line| line.contains("checkpoint-srv-test"));
-    let rng_test = hk_boot::cmdline().is_some_and(|line| line.contains("rng-test"));
-    let vcon_test = hk_boot::cmdline().is_some_and(|line| line.contains("vcon-test"));
-    let desktop = hk_boot::cmdline().is_some_and(|line| line.contains("desktop"));
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("checkpoint-srv-test"));
+    let rng_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("rng-test"));
+    let vcon_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("vcon-test"));
+    let desktop = hk_boot::limine::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
     modules.retain(|module| {
@@ -238,7 +240,7 @@ pub fn run(
                     | "hk-server-memory"
             );
         }
-        if hk_boot::cmdline().is_some_and(|line| line.contains("pointer-test")) {
+        if hk_boot::limine::cmdline().is_some_and(|line| line.contains("pointer-test")) {
             // 指针自检：Display + Device + Input + 指针客户端。
             return matches!(
                 name,
@@ -249,7 +251,7 @@ pub fn run(
                     | "hk-server-memory"
             );
         }
-        if hk_boot::cmdline().is_some_and(|line| line.contains("input-test")) {
+        if hk_boot::limine::cmdline().is_some_and(|line| line.contains("input-test")) {
             // 输入驱动自检：Display + Console + 终端客户端 + Input。
             return matches!(
                 name,
@@ -261,7 +263,7 @@ pub fn run(
                     | "hk-server-memory"
             );
         }
-        if hk_boot::cmdline().is_some_and(|line| line.contains("terminal-test")) {
+        if hk_boot::limine::cmdline().is_some_and(|line| line.contains("terminal-test")) {
             // 图形终端自检需要 Console、Display 与客户端。
             return matches!(
                 name,

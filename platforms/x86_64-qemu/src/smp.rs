@@ -4,17 +4,17 @@ use alloc::format;
 use alloc::string::String;
 use core::sync::atomic::Ordering;
 
-use hk_boot::ApCpu;
+use hk_boot::limine::ApCpu;
 use hk_platform_x86_64::cpu;
 use hk_smp::AP_POOL;
 
 /// 启动 AP、等待其初始化完成，并发送一次 IPI 自检。
 pub fn start() -> Result<(usize, usize), String> {
-    let Some(_info) = hk_boot::smp_info() else {
+    let Some(_info) = hk_boot::limine::smp_info() else {
         return Ok((0, 0));
     };
 
-    let started = hk_boot::start_aps(ap_entry);
+    let started = hk_boot::limine::start_aps(ap_entry);
     let timeout = match hk_platform_x86_64::timing::tsc_frequency() {
         0 => 1_000_000_000,
         frequency => frequency,
