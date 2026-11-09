@@ -2,6 +2,34 @@
 
 use super::*;
 
+/// 设备授权对应的 IOMMU 域（BDF）。
+pub(crate) fn domain_of(grant: &DeviceGrant) -> hk_hal::IommuDomain {
+    hk_hal::IommuDomain::new(
+        (u32::from(grant.address.bus) << 8)
+            | (u32::from(grant.address.device) << 3)
+            | u32::from(grant.address.function),
+    )
+}
+
+/// 在授权的 DMA 窗口内为一次映射分配 IOVA。
+fn next_iova(
+    mappings: &[(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)],
+    grant: Handle,
+    window: hk_hal::PhysRange,
+    len: usize,
+) -> Option<hk_hal::Iova> {
+    let page = hk_hal::PAGE_SIZE as u64;
+    let mut offset = 0_u64;
+    for (mapped_grant, _, _, mapped_len) in mappings {
+        if *mapped_grant == grant {
+            offset = offset.checked_add((*mapped_len as u64).div_ceil(page) * page)?;
+        }
+    }
+    let start = window.start().get().checked_add(offset)?;
+    let end = start.checked_add((len as u64).div_ceil(page) * page)?;
+    (end <= window.end().get()).then(|| hk_hal::Iova::new(start))
+}
+
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn dma_map_frame(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let grant_number = frame.arg0() as usize;
@@ -26,12 +54,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(0);
             return Switch::Continue;
         };
-        let domain = hk_hal::IommuDomain::new(
-            (u32::from(grant.address.bus) << 8)
-                | (u32::from(grant.address.device) << 3)
-                | u32::from(grant.address.function),
-        );
-        let iova = hk_hal::Iova::new(range.start().get());
+        let domain = domain_of(&grant);
+        let translating = iommu.translates_device_addresses();
+        let iova = if translating {
+            let Some(window) = grant.dma else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            let Some(iova) = next_iova(
+                &self.tasks[index].dma_mappings,
+                grant_handle,
+                window,
+                range.len() as usize,
+            ) else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            iova
+        } else {
+            hk_hal::Iova::new(range.start().get())
+        };
         if self.tasks[index]
             .dma_mappings
             .iter()
@@ -39,7 +81,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 *mapped_domain == domain && *mapped_iova == iova
             })
         {
-            frame.set_result(0);
+            frame.set_result(if translating { iova.get() } else { 0 });
             return Switch::Continue;
         }
         if iommu
@@ -57,7 +99,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index]
             .dma_mappings
             .push((grant_handle, domain, iova, range.len() as usize));
-        frame.set_result(0);
+        frame.set_result(if translating { iova.get() } else { 0 });
         Switch::Continue
     }
 
@@ -80,12 +122,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(0);
             return Switch::Continue;
         };
-        let domain = hk_hal::IommuDomain::new(
-            (u32::from(grant.address.bus) << 8)
-                | (u32::from(grant.address.device) << 3)
-                | u32::from(grant.address.function),
-        );
-        let iova = hk_hal::Iova::new(range.start().get());
+        let domain = domain_of(&grant);
+        let translating = iommu.translates_device_addresses();
+        let iova = if translating {
+            let Some(window) = grant.dma else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            let Some(iova) = next_iova(
+                &self.tasks[index].dma_mappings,
+                grant_handle,
+                window,
+                range.len() as usize,
+            ) else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            iova
+        } else {
+            hk_hal::Iova::new(range.start().get())
+        };
         if self.tasks[index]
             .dma_mappings
             .iter()
@@ -93,7 +149,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 *mapped_domain == domain && *mapped_iova == iova
             })
         {
-            frame.set_result(0);
+            frame.set_result(if translating { iova.get() } else { 0 });
             return Switch::Continue;
         }
         if iommu
@@ -111,7 +167,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index]
             .dma_mappings
             .push((grant_handle, domain, iova, range.len() as usize));
-        frame.set_result(0);
+        frame.set_result(if translating { iova.get() } else { 0 });
         Switch::Continue
     }
 }

@@ -55,6 +55,7 @@ pub fn register_mapping(virt: u64, phys: u64, len: usize) {
 
 struct Allocation {
     phys: u64,
+    dma: u64,
     virt: u64,
     capability: u64,
     region: u64,
@@ -89,25 +90,29 @@ impl HalImpl {
         let capability = capability_create(CapabilityKind::DeviceAllocation, len)?;
         let (region, virt) = map_attach(capability)?;
         let (phys, length) = capability_phys(capability)?;
-        if length != len as u64 || dma_map_capability(grant, capability, len) == u64::MAX {
+        let mapped = dma_map_capability(grant, capability, len);
+        if length != len as u64 || mapped == u64::MAX {
             let _ = region_unmap(region);
             let _ = close_handle(capability);
             return None;
         }
+        // 硬件 IOMMU 返回窗口内 IOVA；软件 IOMMU 返回 0，设备继续用物理地址。
+        let dma = if mapped == 0 { phys } else { mapped };
         ALLOCATIONS.lock().push(Allocation {
             phys,
+            dma,
             virt,
             capability,
             region,
         });
-        Some((phys, virt))
+        Some((dma, virt))
     }
 
     fn release_pages(_pages: usize, phys: u64, virt: u64) {
         let mut allocations = ALLOCATIONS.lock();
         let Some(position) = allocations
             .iter()
-            .position(|entry| entry.phys == phys && entry.virt == virt)
+            .position(|entry| (entry.phys == phys || entry.dma == phys) && entry.virt == virt)
         else {
             return;
         };

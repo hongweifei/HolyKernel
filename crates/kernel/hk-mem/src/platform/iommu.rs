@@ -26,7 +26,7 @@ impl SoftwareIommu {
     }
 
     /// 查询 IOVA 对应的物理区间与权限。
-    pub fn translate(&self, domain: IommuDomain, iova: Iova) -> Option<(PhysRange, IommuFlags)> {
+    pub fn lookup(&self, domain: IommuDomain, iova: Iova) -> Option<(PhysRange, IommuFlags)> {
         self.mappings
             .lock()
             .get(&(domain.get(), iova.get()))
@@ -102,6 +102,10 @@ impl Iommu for SoftwareIommu {
 
     fn flush(&self, _domain: IommuDomain) -> Result<(), IommuError> {
         Ok(())
+    }
+
+    fn translate(&self, domain: IommuDomain, iova: Iova) -> Option<(PhysRange, IommuFlags)> {
+        self.lookup(domain, iova)
     }
 }
 

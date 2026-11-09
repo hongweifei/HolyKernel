@@ -94,6 +94,19 @@ pub trait Iommu: Send + Sync {
 
     /// 刷新该域的 IOTLB。
     fn flush(&self, domain: IommuDomain) -> Result<(), IommuError>;
+
+    /// 查询 IOVA 对应的物理区间与权限；软件/真实后端都可实现。
+    fn translate(&self, _domain: IommuDomain, _iova: Iova) -> Option<(PhysRange, IommuFlags)> {
+        None
+    }
+
+    /// 该后端是否真的会把设备访问的 IOVA 翻译为物理地址。
+    ///
+    /// 软件 IOMMU 只维护映射账本，设备仍使用物理地址，因此返回 `false`；
+    /// VT-d 等硬件后端返回 `true` 后，运行时才会把窗口内的 IOVA 交给驱动。
+    fn translates_device_addresses(&self) -> bool {
+        false
+    }
 }
 
 /// 没有 IOMMU 的平台实现。

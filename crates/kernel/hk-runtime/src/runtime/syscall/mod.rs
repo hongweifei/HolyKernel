@@ -166,31 +166,43 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 };
-                let Some(end) = phys.checked_add(length as u64) else {
+                // 若 IOVA 已登记到 IOMMU，用翻译后的物理区间做缓存维护；
+                // 软件 IOMMU（identity）与硬件 IOMMU 都走这条路径。
+                let iommu_range = self.platform.iommu().and_then(|iommu| {
+                    iommu.translate(dma::domain_of(&grant), hk_hal::Iova::new(phys))
+                });
+                let (cache_phys, cache_len) = match iommu_range {
+                    Some((translated, _)) if length as u64 <= translated.len() => {
+                        (translated.start().get(), length)
+                    }
+                    _ => (phys, length),
+                };
+                let Some(end) = cache_phys.checked_add(cache_len as u64) else {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 };
                 let in_grant =
-                    length != 0 && phys >= range.start().get() && end <= range.end().get();
+                    cache_len != 0 && cache_phys >= range.start().get() && end <= range.end().get();
                 let in_frame = (0..self.tasks[index].capabilities.len()).any(|slot| {
                     self.capability_at(index, CAPABILITY_HANDLE_BASE + slot + 1)
                         .and_then(|(_, _, backing)| backing)
                         .is_some_and(|range| {
-                            phys >= range.start().get() && end <= range.end().get()
+                            cache_phys >= range.start().get() && end <= range.end().get()
                         })
                 }) || (0..self.tasks[index].extra.len()).any(|slot| {
                     self.capability_at(index, EXTRA_HANDLE_BASE + slot + 1)
                         .and_then(|(_, _, backing)| backing)
                         .is_some_and(|range| {
-                            phys >= range.start().get() && end <= range.end().get()
+                            cache_phys >= range.start().get() && end <= range.end().get()
                         })
                 });
-                if !in_grant && !in_frame {
+                if iommu_range.is_none() && !in_grant && !in_frame {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 }
                 if let Some(cache) = self.platform.cache_ops() {
-                    let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(phys), length as u64);
+                    let range =
+                        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(cache_phys), cache_len as u64);
                     if to_device {
                         cache.clean(range);
                     } else {

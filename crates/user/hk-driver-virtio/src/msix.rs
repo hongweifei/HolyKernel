@@ -1,12 +1,9 @@
 //! PCI MSI-X：把设备中断从 INTx 改为投递到向量。
 //!
-//! 现状：capability 解析、表编程、INTx 关闭与 virtio 队列向量路由都已实现，
-//! 中断也能到达绑定的向量；但启用后在 virtio-net 上观察到目标向量被高频
-//! 反复投递，抢占 CPU 并拖慢其他服务，因此驱动服务暂不启用。
-//!
-//! 已知的下一步：
-//! - 用专用的 MSI 向量（不复用 INTx 线路）并核对 `SYS_MSI_BIND` 的绑定结果；
-//! - 在 QEMU 侧确认 `virtio_notify` 与中断数量的对应关系，定位重复投递来源。
+//! capability 解析、表编程、INTx 关闭与 virtio 队列向量路由均已实现。
+//! 表项 16 字节布局为 msg addr(0..8)、msg data(8..12)、vector control(12..16)；
+//! 启用时先屏蔽全部表项，只放开表项 0，避免配置期间或未使用表项投递中断。
+//! 是否启用 MSI-X 由上层驱动决定。
 
 use hk_base::IRQ_VECTOR_BASE;
 use hk_mmio::Mmio;
@@ -51,7 +48,8 @@ pub fn enable(grant: u64) -> Option<Msix> {
     // SAFETY: 表项落在已授权的 MSI-X BAR 内。
     let table = unsafe { Mmio::new(table as usize) };
     for entry in 0..u64::from(entries) {
-        write_control(&table, entry * 16, 1);
+        // 先屏蔽全部表项，避免配置过程中投递。
+        write_control(&table, entry, 1);
     }
     // SAFETY: 表项落在已授权的 MSI-X BAR 内。
     unsafe {
@@ -59,10 +57,12 @@ pub fn enable(grant: u64) -> Option<Msix> {
         table.write_u32(4, 0);
         table.write_u32(0, MSI_ADDRESS);
     }
+    // 只放开表项 0；其余保持屏蔽。
     write_control(&table, 0, 0);
 
+    // 启用 MSI-X，清除 function mask，并取消 INTx Disable。
     config.write16(capability + 2, (control | 0x8000) & !0x4000);
-    config.write(0x04, config.read(0x04) | 0x0400);
+    config.write(0x04, config.read(0x04) & !0x0400);
     route_queues(grant, &config, &descriptor);
     Some(Msix { entries, vector })
 }
@@ -103,7 +103,8 @@ fn route_queues(grant: u64, config: &Config, descriptor: &hk_device::DeviceGrant
     }
 }
 
-fn write_control(table: &Mmio, offset: u64, value: u32) {
+fn write_control(table: &Mmio, entry: u64, value: u32) {
+    // MSI-X 表项 16 字节：msg addr(0..8)、msg data(8..12)、vector control(12..16)。
     // SAFETY: 表项落在已授权的 MSI-X BAR 内。
-    unsafe { table.write_u32(offset as usize, value) };
+    unsafe { table.write_u32((entry * 16 + 12) as usize, value) };
 }

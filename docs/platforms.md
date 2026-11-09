@@ -81,6 +81,8 @@ pub trait Platform: Send + Sync {
 - x86_64 安全状态：CPU 支持时启用 SMEP/SMAP，内核访问用户内存用 STAC/CLAC 包裹；用户镜像按 ELF 段落实 W^X（代码 RX、数据 RW/NX），用户栈 RW/NX；每个 CPU 的中断栈分配自独立内核窗口并保留未映射 guard page。
 - x86_64 系统调用走 `syscall`/`sysret` 快路径：用户入口用 `syscall`，内核汇编入口切换到 per-CPU 内核栈并构造与中断一致的 `InterruptFrame`，出口用 `sysretq`；`int 0x80` 仍保留为兼容入口。IRQ 绑定按线均摊到已启动 CPU，`InterruptController::set_affinity` 可显式改路由。
 - x86_64 页表：CPU 支持 PCID 且具备 INVPCID 时启用 CR4.PCIDE，用户地址空间分配 12 位 PCID，切换写 CR3 不再全量失效，定向失效走 INVPCID；映射按长度与对齐自动选择 2 MiB / 1 GiB 大页，`protect`/`unmap`/`fork` 遇到大页时按需逐级拆分到 4 KiB。
+- DMA/IOMMU：`dma_map_capability`/`dma_map_frame` 把设备区间登记到按 BDF 划分的 IOMMU 域，`SYS_DMA_SYNC` 先经 IOMMU translate 再维护缓存；只有后端声明会翻译设备地址（如 VT-d）时，才在 DeviceGrant 的 DMA 窗口内分配 IOVA 并返回给驱动，软件 IOMMU 保持 identity，避免无硬件翻译时破坏真实 DMA。
+- MSI-X：表项 vector control 位于 16 字节表项的 +12，启用时先屏蔽全部表项、只放开表项 0，并清除 PCI Interrupt Disable。
 - `Mmu` 管理 Arena 地址空间、页表与 TLB shootdown；它是 HMP Region 的物化机制。
 - `HMP` 是唯一内存面：Capacity/Frame/Region 由内核与用户态服务共享；平台只提供页表、物理访问与 DMA 机制。
 - `InterruptController` 提供 IRQ 绑定与 IPI；运行时保存 IRQ→Notification 绑定，收到待处理中断后按对象标识直接唤醒通知，平台只负责路由/解绑。
