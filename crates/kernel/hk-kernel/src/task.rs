@@ -118,6 +118,11 @@ impl Task {
         self.parent
     }
 
+    /// 设置父 Task；父 Task 退出时置空，表示已提升为独立任务。
+    pub fn set_parent(&mut self, parent: Option<TaskId>) {
+        self.parent = parent;
+    }
+
     /// 返回 Cadence 契约。
     pub fn cadence(&self) -> Arc<Mutex<Cadence>> {
         Arc::clone(&self.cadence)

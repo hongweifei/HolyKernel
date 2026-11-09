@@ -57,6 +57,7 @@ const TRACE_REFILL: u32 = 20;
 const TRACE_MIGRATE: u32 = 21;
 const TRACE_OVERRUN: u32 = 22;
 const TRACE_PREEMPT: u32 = 23;
+const TRACE_PROMOTE: u32 = 24;
 
 /// 接收方取到的消息。
 #[derive(Clone, Debug, PartialEq, Eq)]

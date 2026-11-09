@@ -589,6 +589,9 @@ impl Kernel {
                 let cadence = task.lock().cadence();
                 self.release_child_budget(&cadence.lock());
             }
+            // 父 Task 退出：把子 Task 的收窄契约提升为独立契约，子任务继续运行；
+            // 显式“回收”仍由 Tempo 通过 revoke/regrant 完成。
+            self.promote_children(task_id);
             self.tasks.lock().remove(&task_id);
         } else {
             if let Some(task) = self.task(task_id) {
@@ -604,6 +607,25 @@ impl Kernel {
             live as u64,
         );
         Ok(())
+    }
+
+    /// 父 Task 退出时提升其子 Task：解除 Task 父链与 Cadence 父链。
+    fn promote_children(&self, parent: TaskId) {
+        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
+        for task in tasks {
+            let (thread, cadence) = {
+                let mut task = task.lock();
+                if task.parent() != Some(parent) {
+                    continue;
+                }
+                task.set_parent(None);
+                (task.threads().first().copied(), task.cadence())
+            };
+            cadence.lock().promote();
+            if let Some(thread) = thread {
+                self.record(thread.get(), Category::Sched, TRACE_PROMOTE, parent.get());
+            }
+        }
     }
 
     /// 唤醒被阻塞的 TCB。

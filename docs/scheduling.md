@@ -269,7 +269,7 @@ Meter 字段：
 - Cadence 与 Meter 是权限对象；创建、拆分、撤销与 lending 配置需要 ADMIN。
 - 普通 Task 读取自身契约与计量；调整权重、预算、类别与亲和性需要 Tempo 授权。
 - 预算与 Realtime 准入限制 CPU 资源滥用。
-- 子 Task 继承父契约的收窄份额；父 Task 退出时 Tempo 收回或提升子契约。
+- 子 Task 继承父契约的收窄份额；父 Task 退出时内核默认把子 Task 的收窄契约提升为独立契约（解除 Task/Cadence 父链，权重与预算不变，子任务继续运行并记录 `promote` trace）；Tempo 可随后通过 `SYS_CADENCE_REVOKE`/重新授予显式收回。
 - 所有授予、撤销、节流、借贷与迁移进入 trace 与 Meter。
 
 ---
@@ -302,7 +302,7 @@ Meter 字段：
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
 | `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
-| `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载 |
+| `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；父 Task 退出时子契约提升为独立契约 |
 | `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 密度准入与 checkpoint→Tempo 重准入已接入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |

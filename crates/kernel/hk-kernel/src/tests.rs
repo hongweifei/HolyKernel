@@ -950,6 +950,34 @@ fn child_task_inherits_narrowed_cadence() {
 }
 
 #[test]
+fn parent_exit_promotes_child_cadence() {
+    let kernel = kernel();
+    let spec = CadenceSpec::new(CadenceClass::Latency, 2048).with_budget(millis(4), millis(8));
+    let parent = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    let child = kernel
+        .spawn_task_child_parked(HandleTable::new(8), parent_id)
+        .expect("子任务");
+    let child_id = kernel.task_of(child).expect("子 Task");
+    let child_cadence = kernel.task(child_id).expect("子 Task 存在").lock().cadence();
+    assert_eq!(
+        child_cadence.lock().parent(),
+        Some(hk_cadence::CadenceId::new(parent_id.get()))
+    );
+
+    kernel.exit(parent).expect("父任务退出");
+
+    assert!(kernel.task(parent_id).is_none(), "父 Task 应被回收");
+    let child_task = kernel.task(child_id).expect("子任务应继续存在");
+    assert_eq!(child_task.lock().parent(), None, "子 Task 父链应解除");
+    assert_eq!(child_cadence.lock().parent(), None, "子契约应提升为独立契约");
+    assert_eq!(child_cadence.lock().weight().get(), 2048 / 2);
+    assert_eq!(kernel.state_of(child), Some(ThreadState::Inactive));
+}
+
+#[test]
 fn requests_resched_for_higher_priority_wake() {
     RESCHED_CALLS.store(0, Ordering::SeqCst);
     let kernel = kernel();

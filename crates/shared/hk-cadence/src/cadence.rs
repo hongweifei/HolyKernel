@@ -357,6 +357,13 @@ impl Cadence {
         self.children_budget = self.children_budget.saturating_add(budget);
     }
 
+    /// 解除父链，把收窄契约提升为独立契约。
+    ///
+    /// 父契约撤销或父 Task 退出后使用；契约的类别、权重、预算与亲和性保持不变。
+    pub fn promote(&mut self) {
+        self.parent = None;
+    }
+
     /// 递增 epoch，使旧句柄失效；返回新 epoch。
     pub fn revoke(&mut self) -> u32 {
         self.epoch = self.epoch.wrapping_add(1);
