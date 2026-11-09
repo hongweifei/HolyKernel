@@ -71,6 +71,11 @@ pub trait UserPlatform {
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
         None
     }
+
+    /// 判断物理页是否仍被多个地址空间共享；平台不支持时返回 `false`。
+    fn page_shared(&self, _phys: hk_hal::PhysAddr) -> bool {
+        false
+    }
     /// 为 DeviceGrant 分配连续 DMA 窗口。
     fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {
         None

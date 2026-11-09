@@ -54,6 +54,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
                     continue;
                 };
+                // 共享页仍被其他地址空间映射，回收会留下悬空 PTE。
+                if self.platform.page_shared(range.start()) {
+                    continue;
+                }
                 if self.platform.page_is_zero(range.start()) != Some(true) {
                     continue;
                 }

@@ -84,6 +84,8 @@ impl SyscallFrame for MockContext {
 struct MockPlatform {
     /// 物理页零检测的返回值。
     zero: bool,
+    /// 物理页是否报告为跨地址空间共享。
+    shared: bool,
     /// 解除映射的返回值。
     unmap_ok: bool,
     /// 地址空间激活次数。
@@ -106,6 +108,7 @@ impl MockPlatform {
         .expect("System Capacity");
         Self {
             zero: true,
+            shared: false,
             unmap_ok: true,
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
@@ -179,6 +182,10 @@ impl UserPlatform for MockPlatform {
 
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
         Some(self.zero)
+    }
+
+    fn page_shared(&self, _phys: hk_hal::PhysAddr) -> bool {
+        self.shared
     }
 
     fn user_mapped(&self, _address: u64) -> bool {
@@ -1957,6 +1964,22 @@ impl UserPlatform for ShortPlatform {
     fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
         true
     }
+}
+
+#[test]
+fn reclaim_skips_shared_pages() {
+    let platform = MockPlatform {
+        shared: true,
+        ..MockPlatform::new()
+    };
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    assert_eq!(runtime.reclaim_zero_pages(0, 0x1000), 0, "共享页不能回收");
+    let _ = runtime.finish(0, index);
 }
 
 #[test]

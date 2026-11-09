@@ -93,6 +93,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.process_mut(child).hmp_arena.remove(region_id);
                 continue;
             };
+            // 子任务的自动窗口必须知道这段继承映射已经占用。
+            let _ = self.process_mut(child).user_window.reserve(virt, len);
             let Ok((_, size)) = self
                 .kernel
                 .capability(child_tcb, capability)

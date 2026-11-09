@@ -65,6 +65,11 @@ pub fn scrub_phys(phys: PhysAddr, len: usize) {
     }
 }
 
+/// 判断物理页是否仍被多个地址空间共享。
+pub fn is_shared_frame(phys: PhysAddr) -> bool {
+    frame_refs().lock().count(phys) > 0
+}
+
 /// 判断物理页是否全为零。
 pub fn page_is_zero(phys: PhysAddr) -> bool {
     let base = direct_map_base();

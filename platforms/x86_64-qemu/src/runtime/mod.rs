@@ -162,6 +162,10 @@ impl UserPlatform for X86Platform {
         Some(true)
     }
 
+    fn page_shared(&self, phys: hk_hal::PhysAddr) -> bool {
+        hk_platform_x86_64::paging::is_shared_frame(phys)
+    }
+
     fn take_irqs(&self, pending: &mut [u64; 4]) {
         *pending = hk_platform_x86_64::irq::take_pending();
     }

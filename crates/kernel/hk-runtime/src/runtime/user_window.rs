@@ -60,6 +60,40 @@ impl UserWindow {
         Some(start)
     }
 
+    /// 登记一段外部已建立的映射，避免自动窗口再次分配到这里。
+    ///
+    /// fork 子任务继承父任务已映射的 Region，但子任务的自动窗口仍然从
+    /// `AUTO_WINDOW_BASE` 开始；不登记就会在后续 `SYS_REGION_MAP` 时覆盖
+    /// 继承下来的 PTE。
+    pub(crate) fn reserve(&mut self, virt: u64, length: usize) -> bool {
+        let Some(length) = align(length) else {
+            return false;
+        };
+        let Some(end) = virt.checked_add(length) else {
+            return false;
+        };
+        if virt < AUTO_WINDOW_BASE || end > self.limit {
+            return false;
+        }
+        if self
+            .allocated
+            .iter()
+            .any(|(start, size)| virt < start.saturating_add(*size) && *start < end)
+        {
+            return false;
+        }
+        // 保守处理：与自由区间重叠时直接丢弃该自由区间，避免拆分逻辑出错。
+        self.free.retain(|(start, size)| {
+            let free_end = start.saturating_add(*size);
+            !(virt < free_end && *start < end)
+        });
+        // 保守推进 bump 指针：宁可跳过区间下方的空洞，也不让后续分配
+        // 覆盖已继承的映射。
+        self.next = self.next.max(end);
+        self.allocated.push((virt, length));
+        true
+    }
+
     /// 归还一段自动分配的虚拟区间；未登记过的地址会被忽略。
     pub(crate) fn release(&mut self, virt: u64) {
         let Some(index) = self.allocated.iter().position(|(start, _)| *start == virt) else {
@@ -119,6 +153,15 @@ mod tests {
         window.release(second);
         assert_eq!(window.allocate(0x2000), Some(first));
         assert_eq!(third, 0x1000_2000);
+    }
+
+    #[test]
+    fn reserves_inherited_ranges() {
+        let base = hk_base::user::AUTO_WINDOW_BASE;
+        let mut window = UserWindow::with_window(base, base + 0x1_0000);
+        assert!(window.reserve(base, 0x2000));
+        assert_eq!(window.allocate(0x1000), Some(base + 0x2000));
+        assert!(!window.reserve(base + 0x1000, 0x1000));
     }
 
     #[test]
