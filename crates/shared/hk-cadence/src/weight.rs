@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn charges_migration_by_heat_and_weight() {
         let weight = Weight::new(1024).expect("权重合法");
-        assert_eq!(migration_cost(weight, 0), 1_024 * u64::from(MIGRATION_BASE_COST));
+        assert_eq!(
+            migration_cost(weight, 0),
+            1_024 * u64::from(MIGRATION_BASE_COST)
+        );
         assert_eq!(
             migration_cost(weight, 2),
             1_024 * u64::from(2 + MIGRATION_BASE_COST)

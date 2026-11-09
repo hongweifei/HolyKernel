@@ -460,13 +460,25 @@ fn cancel_recv_distinguishes_idle_timeout_from_claimed_delivery() {
         .grant(receiver, endpoint_id, Rights::READ | Rights::WRITE)
         .expect("授予接收方句柄");
 
-    assert!(kernel.recv(receiver, receiver_endpoint).expect("接收").is_none());
     assert!(
-        kernel.cancel_recv(receiver, receiver_endpoint).expect("取消空等待"),
+        kernel
+            .recv(receiver, receiver_endpoint)
+            .expect("接收")
+            .is_none()
+    );
+    assert!(
+        kernel
+            .cancel_recv(receiver, receiver_endpoint)
+            .expect("取消空等待"),
         "没有发送方时取消应报告已移除等待者"
     );
 
-    assert!(kernel.recv(receiver, receiver_endpoint).expect("接收").is_none());
+    assert!(
+        kernel
+            .recv(receiver, receiver_endpoint)
+            .expect("接收")
+            .is_none()
+    );
     kernel
         .send(sender, endpoint, Message::new(11))
         .expect("发送");
@@ -1004,7 +1016,11 @@ fn parent_exit_promotes_child_cadence() {
         .spawn_task_child_parked(HandleTable::new(8), parent_id)
         .expect("子任务");
     let child_id = kernel.task_of(child).expect("子 Task");
-    let child_cadence = kernel.task(child_id).expect("子 Task 存在").lock().cadence();
+    let child_cadence = kernel
+        .task(child_id)
+        .expect("子 Task 存在")
+        .lock()
+        .cadence();
     assert_eq!(
         child_cadence.lock().parent(),
         Some(hk_cadence::CadenceId::new(parent_id.get()))
@@ -1015,7 +1031,11 @@ fn parent_exit_promotes_child_cadence() {
     assert!(kernel.task(parent_id).is_none(), "父 Task 应被回收");
     let child_task = kernel.task(child_id).expect("子任务应继续存在");
     assert_eq!(child_task.lock().parent(), None, "子 Task 父链应解除");
-    assert_eq!(child_cadence.lock().parent(), None, "子契约应提升为独立契约");
+    assert_eq!(
+        child_cadence.lock().parent(),
+        None,
+        "子契约应提升为独立契约"
+    );
     assert_eq!(child_cadence.lock().weight().get(), 2048 / 2);
     assert_eq!(kernel.state_of(child), Some(ThreadState::Inactive));
 }
@@ -1408,11 +1428,7 @@ fn lends_caller_contract_to_server_and_restores() {
     );
 }
 
-fn lending_server(
-    kernel: &Kernel,
-    caller_spec: CadenceSpec,
-    server_spec: CadenceSpec,
-) -> TcbId {
+fn lending_server(kernel: &Kernel, caller_spec: CadenceSpec, server_spec: CadenceSpec) -> TcbId {
     let caller = kernel
         .spawn_task(HandleTable::new(8), caller_spec)
         .expect("调用方");
