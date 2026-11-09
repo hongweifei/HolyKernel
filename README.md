@@ -130,6 +130,9 @@ cargo xtask image --target x86_64-qemu
 cargo xtask run   --target x86_64-qemu
 cargo xtask smoke --target x86_64-qemu
 cargo xtask test  --target hosted
+cargo xtask fuzz --iterations 2000
+cargo xtask soak --iterations 50
+cargo xtask crash
 cargo xtask lint
 cargo xtask docs
 cargo xtask budget

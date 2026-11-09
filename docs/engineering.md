@@ -169,6 +169,13 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 | `fuzz-net` | Ethernet、ARP、IPv4/IPv6、TCP、UDP、DHCP、DNS |
 | `fuzz-holyfs` | superblock、对象表、修订记录、集合项、extent、压缩、文档名 |
 
+当前可执行的宿主侧验证链：
+
+- `cargo xtask fuzz --iterations N`：对 FADT/MCFG/SRAT/PPTT/DMAR/IVRS/HPET/FACS/DSDT `_S5`、DTB 解析器和随机 HolyFS 卷做确定性随机输入测试；panic 即失败并输出 seed/iteration。
+- `cargo xtask soak --iterations N`：在同一个 HolyFS 卷上循环创建、读写、删除、快照/恢复、`check` 与 `scrub`，检查内容一致性和泄漏块。
+- `cargo xtask crash`：用可丢弃未刷写写入的块设备模拟掉电、已同步写入、撕裂写和尾部损坏，验证重新挂载、恢复与 `check` 不会静默破坏数据。
+- QEMU 层的服务恢复由 `cargo xtask smoke --mode restart`、`checkpointsrv`、`displayrestart`、`hotswap` 覆盖。
+
 ---
 
 ## 5. 可观测性
@@ -242,7 +249,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 3. 每个 `unsafe` 块有安全注释。
 4. 每个解析器有 fuzz 目标。
 5. 每个平台通过 conformance suite 后标记支持。
-6. 基准预算达标是里程碑退出条件。
+6. 性能基准不作为 CI 门禁；P3 门禁覆盖 fuzz、soak 与崩溃恢复。
 7. 构建可复现。
 8. 系统由微内核与用户态服务器组成：Task/TCB、Cadence/Meter、Beat、Arena、HandleTable、Endpoint、Notification、HMP（Capacity/Frame/Region）、Handle。
 9. 内核与用户态服务共享同一组 HMP 对象、Rights 与 Ledger 规则；内存授权由 Handle、Rights 与 ObjectKind 决定。

@@ -38,6 +38,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask test --target hosted
 
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask fuzz --iterations 2000
+      - run: cargo xtask soak --iterations 50
+      - run: cargo xtask crash
+
   build-matrix:
     runs-on: ubuntu-latest
     strategy:

@@ -19,11 +19,13 @@ mod budget;
 mod build;
 mod cargo;
 mod catalog;
+mod crash;
 mod debug;
 mod deps;
 mod disk;
 mod docs;
 mod failure;
+mod fuzz;
 mod image;
 mod inspect;
 mod lint;
@@ -31,6 +33,7 @@ mod native;
 mod qemu;
 mod run;
 mod smoke;
+mod soak;
 mod symbolize;
 mod target;
 mod test;
@@ -78,6 +81,12 @@ enum Task {
     Budget,
     /// 运行宿主基准
     Bench(bench::BenchArguments),
+    /// 解析器与 HolyFS 随机输入 fuzz
+    Fuzz(fuzz::FuzzArguments),
+    /// 长稳重复操作
+    Soak(soak::SoakArguments),
+    /// 崩溃恢复场景
+    Crash(crash::CrashArguments),
     /// 创建运行磁盘 build/run-disk.img
     Disk(DiskArguments),
 }
@@ -186,6 +195,9 @@ fn execute(task: Task) -> Result<()> {
         Task::Docs => docs::run(),
         Task::Budget => budget::run(),
         Task::Bench(arguments) => bench::run(arguments),
+        Task::Fuzz(arguments) => fuzz::run(arguments),
+        Task::Soak(arguments) => soak::run(arguments),
+        Task::Crash(arguments) => crash::run(arguments),
         Task::Disk(arguments) => {
             let path = if arguments.holy {
                 let path = workspace::root().join("build/run-holy.img");

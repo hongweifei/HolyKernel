@@ -2215,6 +2215,7 @@ dependencies = [
  "hk-catalog",
  "hk-fs-ext4",
  "hk-fs-holyfs",
+ "hk-fw",
  "hk-image",
  "hk-server-build",
  "hk-vfs",
