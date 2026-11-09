@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 
+#[cfg(not(test))]
 use x86_64::instructions::tlb;
 use x86_64::registers::control::Cr4;
 
@@ -13,6 +14,7 @@ use hk_mem::page::PagePool;
 use super::flags::{COW, FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
 use super::{FRAME_BANK, PageAllocator, read_cr3};
 
+#[cfg(not(test))]
 unsafe extern "C" {
     fn hk_invpcid_single(pcid: u64);
 }
@@ -370,7 +372,6 @@ impl PageTable {
         #[cfg(test)]
         {
             let _ = (address, self.pcid);
-            return;
         }
         #[cfg(not(test))]
         if PCID_ENABLED.load(Ordering::Acquire) && self.pcid != 0 {
