@@ -21,7 +21,7 @@ HolyKernel/
 │   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态） hk-symbols
 │   ├── kernel/            内核侧
 │   │   ├── hk-hal hk-handle hk-ipc hk-mem hk-kernel
-│   │   ├── hk-boot hk-acpi hk-fw hk-arch hk-framebuffer hk-smp hk-test hk-drivers
+│   │   ├── hk-boot hk-acpi hk-fw hk-framebuffer hk-smp hk-test hk-drivers
 │   │   ├── hk-runtime（用户任务、syscall 分派、RootServer 原语）
 │   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
 │   │   └── hk-kernel-shell hk-sim
@@ -201,7 +201,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - 依赖精简、可审计、维护活跃。
 - `build.rs` 与过程宏经过审查。
 - HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表、固件解析、引导与架构库在包装 crate 内部。
-- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈；每类只由对应包装 crate 引入。
+- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。页表、固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界。
 - `cargo-deny` 检查许可证与安全公告。
 
 ---

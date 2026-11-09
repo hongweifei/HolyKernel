@@ -2,6 +2,10 @@
 
 use alloc::vec::Vec;
 
+use x86_64::instructions::tlb;
+use x86_64::registers::control::{Cr3, Cr3Flags};
+use x86_64::structures::paging::PhysFrame;
+
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::FrameKind;
 use hk_mem::page::PagePool;
@@ -242,8 +246,9 @@ impl PageTable {
 
     /// 切换到该页表。
     pub fn activate(&self) {
+        let frame = PhysFrame::containing_address(x86_64::PhysAddr::new(self.root.get()));
         // SAFETY: 根物理地址来自页表或帧分配器；写入 CR3 只影响当前 CPU。
-        unsafe { hk_arch::write_cr3(self.root.get()) }
+        unsafe { Cr3::write(frame, Cr3Flags::empty()) }
     }
 
     /// 判断地址是否映射为用户可访问页；大页直接视为已映射。
@@ -328,7 +333,7 @@ impl PageTable {
             entry.write_volatile(phys.get() | flags.bits() | PRESENT);
         }
         // 刷新已修改的页对应的一级 TLB 项。
-        hk_arch::flush_tlb_page(virt.get());
+        tlb::flush(x86_64::VirtAddr::new(virt.get()));
         Ok(())
     }
 
@@ -364,7 +369,7 @@ impl PageTable {
             let entry = self.entry(table, index);
             // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
             unsafe { entry.write_volatile(0) };
-            hk_arch::flush_tlb_page(address);
+            tlb::flush(x86_64::VirtAddr::new(address));
             offset += PAGE_SIZE;
         }
         true

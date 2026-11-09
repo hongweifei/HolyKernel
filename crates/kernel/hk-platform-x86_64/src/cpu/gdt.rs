@@ -3,6 +3,12 @@
 use core::arch::asm;
 use core::cell::UnsafeCell;
 
+use x86_64::VirtAddr;
+use x86_64::instructions::tables;
+use x86_64::instructions::tables::DescriptorTablePointer;
+use x86_64::registers::model_specific::Msr;
+use x86_64::registers::segmentation::SegmentSelector;
+
 use super::*;
 
 #[repr(C, align(16))]
@@ -127,8 +133,11 @@ fn load_gdt(cpu: usize) {
     // SAFETY: GDT 已由本 CPU 初始化；加载后立即切换到同一 GDT 的段选择子。
     unsafe {
         let gdt = &*state.gdt.get();
-        let limit = (core::mem::size_of::<[u64; 7]>() - 1) as u16;
-        hk_arch::load_gdt(gdt.as_ptr() as u64, limit);
+        let pointer = DescriptorTablePointer {
+            limit: (core::mem::size_of::<[u64; 7]>() - 1) as u16,
+            base: VirtAddr::new(gdt.as_ptr() as u64),
+        };
+        tables::lgdt(&pointer);
 
         let code = u64::from(KERNEL_CODE);
         asm!(
@@ -151,9 +160,10 @@ fn load_gdt(cpu: usize) {
             in("ax") data,
             options(nostack, preserves_flags),
         );
-        hk_arch::load_tss(TSS_SELECTOR);
+        tables::load_tss(SegmentSelector(TSS_SELECTOR));
 
         let base = USER_RETURNS[cpu].0.get() as u64;
-        hk_arch::write_msr(0xC000_0101, base);
+        let mut gs_base = Msr::new(0xC000_0101);
+        gs_base.write(base);
     }
 }

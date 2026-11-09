@@ -2,6 +2,9 @@
 
 use core::fmt::Write;
 
+use x86_64::registers::control::Cr2;
+use x86_64::registers::model_specific::Msr;
+
 use hk_hal::Console;
 use spin::Mutex;
 
@@ -54,13 +57,14 @@ pub fn set_fault_hook(hook: FaultHook) {
 
 /// 返回页错误地址（CR2）。
 pub fn fault_address() -> u64 {
-    hk_arch::read_cr2()
+    Cr2::read_raw()
 }
 /// 设置线程指针（IA32_FS_BASE），供每个线程使用独立 TLS。
 pub fn set_thread_pointer(tls: u64) {
     const IA32_FS_BASE: u32 = 0xC000_0100;
+    let mut fs_base = Msr::new(IA32_FS_BASE);
     // SAFETY: 只写当前 CPU 的 FS 基址 MSR，不改变其他机器状态。
-    unsafe { hk_arch::write_msr(IA32_FS_BASE, tls) };
+    unsafe { fs_base.write(tls) };
 }
 
 /// 构造用户态初始现场：入口、栈顶与首个参数。
@@ -204,7 +208,7 @@ pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
     let _ = writeln!(report, "  rsp={:#018x} ss={:#x}", frame.rsp, frame.ss);
 
     if frame.vector == 14 || frame.vector == 8 {
-        let cr2 = hk_arch::read_cr2();
+        let cr2 = Cr2::read_raw();
         let _ = writeln!(report, "  出错地址 cr2={cr2:#018x}");
     }
 

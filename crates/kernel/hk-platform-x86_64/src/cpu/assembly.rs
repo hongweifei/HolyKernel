@@ -1,5 +1,8 @@
 //! x86_64 中断与用户态恢复汇编。
 
+use x86_64::registers::control::{Cr0, Cr4};
+use x86_64::registers::model_specific::Msr;
+
 /// EFER 寄存器的 MSR 编号。
 const IA32_EFER: u32 = 0xC000_0080;
 /// EFER.NXE：允许页表项表达不可执行。
@@ -24,9 +27,11 @@ pub(super) fn enable_no_execute() {
         "CPU 不支持 NX"
     );
 
-    let value = hk_arch::read_msr(IA32_EFER) | EFER_NXE;
+    let mut efer = Msr::new(IA32_EFER);
+    // SAFETY: 读取 EFER 不改变机器状态；只在 ring 0 执行。
+    let value = unsafe { efer.read() } | EFER_NXE;
     // SAFETY: EFER.NXE 是合法位；写入只影响当前 CPU。
-    unsafe { hk_arch::write_msr(IA32_EFER, value) };
+    unsafe { efer.write(value) };
 }
 
 /// 启用 x87/SSE：清除 CR0.EM/TS，置 CR0.MP/NE 与 CR4.OSFXSR/OSXMMEXCPT。
@@ -42,14 +47,14 @@ pub(super) fn enable_fpu() {
         "CPU 不支持 FXSAVE/SSE"
     );
 
-    let cr0 = hk_arch::read_cr0();
+    let cr0 = Cr0::read_raw();
     let cr0 = (cr0 & !((1 << 2) | (1 << 3))) | (1 << 1) | (1 << 5);
     // SAFETY: 清除 EM/TS 并置 MP/NE 是启用 x87/SSE 的合法组合。
-    unsafe { hk_arch::write_cr0(cr0) };
+    unsafe { Cr0::write_raw(cr0) };
 
-    let cr4 = hk_arch::read_cr4();
+    let cr4 = Cr4::read_raw();
     // SAFETY: OSFXSR/OSXMMEXCPT 是启用 SSE 状态保存的合法组合。
-    unsafe { hk_arch::write_cr4(cr4 | (1 << 9) | (1 << 10)) };
+    unsafe { Cr4::write_raw(cr4 | (1 << 9) | (1 << 10)) };
 }
 
 core::arch::global_asm!(

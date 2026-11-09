@@ -2,6 +2,8 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use x86_64::instructions::interrupts;
+
 use super::apic::{lapic_read, lapic_write};
 use super::*;
 
@@ -26,14 +28,14 @@ pub fn arm_timer(target: u64) {
     lapic_write(LAPIC_TIMER_INITIAL, TIMER_INITIAL_COUNT);
 
     // 开中断允许定时器中断进入；IDT 与本地 APIC 已就绪。
-    hk_arch::enable_interrupts();
+    interrupts::enable();
 }
 
 /// 停止定时器并关中断。
 pub fn disarm_timer() {
     TICK_ARMED.store(false, Ordering::SeqCst);
     // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
-    hk_arch::disable_interrupts();
+    interrupts::disable();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
@@ -52,7 +54,7 @@ pub fn start_tick() {
     TICK_ENABLED.store(true, Ordering::SeqCst);
 
     // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    hk_arch::enable_interrupts();
+    interrupts::enable();
 }
 
 /// 启动 AP 的周期性调度 tick，复用 BSP 校准的计数，不重置全局 tick 计数。
@@ -61,7 +63,7 @@ pub fn start_ap_tick() {
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
     // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    hk_arch::enable_interrupts();
+    interrupts::enable();
 }
 
 /// 重新装载 tick 计数并启用定时器。
@@ -76,13 +78,13 @@ pub fn rearm_tick() {
     TICK_ENABLED.store(true, Ordering::SeqCst);
 
     // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
-    hk_arch::enable_interrupts();
+    interrupts::enable();
 }
 
 /// 停止调度 tick 并关中断。
 pub fn stop_tick() {
     // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
-    hk_arch::disable_interrupts();
+    interrupts::disable();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
     TICK_ENABLED.store(false, Ordering::SeqCst);
 }

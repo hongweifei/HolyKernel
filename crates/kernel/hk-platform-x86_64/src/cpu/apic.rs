@@ -25,7 +25,7 @@ pub fn init_ap(cpu: usize) {
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
     APIC_IDS[cpu].store(u32::from(lapic_id()), Ordering::Release);
     // GDT/TSS/IDT 与 LAPIC 就绪；开启中断以接收 IPI。
-    hk_arch::enable_interrupts();
+    x86_64::instructions::interrupts::enable();
 }
 
 /// 向指定本地 APIC 发送固定投递 IPI。

@@ -2,6 +2,10 @@
 
 use core::cell::UnsafeCell;
 
+use x86_64::VirtAddr;
+use x86_64::instructions::tables;
+use x86_64::instructions::tables::DescriptorTablePointer;
+
 use super::*;
 
 #[repr(C)]
@@ -176,7 +180,10 @@ pub(super) fn load_idt() {
     // SAFETY: IDT 已由 BSP 初始化且此后只读。
     unsafe {
         let idt = &*IDT.0.get();
-        let limit = (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16;
-        hk_arch::load_idt(idt.as_ptr() as u64, limit);
+        let pointer = DescriptorTablePointer {
+            limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
+            base: VirtAddr::new(idt.as_ptr() as u64),
+        };
+        tables::lidt(&pointer);
     }
 }

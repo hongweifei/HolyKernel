@@ -12,6 +12,8 @@ mod table;
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use x86_64::registers::control::Cr3;
+
 use hk_hal::PhysAddr;
 use hk_mem::PagePool;
 
@@ -115,5 +117,6 @@ pub fn is_user_mapped(address: u64) -> bool {
 }
 
 pub(crate) fn read_cr3() -> PhysAddr {
-    PhysAddr::new(hk_arch::read_cr3() & table::ADDRESS_MASK)
+    let root = Cr3::read_raw().0.start_address().as_u64();
+    PhysAddr::new(root & table::ADDRESS_MASK)
 }

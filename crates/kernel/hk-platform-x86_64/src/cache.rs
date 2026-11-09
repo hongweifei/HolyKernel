@@ -31,7 +31,10 @@ impl CacheOps for X86Cache {
     }
 
     fn barrier(&self) {
-        hk_arch::fence();
+        // SAFETY: mfence 只影响内存排序，不访问内存。
+        unsafe {
+            asm!("mfence", options(nostack, preserves_flags));
+        }
     }
 }
 
@@ -51,5 +54,8 @@ fn flush_range(range: PhysRange, writeback: bool) {
         }
         address += 64;
     }
-    hk_arch::fence();
+    // SAFETY: 刷新后发出内存屏障。
+    unsafe {
+        asm!("mfence", options(nostack, preserves_flags));
+    }
 }

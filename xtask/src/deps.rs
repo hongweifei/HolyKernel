@@ -467,8 +467,9 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc"
         | "hk-holy-proto" | "hk-proto-client" | "hk-fs-ext4" | "hk-fs-holyfs-vfs" | "hk-debug"
         | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
-        "hk-framebuffer" | "hk-acpi" | "hk-fw" | "hk-arch" | "hk-boot" | "hk-smp"
-        | "hk-drivers" => LIB_FORBIDDEN,
+        "hk-framebuffer" | "hk-acpi" | "hk-fw" | "hk-boot" | "hk-smp" | "hk-drivers" => {
+            LIB_FORBIDDEN
+        }
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,
         _ => &[],
     }

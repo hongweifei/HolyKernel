@@ -1,5 +1,7 @@
 //! x86 端口 I/O。
 
+use x86_64::instructions::port::Port;
+
 use hk_hal::Io;
 
 /// x86 端口 I/O 实现。
@@ -36,7 +38,7 @@ impl Io for PortIo {
 /// 调用方保证端口号对当前上下文可访问。
 pub unsafe fn inb(port: u16) -> u8 {
     // SAFETY: 由调用方保证端口可访问。
-    unsafe { hk_arch::inb(port) }
+    unsafe { Port::new(port).read() }
 }
 
 /// 向端口写入一个字节。
@@ -45,7 +47,7 @@ pub unsafe fn inb(port: u16) -> u8 {
 /// 调用方保证端口号对当前上下文可访问。
 pub unsafe fn outb(port: u16, value: u8) {
     // SAFETY: 由调用方保证端口可访问。
-    unsafe { hk_arch::outb(port, value) }
+    unsafe { Port::new(port).write(value) }
 }
 
 /// 从端口读取一个 32 位值。
@@ -54,7 +56,7 @@ pub unsafe fn outb(port: u16, value: u8) {
 /// 调用方保证端口号对当前上下文可访问。
 pub unsafe fn inl(port: u16) -> u32 {
     // SAFETY: 由调用方保证端口可访问。
-    unsafe { hk_arch::inl(port) }
+    unsafe { Port::new(port).read() }
 }
 
 /// 向端口写入一个 32 位值。
@@ -63,5 +65,5 @@ pub unsafe fn inl(port: u16) -> u32 {
 /// 调用方保证端口号对当前上下文可访问。
 pub unsafe fn outl(port: u16, value: u32) {
     // SAFETY: 由调用方保证端口可访问。
-    unsafe { hk_arch::outl(port, value) }
+    unsafe { Port::new(port).write(value) }
 }

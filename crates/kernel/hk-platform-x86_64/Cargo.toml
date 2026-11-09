@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
 hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-arch = { version = "0.1.0", path = "../hk-arch" }
 hk-drivers = { version = "0.1.0", path = "../hk-drivers" }
 hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
 hk-fw = { version = "0.1.0", path = "../hk-fw" }
@@ -20,6 +19,7 @@ hk-smp = { version = "0.1.0", path = "../hk-smp" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 hk-test = { version = "0.1.0", path = "../hk-test" }
 spin = "0.9"
+x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
 
 [lints]
 workspace = true

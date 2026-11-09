@@ -2,6 +2,9 @@
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use x86_64::VirtAddr;
+use x86_64::instructions::{interrupts, tlb};
+
 use hk_smp::{IdleState, TlbHardware, TlbShootdown};
 
 use super::apic::{APIC_IDS, cpu_index, send_ipi};
@@ -70,13 +73,13 @@ pub fn idle(cpu: usize) {
     IDLE.enter(cpu);
     // 关中断后检查唤醒标志；`enable_and_halt` 原子地开中断并 `hlt`，不会丢失
     // 在途 IPI 或中断。
-    hk_arch::disable_interrupts();
+    interrupts::disable();
     loop {
         if IDLE.take_wake(cpu) {
             break;
         }
-        hk_arch::enable_and_halt();
-        hk_arch::disable_interrupts();
+        interrupts::enable_and_hlt();
+        interrupts::disable();
         if IDLE.take_wake(cpu) {
             break;
         }
@@ -130,7 +133,7 @@ pub(super) fn handle_tlb_ipi() {
 
 fn flush_local(address: Option<u64>) {
     match address {
-        Some(address) => hk_arch::flush_tlb_page(address),
-        None => hk_arch::flush_tlb_all(),
+        Some(address) => tlb::flush(VirtAddr::new(address)),
+        None => tlb::flush_all(),
     }
 }
