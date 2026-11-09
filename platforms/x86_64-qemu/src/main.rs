@@ -129,6 +129,14 @@ extern "C" fn kmain() -> ! {
     announce(&console, screen.as_ref(), &format!("{memory}\n"));
     let paging = PageTable::new(direct_map_base);
 
+    if !hk_platform_x86_64::cpu::init_stacks(&paging, &hk_platform_x86_64::paging::FRAME_BANK) {
+        announce(
+            &console,
+            screen.as_ref(),
+            "内核栈 guard page 初始化失败，回退静态栈\n",
+        );
+    }
+
     if let Err(error) = bootstrap::init_interrupts(
         &paging,
         &hk_platform_x86_64::paging::FRAME_BANK,

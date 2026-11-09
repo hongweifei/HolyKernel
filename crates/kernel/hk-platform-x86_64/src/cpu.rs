@@ -13,6 +13,7 @@ mod gdt;
 mod idt;
 mod interrupt;
 mod smp;
+mod stacks;
 mod syscall;
 mod timer;
 mod user;
@@ -21,7 +22,9 @@ pub use apic::{cpu_index, init_ap, init_apic, ipi_count, lapic_id, send_ipi};
 pub use assembly::{fpu_xstate_mask, user_access_begin, user_access_end};
 pub use features::Features;
 pub use frame::InterruptFrame;
+pub(crate) use gdt::set_syscall_stack_top;
 pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_aps};
+pub use stacks::init as init_stacks;
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
     arm_oneshot, arm_timer, calibrate_tick, disarm_timer, note_timer_interrupt, rearm_tick,

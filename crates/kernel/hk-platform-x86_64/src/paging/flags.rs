@@ -33,6 +33,8 @@ impl PageFlags {
     pub const KERNEL_RW: Self = Self(PRESENT | WRITABLE);
     /// 用户可读写页；服务镜像页依赖可执行。
     pub const USER_RW: Self = Self(PRESENT | WRITABLE | USER);
+    /// 内核栈页：可写、不可执行、禁止用户访问。
+    pub const KERNEL_STACK: Self = Self(PRESENT | WRITABLE | NX);
     /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
     pub const MMIO: Self = Self(PRESENT | WRITABLE | PWT | PCD | NX);
     /// 用户可访问的设备 MMIO 页：不可执行。

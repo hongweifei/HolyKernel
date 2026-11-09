@@ -2,6 +2,7 @@
 
 use core::arch::asm;
 use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use x86_64::VirtAddr;
 use x86_64::instructions::tables;
@@ -17,12 +18,29 @@ struct SyscallStack(UnsafeCell<[u8; SYSCALL_STACK_SIZE]>);
 #[repr(C, align(16))]
 struct DoubleFaultStack(UnsafeCell<[u8; DOUBLE_FAULT_STACK_SIZE]>);
 
+/// 动态分配的 per-CPU 系统调用栈顶；0 表示仍使用静态栈。
+static DYNAMIC_STACK_TOP: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
+
 /// 系统调用/中断栈顶。
 ///
-/// 留出 16 字节，使压入硬件帧与 15 个通用寄存器（共 176 字节）后的
-/// `rsp` 为 64 字节对齐，满足 XSAVE 区域的对齐要求。
+/// 优先使用启动后分配的带 guard page 的动态栈；否则退回静态栈。两者都留出
+/// 16 字节，使压入硬件帧与 15 个通用寄存器（共 176 字节）后的 `rsp` 为
+/// 64 字节对齐，满足 XSAVE 区域的对齐要求。
 fn syscall_stack_top(cpu: usize) -> u64 {
+    let dynamic = DYNAMIC_STACK_TOP[cpu].load(Ordering::Acquire);
+    if dynamic != 0 {
+        return dynamic;
+    }
     CPUS[cpu].syscall.0.get() as u64 + SYSCALL_STACK_SIZE as u64 - 16
+}
+
+/// 为 CPU 设置动态系统调用栈顶，并同步 TSS.rsp0。
+pub(crate) fn set_syscall_stack_top(cpu: usize, top: u64) {
+    DYNAMIC_STACK_TOP[cpu].store(top, Ordering::Release);
+    // SAFETY: 该 CPU 尚未使用新栈；写入自己的 TSS 槽位。
+    unsafe {
+        (*CPUS[cpu].tss.get()).rsp0 = top;
+    }
 }
 
 fn double_fault_stack_top(cpu: usize) -> u64 {
