@@ -87,45 +87,113 @@ pub(super) fn handle_nmi(frame: &mut InterruptFrame) {
     );
 }
 
-/// 处理机器检查：hook 可恢复；否则按致命异常上报。
+/// 处理机器检查：hook 可恢复；否则按状态判断能否恢复。
 pub(super) fn handle_mce(frame: &mut InterruptFrame) {
     if let Some(hook) = *MCE_HOOK.lock() {
         hook(frame);
         return;
     }
-    report_mce();
+    if report_mce() {
+        return;
+    }
     report_exception(frame)
 }
 
-/// 读取并打印机器检查状态寄存器。
-fn report_mce() {
+/// 判断机器检查状态是否允许恢复。
+///
+/// 需要 MCG_STATUS.MCIP/RIPV/EIPV 全置位，且至少一个有效 bank；
+/// 任一有效 bank 标记 UC（未纠正）或 PCC（上下文损坏）时不可恢复。
+fn recoverable(mcg_status: u64, banks: &[u64]) -> bool {
+    const MCIP: u64 = 1 << 2;
+    const RIPV: u64 = 1;
+    const EIPV: u64 = 1 << 1;
+    const VALID: u64 = 1 << 63;
+    const UC: u64 = 1 << 61;
+    const PCC: u64 = 1 << 57;
+
+    if mcg_status & (MCIP | RIPV | EIPV) != (MCIP | RIPV | EIPV) {
+        return false;
+    }
+    let mut valid = false;
+    for status in banks {
+        if status & VALID == 0 {
+            continue;
+        }
+        valid = true;
+        if status & (UC | PCC) != 0 {
+            return false;
+        }
+    }
+    valid
+}
+
+/// 读取并打印机器检查状态寄存器；返回是否已恢复（并清除状态）。
+fn report_mce() -> bool {
     const IA32_MCG_CAP: u32 = 0x179;
     const IA32_MCG_STATUS: u32 = 0x17A;
     const MCG_STATUS_MCIP: u64 = 1 << 2;
     const MCG_STATUS_RIPV: u64 = 1 << 0;
     const MCG_STATUS_EIPV: u64 = 1 << 1;
     const MCI_STATUS_VALID: u64 = 1 << 63;
+    const MAX_BANKS: usize = 32;
 
     let mut report = DirectWriter(Serial::new(COM1));
     // SAFETY: 这些是当前 CPU 的机器检查 MSR。
     let cap = unsafe { Msr::new(IA32_MCG_CAP).read() };
     // SAFETY: IA32_MCG_STATUS 是当前 CPU 的机器检查状态 MSR。
     let status = unsafe { Msr::new(IA32_MCG_STATUS).read() };
-    let banks = (cap & 0xFF) as u32;
+    let bank_count = (cap & 0xFF) as usize;
+    let banks = bank_count.min(MAX_BANKS);
     let _ = writeln!(
         report,
-        "\n机器检查：banks={banks} mcg_status={status:#018x} mcip={} ripv={} eipv={}",
+        "\n机器检查：banks={bank_count} mcg_status={status:#018x} mcip={} ripv={} eipv={}",
         status & MCG_STATUS_MCIP != 0,
         status & MCG_STATUS_RIPV != 0,
         status & MCG_STATUS_EIPV != 0
     );
-    for bank in 0..banks {
-        let msr = 0x400 + bank * 16;
+    let mut bank_status = [0_u64; MAX_BANKS];
+    for (bank, slot) in bank_status.iter_mut().enumerate().take(banks) {
+        let msr = 0x400 + bank as u32 * 16;
         // SAFETY: bank 数来自 IA32_MCG_CAP，MSR 编号在架构范围内。
         let value = unsafe { Msr::new(msr).read() };
+        *slot = value;
         if value & MCI_STATUS_VALID != 0 {
-            let _ = writeln!(report, "  bank {bank}: status={value:#018x}");
+            let _ = writeln!(
+                report,
+                "  bank {bank}: status={value:#018x} uc={} pcc={}",
+                value & (1 << 61) != 0,
+                value & (1 << 57) != 0
+            );
         }
+    }
+    let recovered = bank_count <= MAX_BANKS && recoverable(status, &bank_status[..banks]);
+    if recovered {
+        // SAFETY: 清 MCi 后再清 MCG_STATUS，写 0 清除 valid/MCIP 状态位。
+        unsafe {
+            for bank in 0..banks {
+                Msr::new(0x400 + bank as u32 * 16).write(0);
+            }
+            Msr::new(IA32_MCG_STATUS).write(0);
+        }
+        let _ = writeln!(report, "  MCE 可恢复：已清除机器检查状态并返回");
+    } else {
+        let _ = writeln!(report, "  MCE 不可恢复");
+    }
+    recovered
+}
+
+#[cfg(test)]
+mod mce_tests {
+    use super::recoverable;
+
+    #[test]
+    fn mce_recovery_requires_valid_rip_and_corrected_banks() {
+        let mcg = 1 | (1 << 1) | (1 << 2);
+        assert!(recoverable(mcg, &[1 << 63]));
+        assert!(!recoverable(mcg, &[0]));
+        assert!(!recoverable(mcg, &[(1 << 63) | (1 << 61)]));
+        assert!(!recoverable(mcg, &[(1 << 63) | (1 << 57)]));
+        assert!(!recoverable(1, &[1 << 63]));
     }
 }
 
