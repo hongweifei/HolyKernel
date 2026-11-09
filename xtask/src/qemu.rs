@@ -94,6 +94,15 @@ fn parse_cpus(value: &str) -> std::result::Result<u32, String> {
     Ok(cpus)
 }
 
+/// 判断 KVM 是否可用：`/dev/kvm` 存在不代表当前进程能打开它（常见于 CI）。
+fn kvm_available() -> bool {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/kvm")
+        .is_ok()
+}
+
 /// 启动 QEMU 并等待内核退出。
 pub fn run(iso: &Path, disk: &Path, ui: bool, machine: &Machine) -> Result<()> {
     run_with(iso, disk, ui, machine, None)
@@ -117,7 +126,7 @@ pub fn run_with(
         .arg("-cdrom")
         .arg(iso)
         .args(["-boot", "d", "-serial", "stdio", "-no-reboot"]);
-    if Path::new("/dev/kvm").exists() {
+    if kvm_available() {
         command.args(["-accel", "kvm", "-cpu", "host"]);
     }
     if !ui {
