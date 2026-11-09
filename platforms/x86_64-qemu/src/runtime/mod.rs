@@ -220,10 +220,12 @@ impl UserPlatform for X86Platform {
     }
 
     fn zero(&self, address: u64, length: usize) {
-        // SAFETY: Arena 页已映射到当前用户页表，内核经同一页表写入。
+        hk_platform_x86_64::cpu::user_access_begin();
+        // SAFETY: Arena 页已映射到当前用户页表，SMAP 由 STAC/CLAC 临时放行。
         unsafe {
             core::ptr::write_bytes(address as *mut u8, 0, length);
         }
+        hk_platform_x86_64::cpu::user_access_end();
     }
 
     fn user_mapped(&self, address: u64) -> bool {
