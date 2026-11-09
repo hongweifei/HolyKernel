@@ -102,6 +102,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
+    let mut over = request;
+    over.weight = REQUEST_WEIGHT;
+    over.budget = 64_000;
+    over.period = 16_000;
+    let mut encoded = [0_u8; CadenceSnapshot::ENCODED_LEN];
+    over.encode(&mut encoded);
+    if client.admit_named("hk-server-tempo-test", &encoded, false) {
+        write(b"hk-server-tempo-test: over-limit accepted\n");
+        exit(1);
+    }
+
     write(b"hk-server-tempo-test: ok weight=");
     write_u64(u64::from(attached.weight));
     write(b"\n");

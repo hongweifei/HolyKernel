@@ -43,8 +43,8 @@ const LATENCY: CadenceSpec = CadenceSpec::new(CadenceClass::Latency, 2048)
 const THROUGHPUT: CadenceSpec =
     CadenceSpec::new(CadenceClass::Throughput, 1024).with_lending(Lending::caller_pays());
 
-/// Tempo 的初始策略池：低延迟类、带硬预算，子契约在其中收窄。
-const TEMPO_POOL: CadenceSpec = CadenceSpec::new(CadenceClass::Latency, 4096)
+/// Tempo 的初始策略池：实时类、带硬预算，子契约在其中收窄。
+const TEMPO_POOL: CadenceSpec = CadenceSpec::new(CadenceClass::Realtime, 4096)
     .with_budget(millis(8), millis(16))
     .with_latency(millis(2))
     .with_lending(Lending::caller_pays());
