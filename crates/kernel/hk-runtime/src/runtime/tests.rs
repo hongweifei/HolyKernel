@@ -260,6 +260,19 @@ fn runtime() -> UserRuntime<MockContext, MockPlatform> {
 }
 
 #[test]
+fn renders_cadence_meter_and_tempo_views() {
+    let runtime = runtime();
+    let cadence = runtime.cadence_text("a");
+    assert!(cadence.contains("cadence a"), "{cadence}");
+    assert!(cadence.contains("weight="), "{cadence}");
+    let meter = runtime.meter_text("a");
+    assert!(meter.contains("meter a"), "{meter}");
+    assert!(meter.contains("consumed="), "{meter}");
+    assert!(runtime.cadence_text("missing").contains("未知任务"));
+    assert!(runtime.tempo_text().contains("Tempo 未运行"));
+}
+
+#[test]
 fn reports_self_cadence_and_meter() {
     let mut runtime = runtime();
     let Step::Resume { mut context, .. } = runtime.step(0) else {
