@@ -221,6 +221,7 @@ sequenceDiagram
 | **Block Server** | RAM disk 与块协议服务 | Block Endpoint |
 | **Block Driver** | virtio-blk / AHCI / NVMe | DeviceGrant（MMIO/DMA/IRQ） |
 | **USB Driver** | xHCI HID（`crab-usb`） | DeviceGrant + Input Endpoint |
+| **IOMMU** | Intel VT-d（DMAR）/ AMD-Vi（IVRS）；无硬件时软件域表 | DeviceGrant DMA 窗口 |
 | **Network Driver** | virtio-net / e1000 | DeviceGrant（MMIO/DMA/IRQ） |
 | **VFS Server** | Holy 原生命名空间：盘符、DocId、集合、修订、文档令牌；聚合远程 FS 服务 | FS Backend Endpoint、Revision Region |
 | **Path Server** | 路径解析、dentry/inode、文件句柄、页缓存、POSIX 路径投影 | VFS Endpoint、Shared Frame |
@@ -342,7 +343,7 @@ sequenceDiagram
 - **最小权限**：服务器只获得完成职责所需的 Handle；HMP 的 Capacity/Frame/Region 由 Rights 约束，内存授权由 Handle 与 Rights 决定。
 - **内存授权**：Root Server 持有初始 Capacity 并通过 Handle 转移；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
 - **句柄回收**：close + 任务退出 + 服务器重启；服务器重启时回收旧句柄。
-- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；当前 x86 使用软件 IOMMU 域表，硬件 VT-d 后端待接入；关闭时依赖驱动审计。
+- **DMA 隔离**：IOMMU 可用时绑定 DeviceGrant；x86 启动期按 DMAR 启用 VT-d、按 IVRS 启用 AMD-Vi；无硬件/初始化失败时退回软件 IOMMU 域表。
 - **可信基**：内核、Root Server、VFS Server、根文件系统 Server（ext2/ext4）与 HolyFS 卷服务；POSIX Server 在启用兼容环境时加入。
 - **验证**：Rust 内存安全、`unsafe` 审计、fuzz、确定性模拟、POSIX 测试套件。
 - **服务器监督**：Root Server 记录崩溃、重启次数与句柄重新分配。

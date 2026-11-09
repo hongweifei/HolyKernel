@@ -246,6 +246,7 @@ pub fn init_ioapic(
         base: ACPI_SCRATCH_BASE,
     };
     let tables = hk_fw::firmware::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    crate::iommu::init(&tables, paging, allocator);
     *POWER.lock() = tables.fadt;
     if let Some(mcfg) = &tables.mcfg {
         for (index, entry) in mcfg.entries.iter().enumerate() {
