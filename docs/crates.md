@@ -91,7 +91,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | Dma Capacity 与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、栅格化、缓存与内置字体数据 | `crates/shared/hk-font/src/{font,glyph,raster,cache,data}.rs` |
-| x86_64 页表项属性、页表机制与写时复制 | `crates/kernel/hk-platform-x86_64/src/paging/{flags,table,cow}.rs` |
+| x86_64 页表项属性（`page_table_entry`）、页表机制与写时复制 | `crates/kernel/hk-platform-x86_64/src/paging/{flags,table,cow}.rs` |
 | Holy 文件系统契约与后端接口 | `crates/user/hk-fs/src/backend.rs` |
 | 文档与卷级令牌会话（复用 `TokenTable`） | `crates/user/hk-fs/src/session.rs` |
 | 系统调用薄封装、Root 控制与架构入口 | `crates/user/hk-syscall-client/src/{syscall,root,arch}.rs` |

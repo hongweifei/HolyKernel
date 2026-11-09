@@ -1,45 +1,56 @@
 //! 页表项属性，以及 CoW 与检查点恢复的属性策略。
+//!
+//! 硬件位来自 `page_table_entry` 的 x86_64 `PTF`，权限到位的转换使用其
+//! `MappingFlags`；本模块只保留软件 COW 位与检查点掩码。
 
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
+use page_table_entry::MappingFlags;
+use page_table_entry::x86_64::PTF;
 
-pub(crate) const PRESENT: u64 = 1 << 0;
-pub(crate) const WRITABLE: u64 = 1 << 1;
-pub(crate) const USER: u64 = 1 << 2;
-pub(crate) const PWT: u64 = 1 << 3;
-pub(crate) const PCD: u64 = 1 << 4;
-pub(crate) const HUGE: u64 = 1 << 7;
+pub(crate) const PRESENT: u64 = PTF::PRESENT.bits();
+pub(crate) const WRITABLE: u64 = PTF::WRITABLE.bits();
+pub(crate) const USER: u64 = PTF::USER_ACCESSIBLE.bits();
+pub(crate) const PWT: u64 = PTF::WRITE_THROUGH.bits();
+pub(crate) const PCD: u64 = PTF::NO_CACHE.bits();
+pub(crate) const HUGE: u64 = PTF::HUGE_PAGE.bits();
+/// 写时复制标记：x86_64 的软件可用位 9，硬件忽略。
 pub(crate) const COW: u64 = 1 << 9;
-pub(crate) const NX: u64 = 1 << 63;
+pub(crate) const NX: u64 = PTF::NO_EXECUTE.bits();
 pub(crate) const FLAGS_MASK: u64 = 0xFFF | NX;
+
+fn encode(flags: MappingFlags) -> u64 {
+    PTF::from(flags).bits()
+}
 
 /// 页表项属性。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageFlags(u64);
 
 impl PageFlags {
-    /// 内核可读写页。
-    pub const KERNEL_RW: Self = Self(WRITABLE);
-    /// 用户可读写页。
-    pub const USER_RW: Self = Self(WRITABLE | USER);
+    /// 内核可读写页；保持可执行以兼容既有映射。
+    pub const KERNEL_RW: Self = Self(PRESENT | WRITABLE);
+    /// 用户可读写页；服务镜像页依赖可执行。
+    pub const USER_RW: Self = Self(PRESENT | WRITABLE | USER);
     /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
-    pub const MMIO: Self = Self(WRITABLE | PWT | PCD | NX);
+    pub const MMIO: Self = Self(PRESENT | WRITABLE | PWT | PCD | NX);
     /// 用户可访问的设备 MMIO 页：不可执行。
-    pub const USER_MMIO: Self = Self(WRITABLE | USER | PWT | PCD | NX);
+    pub const USER_MMIO: Self = Self(PRESENT | WRITABLE | USER | PWT | PCD | NX);
 
     /// 按 Region 权利与标志构造用户页属性。
     ///
-    /// 写权限来自 `rights`；只要不带 `EXECUTE` 就设置 NX。`COW` 标志把页映射
-    /// 为只读并置位 COW 标记，写时由缺页处理复制。
+    /// 写权限来自 `rights`；不带 `EXECUTE` 时由 `MappingFlags` 转出 NX。
+    /// `COW` 标志把页映射为只读并置位 COW 标记，写时由缺页处理复制。
     pub fn user(rights: Rights, flags: RegionFlags) -> Self {
-        let mut bits = USER;
         let cow = flags.contains(RegionFlags::COW);
+        let mut mapping = MappingFlags::READ | MappingFlags::USER;
         if rights.contains(Rights::WRITE) && !cow {
-            bits |= WRITABLE;
+            mapping |= MappingFlags::WRITE;
         }
-        if !rights.contains(Rights::EXECUTE) {
-            bits |= NX;
+        if rights.contains(Rights::EXECUTE) {
+            mapping |= MappingFlags::EXECUTE;
         }
+        let mut bits = encode(mapping);
         if cow {
             bits |= COW;
         }

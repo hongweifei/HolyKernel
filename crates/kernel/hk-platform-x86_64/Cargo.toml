@@ -18,6 +18,7 @@ hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
 hk-smp = { version = "0.1.0", path = "../hk-smp" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 hk-test = { version = "0.1.0", path = "../hk-test" }
+page_table_entry = "0.6.2"
 spin = "0.9"
 x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
 
