@@ -1,0 +1,15 @@
+[package]
+name = "hk-fw"
+description = "HolyKernel 固件描述：ACPI 与 DTB 解析"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
+acpi = { version = "7.0.0-pre1", default-features = false }
+hermit-dtb = "0.1.1"
+
+[lints]
+workspace = true

@@ -4,7 +4,6 @@
 
 extern crate alloc;
 
-pub mod acpi;
 pub mod board;
 pub mod bootstrap;
 pub mod cache;

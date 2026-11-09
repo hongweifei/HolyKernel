@@ -9,9 +9,9 @@ repository.workspace = true
 [dependencies]
 hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
 hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
 hk-drivers = { version = "0.1.0", path = "../hk-drivers" }
 hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
+hk-fw = { version = "0.1.0", path = "../hk-fw" }
 hk-hal = { version = "0.1.0", path = "../hk-hal" }
 hk-mem = { version = "0.1.0", path = "../hk-mem" }
 hk-smp = { version = "0.1.0", path = "../hk-smp" }

@@ -11,7 +11,8 @@ use hk_hal::{
 };
 use spin::Mutex;
 
-use crate::acpi::Madt;
+use hk_fw::acpi::Madt;
+
 use crate::ioapic::IoApic;
 use crate::{FramebufferConsole, PageAllocator, PageFlags, PageTable};
 
@@ -50,14 +51,14 @@ pub static CONTROLLER: IoApicController = IoApicController;
 
 /// 屏蔽 IRQ 线。
 pub fn unroute_irq(irq: u8) -> bool {
-    let Some(madt) = *MADT.lock() else {
+    let Some(madt) = MADT.lock().as_ref().cloned() else {
         return false;
     };
     let ioapic = IOAPIC.lock();
     let Some(state) = ioapic.as_ref() else {
         return false;
     };
-    IoApic::new(state.base).mask(madt.gsi(irq), madt.gsi_base);
+    IoApic::new(state.base).mask(madt.gsi(irq), madt.gsi_base());
     true
 }
 
@@ -66,7 +67,7 @@ pub fn route_irq(irq: u8) -> bool {
     if irq >= crate::irq::IRQ_LINES {
         return false;
     }
-    let Some(madt) = *MADT.lock() else {
+    let Some(madt) = MADT.lock().as_ref().cloned() else {
         return false;
     };
     let ioapic = IOAPIC.lock();
@@ -74,7 +75,7 @@ pub fn route_irq(irq: u8) -> bool {
         return false;
     };
     let vector = crate::irq::IRQ_VECTOR_BASE + irq;
-    IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base, vector, state.destination);
+    IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base(), vector, state.destination);
     true
 }
 
@@ -192,13 +193,14 @@ pub fn init_ioapic(
         allocator,
         base: ACPI_SCRATCH_BASE,
     };
-    let madt = crate::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
     let Some(madt) = madt else {
         return Ok(None);
     };
-
-    let phys = madt.ioapic_base;
+    let Some(phys) = madt.ioapic_base() else {
+        return Ok(None);
+    };
     let virt = VirtAddr::new(direct_map_base + phys);
     paging
         .map(virt, PhysAddr::new(phys), PageFlags::MMIO, allocator)
@@ -209,9 +211,10 @@ pub fn init_ioapic(
     let ioapic = IoApic::new(virt.get());
     ioapic.init();
     let gsi = madt.gsi(1);
+    let cpus = madt.cpu_count();
     let vector = crate::board::KEYBOARD_VECTOR as u8;
     let destination = crate::cpu::lapic_id();
-    ioapic.route(gsi, madt.gsi_base, vector, destination);
+    ioapic.route(gsi, madt.gsi_base(), vector, destination);
     *MADT.lock() = Some(madt);
     *IOAPIC.lock() = Some(IoApicState {
         base: virt.get(),
@@ -222,21 +225,26 @@ pub fn init_ioapic(
         gsi,
         vector,
         destination,
-        cpus: madt.cpu_count(),
+        cpus,
     }))
 }
 
 /// 初始化键盘并把 IRQ1 路由到键盘向量。
 pub fn init_keyboard(setup: &IoApicSetup) -> bool {
     crate::keyboard::init();
-    let Some(madt) = *MADT.lock() else {
+    let Some(madt) = MADT.lock().as_ref().cloned() else {
         return false;
     };
     let ioapic = IOAPIC.lock();
     let Some(state) = ioapic.as_ref() else {
         return false;
     };
-    IoApic::new(state.base).route(madt.gsi(1), madt.gsi_base, setup.vector, setup.destination);
+    IoApic::new(state.base).route(
+        madt.gsi(1),
+        madt.gsi_base(),
+        setup.vector,
+        setup.destination,
+    );
     true
 }
 

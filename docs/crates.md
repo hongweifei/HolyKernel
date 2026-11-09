@@ -21,7 +21,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
 | L1 | 共享契约 | `hk-shell`、`hk-font`、`hk-symbols` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化）；文本符号表解析与符号化 |
 | L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
-| L1 | 内核侧 | `hk-boot`、`hk-acpi`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 启动信息、ACPI、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
+| L1 | 内核侧 | `hk-boot`、`hk-acpi`、`hk-fw`、`hk-framebuffer`、`hk-smp`、`hk-test`、`hk-drivers` | 启动信息、ACPI、固件描述（ACPI/DTB 包装）、帧缓冲文本控制台、SMP 状态机、测试退出、16550 UART 与 PS/2 键盘 |
 | L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
 | L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
 | L2 | 用户态 | `hk-syscall-client` | 零分配系统调用薄客户端：参数整理、返回值解包与 Root 控制；并发库直接使用 |
@@ -81,6 +81,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 用户虚拟布局与自动映射窗口 | `crates/shared/hk-base/src/user.rs` |
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
 | 设备授权描述与 PCI 枚举 | `crates/shared/hk-device/src/{device,grant,pci,scan}.rs` |
+| 固件描述（ACPI/DTB 外部库包装） | `crates/kernel/hk-fw/src/{acpi,dtb}.rs`；`acpi`、`hermit-dtb` 只在此 crate 内出现 |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
 | HMP 核心对象（Arena/Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/`；对外词汇与授予规则见 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 物理页后端与按容量归因的额度视图 | `crates/kernel/hk-mem/src/hmp/backend.rs`、`crates/kernel/hk-mem/src/hmp/capacity.rs` |

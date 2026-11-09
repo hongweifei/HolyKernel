@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "acpi"
+version = "7.0.0-pre1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e543c62c3210ae1fe96c1606cfbb791909ff54a0445016e8f037015d0a88e1d7"
+dependencies = [
+ "bit_field",
+ "bitflags 2.13.2",
+ "log",
+ "pci_types",
+ "static_assertions",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -51,6 +64,12 @@ dependencies = [
  "once_cell_polyfill",
  "windows-sys",
 ]
+
+[[package]]
+name = "bit_field"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
 
 [[package]]
 name = "bitflags"
@@ -209,6 +228,12 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hermit-dtb"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89e0de208fa9b99664812350b33072d0d9b3a63caaebb03eeb23316eeedfb8d0"
 
 [[package]]
 name = "hk-acpi"
@@ -380,6 +405,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-fw"
+version = "0.1.0"
+dependencies = [
+ "acpi",
+ "hermit-dtb",
+ "hk-acpi",
+]
+
+[[package]]
 name = "hk-hal"
 version = "0.1.0"
 dependencies = [
@@ -499,11 +533,11 @@ dependencies = [
 name = "hk-platform-x86_64"
 version = "0.1.0"
 dependencies = [
- "hk-acpi",
  "hk-base",
  "hk-device",
  "hk-drivers",
  "hk-framebuffer",
+ "hk-fw",
  "hk-hal",
  "hk-mem",
  "hk-smp",
@@ -1167,6 +1201,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "pci_types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0c2a105c657261a938ff68ee231c199a3d80eef33976004829de761ef5b1a9b"
+dependencies = [
+ "bit_field",
+ "bitflags 2.13.2",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1284,6 +1328,12 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strsim"
