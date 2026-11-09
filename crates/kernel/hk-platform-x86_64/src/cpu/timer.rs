@@ -128,6 +128,39 @@ pub fn calibrate_tick(tsc_frequency: u64) {
     }
 }
 
+/// 用 HPET 校准 LAPIC 定时器，把调度 tick 设为约 10 ms。
+///
+/// 不依赖 TSC；HPET 不可用时返回 `false`，调用方保留既有校准结果。
+pub fn calibrate_tick_hpet() -> bool {
+    if !crate::hpet::available() {
+        return false;
+    }
+    let frequency = crate::hpet::frequency();
+    if frequency == 0 {
+        return false;
+    }
+    let window = (frequency / 100).max(1);
+
+    lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+    lapic_write(LAPIC_TIMER_INITIAL, u32::MAX);
+
+    let start = crate::hpet::now();
+    while crate::hpet::now().wrapping_sub(start) < window {
+        core::hint::spin_loop();
+    }
+    let counts = u64::from(u32::MAX).saturating_sub(u64::from(lapic_read(LAPIC_TIMER_CURRENT)));
+
+    lapic_write(LAPIC_TIMER_INITIAL, 0);
+    lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
+
+    if counts > 0 {
+        TICK_COUNT.store(counts.min(u64::from(u32::MAX)) as u32, Ordering::SeqCst);
+        return true;
+    }
+    false
+}
+
 /// 记录一次定时器中断。
 pub(super) fn note_tick() {
     TIMER_TICKS.fetch_add(1, Ordering::SeqCst);

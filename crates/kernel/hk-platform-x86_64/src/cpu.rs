@@ -30,7 +30,7 @@ pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_a
 pub use stacks::init as init_stacks;
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
-    arm_oneshot, arm_timer, calibrate_tick, disarm_timer, enable_wakeup_timer,
+    arm_oneshot, arm_timer, calibrate_tick, calibrate_tick_hpet, disarm_timer, enable_wakeup_timer,
     note_timer_interrupt, oneshot_armed, rearm_tick, resume_periodic, start_ap_tick, start_tick,
     stop_tick, tick_enabled, timer_finished, timer_ticks, uptime_ticks,
 };
@@ -62,6 +62,9 @@ pub const TIMER_VECTOR: u64 = 32;
 
 /// ACPI SCI 中断向量。
 pub const SCI_VECTOR: u64 = 159;
+
+/// HPET 周期中断向量。
+pub const HPET_VECTOR: u64 = 158;
 
 /// 双重故障使用的中断栈表序号。
 const DOUBLE_FAULT_IST: u8 = 1;

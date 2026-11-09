@@ -41,6 +41,11 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         lapic_write(LAPIC_EOI, 0);
         return;
     }
+    if frame.vector == HPET_VECTOR {
+        crate::hpet::note_periodic();
+        lapic_write(LAPIC_EOI, 0);
+        return;
+    }
     if (u64::from(crate::irq::IRQ_VECTOR_BASE)
         ..u64::from(crate::irq::IRQ_VECTOR_BASE + crate::irq::IRQ_LINES))
         .contains(&frame.vector)

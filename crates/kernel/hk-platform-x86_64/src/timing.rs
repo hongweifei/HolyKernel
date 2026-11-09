@@ -64,6 +64,13 @@ pub fn calibrate() -> Option<u64> {
     frequency
 }
 
+/// 以 HPET 校准 TSC，返回每秒周期数。
+pub fn calibrate_with_hpet() -> Option<u64> {
+    let frequency = crate::hpet::calibrate_tsc()?;
+    FREQUENCY.store(frequency, Ordering::Release);
+    Some(frequency)
+}
+
 /// 返回从 `start` 到现在的毫秒数。
 pub fn elapsed_ms(start: u64, frequency: u64) -> u64 {
     let cycles = rdtsc().saturating_sub(start);

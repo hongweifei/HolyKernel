@@ -273,6 +273,14 @@ pub fn init_ioapic(
             .is_ok()
         {
             crate::hpet::init(HPET_BASE + offset);
+            if crate::hpet::available() {
+                if crate::timing::tsc_frequency() == 0
+                    && let Some(hz) = crate::timing::calibrate_with_hpet()
+                {
+                    crate::rtc::init(hz);
+                }
+                crate::cpu::calibrate_tick_hpet();
+            }
         }
     }
     *FIRMWARE.lock() = Some(tables);
@@ -333,6 +341,9 @@ pub fn init_ioapic(
             crate::cpu::SCI_VECTOR as u8,
             destination,
         );
+    }
+    if let Some(gsi) = crate::hpet::start_periodic(gsi_base) {
+        ioapic.route_level(gsi, gsi_base, crate::cpu::HPET_VECTOR as u8, destination);
     }
 
     Ok(Some(IoApicSetup {
