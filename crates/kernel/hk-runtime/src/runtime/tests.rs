@@ -1104,6 +1104,55 @@ fn capacity_frame_lifecycle() {
 }
 
 #[test]
+fn receiving_frame_charges_receiver_ledger() {
+    let mut runtime = runtime();
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(101),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x70_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    let frame = runtime
+        .kernel
+        .allocate_frame(tcb, capacity, hk_hal::PAGE_SIZE)
+        .expect("Frame");
+
+    let before = runtime.process(index).ledger.charged();
+    let installed = runtime
+        .install_extra_capability(index, frame)
+        .expect("安装 Frame");
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64,
+        "接收 Frame 必须按物理区间记账"
+    );
+    assert_eq!(runtime.close_handle(index, tcb, installed as usize), 0);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before,
+        "关闭接收的 Frame 归还记账"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn frame_maps_and_returns_to_capacity() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

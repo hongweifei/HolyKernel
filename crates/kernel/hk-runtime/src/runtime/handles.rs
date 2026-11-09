@@ -14,7 +14,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn install_extra_capability(&mut self, index: usize, handle: Handle) -> Option<u64> {
         let tcb = self.tasks[index].tcb;
         let Ok((capability, _)) = self.kernel.capability(tcb, handle) else {
-            return Some(self.install_extra_handle(index, handle));
+            // Frame 句柄没有类型化能力对象；接收方按物理区间大小记账，
+            // 否则 MEMORY_FRAME 之类的转移会完全绕过接收任务的配额。
+            let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, handle) else {
+                return Some(self.install_extra_handle(index, handle));
+            };
+            let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
+                let _ = self.kernel.close_handle(tcb, handle);
+                return None;
+            };
+            return Some(self.install_extra_entry(index, handle, Some(charge)));
         };
         let Ok(charge) = self.process_mut(index).ledger.charge(capability.size()) else {
             let _ = self.kernel.close_handle(tcb, handle);
