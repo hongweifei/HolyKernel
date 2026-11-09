@@ -73,6 +73,13 @@ impl Kernel {
         Ok(())
     }
 
+    /// 判断 TCB 所属 Task 是否持有调度策略授权。
+    pub fn is_policy_authority(&self, thread: TcbId) -> bool {
+        self.task_of(thread)
+            .and_then(|task| self.task(task))
+            .is_some_and(|task| task.lock().policy_authority())
+    }
+
     /// 取得当前 Task 的 Cadence 句柄；策略 Task 额外获得 ADMIN。
     pub fn self_cadence_handle(&self, thread: TcbId) -> Result<Handle, KernelError> {
         let task_id = self
@@ -159,6 +166,48 @@ impl Kernel {
         let cadence = self.cadence_object(thread, handle, Rights::ADMIN)?;
         let epoch = cadence.lock().revoke();
         self.suspend_using(&cadence);
+        Ok(epoch)
+    }
+
+    /// 按任务标识附加 Cadence，并把它重新入队。
+    pub fn attach_cadence_to_task(
+        &self,
+        thread: TcbId,
+        task: TaskId,
+        cadence_handle: Handle,
+    ) -> Result<(), KernelError> {
+        let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
+        let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        {
+            let mut target = target.lock();
+            target.set_cadence(cadence);
+            if target.state() == TaskState::Suspended {
+                target.set_state(TaskState::Eligible);
+            }
+        }
+        self.enqueue_task(task);
+        Ok(())
+    }
+
+    /// 撤销 Task 当前 Cadence 的 epoch，再附加新契约；返回旧 epoch。
+    pub fn regrant_cadence_to_task(
+        &self,
+        thread: TcbId,
+        task: TaskId,
+        cadence_handle: Handle,
+    ) -> Result<u32, KernelError> {
+        let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
+        let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        let previous = { target.lock().cadence() };
+        let epoch = previous.lock().revoke();
+        {
+            let mut target = target.lock();
+            target.set_cadence(cadence);
+            if target.state() == TaskState::Suspended {
+                target.set_state(TaskState::Eligible);
+            }
+        }
+        self.enqueue_task(task);
         Ok(epoch)
     }
 

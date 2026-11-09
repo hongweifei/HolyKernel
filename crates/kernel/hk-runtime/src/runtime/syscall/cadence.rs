@@ -4,6 +4,9 @@ use hk_cadence::{CadenceSnapshot, MeterSnapshot};
 
 use super::*;
 
+/// 按名称解析任务时的名字上限。
+const MAX_TASK_NAME: usize = 64;
+
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// `SYS_CADENCE_INFO(handle, out, len)`；`handle = 0` 查询当前 Task。
     pub(crate) fn cadence_info(&mut self, index: usize, frame: &mut C) -> Switch {
@@ -134,6 +137,64 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         frame.set_result(result);
         Switch::Continue
+    }
+
+    /// `SYS_TASK_ATTACH_NAMED(name, len, cadence)`；仅策略授权任务可用。
+    pub(crate) fn task_attach_named(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let result = self
+            .read_task_name(frame.arg0(), frame.arg1() as usize)
+            .zip(self.handle_at(index, frame.arg2() as usize))
+            .and_then(|(name, cadence)| {
+                let target = self.named_target(tcb, &name)?;
+                self.kernel
+                    .attach_cadence_to_task(tcb, target, cadence)
+                    .ok()
+            });
+        frame.set_result(result.map_or(u64::MAX, |()| 0));
+        Switch::Continue
+    }
+
+    /// `SYS_TASK_REGRANT_NAMED(name, len, cadence)`；仅策略授权任务可用。
+    pub(crate) fn task_regrant_named(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let result = self
+            .read_task_name(frame.arg0(), frame.arg1() as usize)
+            .zip(self.handle_at(index, frame.arg2() as usize))
+            .and_then(|(name, cadence)| {
+                let target = self.named_target(tcb, &name)?;
+                self.kernel
+                    .regrant_cadence_to_task(tcb, target, cadence)
+                    .ok()
+            });
+        frame.set_result(result.map_or(u64::MAX, |_| 0));
+        Switch::Continue
+    }
+
+    fn named_target(&self, caller: TcbId, name: &str) -> Option<hk_kernel::TaskId> {
+        if !self.kernel.is_policy_authority(caller) {
+            return None;
+        }
+        let index = self
+            .tasks
+            .iter()
+            .position(|task| task.name == name && !task.exited)?;
+        let target = &self.tasks[index];
+        if target.tcb == caller || self.kernel.is_policy_authority(target.tcb) {
+            return None;
+        }
+        self.kernel.task_of(target.tcb)
+    }
+
+    fn read_task_name(&self, pointer: u64, length: usize) -> Option<String> {
+        if length == 0 || length > MAX_TASK_NAME {
+            return None;
+        }
+        let mut bytes = [0_u8; MAX_TASK_NAME];
+        if !self.platform.read_user(pointer, &mut bytes[..length]) {
+            return None;
+        }
+        core::str::from_utf8(&bytes[..length])
+            .ok()
+            .map(String::from)
     }
 
     fn read_snapshot(&self, pointer: u64, length: usize) -> Option<CadenceSnapshot> {

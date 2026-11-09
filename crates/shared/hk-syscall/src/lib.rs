@@ -64,6 +64,12 @@ pub const SYS_TASK_ATTACH_CADENCE: u64 = 0x0C;
 /// 取得当前 Task 的 Cadence 句柄；持有策略授权的 Task 同时获得 ADMIN。
 pub const SYS_CADENCE_SELF: u64 = 0x0D;
 
+/// 按任务名附加 Cadence；仅策略授权任务可用。
+pub const SYS_TASK_ATTACH_NAMED: u64 = 0x0E;
+
+/// 按任务名撤销旧 epoch 并附加新 Cadence；仅策略授权任务可用。
+pub const SYS_TASK_REGRANT_NAMED: u64 = 0x0F;
+
 // === 句柄 0x10-0x1F ===
 
 /// 关闭端点句柄。
@@ -393,6 +399,12 @@ pub const ROOT_OP_CHECKPOINT_READ: u64 = 15;
 pub const ROOT_OP_CHECKPOINT_WRITE: u64 = 16;
 /// Root 控制：性能快照（每 CPU 忙时与每任务 CPU/内存）。
 pub const ROOT_OP_PERF: u64 = 17;
+/// 查看任务 Cadence。
+pub const ROOT_OP_CADENCE: u64 = 18;
+/// 查看任务 Meter。
+pub const ROOT_OP_METER: u64 = 19;
+/// 查看 Tempo 策略池。
+pub const ROOT_OP_TEMPO: u64 = 20;
 
 // === 服务名与内核投递标签 ===
 
@@ -577,6 +589,8 @@ mod tests {
             SYS_METER_INFO,
             SYS_TASK_ATTACH_CADENCE,
             SYS_CADENCE_SELF,
+            SYS_TASK_ATTACH_NAMED,
+            SYS_TASK_REGRANT_NAMED,
             SYS_HANDLE_CLOSE,
             SYS_HANDLE_COUNT,
             SYS_HANDLE_DUPLICATE,

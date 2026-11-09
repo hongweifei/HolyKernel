@@ -621,3 +621,33 @@ pub fn task_attach_cadence(task: u64, cadence: u64) -> u64 {
     // SAFETY: 两个句柄均由内核授予；内核校验 Tasks/Cadence 权利。
     unsafe { syscall_call(SYS_TASK_ATTACH_CADENCE, task, cadence, 0, 0).value }
 }
+
+/// 按任务名附加 Cadence；仅持有策略授权的任务可用。
+pub fn task_attach_named(name: &str, cadence: u64) -> u64 {
+    // SAFETY: 名称属于本任务；内核校验策略授权并按名称解析目标。
+    unsafe {
+        syscall_call(
+            SYS_TASK_ATTACH_NAMED,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            cadence,
+            0,
+        )
+        .value
+    }
+}
+
+/// 按任务名撤销旧 epoch 并附加新 Cadence；仅持有策略授权的任务可用。
+pub fn task_regrant_named(name: &str, cadence: u64) -> u64 {
+    // SAFETY: 名称属于本任务；内核校验策略授权并按名称解析目标。
+    unsafe {
+        syscall_call(
+            SYS_TASK_REGRANT_NAMED,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            cadence,
+            0,
+        )
+        .value
+    }
+}

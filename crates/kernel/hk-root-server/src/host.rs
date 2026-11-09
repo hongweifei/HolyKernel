@@ -295,6 +295,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .is_some_and(|runtime| runtime.grant_policy_authority(name))
     }
 
+    /// 输出任务的 Cadence 契约。
+    pub fn cadence_text(&self, name: &str) -> String {
+        self.runtime.lock().as_ref().map_or_else(
+            || String::from("运行时未初始化\n"),
+            |runtime| runtime.cadence_text(name),
+        )
+    }
+
+    /// 输出任务的 Meter 计量。
+    pub fn meter_text(&self, name: &str) -> String {
+        self.runtime.lock().as_ref().map_or_else(
+            || String::from("运行时未初始化\n"),
+            |runtime| runtime.meter_text(name),
+        )
+    }
+
+    /// 输出 Tempo 策略池与自身计量。
+    pub fn tempo_text(&self) -> String {
+        self.runtime.lock().as_ref().map_or_else(
+            || String::from("运行时未初始化\n"),
+            |runtime| runtime.tempo_text(),
+        )
+    }
+
     /// 设置调度器可见的在线 CPU 数。
     pub fn set_online_cpus(&self, online: usize) {
         if let Some(runtime) = self.runtime.lock().as_ref() {

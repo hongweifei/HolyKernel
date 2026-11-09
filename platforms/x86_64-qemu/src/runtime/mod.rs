@@ -421,6 +421,21 @@ pub fn tasks() -> Vec<TaskInfo> {
     RUNTIME.tasks()
 }
 
+/// 输出任务的 Cadence 契约。
+pub fn cadence_text(name: &str) -> String {
+    RUNTIME.cadence_text(name)
+}
+
+/// 输出任务的 Meter 计量。
+pub fn meter_text(name: &str) -> String {
+    RUNTIME.meter_text(name)
+}
+
+/// 输出 Tempo 策略池。
+pub fn tempo_text() -> String {
+    RUNTIME.tempo_text()
+}
+
 /// 是否有尚未到期的休眠任务。
 pub fn has_sleepers() -> bool {
     RUNTIME.has_sleepers()

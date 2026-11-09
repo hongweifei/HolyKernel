@@ -76,6 +76,32 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1);
     }
 
+    let mut client = TempoClient::new(tempo, endpoint);
+    for (weight, regrant) in [(1_024_u32, false), (REQUEST_WEIGHT, true)] {
+        let mut request = request;
+        request.weight = weight;
+        request.budget = 2_000;
+        let mut encoded = [0_u8; CadenceSnapshot::ENCODED_LEN];
+        request.encode(&mut encoded);
+        if !client.admit_named("hk-server-tempo-test", &encoded, regrant) {
+            write(b"hk-server-tempo-test: named failed\n");
+            exit(1);
+        }
+        let mut snapshot = [0_u8; CadenceSnapshot::ENCODED_LEN];
+        if cadence_self(&mut snapshot) != CadenceSnapshot::ENCODED_LEN as u64 {
+            write(b"hk-server-tempo-test: named info failed\n");
+            exit(1);
+        }
+        let Ok(snapshot) = CadenceSnapshot::decode(&snapshot) else {
+            write(b"hk-server-tempo-test: named decode failed\n");
+            exit(1);
+        };
+        if snapshot.weight != weight {
+            write(b"hk-server-tempo-test: named wrong weight\n");
+            exit(1);
+        }
+    }
+
     write(b"hk-server-tempo-test: ok weight=");
     write_u64(u64::from(attached.weight));
     write(b"\n");

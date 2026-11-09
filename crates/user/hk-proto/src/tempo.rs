@@ -11,6 +11,16 @@ pub const TEMPO_RESPONSE: u64 = crate::labels::TEMPO + 1;
 /// 准入拒绝：`word` 为原因码。
 pub const TEMPO_REJECTED: u64 = crate::labels::TEMPO + 2;
 
+/// 按任务名准入：载荷为 `[u16 name_len][name][80 字节快照]`。
+pub const TEMPO_ADMIT: u64 = crate::labels::TEMPO + 3;
+/// 按任务名撤销并重新授予：载荷同 `TEMPO_ADMIT`。
+pub const TEMPO_REVOKE: u64 = crate::labels::TEMPO + 4;
+
+/// 任务名上限。
+pub const MAX_NAME: usize = 64;
+/// Cadence 快照长度。
+pub const SNAPSHOT_LEN: usize = 80;
+
 /// 拒绝原因：请求载荷无效。
 pub const REJECT_INVALID: u64 = 1;
 /// 拒绝原因：超出 Tempo 契约范围。

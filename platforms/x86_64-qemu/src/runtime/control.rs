@@ -10,10 +10,10 @@ use alloc::vec::Vec;
 use hk_root_server::{ServiceTable, TraceEvent};
 use hk_shell::{RuntimeStats, ServiceInfo, TaskInfo, TraceEvent as ShellTrace};
 use hk_syscall::{
-    ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE, ROOT_OP_HANDLES,
-    ROOT_OP_LOOKUP, ROOT_OP_PERF, ROOT_OP_REPLACE, ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT,
-    ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS, ROOT_OP_SYMBOLIZE,
-    ROOT_OP_TASKS, ROOT_OP_TRACE,
+    ROOT_OP_CADENCE, ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE,
+    ROOT_OP_HANDLES, ROOT_OP_LOOKUP, ROOT_OP_METER, ROOT_OP_PERF, ROOT_OP_REPLACE, ROOT_OP_RESTART,
+    ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START, ROOT_OP_STATS,
+    ROOT_OP_SYMBOLIZE, ROOT_OP_TASKS, ROOT_OP_TEMPO, ROOT_OP_TRACE,
 };
 use spin::Mutex;
 
@@ -189,6 +189,9 @@ fn execute_text(request: &Request, loader: &mut Loader<'_>, services: &mut Servi
         ROOT_OP_TRACE => hk_shell::format::format_trace(&trace()),
         ROOT_OP_STATS => hk_shell::format::format_stats(&stats()),
         ROOT_OP_PERF => perf(),
+        ROOT_OP_CADENCE => runtime::cadence_text(&request.argument),
+        ROOT_OP_METER => runtime::meter_text(&request.argument),
+        ROOT_OP_TEMPO => runtime::tempo_text(),
         ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
         ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
         ROOT_OP_REPLACE => runtime::replace_service(loader, services, &request.argument),

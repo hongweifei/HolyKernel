@@ -2,6 +2,83 @@
 
 use super::*;
 
+impl<C, P> UserRuntime<C, P>
+where
+    C: UserContext + SyscallFrame,
+    P: UserPlatform,
+{
+    /// 返回任务索引；名称匹配且未退出。
+    fn task_index(&self, name: &str) -> Option<usize> {
+        self.tasks
+            .iter()
+            .position(|task| task.name == name && !task.exited)
+    }
+
+    /// 输出任务的 Cadence 契约。
+    pub fn cadence_text(&self, name: &str) -> String {
+        let Some(index) = self.task_index(name) else {
+            return format!("未知任务：{name}\n");
+        };
+        let Some(snapshot) = self.kernel.task_cadence_snapshot(self.tasks[index].tcb) else {
+            return format!("任务缺少契约：{name}\n");
+        };
+        format!(
+            "cadence {name}：class={} weight={} budget={}us period={}us deadline={}us latency={}us affinity={:#x} migratable={} lending={} epoch={}\n",
+            snapshot.class.name(),
+            snapshot.weight,
+            snapshot.budget,
+            snapshot.period,
+            snapshot.deadline,
+            snapshot.latency,
+            snapshot.affinity,
+            snapshot.migratable,
+            if snapshot.lending.enabled() {
+                "caller-pays"
+            } else {
+                "off"
+            },
+            snapshot.epoch
+        )
+    }
+
+    /// 输出任务的 Meter 计量。
+    pub fn meter_text(&self, name: &str) -> String {
+        let Some(index) = self.task_index(name) else {
+            return format!("未知任务：{name}\n");
+        };
+        let Some(snapshot) = self.kernel.task_meter_snapshot(self.tasks[index].tcb) else {
+            return format!("任务缺少计量：{name}\n");
+        };
+        let cpu = if snapshot.last_cpu == u32::MAX {
+            String::from("none")
+        } else {
+            format!("{}", snapshot.last_cpu)
+        };
+        format!(
+            "meter {name}：consumed={}us waited={}us throttled={} overruns={} migrations={} switches={} virtual_pass={} last_cpu={}\n",
+            snapshot.consumed,
+            snapshot.waited,
+            snapshot.throttled,
+            snapshot.overruns,
+            snapshot.migrations,
+            snapshot.switches,
+            snapshot.virtual_pass,
+            cpu
+        )
+    }
+
+    /// 输出 Tempo 策略池与自身计量。
+    pub fn tempo_text(&self) -> String {
+        if self.task_index("hk-server-tempo").is_none() {
+            return String::from("Tempo 未运行\n");
+        }
+        let mut text = String::from("tempo：hk-server-tempo\n");
+        text.push_str(&self.cadence_text("hk-server-tempo"));
+        text.push_str(&self.meter_text("hk-server-tempo"));
+        text
+    }
+}
+
 /// 任务视图。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskInfo {

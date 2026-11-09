@@ -102,6 +102,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CADENCE_SPLIT => self.cadence_split(index, tcb, frame),
             SYS_CADENCE_REVOKE => self.cadence_revoke(index, tcb, frame),
             SYS_TASK_ATTACH_CADENCE => self.task_attach_cadence(index, tcb, frame),
+            SYS_TASK_ATTACH_NAMED => self.task_attach_named(index, tcb, frame),
+            SYS_TASK_REGRANT_NAMED => self.task_regrant_named(index, tcb, frame),
             SYS_CADENCE_SELF => {
                 let result = match self.kernel.self_cadence_handle(tcb) {
                     Ok(handle) => self.install_extra_handle(index, handle),

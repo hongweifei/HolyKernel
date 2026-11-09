@@ -966,6 +966,32 @@ fn grants_cadence_and_meter_handles() {
 }
 
 #[test]
+fn attaches_and_regrants_named_cadence() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+    let cadence = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("授予 Cadence");
+
+    kernel
+        .attach_cadence_to_task(thread, task, cadence)
+        .expect("按 Task 附加契约");
+    let before = kernel.cadence_snapshot(thread, cadence).expect("契约快照");
+    let epoch = kernel
+        .regrant_cadence_to_task(thread, task, cadence)
+        .expect("撤销并重新授予");
+    assert_eq!(epoch, before.epoch + 1);
+    let after = kernel.cadence_snapshot(thread, cadence).expect("契约快照");
+    assert_eq!(after.epoch, epoch);
+    kernel
+        .set_policy_authority(task, true)
+        .expect("授予策略权限");
+    assert!(kernel.is_policy_authority(thread));
+}
+
+#[test]
 fn updates_splits_revokes_and_reattaches_cadence() {
     let kernel = kernel();
     let thread = thread(&kernel);
