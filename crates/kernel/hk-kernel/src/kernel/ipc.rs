@@ -178,16 +178,32 @@ impl Kernel {
         Ok(())
     }
 
-    /// 取消挂起的调用；超时路径使用。
+    /// 取消挂起的调用；超时路径使用。返回是否取消了未完成调用。
     pub fn cancel_call(&self, thread: TcbId) -> bool {
         let mut threads = self.threads.lock();
         let Some(tcb) = threads.get_mut(&thread) else {
             return false;
         };
-        if tcb.pending_call().is_none() {
+        let Some(pending) = tcb.pending_call() else {
+            return false;
+        };
+        if pending.answered {
             return false;
         }
+        let sequence = pending.sequence;
+        let caller = tcb.task();
         tcb.set_pending_call(None);
+        tcb.orphan_call(sequence);
+        let mut returned = Vec::new();
+        for server in threads.values_mut() {
+            if server.pop_lending(caller, sequence) {
+                returned.push(server.id());
+            }
+        }
+        drop(threads);
+        for server in returned {
+            self.record(server.get(), Category::Sched, TRACE_RETURN, caller.get());
+        }
         true
     }
 
@@ -299,21 +315,29 @@ impl Kernel {
         mut message: Message,
     ) -> Result<(), KernelError> {
         {
-            let threads = self.threads.lock();
-            let caller = threads
-                .get(&token.caller)
-                .ok_or(KernelError::UnknownThread(token.caller))?;
-            let pending = caller.pending_call().ok_or(KernelError::InvalidReply)?;
-            if pending.sequence != token.sequence || pending.answered {
-                return Err(KernelError::InvalidReply);
+            let mut threads = self.threads.lock();
+            let Some(caller) = threads.get_mut(&token.caller) else {
+                return Ok(());
+            };
+            match caller.pending_call() {
+                Some(pending) if pending.sequence == token.sequence && !pending.answered => {}
+                Some(_) => return Err(KernelError::InvalidReply),
+                None => {
+                    if caller.take_orphaned(token.sequence) {
+                        drop(threads);
+                        self.return_lending(thread, token);
+                        return Ok(());
+                    }
+                    return Err(KernelError::InvalidReply);
+                }
             }
         }
         self.transfer_handles(thread, token.caller, &mut message)?;
         {
             let mut threads = self.threads.lock();
-            let caller = threads
-                .get_mut(&token.caller)
-                .ok_or(KernelError::UnknownThread(token.caller))?;
+            let Some(caller) = threads.get_mut(&token.caller) else {
+                return Ok(());
+            };
             let pending = caller.pending_call_mut().ok_or(KernelError::InvalidReply)?;
             if pending.sequence != token.sequence || pending.answered {
                 return Err(KernelError::InvalidReply);

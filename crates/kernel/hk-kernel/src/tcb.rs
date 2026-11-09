@@ -136,6 +136,7 @@ pub struct Tcb {
     handles: HandleTable,
     blocked: Option<BlockReason>,
     pending_call: Option<PendingCall>,
+    orphaned_calls: Vec<u64>,
     deliveries: VecDeque<PendingDelivery>,
     lending: Vec<LendingFrame>,
     sequence: u64,
@@ -151,6 +152,7 @@ impl Tcb {
             handles,
             blocked: None,
             pending_call: None,
+            orphaned_calls: Vec::new(),
             deliveries: VecDeque::new(),
             lending: Vec::new(),
             sequence: 0,
@@ -301,6 +303,30 @@ impl Tcb {
 
     pub(crate) fn set_pending_call(&mut self, call: Option<PendingCall>) {
         self.pending_call = call;
+    }
+
+    /// 记录一次已超时的调用，允许迟到回复被安全丢弃。
+    pub(crate) fn orphan_call(&mut self, sequence: u64) {
+        const LIMIT: usize = 16;
+        if !self.orphaned_calls.contains(&sequence) {
+            if self.orphaned_calls.len() >= LIMIT {
+                self.orphaned_calls.remove(0);
+            }
+            self.orphaned_calls.push(sequence);
+        }
+    }
+
+    /// 取走超时调用 tombstone；返回是否为已超时调用。
+    pub(crate) fn take_orphaned(&mut self, sequence: u64) -> bool {
+        let Some(index) = self
+            .orphaned_calls
+            .iter()
+            .position(|call| *call == sequence)
+        else {
+            return false;
+        };
+        self.orphaned_calls.remove(index);
+        true
     }
 }
 

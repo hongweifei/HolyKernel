@@ -1233,6 +1233,46 @@ fn lends_caller_contract_to_server_and_restores() {
 }
 
 #[test]
+fn cancel_call_releases_lending_and_discards_late_reply() {
+    let kernel = kernel();
+    let caller_spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(2), millis(16))
+        .with_deadline(millis(8));
+    let caller = kernel
+        .spawn_task(HandleTable::new(8), caller_spec)
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("调用");
+    let received = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("收到调用");
+    let token = received.reply.expect("回复令牌");
+    assert_eq!(kernel.lending_depth(server), 1);
+
+    assert!(kernel.cancel_call(caller));
+    assert_eq!(kernel.lending_depth(server), 0);
+    kernel
+        .reply(server, token, Message::new(2))
+        .expect("迟到回复应被丢弃");
+    assert_eq!(
+        kernel.queue_entry(server).map(|entry| entry.0),
+        Some(CadenceClass::Latency)
+    );
+}
+
+#[test]
 fn disabled_lending_does_not_charge_caller() {
     let kernel = kernel();
     let caller_spec =

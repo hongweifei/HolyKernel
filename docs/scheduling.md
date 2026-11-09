@@ -208,7 +208,7 @@ stateDiagram-v2
 1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约。
 2. 服务端执行时间记入调用方 Meter，并计入调用方 Cadence 预算。
 3. 服务端自身预算持续生效；调用方预算耗尽时，服务端继续完成当前调用，调用方进入 `Throttled`。
-4. `reply`、超时、调用方退出或服务端退出时弹出 lending frame，恢复服务端原契约。
+4. `reply`、超时、调用方退出或服务端退出时弹出 lending frame，恢复服务端原契约；超时调用的迟到 `reply` 按 tombstone 丢弃，不再与服务端错误混淆。
 5. lending 深度由双方 Cadence 的 `lending.max_depth` 约束；默认深度 2。
 6. Realtime 调用方的借贷遵守同样的深度与预算规则；Tempo 可以按服务关闭 lending。
 
@@ -307,7 +307,7 @@ Meter 字段：
 | `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护利用率账本并拒绝超限申请，恢复路径复用同一门禁。完整响应时间可调度性分析未做 |
 | Tickless | 部分 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收超时的最早者；refill、sleep、接收与调用超时使用 deadline 队列 |
 | 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本仍只按次数记录，没有独立成本模型 |
-| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账与 reply/退出弹栈已落地；同类别下未取调用方更强的队列键，IPC 超时恢复未实现 |
+| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；同类别下仍未取调用方更强的队列键 |
 | Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，按 Tempo 池范围校验重准入（不经过用户态 IPC），`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | `hk-sim` | 部分 | 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充；lending、迁移与唤醒抢占回放待补 |
