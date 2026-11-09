@@ -10,6 +10,7 @@ pub mod cache;
 pub mod cpu;
 pub mod dma;
 pub mod entropy;
+pub mod hpet;
 pub mod ioapic;
 pub mod iommu;
 pub mod irq;

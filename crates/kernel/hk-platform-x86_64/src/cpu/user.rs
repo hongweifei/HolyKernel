@@ -57,6 +57,45 @@ pub fn set_fault_hook(hook: FaultHook) {
     *FAULT_HOOK.lock() = Some(hook);
 }
 
+/// NMI 处理 hook。
+pub type NmiHook = fn(&mut InterruptFrame);
+
+static NMI_HOOK: Mutex<Option<NmiHook>> = Mutex::new(None);
+static MCE_HOOK: Mutex<Option<NmiHook>> = Mutex::new(None);
+
+/// 注册 NMI 处理 hook；未注册时记录并返回。
+pub fn set_nmi_hook(hook: NmiHook) {
+    *NMI_HOOK.lock() = Some(hook);
+}
+
+/// 注册 MCE 处理 hook；未注册时按致命异常处理。
+pub fn set_mce_hook(hook: NmiHook) {
+    *MCE_HOOK.lock() = Some(hook);
+}
+
+/// 处理 NMI：默认只记录，不终止系统。
+pub(super) fn handle_nmi(frame: &mut InterruptFrame) {
+    if let Some(hook) = *NMI_HOOK.lock() {
+        hook(frame);
+        return;
+    }
+    let mut report = DirectWriter(Serial::new(COM1));
+    let _ = writeln!(
+        report,
+        "\n不可屏蔽中断：rip={:#018x} cs={:#x} rsp={:#018x}",
+        frame.rip, frame.cs, frame.rsp
+    );
+}
+
+/// 处理机器检查：hook 可恢复；否则按致命异常上报。
+pub(super) fn handle_mce(frame: &mut InterruptFrame) {
+    if let Some(hook) = *MCE_HOOK.lock() {
+        hook(frame);
+        return;
+    }
+    report_exception(frame)
+}
+
 /// 返回页错误地址（CR2）。
 pub fn fault_address() -> u64 {
     Cr2::read_raw()

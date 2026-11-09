@@ -35,8 +35,8 @@ pub use timer::{
     stop_tick, tick_enabled, timer_finished, timer_ticks, uptime_ticks,
 };
 pub use user::{
-    FaultAction, FaultHook, exception_name, fault_address, leave_user, resume_user, set_fault_hook,
-    set_thread_pointer, user_frame,
+    FaultAction, FaultHook, NmiHook, exception_name, fault_address, leave_user, resume_user,
+    set_fault_hook, set_mce_hook, set_nmi_hook, set_thread_pointer, user_frame,
 };
 
 /// 内核代码段选择子。

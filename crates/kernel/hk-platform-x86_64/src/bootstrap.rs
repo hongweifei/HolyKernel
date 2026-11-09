@@ -35,6 +35,9 @@ const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
 /// MCFG ECAM 的常驻内核虚拟窗口。
 const ECAM_BASE: u64 = 0xFFFF_C000_0000_0000;
 
+/// HPET 寄存器页的常驻内核虚拟窗口。
+const HPET_BASE: u64 = 0xFFFF_D000_0000_0000;
+
 /// 表窗口可容纳的最大页数（1 MiB，覆盖大型 SRAT/PPTT）。
 const ACPI_MAX_PAGES: usize = 256;
 
@@ -239,6 +242,24 @@ pub fn init_ioapic(
         && let Some(entry) = mcfg.entries.iter().find(|entry| entry.segment == 0)
     {
         map_ecam(paging, allocator, entry);
+    }
+    if let Some(hpet) = &tables.hpet
+        && hpet.address.space == 0
+        && hpet.address.address != 0
+    {
+        let offset = hpet.address.address & 0xFFF;
+        let phys = hpet.address.address & !0xFFF;
+        if paging
+            .map(
+                VirtAddr::new(HPET_BASE),
+                PhysAddr::new(phys),
+                PageFlags::MMIO,
+                allocator,
+            )
+            .is_ok()
+        {
+            crate::hpet::init(HPET_BASE + offset);
+        }
     }
     let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 

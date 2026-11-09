@@ -135,14 +135,26 @@ static TIMER: X86Timer = X86Timer;
 
 impl Timer for X86Timer {
     fn frequency(&self) -> u64 {
-        crate::timing::tsc_frequency()
+        let tsc = crate::timing::tsc_frequency();
+        if tsc != 0 {
+            tsc
+        } else {
+            crate::hpet::frequency()
+        }
     }
 
     fn now(&self) -> Moment {
-        Moment::from_ticks(crate::timing::rdtsc())
+        if crate::timing::tsc_frequency() != 0 {
+            Moment::from_ticks(crate::timing::rdtsc())
+        } else {
+            Moment::from_ticks(crate::hpet::now())
+        }
     }
 
     fn set_oneshot(&self, deadline: Moment) {
+        if crate::timing::tsc_frequency() == 0 {
+            return;
+        }
         let frequency = self.frequency();
         if frequency == 0 {
             return;
