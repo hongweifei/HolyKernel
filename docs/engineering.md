@@ -201,7 +201,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - 依赖精简、可审计、维护活跃。
 - `build.rs` 与过程宏经过审查。
 - HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表项格式、固件解析、引导与架构库在平台或包装边界内。
-- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表遍历、所有权与 COW 语义仍由平台维护。
+- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表遍历、所有权与 COW 语义仍由平台维护。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
 - `cargo-deny` 检查许可证与安全公告。
 
 ---

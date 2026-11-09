@@ -14,6 +14,7 @@ pub mod acpi;
 pub mod dtb;
 /// ACPI 固定表与拓扑表。
 pub mod firmware;
+pub mod iommu;
 
 /// 固件描述的内存区域用途。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +61,8 @@ pub struct Device {
     /// `(物理基址, 长度)` 窗口列表。
     pub regions: alloc::vec::Vec<(u64, u64)>,
 }
+
+pub use iommu::{IommuInfo, IommuKind, IommuReserved, IommuUnit};
 
 impl Device {
     /// 判断设备是否声明了给定兼容字符串。

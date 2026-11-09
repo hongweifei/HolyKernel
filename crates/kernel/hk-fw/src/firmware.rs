@@ -13,6 +13,7 @@ const SIGNATURE_MCFG: &[u8; 4] = b"MCFG";
 const SIGNATURE_SRAT: &[u8; 4] = b"SRAT";
 const SIGNATURE_PPTT: &[u8; 4] = b"PPTT";
 const SIGNATURE_DMAR: &[u8; 4] = b"DMAR";
+const SIGNATURE_IVRS: &[u8; 4] = b"IVRS";
 const SIGNATURE_HPET: &[u8; 4] = b"HPET";
 
 fn u8_at(bytes: &[u8], offset: usize) -> Option<u8> {
@@ -393,36 +394,83 @@ pub struct Dmar {
 
 /// 解析 DMAR。
 pub fn parse_dmar(bytes: &[u8]) -> Option<Dmar> {
-    let length = table_length(bytes, SIGNATURE_DMAR)?;
-    let bytes = &bytes[..length];
-    if bytes.len() < 48 {
-        return None;
-    }
+    use intel_iommu::dmar::{DmarTable, RemapStruct};
+
+    let table = DmarTable::new(bytes).ok()?;
     let mut dmar = Dmar::default();
-    let mut offset = 48;
-    while offset + 4 <= bytes.len() {
-        let entry_type = u16_at(bytes, offset)?;
-        let entry_len = u16_at(bytes, offset + 2)? as usize;
-        if entry_len < 4 || offset + entry_len > bytes.len() {
-            break;
-        }
-        let entry = &bytes[offset..offset + entry_len];
-        match entry_type {
-            0 if entry_len >= 16 => dmar.units.push(Drhd {
-                flags: u8_at(entry, 4)?,
-                segment: u16_at(entry, 6)?,
-                address: u64_at(entry, 8)?,
+    for entry in table.structs() {
+        match entry {
+            RemapStruct::Drhd(unit) => dmar.units.push(Drhd {
+                flags: u8::from(unit.include_pci_all()),
+                segment: unit.segment(),
+                address: unit.register_base(),
             }),
-            1 if entry_len >= 24 => dmar.reserved.push(Rmrr {
-                segment: u16_at(entry, 6)?,
-                base: u64_at(entry, 8)?,
-                limit: u64_at(entry, 16)?,
+            RemapStruct::Rmrr(region) => dmar.reserved.push(Rmrr {
+                segment: region.segment(),
+                base: region.base(),
+                limit: region.limit(),
             }),
             _ => {}
         }
-        offset += entry_len;
     }
     Some(dmar)
+}
+
+/// AMD-Vi IVHD 单元。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmdUnit {
+    /// PCI 段号。
+    pub segment: u16,
+    /// IOMMU 控制寄存器 MMIO 基址。
+    pub address: u64,
+    /// IOMMU 的 PCI DeviceID。
+    pub device_id: u16,
+}
+
+/// AMD-Vi IVMD 保留内存块。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmdMemory {
+    /// PCI 段号。
+    pub segment: u16,
+    /// 物理基址。
+    pub base: u64,
+    /// 长度。
+    pub length: u64,
+    /// IVMD 标志。
+    pub flags: u8,
+}
+
+/// AMD-Vi IVRS 表视图。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ivrs {
+    /// IVHD 单元。
+    pub units: Vec<AmdUnit>,
+    /// IVMD 保留内存。
+    pub memory: Vec<AmdMemory>,
+}
+
+/// 解析 AMD-Vi IVRS。
+pub fn parse_ivrs(bytes: &[u8]) -> Option<Ivrs> {
+    use amd_iommu::ivrs::IvrsTable;
+
+    let table = IvrsTable::new(bytes).ok()?;
+    let mut ivrs = Ivrs::default();
+    for unit in table.ivhd_units() {
+        ivrs.units.push(AmdUnit {
+            segment: unit.segment(),
+            address: unit.base_address(),
+            device_id: unit.device_id(),
+        });
+    }
+    for memory in table.ivmd_units() {
+        ivrs.memory.push(AmdMemory {
+            segment: memory.segment(),
+            base: memory.base(),
+            length: memory.length_bytes(),
+            flags: memory.flags(),
+        });
+    }
+    Some(ivrs)
 }
 
 /// HPET 事件定时器块。
@@ -602,6 +650,10 @@ pub struct Tables {
     pub pptt: Option<Pptt>,
     /// DMAR。
     pub dmar: Option<Dmar>,
+    /// AMD-Vi IVRS。
+    pub ivrs: Option<Ivrs>,
+    /// 平台中性的 IOMMU 描述。
+    pub iommu: crate::iommu::IommuInfo,
     /// HPET。
     pub hpet: Option<Hpet>,
     /// FACS。
@@ -619,14 +671,18 @@ where
     let srat = find(SIGNATURE_SRAT, &mut read).and_then(|bytes| parse_srat(&bytes));
     let pptt = find(SIGNATURE_PPTT, &mut read).and_then(|bytes| parse_pptt(&bytes));
     let dmar = find(SIGNATURE_DMAR, &mut read).and_then(|bytes| parse_dmar(&bytes));
+    let ivrs = find(SIGNATURE_IVRS, &mut read).and_then(|bytes| parse_ivrs(&bytes));
     let hpet = find(SIGNATURE_HPET, &mut read).and_then(|bytes| parse_hpet(&bytes));
     let facs = fadt.and_then(|fadt| read_facs(&mut read, &fadt));
+    let iommu = crate::iommu::IommuInfo::from_acpi(dmar.as_ref(), ivrs.as_ref());
     Tables {
         fadt,
         mcfg,
         srat,
         pptt,
         dmar,
+        ivrs,
+        iommu,
         hpet,
         facs,
     }
@@ -642,6 +698,9 @@ mod tests {
         bytes.extend_from_slice(body);
         let length = bytes.len() as u32;
         bytes[4..8].copy_from_slice(&length.to_le_bytes());
+        bytes[9] = 0;
+        let sum = bytes.iter().fold(0_u8, |sum, byte| sum.wrapping_add(*byte));
+        bytes[9] = 0_u8.wrapping_sub(sum);
         bytes
     }
 
@@ -766,6 +825,26 @@ mod tests {
         ];
         assert_eq!(parse_s5(&dsdt), Some((5, 5)));
         assert_eq!(parse_s5(&[0_u8; 8]), None);
+    }
+
+    #[test]
+    fn parses_amd_ivrs() {
+        let mut body = alloc::vec![0_u8; 12];
+        body.extend_from_slice(&[
+            0x10, 0x00, 28, 0, // IVHD 10h, length 28
+            0x02, 0x00, // DeviceID
+            0x40, 0x00, // capability offset
+            0x00, 0x00, 0xd8, 0xfe, 0, 0, 0, 0, // base
+            0, 0, // segment
+            0, 0, // IOMMU info
+            0, 0, 0, 0, // feature reporting
+            0x02, 0xad, 0x0b, 0x00, // select device entry
+        ]);
+        let ivrs = parse_ivrs(&table(SIGNATURE_IVRS, &body)).expect("IVRS");
+        assert_eq!(ivrs.units.len(), 1);
+        assert_eq!(ivrs.units[0].segment, 0);
+        assert_eq!(ivrs.units[0].address, 0xFED8_0000);
+        assert_eq!(ivrs.units[0].device_id, 0x0002);
     }
 
     #[test]

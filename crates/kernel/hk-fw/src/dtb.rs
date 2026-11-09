@@ -36,6 +36,11 @@ impl DtbInfo {
             .iter()
             .filter(move |device| device.is_compatible(name))
     }
+
+    /// 返回设备树声明的平台中性 IOMMU 单元。
+    pub fn iommu_info(&self) -> crate::IommuInfo {
+        crate::IommuInfo::from_dtb(self)
+    }
 }
 
 /// 解析设备树字节。

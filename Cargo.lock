@@ -58,6 +58,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "amd-iommu"
+version = "0.1.0"
+source = "git+https://github.com/sergeyvolkovich/iommu-rs?rev=721606e9f6b66a550b49d07e88fa582ed036c114#721606e9f6b66a550b49d07e88fa582ed036c114"
+dependencies = [
+ "bitflags 2.13.2",
+ "log",
+ "thiserror",
+ "tock-registers 0.9.0",
+ "zerocopy",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,8 +567,10 @@ name = "hk-fw"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "amd-iommu",
  "hermit-dtb",
  "hk-acpi",
+ "intel-iommu",
 ]
 
 [[package]]
@@ -1303,6 +1317,18 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
+]
+
+[[package]]
+name = "intel-iommu"
+version = "0.1.0"
+source = "git+https://github.com/sergeyvolkovich/iommu-rs?rev=721606e9f6b66a550b49d07e88fa582ed036c114#721606e9f6b66a550b49d07e88fa582ed036c114"
+dependencies = [
+ "bitflags 2.13.2",
+ "log",
+ "thiserror",
+ "tock-registers 0.9.0",
+ "zerocopy",
 ]
 
 [[package]]

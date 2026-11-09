@@ -10,6 +10,8 @@ repository.workspace = true
 hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
 acpi = { version = "7.0.0-pre1", default-features = false }
 hermit-dtb = "0.1.1"
+amd-iommu = { git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
+intel-iommu = { git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
 
 [lints]
 workspace = true
