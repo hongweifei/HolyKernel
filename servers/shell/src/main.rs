@@ -194,11 +194,13 @@ fn tempo_policy(endpoint: u64, arguments: &str, regrant: bool) -> String {
     if tempo == 0 {
         return String::from("Tempo 未运行\n");
     }
-    let mut snapshot = CadenceSnapshot::default();
-    snapshot.weight = 1024;
-    snapshot.budget = 2_000;
-    snapshot.period = 16_000;
-    snapshot.latency = 2_000;
+    let snapshot = CadenceSnapshot {
+        weight: 1024,
+        budget: 2_000,
+        period: 16_000,
+        latency: 2_000,
+        ..Default::default()
+    };
     let mut encoded = [0_u8; SNAPSHOT_LEN];
     if snapshot.encode(&mut encoded).is_none() {
         return String::from("契约编码失败\n");

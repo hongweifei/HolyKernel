@@ -55,7 +55,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Install QEMU and ISO tools
-        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 xorriso limine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 xorriso build-essential
+      - name: Install Limine
+        run: |
+          curl -sSL -o /tmp/limine-binary.tar.gz \
+            https://github.com/Limine-Bootloader/Limine/releases/download/v12.9.6/limine-binary.tar.gz
+          echo "b38aabb042b0c0f9f562b7741be3c1204838d7bbacfa78bb411c674bd5b984ee  /tmp/limine-binary.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/limine-binary.tar.gz -C /tmp
+          make -C /tmp/limine-binary
+          sudo install -m 755 /tmp/limine-binary/limine /usr/local/bin/limine
+          sudo install -d /usr/share/limine
+          sudo install -m 644 \
+            /tmp/limine-binary/limine-bios-cd.bin \
+            /tmp/limine-binary/limine-bios.sys \
+            /tmp/limine-binary/limine-uefi-cd.bin \
+            /tmp/limine-binary/BOOTX64.EFI \
+            /usr/share/limine/
       - run: cargo xtask smoke --target x86_64-qemu --mode boot
       - run: cargo xtask smoke --target x86_64-qemu --mode shell
       - run: cargo xtask smoke --target x86_64-qemu --mode memory

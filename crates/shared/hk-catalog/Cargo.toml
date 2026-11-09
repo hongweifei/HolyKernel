@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-cadence = { path = "../hk-cadence" }
+hk-cadence = { version = "0.1.0", path = "../hk-cadence" }
 
 [lints]
 workspace = true
