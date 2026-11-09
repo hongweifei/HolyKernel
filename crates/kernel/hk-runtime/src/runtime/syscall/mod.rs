@@ -145,6 +145,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_DEVICE_MAP => self.map_grant(index, tcb, frame),
             SYS_IRQ_BIND => self.bind_irq(index, tcb, frame),
             SYS_MSI_BIND => self.bind_msi(index, tcb, frame),
+            SYS_ACPI_LISTEN => self.acpi_listen(index, tcb, frame),
+            SYS_ACPI_EVENTS => {
+                frame.set_result(self.platform.take_acpi_events());
+                Switch::Continue
+            }
             SYS_SELF_NOTIFICATION => {
                 frame.set_result(index as u64 + 1);
                 Switch::Continue

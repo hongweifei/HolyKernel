@@ -91,6 +91,112 @@ where
     None
 }
 
+/// 从 RSDP 查找指定签名的全部 ACPI 表。
+pub fn find_tables<F>(rsdp_phys: u64, signature: &[u8; 4], mut read: F) -> Vec<Vec<u8>>
+where
+    F: FnMut(u64, usize) -> Option<Vec<u8>>,
+{
+    let Some(rsdp) = read(rsdp_phys, RSDP_MIN_LENGTH) else {
+        return Vec::new();
+    };
+    if rsdp[0..8] != SIGNATURE_RSDP[..] || !checksum(&rsdp) {
+        return Vec::new();
+    }
+    let (root_phys, extended) = if rsdp[15] >= 2 {
+        let Some(extra) = read(rsdp_phys + RSDP_MIN_LENGTH as u64, RSDP_V2_EXTRA_LENGTH) else {
+            return Vec::new();
+        };
+        let sum = rsdp
+            .iter()
+            .chain(extra.iter())
+            .fold(0_u8, |sum, byte| sum.wrapping_add(*byte));
+        if sum != 0 {
+            return Vec::new();
+        }
+        let Some(length) = u32_at(&extra, 0) else {
+            return Vec::new();
+        };
+        if (length as usize) < HEADER_LENGTH {
+            return Vec::new();
+        }
+        (
+            u64::from_le_bytes(extra[4..12].try_into().unwrap_or_default()),
+            true,
+        )
+    } else {
+        (
+            u64::from(u32::from_le_bytes(
+                rsdp[16..20].try_into().unwrap_or_default(),
+            )),
+            false,
+        )
+    };
+    let Some(header) = read(root_phys, HEADER_LENGTH) else {
+        return Vec::new();
+    };
+    let root_signature = if extended {
+        SIGNATURE_XSDT
+    } else {
+        SIGNATURE_RSDT
+    };
+    if header[0..4] != root_signature[..] {
+        return Vec::new();
+    }
+    let Some(length) = table_length(&header) else {
+        return Vec::new();
+    };
+    let Some(root) = read(root_phys, length) else {
+        return Vec::new();
+    };
+    if !checksum(&root) {
+        return Vec::new();
+    }
+    let entry_size = if extended { 8 } else { 4 };
+    let Some(count) = root
+        .len()
+        .checked_sub(HEADER_LENGTH)
+        .map(|len| len / entry_size)
+    else {
+        return Vec::new();
+    };
+    let mut tables = Vec::new();
+    for index in 0..count {
+        let offset = HEADER_LENGTH + index * entry_size;
+        let table_phys = if extended {
+            u64::from_le_bytes(root[offset..offset + 8].try_into().unwrap_or_default())
+        } else {
+            u64::from(u32::from_le_bytes(
+                root[offset..offset + 4].try_into().unwrap_or_default(),
+            ))
+        };
+        if table_phys == 0 {
+            continue;
+        }
+        let Some(header) = read(table_phys, HEADER_LENGTH) else {
+            continue;
+        };
+        if header[0..4] != signature[..] {
+            continue;
+        }
+        let Some(length) = table_length(&header) else {
+            continue;
+        };
+        let Some(table) = read(table_phys, length) else {
+            continue;
+        };
+        if checksum(&table) {
+            tables.push(table);
+        }
+    }
+    tables
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
 /// 读取并按 ACPI 表头校验一张表（不含 RSDT/XSDT 遍历）。
 pub fn read_table<F>(phys: u64, mut read: F) -> Option<Vec<u8>>
 where

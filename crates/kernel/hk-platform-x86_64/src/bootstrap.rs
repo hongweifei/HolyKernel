@@ -4,6 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{
     BootInfo, CpuId, InterruptController, Ipi, Irq, IrqError, NotificationId, PAGE_SIZE, PhysAddr,
@@ -52,6 +53,7 @@ struct IoApicState {
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static POWER: Mutex<Option<Fadt>> = Mutex::new(None);
 static S5_TYPES: Mutex<Option<(u8, u8)>> = Mutex::new(None);
+static GPE_EVENTS: AtomicU64 = AtomicU64::new(0);
 static FIRMWARE: Mutex<Option<hk_fw::firmware::Tables>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
@@ -272,12 +274,25 @@ pub fn init_ioapic(
         }
     }
     *FIRMWARE.lock() = Some(tables);
-    if let Some(fadt) = *POWER.lock()
-        && fadt.dsdt != 0
-        && let Some(dsdt) =
-            hk_fw::firmware::read_table(fadt.dsdt, |phys, length| window.read(phys, length))
-    {
-        *S5_TYPES.lock() = hk_fw::firmware::parse_s5(&dsdt);
+    if let Some(fadt) = *POWER.lock() {
+        let mut types = None;
+        if fadt.dsdt != 0
+            && let Some(dsdt) =
+                hk_fw::firmware::read_table(fadt.dsdt, |phys, length| window.read(phys, length))
+        {
+            types = hk_fw::firmware::parse_s5(&dsdt);
+        }
+        if types.is_none() {
+            for ssdt in hk_fw::firmware::find_tables(rsdp.get(), b"SSDT", |phys, length| {
+                window.read(phys, length)
+            }) {
+                if let Some(found) = hk_fw::firmware::parse_s5(&ssdt) {
+                    types = Some(found);
+                    break;
+                }
+            }
+        }
+        *S5_TYPES.lock() = types;
     }
     let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
@@ -401,6 +416,11 @@ pub fn power_off() -> bool {
     true
 }
 
+/// 取出并清除待处理的 GPE 事件位图。
+pub fn take_acpi_events() -> u64 {
+    GPE_EVENTS.swap(0, Ordering::AcqRel)
+}
+
 /// 处理 ACPI SCI：清除 PM1/GPE 状态，电源按钮触发 S5。
 pub fn handle_sci() {
     let Some(fadt) = *POWER.lock() else {
@@ -426,21 +446,32 @@ pub fn handle_sci() {
             // SAFETY: GPE0 块由 FADT 描述为标准 I/O 端口。
             let value = unsafe { crate::port::inb(port) };
             if value != 0 {
+                if index < 8 {
+                    GPE_EVENTS.fetch_or(u64::from(value) << (index * 8), Ordering::AcqRel);
+                }
                 // SAFETY: 写 1 清除对应 GPE 状态。
                 unsafe { crate::port::outb(port, value) };
             }
         }
     }
     if fadt.gpe1_block != 0 && fadt.gpe1_length != 0 {
+        let base = u16::from(fadt.gpe1_base);
         for index in 0..u16::from(fadt.gpe1_length) {
             let port = (fadt.gpe1_block as u16).wrapping_add(index);
             // SAFETY: GPE1 块由 FADT 描述为标准 I/O 端口。
             let value = unsafe { crate::port::inb(port) };
             if value != 0 {
+                let bit = u32::from(base) + u32::from(index) * 8;
+                if bit < 64 {
+                    GPE_EVENTS.fetch_or(u64::from(value) << bit, Ordering::AcqRel);
+                }
                 // SAFETY: 写 1 清除对应 GPE 状态。
                 unsafe { crate::port::outb(port, value) };
             }
         }
+    }
+    if GPE_EVENTS.load(Ordering::Acquire) != 0 {
+        crate::irq::note(hk_hal::irq::ACPI_SCI_IRQ);
     }
     if power_button && power_off() {
         loop {

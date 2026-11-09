@@ -20,6 +20,11 @@ pub trait UserPlatform {
     fn boot_cmdline(&self) -> Option<&'static str> {
         None
     }
+
+    /// 取出并清除待处理的 ACPI GPE 事件位图；不支持时返回 0。
+    fn take_acpi_events(&self) -> u64 {
+        0
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。

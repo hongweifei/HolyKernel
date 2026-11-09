@@ -110,6 +110,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.bind_irq_route(index, tcb, frame, false)
     }
 
+    /// 订阅 ACPI SCI/GPE 事件；事件到达时投递通知。
+    pub(crate) fn acpi_listen(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let notification_number = frame.arg0() as usize;
+        let Some(notification) = self.notification_handle(index, notification_number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(notification_id) = self.kernel.handle_id(tcb, notification) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let line = hk_hal::irq::ACPI_SCI_IRQ;
+        let count = &mut self.irq_routes[line as usize];
+        *count = count.saturating_add(1);
+        self.tasks[index].bound_irqs.push((
+            hk_handle::Handle::new(u32::MAX, u32::MAX),
+            line,
+            hk_hal::NotificationId::new(notification_id.get()),
+            1,
+        ));
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     /// 绑定 MSI/MSI-X 向量：只记录通知目标，不建立 IOAPIC 路由。
     pub(crate) fn bind_msi(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         self.bind_irq_route(index, tcb, frame, true)

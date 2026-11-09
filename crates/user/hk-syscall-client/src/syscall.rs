@@ -19,6 +19,18 @@ pub fn console_subscribe() -> u64 {
     unsafe { syscall_call(SYS_CONSOLE_SUBSCRIBE, 0, 0, 0, 0).value }
 }
 
+/// 订阅 ACPI SCI/GPE 事件；事件到达时投递到给定通知。
+pub fn acpi_listen(notification: u64) -> u64 {
+    // SAFETY: 内核校验通知句柄。
+    unsafe { syscall_call(SYS_ACPI_LISTEN, notification, 0, 0, 0).value }
+}
+
+/// 取出并清除待处理的 ACPI GPE 事件位图。
+pub fn acpi_events() -> u64 {
+    // SAFETY: 只读取并清除内核事件位图。
+    unsafe { syscall_call(SYS_ACPI_EVENTS, 0, 0, 0, 0).value }
+}
+
 /// 把文本写入内核控制台。
 pub fn write(bytes: &[u8]) {
     // SAFETY: 指针与长度来自本进程的只读数据。

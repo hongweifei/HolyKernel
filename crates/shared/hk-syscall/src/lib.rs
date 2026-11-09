@@ -323,6 +323,12 @@ pub const SYS_IRQ_BIND: u64 = 0x55;
 /// 把 MSI/MSI-X 向量绑定到通知；只记录投递目标，不建立 IOAPIC 路由。
 pub const SYS_MSI_BIND: u64 = 0x56;
 
+/// 订阅 ACPI SCI/GPE 事件通知。
+pub const SYS_ACPI_LISTEN: u64 = 0x57;
+
+/// 取出并清除待处理的 ACPI GPE 事件位图。
+pub const SYS_ACPI_EVENTS: u64 = 0x58;
+
 // === 时间与系统信息 0x60-0x6F ===
 
 /// 读取调度 tick 计数。
@@ -648,6 +654,8 @@ mod tests {
             SYS_DEVICE_INFO,
             SYS_IRQ_BIND,
             SYS_MSI_BIND,
+            SYS_ACPI_LISTEN,
+            SYS_ACPI_EVENTS,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

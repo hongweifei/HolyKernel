@@ -507,6 +507,14 @@ where
     parse_facs(&bytes)
 }
 
+/// 查找指定签名的全部 ACPI 表。
+pub fn find_tables<F>(rsdp_phys: u64, signature: &[u8; 4], read: F) -> Vec<Vec<u8>>
+where
+    F: FnMut(u64, usize) -> Option<Vec<u8>>,
+{
+    hk_acpi::find_tables(rsdp_phys, signature, read)
+}
+
 /// 读取并按表头校验一张 ACPI 表（如 DSDT）。
 pub fn read_table<F>(phys: u64, read: F) -> Option<Vec<u8>>
 where
