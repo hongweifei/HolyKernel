@@ -365,6 +365,21 @@ pub fn power_off() -> bool {
     true
 }
 
+/// 通过 FADT reset register 复位；无该寄存器时返回 `false`。
+pub fn reset() -> bool {
+    let Some(fadt) = *POWER.lock() else {
+        return false;
+    };
+    if fadt.reset_register.address == 0 || fadt.reset_register.space != 1 {
+        return false;
+    }
+    // SAFETY: FADT 报告的是标准复位 I/O 端口，宽度通常为 1 字节。
+    unsafe {
+        crate::port::outb(fadt.reset_register.address as u16, fadt.reset_value);
+    }
+    true
+}
+
 fn write_pm1(port: u32, value: u16, length: u8) {
     // SAFETY: FADT 报告的 PM1 控制块是标准 I/O 端口。
     unsafe {

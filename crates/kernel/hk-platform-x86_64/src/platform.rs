@@ -61,6 +61,11 @@ impl Platform for X86Platform {
     }
 
     fn reboot(&self) -> ! {
+        if crate::bootstrap::reset() {
+            loop {
+                x86_64::instructions::hlt();
+            }
+        }
         // 8042 复位脉冲：等待输入缓冲为空后写入 reset 命令。
         // SAFETY: 0x64/0x60 是标准键盘控制器端口；复位成功后不会返回。
         unsafe {

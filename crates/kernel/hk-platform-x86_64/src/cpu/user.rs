@@ -93,7 +93,40 @@ pub(super) fn handle_mce(frame: &mut InterruptFrame) {
         hook(frame);
         return;
     }
+    report_mce();
     report_exception(frame)
+}
+
+/// 读取并打印机器检查状态寄存器。
+fn report_mce() {
+    const IA32_MCG_CAP: u32 = 0x179;
+    const IA32_MCG_STATUS: u32 = 0x17A;
+    const MCG_STATUS_MCIP: u64 = 1 << 2;
+    const MCG_STATUS_RIPV: u64 = 1 << 0;
+    const MCG_STATUS_EIPV: u64 = 1 << 1;
+    const MCI_STATUS_VALID: u64 = 1 << 63;
+
+    let mut report = DirectWriter(Serial::new(COM1));
+    // SAFETY: 这些是当前 CPU 的机器检查 MSR。
+    let cap = unsafe { Msr::new(IA32_MCG_CAP).read() };
+    // SAFETY: IA32_MCG_STATUS 是当前 CPU 的机器检查状态 MSR。
+    let status = unsafe { Msr::new(IA32_MCG_STATUS).read() };
+    let banks = (cap & 0xFF) as u32;
+    let _ = writeln!(
+        report,
+        "\n机器检查：banks={banks} mcg_status={status:#018x} mcip={} ripv={} eipv={}",
+        status & MCG_STATUS_MCIP != 0,
+        status & MCG_STATUS_RIPV != 0,
+        status & MCG_STATUS_EIPV != 0
+    );
+    for bank in 0..banks {
+        let msr = 0x400 + bank * 16;
+        // SAFETY: bank 数来自 IA32_MCG_CAP，MSR 编号在架构范围内。
+        let value = unsafe { Msr::new(msr).read() };
+        if value & MCI_STATUS_VALID != 0 {
+            let _ = writeln!(report, "  bank {bank}: status={value:#018x}");
+        }
+    }
 }
 
 /// 返回页错误地址（CR2）。
