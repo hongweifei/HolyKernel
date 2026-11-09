@@ -17,6 +17,7 @@ pub fn exception_name(vector: u64) -> &'static str {
     match vector {
         0 => "除零",
         1 => "调试",
+        2 => "不可屏蔽中断",
         3 => "断点",
         6 => "非法指令",
         7 => "设备不可用",
@@ -24,6 +25,7 @@ pub fn exception_name(vector: u64) -> &'static str {
         13 => "通用保护",
         14 => "页错误",
         17 => "对齐检查",
+        18 => "机器检查",
         19 => "SIMD 浮点",
         20 => "虚拟化",
         21 => "控制保护",

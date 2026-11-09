@@ -14,7 +14,7 @@ const SIGNATURE_XSDT: &[u8; 4] = b"XSDT";
 const RSDP_MIN_LENGTH: usize = 20;
 const RSDP_V2_EXTRA_LENGTH: usize = 16;
 const HEADER_LENGTH: usize = 36;
-const MAX_TABLE_LENGTH: usize = 64 * 1024;
+const MAX_TABLE_LENGTH: usize = 1024 * 1024;
 
 /// 从 RSDP 查找指定签名的 ACPI 表。
 pub fn find_table<F>(rsdp_phys: u64, signature: &[u8; 4], mut read: F) -> Option<Vec<u8>>

@@ -12,6 +12,8 @@ extern crate alloc;
 pub mod acpi;
 /// 解析设备树（DTB）。
 pub mod dtb;
+/// ACPI 固定表与拓扑表。
+pub mod firmware;
 
 /// 固件描述的内存区域用途。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

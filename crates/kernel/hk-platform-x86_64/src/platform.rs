@@ -52,6 +52,11 @@ impl Platform for X86Platform {
     }
 
     fn shutdown(&self) -> ! {
+        if crate::bootstrap::power_off() {
+            loop {
+                x86_64::instructions::hlt();
+            }
+        }
         exit(ExitCode::Success)
     }
 

@@ -11,10 +11,11 @@ use hk_hal::{
 };
 use spin::Mutex;
 
-use hk_fw::acpi::Madt;
-
 use crate::ioapic::IoApic;
 use crate::{FramebufferConsole, PageAllocator, PageFlags, PageTable};
+use hk_fw::acpi::Madt;
+use hk_fw::firmware::Fadt;
+use hk_fw::firmware::McfgEntry;
 
 /// I/O APIC 与键盘路由结果。
 pub struct IoApicSetup {
@@ -31,8 +32,11 @@ pub struct IoApicSetup {
 /// ACPI 表的临时映射窗口，避开 HHDM 未覆盖的物理页。
 const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
 
-/// 表窗口可容纳的最大页数。
-const ACPI_MAX_PAGES: usize = 16;
+/// MCFG ECAM 的常驻内核虚拟窗口。
+const ECAM_BASE: u64 = 0xFFFF_C000_0000_0000;
+
+/// 表窗口可容纳的最大页数（1 MiB，覆盖大型 SRAT/PPTT）。
+const ACPI_MAX_PAGES: usize = 256;
 
 struct IoApicState {
     base: u64,
@@ -40,6 +44,7 @@ struct IoApicState {
 }
 
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
+static POWER: Mutex<Option<Fadt>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
 
@@ -228,6 +233,13 @@ pub fn init_ioapic(
         allocator,
         base: ACPI_SCRATCH_BASE,
     };
+    let tables = hk_fw::firmware::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    *POWER.lock() = tables.fadt;
+    if let Some(mcfg) = &tables.mcfg
+        && let Some(entry) = mcfg.entries.iter().find(|entry| entry.segment == 0)
+    {
+        map_ecam(paging, allocator, entry);
+    }
     let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
     let Some(madt) = madt else {
@@ -262,6 +274,85 @@ pub fn init_ioapic(
         destination,
         cpus,
     }))
+}
+
+/// 把 MCFG 描述的 ECAM 窗口映射到常驻内核虚拟地址。
+fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry) {
+    let length = entry.length();
+    let mut offset = 0_u64;
+    while offset < length {
+        let virt = ECAM_BASE + offset;
+        let phys = entry.base + offset;
+        let remaining = length - offset;
+        let mapped = if remaining >= (1 << 21)
+            && virt.is_multiple_of(1 << 21)
+            && phys.is_multiple_of(1 << 21)
+        {
+            paging
+                .map_huge(
+                    VirtAddr::new(virt),
+                    PhysAddr::new(phys),
+                    PageFlags::MMIO,
+                    1 << 21,
+                    allocator,
+                )
+                .is_ok()
+        } else {
+            paging
+                .map(
+                    VirtAddr::new(virt),
+                    PhysAddr::new(phys),
+                    PageFlags::MMIO,
+                    allocator,
+                )
+                .is_ok()
+        };
+        if !mapped {
+            return;
+        }
+        offset += if remaining >= (1 << 21)
+            && virt.is_multiple_of(1 << 21)
+            && phys.is_multiple_of(1 << 21)
+        {
+            1 << 21
+        } else {
+            PAGE_SIZE as u64
+        };
+    }
+    crate::pci::init_ecam(crate::pci::Ecam {
+        base: ECAM_BASE,
+        segment: entry.segment,
+        bus_start: entry.bus_start,
+        bus_end: entry.bus_end,
+    });
+}
+
+/// 通过 FADT PM1 控制块进入 S5 软关机；缺少 FADT 时返回 `false`。
+pub fn power_off() -> bool {
+    let Some(fadt) = *POWER.lock() else {
+        return false;
+    };
+    if fadt.pm1a_control == 0 {
+        return false;
+    }
+    // SLP_TYP=5、SLP_EN=1；QEMU/大多数 x86 固件的 S5 类型。
+    let value = (5_u16 << 10) | (1 << 13);
+    write_pm1(fadt.pm1a_control, value, fadt.pm1_control_length);
+    if fadt.pm1b_control != 0 {
+        write_pm1(fadt.pm1b_control, value, fadt.pm1_control_length);
+    }
+    true
+}
+
+fn write_pm1(port: u32, value: u16, length: u8) {
+    // SAFETY: FADT 报告的 PM1 控制块是标准 I/O 端口。
+    unsafe {
+        if length <= 1 {
+            crate::port::outb(port as u16, value as u8);
+        } else {
+            crate::port::outw(port as u16, value);
+        }
+    }
 }
 
 /// 初始化键盘并把 IRQ1 路由到键盘向量。
