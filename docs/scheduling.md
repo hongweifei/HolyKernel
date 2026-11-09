@@ -135,7 +135,8 @@ virtual_pass += charge
 
 - `Latency` 类维护 `virtual_deadline = virtual_pass + latency_budget`；Beat 选择最小虚拟截止期。
 - `Throughput` 类选择最小 `virtual_pass`。
-- `Realtime` 类维护 `period_start`、`budget_left` 与 `absolute_deadline`；Beat 选择最早截止期，用 CBS 规则补充预算。
+- `Realtime` 类维护 `period_start`、`budget_left` 与 `absolute_deadline = period_start + (deadline 或 period)`；Beat 选择最早截止期，用 CBS 规则补充预算。
+- 预算补充把 `period_start` 按整周期推进到当前时刻所在边界（不漂移）；切换或附加契约时 `period_start` 重置为当前时刻，绝对截止期不会落到过去。
 - 同类内长期 CPU 份额与 `weight` 成正比；误差上界由 `MAX_SLICE` 与抢占延迟决定。
 
 ### 5.4 预算与 Throttled
@@ -207,7 +208,7 @@ stateDiagram-v2
 
 `call` 进入服务端时，内核建立 lending frame：
 
-1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约。
+1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约：依次比较调度类别、队列键、时间片，类别更小、键更小者更强；两项都相同时取较短时间片。
 2. 服务端执行时间记入调用方 Meter，并计入调用方 Cadence 预算。
 3. 服务端自身预算持续生效；调用方预算耗尽时，服务端继续完成当前调用，调用方进入 `Throttled`。
 4. `reply`、超时、调用方退出或服务端退出时弹出 lending frame，恢复服务端原契约；超时调用的迟到 `reply` 按 tombstone 丢弃，不再与服务端错误混淆。
@@ -308,11 +309,11 @@ Meter 字段：
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |
 | `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护 EDF 密度账本（`budget/deadline`）并拒绝超限申请，恢复路径复用同一门禁；恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 读取当前契约并重新准入。完整响应时间分析仍以密度判据为保守近似 |
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
-| 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本按 `热度 × 权重` 记入 `Meter.migration_cost`，尚无独立缓存成本模型 |
-| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；同类别下取调用方与服务端中更强的队列键；时间片仍取两者较短值 |
-| Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，内核先按 Tempo 池范围校验，恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 重新准入，`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始 |
+| 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本按 `weight × (heat + MIGRATION_BASE_COST)` 记入 `Meter.migration_cost`，尚无真实缓存拓扑模型 |
+| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；有效契约按类别→队列键→时间片取更强的一方（并列取较短时间片），同类别下也取更强键；重调度判定使用运行中 TCB 的有效契约 |
+| Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，父契约缺失时提升为独立契约；仅 Realtime 契约经 Tempo 密度准入（失败或缺 Tempo 时回退默认 Throughput），其他类别保持原契约不回退；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；恢复后仍由 Checkpoint/Shell 通过 `TEMPO_READMIT` 复核 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
-| `hk-sim` | 部分 | 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充；lending、迁移与唤醒抢占回放待补 |
+| `hk-sim` | 部分 | 多 CPU 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；有界时间响应分析与随机调度压力回放待补 |
 
 实现约定：
 
