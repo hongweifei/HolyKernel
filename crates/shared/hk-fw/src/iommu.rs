@@ -5,8 +5,8 @@
 
 use alloc::vec::Vec;
 
+use crate::acpi::tables::{Dmar, Ivrs};
 use crate::dtb::DtbInfo;
-use crate::firmware::{Dmar, Ivrs};
 
 /// IOMMU 实现类别。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -183,11 +183,13 @@ mod tests {
                     path: String::from("/smmu@2b400000"),
                     compatible: vec![String::from("arm,smmu-v3")],
                     regions: vec![(0x2b40_0000, 0x1_0000)],
+                    irqs: Vec::new(),
                 },
                 Device {
                     path: String::from("/iommu@30000000"),
                     compatible: vec![String::from("riscv,iommu")],
                     regions: vec![(0x3000_0000, 0x1000)],
+                    irqs: Vec::new(),
                 },
             ],
             ..DtbInfo::default()

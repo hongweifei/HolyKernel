@@ -14,9 +14,10 @@ use spin::Mutex;
 
 use crate::ioapic::IoApic;
 use crate::{FramebufferConsole, PageAllocator, PageFlags, PageTable};
+use hk_fw::FirmwareInfo;
 use hk_fw::acpi::Madt;
-use hk_fw::firmware::Fadt;
-use hk_fw::firmware::McfgEntry;
+use hk_fw::acpi::tables::Fadt;
+use hk_fw::acpi::tables::McfgEntry;
 
 /// I/O APIC 与键盘路由结果。
 pub struct IoApicSetup {
@@ -56,7 +57,8 @@ static S5_TYPES: Mutex<Option<(u8, u8)>> = Mutex::new(None);
 static GPE_EVENTS: AtomicU64 = AtomicU64::new(0);
 /// 已订阅 ACPI 电源/睡眠事件的用户监听者数量。
 static ACPI_LISTENERS: AtomicUsize = AtomicUsize::new(0);
-static FIRMWARE: Mutex<Option<hk_fw::firmware::Tables>> = Mutex::new(None);
+static FIRMWARE: Mutex<Option<hk_fw::acpi::tables::Tables>> = Mutex::new(None);
+static FIRMWARE_INFO: Mutex<Option<FirmwareInfo>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
 
@@ -245,7 +247,7 @@ pub fn init_ioapic(
         allocator,
         base: ACPI_SCRATCH_BASE,
     };
-    let tables = hk_fw::firmware::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    let tables = hk_fw::acpi::tables::parse(rsdp.get(), |phys, length| window.read(phys, length));
     crate::iommu::init(&tables, paging, allocator);
     *POWER.lock() = tables.fadt;
     if let Some(mcfg) = &tables.mcfg {
@@ -284,20 +286,22 @@ pub fn init_ioapic(
             }
         }
     }
+    let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
+    *FIRMWARE_INFO.lock() = Some(tables.firmware_info(madt.as_ref()));
     *FIRMWARE.lock() = Some(tables);
     if let Some(fadt) = *POWER.lock() {
         let mut types = None;
         if fadt.dsdt != 0
             && let Some(dsdt) =
-                hk_fw::firmware::read_table(fadt.dsdt, |phys, length| window.read(phys, length))
+                hk_fw::acpi::tables::read_table(fadt.dsdt, |phys, length| window.read(phys, length))
         {
-            types = hk_fw::firmware::parse_s5(&dsdt);
+            types = hk_fw::acpi::tables::parse_s5(&dsdt);
         }
         if types.is_none() {
-            for ssdt in hk_fw::firmware::find_tables(rsdp.get(), b"SSDT", |phys, length| {
+            for ssdt in hk_fw::acpi::tables::find_tables(rsdp.get(), b"SSDT", |phys, length| {
                 window.read(phys, length)
             }) {
-                if let Some(found) = hk_fw::firmware::parse_s5(&ssdt) {
+                if let Some(found) = hk_fw::acpi::tables::parse_s5(&ssdt) {
                     types = Some(found);
                     break;
                 }
@@ -305,8 +309,6 @@ pub fn init_ioapic(
         }
         *S5_TYPES.lock() = types;
     }
-    let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
-
     let Some(madt) = madt else {
         return Ok(None);
     };
@@ -407,8 +409,13 @@ fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry, vi
 }
 
 /// 返回启动期解析到的 ACPI 固定表与拓扑表。
-pub fn firmware() -> Option<hk_fw::firmware::Tables> {
+pub fn firmware() -> Option<hk_fw::acpi::tables::Tables> {
     FIRMWARE.lock().clone()
+}
+
+/// 返回启动期解析到的规范化固件描述。
+pub fn firmware_info() -> Option<FirmwareInfo> {
+    FIRMWARE_INFO.lock().clone()
 }
 
 /// 通过 FADT PM1 控制块进入 S5 软关机；缺少 FADT 时返回 `false`。

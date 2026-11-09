@@ -65,7 +65,7 @@ hk-base（共享契约）
 本 ADR 是目标契约，按以下阶段收口；阶段未完成时，代码只能通过明确的过渡依赖工作：
 
 - **P0（已完成）**：ADR、平台/crate/工程文档、三条依赖守卫；`hk-fw` 迁入共享层，`hk-acpi` 并入。
-- **P1**：统一 `FirmwareInfo` 与设备表，收敛原始固件类型，补齐 ACPI/DTB 等价测试。
+- **P1（已完成）**：`hk-fw` 产出统一的 `FirmwareInfo` 与 `FirmwareDeviceTable`；ACPI 表按表类型拆分；平台只消费中性 IOMMU 描述，DMAR/IVRS 原始字段不再从 `Tables` 暴露；ACPI/DTB 归一化测试已加入。
 - **P2**：落地 `hk-paging`，把 x86 用户页表与 COW 迁移到通用层。
 - **P3–P7**：x86 后端收口、AArch64/RISC-V、Limine/UEFI、设备发现与 conformance。
 
@@ -82,7 +82,7 @@ hk-base（共享契约）
 
 **成本与取舍**
 
-- P1/P2 需要迁移现有 x86 页表与固件调用点，短期内会保留过渡 API。
+- P2 仍需迁移现有 x86 用户页表与 COW 调用点，短期内会保留过渡 API。
 - 统一 `FirmwareInfo` 会引入一次数据模型转换；对启动路径有少量分配与拷贝。
 - 依赖守卫要求新增 crate 先确定侧别与允许依赖，增加提交前的结构成本。
 - AArch64/RISC-V 的页表、TLB 与中断差异仍需后端实现，通用层不能消除所有架构代码。

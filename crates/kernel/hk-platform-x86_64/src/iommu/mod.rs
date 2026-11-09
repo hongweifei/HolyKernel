@@ -10,7 +10,8 @@ mod vtd;
 
 use alloc::vec::Vec;
 
-use hk_fw::firmware::Tables;
+use hk_fw::IommuKind;
+use hk_fw::acpi::tables::Tables;
 use hk_hal::VirtAddr;
 use hk_hal::{Iommu, IommuDomain, IommuError, IommuFlags, Iova, PhysRange};
 use hk_mem::SoftwareIommu;
@@ -100,23 +101,26 @@ pub static IOMMU: PlatformIommu = PlatformIommu::new();
 /// 按固件描述尝试启用 VT-d 或 AMD-Vi；没有可用单元时保持软件后端。
 pub fn init(tables: &Tables, paging: &PageTable, allocator: &PageAllocator) {
     let _ = allocator;
-    if let Some(dmar) = &tables.dmar {
-        let mapped = map_units(
-            paging,
-            IOMMU_MMIO_BASE,
-            dmar.units.iter().map(|unit| (unit.segment, unit.address)),
-        );
+    let units = |kind: IommuKind| -> Vec<(u16, u64)> {
+        tables
+            .iommu
+            .units
+            .iter()
+            .filter(|unit| unit.kind == kind)
+            .map(|unit| (unit.segment, unit.base))
+            .collect()
+    };
+    let intel = units(IommuKind::IntelVtd);
+    if !intel.is_empty() {
+        let mapped = map_units(paging, IOMMU_MMIO_BASE, intel.into_iter());
         if let Some(vtd) = VtdIommu::new(&mapped, crate::paging::direct_map_base()) {
             *IOMMU.backend.lock() = Backend::Vtd(vtd);
             return;
         }
     }
-    if let Some(ivrs) = &tables.ivrs {
-        let mapped = map_units(
-            paging,
-            AMD_MMIO_BASE,
-            ivrs.units.iter().map(|unit| (unit.segment, unit.address)),
-        );
+    let amd = units(IommuKind::AmdVi);
+    if !amd.is_empty() {
+        let mapped = map_units(paging, AMD_MMIO_BASE, amd.into_iter());
         if let Some(amd) = AmdIommu::new(&mapped, crate::paging::direct_map_base()) {
             *IOMMU.backend.lock() = Backend::Amd(amd);
         }

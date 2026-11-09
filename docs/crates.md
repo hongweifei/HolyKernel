@@ -86,7 +86,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 时间类型（Moment、Duration、CivilTime） | `crates/shared/hk-base/src/time.rs` |
 | 设备授权描述与 PCI 枚举 | `crates/shared/hk-device/src/{device,grant,pci,scan}.rs` |
 | MMIO 寄存器访问（volatile-register 包装） | `crates/shared/hk-mmio/src/lib.rs` |
-| 固件描述（ACPI/DTB/IOMMU 外部库包装） | `crates/shared/hk-fw/src/{acpi,dtb,firmware,iommu}.rs`；`acpi`、`hermit-dtb`、`intel-iommu`、`amd-iommu` 只在此 crate 内出现；RSDP/RSDT/XSDT 遍历在 `src/acpi/rsdp.rs` |
+| 固件描述（ACPI/DTB/IOMMU 外部库包装） | `crates/shared/hk-fw/src/{dtb,device,iommu}.rs`；ACPI 表在 `src/acpi/tables/`，RSDP/RSDT/XSDT 遍历在 `src/acpi/rsdp.rs`；`acpi`、`hermit-dtb`、`intel-iommu`、`amd-iommu` 只在此 crate 内出现 |
+| ACPI/DTB 统一固件描述与设备表 | `crates/shared/hk-fw/src/lib.rs` 的 `FirmwareInfo`；`src/device.rs` 的 `FirmwareDeviceTable`、`MmioDevice`、`PciEcamRange`、`IrqRoute` |
 | 引导后端（Limine 多架构/DTB）与 BootInfo 转换 | `crates/kernel/hk-boot/src/{lib,limine,dtb}.rs`；crate 根只定义 `BootBackend`/`BootError`，平台显式选择后端 |
 | x86_64 HAL `Platform`、CPUID 特性矩阵与熵源 | `crates/kernel/hk-platform-x86_64/src/{platform,entropy}.rs`、`cpu/features.rs` |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |

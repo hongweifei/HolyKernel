@@ -51,7 +51,8 @@ HolyKernel/
 - FrameBank 的每次分配生成 HMP `Ledger` 记账，并按 KernelHeap、PageTable、Cow、Restore、Image、Dma、Other 分类；输出 total/used/peak 与分类用量，启动日志打印 System Capacity 快照。
 - 大块协议缓冲放在堆上，服务栈只保留小对象；IPC 单消息上限 64 KiB。
 - 每个 crate 属于一个侧别：共享契约、内核侧或用户态，分别放在 `crates/shared`、`crates/kernel`、`crates/user`。内核侧只依赖内核侧与共享契约，用户态只依赖用户态与共享契约，共享契约只依赖更底层的共享契约；规则由 `cargo xtask deps` 强制。
-- P0 依赖守卫：`hk-base`/`hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能直接依赖 `hk-base` 与 `acpi`/`hermit-dtb`/`intel-iommu`/`amd-iommu`；`hk-paging` 不得依赖用户态。`hk-fw` 已迁入 `crates/shared`，RSDP/RSDT/XSDT 遍历并入 `hk-fw`，不再保留 `hk-acpi`。
+- 依赖守卫：`hk-base`/`hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能直接依赖 `hk-base` 与 `acpi`/`hermit-dtb`/`intel-iommu`/`amd-iommu`；`hk-paging` 不得依赖用户态。`hk-fw` 已迁入 `crates/shared`，RSDP/RSDT/XSDT 遍历并入 `hk-fw`，不再保留 `hk-acpi`。
+- `hk-fw` 对 ACPI/DTB 统一产出 `FirmwareInfo` 与 `FirmwareDeviceTable`；ACPI 表按 `acpi/tables/` 分表组织，平台只消费中性 IOMMU 描述。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
 - 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。
 - libc 提供 C ABI；内核与服务器使用 Rust。

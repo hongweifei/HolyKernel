@@ -97,7 +97,7 @@ flowchart LR
 
 - HAL：`Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`、`Iommu`、`CacheOps`。Hosted 与 x86_64 均已实现 `Platform`；x86_64 另补 CPUID 特性矩阵、RDRAND 熵源、XSAVE/AVX 上下文、SMEP/SMAP、用户镜像 W^X 与 guard page；运行时硬件访问已收敛到 `Platform`。
 - BootInfo：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务模块；统一校验。
-- `hk-fw`：ACPI 与 DTB 解析，产出 Arena/Capacity/设备描述。已落地 ACPI MADT（x86 IOAPIC/本地 APIC/中断覆盖，接入 I/O APIC 初始化）与 DTB 内存/CPU/通用设备描述；Arena/Capacity 物化输入待平台后端接入。
+- `hk-fw`：ACPI 与 DTB 解析，统一产出 `FirmwareInfo` 与 `FirmwareDeviceTable`（MMIO、IRQ、PCI ECAM、兼容字符串）。已落地 ACPI MADT（x86 IOAPIC/本地 APIC/中断覆盖，接入 I/O APIC 初始化）、DTB 内存/CPU/通用设备描述与中性 IOMMU 描述；Arena/Capacity 物化输入待平台后端接入。
 - `hk-mmio`：包装 `volatile-register`，统一 LAPIC、I/O APIC、PCI ECAM 与 MSI-X 的 MMIO 读写；内核与用户态驱动共用。
 - `page_table_entry`：统一 x86_64 PTE 位与属性编码（`PTF`/`MappingFlags`）；页表遍历、所有权、COW 与检查点语义仍由平台维护。
 - x86_64 平台：GDT/TSS/IDT、LAPIC/IOAPIC、PCI legacy/ECAM、串口、帧缓冲、SMP。

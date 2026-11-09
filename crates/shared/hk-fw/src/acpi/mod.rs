@@ -4,6 +4,7 @@
 //! 表结构本身由外部 `acpi` crate 解释。外部类型不出现在本模块的公开 API 中。
 
 pub(crate) mod rsdp;
+pub mod tables;
 
 use alloc::vec::Vec;
 use core::pin::Pin;

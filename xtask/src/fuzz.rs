@@ -30,15 +30,15 @@ pub fn run(arguments: FuzzArguments) -> Result<()> {
         let length = (state as usize) % 8192;
         let bytes = random_bytes(state, length);
         run_case(iteration, arguments.seed, || {
-            let _ = hk_fw::firmware::parse_fadt(&bytes);
-            let _ = hk_fw::firmware::parse_mcfg(&bytes);
-            let _ = hk_fw::firmware::parse_srat(&bytes);
-            let _ = hk_fw::firmware::parse_pptt(&bytes);
-            let _ = hk_fw::firmware::parse_dmar(&bytes);
-            let _ = hk_fw::firmware::parse_ivrs(&bytes);
-            let _ = hk_fw::firmware::parse_hpet(&bytes);
-            let _ = hk_fw::firmware::parse_facs(&bytes);
-            let _ = hk_fw::firmware::parse_s5(&bytes);
+            let _ = hk_fw::acpi::tables::parse_fadt(&bytes);
+            let _ = hk_fw::acpi::tables::parse_mcfg(&bytes);
+            let _ = hk_fw::acpi::tables::parse_srat(&bytes);
+            let _ = hk_fw::acpi::tables::parse_pptt(&bytes);
+            let _ = hk_fw::acpi::tables::parse_dmar(&bytes);
+            let _ = hk_fw::acpi::tables::parse_ivrs(&bytes);
+            let _ = hk_fw::acpi::tables::parse_hpet(&bytes);
+            let _ = hk_fw::acpi::tables::parse_facs(&bytes);
+            let _ = hk_fw::acpi::tables::parse_s5(&bytes);
             let _ = hk_fw::dtb::parse(&bytes);
         })?;
 

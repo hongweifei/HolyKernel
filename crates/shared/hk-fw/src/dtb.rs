@@ -41,6 +41,11 @@ impl DtbInfo {
     pub fn iommu_info(&self) -> crate::IommuInfo {
         crate::IommuInfo::from_dtb(self)
     }
+
+    /// 返回 ACPI/DTB 共享的规范化固件描述。
+    pub fn firmware_info(&self) -> crate::FirmwareInfo {
+        crate::FirmwareInfo::from_dtb(self)
+    }
 }
 
 /// 解析设备树字节。
@@ -175,10 +180,21 @@ fn collect_devices(
                     .get_property(&path, "reg")
                     .map(|reg| cells(reg, address_cells, size_cells))
                     .unwrap_or_default();
+                let irqs = dtb
+                    .get_property(&path, "interrupts")
+                    .map(|data| {
+                        data.as_chunks::<4>()
+                            .0
+                            .iter()
+                            .filter_map(|chunk| be32(chunk, 0))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 devices.push(Device {
                     path: path.clone(),
                     compatible,
                     regions,
+                    irqs,
                 });
             }
         }

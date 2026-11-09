@@ -107,7 +107,7 @@ hk-base
               └── platforms/<machine>
 ```
 
-- `hk-fw` 位于共享层，当前实现 ACPI/DTB 描述与 IOMMU 中性化；只允许依赖 `hk-base` 和固件库。RSDP/RSDT/XSDT 遍历已并入，原 `hk-acpi` 不再作为独立机制层。
+- `hk-fw` 位于共享层，ACPI 与 DTB 统一产出 `FirmwareInfo`；`FirmwareDeviceTable` 提供 MMIO、IRQ、PCI ECAM 与兼容字符串。IOMMU 只通过中性 `IommuInfo` 暴露，DMAR/IVRS 原始字段不再从 `Tables` 泄漏。RSDP/RSDT/XSDT 遍历已并入，原 `hk-acpi` 不再作为独立机制层。
 - `hk-paging` 是 P2 目标：统一 `UserSpace`、内核高半区继承、`FrameRefs` 与去写式 COW。平台只提供页表根、激活与 TLB 维护。
 - `hk-boot` 只保留 `BootBackend`、`BootError` 与 `BootInfo` 构造契约；Limine 与 UEFI 分别作为后端，DTB 直接启动复用同一契约。
 - 依赖方向由 `cargo xtask deps` 检查：`hk-base`/`hk-hal` 不得依赖 `hk-paging` 或 `hk-platform-*`；`hk-paging` 不得依赖用户态；`hk-fw` 只能依赖基础契约与固件库。
