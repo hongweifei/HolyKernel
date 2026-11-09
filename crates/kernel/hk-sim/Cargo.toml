@@ -10,6 +10,7 @@ repository.workspace = true
 hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
 
 [dev-dependencies]
+hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
 hk-handle = { version = "0.1.0", path = "../hk-handle" }
 hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
 

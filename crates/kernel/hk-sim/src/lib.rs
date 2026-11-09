@@ -41,6 +41,8 @@ pub struct RunReport {
     pub trace_events: usize,
     /// 随机种子。
     pub seed: u64,
+    /// 每次调度的线程编号，按时间顺序。
+    pub order: Vec<TcbId>,
 }
 
 /// 仿真错误。
@@ -88,12 +90,18 @@ impl From<KernelError> for SimError {
 /// 默认步数上限。
 pub const DEFAULT_STEP_LIMIT: u64 = 10_000;
 
+/// 每步默认计入的契约时长（微秒），即一个量子。
+pub const DEFAULT_QUANTUM: u64 = 10;
+
 /// 确定性仿真器。
 pub struct Simulator {
     kernel: Kernel,
     bodies: BTreeMap<TcbId, ThreadBody>,
     steps: u64,
     step_limit: u64,
+    quantum: u64,
+    clock: u64,
+    order: Vec<TcbId>,
     seed: u64,
 }
 
@@ -105,6 +113,9 @@ impl Simulator {
             bodies: BTreeMap::new(),
             steps: 0,
             step_limit: DEFAULT_STEP_LIMIT,
+            quantum: DEFAULT_QUANTUM,
+            clock: 0,
+            order: Vec::new(),
             seed,
         }
     }
@@ -112,6 +123,12 @@ impl Simulator {
     /// 设置步数上限。
     pub fn with_step_limit(mut self, step_limit: u64) -> Self {
         self.step_limit = step_limit;
+        self
+    }
+
+    /// 设置每步计入的契约时长。
+    pub fn with_quantum(mut self, quantum: u64) -> Self {
+        self.quantum = quantum;
         self
     }
 
@@ -127,13 +144,25 @@ impl Simulator {
 
     /// 运行到全部线程退出。
     ///
-    /// 调度顺序由内核的固定优先级与 FIFO 决定，同一个种子与同一组执行体产生
-    /// 相同步数与相同事件序列。
+    /// 调度顺序由 Cadence 类别与虚拟时间决定，同一个种子与同一组执行体产生
+    /// 相同步数与相同事件序列。每步把 `quantum` 记入当前线程的 Meter 与预算，
+    /// 并把时钟推进同样长度，使预算、`Throttled` 与周期补充在回放中可见。
     pub fn run(&mut self) -> Result<RunReport, SimError> {
         let mut exits = 0;
 
         while self.kernel.thread_count() > 0 {
+            self.kernel.set_clock(self.clock);
             let Some(thread) = self.kernel.schedule(0) else {
+                // 只剩被节流或等待补充的 Task：把时钟推进到下一个补充点再试，
+                // 这样预算周期与 `Throttled → Eligible` 在回放中可见。
+                if let Some(deadline) = self.kernel.next_deadline() {
+                    let now = self.kernel.now();
+                    if deadline > now {
+                        self.clock = deadline;
+                        self.kernel.set_clock(deadline);
+                        continue;
+                    }
+                }
                 return Err(SimError::Deadlock {
                     blocked: self.kernel.thread_count(),
                 });
@@ -143,6 +172,9 @@ impl Simulator {
             if self.steps > self.step_limit {
                 return Err(SimError::StepLimit { steps: self.steps });
             }
+            self.order.push(thread);
+            self.kernel.charge(thread, self.quantum);
+            self.clock = self.clock.saturating_add(self.quantum);
 
             let body = self
                 .bodies
@@ -162,6 +194,7 @@ impl Simulator {
             exits,
             trace_events: self.kernel.trace_len(),
             seed: self.seed,
+            order: core::mem::take(&mut self.order),
         })
     }
 
