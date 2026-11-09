@@ -64,10 +64,45 @@ impl PageTable {
         }
         let mut offset = 0;
         while offset < len {
+            let virt = virt + offset as u64;
+            let phys = phys + offset as u64;
+            let remaining = len - offset;
+            let size = if !flags.is_cow() {
+                if remaining >= (1 << 30)
+                    && virt.is_multiple_of(1 << 30)
+                    && phys.is_multiple_of(1 << 30)
+                    && crate::paging::has_1g_pages()
+                {
+                    1 << 30
+                } else if remaining >= (1 << 21)
+                    && virt.is_multiple_of(1 << 21)
+                    && phys.is_multiple_of(1 << 21)
+                {
+                    1 << 21
+                } else {
+                    hk_hal::PAGE_SIZE as u64
+                }
+            } else {
+                hk_hal::PAGE_SIZE as u64
+            };
+            if size > hk_hal::PAGE_SIZE as u64
+                && self
+                    .map_huge(
+                        hk_hal::VirtAddr::new(virt),
+                        hk_hal::PhysAddr::new(phys),
+                        flags,
+                        size,
+                        &crate::paging::FRAME_BANK,
+                    )
+                    .is_ok()
+            {
+                offset += size as usize;
+                continue;
+            }
             if self
                 .map_mmio(
-                    hk_hal::VirtAddr::new(virt + offset as u64),
-                    hk_hal::PhysAddr::new(phys + offset as u64),
+                    hk_hal::VirtAddr::new(virt),
+                    hk_hal::PhysAddr::new(phys),
                     flags,
                 )
                 .is_err()

@@ -81,6 +81,11 @@ impl PageFlags {
         self.0
     }
 
+    /// 是否为写时复制页。
+    pub(crate) const fn is_cow(self) -> bool {
+        self.0 & COW != 0
+    }
+
     /// 返回原始页表属性位。
     pub const fn raw(self) -> u64 {
         self.0

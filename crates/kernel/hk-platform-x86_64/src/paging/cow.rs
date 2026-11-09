@@ -1,8 +1,5 @@
 //! 写时复制：fork 时共享可写页，缺页时复制页帧并恢复写权限。
 
-use x86_64::VirtAddr;
-use x86_64::instructions::tlb;
-
 use hk_hal::{PAGE_SIZE, PhysAddr};
 use hk_mem::page::PagePool;
 
@@ -43,7 +40,7 @@ impl PageTable {
             self.zero_page(child);
             // SAFETY: 父页表处于活动状态，条目地址经 HHDM 映射。
             let source = PhysAddr::new(value & ADDRESS_MASK);
-            self.clone_level(source, child, 3)?;
+            self.clone_level(source, child, 3, (index as u64) << 39)?;
             // SAFETY: 子 PML4 项指向新分配的 PDPT，并保留原有权限位。
             unsafe {
                 self.entry(child_root, index)
@@ -54,22 +51,36 @@ impl PageTable {
         if !crate::cpu::shootdown_tlb(None) {
             return None;
         }
+        // 父地址空间的 COW 属性改了已存在的页表项；PCID 模式下写 CR3 不会刷新。
+        self.flush(0);
         self.activate();
         Some(Self {
             direct_map: self.direct_map,
             root: child_root,
+            pcid: super::table::allocate_pcid(),
         })
     }
 
-    fn clone_level(&self, source: PhysAddr, target: PhysAddr, level: u32) -> Option<()> {
+    fn clone_level(&self, source: PhysAddr, target: PhysAddr, level: u32, base: u64) -> Option<()> {
+        let shift = match level {
+            3 => 30,
+            2 => 21,
+            _ => 12,
+        };
         for index in 0..ENTRIES {
             // SAFETY: 源页表经 HHDM 映射，索引在 0..512 范围内。
-            let value = unsafe { self.entry(source, index).read_volatile() };
+            let mut value = unsafe { self.entry(source, index).read_volatile() };
             if value & PRESENT == 0 {
                 continue;
             }
+            let virt = base | ((index as u64) << shift);
             if value & HUGE != 0 {
-                return None;
+                self.split_huge_at(virt);
+                // SAFETY: 拆分后项指向普通页表。
+                value = unsafe { self.entry(source, index).read_volatile() };
+                if value & HUGE != 0 || value & PRESENT == 0 {
+                    return None;
+                }
             }
 
             let physical = value & ADDRESS_MASK;
@@ -90,7 +101,7 @@ impl PageTable {
             } else {
                 let child = take_cow_page()?;
                 self.zero_page(child);
-                self.clone_level(PhysAddr::new(physical), child, level - 1)?;
+                self.clone_level(PhysAddr::new(physical), child, level - 1, virt)?;
                 // SAFETY: 子中间级项指向新页表，并保留原有权限位。
                 unsafe {
                     self.entry(target, index)
@@ -103,6 +114,9 @@ impl PageTable {
 
     /// 处理写时复制页错误：复制页帧并恢复可写映射。
     pub fn resolve_cow(&self, address: u64) -> bool {
+        if !self.split_huge_at(address) {
+            return false;
+        }
         let mut table = self.root;
         for level in [39_u32, 30, 21] {
             let index = ((address >> level) & 0x1FF) as usize;
@@ -134,7 +148,7 @@ impl PageTable {
         let updated = frame.get() | (value & !ADDRESS_MASK & !COW) | WRITABLE;
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
         unsafe { self.entry(table, index).write_volatile(updated) };
-        tlb::flush(VirtAddr::new(address));
+        self.flush(address);
         true
     }
 }

@@ -30,7 +30,8 @@ pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_a
 pub use stacks::init as init_stacks;
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
-    arm_oneshot, arm_timer, calibrate_tick, disarm_timer, note_timer_interrupt, rearm_tick,
+    arm_oneshot, arm_timer, calibrate_tick, disarm_timer, enable_wakeup_timer,
+    note_timer_interrupt, oneshot_armed, rearm_tick,
     resume_periodic, start_ap_tick, start_tick, stop_tick, tick_enabled, timer_finished,
     timer_ticks, uptime_ticks,
 };
@@ -132,6 +133,7 @@ pub fn init() {
     );
     assembly::enable_no_execute();
     assembly::enable_fpu();
+    crate::paging::init_cpu();
     assembly::enable_hardening();
     gdt::init_gdt(0);
     idt::init_idt();

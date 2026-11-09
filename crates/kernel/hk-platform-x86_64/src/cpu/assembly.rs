@@ -385,6 +385,19 @@ core::arch::global_asm!(
 
 core::arch::global_asm!(
     ".section .text",
+    // 单上下文 PCID 失效：rdi = PCID。
+    ".global hk_invpcid_single",
+    "hk_invpcid_single:",
+    "    sub rsp, 16",
+    "    mov qword ptr [rsp], rdi",
+    "    mov qword ptr [rsp + 8], 1",
+    "    invpcid rax, [rsp]",
+    "    add rsp, 16",
+    "    ret",
+);
+
+core::arch::global_asm!(
+    ".section .text",
     ".global hk_fpu_save",
     "hk_fpu_save:",
     "    cmp byte ptr [rip + HK_XSAVE_ENABLED], 0",

@@ -20,7 +20,7 @@ use hk_mem::PagePool;
 pub(crate) use flags::map_flags;
 pub use flags::{PageFlags, restore_flags};
 pub use hk_mem::FrameBank as PageAllocator;
-pub use table::{PageTable, PagingError};
+pub use table::{PageTable, PagingError, has_1g_pages, init_cpu};
 
 /// 内核全局物理帧银行。
 pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
@@ -78,6 +78,7 @@ pub fn kernel_table() -> PageTable {
     PageTable {
         direct_map: DIRECT_MAP.load(Ordering::Acquire),
         root: PhysAddr::new(KERNEL_ROOT.load(Ordering::Acquire)),
+        pcid: 0,
     }
 }
 
@@ -100,6 +101,7 @@ pub fn resolve_cow(address: u64) -> bool {
     let table = PageTable {
         direct_map,
         root: read_cr3(),
+        pcid: 0,
     };
     table.resolve_cow(address)
 }
@@ -113,6 +115,7 @@ pub fn is_user_mapped(address: u64) -> bool {
     let table = PageTable {
         direct_map,
         root: read_cr3(),
+        pcid: 0,
     };
     table.is_user_mapped(address)
 }
