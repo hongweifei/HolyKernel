@@ -20,8 +20,8 @@ hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
 hk-smp = { version = "0.1.0", path = "../hk-smp" }
 hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
 hk-test = { version = "0.1.0", path = "../hk-test" }
-amd-iommu = { git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
-intel-iommu = { git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
+amd-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
+intel-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
 page_table_entry = "0.6.2"
 spin = "0.9"
 x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
