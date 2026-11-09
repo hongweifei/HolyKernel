@@ -35,6 +35,9 @@ const ACPI_SCRATCH_BASE: u64 = 0xFFFF_9000_0000_0000;
 /// MCFG ECAM 的常驻内核虚拟窗口。
 const ECAM_BASE: u64 = 0xFFFF_C000_0000_0000;
 
+/// 每个 MCFG 窗口占用的虚拟地址步长（1 GiB）。
+const ECAM_STRIDE: u64 = 1 << 30;
+
 /// HPET 寄存器页的常驻内核虚拟窗口。
 const HPET_BASE: u64 = 0xFFFF_D000_0000_0000;
 
@@ -48,6 +51,7 @@ struct IoApicState {
 
 static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static POWER: Mutex<Option<Fadt>> = Mutex::new(None);
+static FIRMWARE: Mutex<Option<hk_fw::firmware::Tables>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
 
@@ -238,10 +242,15 @@ pub fn init_ioapic(
     };
     let tables = hk_fw::firmware::parse(rsdp.get(), |phys, length| window.read(phys, length));
     *POWER.lock() = tables.fadt;
-    if let Some(mcfg) = &tables.mcfg
-        && let Some(entry) = mcfg.entries.iter().find(|entry| entry.segment == 0)
-    {
-        map_ecam(paging, allocator, entry);
+    if let Some(mcfg) = &tables.mcfg {
+        for (index, entry) in mcfg.entries.iter().enumerate() {
+            map_ecam(
+                paging,
+                allocator,
+                entry,
+                ECAM_BASE + index as u64 * ECAM_STRIDE,
+            );
+        }
     }
     if let Some(hpet) = &tables.hpet
         && hpet.address.space == 0
@@ -261,6 +270,7 @@ pub fn init_ioapic(
             crate::hpet::init(HPET_BASE + offset);
         }
     }
+    *FIRMWARE.lock() = Some(tables);
     let madt = hk_fw::acpi::parse(rsdp.get(), |phys, length| window.read(phys, length));
 
     let Some(madt) = madt else {
@@ -298,11 +308,11 @@ pub fn init_ioapic(
 }
 
 /// 把 MCFG 描述的 ECAM 窗口映射到常驻内核虚拟地址。
-fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry) {
+fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry, virt_base: u64) {
     let length = entry.length();
     let mut offset = 0_u64;
     while offset < length {
-        let virt = ECAM_BASE + offset;
+        let virt = virt_base + offset;
         let phys = entry.base + offset;
         let remaining = length - offset;
         let mapped = if remaining >= (1 << 21)
@@ -341,11 +351,16 @@ fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry) {
         };
     }
     crate::pci::init_ecam(crate::pci::Ecam {
-        base: ECAM_BASE,
+        base: virt_base,
         segment: entry.segment,
         bus_start: entry.bus_start,
         bus_end: entry.bus_end,
     });
+}
+
+/// 返回启动期解析到的 ACPI 固定表与拓扑表。
+pub fn firmware() -> Option<hk_fw::firmware::Tables> {
+    FIRMWARE.lock().clone()
 }
 
 /// 通过 FADT PM1 控制块进入 S5 软关机；缺少 FADT 时返回 `false`。

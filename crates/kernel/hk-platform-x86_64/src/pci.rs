@@ -44,16 +44,19 @@ impl Ecam {
     }
 }
 
-static ECAM: Mutex<Option<Ecam>> = Mutex::new(None);
+static ECAM: Mutex<alloc::vec::Vec<Ecam>> = Mutex::new(alloc::vec::Vec::new());
 
 /// 登记 MCFG 映射出的 ECAM 窗口。
 pub fn init_ecam(ecam: Ecam) {
-    *ECAM.lock() = Some(ecam);
+    let mut windows = ECAM.lock();
+    if !windows.contains(&ecam) {
+        windows.push(ecam);
+    }
 }
 
-/// 返回当前 ECAM 窗口。
+/// 返回第一个 ECAM 窗口。
 pub fn ecam() -> Option<Ecam> {
-    *ECAM.lock()
+    ECAM.lock().first().copied()
 }
 
 /// x86 PCI 配置访问；ECAM 可用时优先使用。
@@ -74,7 +77,11 @@ pub const PCI: X86Pci = X86Pci;
 
 impl PciConfig for X86Pci {
     fn read32(&self, address: PciAddress) -> u32 {
-        if let Some(ecam) = *ECAM.lock()
+        if let Some(ecam) = ECAM
+            .lock()
+            .iter()
+            .find(|ecam| ecam.offset(address).is_some())
+            .copied()
             && let Some(offset) = ecam.offset(address)
         {
             // SAFETY: ECAM 窗口已映射为设备页，偏移落在对应总线窗口内。
@@ -91,7 +98,11 @@ impl PciConfig for X86Pci {
     }
 
     fn write32(&self, address: PciAddress, value: u32) {
-        if let Some(ecam) = *ECAM.lock()
+        if let Some(ecam) = ECAM
+            .lock()
+            .iter()
+            .find(|ecam| ecam.offset(address).is_some())
+            .copied()
             && let Some(offset) = ecam.offset(address)
         {
             // SAFETY: ECAM 窗口已映射为设备页，偏移落在对应总线窗口内。
