@@ -17,6 +17,8 @@ pub fn init_ap(cpu: usize) {
     assert!(cpu < MAX_CPUS, "CPU 索引越界");
     // EFER.NXE 是每 CPU 的；AP 也要启用，否则 NX 页在本核不生效。
     super::assembly::enable_no_execute();
+    // CR0/CR4 也是每 CPU 的；没有 SSE 位 AP 上的 FXSAVE/FXRSTOR 会触发 #UD。
+    super::assembly::enable_fpu();
     init_gdt(cpu);
     load_idt();
 

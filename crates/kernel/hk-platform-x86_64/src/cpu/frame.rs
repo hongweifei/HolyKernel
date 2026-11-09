@@ -2,6 +2,40 @@
 
 use alloc::vec::Vec;
 
+/// FXSAVE/FXRSTOR 区域字节数。
+pub const FPU_BYTES: usize = 512;
+
+/// x87/SSE 状态，布局与 `FXSAVE` 一致。
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+pub struct FpuState {
+    bytes: [u8; FPU_BYTES],
+}
+
+impl FpuState {
+    /// 返回与 `FINIT` 等价的初始状态。
+    ///
+    /// x87 控制字 0x037F 与 MXCSR 0x1F80 屏蔽全部异常；其余寄存器清空。
+    pub fn reset() -> Self {
+        let mut bytes = [0_u8; FPU_BYTES];
+        bytes[0..2].copy_from_slice(&0x037F_u16.to_le_bytes());
+        bytes[24..28].copy_from_slice(&0x1F80_u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&0xFFFF_u32.to_le_bytes());
+        Self { bytes }
+    }
+
+    /// 返回原始字节。
+    pub fn as_bytes(&self) -> &[u8; FPU_BYTES] {
+        &self.bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        Some(Self {
+            bytes: bytes.try_into().ok()?,
+        })
+    }
+}
+
 /// 中断与异常现场。
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -50,6 +84,8 @@ pub struct InterruptFrame {
     pub rsp: u64,
     /// 栈段选择子。
     pub ss: u64,
+    /// x87/SSE 状态。
+    pub fpu: FpuState,
 }
 
 const _: () = {
@@ -69,13 +105,18 @@ const _: () = {
     assert!(core::mem::offset_of!(InterruptFrame, rflags) == 152);
     assert!(core::mem::offset_of!(InterruptFrame, rsp) == 160);
     assert!(core::mem::offset_of!(InterruptFrame, ss) == 168);
+    assert!(core::mem::offset_of!(InterruptFrame, fpu) == 176);
+    assert!(core::mem::size_of::<InterruptFrame>() == 176 + FPU_BYTES);
 };
 
 /// 现场字段数。
 const FRAME_WORDS: usize = 22;
 
 impl InterruptFrame {
-    /// 编码为 22 个小端 u64。
+    /// 序列化后的字节数。
+    pub const ENCODED_BYTES: usize = FRAME_WORDS * 8 + FPU_BYTES;
+
+    /// 编码为 22 个小端 u64 后追加 FXSAVE 区域。
     pub fn encode(&self) -> Vec<u8> {
         let words = [
             self.rax,
@@ -101,16 +142,17 @@ impl InterruptFrame {
             self.rsp,
             self.ss,
         ];
-        let mut out = Vec::with_capacity(FRAME_WORDS * 8);
+        let mut out = Vec::with_capacity(Self::ENCODED_BYTES);
         for word in words {
             out.extend_from_slice(&word.to_le_bytes());
         }
+        out.extend_from_slice(self.fpu.as_bytes());
         out
     }
 
-    /// 从 22 个小端 u64 解码。
+    /// 从 22 个小端 u64 与 FXSAVE 区域解码。
     pub fn decode(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() != FRAME_WORDS * 8 {
+        if bytes.len() != Self::ENCODED_BYTES {
             return None;
         }
         let mut words = [0_u64; FRAME_WORDS];
@@ -141,6 +183,43 @@ impl InterruptFrame {
             rflags: words[19],
             rsp: words[20],
             ss: words[21],
+            fpu: FpuState::from_bytes(&bytes[FRAME_WORDS * 8..])?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cpu::user::user_frame;
+
+    #[test]
+    fn frame_round_trip_preserves_fpu_state() {
+        let frame = user_frame(0x1000, 0x2000, 7);
+        let bytes = frame.encode();
+        assert_eq!(bytes.len(), InterruptFrame::ENCODED_BYTES);
+
+        let decoded = InterruptFrame::decode(&bytes).expect("现场可解码");
+        assert_eq!(decoded.rip, 0x1000);
+        assert_eq!(decoded.rsp, 0x2000);
+        assert_eq!(decoded.rdi, 7);
+        assert_eq!(decoded.fpu.as_bytes(), frame.fpu.as_bytes());
+    }
+
+    #[test]
+    fn rejects_truncated_frame() {
+        assert!(InterruptFrame::decode(&[0_u8; 8]).is_none());
+        assert!(InterruptFrame::decode(&[0_u8; InterruptFrame::ENCODED_BYTES - 1]).is_none());
+    }
+
+    #[test]
+    fn reset_masks_fpu_exceptions() {
+        let state = FpuState::reset();
+        let bytes = state.as_bytes();
+        assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), 0x037F);
+        assert_eq!(
+            u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
+            0x1F80
+        );
     }
 }

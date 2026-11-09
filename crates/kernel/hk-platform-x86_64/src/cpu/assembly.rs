@@ -47,6 +47,50 @@ pub(super) fn enable_no_execute() {
     }
 }
 
+/// 启用 x87/SSE：清除 CR0.EM/TS，置 CR0.MP/NE 与 CR4.OSFXSR/OSXMMEXCPT。
+///
+/// # Panics
+/// CPU 未报告 FXSR 或 SSE 时 panic：用户态恢复依赖 `FXSAVE`/`FXRSTOR`。
+pub(super) fn enable_fpu() {
+    // SAFETY: CPUID 是纯读取指令；写入的是当前 CPU 的 CR0/CR4。
+    unsafe {
+        let features = core::arch::x86_64::__cpuid(1).edx;
+        const FXSR: u32 = 1 << 24;
+        const SSE: u32 = 1 << 25;
+        assert!(
+            features & FXSR != 0 && features & SSE != 0,
+            "CPU 不支持 FXSAVE/SSE"
+        );
+
+        let mut cr0: u64;
+        core::arch::asm!(
+            "mov {}, cr0",
+            out(reg) cr0,
+            options(nomem, nostack, preserves_flags),
+        );
+        cr0 &= !((1 << 2) | (1 << 3));
+        cr0 |= (1 << 1) | (1 << 5);
+        core::arch::asm!(
+            "mov cr0, {}",
+            in(reg) cr0,
+            options(nomem, nostack, preserves_flags),
+        );
+
+        let mut cr4: u64;
+        core::arch::asm!(
+            "mov {}, cr4",
+            out(reg) cr4,
+            options(nomem, nostack, preserves_flags),
+        );
+        cr4 |= (1 << 9) | (1 << 10);
+        core::arch::asm!(
+            "mov cr4, {}",
+            in(reg) cr4,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+}
+
 core::arch::global_asm!(
     ".macro ISR_NOERR n",
     ".global isr_\\n",
@@ -147,11 +191,21 @@ core::arch::global_asm!(
     "    push rcx",
     "    push rbx",
     "    push rax",
+    // 仅用户态现场保存 FPU/SSE；用户栈来自 16 字节对齐的 TSS.rsp0，
+    // 因此 [rsp + 176] 满足 FXSAVE 的对齐要求。内核态中断不触碰 FPU。
+    "    test byte ptr [rsp + 144], 3",
+    "    jz 7f",
+    "    fxsave [rsp + 176]",
+    "7:",
     "    mov rbx, rsp",
     "    mov rdi, rsp",
     "    and rsp, -16",
     "    call interrupt_dispatch",
     "    mov rsp, rbx",
+    "    test byte ptr [rsp + 144], 3",
+    "    jz 8f",
+    "    fxrstor [rsp + 176]",
+    "8:",
     "    pop rax",
     "    pop rbx",
     "    pop rcx",
@@ -180,6 +234,7 @@ core::arch::global_asm!(
     "    push r15",
     "    mov gs:[0], rsp",
     "    mov rbx, rdi",
+    "    fxrstor [rbx + 176]",
     "    mov ax, 0x2b",
     "    mov ds, ax",
     "    mov es, ax",

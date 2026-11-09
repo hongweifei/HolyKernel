@@ -122,6 +122,7 @@ pub fn init() {
         "CPU 表重复初始化"
     );
     assembly::enable_no_execute();
+    assembly::enable_fpu();
     gdt::init_gdt(0);
     idt::init_idt();
 }

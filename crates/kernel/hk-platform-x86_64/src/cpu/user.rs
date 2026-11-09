@@ -6,6 +6,7 @@ use core::fmt::Write;
 use hk_hal::Console;
 use spin::Mutex;
 
+use super::frame::FpuState;
 use super::*;
 use crate::serial::{COM1, Serial};
 
@@ -16,6 +17,7 @@ pub fn exception_name(vector: u64) -> &'static str {
         1 => "调试",
         3 => "断点",
         6 => "非法指令",
+        7 => "设备不可用",
         8 => "双重故障",
         13 => "通用保护",
         14 => "页错误",
@@ -100,6 +102,7 @@ pub fn user_frame(entry: u64, stack_top: u64, argument: u64) -> InterruptFrame {
         rflags: 0x202,
         rsp: stack_top,
         ss: u64::from(USER_DATA_SELECTOR),
+        fpu: FpuState::reset(),
     }
 }
 
@@ -113,7 +116,7 @@ pub fn resume_user(frame: &InterruptFrame) {
 }
 
 impl hk_hal::UserContext for InterruptFrame {
-    const SAVED_BYTES: usize = 22 * 8;
+    const SAVED_BYTES: usize = InterruptFrame::ENCODED_BYTES;
 
     fn resume(&self) {
         resume_user(self);
