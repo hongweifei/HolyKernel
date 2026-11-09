@@ -18,8 +18,8 @@ hk_image::declare_service_role!(SERVICE_ROLE, hk_image::ServiceRole::device());
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
     DEVICE_CLASS_AHCI, DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE,
-    DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_CLASS_RNG, DEVICE_GRANT, DEVICE_NONE,
-    DEVICE_REQUEST,
+    DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_CLASS_NVME, DEVICE_CLASS_RNG, DEVICE_GRANT,
+    DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
@@ -111,6 +111,7 @@ fn class_matches(device: Device, requested: u64) -> bool {
         DEVICE_CLASS_ANY => true,
         DEVICE_CLASS_BLOCK => device.class == 0x01,
         DEVICE_CLASS_AHCI => device.class == 0x01 && device.subclass == 0x06,
+        DEVICE_CLASS_NVME => device.class == 0x01 && device.subclass == 0x08,
         DEVICE_CLASS_NETWORK => device.class == 0x02,
         // 过渡设备号并不总等于 `0x1000 + virtio 设备号`，这里显式列出。
         DEVICE_CLASS_INPUT => virtio_device(device, 0x1012, 0x1052),
@@ -223,6 +224,7 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool, re
         DEVICE_CLASS_ANY => true,
         DEVICE_CLASS_BLOCK => device.class == 0x01,
         DEVICE_CLASS_AHCI => device.class == 0x01 && device.subclass == 0x06,
+        DEVICE_CLASS_NVME => device.class == 0x01 && device.subclass == 0x08,
         DEVICE_CLASS_NETWORK => device.class == 0x02,
         _ => false,
     };

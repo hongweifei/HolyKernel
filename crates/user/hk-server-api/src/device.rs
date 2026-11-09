@@ -21,3 +21,5 @@ pub const DEVICE_CLASS_RNG: u64 = 4;
 pub const DEVICE_CLASS_CONSOLE: u64 = 5;
 /// AHCI/SATA 控制器。
 pub const DEVICE_CLASS_AHCI: u64 = 6;
+/// NVMe 控制器。
+pub const DEVICE_CLASS_NVME: u64 = 7;

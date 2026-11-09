@@ -77,6 +77,7 @@ services![
     ("hk-server-spin", true, 9, THROUGHPUT),
     ("hk-server-virtio", true, 3, LATENCY_HIGH),
     ("hk-server-ahci", true, 3, LATENCY_HIGH),
+    ("hk-server-nvme", true, 3, LATENCY_HIGH),
     ("hk-server-memory", true, 9, LATENCY_HIGH),
     ("hk-server-ext4", true, 4, LATENCY_HIGH),
     ("hk-server-holyfs", true, 4, LATENCY_HIGH),

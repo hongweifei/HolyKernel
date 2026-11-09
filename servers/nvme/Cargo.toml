@@ -1,0 +1,25 @@
+[package]
+name = "hk-server-nvme"
+description = "HolyKernel NVMe 块设备服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-nvme"
+path = "src/main.rs"
+
+[dependencies]
+hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
+hk-device = { version = "0.1.0", path = "../../crates/shared/hk-device" }
+hk-driver-host = { version = "0.1.0", path = "../../crates/user/hk-driver-host" }
+hk-driver-rdif = { version = "0.1.0", path = "../../crates/user/hk-driver-rdif" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+nvme-driver = "0.8"
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true
