@@ -17,7 +17,7 @@ clap = { version = "4.5", features = ["derive"] }
 hk-block = { version = "0.1.0", path = "../crates/user/hk-block" }
 hk-fs-ext4 = { version = "0.1.0", path = "../crates/user/hk-fs-ext4" }
 hk-fs-holyfs = { version = "0.1.0", path = "../crates/user/hk-fs-holyfs" }
-hk-fw = { version = "0.1.0", path = "../crates/kernel/hk-fw" }
+hk-fw = { version = "0.1.0", path = "../crates/shared/hk-fw" }
 hk-image = { version = "0.1.0", path = "../crates/shared/hk-image" }
 hk-server-build = { version = "0.1.0", path = "../crates/user/hk-server-build" }
 hk-vfs = { version = "0.1.0", path = "../crates/user/hk-vfs" }

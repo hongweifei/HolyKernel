@@ -560,7 +560,7 @@ pub fn find_tables<F>(rsdp_phys: u64, signature: &[u8; 4], read: F) -> Vec<Vec<u
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    hk_acpi::find_tables(rsdp_phys, signature, read)
+    crate::acpi::rsdp::find_tables(rsdp_phys, signature, read)
 }
 
 /// 读取并按表头校验一张 ACPI 表（如 DSDT）。
@@ -568,7 +568,7 @@ pub fn read_table<F>(phys: u64, read: F) -> Option<Vec<u8>>
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    hk_acpi::read_table(phys, read)
+    crate::acpi::rsdp::read_table(phys, read)
 }
 
 /// 从 DSDT 中解析 `_S5` 包的前两个 SLP_TYP 值。
@@ -665,7 +665,9 @@ pub fn parse<F>(rsdp_phys: u64, mut read: F) -> Tables
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    let find = |signature: &[u8; 4], read: &mut F| hk_acpi::find_table(rsdp_phys, signature, read);
+    let find = |signature: &[u8; 4], read: &mut F| {
+        crate::acpi::rsdp::find_table(rsdp_phys, signature, read)
+    };
     let fadt = find(SIGNATURE_FADT, &mut read).and_then(|bytes| parse_fadt(&bytes));
     let mcfg = find(SIGNATURE_MCFG, &mut read).and_then(|bytes| parse_mcfg(&bytes));
     let srat = find(SIGNATURE_SRAT, &mut read).and_then(|bytes| parse_srat(&bytes));

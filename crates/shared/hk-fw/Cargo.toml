@@ -1,13 +1,12 @@
 [package]
 name = "hk-fw"
-description = "HolyKernel 固件描述：ACPI 与 DTB 解析"
+description = "HolyKernel 固件描述：ACPI、DTB 与 IOMMU 解析"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-acpi = { version = "0.1.0", path = "../hk-acpi" }
 acpi = { version = "7.0.0-pre1", default-features = false }
 hermit-dtb = "0.1.1"
 amd-iommu = { git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }

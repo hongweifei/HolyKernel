@@ -18,10 +18,12 @@ HolyKernel/
 │   │   ├── hk-catalog（服务清单、启动白名单、桌面排序）
 │   │   ├── hk-cadence（规划：Cadence/Meter、调度类别、虚拟时间数学）
 │   │   ├── hk-syscall hk-status hk-device hk-mmio hk-image hk-checkpoint
+│   │   ├── hk-fw（ACPI/DTB/IOMMU 固件描述）
 │   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态） hk-symbols
 │   ├── kernel/            内核侧
 │   │   ├── hk-hal hk-handle hk-ipc hk-mem hk-kernel
-│   │   ├── hk-boot hk-acpi hk-fw hk-framebuffer hk-smp hk-test hk-drivers
+│   │   ├── hk-paging（P2：通用用户页表与 COW）
+│   │   ├── hk-boot hk-framebuffer hk-smp hk-test hk-drivers
 │   │   ├── hk-runtime（用户任务、syscall 分派、RootServer 原语）
 │   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
 │   │   └── hk-kernel-shell hk-sim
@@ -49,6 +51,7 @@ HolyKernel/
 - FrameBank 的每次分配生成 HMP `Ledger` 记账，并按 KernelHeap、PageTable、Cow、Restore、Image、Dma、Other 分类；输出 total/used/peak 与分类用量，启动日志打印 System Capacity 快照。
 - 大块协议缓冲放在堆上，服务栈只保留小对象；IPC 单消息上限 64 KiB。
 - 每个 crate 属于一个侧别：共享契约、内核侧或用户态，分别放在 `crates/shared`、`crates/kernel`、`crates/user`。内核侧只依赖内核侧与共享契约，用户态只依赖用户态与共享契约，共享契约只依赖更底层的共享契约；规则由 `cargo xtask deps` 强制。
+- P0 依赖守卫：`hk-base`/`hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能直接依赖 `hk-base` 与 `acpi`/`hermit-dtb`/`intel-iommu`/`amd-iommu`；`hk-paging` 不得依赖用户态。`hk-fw` 已迁入 `crates/shared`，RSDP/RSDT/XSDT 遍历并入 `hk-fw`，不再保留 `hk-acpi`。
 - 平台差异位于 `hk-platform-*` 与 `platforms/`。
 - 平台二进制保留入口、引导适配与用户现场切换；用户运行时、系统调用分派与启动装配位于 `crates/`。
 - libc 提供 C ABI；内核与服务器使用 Rust。
@@ -93,7 +96,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`xtask run` 在存在 `/dev/kvm` 时自动启用 `-accel kvm -cpu host`，手动 QEMU 可同样加速。
 
-当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。
+当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。多架构分层与 COW 契约见 [ADR-0018](adr/0018-multiarch-platform.md)。
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像；镜像构建使用固定磁盘时间戳与 `--locked`，ISO 以暂存树内容键缓存，重复构建校验和一致。
 
@@ -208,7 +211,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - 依赖精简、可审计、维护活跃。
 - `build.rs` 与过程宏经过审查。
 - HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表项格式、固件解析、引导与架构库在平台或包装边界内。
-- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表遍历、所有权与 COW 语义仍由平台维护。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
+- 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-platform-<arch>` 直接使用——platform crate 本身就是架构边界；页表遍历、所有权与 COW 语义在 P2 前仍由平台维护，之后归 `hk-paging`。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
 - `cargo-deny` 检查许可证与安全公告。
 
 ---

@@ -23,6 +23,12 @@ const IMPL_FORBIDDEN: &[&str] = &[
     "hk-sim",
 ];
 
+/// 最底层契约禁止依赖的类别：分页与平台实现必须位于它们之上。
+const FOUNDATION_FORBIDDEN: &[&str] = &["hk-fw", "hk-paging", "hk-boot", "hk-platform-"];
+
+/// `hk-fw` 允许的直接依赖：基础契约与固件库。
+const FIRMWARE_ALLOWED: &[&str] = &["hk-base", "acpi", "hermit-dtb", "intel-iommu", "amd-iommu"];
+
 /// 核内库禁止依赖的类别。
 const LIB_FORBIDDEN: &[&str] = &[
     "hk-kernel",
@@ -359,6 +365,22 @@ fn check(
             ));
         }
     }
+
+    if let Some(allowed) = allowed_dependencies(name) {
+        for dependency in dependencies
+            .iter()
+            .filter(|dependency| dependency.kind == Kind::Normal)
+        {
+            if !allowed.contains(&dependency.package.as_str()) {
+                violations.push(format!(
+                    "  {name} 只能依赖 {}，但依赖了 {}（{}）",
+                    allowed.join("、"),
+                    dependency.package,
+                    path.display()
+                ));
+            }
+        }
+    }
     Ok(Some(side))
 }
 
@@ -434,11 +456,14 @@ fn collect_section(
     Ok(())
 }
 
+fn allowed_dependencies(name: &str) -> Option<&'static [&'static str]> {
+    (name == "hk-fw").then_some(FIRMWARE_ALLOWED)
+}
+
 fn rules(name: &str) -> &'static [&'static str] {
     match name {
-        "hk-base" | "hk-hal" | "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => {
-            IMPL_FORBIDDEN
-        }
+        "hk-base" | "hk-hal" => FOUNDATION_FORBIDDEN,
+        "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => IMPL_FORBIDDEN,
         "hk-syscall-client" => SYSCALL_CLIENT_FORBIDDEN,
         "hk-server-api" => &[
             "hk-handle",
@@ -467,9 +492,8 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc"
         | "hk-holy-proto" | "hk-proto-client" | "hk-fs-ext4" | "hk-fs-holyfs-vfs" | "hk-debug"
         | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
-        "hk-framebuffer" | "hk-acpi" | "hk-fw" | "hk-boot" | "hk-smp" | "hk-drivers" => {
-            LIB_FORBIDDEN
-        }
+        "hk-paging" => USERSPACE_LIB_FORBIDDEN,
+        "hk-framebuffer" | "hk-fw" | "hk-boot" | "hk-smp" | "hk-drivers" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,
         _ => &[],
     }
@@ -478,6 +502,22 @@ fn rules(name: &str) -> &'static [&'static str] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn firmware_dependencies_stay_on_the_neutral_layer() {
+        assert_eq!(allowed_dependencies("hk-fw"), Some(FIRMWARE_ALLOWED));
+        assert_eq!(allowed_dependencies("hk-base"), None);
+        assert!(FIRMWARE_ALLOWED.contains(&"hk-base"));
+        assert!(!FIRMWARE_ALLOWED.contains(&"hk-paging"));
+        assert!(!FIRMWARE_ALLOWED.contains(&"hk-platform-x86_64"));
+    }
+
+    #[test]
+    fn foundation_crates_cannot_reach_paging_or_platforms() {
+        assert!(FOUNDATION_FORBIDDEN.contains(&"hk-paging"));
+        assert!(FOUNDATION_FORBIDDEN.contains(&"hk-platform-"));
+        assert_eq!(rules("hk-paging"), USERSPACE_LIB_FORBIDDEN);
+    }
 
     #[test]
     fn resolves_renames_and_every_dependency_table() {

@@ -68,7 +68,8 @@ docs/
     ├── 0014-native-image.md
     ├── 0015-compatibility-server.md
     ├── 0016-hmp-native-contract.md
-    └── 0017-holy-cadence.md
+    ├── 0017-holy-cadence.md
+    └── 0018-multiarch-platform.md
 └── holy/                 HolyDoc 启动文档与内置帮助（*.hd，非设计文档）
 ```
 
@@ -80,7 +81,7 @@ docs/
 - **待定**：待决策，以 `TBD` 标注，并链接到待写 ADR。
 - **架构边界**：章程明确的微内核构件集合。
 
-HMP 与 HCM 已通过 ADR-0016 与 ADR-0017 接受；VFS 与 HolyFS 文档标记为现行；其余架构文档为设计中，代码随里程碑落地。`v0.1.0` 已交付 M0–M5，当前焦点是 M6 底层收敛（HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA、HMP ABI 与 Holy Cadence 调度）。
+HMP、HCM 与多架构平台分层已通过 ADR-0016、ADR-0017 与 ADR-0018 接受；VFS 与 HolyFS 文档标记为现行；其余架构文档为设计中，代码随里程碑落地。`v0.1.0` 已交付 M0–M5，当前焦点是 M6 底层收敛（HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA、HMP ABI 与 Holy Cadence 调度）。
 
 ## 约定
 

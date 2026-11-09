@@ -113,8 +113,8 @@ flowchart TB
 | --- | --- | --- |
 | Tier 1 | x86_64 QEMU（Limine, BIOS/UEFI） | 已完成（M2） |
 | Tier 1 | Hosted 模拟器（Linux/macOS/Windows 进程） | 已完成（M1） |
-| Tier 2 | AArch64 QEMU `virt`（U-Boot / 直接 `-kernel` + DTB） | 设计完成，待 M7 |
-| Tier 2 | RISC-V 64 QEMU `virt`（OpenSBI） | 设计完成，待 M11 |
+| Tier 2 | AArch64 QEMU `virt`（U-Boot / 直接 `-kernel` + DTB） | 平台结构已纳入（P0）；后端按 P4/P7 实施 |
+| Tier 2 | RISC-V 64 QEMU `virt`（OpenSBI） | 平台结构已纳入（P0）；后端按 P4/P7 实施 |
 | Tier 3 | 主流 x86_64 UEFI 真机 | M11 后 |
 
 Hosted 平台是确定性模拟器，服务于单元测试、CI、故障注入与回放。

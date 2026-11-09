@@ -1,7 +1,9 @@
 //! ACPI 表解析。
 //!
-//! RSDP/RSDT/XSDT 的物理内存遍历沿用内部的 `hk-acpi`（已经过测试的机制层）；
+//! RSDP/RSDT/XSDT 的物理内存遍历由本模块内部的 `rsdp` 实现；
 //! 表结构本身由外部 `acpi` crate 解释。外部类型不出现在本模块的公开 API 中。
+
+pub(crate) mod rsdp;
 
 use alloc::vec::Vec;
 use core::pin::Pin;
@@ -111,7 +113,7 @@ pub fn parse<F>(rsdp_phys: u64, mut read: F) -> Option<Madt>
 where
     F: FnMut(u64, usize) -> Option<Vec<u8>>,
 {
-    let bytes = hk_acpi::find_table(rsdp_phys, SIGNATURE_MADT, &mut read)?;
+    let bytes = rsdp::find_table(rsdp_phys, SIGNATURE_MADT, &mut read)?;
     parse_table(&bytes)
 }
 

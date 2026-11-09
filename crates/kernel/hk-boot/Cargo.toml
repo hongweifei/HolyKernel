@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-fw = { version = "0.1.0", path = "../hk-fw" }
+hk-fw = { version = "0.1.0", path = "../../shared/hk-fw" }
 
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64"))'.dependencies]
 limine = "0.5"

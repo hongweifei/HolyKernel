@@ -1,6 +1,6 @@
 # 平台、启动与移植
 
-状态：**设计中** · 上级：[总体架构](architecture.md)
+状态：**现行设计** · 上级：[总体架构](architecture.md) · 关联：[ADR-0018](adr/0018-multiarch-platform.md)
 
 “全平台全架构”是架构属性：微内核只有一套，架构差异止步于 `hk-hal` 与 platform crate。驱动与设备管理运行在用户态。
 
@@ -19,7 +19,10 @@
 ### 构件
 
 - **HAL traits**：CPU、MMU、IRQ、Timer、SMP、Console、DMA、PCI、Entropy、Power。
+- **固件描述**：共享层 `hk-fw` 把 ACPI 与 DTB 收敛为同一套固件/设备描述；外部固件库只在此 crate 内出现。
+- **通用分页**：`hk-paging` 承载用户页表、内核高半区继承与帧引用计数 COW；平台只选择页表后端。
 - **BootInfo**：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务器载荷。
+- **引导后端**：`hk-boot` 定义契约，`hk-boot-limine` 与 `hk-boot-uefi` 是实现后端。
 - **platform crate**：`hk-platform-hosted`、`hk-platform-x86_64`、`hk-platform-aarch64`、`hk-platform-riscv64`。
 - **启动目录**：`platforms/{x86_64,aarch64,riscv64}-qemu` 与 `platforms/hosted`。
 - **Hosted 模拟**：虚拟时钟、虚拟 CPU、模拟设备、故障注入、回放。
@@ -32,8 +35,8 @@
 | --- | --- | --- | --- |
 | Tier 1 | x86_64 QEMU（Limine） | 主要开发与演示 | 已完成（M2） |
 | Tier 1 | Hosted 模拟器 | 单元测试、CI、确定性回放 | 已完成（M1） |
-| Tier 2 | AArch64 QEMU `virt` | 多架构验证 | 设计完成，待 M7 |
-| Tier 2 | RISC-V 64 QEMU `virt` | 多架构验证 | 设计完成，待 M11 |
+| Tier 2 | AArch64 QEMU `virt` | 多架构验证 | 平台结构已纳入（P0）；后端按 P4/P7 实施 |
+| Tier 2 | RISC-V 64 QEMU `virt` | 多架构验证 | 平台结构已纳入（P0）；后端按 P4/P7 实施 |
 | Tier 3 | 主流 x86_64 UEFI 真机 | 真机验证 | M11 后 |
 
 ---
@@ -90,6 +93,24 @@ pub trait Platform: Send + Sync {
 - `Timer` 提供一次性定时器与单调时间。
 - `DmaOps` 提供 DMA Frame 的缓存维护。
 - `PciConfig` 提供 ECAM/legacy 配置访问。
+
+---
+
+### 3.1 固件、分页与引导层
+
+```text
+hk-base
+  ├── hk-fw（ACPI + DTB → FirmwareInfo / FirmwareDeviceTable）
+  ├── hk-hal（Platform / Mmu / Irq / Timer / Pci）
+  └── hk-paging（UserSpace / FrameRefs / COW）
+        └── hk-platform-<arch>
+              └── platforms/<machine>
+```
+
+- `hk-fw` 位于共享层，当前实现 ACPI/DTB 描述与 IOMMU 中性化；只允许依赖 `hk-base` 和固件库。RSDP/RSDT/XSDT 遍历已并入，原 `hk-acpi` 不再作为独立机制层。
+- `hk-paging` 是 P2 目标：统一 `UserSpace`、内核高半区继承、`FrameRefs` 与去写式 COW。平台只提供页表根、激活与 TLB 维护。
+- `hk-boot` 只保留 `BootBackend`、`BootError` 与 `BootInfo` 构造契约；Limine 与 UEFI 分别作为后端，DTB 直接启动复用同一契约。
+- 依赖方向由 `cargo xtask deps` 检查：`hk-base`/`hk-hal` 不得依赖 `hk-paging` 或 `hk-platform-*`；`hk-paging` 不得依赖用户态；`hk-fw` 只能依赖基础契约与固件库。
 
 ---
 
@@ -214,5 +235,6 @@ Firmware / Bootloader → Kernel → Root Server
 - [服务器](servers.md)
 - [网络](network.md)
 - [HolyFS 文件系统](holyfs.md)
+- [ADR-0018：多架构平台分层](adr/0018-multiarch-platform.md)
 - [工程策略](engineering.md)
 - [路线图](roadmap.md)
