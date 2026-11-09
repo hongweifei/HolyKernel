@@ -12,7 +12,8 @@ pub unsafe fn call(number: u64, first: u64, second: u64, third: u64, fourth: u64
     let sender: u64;
     let extra: u64;
 
-    // SAFETY: 内核在 EFER/STAR/LSTAR 中启用了 `syscall`；出口恢复 rax/rdx/rcx/r8。
+    // SAFETY: 内核在 EFER/STAR/LSTAR 中启用了 `syscall`；出口恢复 rax/rdx/r9/r8，
+    // `syscall`/`sysretq` 使用 rcx 与 r11。
     unsafe {
         asm!(
             "syscall",
@@ -20,9 +21,11 @@ pub unsafe fn call(number: u64, first: u64, second: u64, third: u64, fourth: u64
             in("rdi") first,
             in("rsi") second,
             inlateout("rdx") third => word,
-            lateout("rcx") sender,
+            lateout("r9") sender,
             in("r10") fourth,
             lateout("r8") extra,
+            // `syscall` 本身写入 rcx（返回地址）与 r11（rflags）。
+            lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
         );

@@ -318,8 +318,6 @@ core::arch::global_asm!(
     "    ret",
     ".global hk_leave_user",
     "hk_leave_user:",
-    "    mov rsp, gs:[0]",
-    // 返回标签是固定的，直接用 RIP 相对地址，避免依赖可能被清零的 gs:[8]。
     "    lea rax, [rip + hk_user_return]",
     "    jmp rax",
 );
@@ -330,10 +328,10 @@ core::arch::global_asm!(
     // 先切到 per-CPU 内核栈，再按 `InterruptFrame` 布局压入现场。
     ".global hk_syscall_entry",
     "hk_syscall_entry:",
-    "    mov qword ptr gs:[24], rsp",
-    "    mov rsp, qword ptr gs:[16]",
+    "    mov qword ptr gs:[16], rsp",
+    "    mov rsp, qword ptr gs:[8]",
     "    push 0x2b",
-    "    push qword ptr gs:[24]",
+    "    push qword ptr gs:[16]",
     "    push r11",
     "    push 0x33",
     "    push rcx",

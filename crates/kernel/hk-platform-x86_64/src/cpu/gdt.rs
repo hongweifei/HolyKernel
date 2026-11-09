@@ -103,11 +103,15 @@ unsafe impl Sync for CpuState {}
 
 static CPUS: [CpuState; MAX_CPUS] = [const { CpuState::new() }; MAX_CPUS];
 
+/// per-CPU 用户态返回槽；`gs` 基址指向本结构。
 #[repr(C)]
 struct UserReturn {
+    /// 进入用户态前保存的内核栈指针。
     kernel_rsp: u64,
-    kernel_rip: u64,
+    /// 系统调用入口切换到内核栈时使用的栈顶。
     syscall_rsp: u64,
+    /// 系统调用入口保存的用户栈指针。
+    user_rsp: u64,
 }
 
 struct UserReturnCell(UnsafeCell<UserReturn>);
@@ -118,10 +122,17 @@ unsafe impl Sync for UserReturnCell {}
 static USER_RETURNS: [UserReturnCell; MAX_CPUS] = [const {
     UserReturnCell(UnsafeCell::new(UserReturn {
         kernel_rsp: 0,
-        kernel_rip: 0,
         syscall_rsp: 0,
+        user_rsp: 0,
     }))
 }; MAX_CPUS];
+
+// 汇编按固定偏移访问该结构，偏移变化必须同步修改 `cpu/assembly.rs`。
+const _: () = {
+    assert!(core::mem::offset_of!(UserReturn, kernel_rsp) == 0);
+    assert!(core::mem::offset_of!(UserReturn, syscall_rsp) == 8);
+    assert!(core::mem::offset_of!(UserReturn, user_rsp) == 16);
+};
 
 pub(super) fn init_gdt(cpu: usize) {
     configure_tss(cpu);
@@ -138,7 +149,7 @@ fn configure_tss(cpu: usize) {
         let tss = &mut *state.tss.get();
         tss.rsp0 = syscall_stack_top(cpu);
         tss.ist[DOUBLE_FAULT_IST as usize - 1] = double_fault_stack_top(cpu);
-        // `syscall` 入口通过 gs:[16] 取得内核栈顶。
+        // `syscall` 入口通过 gs:[8] 取得内核栈顶。
         (*USER_RETURNS[cpu].0.get()).syscall_rsp = tss.rsp0;
 
         let gdt = &mut *state.gdt.get();

@@ -302,8 +302,9 @@ impl hk_hal::SyscallFrame for InterruptFrame {
         self.rdx = value;
     }
 
+    /// 发送者编号放在 `r9`：`sysretq` 必须用 `rcx` 承载返回地址。
     fn set_sender(&mut self, value: u64) {
-        self.rcx = value;
+        self.r9 = value;
     }
 
     fn set_handle(&mut self, value: u64) {
