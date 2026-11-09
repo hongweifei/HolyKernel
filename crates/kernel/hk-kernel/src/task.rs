@@ -204,6 +204,11 @@ impl Task {
         slice_for(self.cadence.lock().weight()).ticks()
     }
 
+    /// 返回契约的延迟目标（契约 tick）。
+    pub fn latency_ticks(&self) -> u64 {
+        self.cadence.lock().latency().ticks()
+    }
+
     /// 返回只读计量快照。
     pub fn metrics(&self) -> TaskMetrics {
         let cadence = self.cadence();
@@ -253,6 +258,11 @@ impl Task {
     /// 计算队列键：实时类按绝对截止期，低延迟类按虚拟截止期，吞吐类按虚拟进度。
     pub fn queue_key(&self) -> u64 {
         let cadence = self.cadence.lock();
+        self.queue_key_locked(&cadence)
+    }
+
+    /// 在已持有契约锁时计算队列键。
+    fn queue_key_locked(&self, cadence: &Cadence) -> u64 {
         let meter = self.meter.lock();
         match cadence.class() {
             CadenceClass::Realtime => {
@@ -378,26 +388,36 @@ impl Task {
 
     /// 记入一次调度：等待时间、切换次数与超限；返回（等待, 是否超限）。
     pub fn dispatch(&mut self, now: u64) -> (u64, bool) {
+        let (class, key, latency) = {
+            let cadence = self.cadence.lock();
+            (
+                cadence.class(),
+                self.queue_key_locked(&cadence),
+                cadence.latency().ticks(),
+            )
+        };
+        self.dispatch_with(now, class, key, latency)
+    }
+
+    /// 按有效契约记入一次调度。
+    ///
+    /// `class`、`key` 与 `latency` 由调用方提供，可以是服务端自身契约，也可以是
+    /// 借贷中更强的调用方契约；超限按有效契约的绝对截止期或延迟目标判定。
+    pub fn dispatch_with(
+        &mut self,
+        now: u64,
+        class: CadenceClass,
+        key: u64,
+        latency: u64,
+    ) -> (u64, bool) {
         let waited = self
             .queued_at
             .take()
             .map_or(0, |queued| now.saturating_sub(queued));
         self.meter.lock().wait(Duration::from_ticks(waited));
         self.meter.lock().switch();
-        let (class, deadline, period, latency) = {
-            let cadence = self.cadence.lock();
-            (
-                cadence.class(),
-                cadence.deadline().ticks(),
-                cadence.period().ticks(),
-                cadence.latency().ticks(),
-            )
-        };
         let overrun = match class {
-            CadenceClass::Realtime => {
-                let limit = if deadline == 0 { period } else { deadline };
-                limit > 0 && now > self.period_start.saturating_add(limit)
-            }
+            CadenceClass::Realtime => key > 0 && now > key,
             CadenceClass::Latency => latency > 0 && waited > latency,
             CadenceClass::Throughput | CadenceClass::Idle => false,
         };
@@ -494,6 +514,26 @@ mod tests {
         assert!(task.replenish(16_000));
         assert_eq!(task.state(), TaskState::Eligible);
         assert_eq!(task.budget_left(), 3_000);
+    }
+
+    #[test]
+    fn dispatch_with_effective_contract_detects_overrun() {
+        let mut realtime = task(CadenceSpec::new(CadenceClass::Latency, 1024));
+        realtime.dispatch_with(9_000, CadenceClass::Realtime, 8_000, 0);
+        assert_eq!(
+            realtime.meter().lock().overruns(),
+            1,
+            "借用实时契约后应按有效截止期计超限"
+        );
+
+        let mut latency = task(CadenceSpec::new(CadenceClass::Throughput, 1024));
+        latency.mark_queued(0);
+        latency.dispatch_with(2_000, CadenceClass::Latency, 0, 1_000);
+        assert_eq!(
+            latency.meter().lock().overruns(),
+            1,
+            "借用低延迟契约后应按有效延迟目标计超限"
+        );
     }
 
     #[test]

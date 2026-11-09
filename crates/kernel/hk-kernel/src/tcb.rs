@@ -126,6 +126,8 @@ pub struct LendingFrame {
     pub key: u64,
     /// 调用方时间片（契约 tick）。
     pub slice: u64,
+    /// 调用方延迟目标（契约 tick）；用于有效契约的超限计量。
+    pub latency: u64,
 }
 
 /// 线程控制块。

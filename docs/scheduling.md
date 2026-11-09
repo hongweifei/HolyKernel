@@ -208,7 +208,7 @@ stateDiagram-v2
 
 `call` 进入服务端时，内核建立 lending frame：
 
-1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约：依次比较调度类别、队列键、时间片，类别更小、键更小者更强；两项都相同时取较短时间片。
+1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约：依次比较调度类别、队列键，类别更小、键更小者更强；两者都相同时取较短时间片与较小延迟目标。有效契约同时决定入队类别/键、Grant 时间片，以及 dispatch 时的超限判定（Realtime 用绝对截止期，Latency 用延迟目标），因此调用方的截止期保障在服务端执行期间同样可观测。
 2. 服务端执行时间记入调用方 Meter，并计入调用方 Cadence 预算。
 3. 服务端自身预算持续生效；调用方预算耗尽时，服务端继续完成当前调用，调用方进入 `Throttled`。
 4. `reply`、超时、调用方退出或服务端退出时弹出 lending frame，恢复服务端原契约；超时调用的迟到 `reply` 按 tombstone 丢弃，不再与服务端错误混淆。
@@ -310,7 +310,7 @@ Meter 字段：
 | `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护 EDF 密度账本（`budget/deadline`）并拒绝超限申请，恢复路径复用同一门禁；恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 读取当前契约并重新准入。完整响应时间分析仍以密度判据为保守近似 |
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本按 `weight × (heat + MIGRATION_BASE_COST)` 记入 `Meter.migration_cost`，尚无真实缓存拓扑模型 |
-| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；有效契约按类别→队列键→时间片取更强的一方（并列取较短时间片），同类别下也取更强键；重调度判定使用运行中 TCB 的有效契约 |
+| Lending | 已实现 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片与超限判定；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
 | Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，父契约缺失时提升为独立契约；仅 Realtime 契约经 Tempo 密度准入（失败或缺 Tempo 时回退默认 Throughput），其他类别保持原契约不回退；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；恢复后仍由 Checkpoint/Shell 通过 `TEMPO_READMIT` 复核 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |

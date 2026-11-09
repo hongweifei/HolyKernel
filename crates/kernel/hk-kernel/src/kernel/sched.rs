@@ -9,21 +9,27 @@ use super::*;
 
 /// 取服务端契约与调用方借贷 frame 中更强的一个。
 ///
-/// 比较顺序为调度类别、队列键、时间片：类别更小、键更小者更强；两类键完全
-/// 相同时取较短时间片，保证抢占响应性。返回 `(类别, 键, 时间片)`。
+/// 比较顺序为调度类别、队列键：类别更小、键更小者更强；两者都相同时取较短
+/// 时间片与较小延迟目标，保证抢占与超限响应性。返回 `(类别, 键, 时间片, 延迟)`。
 fn lending_contract(
     server_class: CadenceClass,
     server_key: u64,
     server_slice: u64,
+    server_latency: u64,
     frame: Option<crate::tcb::LendingFrame>,
-) -> (CadenceClass, u64, u64) {
+) -> (CadenceClass, u64, u64, u64) {
     let Some(frame) = frame else {
-        return (server_class, server_key, server_slice);
+        return (server_class, server_key, server_slice, server_latency);
     };
     match (frame.class.as_u8(), frame.key).cmp(&(server_class.as_u8(), server_key)) {
-        CmpOrdering::Less => (frame.class, frame.key, frame.slice),
-        CmpOrdering::Greater => (server_class, server_key, server_slice),
-        CmpOrdering::Equal => (server_class, server_key, frame.slice.min(server_slice)),
+        CmpOrdering::Less => (frame.class, frame.key, frame.slice, frame.latency),
+        CmpOrdering::Greater => (server_class, server_key, server_slice, server_latency),
+        CmpOrdering::Equal => (
+            server_class,
+            server_key,
+            frame.slice.min(server_slice),
+            frame.latency.min(server_latency),
+        ),
     }
 }
 
@@ -262,7 +268,11 @@ impl Kernel {
                 .pick_with(cpu, |thread| self.thread_cpu_allowed(thread, cpu))?;
             let task_id = self.threads.lock().get(&next).map(Tcb::task)?;
             let idle = self.is_idle(next);
-            let slice = self.slice_for_thread(next);
+            let lending = self
+                .threads
+                .lock()
+                .get(&next)
+                .and_then(Tcb::strongest_lending);
             let mut throttled = false;
             let mut overrun = false;
             let mut migrated = false;
@@ -278,14 +288,21 @@ impl Kernel {
                 {
                     false
                 } else {
+                    let (class, key, slice, latency) = lending_contract(
+                        task.class(),
+                        task.queue_key(),
+                        task.slice_ticks(),
+                        task.latency_ticks(),
+                        lending,
+                    );
                     if !idle {
-                        let (_, late) = task.dispatch(now);
+                        let (_, late) = task.dispatch_with(now, class, key, latency);
                         overrun = late;
                         migrated = task.record_cpu(cpu);
                     }
                     task.set_active(Some(next));
                     task.set_state(TaskState::Running);
-                    task.set_grant_end(now.saturating_add(slice.unwrap_or(0)));
+                    task.set_grant_end(now.saturating_add(slice));
                     true
                 }
             });
@@ -529,36 +546,38 @@ impl Kernel {
         }
     }
 
-    /// 返回 TCB 的有效入队类别与键；借贷 frame 更强时使用调用方的值。
-    pub(crate) fn queue_entry(&self, thread: TcbId) -> Option<(CadenceClass, u64)> {
+    /// 返回 TCB 的有效契约 `(类别, 键, 时间片, 延迟)`。
+    ///
+    /// 借贷 frame 更强时整体采用调用方的值；两者同级时取较短时间片与较小延迟。
+    fn effective_contract(&self, thread: TcbId) -> Option<(CadenceClass, u64, u64, u64)> {
         let lending = self
             .threads
             .lock()
             .get(&thread)
             .and_then(Tcb::strongest_lending);
         let task = self.task(self.task_of(thread)?)?;
-        let (class, key, slice) = {
+        let (class, key, slice, latency) = {
             let task = task.lock();
-            (task.class(), task.queue_key(), task.slice_ticks())
+            (
+                task.class(),
+                task.queue_key(),
+                task.slice_ticks(),
+                task.latency_ticks(),
+            )
         };
-        let (class, key, _) = lending_contract(class, key, slice, lending);
-        Some((class, key))
+        Some(lending_contract(class, key, slice, latency, lending))
     }
 
-    /// 返回 TCB 的有效 Grant 时间片；借贷时取更强契约的时间片。
+    /// 返回 TCB 的有效入队类别与键。
+    pub(crate) fn queue_entry(&self, thread: TcbId) -> Option<(CadenceClass, u64)> {
+        self.effective_contract(thread)
+            .map(|(class, key, _, _)| (class, key))
+    }
+
+    /// 返回 TCB 的有效 Grant 时间片；借贷时取更强契约的时间片。测试辅助。
+    #[cfg(test)]
     pub(crate) fn slice_for_thread(&self, thread: TcbId) -> Option<u64> {
-        let lending = self
-            .threads
-            .lock()
-            .get(&thread)
-            .and_then(Tcb::strongest_lending);
-        let task = self.task(self.task_of(thread)?)?;
-        let (class, key, slice) = {
-            let task = task.lock();
-            (task.class(), task.queue_key(), task.slice_ticks())
-        };
-        let (_, _, slice) = lending_contract(class, key, slice, lending);
-        Some(slice)
+        self.effective_contract(thread).map(|(_, _, slice, _)| slice)
     }
 
     /// 返回 `cpu` 下一个需要唤醒的调度时刻：全局预算补充或本地 Grant 结束。
@@ -802,5 +821,59 @@ impl Kernel {
                 self.enqueue_next_thread(task_id, None);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::TaskId;
+    use crate::tcb::LendingFrame;
+
+    fn frame(class: CadenceClass, key: u64, slice: u64, latency: u64) -> LendingFrame {
+        LendingFrame {
+            caller: TaskId::new(1),
+            sequence: 1,
+            class,
+            key,
+            slice,
+            latency,
+        }
+    }
+
+    #[test]
+    fn uses_caller_contract_when_class_is_stronger() {
+        let frame = frame(CadenceClass::Realtime, 8_000, 2_000, 1_000);
+        assert_eq!(
+            lending_contract(CadenceClass::Latency, 4_000, 8_000, 4_000, Some(frame)),
+            (CadenceClass::Realtime, 8_000, 2_000, 1_000)
+        );
+    }
+
+    #[test]
+    fn uses_caller_key_within_same_class() {
+        let frame = frame(CadenceClass::Latency, 1_000, 1_000, 500);
+        assert_eq!(
+            lending_contract(CadenceClass::Latency, 4_000, 8_000, 4_000, Some(frame)),
+            (CadenceClass::Latency, 1_000, 1_000, 500)
+        );
+    }
+
+    #[test]
+    fn keeps_server_when_it_is_stronger() {
+        let frame = frame(CadenceClass::Throughput, 0, 8_000, 0);
+        assert_eq!(
+            lending_contract(CadenceClass::Realtime, 0, 2_000, 1_000, Some(frame)),
+            (CadenceClass::Realtime, 0, 2_000, 1_000)
+        );
+    }
+
+    #[test]
+    fn ties_take_shorter_slice_and_tighter_latency() {
+        let frame = frame(CadenceClass::Latency, 5_000, 1_000, 500);
+        assert_eq!(
+            lending_contract(CadenceClass::Latency, 5_000, 2_000, 2_000, Some(frame)),
+            (CadenceClass::Latency, 5_000, 1_000, 500)
+        );
     }
 }

@@ -1428,7 +1428,11 @@ fn lends_caller_contract_to_server_and_restores() {
     );
 }
 
-fn lending_server(kernel: &Kernel, caller_spec: CadenceSpec, server_spec: CadenceSpec) -> TcbId {
+fn lending_pair(
+    kernel: &Kernel,
+    caller_spec: CadenceSpec,
+    server_spec: CadenceSpec,
+) -> (TcbId, TcbId) {
     let caller = kernel
         .spawn_task(HandleTable::new(8), caller_spec)
         .expect("调用方");
@@ -1450,7 +1454,36 @@ fn lending_server(kernel: &Kernel, caller_spec: CadenceSpec, server_spec: Cadenc
         .expect("接收")
         .expect("收到调用");
     assert!(received.reply.is_some(), "调用应携带回复令牌");
-    server
+    (caller, server)
+}
+
+fn lending_server(kernel: &Kernel, caller_spec: CadenceSpec, server_spec: CadenceSpec) -> TcbId {
+    lending_pair(kernel, caller_spec, server_spec).1
+}
+
+#[test]
+fn lending_throttles_caller_while_server_continues() {
+    let kernel = kernel();
+    let caller_spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+        .with_budget(millis(1), millis(16))
+        .with_deadline(millis(8));
+    let (caller, server_tcb) = lending_pair(&kernel, caller_spec, DEFAULT_SPEC);
+
+    // 调用方预算 1 ms：服务端执行 1 ms 后调用方 Throttled，服务端仍继续记账。
+    kernel.charge(server_tcb, 1_000);
+    assert_eq!(
+        kernel
+            .task_meter_snapshot(caller)
+            .expect("调用方计量")
+            .throttled,
+        1,
+        "调用方预算耗尽应进入 Throttled"
+    );
+    assert_eq!(
+        kernel.task_metrics(server_tcb).expect("服务端计量").consumed,
+        1_000,
+        "服务端自身计量继续累计"
+    );
 }
 
 #[test]

@@ -16,12 +16,13 @@ impl Kernel {
         let Some(caller_task) = self.task(caller_task_id) else {
             return;
         };
-        let (class, key, slice, caller_limit) = {
+        let (class, key, slice, latency, caller_limit) = {
             let caller_task = caller_task.lock();
             (
                 caller_task.class(),
                 caller_task.queue_key(),
                 caller_task.slice_ticks(),
+                caller_task.latency_ticks(),
                 caller_task.lending_limit(),
             )
         };
@@ -39,6 +40,7 @@ impl Kernel {
             class,
             key,
             slice,
+            latency,
         };
         let pushed = self
             .threads
