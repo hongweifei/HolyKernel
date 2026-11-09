@@ -404,6 +404,43 @@ fn send_delivers_to_waiting_receiver() {
 }
 
 #[test]
+fn cancel_recv_distinguishes_idle_timeout_from_claimed_delivery() {
+    let kernel = kernel();
+    let sender = thread(&kernel);
+    let receiver = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(sender, Rights::READ | Rights::WRITE)
+        .expect("创建端点");
+    let endpoint_id = kernel.handle_id(sender, endpoint).expect("端点标识");
+    let receiver_endpoint = kernel
+        .grant(receiver, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予接收方句柄");
+
+    assert!(kernel.recv(receiver, receiver_endpoint).expect("接收").is_none());
+    assert!(
+        kernel.cancel_recv(receiver, receiver_endpoint).expect("取消空等待"),
+        "没有发送方时取消应报告已移除等待者"
+    );
+
+    assert!(kernel.recv(receiver, receiver_endpoint).expect("接收").is_none());
+    kernel
+        .send(sender, endpoint, Message::new(11))
+        .expect("发送");
+    assert!(
+        !kernel
+            .cancel_recv(receiver, receiver_endpoint)
+            .expect("发送方已认领"),
+        "发送方认领后取消不应报告移除了等待者"
+    );
+    let received = kernel
+        .recv(receiver, receiver_endpoint)
+        .expect("接收")
+        .expect("消息不应丢失");
+    assert_eq!(received.message.label, 11);
+}
+
+#[test]
 fn try_recv_does_not_block_receiver() {
     let kernel = kernel();
     let owner = thread(&kernel);
@@ -1084,6 +1121,47 @@ fn grants_cadence_and_meter_handles() {
     );
     let spec = kernel.cadence_spec(task).expect("契约快照");
     assert_eq!(spec.class, CadenceClass::Latency);
+}
+
+#[test]
+fn update_cadence_rejects_escalation_without_policy_authority() {
+    let kernel = kernel();
+    let parent = thread(&kernel);
+    let parent_task = kernel.task_of(parent).expect("父任务");
+    let child = kernel
+        .spawn_task_child_parked(HandleTable::with_default_quota(), parent_task)
+        .expect("子任务");
+    let child_task = kernel.task_of(child).expect("子任务编号");
+    let cadence = kernel
+        .grant_cadence(
+            child,
+            child_task,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("授予 Cadence");
+
+    let mut escalate_class = kernel.cadence_spec(child_task).expect("契约");
+    escalate_class.class = CadenceClass::Realtime;
+    assert_eq!(
+        kernel.update_cadence(child, cadence, escalate_class),
+        Err(crate::KernelError::CadenceDenied),
+        "非策略任务不能修改类别"
+    );
+
+    let mut escalate_weight = kernel.cadence_spec(child_task).expect("契约");
+    escalate_weight.weight = 100_000;
+    assert_eq!(
+        kernel.update_cadence(child, cadence, escalate_weight),
+        Err(crate::KernelError::CadenceDenied),
+        "非策略任务不能超过父契约权重"
+    );
+
+    let mut narrowed = kernel.cadence_spec(child_task).expect("契约");
+    narrowed.weight = 64;
+    kernel
+        .update_cadence(child, cadence, narrowed)
+        .expect("父范围内的权重调整应被允许");
+    assert_eq!(kernel.cadence_spec(child_task).expect("契约").weight, 64);
 }
 
 #[test]

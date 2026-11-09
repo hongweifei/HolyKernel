@@ -83,6 +83,7 @@ flowchart LR
 - 普通 Task 持有自身 Cadence 的 READ 与自身 Meter 的 READ。
 - WRITE 授予 Tempo 与父 Task；ADMIN 授予 Root/Tempo。
 - Task 的类别、预算与亲和性只能由 Tempo 在父契约范围内修改。
+- `SYS_CADENCE_UPDATE` 对普通 WRITE 只允许调整 weight/budget，且不得超出父契约；类别、亲和性、迁移、借贷与周期/截止期保持不变。策略 Task（Tempo）可放宽这些字段。
 
 ### 4.2 ABI
 
@@ -90,7 +91,7 @@ flowchart LR
 
 | 调用 | 语义 |
 | --- | --- |
-| `SYS_SLEEP(ticks)` | 休眠指定调度 tick，进入 Beat 的 deadline 队列 |
+| `SYS_SLEEP(ticks)` | 休眠指定调度 tick（1 tick = 10 ms，`SCHED_TICK_US`）；runtime 登记 deadline 后由 `next_wakeup` 纳入本 CPU 一次性定时器 |
 | `SYS_YIELD` | 当前 TCB 让出剩余 Grant；Task 保持 `Eligible` |
 | `SYS_CADENCE_INFO(handle, out)` | 查询契约 |
 | `SYS_CADENCE_UPDATE(handle, params)` | 在父范围内修改契约 |
@@ -181,7 +182,7 @@ stateDiagram-v2
 - 当前 Grant：`task`、`tcb`、`grant_end`、`budget_left`。
 - 一次性定时器：编程到 `grant_end`、下一个虚拟截止期、下一个周期补充、下一个 sleep/IPC 超时的最早者。
 - 全局时间源：平台单调时钟；Hosted 平台使用虚拟时钟。
-- 全局 deadline 队列承载 sleep、IPC 超时与周期补充；Beat 将本地一次性定时器指向该 CPU 的最近事件。
+- 周期补充由内核 `refills` 表承载；sleep 与接收/调用超时由 runtime 的 `sleeping`/`timeouts` 表承载。`Runtime::next_wakeup` 合并三者与本地 Grant 结束，Beat 将本地一次性定时器指向该 CPU 的最近事件。
 - idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。
 
 ### 5.8 亲和性与负载均衡
@@ -195,7 +196,8 @@ stateDiagram-v2
 ### 5.9 阻塞、sleep 与超时
 
 - Endpoint、Notification、futex、sleep、IPC 超时统一表达为 Task 的 `Blocked` 状态与唤醒条件。
-- sleep、带超时接收与带超时调用进入全局 deadline 队列；到期由 Beat 唤醒对应 Task，超时调用取消挂起调用记录。
+- sleep、带超时接收与带超时调用登记到 runtime deadline 表；到期由 Beat 唤醒对应 Task。超时调用通过 `Kernel::cancel_call` 取消挂起调用、记录 tombstone 并弹出 lending frame；完成或退出时清除对应 deadline 条目。
+- 接收超时在取消等待者前原子判定发送方是否已认领该接收（`cancel_recv` 返回 `false`）：已认领或消息已入待取队列时按正常交付处理，不误判超时。
 - Endpoint 等待队列按 Cadence 类别与虚拟键值排序；同一类别内保持 FIFO。
 - 取消、退出与撤销会清理等待队列与 lending frame。
 
@@ -300,22 +302,22 @@ Meter 字段：
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
 | `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
-| `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun trace 已记账；refill、sleep、接收与调用超时进入全局 deadline 队列 |
-| `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时、Realtime EDF 密度准入与 checkpoint→Tempo 重准入已接入 |
+| `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载 |
+| `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 密度准入与 checkpoint→Tempo 重准入已接入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |
 | `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护 EDF 密度账本（`budget/deadline`）并拒绝超限申请，恢复路径复用同一门禁；恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 读取当前契约并重新准入。完整响应时间分析仍以密度判据为保守近似 |
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
-| 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本仍只按次数记录，没有独立成本模型 |
-| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；同类别下仍未取调用方更强的队列键 |
+| 亲和与迁移 | 部分 | 每 CPU Beat、亲和性过滤、加权选核、空闲窃取、迁移计数与缓存热度偏置已落地；迁移成本按 `热度 × 权重` 记入 `Meter.migration_cost`，尚无独立缓存成本模型 |
+| Lending | 部分 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃已落地；同类别下取调用方与服务端中更强的队列键；时间片仍取两者较短值 |
 | Checkpoint | 部分 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，内核先按 Tempo 池范围校验，恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 重新准入，`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | `hk-sim` | 部分 | 虚拟时钟、量子计费与确定性重放已覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充；lending、迁移与唤醒抢占回放待补 |
 
 实现约定：
 
-- Cadence 的预算、周期、截止期与延迟目标使用固定 1 MHz 契约时基（1 tick = 1 µs），与平台硬件 tick 频率无关。
-- Beat 的队列键：实时类为绝对截止期，低延迟类为虚拟截止期，吞吐类为虚拟进度；同键按入队顺序轮转。
+- Cadence 的预算、周期、截止期与延迟目标使用固定 1 MHz 契约时基（1 tick = 1 µs），与平台硬件 tick 频率无关；`SYS_SLEEP` 参数以 10 ms 调度 tick 为单位（`SCHED_TICK_US`），两者在 ABI 边界显式区分。
+- Beat 的队列键：实时类为绝对截止期，低延迟类为虚拟截止期，吞吐类为虚拟进度；同键按入队顺序轮转。Realtime 采用 EDF + 周期预算补充（CBS 近似），周期边界按整周期推进以避免漂移。
 - 一个 Task 的多个 TCB 共享同一份 Cadence/Meter；计量与预算记在 Task 上。
 - 每次调度决策后扫描当前 Grant、预算补充与 sleep 期限，取最早者编程一次性唤醒；周期 tick 只负责 watchdog 与统计，不承担 deadline 精度。
 

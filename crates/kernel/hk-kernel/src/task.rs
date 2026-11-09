@@ -405,11 +405,15 @@ impl Task {
         if period == 0 {
             return false;
         }
-        let refill = self.period_start.saturating_add(period);
+        let mut refill = self.period_start.saturating_add(period);
         if now < refill {
             return false;
         }
-        self.period_start = now;
+        // 按整周期推进边界，避免周期漂移：多个周期同时到期时只补一次预算。
+        while now >= refill.saturating_add(period) {
+            refill = refill.saturating_add(period);
+        }
+        self.period_start = refill;
         self.budget_left = self.cadence.lock().budget().ticks();
         if self.state == TaskState::Throttled {
             self.state = TaskState::Eligible;
@@ -482,6 +486,29 @@ mod tests {
         assert!(task.replenish(16_000));
         assert_eq!(task.state(), TaskState::Eligible);
         assert_eq!(task.budget_left(), 3_000);
+    }
+
+    #[test]
+    fn refills_on_fixed_period_boundaries() {
+        let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+            .with_budget(millis(2), millis(10))
+            .with_deadline(millis(10));
+        let mut task = task(spec);
+        task.charge(2_000);
+        assert!(task.budget_exhausted());
+        task.throttle();
+        assert_eq!(task.refill_at(), Some(10_000));
+
+        assert!(task.replenish(10_000));
+        task.charge(2_000);
+        task.throttle();
+        assert_eq!(task.refill_at(), Some(20_000));
+
+        // 超过一个周期才补充时，边界仍落在整周期上，不随 now 漂移。
+        assert!(task.replenish(25_000));
+        task.charge(2_000);
+        task.throttle();
+        assert_eq!(task.refill_at(), Some(30_000));
     }
 
     #[test]

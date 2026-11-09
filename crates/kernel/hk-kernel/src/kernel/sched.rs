@@ -202,7 +202,9 @@ impl Kernel {
                 }
             };
             if let Some(task_id) = task_id {
-                self.record(current.get(), Category::Sched, TRACE_PREEMPT, 0);
+                if !self.is_idle(current) {
+                    self.record(current.get(), Category::Sched, TRACE_PREEMPT, 0);
+                }
                 let (eligible, throttled) = self.task(task_id).map_or((false, false), |task| {
                     let mut task = task.lock();
                     task.replenish(now);
@@ -237,6 +239,7 @@ impl Kernel {
                 .lock()
                 .pick_with(cpu, |thread| self.thread_cpu_allowed(thread, cpu))?;
             let task_id = self.threads.lock().get(&next).map(Tcb::task)?;
+            let idle = self.is_idle(next);
             let slice = self.slice_for_thread(next);
             let mut throttled = false;
             let mut overrun = false;
@@ -253,9 +256,11 @@ impl Kernel {
                 {
                     false
                 } else {
-                    let (_, late) = task.dispatch(now);
-                    overrun = late;
-                    migrated = task.record_cpu(cpu);
+                    if !idle {
+                        let (_, late) = task.dispatch(now);
+                        overrun = late;
+                        migrated = task.record_cpu(cpu);
+                    }
                     task.set_active(Some(next));
                     task.set_state(TaskState::Running);
                     task.set_grant_end(now.saturating_add(slice.unwrap_or(0)));
@@ -269,16 +274,20 @@ impl Kernel {
                         task.lock().clear_queued();
                     }
                     self.schedule_refill(task_id);
-                    self.record(next.get(), Category::Sched, TRACE_THROTTLE, 0);
+                    if !idle {
+                        self.record(next.get(), Category::Sched, TRACE_THROTTLE, 0);
+                    }
                 }
                 continue;
             }
-            self.record(next.get(), Category::Sched, TRACE_DEQUEUE, 0);
-            if overrun {
-                self.record(next.get(), Category::Sched, TRACE_OVERRUN, 0);
-            }
-            if migrated {
-                self.record(next.get(), Category::Sched, TRACE_MIGRATE, cpu as u64);
+            if !idle {
+                self.record(next.get(), Category::Sched, TRACE_DEQUEUE, 0);
+                if overrun {
+                    self.record(next.get(), Category::Sched, TRACE_OVERRUN, 0);
+                }
+                if migrated {
+                    self.record(next.get(), Category::Sched, TRACE_MIGRATE, cpu as u64);
+                }
             }
             {
                 let mut threads = self.threads.lock();
@@ -287,7 +296,9 @@ impl Kernel {
                 };
                 tcb.set_state(ThreadState::Running);
             }
-            self.record(next.get(), Category::Sched, TRACE_DISPATCH, 0);
+            if !idle {
+                self.record(next.get(), Category::Sched, TRACE_DISPATCH, 0);
+            }
             return Some(next);
         }
     }
@@ -513,6 +524,7 @@ impl Kernel {
         };
         match lending {
             Some(frame) if frame.class < class => Some((frame.class, frame.key)),
+            Some(frame) if frame.class == class => Some((class, key.min(frame.key))),
             _ => Some((class, key)),
         }
     }

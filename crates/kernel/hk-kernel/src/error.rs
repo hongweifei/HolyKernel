@@ -39,6 +39,8 @@ pub enum KernelError {
     Hmp(HmpError),
     /// Cadence 契约无效。
     Cadence(CadenceError),
+    /// Cadence 更新超出父契约或被禁止修改的字段。
+    CadenceDenied,
 }
 
 impl fmt::Display for KernelError {
@@ -58,6 +60,7 @@ impl fmt::Display for KernelError {
             Self::ScanoutActive => formatter.write_str("能力正在 scanout，不能解除固定"),
             Self::Hmp(error) => write!(formatter, "HMP 错误：{error}"),
             Self::Cadence(error) => write!(formatter, "调度契约错误：{error}"),
+            Self::CadenceDenied => formatter.write_str("Cadence 更新超出父契约或被禁止"),
         }
     }
 }

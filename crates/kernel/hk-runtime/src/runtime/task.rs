@@ -659,6 +659,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return None;
         }
 
+        self.remove_sleep(index);
         let exited_tcb = self.tasks[index].tcb;
         self.wake_joiners(exited_tcb);
         if self.tasks[index].leader != index {
@@ -755,6 +756,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
+        self.remove_sleep(index);
         self.wake_joiners(tcb);
         if self.tasks[index].leader == index {
             self.exit_threads(index);
@@ -778,6 +780,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
         self.current[cpu] = None;
+        self.remove_sleep(index);
         self.wake_joiners(tcb);
         if self.tasks[index].leader == index {
             self.exit_threads(index);
@@ -859,12 +862,33 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         deadline: Some(at),
                         ..
                     } if at <= now => {
-                        let _ = self.kernel.cancel_recv(tcb, handle);
-                        self.tasks[index].context.set_result(u64::MAX);
-                        self.tasks[index].pending = Pending::None;
+                        // `Ok(false)` 表示发送方已认领该接收等待（消息正在交付），
+                        // 或消息已进入待取队列：不按超时处理，交给 prepare 消费。
+                        match self.kernel.cancel_recv(tcb, handle) {
+                            Ok(true) | Err(_) => {
+                                self.tasks[index].context.set_result(u64::MAX);
+                                self.tasks[index].pending = Pending::None;
+                            }
+                            Ok(false) => {}
+                        }
                         self.kernel.wake_thread(tcb);
                     }
                     Pending::RecvData {
+                        deadline: Some(at), ..
+                    } => {
+                        self.timeouts.entry(at).or_default().push(index);
+                    }
+                    Pending::Call {
+                        deadline: Some(at), ..
+                    } if at <= now => {
+                        // 回复已到达时不要丢弃：交给 prepare 取回结果。
+                        if self.kernel.cancel_call(tcb) {
+                            self.tasks[index].context.set_result(u64::MAX);
+                            self.tasks[index].pending = Pending::None;
+                        }
+                        self.kernel.wake_thread(tcb);
+                    }
+                    Pending::Call {
                         deadline: Some(at), ..
                     } => {
                         self.timeouts.entry(at).or_default().push(index);
@@ -1009,9 +1033,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 self.deliver_data(index, &mut frame, &received, buffer, capacity);
                         }
                         self.tasks[index].context = frame;
+                        self.remove_sleep(index);
                     }
                     Ok(None) => {
                         if deadline.is_some_and(|at| self.contract_now() >= at) {
+                            // 超时兜底：撤销本次登记，避免悬挂接收者。
+                            let _ = self.kernel.cancel_recv(tcb, handle);
                             self.tasks[index].context.set_result(u64::MAX);
                         } else {
                             blocked_again = true;
@@ -1045,6 +1072,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         context.set_result(message.label);
                         context.set_word(message.words[0]);
                         context.set_sender(endpoint);
+                        self.remove_sleep(index);
                     }
                     None => blocked_again = true,
                 }

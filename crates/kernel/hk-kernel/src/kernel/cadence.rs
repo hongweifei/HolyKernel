@@ -95,7 +95,7 @@ impl Kernel {
         let rights = if policy {
             Rights::READ | Rights::WRITE | Rights::ADMIN
         } else {
-            Rights::READ | Rights::WRITE
+            Rights::READ
         };
         self.register(
             thread,
@@ -135,6 +135,9 @@ impl Kernel {
     }
 
     /// 在父契约范围内更新 Cadence。
+    ///
+    /// 普通 Task 的 WRITE 只允许在父契约范围内调整权重与预算；类别、亲和性、
+    /// 迁移、借贷与周期/截止期必须保持不变。策略 Task（Tempo）可放宽这些字段。
     pub fn update_cadence(
         &self,
         thread: TcbId,
@@ -142,10 +145,61 @@ impl Kernel {
         spec: CadenceSpec,
     ) -> Result<(), KernelError> {
         let cadence = self.cadence_object(thread, handle, Rights::WRITE)?;
+        let policy = self.is_policy_authority(thread);
+        let parent_id = { cadence.lock().parent() };
+        let parent = parent_id.and_then(|id| self.cadence_by_id(id));
         let mut guard = cadence.lock();
+        let current = guard.spec();
+        if !policy
+            && (spec.class != current.class
+                || spec.affinity != current.affinity
+                || spec.migratable != current.migratable
+                || spec.lending != current.lending
+                || spec.period != current.period
+                || spec.deadline != current.deadline)
+        {
+            return Err(KernelError::CadenceDenied);
+        }
+        if let Some(parent) = &parent {
+            let parent = parent.lock();
+            if spec.weight > parent.weight().get() {
+                return Err(KernelError::CadenceDenied);
+            }
+            if parent.has_budget() {
+                let available = parent
+                    .budget()
+                    .ticks()
+                    .saturating_sub(parent.children_budget())
+                    .saturating_add(current.budget.ticks());
+                if spec.budget.ticks() > available {
+                    return Err(KernelError::CadenceDenied);
+                }
+            } else if !spec.budget.is_zero() {
+                return Err(KernelError::CadenceDenied);
+            }
+        }
+        let old_budget = current.budget.ticks();
         let replacement = Cadence::restore(guard.id(), guard.parent(), guard.epoch(), spec)?;
         *guard = replacement;
+        drop(guard);
+        if let Some(parent) = parent {
+            let mut parent = parent.lock();
+            parent.release_child_budget(old_budget);
+            parent.reserve_child_budget(spec.budget.ticks());
+        }
         Ok(())
+    }
+
+    /// 按契约标识查找持有的 Cadence；仅用于父契约范围校验。
+    fn cadence_by_id(&self, id: CadenceId) -> Option<Arc<spin::Mutex<Cadence>>> {
+        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
+        for task in tasks {
+            let cadence = task.lock().cadence();
+            if cadence.lock().id() == id {
+                return Some(cadence);
+            }
+        }
+        None
     }
 
     /// 归还子契约占用的父预算。

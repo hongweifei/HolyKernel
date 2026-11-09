@@ -43,6 +43,12 @@ pub const SYS_THREAD_SET_TLS: u64 = 0x05;
 /// 休眠指定调度 tick 数；到期后由内核唤醒。
 pub const SYS_SLEEP: u64 = 0x06;
 
+/// 一个调度 tick 对应的契约微秒数（10 ms）。
+///
+/// `SYS_SLEEP` 的参数以该 tick 为单位；Cadence 的预算、周期与截止期则使用
+/// 1 µs 契约时基，两者在 ABI 边界显式区分。
+pub const SCHED_TICK_US: u64 = 10_000;
+
 /// 查询 Cadence 契约；`handle = 0` 表示当前 Task。
 pub const SYS_CADENCE_INFO: u64 = 0x07;
 

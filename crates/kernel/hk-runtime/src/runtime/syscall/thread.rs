@@ -112,7 +112,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let wake = self
             .contract_now()
-            .saturating_add(ticks.saturating_mul(10_000));
+            .saturating_add(ticks.saturating_mul(hk_syscall::SCHED_TICK_US));
         self.tasks[index].pending = Pending::Sleep { wake };
         self.add_sleep(index, wake);
         if self.kernel.park(tcb).is_err() {

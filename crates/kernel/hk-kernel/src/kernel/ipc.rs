@@ -157,14 +157,20 @@ impl Kernel {
     }
 
     /// 取消线程在端点上的接收等待。
-    pub fn cancel_recv(&self, thread: TcbId, endpoint_handle: Handle) -> Result<(), KernelError> {
+    ///
+    /// 返回是否移除了已登记的接收者。`false` 表示等待者已被发送方认领（消息
+    /// 正在交付）或早已满足，调用方不应按超时处理，而应等待交付完成。
+    pub fn cancel_recv(
+        &self,
+        thread: TcbId,
+        endpoint_handle: Handle,
+    ) -> Result<bool, KernelError> {
         let (object, _) =
             self.resolve(thread, endpoint_handle, Rights::READ, ObjectKind::Endpoint)?;
         let endpoint = object.endpoint().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Endpoint,
         })?;
-        endpoint.cancel_receiver(Waiter::new(thread.get()));
-        Ok(())
+        Ok(endpoint.cancel_receiver(Waiter::new(thread.get())))
     }
 
     /// 取消线程在端点上的发送等待。

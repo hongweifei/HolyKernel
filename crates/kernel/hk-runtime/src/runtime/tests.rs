@@ -644,6 +644,49 @@ fn calls_and_replies() {
 }
 
 #[test]
+fn times_out_unanswered_call() {
+    let mut runtime = runtime();
+
+    let Step::Resume {
+        index: caller,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(caller, 0);
+    context.rax = SYS_CALL_TIMEOUT;
+    context.rdi = 2;
+    context.rsi = 9;
+    context.rdx = 5;
+    context.r10 = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    assert_eq!(runtime.tasks()[caller].pending, "call");
+
+    // deadline 立即到期：wake_timeouts 取消挂起调用并唤醒调用方。
+    let mut resumed = None;
+    for _ in 0..6 {
+        match runtime.step(0) {
+            Step::Resume { index, context } if index == caller => {
+                resumed = Some(context);
+                break;
+            }
+            Step::Resume { mut context, .. } => {
+                // 让服务端睡下，确保调用方获得调度。
+                context.rax = SYS_SLEEP;
+                context.rdi = 1;
+                let _ = runtime.dispatch(0, &mut context);
+            }
+            _ => break,
+        }
+    }
+
+    let context = resumed.expect("调用方应被超时唤醒");
+    assert_eq!(context.rax, u64::MAX);
+    assert_eq!(runtime.tasks()[caller].pending, "-");
+}
+
+#[test]
 fn forks_task_with_child_context() {
     let mut runtime = runtime();
     let Step::Resume {

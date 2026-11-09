@@ -352,6 +352,11 @@ impl Cadence {
         self.children_budget = self.children_budget.saturating_sub(budget);
     }
 
+    /// 预留一个子契约的预算；更新子契约预算时与 [`Self::release_child_budget`] 配对使用。
+    pub fn reserve_child_budget(&mut self, budget: u64) {
+        self.children_budget = self.children_budget.saturating_add(budget);
+    }
+
     /// 递增 epoch，使旧句柄失效；返回新 epoch。
     pub fn revoke(&mut self) -> u32 {
         self.epoch = self.epoch.wrapping_add(1);
