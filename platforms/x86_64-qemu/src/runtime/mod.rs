@@ -107,6 +107,10 @@ impl UserPlatform for X86Platform {
         self.0.temperature_celsius()
     }
 
+    fn cpu_topology(&self, cpu: u32) -> Option<hk_hal::CpuTopology> {
+        self.0.cpu_topology(hk_hal::CpuId::new(cpu))
+    }
+
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
         let Some(pci) = self.0.pci() else {
             return u32::MAX;

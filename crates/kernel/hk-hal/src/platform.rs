@@ -15,6 +15,17 @@ use crate::physical::PhysicalAccess;
 use crate::time::Timer;
 use hk_device::PciConfig;
 
+/// 逻辑 CPU 的固件拓扑。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CpuTopology {
+    /// ACPI 处理器 UID。
+    pub acpi_id: u32,
+    /// PPTT 物理封装编号；未知时为 0。
+    pub package_id: u32,
+    /// SRAT 邻近域；未知时为 0。
+    pub proximity: u32,
+}
+
 /// 平台初始化错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlatformError {
@@ -107,6 +118,11 @@ pub trait Platform: Send + Sync {
 
     /// 返回当前 CPU 温度（摄氏度）；平台不支持时返回 `None`。
     fn temperature_celsius(&self) -> Option<u8> {
+        None
+    }
+
+    /// 返回逻辑 CPU 的 ACPI/SRAT/PPTT 拓扑；平台不支持时返回 `None`。
+    fn cpu_topology(&self, _cpu: CpuId) -> Option<CpuTopology> {
         None
     }
 }

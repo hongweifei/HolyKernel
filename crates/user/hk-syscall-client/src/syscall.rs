@@ -38,6 +38,28 @@ pub fn thermal_celsius() -> Option<u8> {
     (value != u64::MAX).then_some(value as u8)
 }
 
+/// 读取逻辑 CPU 的 `(ACPI UID, package, proximity)` 拓扑。
+pub fn cpu_topology(cpu: u32) -> Option<(u32, u32, u32)> {
+    let mut bytes = [0_u8; 12];
+    // SAFETY: 内核校验 CPU 编号并把 12 字节拓扑写入本进程缓冲。
+    let result = unsafe {
+        syscall_call(
+            SYS_CPU_TOPOLOGY,
+            u64::from(cpu),
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+    };
+    if result.value != 12 {
+        return None;
+    }
+    let acpi_id = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
+    let package = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
+    let proximity = u32::from_le_bytes(bytes[8..12].try_into().ok()?);
+    Some((acpi_id, package, proximity))
+}
+
 /// 把文本写入内核控制台。
 pub fn write(bytes: &[u8]) {
     // SAFETY: 指针与长度来自本进程的只读数据。

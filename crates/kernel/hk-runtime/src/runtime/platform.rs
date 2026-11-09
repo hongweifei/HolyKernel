@@ -33,6 +33,11 @@ pub trait UserPlatform {
     fn temperature_celsius(&self) -> Option<u8> {
         None
     }
+
+    /// 返回逻辑 CPU 的固件拓扑。
+    fn cpu_topology(&self, _cpu: u32) -> Option<hk_hal::CpuTopology> {
+        None
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。

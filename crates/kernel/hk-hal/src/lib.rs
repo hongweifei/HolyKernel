@@ -42,7 +42,7 @@ pub use iommu::{IdentityIommu, Iommu, IommuDomain, IommuError, IommuFlags, Iova,
 pub use irq::{InterruptController, Ipi, Irq, IrqBitmap, IrqError, NotificationId};
 pub use mmu::{MapFlags, Mmu, MmuError, VSpaceId};
 pub use physical::{PhysicalAccess, PhysicalError};
-pub use platform::{Platform, PlatformError};
+pub use platform::{CpuTopology, Platform, PlatformError};
 pub use power::Power;
 pub use time::Timer;
 pub use user_memory::UserMemory;

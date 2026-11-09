@@ -31,6 +31,17 @@ pub struct IrqOverride {
     pub gsi: u32,
 }
 
+/// MADT 中的处理器条目。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Processor {
+    /// ACPI 处理器 UID。
+    pub acpi_id: u32,
+    /// 本地 APIC/x2APIC 编号。
+    pub apic_id: u32,
+    /// 是否已启用。
+    pub enabled: bool,
+}
+
 /// 多处理器中断控制器表（MADT）的架构无关视图。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Madt {
@@ -40,6 +51,8 @@ pub struct Madt {
     pub io_apics: Vec<IoApic>,
     /// 已启用的本地 APIC 编号。
     pub local_apics: Vec<u32>,
+    /// 处理器条目（ACPI UID 与 APIC 编号）。
+    pub processors: Vec<Processor>,
     /// 中断源覆盖。
     pub overrides: Vec<IrqOverride>,
     /// ARM GIC 分配器基址。
@@ -70,6 +83,13 @@ impl Madt {
     /// 返回已启用的本地 APIC 编号。
     pub fn local_apics(&self) -> &[u32] {
         &self.local_apics
+    }
+
+    /// 通过 APIC 编号查找处理器条目。
+    pub fn processor_for_apic(&self, apic_id: u32) -> Option<&Processor> {
+        self.processors
+            .iter()
+            .find(|entry| entry.apic_id == apic_id)
     }
 
     /// 返回检测到的 CPU 数量。
@@ -117,6 +137,7 @@ fn parse_table(bytes: &[u8]) -> Option<Madt> {
         local_apic_address: u64::from(table.local_apic_address),
         io_apics: Vec::new(),
         local_apics: Vec::new(),
+        processors: Vec::new(),
         overrides: Vec::new(),
         gic_distributors: Vec::new(),
         gic_cpu_interfaces: Vec::new(),
@@ -129,6 +150,12 @@ fn parse_table(bytes: &[u8]) -> Option<Madt> {
             MadtEntry::LocalApic(entry) => {
                 let flags = entry.flags;
                 let apic = u32::from(entry.apic_id);
+                let processor = Processor {
+                    acpi_id: u32::from(entry.processor_id),
+                    apic_id: apic,
+                    enabled: flags & 1 != 0,
+                };
+                push_processor(&mut madt.processors, processor);
                 if flags & 1 != 0 {
                     push_unique(&mut madt.local_apics, apic);
                 }
@@ -136,6 +163,12 @@ fn parse_table(bytes: &[u8]) -> Option<Madt> {
             MadtEntry::LocalX2Apic(entry) => {
                 let flags = entry.flags;
                 let apic = entry.x2apic_id;
+                let processor = Processor {
+                    acpi_id: entry.processor_uid,
+                    apic_id: apic,
+                    enabled: flags & 1 != 0,
+                };
+                push_processor(&mut madt.processors, processor);
                 if flags & 1 != 0 {
                     push_unique(&mut madt.local_apics, apic);
                 }
@@ -163,6 +196,12 @@ fn parse_table(bytes: &[u8]) -> Option<Madt> {
 
 fn push_unique(values: &mut Vec<u32>, value: u32) {
     if !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn push_processor(values: &mut Vec<Processor>, value: Processor) {
+    if !values.iter().any(|entry| entry.apic_id == value.apic_id) {
         values.push(value);
     }
 }

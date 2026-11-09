@@ -332,6 +332,9 @@ pub const SYS_ACPI_EVENTS: u64 = 0x58;
 /// 读取当前 CPU 温度（摄氏度）；不支持时返回 `u64::MAX`。
 pub const SYS_THERMAL: u64 = 0x59;
 
+/// 读取逻辑 CPU 的 ACPI/SRAT/PPTT 拓扑。
+pub const SYS_CPU_TOPOLOGY: u64 = 0x5A;
+
 // === 时间与系统信息 0x60-0x6F ===
 
 /// 读取调度 tick 计数。
@@ -660,6 +663,7 @@ mod tests {
             SYS_ACPI_LISTEN,
             SYS_ACPI_EVENTS,
             SYS_THERMAL,
+            SYS_CPU_TOPOLOGY,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

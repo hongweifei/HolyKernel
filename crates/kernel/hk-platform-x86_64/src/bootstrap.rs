@@ -434,6 +434,33 @@ pub fn set_acpi_listener() {
     ACPI_LISTENERS.fetch_add(1, Ordering::AcqRel);
 }
 
+/// 返回逻辑 CPU 的 ACPI/SRAT/PPTT 拓扑。
+pub fn cpu_topology(cpu: usize) -> Option<hk_hal::CpuTopology> {
+    let apic = u32::from(crate::cpu::apic_id(cpu)?);
+    let madt = MADT.lock().as_ref().cloned()?;
+    let acpi_id = madt.processor_for_apic(apic)?.acpi_id;
+    let tables = FIRMWARE.lock().clone();
+    let proximity = tables
+        .as_ref()
+        .and_then(|tables| tables.srat.as_ref())
+        .and_then(|srat| srat.cpus.iter().find(|entry| entry.apic_id == apic))
+        .map_or(0, |entry| entry.proximity);
+    let package_id = tables
+        .as_ref()
+        .and_then(|tables| tables.pptt.as_ref())
+        .and_then(|pptt| {
+            pptt.processors
+                .iter()
+                .find(|entry| entry.processor_id == acpi_id)
+        })
+        .map_or(0, |entry| entry.package_id);
+    Some(hk_hal::CpuTopology {
+        acpi_id,
+        package_id,
+        proximity,
+    })
+}
+
 /// 取出并清除待处理的 GPE 事件位图。
 pub fn take_acpi_events() -> u64 {
     GPE_EVENTS.swap(0, Ordering::AcqRel)

@@ -139,6 +139,10 @@ impl Platform for X86Platform {
         let reading = ((status >> 16) & 0x7F) as u8;
         Some(tj_max.saturating_sub(reading))
     }
+
+    fn cpu_topology(&self, cpu: CpuId) -> Option<hk_hal::CpuTopology> {
+        crate::bootstrap::cpu_topology(cpu.get() as usize)
+    }
 }
 
 /// 串口控制台。

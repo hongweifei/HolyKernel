@@ -158,6 +158,27 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 );
                 Switch::Continue
             }
+            SYS_CPU_TOPOLOGY => {
+                let cpu = frame.arg0() as u32;
+                let out = frame.arg1();
+                let capacity = frame.arg2() as usize;
+                let result = match self.platform.cpu_topology(cpu) {
+                    Some(topology) if capacity >= 12 => {
+                        let mut bytes = [0_u8; 12];
+                        bytes[0..4].copy_from_slice(&topology.acpi_id.to_le_bytes());
+                        bytes[4..8].copy_from_slice(&topology.package_id.to_le_bytes());
+                        bytes[8..12].copy_from_slice(&topology.proximity.to_le_bytes());
+                        if self.platform.write_user(out, &bytes) {
+                            12
+                        } else {
+                            u64::MAX
+                        }
+                    }
+                    _ => u64::MAX,
+                };
+                frame.set_result(result);
+                Switch::Continue
+            }
             SYS_SELF_NOTIFICATION => {
                 frame.set_result(index as u64 + 1);
                 Switch::Continue
