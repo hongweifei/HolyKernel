@@ -1,4 +1,4 @@
-//! x86_64 系统调用入口：`int 0x80`，rax 调用号、rdi/rsi/rdx 参数。
+//! x86_64 系统调用入口：`syscall`，rax 调用号、rdi/rsi/rdx/r10 参数。
 
 use core::arch::asm;
 
@@ -12,10 +12,10 @@ pub unsafe fn call(number: u64, first: u64, second: u64, third: u64, fourth: u64
     let sender: u64;
     let extra: u64;
 
-    // SAFETY: `int 0x80` 由内核在 IDT 中注册；内核恢复 rax/rdx/rcx/r8。
+    // SAFETY: 内核在 EFER/STAR/LSTAR 中启用了 `syscall`；出口恢复 rax/rdx/rcx/r8。
     unsafe {
         asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") number => value,
             in("rdi") first,
             in("rsi") second,
@@ -23,6 +23,7 @@ pub unsafe fn call(number: u64, first: u64, second: u64, third: u64, fourth: u64
             lateout("rcx") sender,
             in("r10") fourth,
             lateout("r8") extra,
+            lateout("r11") _,
             options(nostack),
         );
     }

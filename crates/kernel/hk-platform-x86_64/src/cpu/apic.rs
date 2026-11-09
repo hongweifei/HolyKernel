@@ -79,6 +79,34 @@ pub fn lapic_id() -> u8 {
     (lapic_read(LAPIC_ID) >> 24) as u8
 }
 
+/// 返回指定 CPU 索引的本地 APIC 编号；该 CPU 尚未启动时返回 `None`。
+pub fn apic_id(cpu: usize) -> Option<u8> {
+    if cpu >= MAX_CPUS {
+        return None;
+    }
+    let id = APIC_IDS[cpu].load(Ordering::Acquire);
+    (id != u32::MAX).then_some(id as u8)
+}
+
+/// 返回第 `index` 个已启动 CPU 的本地 APIC 编号。
+pub fn online_apic_id(index: usize) -> Option<u8> {
+    APIC_IDS
+        .iter()
+        .filter_map(|slot| {
+            let id = slot.load(Ordering::Acquire);
+            (id != u32::MAX).then_some(id as u8)
+        })
+        .nth(index)
+}
+
+/// 返回已启动的 CPU 数量。
+pub fn online_cpu_count() -> usize {
+    APIC_IDS
+        .iter()
+        .filter(|slot| slot.load(Ordering::Acquire) != u32::MAX)
+        .count()
+}
+
 /// 返回当前 CPU 的运行时索引；未登记时返回 0。
 pub fn cpu_index() -> usize {
     let id = u32::from(lapic_id());

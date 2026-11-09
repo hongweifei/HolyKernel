@@ -101,6 +101,9 @@ pub trait InterruptController: Send + Sync {
 
     /// 向目标 CPU 发送处理器间中断。
     fn send_ipi(&self, cpu: CpuId, ipi: Ipi);
+
+    /// 把中断线路由到指定 CPU；平台不支持时忽略。
+    fn set_affinity(&self, _irq: Irq, _cpu: CpuId) {}
 }
 
 /// 通用 IRQ 待处理位图。

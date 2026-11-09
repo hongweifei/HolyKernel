@@ -18,7 +18,10 @@ mod syscall;
 mod timer;
 mod user;
 
-pub use apic::{cpu_index, init_ap, init_apic, ipi_count, lapic_id, send_ipi};
+pub use apic::{
+    apic_id, cpu_index, init_ap, init_apic, ipi_count, lapic_id, online_apic_id, online_cpu_count,
+    send_ipi,
+};
 pub use assembly::{fpu_xstate_mask, user_access_begin, user_access_end};
 pub use features::Features;
 pub use frame::InterruptFrame;

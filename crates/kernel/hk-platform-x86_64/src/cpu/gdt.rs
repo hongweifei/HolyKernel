@@ -37,9 +37,10 @@ fn syscall_stack_top(cpu: usize) -> u64 {
 /// 为 CPU 设置动态系统调用栈顶，并同步 TSS.rsp0。
 pub(crate) fn set_syscall_stack_top(cpu: usize, top: u64) {
     DYNAMIC_STACK_TOP[cpu].store(top, Ordering::Release);
-    // SAFETY: 该 CPU 尚未使用新栈；写入自己的 TSS 槽位。
+    // SAFETY: 该 CPU 尚未使用新栈；写入自己的 TSS 槽位与 GS 入口槽位。
     unsafe {
         (*CPUS[cpu].tss.get()).rsp0 = top;
+        (*USER_RETURNS[cpu].0.get()).syscall_rsp = top;
     }
 }
 
@@ -105,6 +106,7 @@ static CPUS: [CpuState; MAX_CPUS] = [const { CpuState::new() }; MAX_CPUS];
 struct UserReturn {
     kernel_rsp: u64,
     kernel_rip: u64,
+    syscall_rsp: u64,
 }
 
 struct UserReturnCell(UnsafeCell<UserReturn>);
@@ -116,6 +118,7 @@ static USER_RETURNS: [UserReturnCell; MAX_CPUS] = [const {
     UserReturnCell(UnsafeCell::new(UserReturn {
         kernel_rsp: 0,
         kernel_rip: 0,
+        syscall_rsp: 0,
     }))
 }; MAX_CPUS];
 
@@ -134,6 +137,8 @@ fn configure_tss(cpu: usize) {
         let tss = &mut *state.tss.get();
         tss.rsp0 = syscall_stack_top(cpu);
         tss.ist[DOUBLE_FAULT_IST as usize - 1] = double_fault_stack_top(cpu);
+        // `syscall` 入口通过 gs:[16] 取得内核栈顶。
+        (*USER_RETURNS[cpu].0.get()).syscall_rsp = tss.rsp0;
 
         let gdt = &mut *state.gdt.get();
         gdt[0] = 0;
@@ -188,5 +193,30 @@ fn load_gdt(cpu: usize) {
         let base = USER_RETURNS[cpu].0.get() as u64;
         let mut gs_base = Msr::new(0xC000_0101);
         gs_base.write(base);
+    }
+    enable_syscall();
+}
+
+/// 启用 `syscall`/`sysret` 快路径。
+fn enable_syscall() {
+    const IA32_EFER: u32 = 0xC000_0080;
+    const IA32_STAR: u32 = 0xC000_0081;
+    const IA32_LSTAR: u32 = 0xC000_0082;
+    const IA32_FMASK: u32 = 0xC000_0084;
+    const EFER_SCE: u64 = 1;
+
+    unsafe extern "C" {
+        fn hk_syscall_entry();
+    }
+
+    // SAFETY: 这些是当前 CPU 的系统调用 MSR；SCE 只在长模式有效。
+    unsafe {
+        let mut efer = Msr::new(IA32_EFER);
+        efer.write(efer.read() | EFER_SCE);
+        // SYSCALL: CS=0x08、SS=0x10；SYSRET: CS=0x33、SS=0x2b。
+        Msr::new(IA32_STAR).write((0x23_u64 << 48) | (u64::from(KERNEL_CODE) << 32));
+        Msr::new(IA32_LSTAR).write(hk_syscall_entry as *const () as usize as u64);
+        // 进入内核时清除 TF/IF/DF/AC：不嵌套中断，且关闭 SMAP 绕过。
+        Msr::new(IA32_FMASK).write(0x0004_0700);
     }
 }

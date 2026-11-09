@@ -43,6 +43,18 @@ static MADT: Mutex<Option<Madt>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
 
+/// 每条 IRQ 的目标本地 APIC 编号；0 表示尚未指定。
+static IRQ_AFFINITY: Mutex<[u8; 256]> = Mutex::new([0; 256]);
+
+/// 选择 CPU 索引：按 IRQ 线均摊到已启动 CPU。
+fn affinity_destination(line: u32) -> Option<u8> {
+    let count = crate::cpu::online_cpu_count();
+    if count == 0 {
+        return crate::cpu::apic_id(0);
+    }
+    crate::cpu::online_apic_id(line as usize % count)
+}
+
 /// x86 IOAPIC 中断控制器。
 pub struct IoApicController;
 
@@ -75,7 +87,12 @@ pub fn route_irq(irq: u8) -> bool {
         return false;
     };
     let vector = crate::irq::IRQ_VECTOR_BASE + irq;
-    IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base(), vector, state.destination);
+    let destination = {
+        let affinity = IRQ_AFFINITY.lock();
+        let saved = affinity[irq as usize];
+        if saved != 0 { saved } else { state.destination }
+    };
+    IoApic::new(state.base).route_level(madt.gsi(irq), madt.gsi_base(), vector, destination);
     true
 }
 
@@ -92,6 +109,10 @@ impl InterruptController for IoApicController {
         }
         if !route_irq(line as u8) {
             return Err(IrqError::Unsupported);
+        }
+        if let Some(destination) = affinity_destination(line) {
+            IRQ_AFFINITY.lock()[line as usize] = destination;
+            route_irq(line as u8);
         }
         bindings.insert(line, alloc::vec![target]);
         Ok(())
@@ -133,6 +154,20 @@ impl InterruptController for IoApicController {
             Ipi::Reschedule | Ipi::TlbShootdown => crate::cpu::IPI_VECTOR,
         };
         crate::cpu::send_ipi(cpu.get() as u8, vector);
+    }
+
+    fn set_affinity(&self, irq: Irq, cpu: CpuId) {
+        let line = irq.get();
+        let Some(destination) = crate::cpu::apic_id(cpu.get() as usize) else {
+            return;
+        };
+        if line >= IRQ_AFFINITY.lock().len() as u32 {
+            return;
+        }
+        IRQ_AFFINITY.lock()[line as usize] = destination;
+        if IRQ_BINDINGS.lock().contains_key(&line) {
+            route_irq(line as u8);
+        }
     }
 }
 
