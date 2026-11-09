@@ -83,8 +83,12 @@ impl Region {
         if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
             return Err(HmpError::WxConflict);
         }
-        // 任务镜像区域 sealed：只能只读或可执行，不能写入。
-        if capability.kind() == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
+        // 任务镜像与不可变修订都需要 sealed：只能只读或可执行，不能写入。
+        if matches!(
+            capability.kind(),
+            CapabilityKind::TaskImage | CapabilityKind::Revision
+        ) && rights.contains(Rights::WRITE)
+        {
             return Err(HmpError::ReadOnly);
         }
         if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
@@ -160,7 +164,11 @@ impl Region {
         if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
             return Err(HmpError::WxConflict);
         }
-        if self.capability.kind() == CapabilityKind::TaskImage && rights.contains(Rights::WRITE) {
+        if matches!(
+            self.capability.kind(),
+            CapabilityKind::TaskImage | CapabilityKind::Revision
+        ) && rights.contains(Rights::WRITE)
+        {
             return Err(HmpError::ReadOnly);
         }
         if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
@@ -319,6 +327,29 @@ mod tests {
                 RegionFlags::empty()
             )
             .is_ok()
+        );
+    }
+
+    #[test]
+    fn revision_regions_are_sealed() {
+        let capability = capability(CapabilityKind::Revision, 0x2000);
+        assert_eq!(
+            Region::new(
+                &capability,
+                0,
+                0x1000,
+                Rights::READ | Rights::WRITE,
+                RegionFlags::empty()
+            )
+            .err(),
+            Some(HmpError::ReadOnly)
+        );
+        assert!(Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty()).is_ok());
+        let mut region = Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty())
+            .expect("Region");
+        assert_eq!(
+            region.protect(Rights::READ | Rights::WRITE, RegionFlags::empty()),
+            Err(HmpError::ReadOnly)
         );
     }
 

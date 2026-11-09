@@ -73,6 +73,8 @@ pub struct Capacity {
     range: PhysRange,
     page_size: usize,
     kind: CapacityKind,
+    /// 由哪个容量 `split` 而来；根容量为 `None`。
+    parent: Option<CapacityId>,
     limit: u64,
     soft_limit: u64,
     used: u64,
@@ -124,6 +126,7 @@ impl Capacity {
             range,
             page_size,
             kind,
+            parent: None,
             limit,
             soft_limit: 0,
             used: 0,
@@ -211,7 +214,9 @@ impl Capacity {
             let range = backend
                 .split_owned(self.id, id, length)
                 .ok_or(HmpError::OutOfCapacity)?;
-            return Self::new(id, range, self.page_size, kind, length);
+            let mut child = Self::new(id, range, self.page_size, kind, length)?;
+            child.parent = Some(self.id);
+            return Ok(child);
         }
 
         let start = self.next;
@@ -221,13 +226,15 @@ impl Capacity {
             return Err(HmpError::OutOfCapacity);
         }
         self.next = end;
-        Self::new(
+        let mut child = Self::new(
             id,
             PhysRange::new(PhysAddr::new(start), length),
             self.page_size,
             kind,
             length,
-        )
+        )?;
+        child.parent = Some(self.id);
+        Ok(child)
     }
 
     /// 归还 Frame 的物理区间。
@@ -294,6 +301,9 @@ impl Capacity {
     /// 确认已清空才通知后端归还窗口，保证子容量名下的分配不会丢失归属。
     pub fn merge(&mut self, child: &Capacity) -> Result<(), HmpError> {
         if child.id == self.id {
+            return Err(HmpError::WrongCapability);
+        }
+        if child.parent != Some(self.id) {
             return Err(HmpError::WrongCapability);
         }
         if child.page_size != self.page_size {
@@ -605,6 +615,13 @@ mod tests {
         assert_eq!(parent.used(), 0);
         let frame = parent.allocate(0x4000).expect("并回后分配");
         assert_eq!(frame.phys(), PhysAddr::new(0x10_0000));
+    }
+
+    #[test]
+    fn merge_rejects_unrelated_empty_capacity() {
+        let mut first = capacity();
+        let second = capacity_with_id(2);
+        assert_eq!(first.merge(&second).err(), Some(HmpError::WrongCapability));
     }
 
     #[test]

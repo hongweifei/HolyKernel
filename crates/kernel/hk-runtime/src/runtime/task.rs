@@ -4,6 +4,9 @@ use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, DEFAULT_SPEC};
 
 use super::*;
 
+/// Provider 回复无效时的退出码（ASCII "PROV"）。
+const PROVIDER_FAULT_EXIT: u64 = 0x5052_4f56;
+
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 装载新任务，返回分配的端点编号。
     pub fn start(
@@ -1138,16 +1141,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 rights,
                                 flags,
                             );
-                        if mapped {
-                            self.platform.zero(page, range.len() as usize);
-                        } else {
-                            blocked_again = true;
+                        if !mapped {
+                            return self.fail_provider(cpu, index, pending);
                         }
+                        // Provider 提供页内容；内核只安装 PTE，不能再次清零。
                     } else {
-                        blocked_again = true;
+                        return self.fail_provider(cpu, index, pending);
                     }
                 } else {
-                    blocked_again = true;
+                    return self.fail_provider(cpu, index, pending);
                 }
             }
             Pending::None | Pending::Send { .. } | Pending::Sleep { .. } => {}
@@ -1159,5 +1161,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         blocked_again
+    }
+
+    /// Provider 回复缺失或安装失败：按缺页故障终止，而不是消费回复后永久阻塞。
+    fn fail_provider(&mut self, cpu: usize, index: usize, pending: Pending) -> bool {
+        if !self.fault(cpu, PROVIDER_FAULT_EXIT) {
+            self.tasks[index].pending = pending;
+            self.current[cpu] = None;
+        }
+        true
     }
 }
