@@ -152,10 +152,7 @@ pub fn arm_oneshot(micros: u64) {
         return;
     }
     let per_10ms = u64::from(TICK_COUNT.load(Ordering::SeqCst));
-    let counts = (micros
-        .saturating_mul(per_10ms)
-        .saturating_add(9_999)
-        / 10_000)
+    let counts = (micros.saturating_mul(per_10ms).saturating_add(9_999) / 10_000)
         .clamp(1, u64::from(u32::MAX)) as u32;
     ONESHOT.fetch_or(1 << super::apic::cpu_index(), Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, TIMER_VECTOR as u32);
