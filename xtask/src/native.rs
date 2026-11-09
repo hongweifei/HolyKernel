@@ -88,6 +88,8 @@ pub(crate) fn generate_symbols(release: bool) -> Result<PathBuf> {
         text.push_str(&format!("{address:016x} {name}\n"));
     }
     let path = workspace::root().join("build").join(SYMBOL_MODULE);
+    fs::create_dir_all(path.parent().expect("symbol path has parent"))
+        .map_err(|error| Failure::new(format!("创建 build 目录失败：{error}")))?;
     fs::write(&path, text)
         .map_err(|error| Failure::new(format!("写入 {} 失败：{error}", path.display())))?;
     Ok(path)
