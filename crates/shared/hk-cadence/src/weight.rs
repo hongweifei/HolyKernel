@@ -63,6 +63,17 @@ pub const fn slice_for(weight: Weight) -> Duration {
     Duration::from_ticks(ticks)
 }
 
+/// 每次跨 CPU 迁移的固定缓存重载成本（以权重为单位）。
+pub const MIGRATION_BASE_COST: u32 = 4;
+
+/// 迁移缓存成本模型：`weight * (heat + MIGRATION_BASE_COST)`。
+///
+/// `heat` 表示迁移前在该 CPU 上积累的缓存热度（连续同核运行递增）。固定项
+/// 建模必然发生的缓存行重载，热度项建模越热越贵的迁移损失。
+pub const fn migration_cost(weight: Weight, heat: u32) -> u64 {
+    (weight.get() as u64).saturating_mul(heat.saturating_add(MIGRATION_BASE_COST) as u64)
+}
+
 /// 按权重把实际执行时间换算为虚拟时间：`elapsed * WEIGHT_REFERENCE / weight`。
 ///
 /// 溢出时饱和到 `u64::MAX`。
@@ -98,6 +109,17 @@ mod tests {
             Duration::from_ticks(4_000)
         );
         assert_eq!(slice_for(Weight::new(128).unwrap()), MAX_SLICE);
+    }
+
+    #[test]
+    fn charges_migration_by_heat_and_weight() {
+        let weight = Weight::new(1024).expect("权重合法");
+        assert_eq!(migration_cost(weight, 0), 1_024 * u64::from(MIGRATION_BASE_COST));
+        assert_eq!(
+            migration_cost(weight, 2),
+            1_024 * u64::from(2 + MIGRATION_BASE_COST)
+        );
+        assert!(migration_cost(Weight::new(2048).unwrap(), 1) > migration_cost(weight, 1));
     }
 
     #[test]

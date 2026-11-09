@@ -33,5 +33,6 @@ pub use pool::{BudgetLease, BudgetPool, BudgetPoolId};
 pub use snapshot::{CadenceSnapshot, MeterSnapshot};
 pub use time::{TIME_BASE_HZ, from_platform, micros, millis, to_platform};
 pub use weight::{
-    BASE_SLICE, MAX_SLICE, MAX_WEIGHT, MIN_SLICE, WEIGHT_REFERENCE, Weight, charge_for, slice_for,
+    BASE_SLICE, MAX_SLICE, MAX_WEIGHT, MIGRATION_BASE_COST, MIN_SLICE, WEIGHT_REFERENCE, Weight,
+    charge_for, migration_cost, slice_for,
 };

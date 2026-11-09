@@ -342,14 +342,14 @@ impl Task {
 
     /// 记录 Task 本次运行的 CPU；返回是否发生跨核迁移。
     pub fn record_cpu(&mut self, cpu: usize) -> bool {
-        let weight = u64::from(self.cadence.lock().weight().get());
+        let weight = self.cadence.lock().weight();
         let heat = self.cache_heat;
         let mut meter = self.meter.lock();
         let previous = meter.last_cpu();
         meter.migrate(cpu as u32);
         let migrated = previous != NO_CPU && previous != cpu as u32;
         if migrated {
-            meter.charge_migration(u64::from(heat).saturating_mul(weight));
+            meter.charge_migration(hk_cadence::migration_cost(weight, heat));
         }
         self.cache_heat = if migrated {
             1
