@@ -17,6 +17,7 @@ use x86_64::registers::control::Cr3;
 use hk_hal::PhysAddr;
 use hk_mem::PagePool;
 
+pub(crate) use flags::map_flags;
 pub use flags::{PageFlags, restore_flags};
 pub use hk_mem::FrameBank as PageAllocator;
 pub use table::{PageTable, PagingError};

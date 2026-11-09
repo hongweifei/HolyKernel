@@ -272,6 +272,72 @@ impl PageTable {
         value & PRESENT != 0 && value & USER != 0
     }
 
+    /// 查询虚拟地址对应的物理地址与原始页表属性。
+    pub fn translate(&self, virt: VirtAddr) -> Option<(PhysAddr, u64)> {
+        let mut table = self.root;
+        for level in [39_u32, 30, 21] {
+            let index = ((virt.get() >> level) & 0x1FF) as usize;
+            // SAFETY: 页表项经 HHDM 映射，索引在 0..512 范围内。
+            let value = unsafe { self.entry(table, index).read_volatile() };
+            if value & PRESENT == 0 {
+                return None;
+            }
+            if value & HUGE != 0 {
+                let size = match level {
+                    30 => 1_u64 << 30,
+                    21 => 1_u64 << 21,
+                    _ => return None,
+                };
+                let phys = (value & ADDRESS_MASK) + (virt.get() & (size - 1));
+                return Some((PhysAddr::new(phys), value & FLAGS_MASK));
+            }
+            table = PhysAddr::new(value & ADDRESS_MASK);
+        }
+        let index = ((virt.get() >> 12) & 0x1FF) as usize;
+        // SAFETY: 末级页表项经 HHDM 映射，索引在 0..512 范围内。
+        let value = unsafe { self.entry(table, index).read_volatile() };
+        if value & PRESENT == 0 {
+            return None;
+        }
+        Some((PhysAddr::new(value & ADDRESS_MASK), value & FLAGS_MASK))
+    }
+
+    /// 修改一段 4 KiB 用户映射的属性；遇到大页或缺失页时返回 `false`。
+    pub fn protect_user_range(&self, virt: VirtAddr, len: usize, flags: PageFlags) -> bool {
+        if len == 0
+            || !len.is_multiple_of(PAGE_SIZE)
+            || !virt.get().is_multiple_of(PAGE_SIZE as u64)
+        {
+            return false;
+        }
+        let mut offset = 0;
+        while offset < len {
+            let address = virt.get() + offset as u64;
+            let mut table = self.root;
+            for level in [39_u32, 30, 21] {
+                let index = ((address >> level) & 0x1FF) as usize;
+                // SAFETY: 页表项位于 HHDM 映射的物理内存。
+                let value = unsafe { self.entry(table, index).read_volatile() };
+                if value & PRESENT == 0 || value & HUGE != 0 {
+                    return false;
+                }
+                table = PhysAddr::new(value & ADDRESS_MASK);
+            }
+            let index = ((address >> 12) & 0x1FF) as usize;
+            let entry = self.entry(table, index);
+            // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
+            let value = unsafe { entry.read_volatile() };
+            if value & PRESENT == 0 {
+                return false;
+            }
+            // SAFETY: 保留物理地址，仅替换属性位。
+            unsafe { entry.write_volatile((value & ADDRESS_MASK) | flags.bits()) };
+            tlb::flush(x86_64::VirtAddr::new(address));
+            offset += PAGE_SIZE;
+        }
+        true
+    }
+
     /// 建立 4 KiB 映射。
     pub fn map(
         &self,

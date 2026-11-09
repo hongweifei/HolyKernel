@@ -85,6 +85,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | MMIO 寄存器访问（volatile-register 包装） | `crates/shared/hk-mmio/src/lib.rs` |
 | 固件描述（ACPI/DTB 外部库包装） | `crates/kernel/hk-fw/src/{acpi,dtb}.rs`；`acpi`、`hermit-dtb` 只在此 crate 内出现 |
 | 引导后端（Limine 多架构/DTB）与 BootInfo 转换 | `crates/kernel/hk-boot/src/{lib,limine,dtb}.rs`；crate 根只定义 `BootBackend`/`BootError`，平台显式选择后端 |
+| x86_64 HAL `Platform`、CPUID 特性矩阵与熵源 | `crates/kernel/hk-platform-x86_64/src/{platform,entropy}.rs`、`cpu/features.rs` |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
 | HMP 核心对象（Arena/Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/`；对外词汇与授予规则见 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 物理页后端与按容量归因的额度视图 | `crates/kernel/hk-mem/src/hmp/backend.rs`、`crates/kernel/hk-mem/src/hmp/capacity.rs` |

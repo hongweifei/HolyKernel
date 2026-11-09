@@ -7,6 +7,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 mod apic;
 mod assembly;
+mod features;
 mod frame;
 mod gdt;
 mod idt;
@@ -17,6 +18,7 @@ mod timer;
 mod user;
 
 pub use apic::{cpu_index, init_ap, init_apic, ipi_count, lapic_id, send_ipi};
+pub use features::Features;
 pub use frame::InterruptFrame;
 pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_aps};
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};

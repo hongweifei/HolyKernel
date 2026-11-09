@@ -3,6 +3,7 @@
 //! 硬件位来自 `page_table_entry` 的 x86_64 `PTF`，权限到位的转换使用其
 //! `MappingFlags`；本模块只保留软件 COW 位与检查点掩码。
 
+use hk_hal::MapFlags;
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
 use page_table_entry::MappingFlags;
@@ -57,6 +58,23 @@ impl PageFlags {
         Self(bits)
     }
 
+    /// 按 HAL 映射属性构造用户页属性。
+    ///
+    /// 始终设置 `USER` 与 `PRESENT`；`DEVICE` 映射为写直达、禁止缓存且不可执行。
+    pub fn from_map(flags: MapFlags) -> Self {
+        let mut bits = PRESENT | USER;
+        if flags.contains(MapFlags::WRITE) {
+            bits |= WRITABLE;
+        }
+        if !flags.contains(MapFlags::EXECUTE) {
+            bits |= NX;
+        }
+        if flags.contains(MapFlags::DEVICE) {
+            bits |= PWT | PCD | NX;
+        }
+        Self(bits)
+    }
+
     pub(crate) const fn bits(self) -> u64 {
         self.0
     }
@@ -70,6 +88,24 @@ impl PageFlags {
     pub const fn from_raw(bits: u64) -> Self {
         Self(bits)
     }
+}
+
+/// 把原始页表属性转换为 HAL 映射属性。
+pub(crate) fn map_flags(raw: u64) -> MapFlags {
+    let mut flags = MapFlags::empty();
+    if raw & PRESENT != 0 {
+        flags |= MapFlags::READ;
+    }
+    if raw & WRITABLE != 0 {
+        flags |= MapFlags::WRITE;
+    }
+    if raw & NX == 0 {
+        flags |= MapFlags::EXECUTE;
+    }
+    if raw & (PWT | PCD) != 0 {
+        flags |= MapFlags::DEVICE;
+    }
+    flags
 }
 
 /// 把快照属性转换为恢复用属性：清除 COW 与大页位，COW 页恢复为可写私有页。
@@ -107,6 +143,23 @@ mod tests {
         assert_eq!(cow.raw() & WRITABLE, 0);
         assert_eq!(cow.raw() & COW, COW);
         assert_eq!(cow.raw() & USER, USER);
+    }
+
+    #[test]
+    fn map_flags_convert_to_pte_bits() {
+        let writable = PageFlags::from_map(MapFlags::READ | MapFlags::WRITE);
+        assert_eq!(writable.raw() & PRESENT, PRESENT);
+        assert_eq!(writable.raw() & USER, USER);
+        assert_eq!(writable.raw() & WRITABLE, WRITABLE);
+        assert_eq!(writable.raw() & NX, NX);
+
+        let executable = PageFlags::from_map(MapFlags::READ | MapFlags::EXECUTE);
+        assert_eq!(executable.raw() & WRITABLE, 0);
+        assert_eq!(executable.raw() & NX, 0);
+
+        let device = PageFlags::from_map(MapFlags::READ | MapFlags::WRITE | MapFlags::DEVICE);
+        assert_eq!(device.raw() & (PWT | PCD), PWT | PCD);
+        assert_eq!(device.raw() & NX, NX);
     }
 
     #[test]

@@ -35,7 +35,7 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
-use hk_hal::Console;
+use hk_hal::{Console, Platform};
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::bootstrap;
 #[cfg(target_os = "none")]
@@ -99,12 +99,8 @@ extern "C" fn kmain() -> ! {
     announce(&console, screen.as_ref(), "HolyKernel x86_64\n");
     announce(&console, screen.as_ref(), &format!("{info}"));
 
-    if let Err(error) = info.validate() {
-        announce(
-            &console,
-            screen.as_ref(),
-            &format!("启动信息校验失败：{error}\n"),
-        );
+    if let Err(error) = hk_platform_x86_64::platform::PLATFORM.init(&info) {
+        announce(&console, screen.as_ref(), &format!("{error}\n"));
         hk_test::exit(ExitCode::Failure(2));
     }
 

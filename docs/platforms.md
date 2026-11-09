@@ -76,6 +76,8 @@ pub trait Platform: Send + Sync {
 ```
 
 - 核心 crate 通过 trait 访问硬件；架构判断位于 `hk-hal` 实现或 platform crate。
+- x86_64 已实现完整 `Platform`：`Mmu`（用户页表登记 + 映射/解除/保护/翻译）、`InterruptController`（IOAPIC）、`Timer`（TSC + LAPIC one-shot）、串口控制台、legacy PCI、DMA 池、direct map 物理访问与 RDRAND 熵源；启动校验已走 `Platform::init`。
+- Hosted 平台同样实现 `Platform`，用于确定性模拟与单元测试。
 - `Mmu` 管理 Arena 地址空间、页表与 TLB shootdown；它是 HMP Region 的物化机制。
 - `HMP` 是唯一内存面：Capacity/Frame/Region 由内核与用户态服务共享；平台只提供页表、物理访问与 DMA 机制。
 - `InterruptController` 提供 IRQ 绑定与 IPI；运行时保存 IRQ→Notification 绑定，收到待处理中断后按对象标识直接唤醒通知，平台只负责路由/解绑。
