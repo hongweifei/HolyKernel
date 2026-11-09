@@ -63,6 +63,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let rights = Rights::from_bits_truncate(packed as u32);
         let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
+        let Ok(granted) =
+            self.kernel
+                .handle_rights(tcb, capability_handle, hk_handle::ObjectKind::Capability)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !granted.covers(rights) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Ok(mut region) = Region::new(&capability, offset, length, rights, flags) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;

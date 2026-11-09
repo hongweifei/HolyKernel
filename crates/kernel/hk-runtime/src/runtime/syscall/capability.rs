@@ -51,7 +51,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             tcb,
             capability,
             Some(backing),
-            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+            Rights::READ | Rights::WRITE | Rights::EXECUTE | Rights::TRANSFER | Rights::ADMIN,
         ) {
             Ok(handle) => handle,
             Err(_) => {
@@ -173,7 +173,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             tcb,
             capability,
             None,
-            Rights::READ | Rights::WRITE | Rights::TRANSFER,
+            Rights::READ | Rights::WRITE | Rights::EXECUTE | Rights::TRANSFER | Rights::ADMIN,
         ) {
             Ok(handle) => handle,
             Err(_) => {

@@ -168,6 +168,23 @@ impl Kernel {
         Ok((object, id))
     }
 
+    /// 返回句柄实际授予的权限；只校验对象类别，不要求额外权限。
+    pub fn handle_rights(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        expected: ObjectKind,
+    ) -> Result<Rights, KernelError> {
+        let threads = self.threads.lock();
+        let tcb = threads
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?;
+        let resolved = tcb
+            .handles()
+            .resolve_kind(handle, Rights::empty(), expected)?;
+        Ok(resolved.rights())
+    }
+
     pub(crate) fn upgrade(&self, id: ObjectId) -> Result<Arc<KernelObject>, KernelError> {
         self.objects
             .lock()

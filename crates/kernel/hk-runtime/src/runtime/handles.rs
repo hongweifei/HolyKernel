@@ -51,11 +51,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .collect();
         let parent_tcb = self.tasks[parent].tcb;
         let child_tcb = self.tasks[child].tcb;
-        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
         for (region_handle, capability_handle, virt, len, offset) in entries {
+            let capability_rights = self
+                .kernel
+                .handle_rights(
+                    parent_tcb,
+                    capability_handle,
+                    hk_handle::ObjectKind::Capability,
+                )
+                .unwrap_or(Rights::READ | Rights::WRITE | Rights::TRANSFER);
+            let region_handle_rights = self
+                .kernel
+                .handle_rights(parent_tcb, region_handle, hk_handle::ObjectKind::Region)
+                .unwrap_or(Rights::READ | Rights::WRITE | Rights::ADMIN);
             let Ok(capability) =
                 self.kernel
-                    .duplicate_handle(parent_tcb, capability_handle, rights)
+                    .duplicate_handle(parent_tcb, capability_handle, capability_rights)
             else {
                 continue;
             };
@@ -74,7 +85,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 continue;
             }
-            let Ok(child_region) = self.kernel.create_region(child_tcb, region, rights) else {
+            let Ok(child_region) =
+                self.kernel
+                    .create_region(child_tcb, region, region_handle_rights)
+            else {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 let _ = self.process_mut(child).hmp_arena.remove(region_id);
                 continue;

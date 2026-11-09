@@ -302,7 +302,7 @@ impl Kernel {
         len: usize,
         kind: CapacityKind,
     ) -> Result<Handle, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capacity)?;
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capacity)?;
         let capacity = object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;
@@ -328,8 +328,8 @@ impl Kernel {
         child: Handle,
     ) -> Result<(), KernelError> {
         let (parent_object, _) =
-            self.resolve(thread, parent, Rights::WRITE, ObjectKind::Capacity)?;
-        let (child_object, _) = self.resolve(thread, child, Rights::WRITE, ObjectKind::Capacity)?;
+            self.resolve(thread, parent, Rights::ADMIN, ObjectKind::Capacity)?;
+        let (child_object, _) = self.resolve(thread, child, Rights::ADMIN, ObjectKind::Capacity)?;
         let parent_lock = parent_object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;
@@ -359,7 +359,7 @@ impl Kernel {
             thread,
             frame,
             Arc::clone(capacity),
-            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+            Rights::READ | Rights::WRITE | Rights::EXECUTE | Rights::TRANSFER | Rights::ADMIN,
         )
     }
 
@@ -406,7 +406,8 @@ impl Kernel {
         capability: Handle,
         endpoint: Handle,
     ) -> Result<(), KernelError> {
-        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        let (object, _) =
+            self.resolve(thread, capability, Rights::ADMIN, ObjectKind::Capability)?;
         let (_, endpoint_id) =
             self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
         object.set_capability_provider(endpoint_id);
@@ -539,7 +540,7 @@ impl Kernel {
         handle: Handle,
         pinned: bool,
     ) -> Result<(), KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capability)?;
         if object.capability().is_none() {
             return Err(KernelError::WrongKind {
                 expected: ObjectKind::Capability,
@@ -559,7 +560,7 @@ impl Kernel {
         handle: Handle,
         enabled: bool,
     ) -> Result<(), KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capability)?;
         let Some(capability) = object.capability() else {
             return Err(KernelError::WrongKind {
                 expected: ObjectKind::Capability,
@@ -612,7 +613,7 @@ impl Kernel {
         rights: Rights,
         flags: hk_mem::hmp::RegionFlags,
     ) -> Result<(), KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Region)?;
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Region)?;
         let region = object.region().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Region,
         })?;

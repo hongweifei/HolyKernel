@@ -1380,6 +1380,47 @@ fn region_map_passes_rights_and_flags_to_page_table() {
 }
 
 #[test]
+fn region_map_rejects_rights_not_granted_by_handle() {
+    let platform = MockPlatform::new();
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+    let (handle, _, _) = runtime
+        .capability_at(index, capability as usize)
+        .expect("capability");
+    let readonly = runtime
+        .kernel
+        .duplicate_handle(tcb, handle, hk_handle::Rights::READ)
+        .expect("只读副本");
+    let extra = runtime
+        .install_extra_capability(index, readonly)
+        .expect("安装只读句柄");
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = extra;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "只读句柄不能映射可写");
+
+    context.rax = SYS_REGION_MAP;
+    context.r10 = 0b1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX, "只读映射仍应允许");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn region_protect_updates_rights_and_page_table() {
     let platform = MockPlatform::new();
     let last_map = Arc::clone(&platform.last_map);

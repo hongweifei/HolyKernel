@@ -218,6 +218,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let rights = Rights::from_bits_truncate(packed as u32);
         let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
+        let Ok(granted) =
+            self.kernel
+                .handle_rights(tcb, frame_handle, hk_handle::ObjectKind::Frame)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !granted.covers(rights) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None)
         else {
             frame.set_result(u64::MAX);
