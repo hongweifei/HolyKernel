@@ -61,6 +61,12 @@ pub enum SmokeMode {
     /// 定时器抢占调度
     #[value(name = "preempt")]
     Preempt,
+    /// Tempo 策略服务准入与自助附加
+    #[value(name = "tempo")]
+    Tempo,
+    /// sleep 到期到恢复运行的唤醒延迟
+    #[value(name = "wakeup")]
+    Wakeup,
     /// 多 CPU MADT 本地 APIC 枚举
     #[value(name = "smp")]
     Smp,
@@ -160,6 +166,8 @@ impl SmokeMode {
             )),
             Self::Input => Some(String::from("shell-interactive")),
             Self::Preempt => None,
+            Self::Tempo => Some(String::from("tempo-test")),
+            Self::Wakeup => Some(String::from("wakeup-test")),
             Self::Smp => Some(String::from("shell-test tasks;stats")),
             Self::Restart => Some(String::from("restart-test")),
             Self::Ext4Root => Some(String::from("vfs.root=ext4")),
@@ -297,6 +305,11 @@ impl SmokeMode {
                 "脚本：boot.hsh",
             ],
             Self::Preempt => &["hk-server-demo 收到回复 42", "hk-server-spin: done"],
+            Self::Tempo => &[
+                "hk-server-tempo: ready",
+                "hk-server-tempo-test: ok weight=512",
+            ],
+            Self::Wakeup => &["hk-server-wakeup: min=", "hk-server-wakeup: ok"],
             Self::Smp => &[
                 "本地 APIC：4 个",
                 "AP 在线：3 个（启动 3，IPI 1 次）",
@@ -561,6 +574,8 @@ impl SmokeMode {
             | Self::Shell
             | Self::Input
             | Self::Preempt
+            | Self::Tempo
+            | Self::Wakeup
             | Self::Restart
             | Self::Ext4Root
             | Self::HolyFs
@@ -603,6 +618,8 @@ impl SmokeMode {
             Self::Shell => "build/serial-shell.log",
             Self::Input => "build/serial-input.log",
             Self::Preempt => "build/serial-preempt.log",
+            Self::Tempo => "build/serial-tempo.log",
+            Self::Wakeup => "build/serial-wakeup.log",
             Self::Smp => "build/serial-smp.log",
             Self::Restart => "build/serial-restart.log",
             Self::Ext4Root => "build/serial-ext4root.log",

@@ -12,6 +12,8 @@ extern crate std;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_cadence::{CadenceSnapshot, MeterSnapshot};
+
 /// 快照魔数。
 pub const MAGIC: [u8; 4] = *b"HKCK";
 /// 当前格式版本。
@@ -41,6 +43,10 @@ pub struct Snapshot {
     pub parent: Option<u64>,
     /// Arena 已用字节数。
     pub arena_used: u64,
+    /// Cadence 契约快照。
+    pub cadence: CadenceSnapshot,
+    /// Meter 计量快照。
+    pub meter: MeterSnapshot,
     /// 用户页。
     pub pages: Vec<Page>,
 }
@@ -54,6 +60,8 @@ impl Snapshot {
             &self.context,
             self.parent,
             self.arena_used,
+            self.cadence,
+            self.meter,
             &self.pages,
         )
     }
@@ -81,6 +89,8 @@ impl Snapshot {
             _ => return None,
         };
         let arena_used = cursor.u64()?;
+        let cadence = CadenceSnapshot::decode(cursor.take(CadenceSnapshot::ENCODED_LEN)?).ok()?;
+        let meter = MeterSnapshot::decode(cursor.take(MeterSnapshot::ENCODED_LEN)?).ok()?;
         let count = cursor.u32()? as usize;
         if count > cursor.remaining() / 20 {
             return None;
@@ -98,18 +108,23 @@ impl Snapshot {
             context,
             parent,
             arena_used,
+            cadence,
+            meter,
             pages,
         })
     }
 }
 
 /// 直接编码各部分，避免构造拥有页列表的临时快照。
+#[allow(clippy::too_many_arguments)]
 pub fn encode_parts(
     slot: u32,
     name: &str,
     context: &[u8],
     parent: Option<u64>,
     arena_used: u64,
+    cadence: CadenceSnapshot,
+    meter: MeterSnapshot,
     pages: &[Page],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(encoded_size(name.len(), context.len(), pages));
@@ -126,6 +141,12 @@ pub fn encode_parts(
         None => out.push(0),
     }
     push_u64(&mut out, arena_used);
+    let mut cadence_bytes = [0_u8; CadenceSnapshot::ENCODED_LEN];
+    cadence.encode(&mut cadence_bytes);
+    out.extend_from_slice(&cadence_bytes);
+    let mut meter_bytes = [0_u8; MeterSnapshot::ENCODED_LEN];
+    meter.encode(&mut meter_bytes);
+    out.extend_from_slice(&meter_bytes);
     push_u32(&mut out, pages.len() as u32);
     for page in pages {
         push_u64(&mut out, page.virt);
@@ -136,7 +157,19 @@ pub fn encode_parts(
 }
 
 fn encoded_size(name: usize, context: usize, pages: &[Page]) -> usize {
-    let mut size = 4 + 4 + 4 + 4 + name + 4 + context + 1 + 8 + 8 + 4;
+    let mut size = 4
+        + 4
+        + 4
+        + 4
+        + name
+        + 4
+        + context
+        + 1
+        + 8
+        + 8
+        + CadenceSnapshot::ENCODED_LEN
+        + MeterSnapshot::ENCODED_LEN
+        + 4;
     for page in pages {
         size += 8 + 8 + 4 + page.data.len();
     }
@@ -203,6 +236,16 @@ mod tests {
             context: vec![1, 2, 3, 4],
             parent: Some(2),
             arena_used: 0x1234,
+            cadence: CadenceSnapshot {
+                weight: 2048,
+                epoch: 3,
+                ..CadenceSnapshot::default()
+            },
+            meter: MeterSnapshot {
+                consumed: 1234,
+                virtual_pass: 5678,
+                ..MeterSnapshot::default()
+            },
             pages: vec![Page {
                 virt: 0x1000_0000,
                 flags: 0x27,
