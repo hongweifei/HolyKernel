@@ -1,6 +1,6 @@
 //! 任务生命周期与调度。
 
-use hk_cadence::{Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC};
+use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, DEFAULT_SPEC};
 
 use super::*;
 
@@ -317,25 +317,49 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             cadence.spec(),
         )
         .map_err(|error| format!("{error}"))?;
-        if let Some(tempo) = self
-            .tasks
-            .iter()
-            .find(|task| !task.exited && task.name == "hk-server-tempo")
-            && let Some(tempo_task) = self.kernel.task_of(tempo.tcb)
-            && let Some(pool) = self.kernel.cadence_spec(tempo_task)
+        // 父契约已不存在时提升为独立契约，避免悬挂父链。
+        if let Some(parent) = restored.parent()
+            && !self
+                .tasks
+                .iter()
+                .filter(|task| !task.exited)
+                .filter_map(|task| self.kernel.task_cadence_snapshot(task.tcb))
+                .any(|snapshot| snapshot.id == parent.get())
         {
-            let request = restored.spec();
-            let in_range = request.class == pool.class
-                && request.weight <= pool.weight
-                && request.budget.ticks() <= pool.budget.ticks()
-                && (request.class != hk_cadence::CadenceClass::Realtime
-                    || hk_cadence::admits_realtime(self.realtime_used(), request));
-            if !in_range {
-                let weight = request.weight.min(pool.weight).max(1);
-                let budget = request.budget.ticks().min(pool.budget.ticks());
-                if let Ok(child) = self.kernel.admit_task_cadence(tempo_task, weight, budget) {
-                    restored = child;
+            restored.promote();
+        }
+        // 只有 Realtime 契约需要 Tempo 准入；其他类别保持恢复的契约不降级。
+        if restored.class() == CadenceClass::Realtime {
+            let tempo = self
+                .tasks
+                .iter()
+                .find(|task| !task.exited && task.name == "hk-server-tempo")
+                .and_then(|task| self.kernel.task_of(task.tcb))
+                .and_then(|task| self.kernel.cadence_spec(task).map(|pool| (task, pool)));
+            let mut granted = false;
+            if let Some((tempo_task, pool)) = tempo {
+                let request = restored.spec();
+                if request.weight <= pool.weight
+                    && request.budget.ticks() <= pool.budget.ticks()
+                    && hk_cadence::admits_realtime(self.realtime_used(), request)
+                {
+                    granted = true;
+                } else {
+                    let weight = request.weight.min(pool.weight).max(1);
+                    let budget = request.budget.ticks().min(pool.budget.ticks());
+                    if let Ok(child) = self.kernel.admit_task_cadence(tempo_task, weight, budget) {
+                        restored = child;
+                        granted = true;
+                    }
                 }
+            }
+            // Tempo 缺失或准入失败：按设计回退默认 Throughput 契约。
+            if !granted {
+                restored = Cadence::from_spec(
+                    CadenceId::next(),
+                    CadenceSpec::new(CadenceClass::Throughput, 1024),
+                )
+                .map_err(|error| format!("{error}"))?;
             }
         }
         let base = self.average_virtual_pass(restored.class());
