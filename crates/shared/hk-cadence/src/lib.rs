@@ -22,8 +22,8 @@ mod weight;
 
 pub use affinity::{CpuMask, MAX_CPUS};
 pub use cadence::{
-    Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC, IDLE_SPEC, UTILIZATION_SCALE, admits_realtime,
-    density, utilization,
+    ADMISSION_HORIZON_TICKS, Cadence, CadenceId, CadenceSpec, DEFAULT_SPEC, IDLE_SPEC,
+    UTILIZATION_SCALE, admits_realtime, density, edf_admissible, utilization,
 };
 pub use class::CadenceClass;
 pub use error::CadenceError;

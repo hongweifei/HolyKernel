@@ -149,6 +149,50 @@ pub fn admits_realtime(used: u64, spec: CadenceSpec) -> bool {
             <= UTILIZATION_SCALE
 }
 
+/// EDF 需求界函数（demand bound function）检查的时间上界（契约 tick，1 秒）。
+pub const ADMISSION_HORIZON_TICKS: u64 = 1_000_000;
+
+/// 以 demand bound function 精确判定一组 Realtime 契约在 EDF 下是否可调度。
+///
+/// 每项为 `(budget, period, deadline)` 契约 tick；`deadline = 0` 视为等于周期。
+/// 对每个任务的所有绝对截止期 `d + k·T`（在 [`ADMISSION_HORIZON_TICKS`] 内）
+/// 检查累计需求不超过时刻 `t`。约束截止期任务也可正确判定，比密度判据更精确。
+pub fn edf_admissible(tasks: &[(u64, u64, u64)]) -> bool {
+    if tasks
+        .iter()
+        .any(|(budget, period, _)| *budget == 0 || *period == 0)
+    {
+        return false;
+    }
+    for (_, period, deadline) in tasks {
+        let deadline = if *deadline == 0 { *period } else { *deadline };
+        let mut at = deadline;
+        loop {
+            if demand_bound(tasks, at) > at {
+                return false;
+            }
+            match at.checked_add(*period) {
+                Some(next) if next <= ADMISSION_HORIZON_TICKS => at = next,
+                _ => break,
+            }
+        }
+    }
+    true
+}
+
+/// 计算时刻 `at` 前必须完成的累计执行需求。
+fn demand_bound(tasks: &[(u64, u64, u64)], at: u64) -> u64 {
+    tasks.iter().fold(0_u64, |total, (budget, period, deadline)| {
+        let deadline = if *deadline == 0 { *period } else { *deadline };
+        if at < deadline {
+            total
+        } else {
+            let jobs = (at - deadline) / period + 1;
+            total.saturating_add(budget.saturating_mul(jobs))
+        }
+    })
+}
+
 /// 空闲契约：Idle 类、最小权重。
 pub const IDLE_SPEC: CadenceSpec = CadenceSpec::new(CadenceClass::Idle, 1);
 
@@ -550,6 +594,23 @@ mod tests {
             0,
             CadenceSpec::new(CadenceClass::Latency, 1024)
         ));
+    }
+
+    #[test]
+    fn admits_realtime_set_by_demand_bound() {
+        assert!(edf_admissible(&[(3_000, 16_000, 8_000), (3_000, 16_000, 8_000)]));
+        assert!(!edf_admissible(&[
+            (3_000, 16_000, 8_000),
+            (3_000, 16_000, 8_000),
+            (3_000, 16_000, 8_000),
+        ]));
+
+        // 隐式截止期：5 × 2ms / 10ms 恰好满载，6 个超载。
+        assert!(edf_admissible(&[(2_000, 10_000, 0); 5]));
+        assert!(!edf_admissible(&[(2_000, 10_000, 0); 6]));
+
+        assert!(!edf_admissible(&[(0, 10_000, 0)]));
+        assert!(!edf_admissible(&[(1_000, 0, 0)]));
     }
 
     #[test]

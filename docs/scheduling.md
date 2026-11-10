@@ -137,6 +137,7 @@ virtual_pass += charge
 - `Throughput` 类选择最小 `virtual_pass`。
 - `Realtime` 类维护 `period_start`、`budget_left` 与 `absolute_deadline = period_start + (deadline 或 period)`；Beat 选择最早截止期，用 CBS 规则补充预算。
 - 预算补充把 `period_start` 按整周期推进到当前时刻所在边界（不漂移）；切换或附加契约时 `period_start` 重置为当前时刻，绝对截止期不会落到过去。
+- Realtime 准入使用 EDF 需求界函数（DBF）精确判定：对每个任务的所有绝对截止期检查累计需求不超过时刻，支持约束截止期；Tempo 账本与 checkpoint 恢复统一使用该判据。
 - 同类内长期 CPU 份额与 `weight` 成正比；误差上界由 `MAX_SLICE` 与抢占延迟决定。
 
 ### 5.4 预算与 Throttled
@@ -305,10 +306,10 @@ Meter 字段：
 | --- | --- | --- |
 | `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
 | `hk-kernel` | 部分 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule 已落地；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；父 Task 退出时子契约提升为独立契约 |
-| `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 密度准入与 checkpoint→Tempo 重准入已接入 |
+| `hk-runtime` | 部分 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进已落地；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 需求界准入与 checkpoint→Tempo 重准入已接入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |
-| `hk-server-tempo` | 部分 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令已落地；池为 Realtime，服务内维护 EDF 密度账本（`budget/deadline`）并拒绝超限申请，恢复路径复用同一门禁；恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 读取当前契约并重新准入。完整响应时间分析仍以密度判据为保守近似 |
+| `hk-server-tempo` | 已实现 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令；池为 Realtime，服务内维护 EDF 需求界账本（`budget/period/deadline`）并拒绝不可调度申请，恢复路径复用同一门禁；恢复后由 Checkpoint/Shell 通过 `TEMPO_READMIT` 让 Tempo 读取当前契约并重新准入 |
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 已实现 | 硬亲和（无在线可用 CPU 时不入队）、亲和变更重挂、按权重+可运行数压力选核、缓存热度容差、仅 migratable 参与窃取；迁移计数与 `weight × (heat + MIGRATION_BASE_COST)` 成本写入 Meter，`migrate` 进入 trace |
 | Lending | 已实现 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片与超限判定；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |

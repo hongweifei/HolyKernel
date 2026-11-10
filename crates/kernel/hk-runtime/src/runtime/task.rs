@@ -339,12 +339,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .find(|task| !task.exited && task.name == "hk-server-tempo")
                 .and_then(|task| self.kernel.task_of(task.tcb))
                 .and_then(|task| self.kernel.cadence_spec(task).map(|pool| (task, pool)));
+            let request = restored.spec();
+            let mut tasks: Vec<(u64, u64, u64)> = self
+                .tasks
+                .iter()
+                .filter(|task| !task.exited)
+                .filter_map(|task| self.kernel.task_cadence_snapshot(task.tcb))
+                .filter(|snapshot| snapshot.class == CadenceClass::Realtime)
+                .map(|snapshot| (snapshot.budget, snapshot.period, snapshot.deadline))
+                .collect();
+            tasks.push((
+                request.budget.ticks(),
+                request.period.ticks(),
+                request.deadline.ticks(),
+            ));
+            let admissible = hk_cadence::edf_admissible(&tasks);
             let mut granted = false;
             if let Some((tempo_task, pool)) = tempo {
-                let request = restored.spec();
                 if request.weight <= pool.weight
                     && request.budget.ticks() <= pool.budget.ticks()
-                    && hk_cadence::admits_realtime(self.realtime_used(), request)
+                    && admissible
                 {
                     granted = true;
                 } else {
@@ -938,27 +952,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return self.platform.timer_ticks().saturating_mul(10_000);
         }
         self.contract_ticks(self.platform.timestamp())
-    }
-
-    /// 返回系统内 Realtime 契约的累计利用率。
-    fn realtime_used(&self) -> u64 {
-        let mut used = 0_u64;
-        for task in &self.tasks {
-            if task.exited {
-                continue;
-            }
-            let Some(cadence) = self.kernel.task_cadence_snapshot(task.tcb) else {
-                continue;
-            };
-            if cadence.class == hk_cadence::CadenceClass::Realtime {
-                used = used.saturating_add(hk_cadence::density(
-                    hk_base::Duration::from_ticks(cadence.budget),
-                    hk_base::Duration::from_ticks(cadence.deadline),
-                    hk_base::Duration::from_ticks(cadence.period),
-                ));
-            }
-        }
-        used
     }
 
     /// 计算同类 Task 的平均虚拟进度，用于恢复时重定基。

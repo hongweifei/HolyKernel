@@ -1041,6 +1041,35 @@ fn parent_exit_promotes_child_cadence() {
 }
 
 #[test]
+fn realtime_edf_selects_earliest_absolute_deadline() {
+    let kernel = kernel();
+    let late = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(16))
+                .with_deadline(millis(8)),
+        )
+        .expect("晚截止期任务");
+    let early = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(16))
+                .with_deadline(millis(4)),
+        )
+        .expect("早截止期任务");
+
+    assert_eq!(
+        kernel.queue_entry(late).map(|entry| entry.1),
+        Some(8_000),
+        "绝对截止期 = period_start + deadline"
+    );
+    assert_eq!(kernel.queue_entry(early).map(|entry| entry.1), Some(4_000));
+    assert_eq!(kernel.schedule(0), Some(early), "EDF 应先选最早截止期");
+}
+
+#[test]
 fn affinity_without_online_cpu_stays_unrunnable() {
     let kernel = kernel();
     kernel.set_online_cpus(2);

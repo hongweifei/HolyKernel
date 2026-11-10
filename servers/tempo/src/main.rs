@@ -11,7 +11,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_cadence::{CadenceClass, CadenceSnapshot, CadenceSpec, UTILIZATION_SCALE, micros};
+use hk_cadence::{CadenceClass, CadenceSnapshot, CadenceSpec, micros};
 #[cfg(target_os = "none")]
 use hk_proto::tempo::{
     MAX_NAME, REJECT_INVALID, REJECT_OUT_OF_RANGE, SNAPSHOT_LEN, TEMPO_ADMIT, TEMPO_READMIT,
@@ -37,8 +37,10 @@ const MAX_CONTRACTS: usize = 16;
 struct Ledger {
     names: [[u8; MAX_NAME]; MAX_CONTRACTS],
     lengths: [u8; MAX_CONTRACTS],
-    utils: [u64; MAX_CONTRACTS],
-    unnamed: u64,
+    used: [bool; MAX_CONTRACTS],
+    budgets: [u64; MAX_CONTRACTS],
+    periods: [u64; MAX_CONTRACTS],
+    deadlines: [u64; MAX_CONTRACTS],
 }
 
 #[cfg(target_os = "none")]
@@ -47,52 +49,85 @@ impl Ledger {
         Self {
             names: [[0; MAX_NAME]; MAX_CONTRACTS],
             lengths: [0; MAX_CONTRACTS],
-            utils: [0; MAX_CONTRACTS],
-            unnamed: 0,
+            used: [false; MAX_CONTRACTS],
+            budgets: [0; MAX_CONTRACTS],
+            periods: [0; MAX_CONTRACTS],
+            deadlines: [0; MAX_CONTRACTS],
         }
-    }
-
-    fn total(&self) -> u64 {
-        self.utils
-            .iter()
-            .fold(self.unnamed, |total, util| total.saturating_add(*util))
     }
 
     fn find(&self, name: &str) -> Option<usize> {
         let name = name.as_bytes();
         self.names.iter().enumerate().find_map(|(index, entry)| {
             let length = usize::from(self.lengths[index]);
-            (length == name.len() && &entry[..length] == name).then_some(index)
+            (self.used[index] && length == name.len() && &entry[..length] == name)
+                .then_some(index)
         })
     }
 
-    fn admit_named(&mut self, name: &str, util: u64) -> bool {
-        let slot = match self.find(name) {
+    fn free(&self) -> Option<usize> {
+        self.used.iter().position(|used| !*used)
+    }
+
+    /// 以 demand bound function 判定加入/替换一个契约后是否可调度。
+    fn admissible_with(
+        &self,
+        replace: Option<usize>,
+        budget: u64,
+        period: u64,
+        deadline: u64,
+    ) -> bool {
+        let mut tasks = [(0_u64, 0_u64, 0_u64); MAX_CONTRACTS + 1];
+        let mut count = 0;
+        for index in 0..MAX_CONTRACTS {
+            if !self.used[index] || Some(index) == replace {
+                continue;
+            }
+            tasks[count] = (self.budgets[index], self.periods[index], self.deadlines[index]);
+            count += 1;
+        }
+        tasks[count] = (budget, period, deadline);
+        hk_cadence::edf_admissible(&tasks[..=count])
+    }
+
+    fn admit_named(&mut self, name: &str, budget: u64, period: u64, deadline: u64) -> bool {
+        let existing = self.find(name);
+        let slot = match existing {
             Some(index) => index,
             None => {
-                let Some(index) = self.lengths.iter().position(|length| *length == 0) else {
+                let Some(index) = self.free() else {
                     return false;
                 };
-                let length = name.len();
-                self.names[index][..length].copy_from_slice(name.as_bytes());
-                self.lengths[index] = length as u8;
                 index
             }
         };
-        let old = self.utils[slot];
-        let used = self.total().saturating_sub(old);
-        if used.saturating_add(util) > UTILIZATION_SCALE {
+        if !self.admissible_with(existing, budget, period, deadline) {
             return false;
         }
-        self.utils[slot] = util;
+        if existing.is_none() {
+            let length = name.len();
+            self.names[slot][..length].copy_from_slice(name.as_bytes());
+            self.lengths[slot] = length as u8;
+        }
+        self.used[slot] = true;
+        self.budgets[slot] = budget;
+        self.periods[slot] = period;
+        self.deadlines[slot] = deadline;
         true
     }
 
-    fn admit_unnamed(&mut self, util: u64) -> bool {
-        if self.total().saturating_add(util) > UTILIZATION_SCALE {
+    fn admit_unnamed(&mut self, budget: u64, period: u64, deadline: u64) -> bool {
+        let Some(slot) = self.free() else {
+            return false;
+        };
+        if !self.admissible_with(None, budget, period, deadline) {
             return false;
         }
-        self.unnamed = self.unnamed.saturating_add(util);
+        self.used[slot] = true;
+        self.lengths[slot] = 0;
+        self.budgets[slot] = budget;
+        self.periods[slot] = period;
+        self.deadlines[slot] = deadline;
         true
     }
 }
@@ -192,7 +227,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             );
             if !ledger.admit_named(
                 name,
-                hk_cadence::density(spec.budget, spec.deadline, spec.period),
+                spec.budget.ticks(),
+                spec.period.ticks(),
+                spec.deadline.ticks(),
             ) {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
@@ -226,8 +263,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 pool_snapshot.period,
                 pool_snapshot.deadline,
             );
-            let util = hk_cadence::density(spec.budget, spec.deadline, spec.period);
-            if !ledger.admit_named(name, util) {
+            if !ledger.admit_named(
+                name,
+                spec.budget.ticks(),
+                spec.period.ticks(),
+                spec.deadline.ticks(),
+            ) {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
             }
@@ -267,7 +308,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             pool_snapshot.period,
             pool_snapshot.deadline,
         );
-        if !ledger.admit_unnamed(hk_cadence::density(spec.budget, spec.deadline, spec.period)) {
+        if !ledger.admit_unnamed(
+            spec.budget.ticks(),
+            spec.period.ticks(),
+            spec.deadline.ticks(),
+        ) {
             let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
             continue;
         }
