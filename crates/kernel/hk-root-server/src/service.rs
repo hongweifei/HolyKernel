@@ -176,7 +176,7 @@ where
     let parent = parent
         .and_then(|name| host.tcb_of(name))
         .or(Some(host.root()));
-    let slot = host.task_count();
+    let slot = host.reuse_slot(name);
     let context = match module {
         Some(module) => loader.load_module(module, slot),
         None => loader.load(name, slot),
@@ -191,7 +191,7 @@ where
     let device_authority =
         services.device_authority(name) || role & hk_image::ServiceRole::DEVICE != 0;
     let cadence = loader.cadence(source);
-    if let Err(error) = host.start(name, device_authority, cadence, context, parent) {
+    if let Err(error) = host.start_at(name, slot, device_authority, cadence, context, parent) {
         return format!("启动失败：{error}\n");
     }
 

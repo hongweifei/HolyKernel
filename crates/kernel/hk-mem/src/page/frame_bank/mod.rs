@@ -302,6 +302,34 @@ impl Inner {
             })
     }
 
+    /// 把一段窗口归到指定容量；优先扩张相邻窗口，否则登记为新窗口。
+    fn attach_window(&mut self, owner: CapacityId, range: PhysRange) {
+        let adjacent = self
+            .owned
+            .iter()
+            .find(|(_, window)| {
+                window.capacity == owner
+                    && (window.range.end().get() == range.start().get()
+                        || range.end().get() == window.range.start().get())
+            })
+            .map(|(&start, _)| start);
+        if let Some(start) = adjacent {
+            if let Some(window) = self.owned.get_mut(&start) {
+                let begin = window.range.start().get().min(range.start().get());
+                let end = window.range.end().get().max(range.end().get());
+                window.range = PhysRange::new(PhysAddr::new(begin), end - begin);
+            }
+            return;
+        }
+        self.owned.insert(
+            range.start().get(),
+            OwnedWindow {
+                capacity: owner,
+                range,
+            },
+        );
+    }
+
     /// 把一段区间放回空闲表并与相邻区间合并。
     fn coalesce_free(&mut self, range: PhysRange) {
         let start = range.start().get();

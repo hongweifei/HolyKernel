@@ -14,10 +14,45 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         name: &str,
         device_authority: bool,
         cadence: CadenceSpec,
+        context: C,
+        parent: Option<u64>,
+    ) -> Result<u64, KernelError> {
+        self.start_at(
+            self.tasks.len(),
+            name,
+            device_authority,
+            cadence,
+            context,
+            parent,
+        )
+    }
+
+    /// 返回可复用的任务槽位：同名且已退出的主线程槽位，否则追加新槽位。
+    pub fn reuse_slot(&self, name: &str) -> usize {
+        self.tasks
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(index, task)| task.exited && task.leader == *index && task.name == name)
+            .map_or(self.tasks.len(), |(index, _)| index)
+    }
+
+    /// 在指定槽位装载任务；已退出的槽位会被复用。
+    pub fn start_at(
+        &mut self,
+        index: usize,
+        name: &str,
+        device_authority: bool,
+        cadence: CadenceSpec,
         mut context: C,
         parent: Option<u64>,
     ) -> Result<u64, KernelError> {
-        let index = self.tasks.len();
+        let reuse = index < self.tasks.len();
+        if index > self.tasks.len()
+            || (reuse && (!self.tasks[index].exited || self.tasks[index].leader != index))
+        {
+            return Err(KernelError::Hmp(hk_mem::hmp::HmpError::InvalidSize));
+        }
         let endpoint = index as u64 + 1;
         context.set_start_argument(endpoint);
 
@@ -25,32 +60,45 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let tcb = kernel.spawn_task_parked(HandleTable::with_default_quota(), cadence)?;
         let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
-        self.endpoints.push(Some(own_id));
-
         let own_notification =
             kernel.create_notification(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_notification_id = kernel.handle_id(tcb, own_notification)?;
-        self.notifications.push(Some(own_notification_id));
         let device_factory = if device_authority {
             Some(kernel.create_device_grant_factory(tcb, Rights::READ | Rights::TRANSFER)?)
         } else {
             None
         };
 
+        if reuse {
+            self.endpoints[index] = Some(own_id);
+            self.notifications[index] = Some(own_notification_id);
+        } else {
+            self.endpoints.push(Some(own_id));
+            self.notifications.push(Some(own_notification_id));
+        }
         let (handles, notifications) =
             self.endpoint_views(tcb, index, Some(own), Some(own_notification));
-        self.append_endpoint(own_id, own_notification_id);
+        if reuse {
+            self.replace_endpoint(index, own_id, own_notification_id);
+        } else {
+            self.append_endpoint(own_id, own_notification_id);
+        }
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        let allocation_capacity = self
+        let user_capacity = self
             .platform
             .user_capacity()
             .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+        let capacity_handle = self.kernel.create_capacity_shared(
+            tcb,
+            user_capacity,
+            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+        )?;
         let mut process = Process::new(
             arena_base,
             arena_size,
             self.platform.memory_limit(index),
-            allocation_capacity,
+            capacity_handle,
         );
         process.map_arena(&self.kernel, tcb)?;
         process.device_factory = device_factory;
@@ -64,8 +112,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
         });
         task.leader = index;
-        self.tasks.push(task);
-        self.processes.push(Some(process));
+        task.capacities.push(Some(capacity_handle));
+        if reuse {
+            self.tasks[index] = task;
+            self.processes[index] = Some(process);
+        } else {
+            self.tasks.push(task);
+            self.processes.push(Some(process));
+        }
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }
@@ -128,6 +182,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         for (index, task) in self.tasks.iter_mut().enumerate() {
             if index == slot || task.exited {
                 continue;
+            }
+            if let Some(old) = task.handles.get(slot).and_then(|handle| *handle) {
+                let _ = kernel.close_handle(task.tcb, old);
+            }
+            if let Some(old) = task.notifications.get(slot).and_then(|handle| *handle) {
+                let _ = kernel.close_handle(task.tcb, old);
             }
             let endpoint_handle = kernel.grant(task.tcb, endpoint, rights).ok();
             if let Some(handle) = task.handles.get_mut(slot) {
@@ -426,15 +486,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.endpoint_views(tcb, slot, Some(own), Some(own_notification));
 
         let (arena_base, arena_size) = self.platform.arena_layout(slot);
-        let allocation_capacity = self
+        let user_capacity = self
             .platform
             .user_capacity()
             .ok_or_else(|| String::from("缺少 User Capacity"))?;
+        let capacity_handle = self
+            .kernel
+            .create_capacity_shared(
+                tcb,
+                user_capacity,
+                Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
+            )
+            .map_err(|error| format!("{error}"))?;
         let mut process = Process::new(
             arena_base,
             arena_size,
             self.platform.memory_limit(slot),
-            allocation_capacity,
+            capacity_handle,
         );
         process.arena.set_used(arena_used);
         process
@@ -454,6 +522,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
         });
         task.leader = slot;
+        task.capacities.push(Some(capacity_handle));
         self.processes[slot] = Some(process);
         self.tasks[slot] = task;
         let _ = self.kernel.activate(tcb);
@@ -545,8 +614,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let name = format!("{}-fork", self.tasks[index].name);
         let arena = self.process(index).arena;
         let ledger_limit = self.process(index).ledger.limit();
-        let allocation_capacity = self.process(index).allocation_capacity.clone();
-        let mut process = Process::new(0, 0, ledger_limit, allocation_capacity);
+        let parent_capacity = self.process(index).allocation_capacity;
+        let Ok(capacity_object) = self.kernel.handle_id(tcb, parent_capacity) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(capacity_rights) =
+            self.kernel
+                .handle_rights(tcb, parent_capacity, hk_handle::ObjectKind::Capacity)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let child_capacity = match self.kernel.grant(child, capacity_object, capacity_rights) {
+            Ok(handle) => handle,
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+        };
+        let mut process = Process::new(0, 0, ledger_limit, child_capacity);
         process.arena = arena;
         if process.ledger.charge(arena.used()).is_err()
             || process.map_arena(&self.kernel, child).is_err()
@@ -555,7 +642,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         process.cow_pages = self.process(index).cow_pages.clone();
-        process.allocation_capacity = self.process(index).allocation_capacity.clone();
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,
@@ -566,6 +652,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
         });
         task.leader = child_index;
+        task.capacities.push(Some(child_capacity));
         self.tasks.push(task);
         self.processes.push(Some(process));
         self.fork_regions(index, child_index);

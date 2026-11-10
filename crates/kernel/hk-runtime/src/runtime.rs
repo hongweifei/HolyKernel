@@ -7,7 +7,6 @@
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_base::CivilTime;
@@ -17,8 +16,7 @@ use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{
-    Arena as HmpArena, Capability, CapabilityKind, Capacity, Charge, HmpError, Ledger, Region,
-    RegionFlags,
+    Arena as HmpArena, Capability, CapabilityKind, Charge, HmpError, Ledger, Region, RegionFlags,
 };
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
@@ -108,8 +106,8 @@ pub(crate) struct Process {
     pub arena_region: Option<RegionMap>,
     /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页。
     pub cow_pages: BTreeMap<(u64, usize), hk_hal::PhysRange>,
-    /// 进程能力分配的容量；启动时由服务授予，fork/restore 继承。
-    pub allocation_capacity: Arc<spin::Mutex<Capacity>>,
+    /// 进程能力分配使用的 Capacity 句柄；关闭句柄即撤销分配权。
+    pub allocation_capacity: Handle,
     pub device_factory: Option<Handle>,
 }
 
@@ -118,7 +116,7 @@ impl Process {
         arena_base: u64,
         arena_size: u64,
         ledger_limit: u64,
-        allocation_capacity: Arc<spin::Mutex<Capacity>>,
+        allocation_capacity: Handle,
     ) -> Self {
         Self {
             hmp_arena: HmpArena::create(VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)

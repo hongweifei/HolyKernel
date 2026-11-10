@@ -1094,8 +1094,8 @@ fn exit_releases_peer_endpoint_handles() {
     let tasks = runtime.tasks();
     assert_eq!(tasks[index].handles, 0);
     assert_eq!(tasks[other].handles, before);
-    // 退出的端点与通知对象已释放，不再授予新任务。
-    assert_eq!(tasks[2].handles, 4 + ARENA_HANDLES);
+    // 退出的端点与通知对象已释放，不再授予新任务；新任务另有初始 Capacity。
+    assert_eq!(tasks[2].handles, 5 + ARENA_HANDLES);
 }
 
 #[test]
@@ -1502,6 +1502,62 @@ fn duplicate_capability_does_not_double_charge() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(runtime.process(index).ledger.charged(), before);
     let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn closing_capacity_handle_revokes_allocation() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let before = runtime.process(index).ledger.charged();
+
+    context.rax = hk_syscall::SYS_HANDLE_CLOSE;
+    context.rdi = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "关闭 Capacity 后不能再分配");
+    assert_eq!(runtime.process(index).ledger.charged(), before);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn restart_reuses_exited_slot() {
+    let mut runtime = runtime();
+    let slot = runtime
+        .tasks
+        .iter()
+        .position(|task| task.name == "b")
+        .expect("服务 b");
+    let count = runtime.task_count();
+    for _ in 0..4 {
+        assert!(runtime.terminate("b", 0));
+        assert!(runtime.tasks[slot].exited);
+        assert_eq!(runtime.reuse_slot("b"), slot);
+        assert_eq!(runtime.process(slot).ledger.charged(), 0);
+
+        let endpoint = runtime
+            .start_at(
+                slot,
+                "b",
+                false,
+                hk_cadence::DEFAULT_SPEC,
+                MockContext::default(),
+                None,
+            )
+            .expect("重启服务");
+        assert_eq!(endpoint, slot as u64 + 1);
+        assert_eq!(runtime.task_count(), count, "重启必须复用槽位");
+        assert_eq!(runtime.tasks[slot].name, "b");
+        assert!(!runtime.tasks[slot].exited);
+        assert_eq!(runtime.process(slot).ledger.charged(), 0);
+        assert!(runtime.tasks[slot].capacities[0].is_some());
+    }
 }
 
 #[test]

@@ -132,6 +132,41 @@ impl PhysicalBackend for FrameBank {
         true
     }
 
+    fn reclaim_capacity(
+        &self,
+        owner: CapacityId,
+        parent: Option<CapacityId>,
+        limit: u64,
+    ) -> Result<(), HmpError> {
+        let mut inner = self.inner.lock();
+        if inner.used_for(owner) != 0 {
+            return Err(HmpError::PermissionDenied);
+        }
+        let windows: Vec<PhysRange> = inner
+            .owned
+            .iter()
+            .filter(|(_, window)| window.capacity == owner)
+            .map(|(_, window)| window.range)
+            .collect();
+        for range in &windows {
+            inner.owned.remove(&range.start().get());
+        }
+        if let Some(parent) = parent {
+            for range in windows {
+                inner.attach_window(parent, range);
+            }
+            if inner.ledger_kinds.get(&parent) != Some(&CapacityKind::System)
+                && let Some(ledger) = inner.ledgers.get_mut(&parent)
+            {
+                ledger.set_limit(ledger.limit().saturating_add(limit));
+            }
+        }
+        inner.ledgers.remove(&owner);
+        inner.ledger_kinds.remove(&owner);
+        inner.peaks.remove(&owner);
+        Ok(())
+    }
+
     fn used_owned(&self, owner: CapacityId) -> u64 {
         self.inner.lock().used_for(owner)
     }

@@ -94,13 +94,8 @@ where
                 kernel.create_capacity_shared(service.tcb, capacity, rights)?
             }
         };
-        let allocation_capacity = kernel.capacity_ref(service.tcb, handle)?;
-        let mut process = Process::new(
-            arena_base,
-            arena_size,
-            platform.memory_limit(index),
-            allocation_capacity,
-        );
+        let mut process =
+            Process::new(arena_base, arena_size, platform.memory_limit(index), handle);
         process.device_factory = factory;
         process.map_arena(&kernel, service.tcb)?;
         let mut task = UserTask::new(TaskInit {

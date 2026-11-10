@@ -311,6 +311,37 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         result
     }
 
+    /// 返回可复用的任务槽位；同名服务已退出时复用原槽位。
+    pub fn reuse_slot(&self, name: &str) -> usize {
+        self.runtime
+            .lock()
+            .as_ref()
+            .map_or(0, |runtime| runtime.reuse_slot(name))
+    }
+
+    /// 在指定槽位装载任务；已退出的槽位会被复用。
+    pub fn start_at(
+        &self,
+        name: &str,
+        slot: usize,
+        device_authority: bool,
+        cadence: CadenceSpec,
+        context: C,
+        parent: Option<u64>,
+    ) -> Result<u64, String> {
+        let result = {
+            let mut guard = self.runtime.lock();
+            let runtime = guard
+                .as_mut()
+                .ok_or_else(|| String::from("运行时未初始化"))?;
+            runtime
+                .start_at(slot, name, device_authority, cadence, context, parent)
+                .map_err(|error| format!("{error}"))
+        };
+        self.wake_aps();
+        result
+    }
+
     /// 授予具名服务的调度策略授权。
     pub fn grant_policy_authority(&self, name: &str) -> bool {
         self.runtime

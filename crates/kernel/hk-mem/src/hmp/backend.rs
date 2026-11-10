@@ -35,6 +35,19 @@ pub trait PhysicalBackend: Send + Sync {
     /// 从指定容量名下归还一段物理区间。
     fn release_owned(&self, owner: CapacityId, range: PhysRange) -> bool;
 
+    /// 归还容量名下的全部窗口与 Ledger。
+    ///
+    /// 容量已无未归还分配时，把窗口重新归到父容量（或变为未归属），并把
+    /// `limit` 加回父容量 Ledger。容量仍有分配时必须拒绝。
+    fn reclaim_capacity(
+        &self,
+        _owner: CapacityId,
+        _parent: Option<CapacityId>,
+        _limit: u64,
+    ) -> Result<(), HmpError> {
+        Ok(())
+    }
+
     /// 返回指定容量名下的已用字节数。
     fn used_owned(&self, owner: CapacityId) -> u64;
 

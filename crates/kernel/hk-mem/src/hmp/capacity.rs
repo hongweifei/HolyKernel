@@ -84,6 +84,8 @@ pub struct Capacity {
     peak: u64,
     free: Vec<PhysRange>,
     next: u64,
+    /// 已通过 `merge` 显式并回父容量；析构时不再重复归还。
+    released: bool,
 }
 
 impl Capacity {
@@ -137,6 +139,7 @@ impl Capacity {
             peak: 0,
             free: Vec::new(),
             next: range.start().get(),
+            released: false,
         };
         if let Some(backend) = super::backend::physical_backend() {
             backend.register_ledger(id, limit);
@@ -344,7 +347,7 @@ impl Capacity {
     ///
     /// 子 Capacity 的 Frame 必须全部归还（权威用量为零），否则拒绝。只有
     /// 确认已清空才通知后端归还窗口，保证子容量名下的分配不会丢失归属。
-    pub fn merge(&mut self, child: &Capacity) -> Result<(), HmpError> {
+    pub fn merge(&mut self, child: &mut Capacity) -> Result<(), HmpError> {
         if child.id == self.id {
             return Err(HmpError::WrongCapability);
         }
@@ -368,6 +371,7 @@ impl Capacity {
                 backend.set_ledger_limit(self.id, self.limit());
             }
             backend.remove_ledger(child.id);
+            child.released = true;
             return Ok(());
         }
 
@@ -388,6 +392,7 @@ impl Capacity {
             self.coalesce();
         }
         self.set_limit(self.limit().saturating_add(child.limit()));
+        child.released = true;
         Ok(())
     }
 
@@ -475,6 +480,24 @@ impl Capacity {
             merged.push(range);
         }
         self.free = merged;
+    }
+}
+
+impl Drop for Capacity {
+    fn drop(&mut self) {
+        if self.released {
+            return;
+        }
+        let limit = self.limit();
+        let released = match super::backend::physical_backend() {
+            Some(backend) => backend
+                .reclaim_capacity(self.id, self.parent, limit)
+                .is_ok(),
+            None => true,
+        };
+        if released && let Some(parent_limit) = self.parent_limit.take() {
+            parent_limit.fetch_add(limit, Ordering::AcqRel);
+        }
     }
 }
 
@@ -672,12 +695,12 @@ mod tests {
     #[test]
     fn merges_empty_child_back_into_tail() {
         let mut parent = capacity();
-        let child = parent
+        let mut child = parent
             .split(CapacityId::new(2), 0x4000, CapacityKind::User)
             .expect("子 Capacity");
         assert_eq!(parent.used(), 0);
 
-        parent.merge(&child).expect("并回尾部");
+        parent.merge(&mut child).expect("并回尾部");
         assert_eq!(parent.used(), 0);
         let frame = parent.allocate(0x4000).expect("并回后分配");
         assert_eq!(frame.phys(), PhysAddr::new(0x10_0000));
@@ -687,19 +710,22 @@ mod tests {
     fn split_reduces_parent_limit_and_merge_restores() {
         let mut parent = capacity();
         let original = parent.limit();
-        let child = parent
+        let mut child = parent
             .split(CapacityId::new(2), 0x4000, CapacityKind::User)
             .expect("子 Capacity");
         assert_eq!(parent.limit(), original - 0x4000);
-        parent.merge(&child).expect("并回");
+        parent.merge(&mut child).expect("并回");
         assert_eq!(parent.limit(), original);
     }
 
     #[test]
     fn merge_rejects_unrelated_empty_capacity() {
         let mut first = capacity();
-        let second = capacity_with_id(2);
-        assert_eq!(first.merge(&second).err(), Some(HmpError::WrongCapability));
+        let mut second = capacity_with_id(2);
+        assert_eq!(
+            first.merge(&mut second).err(),
+            Some(HmpError::WrongCapability)
+        );
     }
 
     #[test]
@@ -709,7 +735,10 @@ mod tests {
             .split(CapacityId::new(2), 0x4000, CapacityKind::User)
             .expect("子 Capacity");
         let _frame = child.allocate(4096).expect("子分配");
-        assert_eq!(parent.merge(&child).err(), Some(HmpError::PermissionDenied));
+        assert_eq!(
+            parent.merge(&mut child).err(),
+            Some(HmpError::PermissionDenied)
+        );
     }
 
     #[test]
@@ -721,7 +750,7 @@ mod tests {
         let frame = child.allocate(4096).expect("子分配");
         let mut frame = Some(frame);
         child.free(&mut frame).expect("归还子页");
-        parent.merge(&child).expect("并回尾部");
+        parent.merge(&mut child).expect("并回尾部");
 
         // 子容量切走的区间回到父容量，父容量可以再次切出同等子容量。
         let again = parent

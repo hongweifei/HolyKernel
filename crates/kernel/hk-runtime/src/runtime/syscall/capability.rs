@@ -8,7 +8,9 @@ use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(super) fn allocate_owned(&mut self, index: usize, len: u64) -> Option<FrameBacking> {
-        let capacity = self.process(index).allocation_capacity.clone();
+        let tcb = self.tasks[index].tcb;
+        let handle = self.process(index).allocation_capacity;
+        let capacity = self.kernel.capacity_ref(tcb, handle).ok()?;
         let allocated = { capacity.lock().allocate(len as usize) };
         let frame = match allocated {
             Ok(frame) => frame,

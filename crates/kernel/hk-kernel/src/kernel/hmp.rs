@@ -376,10 +376,10 @@ impl Kernel {
         let child_lock = child_object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;
-        let child_capacity = child_lock.lock();
+        let mut child_capacity = child_lock.lock();
         parent_lock
             .lock()
-            .merge(&child_capacity)
+            .merge(&mut child_capacity)
             .map_err(KernelError::Hmp)
     }
 
