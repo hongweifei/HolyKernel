@@ -81,7 +81,7 @@ pub struct ServiceManifest {
 ## 3. Root Server
 
 - 启动时获得初始 Capacity、Cadence、HandleTable、Endpoint 与设备句柄。
-- 持有 System / User / Dma / Gpu 顶层 Capacity 与初始 Cadence 池；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle 与 Cadence Handle。Memory Server 取得 User Capacity 子集，驱动取得 Dma/Gpu Capacity 子集，普通服务取得 TaskImage/Anonymous/栈 Region。
+- 持有 System / User / Dma / Gpu 顶层 Capacity 与初始 Cadence 池；按服务清单拆分并转移收窄后的 Capacity/Frame/Capability Handle 与 Cadence Handle。每个服务启动时取得顶层 User Capacity（驱动可被 Dma 覆盖），Memory Server 共享同一 User Capacity，普通服务再取得 TaskImage/Anonymous/栈 Region。
 - 解析服务清单，创建服务器 Task/TCB，附加 Cadence，按原生任务镜像的 Task 清单加载并分配 Handle；Capability 决定设备授权，Symbol 注册到 Debug Server。
 - 维护服务表：Task、Cadence、Meter、状态、重启次数、Endpoint、Handle。
 - 维护每 Task/服务器的 Handle 配额、使用量与峰值；异常增长触发告警。
@@ -104,7 +104,7 @@ pub struct ServiceManifest {
 
 ### 3.2 Memory Server
 
-- Root Server 建立顶层 User Capacity（初始只切一个页窗口，分配不足时 `Capacity::grow` 从 System 扩窗），并以共享视图授予 Memory Server（句柄 `0x5001`）。
+- Root Server 建立顶层 User Capacity（初始只切一个页窗口，分配不足时 `Capacity::grow` 从 System 扩窗），以共享视图授予每个服务；Memory Server 的初始句柄为 `0x5001`。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
 - `MEMORY_FRAME` 从授予的 User Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
 - 缺页请求 `PROVIDER_FAULT` 通过 `SYS_CAPACITY_ALLOC` 分配 Frame，`PROVIDER_PROVIDE` 返回 Frame 句柄；内核取得归属并装入能力页，回收时归还 Capacity。

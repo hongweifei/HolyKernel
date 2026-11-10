@@ -329,11 +329,7 @@ pub fn run(
             } else {
                 ServiceSpec::new(name)
             };
-            if *name == "hk-server-memory" {
-                // 共享 Root 建立的顶层 User Capacity；该容量只预切一个页窗口，
-                // 分配不足时 `Capacity::grow` 从 System 动态扩窗。
-                spec = spec.with_user_capacity();
-            } else if device {
+            if device {
                 spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
             }
             let mut spec = spec.with_cadence(hk_catalog::default_cadence(name));

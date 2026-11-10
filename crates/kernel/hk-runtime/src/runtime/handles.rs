@@ -34,15 +34,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
     pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
-        type ForkRegionEntry = (
-            Handle,
-            Handle,
-            u64,
-            usize,
-            u64,
-            hk_mem::hmp::RegionFlags,
-            alloc::collections::BTreeMap<usize, hk_hal::PhysRange>,
-        );
+        type ForkRegionEntry = (Handle, Handle, u64, usize, u64, hk_mem::hmp::RegionFlags);
         let entries: Vec<ForkRegionEntry> = self
             .process(parent)
             .regions
@@ -56,30 +48,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     region.len,
                     region.offset,
                     region.flags,
-                    region.pages.clone(),
                 )
             })
             .collect();
         let parent_tcb = self.tasks[parent].tcb;
         let child_tcb = self.tasks[child].tcb;
-        for (region_handle, capability_handle, virt, len, offset, flags, pages) in entries {
+        for (region_handle, capability_handle, virt, len, offset, flags) in entries {
             if flags.contains(hk_mem::hmp::RegionFlags::DONT_FORK) {
                 // 子地址空间在 fork 时已复制 PTE；DONT_FORK 要求在子侧解除。
                 let _ = self.platform.unmap_user(child, virt, len);
                 continue;
             }
-            let capability_rights = self
-                .kernel
-                .handle_rights(
-                    parent_tcb,
-                    capability_handle,
-                    hk_handle::ObjectKind::Capability,
-                )
-                .unwrap_or(Rights::READ | Rights::WRITE | Rights::TRANSFER);
-            let region_handle_rights = self
-                .kernel
-                .handle_rights(parent_tcb, region_handle, hk_handle::ObjectKind::Region)
-                .unwrap_or(Rights::READ | Rights::WRITE | Rights::ADMIN);
+            let Ok(capability_rights) = self.kernel.handle_rights(
+                parent_tcb,
+                capability_handle,
+                hk_handle::ObjectKind::Capability,
+            ) else {
+                continue;
+            };
+            let Ok(region_handle_rights) =
+                self.kernel
+                    .handle_rights(parent_tcb, region_handle, hk_handle::ObjectKind::Region)
+            else {
+                continue;
+            };
             let Ok(capability_id) = self.kernel.handle_id(parent_tcb, capability_handle) else {
                 continue;
             };
@@ -130,7 +122,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             self.install_capability(child, capability, charge);
-            let installed = self.install_region(
+            self.install_region(
                 child,
                 child_region,
                 capability,
@@ -142,17 +134,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 region_rights,
                 region_flags,
             );
-            if let Some(slot) = installed
-                .checked_sub(REGION_HANDLE_BASE as u64 + 1)
-                .and_then(|slot| usize::try_from(slot).ok())
-                && let Some(map) = self
-                    .process_mut(child)
-                    .regions
-                    .get_mut(slot)
-                    .and_then(|region| region.as_mut())
-            {
-                map.pages = pages;
-            }
         }
     }
 
@@ -244,7 +225,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             offset,
             rights,
             flags,
-            pages: BTreeMap::new(),
         };
         self.process_mut(index).regions[slot] = Some(map);
         (REGION_HANDLE_BASE + slot + 1) as u64

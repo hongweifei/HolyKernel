@@ -736,19 +736,18 @@ impl FrameBank {
         inner
             .ledgers
             .iter()
-            .map(|(owner, ledger)| LedgerStats {
-                capacity: *owner,
-                kind: inner
-                    .ledger_kinds
-                    .get(owner)
-                    .copied()
-                    .unwrap_or(CapacityKind::System),
-                used: ledger.charged(),
-                limit: ledger.limit(),
-                peak: ledger.peak(),
-                resident: ledger.resident(),
-                soft_limit: ledger.soft_limit(),
-                pressure: ledger.pressure(),
+            .filter_map(|(owner, ledger)| {
+                let kind = *inner.ledger_kinds.get(owner)?;
+                Some(LedgerStats {
+                    capacity: *owner,
+                    kind,
+                    used: ledger.charged(),
+                    limit: ledger.limit(),
+                    peak: ledger.peak(),
+                    resident: ledger.resident(),
+                    soft_limit: ledger.soft_limit(),
+                    pressure: ledger.pressure(),
+                })
             })
             .collect()
     }

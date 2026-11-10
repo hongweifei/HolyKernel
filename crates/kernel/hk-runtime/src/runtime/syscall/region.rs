@@ -18,12 +18,10 @@ struct FaultRegion {
     offset: u64,
     rights: Rights,
     flags: RegionFlags,
-    /// `Process.regions` 中的槽位；Arena 覆盖 Region 为 `None`。
-    slot: Option<usize>,
 }
 
 /// 判断地址是否落在 Region 内，命中时返回解析缺页所需的快照。
-fn fault_region(region: &RegionMap, address: u64, slot: Option<usize>) -> Option<FaultRegion> {
+fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
     let end = region.virt.checked_add(region.len as u64)?;
     (address >= region.virt && address < end).then_some(FaultRegion {
         tcb: region.owner,
@@ -32,7 +30,6 @@ fn fault_region(region: &RegionMap, address: u64, slot: Option<usize>) -> Option
         offset: region.offset,
         rights: region.rights,
         flags: region.flags,
-        slot,
     })
 }
 
@@ -183,12 +180,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .capability(owner, capability)
             .ok()
             .and_then(|(_, backing)| backing);
-        let has_overrides = self
-            .process(index)
-            .regions
-            .get(slot)
-            .and_then(|region| region.as_ref())
-            .is_some_and(|region| !region.pages.is_empty());
+        let capability_id = self
+            .kernel
+            .handle_id(owner, capability)
+            .ok()
+            .map(|id| id.get());
+        let has_overrides = capability_id.is_some_and(|id| {
+            self.process(index)
+                .cow_pages
+                .keys()
+                .any(|(owner, _)| *owner == id)
+        });
         if let Some(backing) = backing
             && !has_overrides
         {
@@ -207,24 +209,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let mut relative = 0_u64;
             while relative < length as u64 {
                 let page_index = (offset.saturating_add(relative) / page) as usize;
-                let capability_id = self
-                    .kernel
-                    .handle_id(owner, capability)
-                    .ok()
-                    .map(|id| id.get());
                 let page_range = capability_id
                     .and_then(|id| {
                         self.process(index)
                             .cow_pages
                             .get(&(id, page_index))
-                            .copied()
-                    })
-                    .or_else(|| {
-                        self.process(index)
-                            .regions
-                            .get(slot)
-                            .and_then(|region| region.as_ref())
-                            .and_then(|region| region.pages.get(&page_index))
                             .copied()
                     })
                     .or_else(|| {
@@ -462,18 +451,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         process
             .regions
             .iter()
-            .enumerate()
-            .filter_map(|(slot, region)| {
-                region
-                    .as_ref()
-                    .and_then(|region| fault_region(region, address, Some(slot)))
-            })
-            .next()
+            .flatten()
+            .find_map(|region| fault_region(region, address))
             .or_else(|| {
                 process
                     .arena_region
                     .as_ref()
-                    .and_then(|region| fault_region(region, address, None))
+                    .and_then(|region| fault_region(region, address))
             })
     }
 
@@ -638,18 +622,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .cow_pages
                         .insert((id.get(), page_index), range);
                 }
-                if let Some(slot) = region.slot {
-                    if let Some(map) = self
-                        .process_mut(index)
-                        .regions
-                        .get_mut(slot)
-                        .and_then(|region| region.as_mut())
-                    {
-                        map.pages.insert(page_index, range);
-                    }
-                } else if let Some(map) = self.process_mut(index).arena_region.as_mut() {
-                    map.pages.insert(page_index, range);
-                }
                 true
             }
             Some(crate::runtime::CowOutcome::Writable) => true,
@@ -702,36 +674,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let page_address = region.page_address(offset);
         let page_index = (offset / page) as usize;
-        // COW 私有页覆盖优先于共享 capability 页；先查进程级覆盖，
-        // 再回退到 Region 自己的覆盖表。
+        // COW 私有页覆盖优先于共享 capability 页。
         let capability_id = self
             .kernel
             .handle_id(region.tcb, region.capability)
             .ok()
             .map(|id| id.get());
-        let overridden = capability_id
-            .and_then(|id| {
-                self.process(index)
-                    .cow_pages
-                    .get(&(id, page_index))
-                    .copied()
-            })
-            .or_else(|| {
-                if let Some(slot) = region.slot {
-                    self.process(index)
-                        .regions
-                        .get(slot)
-                        .and_then(|region| region.as_ref())
-                        .and_then(|region| region.pages.get(&page_index))
-                        .copied()
-                } else {
-                    self.process(index)
-                        .arena_region
-                        .as_ref()
-                        .and_then(|region| region.pages.get(&page_index))
-                        .copied()
-                }
-            });
+        let overridden = capability_id.and_then(|id| {
+            self.process(index)
+                .cow_pages
+                .get(&(id, page_index))
+                .copied()
+        });
         if let Some(range) = overridden {
             if !self.platform.user_mapped(page_address) {
                 let _ = self.platform.map_user(

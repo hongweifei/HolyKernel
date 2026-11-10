@@ -42,7 +42,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.append_endpoint(own_id, own_notification_id);
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(index));
+        let allocation_capacity = self
+            .platform
+            .user_capacity()
+            .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+        let mut process = Process::new(
+            arena_base,
+            arena_size,
+            self.platform.memory_limit(index),
+            allocation_capacity,
+        );
         process.map_arena(&self.kernel, tcb)?;
         process.device_factory = device_factory;
         let mut task = UserTask::new(TaskInit {
@@ -417,7 +426,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.endpoint_views(tcb, slot, Some(own), Some(own_notification));
 
         let (arena_base, arena_size) = self.platform.arena_layout(slot);
-        let mut process = Process::new(arena_base, arena_size, self.platform.memory_limit(slot));
+        let allocation_capacity = self
+            .platform
+            .user_capacity()
+            .ok_or_else(|| String::from("缺少 User Capacity"))?;
+        let mut process = Process::new(
+            arena_base,
+            arena_size,
+            self.platform.memory_limit(slot),
+            allocation_capacity,
+        );
         process.arena.set_used(arena_used);
         process
             .ledger
@@ -527,7 +545,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let name = format!("{}-fork", self.tasks[index].name);
         let arena = self.process(index).arena;
         let ledger_limit = self.process(index).ledger.limit();
-        let mut process = Process::new(0, 0, ledger_limit);
+        let allocation_capacity = self.process(index).allocation_capacity.clone();
+        let mut process = Process::new(0, 0, ledger_limit, allocation_capacity);
         process.arena = arena;
         if process.ledger.charge(arena.used()).is_err()
             || process.map_arena(&self.kernel, child).is_err()
@@ -535,12 +554,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        if let Some(parent_region) = self.process(index).arena_region.as_ref()
-            && let Some(child_region) = process.arena_region.as_mut()
-        {
-            child_region.pages = parent_region.pages.clone();
-        }
         process.cow_pages = self.process(index).cow_pages.clone();
+        process.allocation_capacity = self.process(index).allocation_capacity.clone();
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,

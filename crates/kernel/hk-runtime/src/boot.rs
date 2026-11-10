@@ -79,7 +79,28 @@ where
         } else {
             None
         };
-        let mut process = Process::new(arena_base, arena_size, platform.memory_limit(index));
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+        let handle = match specs[index].capacity {
+            CapacityGrant::Split(kind, bytes) => {
+                let capacity = platform
+                    .reserve_capacity(bytes, kind)
+                    .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+                kernel.create_capacity(service.tcb, capacity, rights)?
+            }
+            CapacityGrant::User => {
+                let capacity = platform
+                    .user_capacity()
+                    .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+                kernel.create_capacity_shared(service.tcb, capacity, rights)?
+            }
+        };
+        let allocation_capacity = kernel.capacity_ref(service.tcb, handle)?;
+        let mut process = Process::new(
+            arena_base,
+            arena_size,
+            platform.memory_limit(index),
+            allocation_capacity,
+        );
         process.device_factory = factory;
         process.map_arena(&kernel, service.tcb)?;
         let mut task = UserTask::new(TaskInit {
@@ -91,31 +112,7 @@ where
             notifications: notification_handles,
             context,
         });
-        if let Some(grant) = specs[index].capacity {
-            let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
-            let handle = match grant {
-                CapacityGrant::Split(kind, bytes) => {
-                    platform.reserve_capacity(bytes, kind).and_then(|capacity| {
-                        kernel.create_capacity(service.tcb, capacity, rights).ok()
-                    })
-                }
-                // 共享视图与内核默认匿名容量是同一个对象：Memory Server 的
-                // MEMORY_ALLOC、MEMORY_FRAME 与 Provider 页因此落在同一本账上。
-                CapacityGrant::System => platform.system_capacity().and_then(|capacity| {
-                    kernel
-                        .create_capacity_shared(service.tcb, capacity, rights)
-                        .ok()
-                }),
-                CapacityGrant::User => platform.user_capacity().and_then(|capacity| {
-                    kernel
-                        .create_capacity_shared(service.tcb, capacity, rights)
-                        .ok()
-                }),
-            };
-            if let Some(handle) = handle {
-                task.capacities.push(Some(handle));
-            }
-        }
+        task.capacities.push(Some(handle));
         tasks.push(task);
         processes.push(Some(process));
     }

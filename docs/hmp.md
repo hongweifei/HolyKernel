@@ -143,7 +143,7 @@ Capacity 是物理容量的授予单位。
 - 声明配额、可回收属性与所属 Ledger。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Capacity 是记账边界：所有 Frame、Arena、Region 与对象元数据最终计入某个 Ledger。
-- Root Server 持有初始 Capacity；Memory Server 持有 User Capacity，驱动持有 Dma/Gpu Capacity，内核持有 System Capacity。
+- Root Server 持有初始 Capacity；每个服务启动时取得顶层 User Capacity，Memory Server 共享 User Capacity 并提供匿名页，驱动可取得 Dma/Gpu Capacity，内核持有 System Capacity。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
 ---

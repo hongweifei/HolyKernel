@@ -31,8 +31,6 @@ const ROOT_CADENCE: CadenceSpec =
 pub enum CapacityGrant {
     /// 从 System Capacity 尾部切出一段独立子容量。
     Split(CapacityKind, usize),
-    /// 授予启动期建立的 System Capacity 共享视图。
-    System,
     /// 授予启动期建立的顶层 User Capacity 共享视图。
     User,
 }
@@ -44,8 +42,8 @@ pub struct ServiceSpec {
     pub name: &'static str,
     /// 是否允许通过设备授权工厂创建 DeviceGrant。
     pub device_authority: bool,
-    /// 初始 Capacity 授予。
-    pub capacity: Option<CapacityGrant>,
+    /// 初始 Capacity 授予；每个服务必须有可分配的 Capacity。
+    pub capacity: CapacityGrant,
     /// 初始 Cadence 契约。
     pub cadence: CadenceSpec,
     /// 是否持有调度策略授权；由 Root 在启动时授予 Tempo。
@@ -58,7 +56,7 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: false,
-            capacity: None,
+            capacity: CapacityGrant::User,
             cadence: DEFAULT_SPEC,
             policy_authority: false,
         }
@@ -69,7 +67,7 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: true,
-            capacity: None,
+            capacity: CapacityGrant::User,
             cadence: DEFAULT_SPEC,
             policy_authority: false,
         }
@@ -77,19 +75,7 @@ impl ServiceSpec {
 
     /// 声明初始 Capacity 授予：从 System Capacity 尾部切出独立子容量。
     pub const fn with_capacity(mut self, kind: CapacityKind, bytes: usize) -> Self {
-        self.capacity = Some(CapacityGrant::Split(kind, bytes));
-        self
-    }
-
-    /// 授予启动期建立的 System Capacity 共享视图。
-    pub const fn with_system_capacity(mut self) -> Self {
-        self.capacity = Some(CapacityGrant::System);
-        self
-    }
-
-    /// 授予启动期建立的顶层 User Capacity 共享视图。
-    pub const fn with_user_capacity(mut self) -> Self {
-        self.capacity = Some(CapacityGrant::User);
+        self.capacity = CapacityGrant::Split(kind, bytes);
         self
     }
 

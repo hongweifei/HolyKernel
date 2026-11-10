@@ -94,6 +94,8 @@ struct MockPlatform {
     last_map: Arc<core::sync::atomic::AtomicU64>,
     /// 共享的 System Capacity。
     system: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
+    /// 共享的顶层 User Capacity。
+    user: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
     /// 每槽位捕获的用户页，供检查点恢复测试。
     pages: Arc<spin::Mutex<alloc::collections::BTreeMap<usize, Vec<hk_checkpoint::Page>>>>,
     /// 解除映射调用次数。
@@ -118,6 +120,14 @@ impl MockPlatform {
             0,
         )
         .expect("System Capacity");
+        let user = hk_mem::hmp::Capacity::new(
+            hk_mem::hmp::CapacityId::next(),
+            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), 0x20_0000),
+            hk_hal::PAGE_SIZE,
+            hk_mem::hmp::CapacityKind::User,
+            0,
+        )
+        .expect("User Capacity");
         Self {
             zero: true,
             shared: false,
@@ -125,6 +135,7 @@ impl MockPlatform {
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
             system: Arc::new(spin::Mutex::new(system)),
+            user: Arc::new(spin::Mutex::new(user)),
             pages: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
             unmapped: Arc::new(AtomicUsize::new(0)),
             released: Arc::new(AtomicUsize::new(0)),
@@ -176,6 +187,10 @@ impl UserPlatform for MockPlatform {
 
     fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         Some(Arc::clone(&self.system))
+    }
+
+    fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        Some(Arc::clone(&self.user))
     }
 
     fn map_user(
@@ -423,12 +438,6 @@ fn arms_wakeup_at_sleep_deadline() {
 #[test]
 fn memory_service_receives_user_capacity_subset() {
     let runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
-    let system = runtime
-        .system_capacity
-        .as_ref()
-        .expect("系统容量")
-        .lock()
-        .id();
     let granted = runtime.tasks[1]
         .capacities
         .iter()
@@ -443,11 +452,6 @@ fn memory_service_receives_user_capacity_subset() {
         .expect("Memory Server 持有容量");
     let granted = granted.lock();
     assert_eq!(granted.kind(), hk_mem::hmp::CapacityKind::User);
-    assert_ne!(
-        granted.id(),
-        system,
-        "Memory Server 不再持有 System 共享视图"
-    );
     assert_eq!(granted.limit(), 0x20_0000);
 }
 
@@ -677,7 +681,7 @@ fn transfers_handle_over_ipc() {
     assert_eq!(context.rdx, 5);
     assert_eq!(context.rcx, 1);
     assert_eq!(context.r8, (EXTRA_HANDLE_BASE + 1) as u64);
-    assert_eq!(runtime.tasks()[receiver].handles, 5 + ARENA_HANDLES);
+    assert_eq!(runtime.tasks()[receiver].handles, 6 + ARENA_HANDLES);
 }
 
 #[test]
@@ -1089,7 +1093,7 @@ fn exit_releases_peer_endpoint_handles() {
     };
     let other = 1 - index;
     let before = runtime.tasks()[other].handles;
-    assert_eq!(before, 4 + ARENA_HANDLES);
+    assert_eq!(before, 5 + ARENA_HANDLES);
 
     context.rax = SYS_EXIT;
     context.rdi = 0;
@@ -1158,6 +1162,19 @@ fn transports_byte_payloads() {
 
         fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
             test_system_capacity(self)
+        }
+
+        fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+            Some(Arc::new(spin::Mutex::new(
+                hk_mem::hmp::Capacity::new(
+                    hk_mem::hmp::CapacityId::next(),
+                    hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), 0x20_0000),
+                    hk_hal::PAGE_SIZE,
+                    hk_mem::hmp::CapacityKind::User,
+                    0,
+                )
+                .ok()?,
+            )))
         }
 
         fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
@@ -1503,7 +1520,7 @@ fn rejects_device_grant_without_authority() {
     context.rsi = hk_device::DEVICE_GRANT_BYTES as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
-    assert_eq!(runtime.tasks()[index].handles, 4 + ARENA_HANDLES);
+    assert_eq!(runtime.tasks()[index].handles, 5 + ARENA_HANDLES);
 }
 
 #[test]
@@ -1788,25 +1805,13 @@ fn cow_resolution_records_private_page_override() {
     assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
     assert!(runtime.resolve_cow(0, hk_base::user::AUTO_WINDOW_BASE));
 
-    let slot = runtime
-        .process(index)
-        .regions
-        .iter()
-        .position(Option::is_some)
-        .expect("Region");
-    let map = runtime.process(index).regions[slot].as_ref().unwrap();
-    assert_eq!(
-        map.pages.get(&0).map(|range| range.start().get()),
-        Some(0x7000_0000),
-        "COW 复制页必须登记为当前进程的私有覆盖"
-    );
     assert!(
         runtime
             .process(index)
             .cow_pages
             .values()
             .any(|range| range.start().get() == 0x7000_0000),
-        "进程级覆盖表也必须记录私有页"
+        "COW 复制页必须登记为进程私有覆盖"
     );
     runtime.teardown_process(index);
     assert!(
@@ -1843,18 +1848,6 @@ fn fork_copies_cow_private_page_overrides() {
         runtime.process(child).regions.iter().flatten().count(),
         1,
         "子 Region"
-    );
-    let child_map = runtime
-        .process(child)
-        .regions
-        .iter()
-        .flatten()
-        .next()
-        .unwrap();
-    assert_eq!(
-        child_map.pages.get(&0).map(|range| range.start().get()),
-        Some(0x7000_1000),
-        "fork 必须复制私有页覆盖"
     );
     assert!(
         runtime
@@ -2524,6 +2517,19 @@ impl UserPlatform for ShortPlatform {
 
     fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         test_system_capacity(self)
+    }
+
+    fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        Some(Arc::new(spin::Mutex::new(
+            hk_mem::hmp::Capacity::new(
+                hk_mem::hmp::CapacityId::next(),
+                hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), 0x20_0000),
+                hk_hal::PAGE_SIZE,
+                hk_mem::hmp::CapacityKind::User,
+                0,
+            )
+            .ok()?,
+        )))
     }
 
     fn memory_limit(&self, _slot: usize) -> u64 {

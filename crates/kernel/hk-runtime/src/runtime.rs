@@ -92,8 +92,6 @@ pub(crate) struct RegionMap {
     pub offset: u64,
     pub rights: Rights,
     pub flags: hk_mem::hmp::RegionFlags,
-    /// COW 私有页覆盖：能力页索引 → 本进程私有物理页。
-    pub pages: BTreeMap<usize, hk_hal::PhysRange>,
 }
 
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
@@ -108,11 +106,18 @@ pub(crate) struct Process {
     pub arena_region: Option<RegionMap>,
     /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页。
     pub cow_pages: BTreeMap<(u64, usize), hk_hal::PhysRange>,
+    /// 进程能力分配的容量；启动时由服务授予，fork/restore 继承。
+    pub allocation_capacity: Arc<spin::Mutex<Capacity>>,
     pub device_factory: Option<Handle>,
 }
 
 impl Process {
-    pub(crate) fn new(arena_base: u64, arena_size: u64, ledger_limit: u64) -> Self {
+    pub(crate) fn new(
+        arena_base: u64,
+        arena_size: u64,
+        ledger_limit: u64,
+        allocation_capacity: Arc<spin::Mutex<Capacity>>,
+    ) -> Self {
         Self {
             hmp_arena: HmpArena::create(VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)
                 .expect("用户 Arena 布局有效"),
@@ -123,6 +128,7 @@ impl Process {
             arena: Arena::new(arena_base, arena_size),
             arena_region: None,
             cow_pages: BTreeMap::new(),
+            allocation_capacity,
             device_factory: None,
         }
     }
@@ -185,7 +191,6 @@ impl Process {
             offset: 0,
             rights,
             flags: RegionFlags::empty(),
-            pages: BTreeMap::new(),
         });
         Ok(())
     }
@@ -251,7 +256,6 @@ pub struct UserRuntime<C, P> {
     run_start: [u64; MAX_CPUS],
     irq_routes: [u16; 256],
     console_subscriber: Option<usize>,
-    system_capacity: Option<Arc<spin::Mutex<Capacity>>>,
     platform: P,
 }
 
@@ -269,7 +273,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         for (index, task) in tasks.iter_mut().enumerate() {
             task.leader = index;
         }
-        let system_capacity = platform.system_capacity();
         Self {
             kernel,
             root,
@@ -297,7 +300,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             run_start: [0; MAX_CPUS],
             irq_routes: [0; 256],
             console_subscriber: None,
-            system_capacity,
             platform,
         }
     }
