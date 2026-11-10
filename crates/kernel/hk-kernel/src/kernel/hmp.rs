@@ -371,6 +371,10 @@ impl Kernel {
         backing: Option<FrameBacking>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        let mut ledger = Ledger::create(capability.size());
+        if let Some(backing) = &backing {
+            let _ = ledger.charge(backing.range().len());
+        }
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Capability {
@@ -378,6 +382,7 @@ impl Kernel {
                 backing,
                 provider: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
+                ledger: Mutex::new(ledger),
                 pinned: AtomicBool::new(false),
                 scanout: AtomicBool::new(false),
                 version: AtomicU64::new(0),

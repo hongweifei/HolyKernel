@@ -98,6 +98,12 @@ impl Ledger {
         Ok(())
     }
 
+    /// 按字节数释放记账；用于对象内部以固定页大小维护的账本。
+    pub fn release_amount(&mut self, amount: u64) -> Result<(), HmpError> {
+        self.charged = self.charged.saturating_sub(amount);
+        Ok(())
+    }
+
     /// 返回 Ledger 标识。
     pub const fn id(&self) -> LedgerId {
         self.id

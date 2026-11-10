@@ -283,6 +283,45 @@ fn reports_capability_resident_bytes() {
 }
 
 #[test]
+fn capability_ledger_tracks_lazy_pages() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability = Capability::new(
+        CapabilityKind::Anonymous,
+        (PAGE_SIZE * 2) as u64,
+        PAGE_SIZE,
+        None,
+    )
+    .expect("能力");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("创建能力");
+    assert_eq!(kernel.capability_resident(worker, handle), Ok(0));
+
+    let page = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x70_0000), PAGE_SIZE));
+    assert_eq!(
+        kernel.set_capability_page(worker, handle, 0, page),
+        Ok(true)
+    );
+    assert_eq!(
+        kernel.capability_resident(worker, handle),
+        Ok(PAGE_SIZE as u64)
+    );
+    assert!(
+        kernel
+            .take_capability_page(worker, handle, 0)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(kernel.capability_resident(worker, handle), Ok(0));
+}
+
+#[test]
 fn releasing_last_reference_returns_frame_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);

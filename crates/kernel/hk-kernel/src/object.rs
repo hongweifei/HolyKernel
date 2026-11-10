@@ -50,6 +50,8 @@ pub enum ObjectPayload {
         provider: Mutex<Option<ObjectId>>,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
+        /// 类型化能力的常驻/占用 Ledger。
+        ledger: Mutex<Ledger>,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// 是否正在 scanout 驻留。
@@ -200,14 +202,12 @@ impl KernelObject {
         }
     }
 
-    /// 返回类型化能力的常驻字节数：后备区间加已装入页。
+    /// 返回类型化能力 Ledger 的已记账字节数。
     pub fn capability_resident(&self) -> u64 {
-        let ObjectPayload::Capability { backing, pages, .. } = &self.payload else {
+        let ObjectPayload::Capability { ledger, .. } = &self.payload else {
             return 0;
         };
-        let mut total = backing.as_ref().map_or(0, |backing| backing.range().len());
-        total = total.saturating_add(pages.lock().len() as u64 * hk_hal::PAGE_SIZE as u64);
-        total
+        ledger.lock().charged()
     }
 
     /// 返回类型化能力的常驻物理区间。
@@ -231,7 +231,11 @@ impl KernelObject {
     /// 取出能力内已装入的一页。
     pub fn take_capability_page(&self, index: usize) -> Option<FrameBacking> {
         match &self.payload {
-            ObjectPayload::Capability { pages, .. } => pages.lock().remove(&index),
+            ObjectPayload::Capability { pages, ledger, .. } => {
+                let page = pages.lock().remove(&index)?;
+                let _ = ledger.lock().release_amount(hk_hal::PAGE_SIZE as u64);
+                Some(page)
+            }
             _ => None,
         }
     }
@@ -242,6 +246,7 @@ impl KernelObject {
             capability,
             backing,
             pages,
+            ledger,
             ..
         } = &self.payload
         {
@@ -252,7 +257,19 @@ impl KernelObject {
             if index >= count {
                 return false;
             }
-            pages.lock().insert(index, page);
+            let mut pages = pages.lock();
+            let mut ledger = ledger.lock();
+            let replacing = pages.contains_key(&index);
+            if replacing {
+                let _ = ledger.release_amount(hk_hal::PAGE_SIZE as u64);
+            }
+            if ledger.charge(hk_hal::PAGE_SIZE as u64).is_err() {
+                if replacing {
+                    let _ = ledger.charge(hk_hal::PAGE_SIZE as u64);
+                }
+                return false;
+            }
+            pages.insert(index, page);
             return true;
         }
         false
