@@ -34,7 +34,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
     pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
-        let entries: Vec<(Handle, Handle, u64, usize, u64)> = self
+        let entries: Vec<(Handle, Handle, u64, usize, u64, hk_mem::hmp::RegionFlags)> = self
             .process(parent)
             .regions
             .iter()
@@ -46,12 +46,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     region.virt,
                     region.len,
                     region.offset,
+                    region.flags,
                 )
             })
             .collect();
         let parent_tcb = self.tasks[parent].tcb;
         let child_tcb = self.tasks[child].tcb;
-        for (region_handle, capability_handle, virt, len, offset) in entries {
+        for (region_handle, capability_handle, virt, len, offset, flags) in entries {
+            if flags.contains(hk_mem::hmp::RegionFlags::DONT_FORK) {
+                // 子地址空间在 fork 时已复制 PTE；DONT_FORK 要求在子侧解除。
+                let _ = self.platform.unmap_user(child, virt, len);
+                continue;
+            }
             let capability_rights = self
                 .kernel
                 .handle_rights(

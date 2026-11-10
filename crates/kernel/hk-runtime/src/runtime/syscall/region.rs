@@ -332,6 +332,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(region) = self.find_fault_region(index, address) else {
             return false;
         };
+        if region.flags.contains(RegionFlags::GUARD) {
+            return false;
+        }
         let Ok((capability, backing)) = self.kernel.capability(region.tcb, region.capability)
         else {
             return false;
@@ -497,6 +500,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         address: u64,
         capability: &Capability,
     ) -> bool {
+        // Guard 页命中即故障，不装入零页，也不转发 Provider。
+        if region.flags.contains(RegionFlags::GUARD) {
+            return false;
+        }
         let page = hk_hal::PAGE_SIZE as u64;
         let offset = region.capability_offset(address, page);
         if offset >= capability.size() {

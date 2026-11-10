@@ -1588,6 +1588,76 @@ fn region_protect_updates_lazy_pages() {
 }
 
 #[test]
+fn guard_regions_fault_without_install() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::GUARD.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+
+    assert!(
+        !runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
+        "GUARD 页不能装入零页"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn dont_fork_regions_are_not_copied() {
+    let mut runtime = runtime();
+    let Step::Resume {
+        index: parent,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::DONT_FORK.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+
+    context.rax = SYS_FORK;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let child = runtime.task_count() - 1;
+    assert_eq!(
+        runtime.process(parent).regions.iter().flatten().count(),
+        1,
+        "父任务保留 Region"
+    );
+    assert_eq!(
+        runtime.process(child).regions.iter().flatten().count(),
+        0,
+        "DONT_FORK Region 不能复制到子任务"
+    );
+    let _ = runtime.finish(0, parent);
+}
+
+#[test]
 fn region_protect_rejects_wx_conflict() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
