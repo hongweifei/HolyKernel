@@ -6,7 +6,7 @@ use hk_hal::VirtAddr;
 use hk_handle::{ObjectId, Rights};
 
 use super::capability::Mappable;
-use super::{Capability, CapabilityKind, Charge, HmpError, Ledger, LedgerSnapshot};
+use super::{Capability, CapabilityKind, CapabilityOp, Charge, HmpError, Ledger, LedgerSnapshot};
 
 static NEXT_REGION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -78,30 +78,8 @@ impl Region {
         if end > capability.size() {
             return Err(HmpError::OutOfRange);
         }
-        let allowed = Rights::READ | Rights::WRITE | Rights::EXECUTE;
-        if rights.is_empty() || !allowed.covers(rights) {
-            return Err(HmpError::PermissionDenied);
-        }
-        if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
-            return Err(HmpError::WxConflict);
-        }
-        // 任务镜像与不可变修订都需要 sealed：只能只读或可执行，不能写入。
-        if matches!(
-            capability.kind(),
-            CapabilityKind::TaskImage | CapabilityKind::Revision
-        ) && rights.contains(Rights::WRITE)
-        {
-            return Err(HmpError::ReadOnly);
-        }
-        if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
-            return Err(HmpError::ReadOnly);
-        }
-        if flags.contains(RegionFlags::COW) && !rights.contains(Rights::WRITE) {
-            return Err(HmpError::PermissionDenied);
-        }
-        if flags.contains(RegionFlags::COW) && flags.contains(RegionFlags::SEALED) {
-            return Err(HmpError::ReadOnly);
-        }
+        capability.require(CapabilityOp::Map)?;
+        validate(capability, rights, flags)?;
         Ok(Self {
             id: RegionId::new(NEXT_REGION_ID.fetch_add(1, Ordering::Relaxed)),
             capability: capability.clone(),
@@ -161,6 +139,7 @@ impl Region {
         if !self.flags.contains(RegionFlags::GROW) {
             return Err(HmpError::PermissionDenied);
         }
+        self.capability.require(CapabilityOp::Grow)?;
         if self.virt.is_none() {
             return Err(HmpError::NotMapped);
         }
@@ -210,24 +189,16 @@ impl Region {
     }
 
     /// 修改权利与标志。
+    ///
+    /// SEALED 与 COW 都是单向状态：不能通过 protect 清除。
     pub fn protect(&mut self, rights: Rights, flags: RegionFlags) -> Result<(), HmpError> {
-        let allowed = Rights::READ | Rights::WRITE | Rights::EXECUTE;
-        if rights.is_empty() || !allowed.covers(rights) {
+        if self.flags.contains(RegionFlags::SEALED) && !flags.contains(RegionFlags::SEALED) {
+            return Err(HmpError::ReadOnly);
+        }
+        if self.flags.contains(RegionFlags::COW) && !flags.contains(RegionFlags::COW) {
             return Err(HmpError::PermissionDenied);
         }
-        if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
-            return Err(HmpError::WxConflict);
-        }
-        if matches!(
-            self.capability.kind(),
-            CapabilityKind::TaskImage | CapabilityKind::Revision
-        ) && rights.contains(Rights::WRITE)
-        {
-            return Err(HmpError::ReadOnly);
-        }
-        if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
-            return Err(HmpError::ReadOnly);
-        }
+        validate(&self.capability, rights, flags)?;
         self.rights = rights;
         self.flags = flags;
         Ok(())
@@ -287,6 +258,38 @@ impl Region {
     pub fn ledger_snapshot(&self) -> LedgerSnapshot {
         self.ledger.snapshot()
     }
+}
+
+/// Region 创建与 protect 共用的权利/标志校验。
+fn validate(capability: &Capability, rights: Rights, flags: RegionFlags) -> Result<(), HmpError> {
+    let allowed = Rights::READ | Rights::WRITE | Rights::EXECUTE;
+    if rights.is_empty() || !allowed.covers(rights) {
+        return Err(HmpError::PermissionDenied);
+    }
+    if rights.contains(Rights::WRITE) && rights.contains(Rights::EXECUTE) {
+        return Err(HmpError::WxConflict);
+    }
+    if rights.contains(Rights::EXECUTE) && !capability.allows(CapabilityOp::Execute) {
+        return Err(HmpError::WrongCapability);
+    }
+    // 任务镜像与不可变修订都需要 sealed：只能只读或可执行，不能写入。
+    if matches!(
+        capability.kind(),
+        CapabilityKind::TaskImage | CapabilityKind::Revision
+    ) && rights.contains(Rights::WRITE)
+    {
+        return Err(HmpError::ReadOnly);
+    }
+    if flags.contains(RegionFlags::SEALED) && rights.contains(Rights::WRITE) {
+        return Err(HmpError::ReadOnly);
+    }
+    if flags.contains(RegionFlags::COW) && !rights.contains(Rights::WRITE) {
+        return Err(HmpError::PermissionDenied);
+    }
+    if flags.contains(RegionFlags::COW) && flags.contains(RegionFlags::SEALED) {
+        return Err(HmpError::ReadOnly);
+    }
+    Ok(())
 }
 
 impl Mappable for Region {
@@ -472,6 +475,115 @@ mod tests {
         .expect("Region");
         fixed.map(VirtAddr::new(0x50_0000)).expect("映射");
         assert_eq!(fixed.grow(0x2000), Err(HmpError::PermissionDenied));
+    }
+
+    #[test]
+    fn execute_requires_executable_capability() {
+        let anonymous = capability(CapabilityKind::Anonymous, 0x1000);
+        assert_eq!(
+            Region::new(
+                &anonymous,
+                0,
+                0x1000,
+                Rights::READ | Rights::EXECUTE,
+                RegionFlags::empty()
+            )
+            .err(),
+            Some(HmpError::WrongCapability)
+        );
+
+        let image = capability(CapabilityKind::TaskImage, 0x1000);
+        assert!(
+            Region::new(
+                &image,
+                0,
+                0x1000,
+                Rights::READ | Rights::EXECUTE,
+                RegionFlags::empty()
+            )
+            .is_ok()
+        );
+
+        let frame = capability(CapabilityKind::Frame, 0x1000);
+        assert!(
+            Region::new(
+                &frame,
+                0,
+                0x1000,
+                Rights::READ | Rights::EXECUTE,
+                RegionFlags::empty()
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn protect_rejects_cow_without_write() {
+        let capability = capability(CapabilityKind::Anonymous, 0x2000);
+        let mut region = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
+        )
+        .expect("Region");
+        region.map(VirtAddr::new(0x40_0000)).expect("映射");
+        assert_eq!(
+            region.protect(Rights::READ, RegionFlags::COW),
+            Err(HmpError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn protect_rejects_sealed_removal() {
+        let capability = capability(CapabilityKind::Anonymous, 0x2000);
+        let mut region =
+            Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::SEALED).expect("Region");
+        region.map(VirtAddr::new(0x40_0000)).expect("映射");
+        assert_eq!(
+            region.protect(Rights::READ, RegionFlags::empty()),
+            Err(HmpError::ReadOnly)
+        );
+    }
+
+    #[test]
+    fn protect_rejects_cow_sealed() {
+        let capability = capability(CapabilityKind::Anonymous, 0x2000);
+        let mut region = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::COW,
+        )
+        .expect("Region");
+        region.map(VirtAddr::new(0x40_0000)).expect("映射");
+        assert_eq!(
+            region.protect(
+                Rights::READ | Rights::WRITE,
+                RegionFlags::COW | RegionFlags::SEALED
+            ),
+            Err(HmpError::ReadOnly)
+        );
+    }
+
+    #[test]
+    fn protect_rejects_execute_on_anonymous() {
+        let capability = capability(CapabilityKind::Anonymous, 0x2000);
+        let mut region = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
+        )
+        .expect("Region");
+        region.map(VirtAddr::new(0x40_0000)).expect("映射");
+        assert_eq!(
+            region.protect(Rights::READ | Rights::EXECUTE, RegionFlags::empty()),
+            Err(HmpError::WrongCapability)
+        );
     }
 
     #[test]

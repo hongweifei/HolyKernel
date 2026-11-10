@@ -3,7 +3,9 @@
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
 use hk_ipc::Message;
-use hk_mem::hmp::{Capability, CapabilityKind, FrameBacking, FrameLease, Region, RegionFlags};
+use hk_mem::hmp::{
+    Capability, CapabilityKind, CapabilityOp, FrameBacking, FrameLease, Region, RegionFlags,
+};
 
 use super::*;
 
@@ -57,7 +59,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if backing.is_none() && capability.kind() != CapabilityKind::Anonymous {
+        if backing.is_none()
+            && capability.kind() != CapabilityKind::Anonymous
+            && self
+                .kernel
+                .capability_provider(tcb, capability_handle)
+                .ok()
+                .flatten()
+                .is_none()
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -287,6 +297,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if capability_info.require(CapabilityOp::Grow).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Some(end) = offset.checked_add(new_len as u64) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;

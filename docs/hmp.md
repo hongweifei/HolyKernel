@@ -174,6 +174,8 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 引用：`Mappable`、offset、len、rights、flags。
 - 标志：`COW`、`GUARD`、`PINNED`、`SEALED`、`DONT_FORK`、`GROW`。
 - 权利：`READ`、`WRITE`、`EXECUTE`；W^X 在创建与 protect 时检查。
+- `EXECUTE` 只允许 `TaskImage` 与 `Frame` 能力；`GROW` 只允许 `Anonymous`。
+- `SEALED` 与 `COW` 是单向状态：protect 可以收紧或保持，不能清除。
 - Region 是虚拟地址分配、缺页、COW 与保护的单元。
 - CPU、GPU、DMA、scanout 都通过 Region 访问。
 - 内核页表是 Region 的物化；Region 是唯一映射视图。
@@ -226,6 +228,8 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 用于 IPC、DMA、共享缓冲与 scanout；页已常驻，Provider 契约省略。
 - `SYS_FRAME_MAP` 直接把 Frame 建为 Region；Region 持有 Frame 句柄，解除时关闭句柄并归还 Capacity。
 
+`PHYS` 查询适用于 Surface、DeviceAllocation、Anonymous 与 Frame；Revision 与 TaskImage 的页由 Provider/Region 管理，不直接暴露物理区间。
+
 ---
 
 ## 8. Provider
@@ -241,6 +245,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 - `ImageProvider`：load、seal、execute。
 - `DeviceProvider`：residency、eviction、pin、export/import、IOMMU。
 - `AnonymousProvider`：zero-fill、COW、compress、swap、grow。
+- 除 Frame 外的类型化能力都可以创建为无 backing 的懒加载能力；绑定 `ProviderKind` 匹配的端点后，缺页转发给 Provider。Frame 是常驻页能力，不参与懒加载。
 
 内核快速路径：
 

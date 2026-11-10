@@ -38,7 +38,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     }
 
     // 2. 创建按需装入的匿名能力。
-    let Some(capability) = capability_create_lazy(PAGE) else {
+    let Some(capability) = capability_create_lazy(CapabilityKind::Anonymous, PAGE) else {
         fail(3)
     };
     let Some(ledger_before) = ledger_info() else {

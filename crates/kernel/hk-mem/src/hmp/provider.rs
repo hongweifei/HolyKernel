@@ -40,6 +40,29 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
+    /// 把 ABI 编码还原为 Provider 类型。
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => Self::Revision,
+            1 => Self::Surface,
+            2 => Self::Image,
+            3 => Self::Device,
+            4 => Self::Anonymous,
+            _ => return None,
+        })
+    }
+
+    /// 返回 ABI 编码。
+    pub const fn as_u8(self) -> u8 {
+        match self {
+            Self::Revision => 0,
+            Self::Surface => 1,
+            Self::Image => 2,
+            Self::Device => 3,
+            Self::Anonymous => 4,
+        }
+    }
+
     /// 判断该 Provider 是否服务给定能力类型。
     pub const fn supports(self, capability: CapabilityKind) -> bool {
         match self {
@@ -117,6 +140,20 @@ pub fn next_provider_id() -> ProviderId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_kind_codes_roundtrip() {
+        for kind in [
+            ProviderKind::Revision,
+            ProviderKind::Surface,
+            ProviderKind::Image,
+            ProviderKind::Device,
+            ProviderKind::Anonymous,
+        ] {
+            assert_eq!(ProviderKind::from_u8(kind.as_u8()), Some(kind));
+        }
+        assert_eq!(ProviderKind::from_u8(5), None);
+    }
 
     #[test]
     fn provider_contract_matches_capability_kind() {

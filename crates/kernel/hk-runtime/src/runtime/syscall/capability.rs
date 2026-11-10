@@ -2,7 +2,9 @@
 
 use hk_hal::PAGE_SIZE;
 use hk_handle::Rights;
-use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame};
+use hk_mem::hmp::{
+    Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame, ProviderKind,
+};
 
 use super::*;
 
@@ -153,10 +155,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         tcb: TcbId,
         frame: &mut C,
     ) -> Switch {
+        let Some(kind) = CapabilityKind::from_u8(frame.arg0() as u8) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
         let length = frame.arg1() as usize;
-        if length == 0
-            || CapabilityKind::from_u8(frame.arg0() as u8) != Some(CapabilityKind::Anonymous)
-        {
+        if length == 0 || kind == CapabilityKind::Frame {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -165,8 +169,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(capability) = Capability::new(CapabilityKind::Anonymous, aligned, PAGE_SIZE, None)
-        else {
+        let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
             let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -196,6 +199,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ) -> Switch {
         let number = frame.arg0() as usize;
         let endpoint = frame.arg1() as usize;
+        let Some(kind) = ProviderKind::from_u8(frame.arg2() as u8) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
         let Some((capability, _, _)) = self.capability_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -206,7 +213,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         match self
             .kernel
-            .bind_capability_provider(tcb, capability, endpoint)
+            .bind_capability_provider(tcb, capability, endpoint, kind)
         {
             Ok(()) => frame.set_result(0),
             Err(_) => frame.set_result(u64::MAX),
@@ -253,10 +260,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let number = frame.arg0() as usize;
         let out = frame.arg1();
         let capacity = frame.arg2() as usize;
-        let Some((_, _, Some(range))) = self.capability_at(index, number) else {
+        let Some((_, capability, Some(range))) = self.capability_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if capability.require(CapabilityOp::Phys).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         if capacity < 16 {
             frame.set_result(u64::MAX);
             return Switch::Continue;

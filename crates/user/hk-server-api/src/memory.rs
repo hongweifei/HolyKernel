@@ -568,13 +568,13 @@ pub fn ledger_enum(index: usize) -> Option<CapacityLedgerInfo> {
     })
 }
 
-/// 创建按需装入的匿名能力。
-pub fn capability_create_lazy(length: usize) -> Option<u64> {
-    // SAFETY: 内核校验长度后创建匿名能力并返回句柄。
+/// 创建按需装入的类型化能力。
+pub fn capability_create_lazy(kind: CapabilityKind, length: usize) -> Option<u64> {
+    // SAFETY: 内核校验类型与长度后创建能力并返回句柄。
     let handle = unsafe {
         syscall_call(
             SYS_CAPABILITY_CREATE_LAZY,
-            u64::from(CapabilityKind::Anonymous.as_u8()),
+            u64::from(kind.as_u8()),
             length as u64,
             0,
             0,
@@ -584,10 +584,19 @@ pub fn capability_create_lazy(length: usize) -> Option<u64> {
     (handle != u64::MAX).then_some(handle)
 }
 
-/// 把类型化能力绑定到 Provider 端点。
-pub fn capability_bind_provider(capability: u64, endpoint: u64) -> u64 {
-    // SAFETY: 内核校验能力与端点句柄后建立绑定。
-    unsafe { syscall_call(SYS_CAPABILITY_BIND_PROVIDER, capability, endpoint, 0, 0).value }
+/// 把类型化能力绑定到 Provider 端点；`kind` 使用 `PROVIDER_KIND_*` 编码。
+pub fn capability_bind_provider(capability: u64, endpoint: u64, kind: u8) -> u64 {
+    // SAFETY: 内核校验能力、端点句柄与 Provider 类型后建立绑定。
+    unsafe {
+        syscall_call(
+            SYS_CAPABILITY_BIND_PROVIDER,
+            capability,
+            endpoint,
+            u64::from(kind),
+            0,
+        )
+        .value
+    }
 }
 
 /// 导出可转移的能力句柄。

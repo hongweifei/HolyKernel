@@ -6,7 +6,7 @@ use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
     Arena, ArenaRegion, Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame,
-    FrameBacking, HmpError, Ledger, OwnedFrame, Region, RegionId,
+    FrameBacking, HmpError, Ledger, OwnedFrame, ProviderKind, Region, RegionId,
 };
 
 impl Kernel {
@@ -463,9 +463,16 @@ impl Kernel {
         thread: TcbId,
         capability: Handle,
         endpoint: Handle,
+        kind: ProviderKind,
     ) -> Result<(), KernelError> {
         let (object, _) =
             self.resolve(thread, capability, Rights::ADMIN, ObjectKind::Capability)?;
+        let capability = object.capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })?;
+        if !kind.supports(capability.kind()) {
+            return Err(KernelError::Hmp(HmpError::WrongCapability));
+        }
         let (_, endpoint_id) =
             self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
         object.set_capability_provider(endpoint_id);

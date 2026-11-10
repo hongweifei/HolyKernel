@@ -1980,7 +1980,7 @@ fn region_protect_updates_rights_and_page_table() {
     };
 
     context.rax = SYS_CAPABILITY_CREATE;
-    context.rdi = 4;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Frame.as_u8());
     context.rsi = 0x1000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let capability = context.rax;
@@ -2243,6 +2243,116 @@ fn region_protect_rejects_wx_conflict() {
 }
 
 #[test]
+fn region_map_rejects_execute_on_non_executable_capability() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b101;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "Anonymous 不能映射为可执行");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn provider_kind_must_match_capability() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Surface.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_ANONYMOUS);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "Provider 类型必须匹配能力类型");
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_SURFACE);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn region_grow_requires_anonymous_capability() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Surface.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::GROW.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    context.rax = SYS_REGION_GROW;
+    context.rdi = region;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "只有 Anonymous 能力可以增长");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn capability_phys_requires_resident_kind() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Revision.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let revision = context.rax;
+
+    context.rax = hk_syscall::SYS_CAPABILITY_PHYS;
+    context.rdi = revision;
+    context.rsi = 0x2000;
+    context.rdx = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "Revision 不提供 PHYS 查询");
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Surface.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let surface = context.rax;
+    context.rax = hk_syscall::SYS_CAPABILITY_PHYS;
+    context.rdi = surface;
+    context.rsi = 0x2000;
+    context.rdx = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 16);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn capacity_merge_returns_child_range_to_parent() {
     let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let Step::Resume {
@@ -2467,10 +2577,17 @@ fn provider_fault_blocks_caller() {
     };
 
     context.rax = SYS_CAPABILITY_CREATE_LAZY;
-    context.rdi = 4;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Surface.as_u8());
     context.rsi = 0x2000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let capability = context.rax;
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_SURFACE);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
 
     context.rax = SYS_REGION_MAP;
     context.rdi = capability;
@@ -2478,12 +2595,6 @@ fn provider_fault_blocks_caller() {
     context.rdx = 0x2000;
     context.r10 = 0b11;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-
-    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
-    context.rdi = capability;
-    context.rsi = 2;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 0);
 
     assert!(runtime.provider_fault(0, hk_base::user::AUTO_WINDOW_BASE, MockContext::default()));
     assert_eq!(runtime.tasks()[0].pending, "provider-fault");
@@ -2545,6 +2656,7 @@ fn anonymous_fault_defers_to_bound_provider() {
     context.rax = SYS_CAPABILITY_BIND_PROVIDER;
     context.rdi = capability;
     context.rsi = 2;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_ANONYMOUS);
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 

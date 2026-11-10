@@ -15,7 +15,9 @@ use hk_server_api::{
     recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
-use hk_syscall::{INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_PROVIDE};
+use hk_syscall::{
+    INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE,
+};
 
 #[cfg(target_os = "none")]
 mod selftest;
@@ -77,8 +79,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 .zip((size > 0).then_some(size))
                 .and_then(|(kind, size)| {
                     if lazy && kind == CapabilityKind::Anonymous {
-                        let memory = capability_create_lazy(size)?;
-                        let _ = capability_bind_provider(memory, endpoint);
+                        let memory = capability_create_lazy(kind, size)?;
+                        let _ = capability_bind_provider(memory, endpoint, PROVIDER_KIND_ANONYMOUS);
                         Some(memory)
                     } else {
                         capability_create(kind, size)

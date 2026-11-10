@@ -243,11 +243,22 @@ pub const SYS_CAPABILITY_EXPORT: u64 = 0x4C;
 /// 把类型化能力绑定到 Provider 端点。
 pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
 
-/// 创建按需装入的匿名能力。
+/// 创建按需装入的类型化能力；Provider 绑定后由缺页转发装入。
 pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
 /// 查询当前任务 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
+
+/// Provider 类型编码：Revision。
+pub const PROVIDER_KIND_REVISION: u8 = 0;
+/// Provider 类型编码：Surface。
+pub const PROVIDER_KIND_SURFACE: u8 = 1;
+/// Provider 类型编码：TaskImage。
+pub const PROVIDER_KIND_IMAGE: u8 = 2;
+/// Provider 类型编码：DeviceAllocation。
+pub const PROVIDER_KIND_DEVICE: u8 = 3;
+/// Provider 类型编码：Anonymous。
+pub const PROVIDER_KIND_ANONYMOUS: u8 = 4;
 
 // === HMP 对象查询 0x90-0x9F ===
 

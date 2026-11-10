@@ -21,13 +21,16 @@ impl CapabilityKindExt for CapabilityKind {
             CapabilityOp::Map => true,
             CapabilityOp::Commit => matches!(self, Self::Revision),
             CapabilityOp::Scanout => matches!(self, Self::Surface),
-            CapabilityOp::Execute => matches!(self, Self::TaskImage),
+            CapabilityOp::Execute => matches!(self, Self::TaskImage | Self::Frame),
             CapabilityOp::Pin => {
                 matches!(self, Self::Surface | Self::DeviceAllocation | Self::Frame)
             }
             CapabilityOp::Export => matches!(self, Self::DeviceAllocation | Self::Frame),
             CapabilityOp::Swap => matches!(self, Self::Anonymous),
-            CapabilityOp::Phys => matches!(self, Self::Frame),
+            CapabilityOp::Phys => matches!(
+                self,
+                Self::Surface | Self::DeviceAllocation | Self::Anonymous | Self::Frame
+            ),
             CapabilityOp::Grow => matches!(self, Self::Anonymous),
         }
     }
@@ -183,12 +186,19 @@ mod tests {
         assert!(CapabilityKind::Revision.supports(CapabilityOp::Commit));
         assert!(CapabilityKind::Surface.supports(CapabilityOp::Scanout));
         assert!(CapabilityKind::TaskImage.supports(CapabilityOp::Execute));
+        assert!(CapabilityKind::Frame.supports(CapabilityOp::Execute));
         assert!(CapabilityKind::DeviceAllocation.supports(CapabilityOp::Pin));
         assert!(CapabilityKind::Anonymous.supports(CapabilityOp::Swap));
         assert!(CapabilityKind::Frame.supports(CapabilityOp::Phys));
+        assert!(CapabilityKind::Surface.supports(CapabilityOp::Phys));
+        assert!(CapabilityKind::DeviceAllocation.supports(CapabilityOp::Phys));
+        assert!(CapabilityKind::Anonymous.supports(CapabilityOp::Phys));
 
         assert!(!CapabilityKind::Anonymous.supports(CapabilityOp::Commit));
         assert!(!CapabilityKind::Revision.supports(CapabilityOp::Scanout));
+        assert!(!CapabilityKind::Anonymous.supports(CapabilityOp::Execute));
+        assert!(!CapabilityKind::Revision.supports(CapabilityOp::Phys));
+        assert!(!CapabilityKind::TaskImage.supports(CapabilityOp::Phys));
     }
 
     #[test]
