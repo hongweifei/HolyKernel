@@ -6,7 +6,7 @@ use hk_hal::VirtAddr;
 use hk_handle::{ObjectId, Rights};
 
 use super::capability::Mappable;
-use super::{Capability, CapabilityKind, HmpError};
+use super::{Capability, CapabilityKind, Charge, HmpError, Ledger};
 
 static NEXT_REGION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -54,6 +54,8 @@ pub struct Region {
     rights: Rights,
     flags: RegionFlags,
     virt: Option<VirtAddr>,
+    ledger: Ledger,
+    charge: Option<Charge>,
 }
 
 impl Region {
@@ -108,6 +110,8 @@ impl Region {
             rights,
             flags,
             virt: None,
+            ledger: Ledger::create(capability.size()),
+            charge: None,
         })
     }
 
@@ -119,7 +123,12 @@ impl Region {
         if self.virt.is_some() {
             return Err(HmpError::AlreadyMapped);
         }
+        let charge = self
+            .ledger
+            .charge(self.len as u64)
+            .map_err(|_| HmpError::LedgerLimit)?;
         self.virt = Some(virt);
+        self.charge = Some(charge);
         Ok(())
     }
 
@@ -138,6 +147,8 @@ impl Region {
             rights: self.rights,
             flags,
             virt: None,
+            ledger: Ledger::create(self.capability.size()),
+            charge: None,
         };
         region.map(virt)?;
         Ok(region)
@@ -164,7 +175,22 @@ impl Region {
         if end > self.capability.size() {
             return Err(HmpError::OutOfRange);
         }
+        let old_len = self.len;
+        let old_charge = self.charge;
+        if let Some(charge) = old_charge {
+            self.ledger
+                .release(charge)
+                .map_err(|_| HmpError::WrongCapability)?;
+        }
+        let charge = match self.ledger.charge(len as u64) {
+            Ok(charge) => charge,
+            Err(error) => {
+                let _ = self.ledger.charge(old_len as u64);
+                return Err(error);
+            }
+        };
         self.len = len;
+        self.charge = Some(charge);
         Ok(())
     }
 
@@ -177,6 +203,9 @@ impl Region {
 
     /// 解除虚拟映射，返回原虚拟地址。
     pub fn unmap(&mut self) -> Result<VirtAddr, HmpError> {
+        if let Some(charge) = self.charge.take() {
+            let _ = self.ledger.release(charge);
+        }
         self.virt.take().ok_or(HmpError::NotMapped)
     }
 

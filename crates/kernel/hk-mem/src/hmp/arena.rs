@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{PAGE_SIZE, VirtAddr};
 
-use super::{HmpError, Region, RegionId};
+use super::{Charge, HmpError, Ledger, Region, RegionId};
 
 static NEXT_ARENA_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -31,6 +31,7 @@ pub struct ArenaRegion {
     id: RegionId,
     virt: VirtAddr,
     len: usize,
+    charge: Charge,
 }
 
 impl ArenaRegion {
@@ -64,6 +65,7 @@ pub struct Arena {
     base: VirtAddr,
     size: u64,
     regions: Vec<ArenaRegion>,
+    ledger: Ledger,
 }
 
 impl Arena {
@@ -77,6 +79,7 @@ impl Arena {
             base,
             size,
             regions: Vec::new(),
+            ledger: Ledger::create(size),
         })
     }
 
@@ -112,10 +115,15 @@ impl Arena {
         if overlaps {
             return Err(HmpError::AlreadyMapped);
         }
+        let charge = self
+            .ledger
+            .charge(region.len() as u64)
+            .map_err(|_| HmpError::LedgerLimit)?;
         self.regions.push(ArenaRegion {
             id,
             virt,
             len: region.len(),
+            charge,
         });
         Ok(id)
     }
@@ -150,7 +158,20 @@ impl Arena {
         if overlaps {
             return Err(HmpError::AlreadyMapped);
         }
+        let old_len = self.regions[index].len;
+        let old_charge = self.regions[index].charge;
+        self.ledger
+            .release(old_charge)
+            .map_err(|_| HmpError::WrongCapability)?;
+        let charge = match self.ledger.charge(len as u64) {
+            Ok(charge) => charge,
+            Err(error) => {
+                let _ = self.ledger.charge(old_len as u64);
+                return Err(error);
+            }
+        };
         self.regions[index].len = len;
+        self.regions[index].charge = charge;
         Ok(())
     }
 
@@ -161,7 +182,11 @@ impl Arena {
             .iter()
             .position(|region| region.id == id)
             .ok_or(HmpError::NotMapped)?;
-        Ok(self.regions.remove(index))
+        let removed = self.regions.remove(index);
+        self.ledger
+            .release(removed.charge)
+            .map_err(|_| HmpError::WrongCapability)?;
+        Ok(removed)
     }
 
     /// 返回指定 Region 表项。
@@ -189,11 +214,9 @@ impl Arena {
         self.size
     }
 
-    /// 返回已登记 Region 的字节总数。
+    /// 返回 Arena Ledger 的已记账字节数。
     pub fn used(&self) -> u64 {
-        self.regions
-            .iter()
-            .fold(0, |used, region| used.saturating_add(region.len as u64))
+        self.ledger.charged()
     }
 
     /// 判断地址区间是否落在 Arena 内。
