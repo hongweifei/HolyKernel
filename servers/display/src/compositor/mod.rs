@@ -2,10 +2,10 @@
 
 use hk_font::Font;
 use hk_proto::display::{
-    DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, SEAT_CLIPBOARD, SEAT_FOCUS,
-    SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD, SURFACE_COMMIT, SURFACE_CREATE, SURFACE_DAMAGE,
-    SURFACE_DESTROY, SURFACE_SET_CURSOR, SURFACE_SET_INPUT_REGION, TITLE_MAX, WINDOW_CREATE,
-    WINDOW_RESIZE,
+    DISPLAY_RESIZE, DISPLAY_RESTART, DISPLAY_SET_TITLE, DISPLAY_SHUTDOWN, SEAT_CLIPBOARD,
+    SEAT_FOCUS, SEAT_GET_CLIPBOARD, SEAT_SET_CLIPBOARD, SURFACE_COMMIT, SURFACE_CREATE,
+    SURFACE_DAMAGE, SURFACE_DESTROY, SURFACE_SET_CURSOR, SURFACE_SET_INPUT_REGION, TITLE_MAX,
+    WINDOW_CREATE, WINDOW_RESIZE, pack_window_size,
 };
 use hk_proto::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL};
 use hk_server_api::{
@@ -46,7 +46,11 @@ pub(crate) struct Compositor {
     display_test: bool,
     benchmarked: bool,
     benchmark_at: u64,
+    resize_retry_at: u64,
 }
+
+/// 客户端表面尺寸与窗口不一致时，补发缩放通知的间隔（微秒）。
+const RESIZE_RETRY_MICROS: u64 = 200_000;
 
 impl Compositor {
     /// 建立合成器状态并绘制初始任务栏。
@@ -72,6 +76,7 @@ impl Compositor {
             display_test,
             benchmarked: false,
             benchmark_at: tsc().saturating_add(tsc_frequency().saturating_mul(2)),
+            resize_retry_at: 0,
         };
         damage_taskbar(
             &compositor.screen,
@@ -88,6 +93,7 @@ impl Compositor {
         loop {
             self.screen.present();
             self.benchmark();
+            self.retry_window_resizes();
             // 输入驱动接入后不再读内核控制台，避免两路输入重复。
             if !self.driver_input {
                 while let Some(byte) = console_read() {
@@ -102,6 +108,34 @@ impl Compositor {
                 continue;
             }
             self.handle_message(label, word, sender, length, handle, &payload);
+        }
+    }
+
+    /// 周期补发缩放通知：客户端偶发分配失败时，下一次通知会触发重试，
+    /// 避免窗口尺寸已变但内容永久停在旧表面。
+    fn retry_window_resizes(&mut self) {
+        // 拖动缩放期间由释放事件统一通知，避免边拖边分配表面。
+        if self.resize.is_some() {
+            return;
+        }
+        let now = tsc();
+        if now < self.resize_retry_at {
+            return;
+        }
+        let period = tsc_frequency()
+            .saturating_mul(RESIZE_RETRY_MICROS)
+            .checked_div(1_000_000)
+            .unwrap_or(1)
+            .max(1);
+        self.resize_retry_at = now.saturating_add(period);
+        for window in self.windows.iter().flatten() {
+            if window.width != window.surface.width || window.height != window.surface.height {
+                let _ = hk_server_api::send(
+                    window.surface.client,
+                    DISPLAY_RESIZE,
+                    pack_window_size(window.id, window.width as u32, window.height as u32),
+                );
+            }
         }
     }
 

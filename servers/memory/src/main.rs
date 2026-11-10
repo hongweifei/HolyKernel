@@ -82,6 +82,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                 });
             let Some(memory) = allocated else {
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-memory: alloc failed ")
+                    .number(size as u64)
+                    .text(b" bytes\n")
+                    .finish();
                 let _ = send(sender, MEMORY_ALLOCATED, u64::MAX);
                 continue;
             };
