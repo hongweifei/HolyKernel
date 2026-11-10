@@ -494,6 +494,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
         self.teardown_arena_region(index);
+        self.process_mut(index).cow_pages.clear();
     }
 
     /// 拆除任务 Arena 的内部惰性 Region 与 capability。
@@ -501,6 +502,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(region) = self.process_mut(index).arena_region.take() else {
             return;
         };
+        let capability_id = self
+            .kernel
+            .handle_id(region.owner, region.capability)
+            .ok()
+            .map(|id| id.get());
         let page = hk_hal::PAGE_SIZE as u64;
         let mut offset = 0;
         while offset < region.len as u64 {
@@ -511,6 +517,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let _ = self.kernel.close_handle(region.owner, region.handle);
         let _ = self.kernel.close_handle(region.owner, region.capability);
+        if let Some(capability_id) = capability_id {
+            self.prune_cow_pages(index, capability_id);
+        }
     }
 
     /// 解除 Region 的映射并关闭它持有的内部句柄。
@@ -533,6 +542,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let length = region.len;
         let region_id = region.region;
         let region_handle = region.handle;
+        let capability_id = self
+            .kernel
+            .handle_id(owner, capability)
+            .ok()
+            .map(|id| id.get());
         // 逐页解除，兼容惰性 Region 与已物化 Region；也避免在关闭 capability
         // 之后再去解析它来决定映射范围。
         let page = hk_hal::PAGE_SIZE as u64;
@@ -555,5 +569,47 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
+        if let Some(capability_id) = capability_id {
+            self.prune_cow_pages(index, capability_id);
+        }
+    }
+
+    /// 当能力不再被本进程任何 Region/Arena 引用时，删除它的私有页覆盖。
+    pub(crate) fn prune_cow_pages(&mut self, index: usize, capability_id: u64) {
+        let referenced = self.process(index).regions.iter().flatten().any(|region| {
+            self.kernel
+                .handle_id(region.owner, region.capability)
+                .ok()
+                .map(|id| id.get())
+                == Some(capability_id)
+        }) || self
+            .process(index)
+            .arena_region
+            .as_ref()
+            .is_some_and(|region| {
+                self.kernel
+                    .handle_id(region.owner, region.capability)
+                    .ok()
+                    .map(|id| id.get())
+                    == Some(capability_id)
+            });
+        if !referenced {
+            self.process_mut(index)
+                .cow_pages
+                .retain(|(id, _), _| *id != capability_id);
+        }
+    }
+
+    /// 清理 fork 后子进程不再引用的覆盖项（例如 DONT_FORK 的能力）。
+    pub(crate) fn prune_all_cow_pages(&mut self, index: usize) {
+        let ids: Vec<u64> = self
+            .process(index)
+            .cow_pages
+            .keys()
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.prune_cow_pages(index, id);
+        }
     }
 }

@@ -1623,6 +1623,19 @@ fn cow_resolution_records_private_page_override() {
         Some(0x7000_0000),
         "COW 复制页必须登记为当前进程的私有覆盖"
     );
+    assert!(
+        runtime
+            .process(index)
+            .cow_pages
+            .values()
+            .any(|range| range.start().get() == 0x7000_0000),
+        "进程级覆盖表也必须记录私有页"
+    );
+    runtime.teardown_process(index);
+    assert!(
+        runtime.process(index).cow_pages.is_empty(),
+        "拆除 Region 后应清理覆盖表"
+    );
     let _ = runtime.finish(0, index);
 }
 
@@ -1665,6 +1678,14 @@ fn fork_copies_cow_private_page_overrides() {
         child_map.pages.get(&0).map(|range| range.start().get()),
         Some(0x7000_1000),
         "fork 必须复制私有页覆盖"
+    );
+    assert!(
+        runtime
+            .process(child)
+            .cow_pages
+            .values()
+            .any(|range| range.start().get() == 0x7000_1000),
+        "fork 必须复制进程级覆盖表"
     );
     let _ = runtime.finish(0, index);
 }

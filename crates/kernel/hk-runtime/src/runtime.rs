@@ -105,6 +105,8 @@ pub(crate) struct Process {
     pub arena: Arena,
     /// 覆盖整个 Arena 的惰性匿名 Region；不对外暴露句柄。
     pub arena_region: Option<RegionMap>,
+    /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页。
+    pub cow_pages: BTreeMap<(u64, usize), hk_hal::PhysRange>,
     pub device_factory: Option<Handle>,
 }
 
@@ -119,6 +121,7 @@ impl Process {
             region_free: Vec::new(),
             arena: Arena::new(arena_base, arena_size),
             arena_region: None,
+            cow_pages: BTreeMap::new(),
             device_factory: None,
         }
     }

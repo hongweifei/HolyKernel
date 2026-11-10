@@ -540,6 +540,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             child_region.pages = parent_region.pages.clone();
         }
+        process.cow_pages = self.process(index).cow_pages.clone();
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,
@@ -553,6 +554,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks.push(task);
         self.processes.push(Some(process));
         self.fork_regions(index, child_index);
+        self.prune_all_cow_pages(child_index);
         let _ = self.kernel.activate(child);
 
         frame.set_result(child_index as u64 + 1);

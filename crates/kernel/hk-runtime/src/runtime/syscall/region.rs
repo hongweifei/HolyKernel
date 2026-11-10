@@ -207,13 +207,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let mut relative = 0_u64;
             while relative < length as u64 {
                 let page_index = (offset.saturating_add(relative) / page) as usize;
-                let page_range = self
-                    .process(index)
-                    .regions
-                    .get(slot)
-                    .and_then(|region| region.as_ref())
-                    .and_then(|region| region.pages.get(&page_index))
-                    .copied()
+                let capability_id = self
+                    .kernel
+                    .handle_id(owner, capability)
+                    .ok()
+                    .map(|id| id.get());
+                let page_range = capability_id
+                    .and_then(|id| {
+                        self.process(index)
+                            .cow_pages
+                            .get(&(id, page_index))
+                            .copied()
+                    })
+                    .or_else(|| {
+                        self.process(index)
+                            .regions
+                            .get(slot)
+                            .and_then(|region| region.as_ref())
+                            .and_then(|region| region.pages.get(&page_index))
+                            .copied()
+                    })
                     .or_else(|| {
                         self.kernel
                             .capability_page(owner, capability, page_index)
@@ -522,6 +535,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         match self.platform.resolve_cow(address) {
             Some(crate::runtime::CowOutcome::Copied(physical)) => {
                 let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
+                if let Ok(id) = self.kernel.handle_id(region.tcb, region.capability) {
+                    self.process_mut(index)
+                        .cow_pages
+                        .insert((id.get(), page_index), range);
+                }
                 if let Some(slot) = region.slot {
                     if let Some(map) = self
                         .process_mut(index)
@@ -586,22 +604,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let page_address = region.page_address(offset);
         let page_index = (offset / page) as usize;
-        // COW 私有页覆盖优先于共享 capability 页；否则子进程 refault 会把
-        // 父进程的共享页重新装回来。
-        let overridden = if let Some(slot) = region.slot {
-            self.process(index)
-                .regions
-                .get(slot)
-                .and_then(|region| region.as_ref())
-                .and_then(|region| region.pages.get(&page_index))
-                .copied()
-        } else {
-            self.process(index)
-                .arena_region
-                .as_ref()
-                .and_then(|region| region.pages.get(&page_index))
-                .copied()
-        };
+        // COW 私有页覆盖优先于共享 capability 页；先查进程级覆盖，
+        // 再回退到 Region 自己的覆盖表。
+        let capability_id = self
+            .kernel
+            .handle_id(region.tcb, region.capability)
+            .ok()
+            .map(|id| id.get());
+        let overridden = capability_id
+            .and_then(|id| {
+                self.process(index)
+                    .cow_pages
+                    .get(&(id, page_index))
+                    .copied()
+            })
+            .or_else(|| {
+                if let Some(slot) = region.slot {
+                    self.process(index)
+                        .regions
+                        .get(slot)
+                        .and_then(|region| region.as_ref())
+                        .and_then(|region| region.pages.get(&page_index))
+                        .copied()
+                } else {
+                    self.process(index)
+                        .arena_region
+                        .as_ref()
+                        .and_then(|region| region.pages.get(&page_index))
+                        .copied()
+                }
+            });
         if let Some(range) = overridden {
             if !self.platform.user_mapped(page_address) {
                 let _ = self.platform.map_user(
@@ -671,6 +703,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let owner = region.owner;
         let capability = region.capability;
+        let capability_id = self
+            .kernel
+            .handle_id(owner, capability)
+            .ok()
+            .map(|id| id.get());
         let lazy = self
             .kernel
             .capability(owner, capability)
@@ -712,6 +749,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let _ = self.kernel.close_handle(owner, handle);
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
+        if let Some(capability_id) = capability_id {
+            self.prune_cow_pages(index, capability_id);
+        }
         frame.set_result(1);
         Switch::Continue
     }
