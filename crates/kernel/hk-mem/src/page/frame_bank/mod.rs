@@ -152,20 +152,18 @@ impl Inner {
                 })
                 .collect();
             pieces.sort_unstable();
-            let mut cursor = None;
+            let mut run: Option<(u64, u64)> = None;
             for (start, end) in pieces {
-                let run_start = match cursor {
-                    Some((run_start, run_end)) if run_end == start => run_start,
-                    Some(_) => {
-                        cursor = Some((start, end));
-                        continue;
-                    }
-                    None => start,
+                // 与当前运行段相邻（或重叠）时延长它，否则从本段开始新运行段。
+                // 每一段都要检查长度，末尾的长空闲段不能被跳过。
+                let (run_start, run_end) = match run {
+                    Some((run_start, run_end)) if run_end >= start => (run_start, run_end.max(end)),
+                    _ => (start, end),
                 };
-                if end - run_start >= length {
+                if run_end.saturating_sub(run_start) >= length {
                     return Some(run_start);
                 }
-                cursor = Some((run_start, end));
+                run = Some((run_start, run_end));
             }
         }
         None

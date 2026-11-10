@@ -164,6 +164,32 @@ fn released_owned_range_returns_to_window() {
 }
 
 #[test]
+fn finds_long_free_run_after_a_gap() {
+    let base = 0x10_0000;
+    let bank = FrameBank::from_range(base, base + 0x10_0000);
+    let owner = CapacityId::next();
+    bank.reserve_for(owner, 0x10_0000).expect("预留窗口");
+
+    // 先占头部小段，再占中间大段，然后释放头部，形成
+    // [短空闲][已占用][长空闲] 的空闲表布局。
+    let head = bank
+        .allocate_owned(owner, CapacityKind::User, 0x1000)
+        .expect("头部小段");
+    assert_eq!(head.start(), PhysAddr::new(base));
+    let middle = bank
+        .allocate_owned(owner, CapacityKind::User, 0x8_0000)
+        .expect("中间大段");
+    assert_eq!(middle.start(), PhysAddr::new(base + 0x1000));
+    assert!(bank.release_owned(owner, head));
+
+    // 长空闲段位于末尾，必须能跨过前面的短段被找到。
+    let large = bank
+        .allocate_owned(owner, CapacityKind::User, 0x4_0000)
+        .expect("间隙后的长空闲段");
+    assert_eq!(large.start(), PhysAddr::new(base + 0x8_1000));
+}
+
+#[test]
 fn split_carves_child_window_from_parent() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let parent = CapacityId::next();
