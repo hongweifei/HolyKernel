@@ -226,10 +226,6 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::system::split_capacity(len, kind)
     }
 
-    fn system_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        hk_platform_x86_64::system::capacity()
-    }
-
     fn user_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         hk_platform_x86_64::system::user_capacity()
     }

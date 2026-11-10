@@ -104,11 +104,6 @@ pub trait UserPlatform {
         None
     }
 
-    /// 返回启动期建立、覆盖全部可用物理内存的 System Capacity。
-    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        None
-    }
-
     /// 返回启动期建立的顶层 User Capacity。
     fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         None

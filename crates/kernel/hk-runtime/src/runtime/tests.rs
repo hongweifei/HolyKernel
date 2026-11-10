@@ -6,15 +6,6 @@ use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use hk_hal::{SyscallFrame, UserContext};
 
-/// 把平台预留的容量包装成测试用共享 System Capacity。
-fn test_system_capacity<P: UserPlatform>(
-    platform: &P,
-) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-    platform
-        .reserve_capacity(0x20_0000, hk_mem::hmp::CapacityKind::System)
-        .map(|capacity| Arc::new(spin::Mutex::new(capacity)))
-}
-
 /// 最小用户现场。
 #[derive(Clone, Copy, Default)]
 struct MockContext {
@@ -92,8 +83,6 @@ struct MockPlatform {
     activations: Arc<AtomicUsize>,
     /// 最近一次 `map_user` 的页表参数。
     last_map: Arc<core::sync::atomic::AtomicU64>,
-    /// 共享的 System Capacity。
-    system: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
     /// 共享的顶层 User Capacity。
     user: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
     /// 每槽位捕获的用户页，供检查点恢复测试。
@@ -112,14 +101,6 @@ struct MockPlatform {
 
 impl MockPlatform {
     fn new() -> Self {
-        let system = hk_mem::hmp::Capacity::new(
-            hk_mem::hmp::CapacityId::next(),
-            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8000_0000), 0x20_0000),
-            hk_hal::PAGE_SIZE,
-            hk_mem::hmp::CapacityKind::System,
-            0,
-        )
-        .expect("System Capacity");
         let user = hk_mem::hmp::Capacity::new(
             hk_mem::hmp::CapacityId::next(),
             hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), 0x20_0000),
@@ -134,7 +115,6 @@ impl MockPlatform {
             unmap_ok: true,
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
-            system: Arc::new(spin::Mutex::new(system)),
             user: Arc::new(spin::Mutex::new(user)),
             pages: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
             unmapped: Arc::new(AtomicUsize::new(0)),
@@ -183,10 +163,6 @@ impl UserPlatform for MockPlatform {
             0,
         )
         .ok()
-    }
-
-    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        Some(Arc::clone(&self.system))
     }
 
     fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
@@ -1158,10 +1134,6 @@ fn transports_byte_payloads() {
                 0,
             )
             .ok()
-        }
-
-        fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-            test_system_capacity(self)
         }
 
         fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
@@ -2513,10 +2485,6 @@ impl UserPlatform for ShortPlatform {
             0,
         )
         .ok()
-    }
-
-    fn system_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        test_system_capacity(self)
     }
 
     fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
