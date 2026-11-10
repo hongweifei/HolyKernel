@@ -60,6 +60,100 @@ impl UserWindow {
         Some(start)
     }
 
+    /// 扩展一段已分配的虚拟区间。
+    ///
+    /// 扩长只在尾部追加：可以消耗紧邻的空闲区间，或推进 bump 指针；
+    /// 不能跨越其他已分配区间。
+    pub(crate) fn grow(&mut self, virt: u64, old_len: usize, new_len: usize) -> bool {
+        let Some(old) = align(old_len) else {
+            return false;
+        };
+        let Some(new) = align(new_len) else {
+            return false;
+        };
+        if new <= old {
+            return false;
+        }
+        let Some(index) = self
+            .allocated
+            .iter()
+            .position(|(start, size)| *start == virt && *size == old)
+        else {
+            return false;
+        };
+        let Some(start) = virt.checked_add(old) else {
+            return false;
+        };
+        let Some(end) = virt.checked_add(new) else {
+            return false;
+        };
+        if end > self.limit {
+            return false;
+        }
+        if self
+            .allocated
+            .iter()
+            .enumerate()
+            .any(|(other, (s, size))| other != index && *s < end && start < s.saturating_add(*size))
+        {
+            return false;
+        }
+        if start < self.next {
+            let Some(free_index) = self
+                .free
+                .iter()
+                .position(|(s, size)| *s <= start && s.saturating_add(*size) >= end)
+            else {
+                return false;
+            };
+            let (free_start, free_size) = self.free.swap_remove(free_index);
+            let free_end = free_start.saturating_add(free_size);
+            if free_start < start {
+                self.free.push((free_start, start - free_start));
+            }
+            if end < free_end {
+                self.free.push((end, free_end - end));
+            }
+        } else if start != self.next {
+            return false;
+        } else {
+            self.next = end;
+        }
+        self.allocated[index].1 = new;
+        true
+    }
+
+    /// 回退一次 `grow`，供映射失败时恢复窗口状态。
+    pub(crate) fn shrink(&mut self, virt: u64, old_len: usize, new_len: usize) -> bool {
+        let Some(old) = align(old_len) else {
+            return false;
+        };
+        let Some(new) = align(new_len) else {
+            return false;
+        };
+        if new >= old {
+            return false;
+        }
+        let Some(index) = self
+            .allocated
+            .iter()
+            .position(|(start, size)| *start == virt && *size == old)
+        else {
+            return false;
+        };
+        self.allocated[index].1 = new;
+        let Some(old_end) = virt.checked_add(old) else {
+            return false;
+        };
+        if self.next == old_end {
+            self.next = virt.saturating_add(new);
+        } else {
+            self.free.push((virt.saturating_add(new), old - new));
+            self.coalesce();
+        }
+        true
+    }
+
     /// 登记一段外部已建立的映射，避免自动窗口再次分配到这里。
     ///
     /// fork 子任务继承父任务已映射的 Region，但子任务的自动窗口仍然从

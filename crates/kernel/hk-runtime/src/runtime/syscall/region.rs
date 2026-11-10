@@ -267,6 +267,104 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 按 `GROW` 标志扩展 Region，并同步 Arena 表、用户窗口与已有物理映射。
+    pub(crate) fn region_grow(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let new_len = frame.arg1() as usize;
+        let Some((slot, handle, virt, length)) = self.region_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if new_len <= length {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(region) = self.process(index).regions[slot].as_ref() else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !region.flags.contains(RegionFlags::GROW) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let owner = region.owner;
+        let capability = region.capability;
+        let offset = region.offset;
+        let region_id = region.region;
+        let rights = region.rights;
+        let flags = region.flags;
+        let Ok((capability_info, backing)) = self.kernel.capability(owner, capability) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(end) = offset.checked_add(new_len as u64) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if end > capability_info.size() || !new_len.is_multiple_of(hk_hal::PAGE_SIZE) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if !self
+            .process_mut(index)
+            .user_window
+            .grow(virt, length, new_len)
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if self
+            .process_mut(index)
+            .hmp_arena
+            .resize(region_id, new_len)
+            .is_err()
+        {
+            let _ = self
+                .process_mut(index)
+                .user_window
+                .shrink(virt, new_len, length);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let delta = new_len - length;
+        if let Some(backing) = backing {
+            let phys = backing
+                .start()
+                .get()
+                .saturating_add(offset)
+                .saturating_add(length as u64);
+            if !self
+                .platform
+                .map_user(index, virt + length as u64, phys, delta, rights, flags)
+            {
+                let _ = self.process_mut(index).hmp_arena.resize(region_id, length);
+                let _ = self
+                    .process_mut(index)
+                    .user_window
+                    .shrink(virt, new_len, length);
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+        }
+        if self.kernel.grow_region(tcb, handle, new_len).is_err() {
+            if backing.is_some() {
+                let _ = self.platform.unmap_user(index, virt + length as u64, delta);
+            }
+            let _ = self.process_mut(index).hmp_arena.resize(region_id, length);
+            let _ = self
+                .process_mut(index)
+                .user_window
+                .shrink(virt, new_len, length);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
+            map.len = new_len;
+        }
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     pub(crate) fn region_info(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

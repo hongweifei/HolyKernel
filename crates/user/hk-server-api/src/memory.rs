@@ -7,8 +7,8 @@ use hk_syscall::{
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO,
     SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT,
-    SYS_REGION_UNMAP,
+    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
+    SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
 use hk_syscall::LEDGER_RECORD_BYTES;
@@ -80,6 +80,12 @@ pub fn region_info(region: u64) -> Option<(u64, u64)> {
 pub fn region_unmap(region: u64) -> u64 {
     // SAFETY: 内核校验 Region 句柄并解除映射。
     unsafe { syscall_call(SYS_REGION_UNMAP, region, 0, 0, 0).value }
+}
+
+/// 按 `GROW` 标志扩展 Region；成功返回 0。
+pub fn region_grow(region: u64, new_len: usize) -> u64 {
+    // SAFETY: 内核校验 Region 的 GROW 标志、能力范围与用户窗口后扩展映射。
+    unsafe { syscall_call(SYS_REGION_GROW, region, new_len as u64, 0, 0).value }
 }
 
 /// 修改已映射 Region 的权利与标志；成功返回 0。

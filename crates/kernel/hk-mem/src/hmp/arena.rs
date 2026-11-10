@@ -120,6 +120,40 @@ impl Arena {
         Ok(id)
     }
 
+    /// 调整已登记 Region 的长度。
+    ///
+    /// 新范围必须仍在 Arena 内，且不能与其它 Region 重叠。
+    pub fn resize(&mut self, id: RegionId, len: usize) -> Result<(), HmpError> {
+        let index = self
+            .regions
+            .iter()
+            .position(|region| region.id == id)
+            .ok_or(HmpError::NotMapped)?;
+        let virt = self.regions[index].virt;
+        let end = virt
+            .get()
+            .checked_add(len as u64)
+            .ok_or(HmpError::OutOfRange)?;
+        let arena_end = self
+            .base
+            .get()
+            .checked_add(self.size)
+            .ok_or(HmpError::OutOfRange)?;
+        if len == 0 || virt.get() < self.base.get() || end > arena_end {
+            return Err(HmpError::OutOfRange);
+        }
+        let overlaps = self.regions.iter().enumerate().any(|(other, existing)| {
+            other != index
+                && existing.virt.get() < end
+                && virt.get() < existing.virt.get().saturating_add(existing.len as u64)
+        });
+        if overlaps {
+            return Err(HmpError::AlreadyMapped);
+        }
+        self.regions[index].len = len;
+        Ok(())
+    }
+
     /// 从 Arena 移除 Region 表项。
     pub fn remove(&mut self, id: RegionId) -> Result<ArenaRegion, HmpError> {
         let index = self

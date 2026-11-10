@@ -143,6 +143,31 @@ impl Region {
         Ok(region)
     }
 
+    /// 按 `GROW` 标志扩展 Region 的能力范围。
+    ///
+    /// 只允许在同一能力内向后增长；虚拟地址与页表扩展由运行时完成。
+    pub fn grow(&mut self, len: usize) -> Result<(), HmpError> {
+        if !self.flags.contains(RegionFlags::GROW) {
+            return Err(HmpError::PermissionDenied);
+        }
+        if self.virt.is_none() {
+            return Err(HmpError::NotMapped);
+        }
+        let page = self.capability.page_size() as u64;
+        if len <= self.len || !(len as u64).is_multiple_of(page) {
+            return Err(HmpError::InvalidSize);
+        }
+        let end = self
+            .offset
+            .checked_add(len as u64)
+            .ok_or(HmpError::OutOfRange)?;
+        if end > self.capability.size() {
+            return Err(HmpError::OutOfRange);
+        }
+        self.len = len;
+        Ok(())
+    }
+
     /// 标记可写 Region 为 COW。
     pub fn mark_cow(&mut self) {
         if self.rights.contains(Rights::WRITE) {
@@ -384,6 +409,35 @@ mod tests {
         assert_eq!(child.virt(), Some(VirtAddr::new(0x50_0000)));
         assert!(child.flags().contains(RegionFlags::COW));
         assert_eq!(child.capability().id(), region.capability().id());
+    }
+
+    #[test]
+    fn grows_only_with_grow_flag() {
+        let capability = capability(CapabilityKind::Anonymous, 0x4000);
+        let mut region = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::GROW,
+        )
+        .expect("Region");
+        region.map(VirtAddr::new(0x40_0000)).expect("映射");
+        assert_eq!(region.grow(0x2000), Ok(()));
+        assert_eq!(region.len(), 0x2000);
+        assert_eq!(region.grow(0x1000), Err(HmpError::InvalidSize));
+        assert_eq!(region.grow(0x5000), Err(HmpError::OutOfRange));
+
+        let mut fixed = Region::new(
+            &capability,
+            0,
+            0x1000,
+            Rights::READ | Rights::WRITE,
+            RegionFlags::empty(),
+        )
+        .expect("Region");
+        fixed.map(VirtAddr::new(0x50_0000)).expect("映射");
+        assert_eq!(fixed.grow(0x2000), Err(HmpError::PermissionDenied));
     }
 
     #[test]

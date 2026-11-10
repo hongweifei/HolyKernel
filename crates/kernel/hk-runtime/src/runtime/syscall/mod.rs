@@ -334,6 +334,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_REGION_INFO => self.region_info(index, tcb, frame),
             SYS_REGION_UNMAP => self.region_unmap(index, tcb, frame),
             SYS_REGION_PROTECT => self.region_protect(index, tcb, frame),
+            SYS_REGION_GROW => self.region_grow(index, tcb, frame),
             SYS_CAPABILITY_PHYS => self.capability_phys(index, frame),
             SYS_CAPABILITY_PIN => self.capability_pin(index, tcb, frame),
             SYS_CAPABILITY_SCANOUT => self.capability_scanout(index, tcb, frame),

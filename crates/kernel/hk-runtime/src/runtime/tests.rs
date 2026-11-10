@@ -2058,6 +2058,78 @@ fn arena_tracks_mapped_regions() {
 }
 
 #[test]
+fn grows_grow_region_and_extends_arena() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::GROW.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    context.rax = SYS_REGION_GROW;
+    context.rdi = region;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "GROW Region 应可扩展");
+    assert_eq!(
+        runtime.region_at(index, region as usize).expect("Region").3,
+        0x2000
+    );
+    assert!(
+        runtime
+            .process(index)
+            .hmp_arena
+            .regions()
+            .iter()
+            .any(|entry| entry.len() == 0x2000),
+        "Arena 表应同步扩展"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn pinned_region_is_skipped_by_reclaim() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::PINNED.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    let (_, _, virt, _) = runtime.region_at(index, region as usize).expect("Region");
+    assert!(runtime.anonymous_fault(0, virt));
+    assert_eq!(
+        runtime.reclaim_zero_pages(index, hk_hal::PAGE_SIZE as u64),
+        0,
+        "PINNED Region 的页不能被回收"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn lazy_region_unmap_failure_keeps_region() {
     let mut runtime = runtime_on(
         "b",

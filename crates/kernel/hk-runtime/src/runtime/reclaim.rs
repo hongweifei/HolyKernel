@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use hk_hal::{PAGE_SIZE, SyscallFrame, UserContext};
 use hk_handle::{Handle, ObjectId};
 use hk_kernel::TcbId;
-use hk_mem::hmp::CapabilityKind;
+use hk_mem::hmp::{CapabilityKind, RegionFlags};
 
 use super::{UserPlatform, UserRuntime};
 
@@ -25,6 +25,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .flatten()
             .map(|region| (region.owner, region.capability))
+            .collect();
+        // 只要同一个 capability 有任一 PINNED 别名，就不能回收其页，
+        // 否则另一个固定驻留映射会看到悬空 PTE。
+        let pinned: Vec<ObjectId> = self
+            .process(owner)
+            .regions
+            .iter()
+            .flatten()
+            .filter(|region| region.flags.contains(RegionFlags::PINNED))
+            .filter_map(|region| {
+                self.kernel
+                    .capability_id(region.owner, region.capability)
+                    .ok()
+            })
             .collect();
         let mut released = 0;
         for (tcb, handle) in regions {
@@ -46,6 +60,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let Ok(object) = self.kernel.capability_id(tcb, handle) else {
                 continue;
             };
+            if pinned.contains(&object) {
+                continue;
+            }
             let pages = (capability.size() / page) as usize;
             for page_index in 0..pages {
                 if released >= budget {

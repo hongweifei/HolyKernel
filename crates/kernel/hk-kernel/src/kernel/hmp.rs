@@ -605,6 +605,20 @@ impl Kernel {
         Ok(())
     }
 
+    /// 按 Region 的 `GROW` 标志扩展其能力范围。
+    pub fn grow_region(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        len: usize,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Region)?;
+        let region = object.region().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Region,
+        })?;
+        region.lock().grow(len).map_err(KernelError::Hmp)
+    }
+
     /// 修改 Region 的权利与标志；能力层校验 W^X 与 sealed 约束。
     pub fn protect_region(
         &self,
