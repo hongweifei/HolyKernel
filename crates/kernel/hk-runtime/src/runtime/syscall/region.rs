@@ -18,10 +18,12 @@ struct FaultRegion {
     offset: u64,
     rights: Rights,
     flags: RegionFlags,
+    /// `Process.regions` 中的槽位；Arena 覆盖 Region 为 `None`。
+    slot: Option<usize>,
 }
 
 /// 判断地址是否落在 Region 内，命中时返回解析缺页所需的快照。
-fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
+fn fault_region(region: &RegionMap, address: u64, slot: Option<usize>) -> Option<FaultRegion> {
     let end = region.virt.checked_add(region.len as u64)?;
     (address >= region.virt && address < end).then_some(FaultRegion {
         tcb: region.owner,
@@ -30,6 +32,7 @@ fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
         offset: region.offset,
         rights: region.rights,
         flags: region.flags,
+        slot,
     })
 }
 
@@ -180,7 +183,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .capability(owner, capability)
             .ok()
             .and_then(|(_, backing)| backing);
-        if let Some(backing) = backing {
+        let has_overrides = self
+            .process(index)
+            .regions
+            .get(slot)
+            .and_then(|region| region.as_ref())
+            .is_some_and(|region| !region.pages.is_empty());
+        if let Some(backing) = backing
+            && !has_overrides
+        {
             let phys = backing.start().get().saturating_add(offset);
             if !self
                 .platform
@@ -196,7 +207,34 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let mut relative = 0_u64;
             while relative < length as u64 {
                 let page_index = (offset.saturating_add(relative) / page) as usize;
-                if let Ok(Some(range)) = self.kernel.capability_page(owner, capability, page_index)
+                let page_range = self
+                    .process(index)
+                    .regions
+                    .get(slot)
+                    .and_then(|region| region.as_ref())
+                    .and_then(|region| region.pages.get(&page_index))
+                    .copied()
+                    .or_else(|| {
+                        self.kernel
+                            .capability_page(owner, capability, page_index)
+                            .ok()
+                            .flatten()
+                            .or_else(|| {
+                                backing.map(|backing| {
+                                    hk_hal::PhysRange::new(
+                                        hk_hal::PhysAddr::new(
+                                            backing
+                                                .start()
+                                                .get()
+                                                .saturating_add(offset)
+                                                .saturating_add(relative),
+                                        ),
+                                        page,
+                                    )
+                                })
+                            })
+                    });
+                if let Some(range) = page_range
                     && !self.platform.map_user(
                         index,
                         virt + relative,
@@ -313,13 +351,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         process
             .regions
             .iter()
-            .flatten()
-            .find_map(|region| fault_region(region, address))
+            .enumerate()
+            .filter_map(|(slot, region)| {
+                region
+                    .as_ref()
+                    .and_then(|region| fault_region(region, address, Some(slot)))
+            })
+            .next()
             .or_else(|| {
                 process
                     .arena_region
                     .as_ref()
-                    .and_then(|region| fault_region(region, address))
+                    .and_then(|region| fault_region(region, address, None))
             })
     }
 
@@ -466,6 +509,38 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
+    /// 解析用户 COW 缺页；复制出新页时登记为当前进程的私有覆盖。
+    pub fn resolve_cow(&mut self, cpu: usize, address: u64) -> bool {
+        let Some(index) = self.current[cpu] else {
+            return false;
+        };
+        let Some(region) = self.find_fault_region(index, address) else {
+            return false;
+        };
+        let page = hk_hal::PAGE_SIZE as u64;
+        let page_index = (region.capability_offset(address, page) / page) as usize;
+        match self.platform.resolve_cow(address) {
+            Some(crate::runtime::CowOutcome::Copied(physical)) => {
+                let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
+                if let Some(slot) = region.slot {
+                    if let Some(map) = self
+                        .process_mut(index)
+                        .regions
+                        .get_mut(slot)
+                        .and_then(|region| region.as_mut())
+                    {
+                        map.pages.insert(page_index, range);
+                    }
+                } else if let Some(map) = self.process_mut(index).arena_region.as_mut() {
+                    map.pages.insert(page_index, range);
+                }
+                true
+            }
+            Some(crate::runtime::CowOutcome::Writable) => true,
+            None => false,
+        }
+    }
+
     /// 处理匿名能力的按需零页缺页。
     pub fn anonymous_fault(&mut self, cpu: usize, address: u64) -> bool {
         let Some(index) = self.current[cpu] else {
@@ -511,6 +586,35 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let page_address = region.page_address(offset);
         let page_index = (offset / page) as usize;
+        // COW 私有页覆盖优先于共享 capability 页；否则子进程 refault 会把
+        // 父进程的共享页重新装回来。
+        let overridden = if let Some(slot) = region.slot {
+            self.process(index)
+                .regions
+                .get(slot)
+                .and_then(|region| region.as_ref())
+                .and_then(|region| region.pages.get(&page_index))
+                .copied()
+        } else {
+            self.process(index)
+                .arena_region
+                .as_ref()
+                .and_then(|region| region.pages.get(&page_index))
+                .copied()
+        };
+        if let Some(range) = overridden {
+            if !self.platform.user_mapped(page_address) {
+                let _ = self.platform.map_user(
+                    index,
+                    page_address,
+                    range.start().get(),
+                    page as usize,
+                    region.rights,
+                    region.flags,
+                );
+            }
+            return self.platform.user_mapped(page_address);
+        }
         if let Some(range) = self
             .kernel
             .capability_page(region.tcb, region.capability, page_index)

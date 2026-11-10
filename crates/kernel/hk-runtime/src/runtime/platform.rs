@@ -6,6 +6,15 @@ use alloc::vec::Vec;
 use hk_base::CivilTime;
 use hk_checkpoint::Page;
 
+/// COW 缺页解析结果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CowOutcome {
+    /// 只剩当前映射，恢复写权限。
+    Writable,
+    /// 复制出的私有物理页。
+    Copied(u64),
+}
+
 /// 平台提供的用户态运行支持。
 pub trait UserPlatform {
     /// 返回调度 tick 计数。
@@ -75,6 +84,11 @@ pub trait UserPlatform {
     /// 判断物理页是否仍被多个地址空间共享；平台不支持时返回 `false`。
     fn page_shared(&self, _phys: hk_hal::PhysAddr) -> bool {
         false
+    }
+
+    /// 解析用户 COW 缺页；平台不支持时返回 `None`。
+    fn resolve_cow(&self, _address: u64) -> Option<CowOutcome> {
+        None
     }
     /// 为 DeviceGrant 分配连续 DMA 窗口。
     fn dma_window(&self, _len: usize) -> Option<hk_hal::PhysRange> {

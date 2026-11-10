@@ -15,7 +15,8 @@ use hk_platform_x86_64::paging;
 use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
 use hk_root_server::{
-    FaultOutcome, RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo, UserPlatform,
+    CowOutcome, FaultOutcome, RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo,
+    UserPlatform,
 };
 
 mod control;
@@ -164,6 +165,16 @@ impl UserPlatform for X86Platform {
 
     fn page_shared(&self, phys: hk_hal::PhysAddr) -> bool {
         hk_platform_x86_64::paging::is_shared_frame(phys)
+    }
+
+    fn resolve_cow(&self, address: u64) -> Option<CowOutcome> {
+        match hk_platform_x86_64::paging::resolve_cow(address) {
+            Some(hk_platform_x86_64::paging::CowResolution::Writable) => Some(CowOutcome::Writable),
+            Some(hk_platform_x86_64::paging::CowResolution::Copied(phys)) => {
+                Some(CowOutcome::Copied(phys.get()))
+            }
+            None => None,
+        }
     }
 
     fn take_irqs(&self, pending: &mut [u64; 4]) {
@@ -754,7 +765,7 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
     }
     if frame.vector == 14
         && frame.error & 0b11 == 0b11
-        && hk_platform_x86_64::paging::resolve_cow(cpu::fault_address())
+        && RUNTIME.resolve_cow(cpu::cpu_index(), cpu::fault_address())
     {
         return FaultAction::Resume;
     }

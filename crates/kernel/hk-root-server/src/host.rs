@@ -64,6 +64,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         Ok(())
     }
 
+    /// 解析用户 COW 缺页，并登记当前进程的私有页覆盖。
+    pub fn resolve_cow(&self, cpu: usize, address: u64) -> bool {
+        let mut runtime = self.runtime.lock();
+        let Some(runtime) = runtime.as_mut() else {
+            return false;
+        };
+        runtime.resolve_cow(cpu, address)
+    }
+
     /// 设置任务的用户态初始现场。
     pub fn attach(&self, index: usize, context: C) {
         if let Some(runtime) = self.runtime.lock().as_mut() {

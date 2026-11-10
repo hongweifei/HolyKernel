@@ -535,6 +535,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
+        if let Some(parent_region) = self.process(index).arena_region.as_ref()
+            && let Some(child_region) = process.arena_region.as_mut()
+        {
+            child_region.pages = parent_region.pages.clone();
+        }
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,

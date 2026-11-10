@@ -100,6 +100,8 @@ struct MockPlatform {
     unmapped: Arc<AtomicUsize>,
     /// 释放地址空间调用次数。
     released: Arc<AtomicUsize>,
+    /// COW 解析返回值；`None` 表示未处理。
+    cow: Option<CowOutcome>,
 }
 
 impl MockPlatform {
@@ -122,6 +124,7 @@ impl MockPlatform {
             pages: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
             unmapped: Arc::new(AtomicUsize::new(0)),
             released: Arc::new(AtomicUsize::new(0)),
+            cow: None,
         }
     }
 }
@@ -197,6 +200,10 @@ impl UserPlatform for MockPlatform {
 
     fn page_shared(&self, _phys: hk_hal::PhysAddr) -> bool {
         self.shared
+    }
+
+    fn resolve_cow(&self, _address: u64) -> Option<CowOutcome> {
+        self.cow
     }
 
     fn user_mapped(&self, _address: u64) -> bool {
@@ -1586,6 +1593,78 @@ fn region_protect_updates_lazy_pages() {
         rights,
         hk_handle::Rights::READ,
         "惰性 Region 的已装入页也必须更新 PTE"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn cow_resolution_records_private_page_override() {
+    let platform = MockPlatform {
+        cow: Some(CowOutcome::Copied(0x7000_0000)),
+        ..MockPlatform::new()
+    };
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    assert!(runtime.resolve_cow(0, hk_base::user::AUTO_WINDOW_BASE));
+
+    let slot = runtime
+        .process(index)
+        .regions
+        .iter()
+        .position(Option::is_some)
+        .expect("Region");
+    let map = runtime.process(index).regions[slot].as_ref().unwrap();
+    assert_eq!(
+        map.pages.get(&0).map(|range| range.start().get()),
+        Some(0x7000_0000),
+        "COW 复制页必须登记为当前进程的私有覆盖"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn fork_copies_cow_private_page_overrides() {
+    let platform = MockPlatform {
+        cow: Some(CowOutcome::Copied(0x7000_1000)),
+        ..MockPlatform::new()
+    };
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    assert!(runtime.resolve_cow(0, hk_base::user::AUTO_WINDOW_BASE));
+    assert_eq!(
+        runtime.process(index).regions.iter().flatten().count(),
+        1,
+        "父 Region"
+    );
+
+    context.rax = SYS_FORK;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let child = runtime.task_count() - 1;
+    assert_eq!(
+        runtime.process(child).regions.iter().flatten().count(),
+        1,
+        "子 Region"
+    );
+    let child_map = runtime
+        .process(child)
+        .regions
+        .iter()
+        .flatten()
+        .next()
+        .unwrap();
+    assert_eq!(
+        child_map.pages.get(&0).map(|range| range.start().get()),
+        Some(0x7000_1000),
+        "fork 必须复制私有页覆盖"
     );
     let _ = runtime.finish(0, index);
 }

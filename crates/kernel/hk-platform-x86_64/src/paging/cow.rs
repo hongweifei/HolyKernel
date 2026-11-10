@@ -146,9 +146,9 @@ impl PageTable {
     }
 
     /// 处理写时复制页错误：复制页帧并恢复可写映射。
-    pub fn resolve_cow(&self, address: u64) -> bool {
+    pub fn resolve_cow(&self, address: u64) -> Option<super::CowResolution> {
         if !self.split_huge_at(address) {
-            return false;
+            return None;
         }
         let mut table = self.root;
         for level in [39_u32, 30, 21] {
@@ -156,7 +156,7 @@ impl PageTable {
             // SAFETY: 页表项经 HHDM 映射，索引在 0..512 范围内。
             let value = unsafe { self.entry(table, index).read_volatile() };
             if value & PRESENT == 0 || value & HUGE != 0 {
-                return false;
+                return None;
             }
             table = PhysAddr::new(value & ADDRESS_MASK);
         }
@@ -165,7 +165,7 @@ impl PageTable {
         // SAFETY: 末级页表项经 HHDM 映射，索引在 0..512 范围内。
         let value = unsafe { self.entry(table, index).read_volatile() };
         if value & PRESENT == 0 || value & WRITABLE != 0 {
-            return false;
+            return None;
         }
 
         let physical = PhysAddr::new(value & ADDRESS_MASK);
@@ -173,7 +173,7 @@ impl PageTable {
         let mut refs = super::frame_refs().lock();
         let count = refs.count(physical);
         if count == 0 {
-            return false;
+            return None;
         }
 
         if count == 1 {
@@ -184,14 +184,12 @@ impl PageTable {
                     .write_volatile(physical.get() | flags | WRITABLE);
             }
             self.flush(address);
-            return true;
+            return Some(super::CowResolution::Writable);
         }
 
-        let Some(frame) = take_cow_page() else {
-            return false;
-        };
+        let frame = take_cow_page()?;
         if !super::mapping_acquire(frame) {
-            return false;
+            return None;
         }
         let source = (self.direct_map + physical.get()) as *const u8;
         let target = (self.direct_map + frame.get()) as *mut u8;
@@ -206,6 +204,6 @@ impl PageTable {
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
         unsafe { self.entry(table, index).write_volatile(updated) };
         self.flush(address);
-        true
+        Some(super::CowResolution::Copied(frame))
     }
 }

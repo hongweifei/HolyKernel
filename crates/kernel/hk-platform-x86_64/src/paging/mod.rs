@@ -120,11 +120,20 @@ pub fn give_restore_page(frame: PhysAddr) {
     PagePool::new(&FRAME_BANK).free_restore(frame);
 }
 
-/// 解析用户写保护页错误；成功复制页帧时返回 `true`。
-pub fn resolve_cow(address: u64) -> bool {
+/// COW 缺页的解析结果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CowResolution {
+    /// 只剩当前映射，直接恢复写权限。
+    Writable,
+    /// 复制出新的私有页。
+    Copied(PhysAddr),
+}
+
+/// 解析用户写保护页错误。
+pub fn resolve_cow(address: u64) -> Option<CowResolution> {
     let direct_map = DIRECT_MAP.load(Ordering::Acquire);
     if direct_map == 0 {
-        return false;
+        return None;
     }
     let table = PageTable {
         direct_map,

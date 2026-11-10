@@ -60,7 +60,7 @@ mod user_window;
 mod view;
 
 pub use arena::Arena;
-pub use platform::UserPlatform;
+pub use platform::{CowOutcome, UserPlatform};
 pub use state::{FaultOutcome, Pending, Step, Switch};
 pub use user_task::UserTask;
 pub(crate) use user_task::{HandleSlot, TaskInit};
@@ -91,6 +91,8 @@ pub(crate) struct RegionMap {
     pub offset: u64,
     pub rights: Rights,
     pub flags: hk_mem::hmp::RegionFlags,
+    /// COW 私有页覆盖：能力页索引 → 本进程私有物理页。
+    pub pages: BTreeMap<usize, hk_hal::PhysRange>,
 }
 
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
@@ -174,6 +176,7 @@ impl Process {
             offset: 0,
             rights,
             flags: RegionFlags::empty(),
+            pages: BTreeMap::new(),
         });
         Ok(())
     }
