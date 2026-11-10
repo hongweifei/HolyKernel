@@ -5,62 +5,11 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
-    Arena, ArenaRegion, Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame,
-    FrameBacking, HmpError, Ledger, OwnedFrame, ProviderKind, Region, RegionId,
+    Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame, FrameBacking, HmpError,
+    OwnedFrame, ProviderKind, Region,
 };
 
 impl Kernel {
-    /// 在指定线程的句柄表中创建任务内存根。
-    pub fn create_arena(
-        &self,
-        thread: TcbId,
-        arena: Arena,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        self.register(
-            thread,
-            Arc::new(KernelObject::new(ObjectPayload::Arena(Mutex::new(arena)))),
-            rights,
-        )
-    }
-
-    /// 在 Arena 中登记 Region。
-    pub fn arena_insert_region(
-        &self,
-        thread: TcbId,
-        arena: Handle,
-        region: &Region,
-    ) -> Result<RegionId, KernelError> {
-        let (object, _) = self.resolve(thread, arena, Rights::WRITE, ObjectKind::Arena)?;
-        let arena = object.arena().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Arena,
-        })?;
-        arena.lock().insert(region).map_err(KernelError::Hmp)
-    }
-
-    /// 从 Arena 中移除 Region。
-    pub fn arena_remove_region(
-        &self,
-        thread: TcbId,
-        arena: Handle,
-        region: RegionId,
-    ) -> Result<ArenaRegion, KernelError> {
-        let (object, _) = self.resolve(thread, arena, Rights::WRITE, ObjectKind::Arena)?;
-        let arena = object.arena().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Arena,
-        })?;
-        arena.lock().remove(region).map_err(KernelError::Hmp)
-    }
-
-    /// 返回 Arena 中的 Region 数。
-    pub fn arena_region_count(&self, thread: TcbId, arena: Handle) -> Result<usize, KernelError> {
-        let (object, _) = self.resolve(thread, arena, Rights::READ, ObjectKind::Arena)?;
-        let arena = object.arena().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Arena,
-        })?;
-        Ok(arena.lock().regions().len())
-    }
-
     /// 在指定线程的句柄表中创建物理页。
     pub fn create_frame(
         &self,
@@ -123,7 +72,7 @@ impl Kernel {
         self.frame_info(thread, handle).map(|(range, ..)| range)
     }
 
-    /// 返回 Frame Ledger 的已记账字节数。
+    /// 返回 Frame 当前常驻字节数。
     pub fn frame_resident(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
         Ok(object.frame_resident())
@@ -283,21 +232,19 @@ impl Kernel {
         Ok((capacity.peak(), capacity.soft_limit()))
     }
 
-    /// 返回对象关联 Ledger 的只读快照。
+    /// 返回对象利用率快照；只用于报告。
     pub fn object_ledger(
         &self,
         thread: TcbId,
         handle: Handle,
     ) -> Result<hk_mem::hmp::LedgerSnapshot, KernelError> {
         let Some(kind) = self.handle_kind(thread, handle) else {
-            return Err(KernelError::WrongKind {
-                expected: ObjectKind::Ledger,
-            });
+            return Err(KernelError::Hmp(HmpError::WrongCapability));
         };
         let (object, _) = self.resolve(thread, handle, Rights::READ, kind)?;
-        object.ledger_snapshot().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Ledger,
-        })
+        object
+            .ledger_snapshot()
+            .ok_or(KernelError::Hmp(HmpError::WrongCapability))
     }
 
     /// 返回类型化能力的常驻字节数。
@@ -561,20 +508,6 @@ impl Kernel {
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Region(Mutex::new(region)))),
-            rights,
-        )
-    }
-
-    /// 在指定线程的句柄表中创建配额账本。
-    pub fn create_ledger(
-        &self,
-        thread: TcbId,
-        ledger: Ledger,
-        rights: Rights,
-    ) -> Result<Handle, KernelError> {
-        self.register(
-            thread,
-            Arc::new(KernelObject::new(ObjectPayload::Ledger(Mutex::new(ledger)))),
             rights,
         )
     }

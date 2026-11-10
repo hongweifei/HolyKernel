@@ -61,8 +61,6 @@ pub enum ObjectKind {
     DeviceGrant,
     /// 设备授权工厂。
     DeviceGrantFactory,
-    /// 任务内存根。
-    Arena,
     /// 物理容量能力。
     Capacity,
     /// 物理页。
@@ -71,8 +69,6 @@ pub enum ObjectKind {
     Capability,
     /// 虚拟映射。
     Region,
-    /// 配额与记账。
-    Ledger,
 }
 
 impl ObjectKind {
@@ -89,12 +85,10 @@ impl ObjectKind {
             Self::IrqHandler => "irq-handler",
             Self::DeviceGrant => "device-grant",
             Self::DeviceGrantFactory => "device-grant-factory",
-            Self::Arena => "arena",
             Self::Capacity => "capacity",
             Self::Frame => "frame",
             Self::Capability => "capability",
             Self::Region => "region",
-            Self::Ledger => "ledger",
         }
     }
 }

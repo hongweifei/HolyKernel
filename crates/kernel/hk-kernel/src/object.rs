@@ -8,9 +8,7 @@ use hk_device::DeviceGrant;
 use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::hmp::{
-    Arena, Capability, Capacity, Frame, FrameBacking, Ledger, LedgerSnapshot, OwnedFrame, Region,
-};
+use hk_mem::hmp::{Capability, Capacity, Frame, FrameBacking, LedgerSnapshot, OwnedFrame, Region};
 use spin::Mutex;
 
 use crate::task::Task;
@@ -31,8 +29,6 @@ pub enum ObjectPayload {
     DeviceGrant(DeviceGrant),
     /// 设备授权工厂。
     DeviceGrantFactory,
-    /// 任务内存根。
-    Arena(Mutex<Arena>),
     /// 物理容量能力。
     Capacity(Arc<Mutex<Capacity>>),
     /// 物理页。
@@ -63,8 +59,6 @@ pub enum ObjectPayload {
     },
     /// 虚拟映射。
     Region(Mutex<Region>),
-    /// 配额与记账。
-    Ledger(Mutex<Ledger>),
 }
 
 impl ObjectPayload {
@@ -78,12 +72,10 @@ impl ObjectPayload {
             Self::Notification(_) => ObjectKind::Notification,
             Self::DeviceGrant(_) => ObjectKind::DeviceGrant,
             Self::DeviceGrantFactory => ObjectKind::DeviceGrantFactory,
-            Self::Arena(_) => ObjectKind::Arena,
             Self::Capacity(_) => ObjectKind::Capacity,
             Self::Frame { .. } => ObjectKind::Frame,
             Self::Capability { .. } => ObjectKind::Capability,
             Self::Region(_) => ObjectKind::Region,
-            Self::Ledger(_) => ObjectKind::Ledger,
         }
     }
 }
@@ -152,14 +144,6 @@ impl KernelObject {
     pub fn device_grant(&self) -> Option<&DeviceGrant> {
         match &self.payload {
             ObjectPayload::DeviceGrant(grant) => Some(grant),
-            _ => None,
-        }
-    }
-
-    /// 返回任务内存根。
-    pub fn arena(&self) -> Option<&Mutex<Arena>> {
-        match &self.payload {
-            ObjectPayload::Arena(arena) => Some(arena),
             _ => None,
         }
     }
@@ -365,18 +349,9 @@ impl KernelObject {
         }
     }
 
-    /// 返回配额与记账。
-    pub fn ledger(&self) -> Option<&Mutex<Ledger>> {
-        match &self.payload {
-            ObjectPayload::Ledger(ledger) => Some(ledger),
-            _ => None,
-        }
-    }
-
     /// 返回对象利用率快照；只用于报告，不执行硬配额。
     pub fn ledger_snapshot(&self) -> Option<LedgerSnapshot> {
         match &self.payload {
-            ObjectPayload::Arena(arena) => Some(arena.lock().ledger_snapshot()),
             ObjectPayload::Region(region) => Some(region.lock().ledger_snapshot()),
             ObjectPayload::Capability { capability, .. } => {
                 let resident = self.capability_resident();
@@ -395,7 +370,6 @@ impl KernelObject {
                     Some(LedgerSnapshot::utilization(len, len, len, len))
                 }
             }
-            ObjectPayload::Ledger(ledger) => Some(ledger.lock().snapshot()),
             ObjectPayload::Capacity(capacity) => {
                 let capacity = capacity.lock();
                 Some(LedgerSnapshot {

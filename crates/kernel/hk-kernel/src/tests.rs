@@ -5,8 +5,8 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{
-    Arena, ArenaId, Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, FrameBacking,
-    FrameLease, Ledger, LedgerId, Region, RegionFlags,
+    Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, FrameBacking, FrameLease,
+    Region, RegionFlags,
 };
 
 use crate::{Kernel, TcbId, ThreadState, TraceCategory};
@@ -69,15 +69,9 @@ fn creates_hmp_objects() {
         Capability::new(CapabilityKind::Anonymous, 0x2000, PAGE_SIZE, None).expect("Capability");
     let region =
         Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
-    let ledger = Ledger::new(LedgerId::new(1), 0x10_000);
-    let arena = Arena::new(ArenaId::new(1), VirtAddr::new(0x40_0000), 0x10_000).expect("Arena");
-
     kernel
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
-    kernel
-        .create_arena(worker, arena, rights)
-        .expect("创建 Arena");
     kernel
         .create_frame(worker, frame, rights)
         .expect("创建 Frame");
@@ -87,12 +81,9 @@ fn creates_hmp_objects() {
     kernel
         .create_region(worker, region, rights)
         .expect("创建 Region");
-    kernel
-        .create_ledger(worker, ledger, rights)
-        .expect("创建 Ledger");
 
-    assert_eq!(kernel.live_objects(), 6);
-    assert_eq!(kernel.handles_live(worker), Some(6));
+    assert_eq!(kernel.live_objects(), 4);
+    assert_eq!(kernel.handles_live(worker), Some(4));
 }
 
 #[test]
@@ -285,22 +276,10 @@ fn reports_capability_resident_bytes() {
 }
 
 #[test]
-fn object_ledger_reads_arena_capability_and_frame() {
+fn object_ledger_reads_capability_and_frame() {
     let kernel = kernel();
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
-
-    let arena = Arena::new(ArenaId::new(1), VirtAddr::new(0x40_0000), 0x4000).expect("Arena");
-    let arena_handle = kernel
-        .create_arena(worker, arena, rights)
-        .expect("Arena 句柄");
-    assert_eq!(
-        kernel
-            .object_ledger(worker, arena_handle)
-            .expect("Arena Ledger")
-            .charged,
-        0
-    );
 
     let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
         .expect("能力");
@@ -356,30 +335,8 @@ fn object_ledger_reports_utilization_not_quota() {
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
 
-    let mut arena = Arena::new(ArenaId::new(2), VirtAddr::new(0x40_0000), 0x4000).expect("Arena");
     let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
         .expect("能力");
-    let mut region = Region::new(
-        &capability,
-        0,
-        PAGE_SIZE,
-        Rights::READ | Rights::WRITE,
-        RegionFlags::empty(),
-    )
-    .expect("Region");
-    region.map(VirtAddr::new(0x40_0000)).expect("映射");
-    arena.insert(&region).expect("加入 Arena");
-    let arena_handle = kernel
-        .create_arena(worker, arena, rights)
-        .expect("Arena 句柄");
-    let arena_ledger = kernel
-        .object_ledger(worker, arena_handle)
-        .expect("Arena Ledger");
-    assert_eq!(arena_ledger.charged, PAGE_SIZE as u64);
-    assert_eq!(arena_ledger.limit, 0x4000);
-    assert_eq!(arena_ledger.peak, PAGE_SIZE as u64);
-    assert_eq!(arena_ledger.pressure, 25);
-
     let mut region = Region::new(
         &capability,
         0,
@@ -520,7 +477,7 @@ fn releasing_last_reference_returns_frame_to_capacity() {
 }
 
 #[test]
-fn tracks_arena_regions_and_frame_refs() {
+fn tracks_frame_refs() {
     let kernel = kernel();
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
@@ -533,42 +490,14 @@ fn tracks_arena_regions_and_frame_refs() {
     )
     .expect("Capacity");
     let frame = capacity.allocate(PAGE_SIZE).expect("Frame");
-    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
-        .expect("Capability");
-    let mut region = Region::new(
-        &capability,
-        0,
-        PAGE_SIZE,
-        Rights::READ | Rights::WRITE,
-        RegionFlags::empty(),
-    )
-    .expect("Region");
-    region.map(VirtAddr::new(0x40_0000)).expect("映射");
-
-    let arena = kernel
-        .create_arena(
-            worker,
-            Arena::new(ArenaId::new(2), VirtAddr::new(0x40_0000), 0x10_000).expect("Arena"),
-            rights,
-        )
-        .expect("创建 Arena");
     let frame = kernel
         .create_frame(worker, frame, rights)
         .expect("创建 Frame");
 
-    let region_id = kernel
-        .arena_insert_region(worker, arena, &region)
-        .expect("登记 Region");
-    assert_eq!(kernel.arena_region_count(worker, arena), Ok(1));
     assert_eq!(kernel.frame_refs(worker, frame), Ok(1));
     assert_eq!(kernel.share_frame(worker, frame), Ok(2));
     assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
     assert!(kernel.frame_range(worker, frame).is_ok());
-
-    kernel
-        .arena_remove_region(worker, arena, region_id)
-        .expect("移除 Region");
-    assert_eq!(kernel.arena_region_count(worker, arena), Ok(0));
 }
 
 #[test]

@@ -217,22 +217,6 @@ impl Arena {
     pub fn ledger_snapshot(&self) -> LedgerSnapshot {
         LedgerSnapshot::utilization(self.used(), self.size, self.peak, 0)
     }
-
-    /// 判断地址区间是否落在 Arena 内。
-    pub fn contains(&self, virt: VirtAddr, len: u64) -> bool {
-        let Some(end) = virt.get().checked_add(len) else {
-            return false;
-        };
-        let Some(arena_end) = self.base.get().checked_add(self.size) else {
-            return false;
-        };
-        virt.get() >= self.base.get() && end <= arena_end
-    }
-
-    /// 销毁 Arena，返回全部 Region 表项。
-    pub fn destroy(self) -> Vec<ArenaRegion> {
-        self.regions
-    }
 }
 
 #[cfg(test)]
