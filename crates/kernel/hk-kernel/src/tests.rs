@@ -120,6 +120,10 @@ fn allocates_splits_and_frees_capacity_frames() {
     assert_eq!(page_size, PAGE_SIZE);
     assert_eq!(refs, 1);
     assert!(!pinned);
+    assert_eq!(
+        kernel.frame_ledger_charged(worker, frame),
+        Ok(PAGE_SIZE as u64)
+    );
     assert_eq!(kernel.share_frame(worker, frame), Ok(2));
     assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
     assert_eq!(
@@ -131,6 +135,7 @@ fn allocates_splits_and_frees_capacity_frames() {
     assert_eq!(kernel.pin_frame(worker, frame, false), Ok(()));
     assert_eq!(kernel.release_frame(worker, frame), Ok(1));
     assert_eq!(kernel.free_frame(worker, capacity, frame), Ok(()));
+    assert_eq!(kernel.frame_ledger_charged(worker, frame), Ok(0));
     assert!(matches!(
         kernel.frame_info(worker, frame),
         Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))

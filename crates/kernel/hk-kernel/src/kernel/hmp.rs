@@ -68,11 +68,14 @@ impl Kernel {
         frame: Frame,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        let mut ledger = Ledger::create(frame.len() as u64);
+        let _ = ledger.charge(frame.len() as u64);
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Frame {
                 frame: Mutex::new(Some(frame)),
                 capacity: None,
+                ledger: Mutex::new(ledger),
             })),
             rights,
         )
@@ -85,11 +88,14 @@ impl Kernel {
         capacity: Arc<Mutex<Capacity>>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        let mut ledger = Ledger::create(frame.len() as u64);
+        let _ = ledger.charge(frame.len() as u64);
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Frame {
                 frame: Mutex::new(Some(frame)),
                 capacity: Some(capacity),
+                ledger: Mutex::new(ledger),
             })),
             rights,
         )
@@ -121,6 +127,12 @@ impl Kernel {
     /// 返回 Frame 的物理区间。
     pub fn frame_range(&self, thread: TcbId, handle: Handle) -> Result<PhysRange, KernelError> {
         self.frame_info(thread, handle).map(|(range, ..)| range)
+    }
+
+    /// 返回 Frame Ledger 的已记账字节数。
+    pub fn frame_ledger_charged(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
+        Ok(object.frame_ledger_charged())
     }
 
     /// 返回 Frame 的共享引用数。
@@ -169,6 +181,7 @@ impl Kernel {
             // 导入的区间没有 Capacity 归属，只丢弃描述。
             slot.take();
         }
+        object.clear_frame_ledger();
         Ok(0)
     }
 
@@ -216,7 +229,9 @@ impl Kernel {
         if slot.is_none() {
             return Err(KernelError::Hmp(HmpError::NotMapped));
         }
-        capacity.free(&mut slot).map_err(KernelError::Hmp)
+        capacity.free(&mut slot).map_err(KernelError::Hmp)?;
+        frame_object.clear_frame_ledger();
+        Ok(())
     }
 
     /// 在指定线程的句柄表中创建物理容量能力。
