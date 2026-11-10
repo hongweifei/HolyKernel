@@ -1,5 +1,6 @@
 //! 物理容量能力。
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -75,7 +76,9 @@ pub struct Capacity {
     kind: CapacityKind,
     /// 由哪个容量 `split` 而来；根容量为 `None`。
     parent: Option<CapacityId>,
-    limit: u64,
+    /// 父容量配额；子容量扩窗时与父共享同一份计数。
+    parent_limit: Option<Arc<AtomicU64>>,
+    limit: Arc<AtomicU64>,
     soft_limit: u64,
     used: u64,
     peak: u64,
@@ -127,7 +130,8 @@ impl Capacity {
             page_size,
             kind,
             parent: None,
-            limit,
+            parent_limit: None,
+            limit: Arc::new(AtomicU64::new(limit)),
             soft_limit: 0,
             used: 0,
             peak: 0,
@@ -152,7 +156,7 @@ impl Capacity {
         }
 
         if let Some(backend) = super::backend::physical_backend() {
-            if self.used().saturating_add(length) > self.limit && !self.grow(length) {
+            if self.used().saturating_add(length) > self.limit() && !self.grow(length) {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
@@ -161,7 +165,7 @@ impl Capacity {
             return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
         }
 
-        if self.used.saturating_add(length) > self.limit {
+        if self.used.saturating_add(length) > self.limit() {
             return Err(HmpError::OutOfCapacity);
         }
 
@@ -179,7 +183,7 @@ impl Capacity {
                 .next
                 .checked_add(length)
                 .ok_or(HmpError::OutOfCapacity)?;
-            let limit_end = self.range.start().get().saturating_add(self.limit);
+            let limit_end = self.range.start().get().saturating_add(self.limit());
             if end > limit_end {
                 return Err(HmpError::OutOfCapacity);
             }
@@ -207,14 +211,21 @@ impl Capacity {
         let Some(parent) = self.parent else {
             return false;
         };
+        let Some(parent_limit) = self.parent_limit.clone() else {
+            return false;
+        };
+        if parent_limit.load(Ordering::Acquire) < length {
+            return false;
+        }
         let Some(backend) = super::backend::physical_backend() else {
             return false;
         };
         let Some(range) = backend.split_owned(parent, self.id, length) else {
             return false;
         };
-        self.limit = self.limit.saturating_add(range.len());
-        backend.set_ledger_limit(self.id, self.limit);
+        parent_limit.fetch_sub(range.len(), Ordering::AcqRel);
+        self.set_limit(self.limit().saturating_add(range.len()));
+        backend.set_ledger_limit(self.id, self.limit());
         true
     }
 
@@ -234,22 +245,26 @@ impl Capacity {
             return Err(HmpError::InvalidSize);
         }
 
+        if self.limit() < length {
+            return Err(HmpError::OutOfCapacity);
+        }
         if let Some(backend) = super::backend::physical_backend() {
             let range = backend
                 .split_owned(self.id, id, length)
                 .ok_or(HmpError::OutOfCapacity)?;
             let mut child = Self::new(id, range, self.page_size, kind, length)?;
             child.parent = Some(self.id);
-            self.limit = self.limit.saturating_sub(length);
+            child.parent_limit = Some(Arc::clone(&self.limit));
+            self.set_limit(self.limit().saturating_sub(length));
             if self.kind != CapacityKind::System {
-                backend.set_ledger_limit(self.id, self.limit);
+                backend.set_ledger_limit(self.id, self.limit());
             }
             return Ok(child);
         }
 
         let start = self.next;
         let end = start.checked_add(length).ok_or(HmpError::OutOfCapacity)?;
-        let limit_end = self.range.start().get().saturating_add(self.limit);
+        let limit_end = self.range.start().get().saturating_add(self.limit());
         if end > limit_end {
             return Err(HmpError::OutOfCapacity);
         }
@@ -262,7 +277,8 @@ impl Capacity {
             length,
         )?;
         child.parent = Some(self.id);
-        self.limit = self.limit.saturating_sub(length);
+        child.parent_limit = Some(Arc::clone(&self.limit));
+        self.set_limit(self.limit().saturating_sub(length));
         Ok(child)
     }
 
@@ -312,7 +328,7 @@ impl Capacity {
 
         let start = phys.get();
         let end = start.checked_add(length).ok_or(HmpError::OutOfRange)?;
-        let limit_end = self.range.start().get().saturating_add(self.limit);
+        let limit_end = self.range.start().get().saturating_add(self.limit());
         if start < self.range.start().get() || end > limit_end {
             return Err(HmpError::OutOfRange);
         }
@@ -347,9 +363,9 @@ impl Capacity {
         // 检查；未注册后端时才按自带的窗口分配器校验。
         if let Some(backend) = super::backend::physical_backend() {
             backend.merge_owned(self.id, child.id, range)?;
-            self.limit = self.limit.saturating_add(child.limit);
+            self.set_limit(self.limit().saturating_add(child.limit()));
             if self.kind != CapacityKind::System {
-                backend.set_ledger_limit(self.id, self.limit);
+                backend.set_ledger_limit(self.id, self.limit());
             }
             backend.remove_ledger(child.id);
             return Ok(());
@@ -361,7 +377,7 @@ impl Capacity {
             .range
             .start()
             .get()
-            .saturating_add(self.limit.saturating_add(child.limit));
+            .saturating_add(self.limit().saturating_add(child.limit()));
         if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
             return Err(HmpError::OutOfRange);
         }
@@ -371,7 +387,7 @@ impl Capacity {
             self.free.push(range);
             self.coalesce();
         }
-        self.limit = self.limit.saturating_add(child.limit);
+        self.set_limit(self.limit().saturating_add(child.limit()));
         Ok(())
     }
 
@@ -396,8 +412,12 @@ impl Capacity {
     }
 
     /// 返回配额字节数。
-    pub const fn limit(&self) -> u64 {
-        self.limit
+    pub fn limit(&self) -> u64 {
+        self.limit.load(Ordering::Acquire)
+    }
+
+    fn set_limit(&self, limit: u64) {
+        self.limit.store(limit, Ordering::Release);
     }
 
     /// 设置软上限；0 表示未设置。软上限只用于报告，不拒绝分配。
@@ -425,10 +445,11 @@ impl Capacity {
 
     /// 返回压力百分比（0–100）。
     pub fn pressure(&self) -> u64 {
-        if self.limit == 0 {
+        let limit = self.limit();
+        if limit == 0 {
             return 100;
         }
-        self.used().saturating_mul(100) / self.limit
+        self.used().saturating_mul(100) / limit
     }
 
     /// 返回已分配字节数。

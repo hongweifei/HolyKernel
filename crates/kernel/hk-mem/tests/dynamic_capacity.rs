@@ -32,8 +32,14 @@ fn user_capacity_grows_from_system_on_demand() {
         .split(user_id, PAGE_SIZE, CapacityKind::User)
         .expect("User 初始窗口");
     assert_eq!(user.limit(), PAGE_SIZE as u64);
+    let system_limit_after_split = system.limit();
 
     let frame = user.allocate(PAGE_SIZE * 4).expect("动态扩窗后分配");
+    assert_eq!(
+        system.limit(),
+        system_limit_after_split - (PAGE_SIZE * 4) as u64,
+        "User 扩窗必须同步扣减父 System 配额"
+    );
     assert_eq!(frame.len(), PAGE_SIZE * 4);
     assert!(
         user.limit() >= (PAGE_SIZE * 5) as u64,
