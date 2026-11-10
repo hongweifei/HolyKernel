@@ -348,16 +348,15 @@ flowchart LR
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |
 | 普通服务 | 自己的 Arena；TaskImage/Anonymous/栈 Region；共享时取 Capability 或经 IPC 接收 Frame |
-| Debug / Checkpoint | Arena/Capacity/Frame/Region/Ledger 的只读枚举 Handle |
+| Debug / Checkpoint | Capacity/Frame/Region 的只读枚举 Handle；Arena 与 Ledger 通过运行时快照报告 |
 
-- 普通服务持有 Region 是授予策略；任何服务只要收到 Arena/Capacity/Frame Handle，就使用同一组对象操作。
+- 普通服务持有 Region 是授予策略；Arena 由运行时持有，收到 Capacity/Frame Handle 后使用同一组对象操作。
 - `Region` 属于一个 Arena；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`。
 
 ### Rights
 
 | 对象 | READ | WRITE | EXECUTE | TRANSFER | ADMIN |
 | --- | --- | --- | --- | --- | --- |
-| `Arena` | 查询 Region 与 Ledger | map/grow/unmap | 执行 TaskImage | — | checkpoint、restore、destroy |
 | `Capacity` | 查询容量与 Ledger | 分配/归还 Frame | — | 转移 Capacity | 拆分、配置、绑定 Provider |
 | `Frame` | 映射只读 | 映射可写、pin/unpin | 映射可执行 | 转移、export/import | 配置导出与驻留 |
 | `Region` | 映射只读 | 映射可写 | 映射可执行 | — | protect、unmap |
@@ -371,8 +370,8 @@ flowchart LR
 - W^X、NX、guard、ASLR 在 Region/页表层执行；设备页默认按 NX 映射。
 - 释放清零；Frame 回 Capacity 前清空敏感内容。
 - 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 决定。
-- Debug Server 枚举 Arena、Capacity、Frame、类型化能力、Region、Provider 与 Ledger。
-- Checkpoint Server 按 Handle 图捕获 Arena、Region、Frame 与 Ledger。
+- Debug Server 枚举 Capacity、Frame、类型化能力、Region 与 Provider；Arena/Ledger 通过运行时快照报告。
+- Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力；Arena 由运行时快照恢复。
 - 内存压力、配额与 OOM 决策可审计。
 
 ---
@@ -395,13 +394,13 @@ HMP 的对象与 ABI 与架构无关。以下只作为机制出现在包装 crat
 
 1. 每个 Region 引用一份 `Mappable` 能力、offset、len 与 rights。
 2. 每个 Region 属于一个 Arena；跨任务共享通过 `Capacity`、`Frame` 或 `Capability`。
-3. 每个 Frame 来自一个 Capacity；每次分配计入 Ledger。
+3. 每个 Frame 来自一个 Capacity；每次分配计入 Task Ledger，物理边界由 Capacity/FrameBank 记账。
 4. 每个 Arena 从 Capacity 取得 Frame；任务退出时整体回收。
 5. 不可变 Revision 的 Region 是 sealed；写入产生新 Revision。
 6. Region 是唯一访问路径；CPU/GPU/DMA/scanout 统一走 Region。
 7. 类型化操作只接受匹配的能力；能力层拒绝错误类型。
 8. Provider 是 Endpoint；文件系统、swap、GPU 策略由用户态服务实现。
-9. 对象、Arena、Region、Ledger 都可枚举、可检查点。
+9. Capacity、Frame、Region 与类型化能力可枚举、可检查点；Arena 与 Ledger 通过运行时快照报告。
 10. 页大小/order 属于 Capacity/Frame。
 11. pinned Frame 保持驻留；用于 DMA、scanout。
 12. 内核与用户态服务共享同一组 HMP 对象、Rights 与 Ledger 规则；内存授权由 Handle、Rights 与 ObjectKind 决定。

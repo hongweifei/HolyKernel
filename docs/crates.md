@@ -93,7 +93,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
 | HMP 核心对象（Arena/Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/`；对外词汇与授予规则见 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 物理页后端与按容量归因的额度视图 | `crates/kernel/hk-mem/src/hmp/backend.rs`、`crates/kernel/hk-mem/src/hmp/capacity.rs` |
-| 系统物理帧银行、按用途页池、页表机制与 Arena Region 登记 | `crates/kernel/hk-mem/src/page/` |
+| 系统物理帧银行、按用途页分配器、页表机制与 Arena Region 登记 | `crates/kernel/hk-mem/src/page/` |
 | Dma Capacity 与软件 IOMMU | `crates/kernel/hk-mem/src/platform/` |
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、栅格化、缓存与内置字体数据 | `crates/shared/hk-font/src/{font,glyph,raster,cache,data}.rs` |

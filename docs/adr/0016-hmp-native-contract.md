@@ -43,38 +43,37 @@ flowchart LR
 
 - Capacity 从 Root Server 持有的初始 Capacity 派生；Frame 由 Capacity 生成；Region 由 Capability 或 Frame 生成。
 - 每一步只收窄 Rights；Handle 转移是唯一授权方式。
-- 内核持有 System Capacity 与 System Arena；内核页表、栈与对象元数据都是 Arena 中的 Region。
+- 内核持有 System Capacity 与 System Arena 的运行时快照；内核页表、栈与对象元数据由 System Capacity/FrameBank 承载，用户地址映射通过 Region 表达。
 - 内核与用户态服务共享同一对象图、Rights、错误面与 Ledger 规则。
 
 ### 3. 统一 ABI 面与授予面
 
-ABI 对所有持权服务统一开放 `Arena`、`Capacity`、`Frame`、`Region`：
+ABI 对所有持权服务统一开放 `Capacity`、`Frame`、`Region` 与 `Capability`：
 
-- `Arena`：`query`、`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
 - `Capacity`：`query`、`allocate`、`release`、`split`、`merge`、`transfer`。
 - `Frame`：`map`、`phys`、`pin/unpin`、`export/import`、`transfer`。
 - `Region`：`map`、`unmap`、`protect`、`query`、`fault`、`grow`。
+- `Capability`：类型化操作的统一入口；Arena 由运行时持有，不作为独立 ABI Handle。
 - 所有调用校验 `Handle + Rights + ObjectKind`；内存策略由这些对象表达。
 
 初始授予由 Root Server 的服务清单决定：
 
 | 持有者 | 初始授予 |
 | --- | --- |
-| Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 Arena |
+| Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 System Arena |
 | Memory Server | User Capacity 子集；Anonymous Provider 绑定权 |
 | 驱动服务 | Dma/Gpu Capacity 子集；DeviceGrant；Frame 的 pin/export |
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |
 | 普通服务 | 自己的 Arena；TaskImage/Anonymous/栈 Region；共享时取 Capability 或经 IPC 接收 Frame |
-| Debug / Checkpoint | Arena/Capacity/Frame/Region/Ledger 的只读枚举 Handle |
+| Debug / Checkpoint | Capacity/Frame/Region 的只读枚举 Handle；Arena 与 Ledger 通过运行时快照报告 |
 
-普通服务只持有 Region 是授予策略；任何服务收到 Arena/Capacity/Frame Handle 后使用同一组对象操作。
+普通服务只持有 Region 是授予策略；任何服务收到 Capacity/Frame Handle 后使用同一组对象操作。Arena 当前由运行时持有并按任务快照报告，不作为独立 Handle 暴露。
 
 ### 4. Rights
 
 | 对象 | READ | WRITE | EXECUTE | TRANSFER | ADMIN |
 | --- | --- | --- | --- | --- | --- |
-| `Arena` | 查询 Region 与 Ledger | map/grow/unmap | 执行 TaskImage | — | checkpoint、restore、destroy |
 | `Capacity` | 查询容量与 Ledger | 分配/归还 Frame | — | 转移 Capacity | 拆分、配置、绑定 Provider |
 | `Frame` | 映射只读 | 映射可写、pin/unpin | 映射可执行 | 转移、export/import | 配置导出与驻留 |
 | `Region` | 映射只读 | 映射可写 | 映射可执行 | — | protect、unmap |
@@ -117,8 +116,9 @@ ABI 使用单一 `Handle` 值加 `ObjectKind`：
 
 ### 8. Ledger
 
-- Capacity 授予时记账转到接收方；Frame 转移时记账随 Handle 转移；Region 创建时记到 Arena/Task Ledger；超配额拒绝。
-- 内核 System Capacity 与 System Arena 同样记账，Debug/Checkpoint 可枚举。
+- Task Ledger 是唯一硬配额；Capacity/FrameBank 是物理边界。Arena、Region、Capability 与 Frame 的对象 Ledger 只是利用率快照，不执行硬限制。
+- Capacity 授予时记账转到接收方；Frame 转移时记账随 Handle 转移；Region 映射计入 Task Ledger；超配额拒绝。
+- 内核 System Capacity 同样按物理边界记账，Debug/Checkpoint 可枚举。
 - 统一错误面：`WxConflict`、`ReadOnly`、`PermissionDenied`、`WrongCapability`、`OutOfCapacity`、`AlreadyMapped`、`NotMapped`、`LedgerLimit`。
 
 ### 9. 机制层边界
@@ -135,8 +135,9 @@ ABI 使用单一 `Handle` 值加 `ObjectKind`：
 
 ### 10. 实现结构
 
-- `hk-hmp`：共享契约 crate；定义 Arena、Capacity、Frame、Region、Capability、Provider、Ledger、Mappable、Handle 与 Rights。
-- `hk-mem`：内核侧实现；持有 Capacity/Frame/Region 状态与 Ledger。
+- `hk-mem::hmp`：HMP 对象定义的唯一实现位置；定义 Arena、Capacity、Frame、Region、Capability、Provider、Ledger、Mappable、Handle 与 Rights。没有独立的共享契约 crate。
+- `hk-syscall`：HMP ABI 常量与用户态入口；`hk-server-api` 提供用户态封装。
+- `hk-mem`：内核侧实现；持有 Capacity/Frame/Region 状态、Task Ledger 与对象利用率快照。
 - `hk-paging`：把 Region 物化为页表；页表格式与遍历位于 crate 内部。
 - `hk-fw`：解析 ACPI/DTB，产出 Arena/Capacity/设备描述。
 - `hk-boot`：产出 BootInfo；`hk-platform-*` 提供架构与硬件适配。
