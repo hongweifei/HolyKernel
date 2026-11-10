@@ -1,6 +1,6 @@
 [package]
 name = "hk-mem"
-description = "HolyKernel 内存对象：Untyped、Frame、VSpace 与写时复制"
+description = "HolyKernel HMP 内存对象：Arena、Capacity、Frame、Region、Capability、Provider 与 Ledger"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

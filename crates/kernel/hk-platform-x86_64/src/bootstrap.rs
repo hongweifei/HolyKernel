@@ -13,7 +13,9 @@ use hk_hal::{
 use spin::Mutex;
 
 use crate::ioapic::IoApic;
-use crate::{FramebufferConsole, PageAllocator, PageFlags, PageTable};
+use hk_mem::FrameBank;
+
+use crate::{FramebufferConsole, PageFlags, PageTable};
 use hk_fw::FirmwareInfo;
 use hk_fw::acpi::Madt;
 use hk_fw::acpi::tables::Fadt;
@@ -192,7 +194,7 @@ impl InterruptController for IoApicController {
 
 struct AcpiWindow<'a> {
     paging: &'a PageTable,
-    allocator: &'a PageAllocator,
+    allocator: &'a FrameBank,
     base: u64,
 }
 
@@ -235,7 +237,7 @@ impl AcpiWindow<'_> {
 pub fn init_ioapic(
     info: &BootInfo,
     paging: &PageTable,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     direct_map_base: u64,
 ) -> Result<Option<IoApicSetup>, String> {
     let Some(rsdp) = info.rsdp else {
@@ -358,7 +360,7 @@ pub fn init_ioapic(
 }
 
 /// 把 MCFG 描述的 ECAM 窗口映射到常驻内核虚拟地址。
-fn map_ecam(paging: &PageTable, allocator: &PageAllocator, entry: &McfgEntry, virt_base: u64) {
+fn map_ecam(paging: &PageTable, allocator: &FrameBank, entry: &McfgEntry, virt_base: u64) {
     let length = entry.length();
     let mut offset = 0_u64;
     while offset < length {
@@ -606,7 +608,7 @@ pub fn framebuffer_console(info: &BootInfo) -> Option<FramebufferConsole> {
 /// 映射 LAPIC 寄存器页并初始化本地 APIC。
 pub fn init_interrupts(
     paging: &PageTable,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     direct_map_base: u64,
 ) -> Result<(), String> {
     let lapic_phys = PhysAddr::new(0xFEE0_0000);

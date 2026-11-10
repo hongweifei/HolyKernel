@@ -1,17 +1,17 @@
-//! 连续 DMA 内存池：底层使用 HMP Capacity。
+//! 连续 DMA 分配器：底层使用 HMP Capacity。
 
 use crate::hmp::{Capacity, CapacityId, CapacityKind};
 use hk_hal::{CacheOps, DmaBuffer, DmaError, DmaOps, PhysRange};
 use spin::Mutex;
 
-/// 启动期预留、可分配与归还的连续 DMA 池。
-pub struct DmaPool {
+/// 启动期预留、可分配与归还的连续 DMA 分配器。
+pub struct DmaAllocator {
     capacity: Mutex<Option<Capacity>>,
     cache: Mutex<Option<&'static dyn CacheOps>>,
 }
 
-impl DmaPool {
-    /// 构造空池。
+impl DmaAllocator {
+    /// 构造空分配器。
     pub const fn new() -> Self {
         Self {
             capacity: Mutex::new(None),
@@ -52,13 +52,13 @@ impl DmaPool {
     }
 }
 
-impl Default for DmaPool {
+impl Default for DmaAllocator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DmaOps for DmaPool {
+impl DmaOps for DmaAllocator {
     fn alloc_coherent(&self, len: usize) -> Result<DmaBuffer, DmaError> {
         let range = self.allocate(len).ok_or(DmaError::OutOfMemory)?;
         Ok(DmaBuffer::new(range.start(), range.len() as usize))
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn allocates_reuses_and_splits() {
-        let pool = DmaPool::new();
+        let pool = DmaAllocator::new();
         pool.init(
             CapacityId::next(),
             PhysRange::new(PhysAddr::new(0x10_0000), 0x4000),
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn implements_dma_ops() {
-        let pool = DmaPool::new();
+        let pool = DmaAllocator::new();
         pool.init(
             CapacityId::next(),
             PhysRange::new(PhysAddr::new(0x20_0000), 0x2000),

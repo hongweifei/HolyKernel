@@ -6,7 +6,9 @@
 use hk_hal::{MAX_CPUS, PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::FrameKind;
 
-use crate::paging::{self, PageAllocator, PageFlags, PageTable};
+use hk_mem::FrameBank;
+
+use crate::paging::{self, PageFlags, PageTable};
 
 /// 动态栈窗口基址。
 const WINDOW_BASE: u64 = 0xFFFF_B000_0000_0000;
@@ -20,7 +22,7 @@ const PAGE: u64 = PAGE_SIZE as u64;
 const STRIDE: u64 = (STACK_PAGES + 1) * PAGE;
 
 /// 为每个 CPU 分配栈并保留 guard page；成功后更新 TSS.rsp0。
-pub fn init(paging: &PageTable, allocator: &PageAllocator) -> bool {
+pub fn init(paging: &PageTable, allocator: &FrameBank) -> bool {
     let direct_map = paging::direct_map_base();
     if direct_map == 0 {
         return false;

@@ -11,7 +11,7 @@
 ## 决策
 
 1. 内核只依赖 `hk-hal` trait；架构判断位于 `hk-hal` 实现或 platform crate。
-2. HAL 定义：`Platform`、`Mmu`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`。
+2. HAL 定义：`Platform`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`、`Power`。
 3. 每个架构一个 `hk-platform-*`；每个机器一个 `platforms/*` 目录。
 4. 统一 `BootInfo`：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务器模块。
 5. Hosted 模拟器是一等平台：虚拟时钟、虚拟 CPU、模拟设备、故障注入。

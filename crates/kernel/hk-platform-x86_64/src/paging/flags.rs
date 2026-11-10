@@ -88,24 +88,6 @@ impl PageFlags {
     }
 }
 
-/// 把原始页表属性转换为 HAL 映射属性。
-pub(crate) fn map_flags(raw: u64) -> MapFlags {
-    let mut flags = MapFlags::empty();
-    if raw & PRESENT != 0 {
-        flags |= MapFlags::READ;
-    }
-    if raw & WRITABLE != 0 {
-        flags |= MapFlags::WRITE;
-    }
-    if raw & NX == 0 {
-        flags |= MapFlags::EXECUTE;
-    }
-    if raw & (PWT | PCD) != 0 {
-        flags |= MapFlags::DEVICE;
-    }
-    flags
-}
-
 /// 把快照属性转换为恢复用属性：清除共享/COW 与大页位，共享页恢复为可写私有页。
 pub const fn restore_flags(bits: u64) -> PageFlags {
     let shared = bits & (COW | hk_checkpoint::PAGE_FLAG_SHARED) != 0;

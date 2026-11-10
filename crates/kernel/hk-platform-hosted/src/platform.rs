@@ -3,7 +3,7 @@
 use hk_base::{CivilClock, CivilTime};
 use hk_device::PciConfig;
 use hk_hal::{
-    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, Mmu, PhysAddr, PhysRange,
+    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, PhysAddr, PhysRange,
     PhysicalAccess, Platform, PlatformError, Timer,
 };
 
@@ -13,7 +13,6 @@ use crate::console::HostedConsole;
 use crate::dma::HostedDma;
 use crate::entropy::HostedEntropy;
 use crate::irq::HostedInterruptController;
-use crate::mmu::HostedMmu;
 use crate::physical::HostedMemory;
 use crate::timer::HostedTimer;
 
@@ -28,7 +27,6 @@ pub struct HostedPlatform {
     console: HostedConsole,
     timer: HostedTimer,
     irq: HostedInterruptController,
-    mmu: HostedMmu,
     memory: HostedMemory,
     dma: HostedDma,
     entropy: HostedEntropy,
@@ -61,7 +59,6 @@ impl HostedPlatform {
             console: HostedConsole::new(),
             timer,
             irq: HostedInterruptController::new(),
-            mmu: HostedMmu::new(),
             memory: HostedMemory::new(PhysRange::new(
                 PhysAddr::new(HOSTED_RAM_BASE),
                 HOSTED_RAM_SIZE,
@@ -90,11 +87,6 @@ impl HostedPlatform {
     /// 返回虚拟时钟，用于确定性时间推进。
     pub fn virtual_timer(&self) -> &HostedTimer {
         &self.timer
-    }
-
-    /// 返回虚拟地址空间表。
-    pub fn virtual_mmu(&self) -> &HostedMmu {
-        &self.mmu
     }
 
     /// 返回虚拟中断控制器。
@@ -140,10 +132,6 @@ impl Platform for HostedPlatform {
     fn reboot(&self) -> ! {
         self.console.write_str("hosted: 重启系统\n");
         std::process::exit(0);
-    }
-
-    fn mmu(&self) -> &dyn Mmu {
-        &self.mmu
     }
 
     fn irq(&self) -> &dyn InterruptController {

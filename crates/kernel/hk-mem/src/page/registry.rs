@@ -8,7 +8,7 @@ use spin::Mutex;
 use crate::hmp::RegionFlags;
 
 /// 可登记的用户地址空间。
-pub trait UserVspace: Sized {
+pub trait UserAddressSpace: Sized {
     /// 切换到该地址空间。
     fn activate(&self);
     /// 返回页表根。
@@ -45,7 +45,7 @@ pub trait UserVspace: Sized {
 }
 
 /// 任务槽位到用户地址空间的映射。
-pub struct VspaceRegistry<T> {
+pub struct AddressSpaceRegistry<T> {
     tables: Mutex<Vec<Option<T>>>,
     /// 每个页表根的持有者数量；共享地址空间的线程共享同一份页表。
     roots: Mutex<Vec<(u64, u32)>>,
@@ -72,7 +72,7 @@ fn release_root(roots: &mut Vec<(u64, u32)>, root: u64) -> u32 {
     remaining
 }
 
-impl<T> VspaceRegistry<T> {
+impl<T> AddressSpaceRegistry<T> {
     /// 构造空登记表。
     pub const fn new() -> Self {
         Self {
@@ -82,7 +82,7 @@ impl<T> VspaceRegistry<T> {
     }
 }
 
-impl<T: UserVspace> VspaceRegistry<T> {
+impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
     /// 登记任务槽位的地址空间。
     pub fn install(&self, slot: usize, table: T) {
         let root = table.root();
@@ -90,7 +90,7 @@ impl<T: UserVspace> VspaceRegistry<T> {
         let old_root = tables
             .get(slot)
             .and_then(Option::as_ref)
-            .map(UserVspace::root);
+            .map(UserAddressSpace::root);
         if tables.len() <= slot {
             tables.resize_with(slot + 1, || None);
         }
@@ -133,7 +133,7 @@ impl<T: UserVspace> VspaceRegistry<T> {
             .lock()
             .get(slot)
             .and_then(Option::as_ref)
-            .map_or(0, UserVspace::root)
+            .map_or(0, UserAddressSpace::root)
     }
 
     /// 把设备 MMIO 映射到任务地址空间。
@@ -190,7 +190,7 @@ impl<T: UserVspace> VspaceRegistry<T> {
         let old_root = tables
             .get(child)
             .and_then(Option::as_ref)
-            .map(UserVspace::root);
+            .map(UserAddressSpace::root);
         tables[child] = Some(shared);
         drop(tables);
         let mut roots = self.roots.lock();
@@ -221,7 +221,7 @@ impl<T: UserVspace> VspaceRegistry<T> {
         let old_root = tables
             .get(child)
             .and_then(Option::as_ref)
-            .map(UserVspace::root);
+            .map(UserAddressSpace::root);
         tables[child] = Some(child_table);
         drop(tables);
         let mut roots = self.roots.lock();
@@ -233,7 +233,7 @@ impl<T: UserVspace> VspaceRegistry<T> {
     }
 }
 
-impl<T> Default for VspaceRegistry<T> {
+impl<T> Default for AddressSpaceRegistry<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -245,7 +245,7 @@ mod tests {
 
     struct MockTable(u64);
 
-    impl UserVspace for MockTable {
+    impl UserAddressSpace for MockTable {
         fn activate(&self) {}
 
         fn root(&self) -> u64 {
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn shared_root_is_released_only_by_last_holder() {
-        let registry = VspaceRegistry::new();
+        let registry = AddressSpaceRegistry::new();
         registry.install(0, MockTable(0x1000));
         assert!(registry.share(0, 1));
         assert!(registry.take(1).is_none(), "共享根不能提前释放");
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn installs_roots_and_forks() {
-        let registry = VspaceRegistry::new();
+        let registry = AddressSpaceRegistry::new();
         registry.install(1, MockTable(0x1000));
         assert_eq!(registry.root(1), 0x1000);
         assert_eq!(registry.root(2), 0);

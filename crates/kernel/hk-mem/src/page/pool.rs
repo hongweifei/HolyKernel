@@ -1,4 +1,4 @@
-//! 内核页池：按用途从物理帧银行取页与归还。
+//! 内核页分配器：按用途从物理帧银行取页与归还。
 //!
 //! 页表、CoW 与检查点恢复各自使用固定的 `FrameKind`；把这类选择留在
 //! `hk-mem`，平台侧只负责页表机制，不再自行决定从哪类池取页。
@@ -7,12 +7,12 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 
 use super::{FrameBank, FrameKind};
 
-/// 按用途分类的内核页池。
-pub struct PagePool<'a> {
+/// 按用途分类的内核页分配器。
+pub struct PageAllocator<'a> {
     bank: &'a FrameBank,
 }
 
-impl<'a> PagePool<'a> {
+impl<'a> PageAllocator<'a> {
     /// 包装一个物理帧银行。
     pub const fn new(bank: &'a FrameBank) -> Self {
         Self { bank }
@@ -47,7 +47,7 @@ mod tests {
     #[test]
     fn takes_pages_from_their_kinds() {
         let bank = FrameBank::from_range(PAGE_SIZE as u64, 4 * PAGE_SIZE as u64);
-        let pool = PagePool::new(&bank);
+        let pool = PageAllocator::new(&bank);
 
         let table = pool.page_table().expect("页表页");
         let cow = pool.cow().expect("CoW 页");

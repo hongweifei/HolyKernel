@@ -4,7 +4,7 @@ use core::ops::Deref;
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
 
-use hk_mem::{UserVspace, VspaceRegistry};
+use hk_mem::{AddressSpaceRegistry, UserAddressSpace};
 use hk_paging::UserSpace as PagingUserSpace;
 
 use crate::paging::PageTable;
@@ -27,7 +27,7 @@ impl Deref for UserSpace {
     }
 }
 
-impl UserVspace for UserSpace {
+impl UserAddressSpace for UserSpace {
     fn activate(&self) {
         PageTable::activate(self.0.backend());
     }
@@ -181,4 +181,4 @@ impl PageTable {
 }
 
 /// 全局用户页表登记表。
-pub static USER_VSPACES: VspaceRegistry<UserSpace> = VspaceRegistry::new();
+pub static USER_ADDRESS_SPACES: AddressSpaceRegistry<UserSpace> = AddressSpaceRegistry::new();

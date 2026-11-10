@@ -8,11 +8,11 @@ use x86_64::instructions::tlb;
 use x86_64::registers::control::Cr4;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
-use hk_mem::FrameKind;
-use hk_mem::page::PagePool;
+use hk_mem::page::PageAllocator;
+use hk_mem::{FrameBank, FrameKind};
 
 use super::flags::{FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
-use super::{FRAME_BANK, PageAllocator, read_cr3};
+use super::{FRAME_BANK, read_cr3};
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -144,7 +144,7 @@ impl PageTable {
     }
 
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
-    pub fn create_user(&self, allocator: &PageAllocator) -> Result<Self, PagingError> {
+    pub fn create_user(&self, allocator: &FrameBank) -> Result<Self, PagingError> {
         self.create_user_with(|| allocator.allocate_for(FrameKind::PageTable))
     }
 
@@ -347,7 +347,7 @@ impl PageTable {
     }
 
     pub(super) fn split_huge_at(&self, address: u64) -> bool {
-        let mut allocate = || PagePool::new(&FRAME_BANK).page_table();
+        let mut allocate = || PageAllocator::new(&FRAME_BANK).page_table();
         self.split_huge_at_with(address, &mut allocate).is_ok()
     }
 
@@ -447,7 +447,7 @@ impl PageTable {
         virt: VirtAddr,
         phys: PhysAddr,
         flags: PageFlags,
-        allocator: &PageAllocator,
+        allocator: &FrameBank,
     ) -> Result<(), PagingError> {
         self.map_with(virt, phys, flags, || {
             allocator.allocate_for(FrameKind::PageTable)
@@ -531,7 +531,7 @@ impl PageTable {
         phys: PhysAddr,
         flags: PageFlags,
         size: u64,
-        allocator: &PageAllocator,
+        allocator: &FrameBank,
     ) -> Result<(), PagingError> {
         self.map_huge_with(virt, phys, flags, size, || {
             allocator.allocate_for(FrameKind::PageTable)
@@ -733,7 +733,7 @@ impl PageTable {
         flags: PageFlags,
     ) -> Result<(), PagingError> {
         self.map_with(virt, phys, flags, || {
-            PagePool::new(&FRAME_BANK).page_table()
+            PageAllocator::new(&FRAME_BANK).page_table()
         })
     }
 
@@ -777,7 +777,7 @@ mod tests {
             root: PhysAddr::new(0),
             pcid: 0,
         };
-        let allocator = PageAllocator::from_range(PAGE_SIZE as u64, 3 * PAGE_SIZE as u64);
+        let allocator = FrameBank::from_range(PAGE_SIZE as u64, 3 * PAGE_SIZE as u64);
         table
             .map_huge_with(
                 VirtAddr::new(0x20_0000),
@@ -811,7 +811,7 @@ mod tests {
             root: PhysAddr::new(0),
             pcid: 0,
         };
-        let allocator = PageAllocator::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
+        let allocator = FrameBank::from_range(PAGE_SIZE as u64, 2 * PAGE_SIZE as u64);
         let user = table.create_user(&allocator).expect("创建用户页表");
         assert_eq!(user.root, PhysAddr::new(PAGE_SIZE as u64));
 

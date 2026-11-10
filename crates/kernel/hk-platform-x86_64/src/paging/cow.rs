@@ -3,7 +3,7 @@
 //! 共享状态只由 `hk-paging::FrameRefs` 维护，不使用架构专用 PTE 位。
 
 use hk_hal::{PAGE_SIZE, PhysAddr};
-use hk_mem::page::PagePool;
+use hk_mem::page::PageAllocator;
 use hk_paging::FrameRefs;
 
 use super::FRAME_BANK;
@@ -11,7 +11,7 @@ use super::flags::{HUGE, PCD, PRESENT, PWT, WRITABLE};
 use super::table::{ADDRESS_MASK, ENTRIES, KERNEL_PML4_START, PageTable};
 
 fn take_cow_page() -> Option<PhysAddr> {
-    PagePool::new(&FRAME_BANK).cow()
+    PageAllocator::new(&FRAME_BANK).cow()
 }
 
 impl PageTable {

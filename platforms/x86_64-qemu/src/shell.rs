@@ -9,7 +9,7 @@ use alloc::string::String;
 use hk_hal::{BootInfo, Console};
 use hk_kernel_shell::{Scheduling, ScriptSource};
 use hk_platform_x86_64::cpu;
-use hk_platform_x86_64::{FramebufferConsole, PageAllocator, PageTable, Serial, keyboard};
+use hk_platform_x86_64::{FramebufferConsole, PageTable, Serial, keyboard};
 use hk_root_server::ServiceTable;
 use hk_shell::ShellIo;
 
@@ -22,7 +22,7 @@ pub struct Loader<'a> {
     /// direct map 基址。
     pub direct_map_base: u64,
     /// 物理帧分配器。
-    pub allocator: &'a PageAllocator,
+    pub allocator: &'a hk_mem::FrameBank,
     /// 内核页表。
     pub paging: &'a PageTable,
 }

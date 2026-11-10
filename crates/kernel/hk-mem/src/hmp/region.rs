@@ -1,4 +1,4 @@
-//! Region：类型化能力在 VSpace 中的唯一映射视图。
+//! Region：类型化能力在 Arena 中的唯一映射视图。
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -45,7 +45,7 @@ impl RegionId {
     }
 }
 
-/// 类型化能力在 VSpace 中的映射。
+/// 类型化能力在 Arena 中的映射。
 pub struct Region {
     id: RegionId,
     capability: Capability,

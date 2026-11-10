@@ -1,6 +1,6 @@
 //! 微内核。
 //!
-//! 内核提供 TCB、VSpace、HandleTable、Endpoint、Notification、Capability、
+//! 内核提供 TCB、地址空间、HandleTable、Endpoint、Notification、Capability、
 //! Region 与 Capacity 机制；调度、IPC 分派与对象回收在 [`Kernel`] 中组合，
 //! 策略位于用户态服务器。
 //!

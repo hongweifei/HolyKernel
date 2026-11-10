@@ -10,7 +10,6 @@ use crate::dma::DmaOps;
 use crate::entropy::Entropy;
 use crate::iommu::Iommu;
 use crate::irq::InterruptController;
-use crate::mmu::Mmu;
 use crate::physical::PhysicalAccess;
 use crate::time::Timer;
 use hk_device::PciConfig;
@@ -81,9 +80,6 @@ pub trait Platform: Send + Sync {
 
     /// 重启系统，不返回。
     fn reboot(&self) -> !;
-
-    /// 返回内存管理单元。
-    fn mmu(&self) -> &dyn Mmu;
 
     /// 返回中断控制器。
     fn irq(&self) -> &dyn InterruptController;

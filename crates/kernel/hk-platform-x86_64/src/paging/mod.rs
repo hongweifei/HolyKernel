@@ -4,7 +4,7 @@
 //! 帧分配器取页并清零，页表本身经 HHDM 访问。
 //!
 //! 页表项属性与 CoW/恢复策略在 `flags`，页表机制在 `table`，写时复制在 `cow`；
-//! 框架策略（页表、CoW、恢复页各从哪个 `FrameKind` 取页）由 `hk-mem::PagePool` 提供。
+//! 框架策略（页表、CoW、恢复页各从哪个 `FrameKind` 取页）由 `hk-mem::PageAllocator` 提供。
 
 mod cow;
 mod flags;
@@ -16,16 +16,14 @@ use spin::Mutex;
 use x86_64::registers::control::Cr3;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
-use hk_mem::{FrameKind, PagePool};
+use hk_mem::{FrameBank, FrameKind, PageAllocator};
 use hk_paging::FrameRefs;
 
-pub(crate) use flags::map_flags;
 pub use flags::{PageFlags, restore_flags};
-pub use hk_mem::FrameBank as PageAllocator;
 pub use table::{PageTable, PagingError, has_1g_pages, init_cpu};
 
 /// 内核全局物理帧银行。
-pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
+pub static FRAME_BANK: FrameBank = FrameBank::empty();
 
 /// 用户帧的 COW 共享引用。
 static FRAME_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
@@ -112,12 +110,12 @@ pub fn kernel_table() -> PageTable {
 
 /// 取出一个检查点恢复帧。
 pub fn take_restore_page() -> Option<PhysAddr> {
-    PagePool::new(&FRAME_BANK).restore()
+    PageAllocator::new(&FRAME_BANK).restore()
 }
 
 /// 归还一个检查点恢复帧。
 pub fn give_restore_page(frame: PhysAddr) {
-    PagePool::new(&FRAME_BANK).free_restore(frame);
+    PageAllocator::new(&FRAME_BANK).free_restore(frame);
 }
 
 /// COW 缺页的解析结果。

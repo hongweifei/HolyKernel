@@ -17,7 +17,9 @@ use hk_hal::{Iommu, IommuDomain, IommuError, IommuFlags, Iova, PhysRange};
 use hk_mem::SoftwareIommu;
 use spin::Mutex;
 
-use crate::paging::{PageAllocator, PageFlags, PageTable};
+use hk_mem::FrameBank;
+
+use crate::paging::{PageFlags, PageTable};
 use amd::AmdIommu;
 use vtd::VtdIommu;
 
@@ -99,7 +101,7 @@ impl Iommu for PlatformIommu {
 pub static IOMMU: PlatformIommu = PlatformIommu::new();
 
 /// 按固件描述尝试启用 VT-d 或 AMD-Vi；没有可用单元时保持软件后端。
-pub fn init(tables: &Tables, paging: &PageTable, allocator: &PageAllocator) {
+pub fn init(tables: &Tables, paging: &PageTable, allocator: &FrameBank) {
     let _ = allocator;
     let units = |kind: IommuKind| -> Vec<(u16, u64)> {
         tables

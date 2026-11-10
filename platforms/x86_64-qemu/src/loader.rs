@@ -8,8 +8,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, UserMemory, VirtAddr};
+use hk_mem::FrameBank;
 use hk_platform_x86_64::cpu;
-use hk_platform_x86_64::{PageAllocator, PageFlags, PageTable};
+use hk_platform_x86_64::{PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
 use hk_root_server::{ServiceSpec, ServiceTable};
 
@@ -28,7 +29,7 @@ const USER_STACK_STRIDE: u64 = hk_base::user::STACK_STRIDE;
 pub fn run(
     info: &BootInfo,
     direct_map_base: u64,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     paging: &PageTable,
     services: &mut ServiceTable,
 ) -> Result<(), String> {
@@ -399,7 +400,7 @@ fn load(
     index: usize,
     endpoint: u64,
     direct_map_base: u64,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     let bytes = info
@@ -429,14 +430,15 @@ fn load(
         cpu::user_frame(entry, stack_top, endpoint)
     })
     .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
-    hk_platform_x86_64::USER_VSPACES.install(index, hk_platform_x86_64::UserSpace::new(table));
+    hk_platform_x86_64::USER_ADDRESS_SPACES
+        .install(index, hk_platform_x86_64::UserSpace::new(table));
     Ok(context)
 }
 
 struct UserPages<'a> {
     direct_map_base: u64,
     paging: &'a PageTable,
-    allocator: &'a PageAllocator,
+    allocator: &'a FrameBank,
 }
 
 impl UserMemory for UserPages<'_> {
@@ -486,7 +488,7 @@ pub fn load_service(
     name: &str,
     slot: usize,
     direct_map_base: u64,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     load_module(info, name, slot, direct_map_base, allocator, paging)
@@ -498,7 +500,7 @@ pub fn load_module(
     name: &str,
     slot: usize,
     direct_map_base: u64,
-    allocator: &PageAllocator,
+    allocator: &FrameBank,
     paging: &PageTable,
 ) -> Result<cpu::InterruptFrame, String> {
     let module = info

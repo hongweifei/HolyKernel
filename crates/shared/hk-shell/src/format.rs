@@ -13,7 +13,7 @@ pub fn format_tasks(tasks: &[TaskInfo], current: Option<&str>) -> String {
 
     let mut output = format!("任务表（{} 项）\n", tasks.len());
     output.push_str(
-        "TCB  名称              父   端点  状态      挂起   退出码  句柄  Arena     VSpace       当前\n",
+        "TCB  名称              父   端点  状态      挂起   退出码  句柄  Arena     页表根       当前\n",
     );
     for task in tasks {
         let exit = match task.exit_code {

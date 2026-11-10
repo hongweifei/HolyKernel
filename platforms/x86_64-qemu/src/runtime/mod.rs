@@ -13,7 +13,7 @@ use hk_hal::{Console, SyscallFrame};
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::paging;
 use hk_platform_x86_64::timing;
-use hk_platform_x86_64::{COM1, Serial, USER_VSPACES};
+use hk_platform_x86_64::{COM1, Serial, USER_ADDRESS_SPACES};
 use hk_root_server::{
     CowOutcome, FaultOutcome, RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo,
     UserPlatform,
@@ -129,7 +129,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn map_mmio(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
-        USER_VSPACES.map_mmio(slot, virt, phys, len)
+        USER_ADDRESS_SPACES.map_mmio(slot, virt, phys, len)
     }
 
     fn map_user(
@@ -141,11 +141,11 @@ impl UserPlatform for X86Platform {
         rights: hk_mem::Rights,
         flags: hk_mem::hmp::RegionFlags,
     ) -> bool {
-        USER_VSPACES.map_user(slot, virt, phys, len, rights, flags)
+        USER_ADDRESS_SPACES.map_user(slot, virt, phys, len, rights, flags)
     }
 
     fn unmap_user(&self, slot: usize, virt: u64, len: usize) -> bool {
-        USER_VSPACES.unmap_user(slot, virt, len)
+        USER_ADDRESS_SPACES.unmap_user(slot, virt, len)
     }
 
     fn page_is_zero(&self, phys: hk_hal::PhysAddr) -> Option<bool> {
@@ -292,19 +292,19 @@ impl UserPlatform for X86Platform {
     }
 
     fn activate(&self, slot: usize) {
-        USER_VSPACES.activate(slot);
+        USER_ADDRESS_SPACES.activate(slot);
     }
 
     fn vspace(&self, slot: usize) -> u64 {
-        USER_VSPACES.root(slot)
+        USER_ADDRESS_SPACES.root(slot)
     }
 
     fn fork(&self, parent: usize, child: usize) -> bool {
-        USER_VSPACES.fork(parent, child)
+        USER_ADDRESS_SPACES.fork(parent, child)
     }
 
     fn share_vspace(&self, parent: usize, child: usize) -> bool {
-        USER_VSPACES.share(parent, child)
+        USER_ADDRESS_SPACES.share(parent, child)
     }
 
     fn set_thread_pointer(&self, tls: u64) {
@@ -351,7 +351,7 @@ impl UserPlatform for X86Platform {
         {
             return None;
         }
-        USER_VSPACES
+        USER_ADDRESS_SPACES
             .map_mmio(
                 slot,
                 virt,
@@ -366,7 +366,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn capture_pages(&self, slot: usize) -> Option<Vec<Page>> {
-        USER_VSPACES.with(slot, |table| {
+        USER_ADDRESS_SPACES.with(slot, |table| {
             let mut pages = Vec::new();
             table.user_pages(|virt, flags, phys| {
                 let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
@@ -387,7 +387,7 @@ impl UserPlatform for X86Platform {
 
     fn restore_pages(&self, slot: usize, pages: &[Page]) -> bool {
         paging::kernel_table().activate();
-        if let Some(old) = USER_VSPACES.take(slot) {
+        if let Some(old) = USER_ADDRESS_SPACES.take(slot) {
             paging::release_user(&old);
         }
         let template = paging::kernel_table();
@@ -420,13 +420,13 @@ impl UserPlatform for X86Platform {
                 return false;
             }
         }
-        USER_VSPACES.install(slot, hk_platform_x86_64::UserSpace::new(table));
+        USER_ADDRESS_SPACES.install(slot, hk_platform_x86_64::UserSpace::new(table));
         true
     }
 
     fn release_pages(&self, slot: usize) {
         paging::kernel_table().activate();
-        if let Some(old) = USER_VSPACES.take(slot) {
+        if let Some(old) = USER_ADDRESS_SPACES.take(slot) {
             paging::release_user(&old);
         }
     }
