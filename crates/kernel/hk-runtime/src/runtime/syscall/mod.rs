@@ -342,6 +342,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPABILITY_EXPORT => self.capability_export(index, tcb, frame),
             SYS_CAPABILITY_BIND_PROVIDER => self.capability_bind_provider(index, tcb, frame),
             SYS_LEDGER_INFO => self.ledger_info(index, frame),
+            SYS_OBJECT_LEDGER => self.object_ledger(index, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
             SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
             SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),

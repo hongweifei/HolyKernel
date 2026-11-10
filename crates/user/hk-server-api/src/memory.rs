@@ -7,8 +7,8 @@ use hk_syscall::{
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO,
     SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
 use hk_syscall::LEDGER_RECORD_BYTES;
@@ -466,13 +466,13 @@ pub fn ledger_info() -> Option<LedgerInfo> {
     })
 }
 
-/// 查询对象句柄关联的 Ledger；`0` 表示当前任务 Ledger。
+/// 查询对象句柄关联的 Ledger。
 pub fn object_ledger_info(handle: u64) -> Option<LedgerInfo> {
     let mut bytes = [0_u8; 48];
     // SAFETY: 缓冲区属于本进程；内核校验对象句柄后写入账本快照。
     let result = unsafe {
         syscall_call(
-            SYS_LEDGER_INFO,
+            SYS_OBJECT_LEDGER,
             bytes.as_mut_ptr() as u64,
             bytes.len() as u64,
             handle,

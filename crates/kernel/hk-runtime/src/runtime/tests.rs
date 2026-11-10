@@ -796,7 +796,7 @@ fn object_ledger_info_reads_handle_ledger() {
     let capability = context.rax;
     assert_ne!(capability, u64::MAX);
 
-    context.rax = SYS_LEDGER_INFO;
+    context.rax = SYS_OBJECT_LEDGER;
     context.rdi = 0x400;
     context.rsi = 48;
     context.rdx = capability;

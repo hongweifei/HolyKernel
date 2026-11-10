@@ -219,30 +219,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        // `arg2` 非零时按对象句柄查询关联 Ledger；零保持任务 Ledger 语义。
-        if frame.arg2() != 0 {
-            let Some(handle) = self.handle_at(index, frame.arg2() as usize) else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            let Ok(snapshot) = self.kernel.object_ledger(self.tasks[index].tcb, handle) else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            let mut bytes = [0_u8; 48];
-            bytes[..8].copy_from_slice(&snapshot.charged.to_le_bytes());
-            bytes[8..16].copy_from_slice(&snapshot.limit.to_le_bytes());
-            bytes[16..24].copy_from_slice(&snapshot.peak.to_le_bytes());
-            bytes[24..32].copy_from_slice(&snapshot.pressure.to_le_bytes());
-            bytes[32..40].copy_from_slice(&snapshot.resident.to_le_bytes());
-            bytes[40..].copy_from_slice(&snapshot.soft_limit.to_le_bytes());
-            frame.set_result(if self.platform.write_user(out, &bytes) {
-                48
-            } else {
-                u64::MAX
-            });
-            return Switch::Continue;
-        }
         let resident = self.process_resident(index);
         let (charged, limit, peak, pressure, resident, soft_limit) = {
             let ledger = &mut self.process_mut(index).ledger;

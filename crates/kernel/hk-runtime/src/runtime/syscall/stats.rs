@@ -37,6 +37,38 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 查询对象句柄关联的 Ledger。
+    pub(crate) fn object_ledger(&mut self, index: usize, frame: &mut C) -> Switch {
+        let out = frame.arg0();
+        let capacity = frame.arg1() as usize;
+        let number = frame.arg2() as usize;
+        if out == 0 || capacity < 48 {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(handle) = self.handle_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(snapshot) = self.kernel.object_ledger(self.tasks[index].tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let mut bytes = [0_u8; 48];
+        bytes[..8].copy_from_slice(&snapshot.charged.to_le_bytes());
+        bytes[8..16].copy_from_slice(&snapshot.limit.to_le_bytes());
+        bytes[16..24].copy_from_slice(&snapshot.peak.to_le_bytes());
+        bytes[24..32].copy_from_slice(&snapshot.pressure.to_le_bytes());
+        bytes[32..40].copy_from_slice(&snapshot.resident.to_le_bytes());
+        bytes[40..].copy_from_slice(&snapshot.soft_limit.to_le_bytes());
+        frame.set_result(if self.platform.write_user(out, &bytes) {
+            48
+        } else {
+            u64::MAX
+        });
+        Switch::Continue
+    }
+
     pub(crate) fn memory_stats(&mut self, frame: &mut C) -> Switch {
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;

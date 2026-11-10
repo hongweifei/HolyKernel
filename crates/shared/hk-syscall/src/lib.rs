@@ -14,6 +14,7 @@
 //! | `0x70-0x7F` | 控制台与帧缓冲 |
 //! | `0x80-0x8F` | Root 与调试控制 |
 //! | `0x90-0x9F` | HMP 对象查询 |
+//! | `0xA0-0xAF` | HMP 对象调试 |
 //!
 //! 只包含系统调用编号、跨边界共享常量与编码，不依赖任何 crate 或平台；寄存器
 //! 映射由平台层实现，服务协议与服务策略放在各自的用户态库。
@@ -245,7 +246,7 @@ pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
 /// 创建按需装入的匿名能力。
 pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
-/// 查询任务 Ledger；`arg2` 为对象句柄时查询该对象关联的 Ledger。
+/// 查询当前任务 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
 
 // === HMP 对象查询 0x90-0x9F ===
@@ -297,6 +298,9 @@ pub const SYS_LEDGER_ENUM: u64 = 0x9E;
 
 /// 按 `GROW` 标志扩展 Region；参数为 Region 句柄与新总长度。
 pub const SYS_REGION_GROW: u64 = 0x9F;
+
+/// 查询对象句柄关联的 Ledger。
+pub const SYS_OBJECT_LEDGER: u64 = 0xA0;
 
 /// 容量 Ledger 单条记录字节数。
 pub const LEDGER_RECORD_BYTES: usize = 64;
@@ -589,6 +593,7 @@ mod tests {
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
         const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_REGION_GROW < 0xA0) };
+        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_OBJECT_LEDGER < 0xB0) };
     }
 
     #[test]
@@ -710,6 +715,7 @@ mod tests {
             SYS_CAPACITY_MERGE,
             SYS_LEDGER_ENUM,
             SYS_REGION_GROW,
+            SYS_OBJECT_LEDGER,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();
