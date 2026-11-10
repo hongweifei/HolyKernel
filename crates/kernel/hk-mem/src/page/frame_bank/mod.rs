@@ -646,6 +646,50 @@ impl FrameBank {
         true
     }
 
+    /// 把启动期所有未归属的分配一次性采纳到 `owner` 名下。
+    ///
+    /// 启动早期（System Capacity 建立前）的内核堆、缓存与页表分配只有全局
+    /// 记账；这里统一补上容量归属，保证 System 账本能覆盖全部内核自用。
+    /// 任一区间超出账本配额时回滚全部记账并返回 `false`。
+    pub fn adopt_all_unowned(&self, owner: CapacityId) -> bool {
+        let mut inner = self.inner.lock();
+        let ranges: Vec<(u64, u64)> = inner
+            .allocations
+            .iter()
+            .filter(|(_, allocation)| allocation.owner.is_none())
+            .map(|(start, allocation)| (*start, allocation.range.len()))
+            .collect();
+        let total = inner.total;
+        let mut charges: Vec<(u64, Charge)> = Vec::with_capacity(ranges.len());
+        {
+            let ledger = inner
+                .ledgers
+                .entry(owner)
+                .or_insert_with(|| Ledger::create(total));
+            for (start, length) in ranges {
+                match ledger.charge(length) {
+                    Ok(charge) => charges.push((start, charge)),
+                    Err(_) => {
+                        for (_, charge) in charges.drain(..) {
+                            let _ = ledger.release(charge);
+                        }
+                        return false;
+                    }
+                }
+            }
+        }
+        for (start, charge) in charges {
+            if let Some(allocation) = inner.allocations.get_mut(&start) {
+                allocation.owner = Some(owner);
+                allocation.owner_charge = Some(charge);
+            }
+        }
+        let used = inner.used_for(owner);
+        let peak = inner.peaks.entry(owner).or_insert(0);
+        *peak = (*peak).max(used);
+        true
+    }
+
     /// 注册一个容量自己的 Ledger；已存在时保留原上限。
     ///
     /// 上限的后续变化通过 `set_ledger_limit` 显式同步。System 账本由启动期

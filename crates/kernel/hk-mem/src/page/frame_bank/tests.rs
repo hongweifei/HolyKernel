@@ -39,6 +39,23 @@ fn register_ledger_preserves_existing_limit() {
 }
 
 #[test]
+fn adopts_all_unowned_boot_allocations() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let owner = CapacityId::next();
+    bank.register_ledger(owner, 0x4000);
+    let first = bank.allocate_contiguous(0x1000).expect("启动期页");
+    let second = bank.allocate_contiguous(0x1000).expect("启动期页");
+    assert_eq!(bank.used_owned(owner), 0);
+    assert!(bank.adopt_all_unowned(owner));
+    assert_eq!(bank.used_owned(owner), 0x2000);
+    assert!(bank.adopt_all_unowned(owner), "重复采纳应幂等");
+    assert_eq!(bank.used_owned(owner), 0x2000);
+    assert!(bank.release_owned(owner, first));
+    assert!(bank.release_owned(owner, second));
+    assert_eq!(bank.used_owned(owner), 0);
+}
+
+#[test]
 fn adopting_owner_charges_its_ledger() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let owner = CapacityId::next();

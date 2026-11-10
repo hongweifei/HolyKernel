@@ -29,6 +29,10 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
     if !bank.adopt_owner(id, heap) {
         return None;
     }
+    // 启动早期还可能分配了缓存/页表等未归属区间；全部补入 System 账本。
+    if !bank.adopt_all_unowned(id) {
+        return None;
+    }
     bank.set_kernel_owner(Some(id));
     let capacity = Capacity::with_limit(id, range, PAGE_SIZE, CapacityKind::System, limit).ok()?;
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
