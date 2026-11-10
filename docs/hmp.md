@@ -94,11 +94,11 @@ flowchart TB
   Provider --> Store
   Provider --> Gpu
 
-  Capacity --> Ledger
-  Arena --> Ledger
-  Frame --> Ledger
-  Region --> Ledger
-  Provider --> Ledger
+  Capacity -->|物理用量| Ledger
+  Task["Task"] -->|硬配额| Ledger
+  Arena -.->|利用率快照| Ledger
+  Frame -.->|利用率快照| Ledger
+  Region -.->|利用率快照| Ledger
 ```
 
 | 对象 | 语义 | 关键操作 |
@@ -114,7 +114,7 @@ flowchart TB
 | `Anonymous` | 页面初始为零的匿名能力 | map、grow、truncate、compress、swap |
 | `Frame` | 物理页能力 | map、phys、pin、export |
 | `Provider` | 类型化能力的缺页、回写与驻留服务 | fault、provide、evict、writeback |
-| `Ledger` | 容量与使用记账 | charge、release、pressure、query |
+| `Ledger` | 任务硬配额、物理用量与对象利用率快照 | charge、release、pressure、query |
 
 ---
 
@@ -124,7 +124,7 @@ Arena 是任务内存的根对象。
 
 - 每个 Task 有一个 Arena；Arena 绑定该任务的地址空间。
 - Arena 保存 Region 表、用户栈、堆与工作区；栈与堆都是 Arena 内的 Region。
-- Arena 从 Capacity 取得 Frame；Arena 自身计入任务 Ledger。
+- Arena 从 Capacity 取得 Frame；物理页计入任务 Ledger，Arena 快照报告虚拟地址利用率。
 - Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
@@ -140,15 +140,15 @@ Capacity 是物理容量的授予单位。
 
 - 声明用途：`System`、`User`、`Dma`、`Gpu`、`Numa`。
 - 声明页大小与 order；4 KiB 为起始档位，16 KiB、64 KiB、2 MiB、1 GiB 由 Capacity 拓扑与 Frame order 表达。
-- 声明配额、可回收属性与所属 Ledger。
+- 声明配额与可回收属性；物理用量由 Capacity/FrameBank 报告。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
-- Capacity 是记账边界：所有 Frame、Arena、Region 与对象元数据最终计入某个 Ledger。
+- Task Ledger 是任务配额的唯一硬账；Capacity/FrameBank 是物理边界；Arena/Region/Capability/Frame 的 Ledger 快照只报告利用率。
 - Root Server 持有初始 Capacity；每个服务启动时取得顶层 User Capacity，Memory Server 共享 User Capacity 并提供匿名页，驱动可取得 Dma/Gpu Capacity，内核持有 System Capacity。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
 报告口径：
 
-- `Capacity::limit` 是授予配额视图；`Ledger::limit` 是记账边界。两者在 System Capacity 上刻意不同：Ledger 保持物理总量，Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复。
+- `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
 - 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
 - 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
 
@@ -308,13 +308,13 @@ HMP 的文件页缓存以修订为中心。
 
 ## 11. Ledger
 
-Ledger 是容量与内存使用的显式记账对象。
+Ledger 分为三层，避免同一批字节在多本账上重复执行硬配额：
 
-- 记录容量、常驻、提交、峰值、软/硬上限与压力状态。
-- 每个 Capacity、Arena、Region、类型化能力与 Task 都有关联 Ledger。
-- 内核执行硬上限；超过配额的申请失败。
-- 记账随 Handle 转移：发送方归还，接收方按能力大小重新记账；接收方超配额则拒绝。
-- 关闭 Handle 归还记账；设备授权与 DMA 窗口同样计入任务配额。
+- **Task Ledger**：任务配额的唯一硬账。`SYS_LEDGER_INFO` 返回它；超过 `limit` 的分配失败。
+- **Capacity / FrameBank**：物理边界。Capacity 按 `CapacityId` 归因物理窗口，FrameBank 维护物理总量与峰值。
+- **对象利用率快照**：Arena、Region、Capability、Frame 不持有独立 `Charge`，也不执行硬配额；`SYS_OBJECT_LEDGER` 按当前占用与对象容量计算 `charged/limit/peak/pressure`，只用于报告。Arena 报告地址窗口利用率，Region 报告映射利用率，Capability 报告常驻利用率，Frame 报告常驻量。
+- 记账随 Handle 转移：发送方归还，接收方按能力大小重新记入 Task Ledger；接收方超配额则拒绝。
+- 关闭 Handle 归还 Task Ledger 记账；设备授权与 DMA 窗口同样计入任务配额。
 - 池紧张时内核回收可证明为零的匿名页，解除映射并归还 Frame，然后重试一次；再次缺页装入的仍是零页。
 - 回收范围限于可回收匿名页：内容为零、pin 已解除、驻留状态为可丢弃；pinned Frame 与 Provider 提供的页由驻留策略保留。
 - Debug/Checkpoint 可以枚举 Ledger；内核 System Capacity 同样记账。

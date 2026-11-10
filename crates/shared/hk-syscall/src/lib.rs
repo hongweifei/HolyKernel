@@ -310,7 +310,7 @@ pub const SYS_LEDGER_ENUM: u64 = 0x9E;
 /// 按 `GROW` 标志扩展 Region；参数为 Region 句柄与新总长度。
 pub const SYS_REGION_GROW: u64 = 0x9F;
 
-/// 查询对象句柄关联的 Ledger。
+/// 查询对象利用率快照；只用于报告，不执行硬配额。
 pub const SYS_OBJECT_LEDGER: u64 = 0xA0;
 
 /// 枚举 Capacity 当前持有的全部物理窗口。

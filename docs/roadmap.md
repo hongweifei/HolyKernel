@@ -75,7 +75,7 @@ flowchart LR
 - **页表与 MMIO**：Region 物化为页表；MMIO、DMA、帧缓冲与自动窗口统一走 Region；页表机制留在实现层。
 - **HMP ABI**：Arena/Capacity/Frame/Region/Capability/Provider/Ledger 操作统一；Memory Server、Device Manager、驱动、VFS、Display 与客户端接入同一对象面。
 - **Provider**：Anonymous、Revision、Surface、TaskImage、DeviceAllocation 的 fault、writeback、evict、commit、scanout、pin、export、swap 契约。
-- **Ledger**：Arena、Capacity、Frame、Region 与能力的容量、提交/常驻、峰值、软/硬上限与压力记账；Handle 转移时记账随对象转移。
+- **Ledger**：Task Ledger 是唯一硬配额；Capacity/FrameBank 记录物理边界；Arena、Region、Frame 与能力的对象快照只报告利用率与峰值。Handle 转移时记账随对象转移。
 - **Holy Cadence**：Cadence/Meter 对象、Tempo Server、Beat、Task 级与 TCB 级两阶段调度、Lending、Tickless、idle TCB、亲和性与负载均衡。
 - **调度 ABI**：`SYS_CADENCE_*`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`；Root 服务清单授予初始 Cadence。
 
@@ -229,7 +229,7 @@ flowchart LR
 - M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
 - 实现现状（设计契约见 [HMP](hmp.md)）：单一物理后端与 Capacity 配额视图；System Capacity 覆盖除 DMA 预留外的全部可用内存，内核堆、页表、镜像/栈/Arena 页计入 System；Root 建立只预切一个页窗口、按分配从 System 动态增长的顶层 User Capacity，每个服务启动时取得该容量，Memory Server 共享该容量，匿名 capability、Frame、Arena 与 Provider 页从该用户账出页；Arena 以惰性匿名 Region 建立，装载期不预映射，`SYS_ALLOC` 按页推进并计入任务 Ledger；Capacity `used` 只计已分配 Frame，merge 失败由后端返回，多窗口 split 从尾部空闲的窗口切出；`SYS_CAPACITY_INFO` 64 字节（含 peak/soft），`SYS_LEDGER_INFO` 48 字节（含 resident/soft），`SYS_LEDGER_ENUM` 按索引枚举容量 Ledger，每条约 64 字节（含 CapacityId/用途/用量/配额/峰值/压力/常驻/软上限）。
 - 按设计继续收口：镜像与栈页物化为 Region、每个 Capacity 建立显式 Ledger、软上限策略接到 Root/Tempo。
-- Region 的 `GROW`/`PINNED` 已接入运行时，并提供 `SYS_REGION_GROW`；Arena 内部惰性 Region 已进入 HMP Arena 表；Arena、Region、类型化 Capability 与 Frame 已有各自的关联 Ledger；对象账本可按句柄经 `SYS_OBJECT_LEDGER` 查询。
+- Region 的 `GROW`/`PINNED` 已接入运行时，并提供 `SYS_REGION_GROW`；Arena 内部惰性 Region 已进入 HMP Arena 表；Task Ledger 是唯一硬配额，Arena、Region、类型化 Capability 与 Frame 的对象账本快照只报告利用率，可按句柄经 `SYS_OBJECT_LEDGER` 查询。
 - 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
 - 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 兼容层；按 M7–M10 继续深化。
 - 当前代码分层与清单见 [Crate 分层](crates.md)；构建、运行与冒烟入口见 [工程策略](engineering.md)。

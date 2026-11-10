@@ -68,14 +68,11 @@ impl Kernel {
         frame: Frame,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let mut ledger = Ledger::create(frame.len() as u64);
-        let _ = ledger.charge(frame.len() as u64);
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Frame {
                 frame: Mutex::new(Some(frame)),
                 capacity: None,
-                ledger: Mutex::new(ledger),
             })),
             rights,
         )
@@ -88,14 +85,11 @@ impl Kernel {
         capacity: Arc<Mutex<Capacity>>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let mut ledger = Ledger::create(frame.len() as u64);
-        let _ = ledger.charge(frame.len() as u64);
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Frame {
                 frame: Mutex::new(Some(frame)),
                 capacity: Some(capacity),
-                ledger: Mutex::new(ledger),
             })),
             rights,
         )
@@ -130,9 +124,9 @@ impl Kernel {
     }
 
     /// 返回 Frame Ledger 的已记账字节数。
-    pub fn frame_ledger_charged(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
+    pub fn frame_resident(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
-        Ok(object.frame_ledger_charged())
+        Ok(object.frame_resident())
     }
 
     /// 返回 Frame 的共享引用数。
@@ -186,7 +180,6 @@ impl Kernel {
             // 导入的区间没有 Capacity 归属，只丢弃描述。
             slot.take();
         }
-        object.clear_frame_ledger();
         Ok(0)
     }
 
@@ -238,7 +231,6 @@ impl Kernel {
             return Err(KernelError::Hmp(HmpError::NotMapped));
         }
         capacity.free(&mut slot).map_err(KernelError::Hmp)?;
-        frame_object.clear_frame_ledger();
         Ok(())
     }
 
@@ -424,10 +416,7 @@ impl Kernel {
         backing: Option<FrameBacking>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let mut ledger = Ledger::create(capability.size());
-        if let Some(backing) = &backing {
-            let _ = ledger.charge(backing.range().len());
-        }
+        let resident = backing.as_ref().map_or(0, |page| page.len() as u64);
         self.register(
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Capability {
@@ -435,7 +424,7 @@ impl Kernel {
                 backing,
                 provider: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
-                ledger: Mutex::new(ledger),
+                resident_peak: AtomicU64::new(resident),
                 pinned: AtomicBool::new(false),
                 scanout: AtomicBool::new(false),
                 version: AtomicU64::new(0),

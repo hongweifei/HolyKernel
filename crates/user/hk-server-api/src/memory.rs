@@ -491,7 +491,7 @@ pub fn ledger_info() -> Option<LedgerInfo> {
     })
 }
 
-/// 查询对象句柄关联的 Ledger。
+/// 查询对象利用率快照；只用于报告，不执行硬配额。
 pub fn object_ledger_info(handle: u64) -> Option<LedgerInfo> {
     let mut bytes = [0_u8; 48];
     // SAFETY: 缓冲区属于本进程；内核校验对象句柄后写入账本快照。

@@ -120,10 +120,7 @@ fn allocates_splits_and_frees_capacity_frames() {
     assert_eq!(page_size, PAGE_SIZE);
     assert_eq!(refs, 1);
     assert!(!pinned);
-    assert_eq!(
-        kernel.frame_ledger_charged(worker, frame),
-        Ok(PAGE_SIZE as u64)
-    );
+    assert_eq!(kernel.frame_resident(worker, frame), Ok(PAGE_SIZE as u64));
     assert_eq!(kernel.share_frame(worker, frame), Ok(2));
     assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
     assert_eq!(
@@ -135,7 +132,7 @@ fn allocates_splits_and_frees_capacity_frames() {
     assert_eq!(kernel.pin_frame(worker, frame, false), Ok(()));
     assert_eq!(kernel.release_frame(worker, frame), Ok(1));
     assert_eq!(kernel.free_frame(worker, capacity, frame), Ok(()));
-    assert_eq!(kernel.frame_ledger_charged(worker, frame), Ok(0));
+    assert_eq!(kernel.frame_resident(worker, frame), Ok(0));
     assert!(matches!(
         kernel.frame_info(worker, frame),
         Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))
@@ -351,6 +348,80 @@ fn object_ledger_reads_arena_capability_and_frame() {
             .charged,
         PAGE_SIZE as u64
     );
+}
+
+#[test]
+fn object_ledger_reports_utilization_not_quota() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+
+    let mut arena = Arena::new(ArenaId::new(2), VirtAddr::new(0x40_0000), 0x4000).expect("Arena");
+    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
+        .expect("能力");
+    let mut region = Region::new(
+        &capability,
+        0,
+        PAGE_SIZE,
+        Rights::READ | Rights::WRITE,
+        RegionFlags::empty(),
+    )
+    .expect("Region");
+    region.map(VirtAddr::new(0x40_0000)).expect("映射");
+    arena.insert(&region).expect("加入 Arena");
+    let arena_handle = kernel
+        .create_arena(worker, arena, rights)
+        .expect("Arena 句柄");
+    let arena_ledger = kernel
+        .object_ledger(worker, arena_handle)
+        .expect("Arena Ledger");
+    assert_eq!(arena_ledger.charged, PAGE_SIZE as u64);
+    assert_eq!(arena_ledger.limit, 0x4000);
+    assert_eq!(arena_ledger.peak, PAGE_SIZE as u64);
+    assert_eq!(arena_ledger.pressure, 25);
+
+    let mut region = Region::new(
+        &capability,
+        0,
+        PAGE_SIZE,
+        Rights::READ | Rights::WRITE,
+        RegionFlags::empty(),
+    )
+    .expect("Region");
+    region.map(VirtAddr::new(0x40_0000)).expect("映射");
+    let region_handle = kernel
+        .create_region(worker, region, rights)
+        .expect("Region 句柄");
+    let region_ledger = kernel
+        .object_ledger(worker, region_handle)
+        .expect("Region Ledger");
+    assert_eq!(region_ledger.charged, PAGE_SIZE as u64);
+    assert_eq!(region_ledger.limit, PAGE_SIZE as u64);
+    assert_eq!(region_ledger.peak, PAGE_SIZE as u64);
+    assert_eq!(region_ledger.pressure, 100);
+
+    let capability = Capability::new(
+        CapabilityKind::Anonymous,
+        (PAGE_SIZE * 2) as u64,
+        PAGE_SIZE,
+        None,
+    )
+    .expect("能力");
+    let capability_handle = kernel
+        .create_capability(worker, capability, None, rights)
+        .expect("能力句柄");
+    let page = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x70_0000), PAGE_SIZE));
+    assert_eq!(
+        kernel.set_capability_page(worker, capability_handle, 0, page),
+        Ok(true)
+    );
+    let capability_ledger = kernel
+        .object_ledger(worker, capability_handle)
+        .expect("能力 Ledger");
+    assert_eq!(capability_ledger.charged, PAGE_SIZE as u64);
+    assert_eq!(capability_ledger.limit, (PAGE_SIZE * 2) as u64);
+    assert_eq!(capability_ledger.peak, PAGE_SIZE as u64);
+    assert_eq!(capability_ledger.pressure, 50);
 }
 
 #[test]

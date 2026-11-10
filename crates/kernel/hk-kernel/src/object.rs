@@ -41,8 +41,6 @@ pub enum ObjectPayload {
         frame: Mutex<Option<Frame>>,
         /// Frame 归属的 Capacity；关闭最后一个句柄时自动归还。
         capacity: Option<Arc<Mutex<Capacity>>>,
-        /// Frame 的占用 Ledger。
-        ledger: Mutex<Ledger>,
     },
     /// 类型化能力。
     Capability {
@@ -54,8 +52,8 @@ pub enum ObjectPayload {
         provider: Mutex<Option<ObjectId>>,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
-        /// 类型化能力的常驻/占用 Ledger。
-        ledger: Mutex<Ledger>,
+        /// 常驻字节数的历史峰值；只用于报告。
+        resident_peak: AtomicU64,
         /// 是否固定驻留。
         pinned: AtomicBool,
         /// 是否正在 scanout 驻留。
@@ -190,10 +188,12 @@ impl KernelObject {
         }
     }
 
-    /// 返回 Frame Ledger 的已记账字节数。
-    pub fn frame_ledger_charged(&self) -> u64 {
+    /// 返回 Frame 当前常驻字节数；只用于报告。
+    pub fn frame_resident(&self) -> u64 {
         match &self.payload {
-            ObjectPayload::Frame { ledger, .. } => ledger.lock().charged(),
+            ObjectPayload::Frame { frame, .. } => {
+                frame.lock().as_ref().map_or(0, |frame| frame.len() as u64)
+            }
             _ => 0,
         }
     }
@@ -201,19 +201,8 @@ impl KernelObject {
     /// 取出物理页；取出后 Frame 对象保持为空。
     pub fn take_frame(&self) -> Option<Frame> {
         match &self.payload {
-            ObjectPayload::Frame { frame, ledger, .. } => {
-                let frame = frame.lock().take()?;
-                release_ledger(ledger);
-                Some(frame)
-            }
+            ObjectPayload::Frame { frame, .. } => frame.lock().take(),
             _ => None,
-        }
-    }
-
-    /// 把 Frame Ledger 清零；物理页已归还或转交时调用。
-    pub fn clear_frame_ledger(&self) {
-        if let ObjectPayload::Frame { ledger, .. } = &self.payload {
-            release_ledger(ledger);
         }
     }
 
@@ -225,12 +214,26 @@ impl KernelObject {
         }
     }
 
-    /// 返回类型化能力 Ledger 的已记账字节数。
+    /// 返回类型化能力的常驻字节数。
     pub fn capability_resident(&self) -> u64 {
-        let ObjectPayload::Capability { ledger, .. } = &self.payload else {
+        let ObjectPayload::Capability { backing, pages, .. } = &self.payload else {
             return 0;
         };
-        ledger.lock().charged()
+        let mut total = backing.as_ref().map_or(0, |page| page.len() as u64);
+        for page in pages.lock().values() {
+            total = total.saturating_add(page.len() as u64);
+        }
+        total
+    }
+
+    /// 返回类型化能力常驻字节数的历史峰值。
+    pub fn capability_resident_peak(&self) -> u64 {
+        match &self.payload {
+            ObjectPayload::Capability { resident_peak, .. } => {
+                resident_peak.load(Ordering::Acquire)
+            }
+            _ => 0,
+        }
     }
 
     /// 返回类型化能力的常驻物理区间。
@@ -254,11 +257,7 @@ impl KernelObject {
     /// 取出能力内已装入的一页。
     pub fn take_capability_page(&self, index: usize) -> Option<FrameBacking> {
         match &self.payload {
-            ObjectPayload::Capability { pages, ledger, .. } => {
-                let page = pages.lock().remove(&index)?;
-                let _ = ledger.lock().release_amount(hk_hal::PAGE_SIZE as u64);
-                Some(page)
-            }
+            ObjectPayload::Capability { pages, .. } => pages.lock().remove(&index),
             _ => None,
         }
     }
@@ -269,7 +268,7 @@ impl KernelObject {
             capability,
             backing,
             pages,
-            ledger,
+            resident_peak,
             ..
         } = &self.payload
         {
@@ -281,18 +280,13 @@ impl KernelObject {
                 return false;
             }
             let mut pages = pages.lock();
-            let mut ledger = ledger.lock();
-            let replacing = pages.contains_key(&index);
-            if replacing {
-                let _ = ledger.release_amount(hk_hal::PAGE_SIZE as u64);
-            }
-            if ledger.charge(hk_hal::PAGE_SIZE as u64).is_err() {
-                if replacing {
-                    let _ = ledger.charge(hk_hal::PAGE_SIZE as u64);
-                }
-                return false;
-            }
             pages.insert(index, page);
+            let resident = backing.as_ref().map_or(0, |page| page.len() as u64)
+                + pages
+                    .values()
+                    .map(|page| page.len() as u64)
+                    .fold(0, u64::saturating_add);
+            resident_peak.fetch_max(resident, Ordering::AcqRel);
             return true;
         }
         false
@@ -300,17 +294,11 @@ impl KernelObject {
 
     /// 取出 Frame 及其 Capacity 归属。
     pub fn take_owned_frame(&self) -> Option<OwnedFrame> {
-        let ObjectPayload::Frame {
-            frame,
-            capacity,
-            ledger,
-        } = &self.payload
-        else {
+        let ObjectPayload::Frame { frame, capacity } = &self.payload else {
             return None;
         };
         let capacity = capacity.as_ref()?;
         let frame = frame.lock().take()?;
-        release_ledger(ledger);
         Some(OwnedFrame::new(frame, Arc::clone(capacity)))
     }
 
@@ -385,13 +373,27 @@ impl KernelObject {
         }
     }
 
-    /// 返回对象关联 Ledger 的只读快照。
+    /// 返回对象利用率快照；只用于报告，不执行硬配额。
     pub fn ledger_snapshot(&self) -> Option<LedgerSnapshot> {
         match &self.payload {
             ObjectPayload::Arena(arena) => Some(arena.lock().ledger_snapshot()),
             ObjectPayload::Region(region) => Some(region.lock().ledger_snapshot()),
-            ObjectPayload::Capability { ledger, .. } | ObjectPayload::Frame { ledger, .. } => {
-                Some(ledger.lock().snapshot())
+            ObjectPayload::Capability { capability, .. } => {
+                let resident = self.capability_resident();
+                Some(LedgerSnapshot::utilization(
+                    resident,
+                    capability.size(),
+                    self.capability_resident_peak(),
+                    resident,
+                ))
+            }
+            ObjectPayload::Frame { .. } => {
+                let len = self.frame_resident();
+                if len == 0 {
+                    Some(LedgerSnapshot::default())
+                } else {
+                    Some(LedgerSnapshot::utilization(len, len, len, len))
+                }
             }
             ObjectPayload::Ledger(ledger) => Some(ledger.lock().snapshot()),
             ObjectPayload::Capacity(capacity) => {
@@ -408,12 +410,6 @@ impl KernelObject {
             _ => None,
         }
     }
-}
-
-fn release_ledger(ledger: &Mutex<Ledger>) {
-    let mut ledger = ledger.lock();
-    let amount = ledger.charged();
-    let _ = ledger.release_amount(amount);
 }
 
 impl Object for KernelObject {

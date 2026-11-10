@@ -39,6 +39,26 @@ pub struct LedgerSnapshot {
     pub soft_limit: u64,
 }
 
+impl LedgerSnapshot {
+    /// 由对象当前占用与容量构造报告快照。
+    ///
+    /// 该快照只描述利用率，不参与硬配额判断；硬配额由 Task Ledger 与
+    /// Capacity/FrameBank 边界执行。
+    pub fn utilization(charged: u64, limit: u64, peak: u64, resident: u64) -> Self {
+        Self {
+            charged,
+            limit,
+            peak,
+            pressure: charged
+                .saturating_mul(100)
+                .checked_div(limit)
+                .unwrap_or(100),
+            resident,
+            soft_limit: 0,
+        }
+    }
+}
+
 /// 一次记账。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Charge {
