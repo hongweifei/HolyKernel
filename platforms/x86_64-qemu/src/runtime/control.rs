@@ -299,12 +299,13 @@ fn perf() -> String {
     if let Some(capacity) = hk_platform_x86_64::system::capacity() {
         let capacity = capacity.lock();
         text.push_str(&format!(
-            "system total={} used={} peak={} soft={} span={}\n",
+            "system quota={} used={} peak={} soft={} span={} windows={}\n",
             capacity.limit(),
             capacity.used(),
             capacity.peak(),
             capacity.soft_limit(),
             capacity.range().len(),
+            capacity.windows().len(),
         ));
     }
     for cpu in 0..cpus {

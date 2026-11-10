@@ -334,6 +334,19 @@ impl Kernel {
         ))
     }
 
+    /// 返回 Capacity 当前持有的全部物理窗口。
+    pub fn capacity_windows(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<alloc::vec::Vec<PhysRange>, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        Ok(capacity.lock().windows())
+    }
+
     /// 从 Capacity 尾部切出子 Capacity 并返回句柄。
     pub fn split_capacity(
         &self,

@@ -35,6 +35,11 @@ pub trait PhysicalBackend: Send + Sync {
     /// 从指定容量名下归还一段物理区间。
     fn release_owned(&self, owner: CapacityId, range: PhysRange) -> bool;
 
+    /// 返回容量当前持有的全部窗口，按起始地址排序。
+    fn windows_owned(&self, _owner: CapacityId) -> alloc::vec::Vec<PhysRange> {
+        alloc::vec::Vec::new()
+    }
+
     /// 归还容量名下的全部窗口与 Ledger。
     ///
     /// 容量已无未归还分配时，把窗口重新归到父容量（或变为未归属），并把

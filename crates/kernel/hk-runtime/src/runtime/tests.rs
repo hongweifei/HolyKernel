@@ -1505,6 +1505,37 @@ fn duplicate_capability_does_not_double_charge() {
 }
 
 #[test]
+fn capacity_windows_reports_all_windows() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let capacity = hk_syscall::INITIAL_CAPACITY_HANDLE;
+
+    context.rax = hk_syscall::SYS_CAPACITY_WINDOWS;
+    context.rdi = capacity;
+    context.rsi = 0;
+    context.rdx = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+
+    context.rax = hk_syscall::SYS_CAPACITY_WINDOWS;
+    context.rdi = capacity;
+    context.rsi = 0x2000;
+    context.rdx = hk_syscall::CAPACITY_WINDOW_BYTES as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_syscall::CAPACITY_WINDOW_BYTES as u64);
+
+    let data = runtime.platform.written.lock();
+    let start = u64::from_le_bytes(data[..8].try_into().expect("start"));
+    let len = u64::from_le_bytes(data[8..16].try_into().expect("len"));
+    assert_eq!(start, 0x9000_0000);
+    assert_eq!(len, 0x20_0000);
+    drop(data);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn closing_capacity_handle_revokes_allocation() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

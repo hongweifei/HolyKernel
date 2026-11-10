@@ -63,6 +63,8 @@ fn log_test(app: &App, window: u64) {
     write_u64(app.sample.system.soft);
     write(b" ");
     write_u64(app.sample.system.span);
+    write(b" ");
+    write_u64(app.sample.system.windows);
     write(b"\n");
     write(b"hk-server-taskman: frame-bank ");
     write_u64(app.sample.frame_bank.used);

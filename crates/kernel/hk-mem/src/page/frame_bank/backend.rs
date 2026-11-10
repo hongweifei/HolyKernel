@@ -167,6 +167,16 @@ impl PhysicalBackend for FrameBank {
         Ok(())
     }
 
+    fn windows_owned(&self, owner: CapacityId) -> Vec<PhysRange> {
+        self.inner
+            .lock()
+            .owned
+            .iter()
+            .filter(|(_, window)| window.capacity == owner)
+            .map(|(_, window)| window.range)
+            .collect()
+    }
+
     fn used_owned(&self, owner: CapacityId) -> u64 {
         self.inner.lock().used_for(owner)
     }

@@ -146,6 +146,12 @@ Capacity 是物理容量的授予单位。
 - Root Server 持有初始 Capacity；每个服务启动时取得顶层 User Capacity，Memory Server 共享 User Capacity 并提供匿名页，驱动可取得 Dma/Gpu Capacity，内核持有 System Capacity。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
+报告口径：
+
+- `Capacity::limit` 是授予配额视图；`Ledger::limit` 是记账边界。两者在 System Capacity 上刻意不同：Ledger 保持物理总量，Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复。
+- 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
+- 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
+
 ---
 
 ## 5. Frame

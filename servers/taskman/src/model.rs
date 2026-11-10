@@ -122,16 +122,18 @@ impl TaskRow {
 /// System Capacity 记账快照（按容量归因）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SystemCapacity {
-    /// 硬上限字节数。
-    pub total: u64,
+    /// Capacity 配额字节数（可授予上限）。
+    pub quota: u64,
     /// 已用字节数。
     pub used: u64,
     /// 峰值字节数。
     pub peak: u64,
     /// 软上限；0 表示未设置。
     pub soft: u64,
-    /// 窗口外接字节数。
+    /// 首个窗口外接字节数。
     pub span: u64,
+    /// 当前窗口数。
+    pub windows: u64,
 }
 
 /// FrameBank 全局记账快照（含分类用量）。
@@ -192,9 +194,9 @@ impl PerfSample {
         self.system.used
     }
 
-    /// System Capacity 总量。
+    /// System Capacity 配额总量。
     pub fn memory_total(&self) -> u64 {
-        self.system.total
+        self.system.quota
     }
 
     /// 所有进程 Arena 已用字节；同进程线程共享 Arena，只计一次。
@@ -318,11 +320,12 @@ pub fn parse_perf(text: &str) -> PerfSample {
                 };
                 let value = value.parse().unwrap_or(0);
                 match key {
-                    "total" => sample.system.total = value,
+                    "quota" => sample.system.quota = value,
                     "used" => sample.system.used = value,
                     "peak" => sample.system.peak = value,
                     "soft" => sample.system.soft = value,
                     "span" => sample.system.span = value,
+                    "windows" => sample.system.windows = value,
                     _ => {}
                 }
             }

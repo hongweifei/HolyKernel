@@ -365,12 +365,8 @@ impl Capacity {
         // 后端是窗口归属的权威，容量可能覆盖多个窗口，不能用单个区间做范围
         // 检查；未注册后端时才按自带的窗口分配器校验。
         if let Some(backend) = super::backend::physical_backend() {
-            backend.merge_owned(self.id, child.id, range)?;
+            backend.reclaim_capacity(child.id, Some(self.id), child.limit())?;
             self.set_limit(self.limit().saturating_add(child.limit()));
-            if self.kind != CapacityKind::System {
-                backend.set_ledger_limit(self.id, self.limit());
-            }
-            backend.remove_ledger(child.id);
             child.released = true;
             return Ok(());
         }
@@ -401,9 +397,22 @@ impl Capacity {
         self.id
     }
 
-    /// 返回物理区间。
+    /// 返回首个物理窗口；完整窗口列表使用 [`Self::windows`]。
     pub const fn range(&self) -> PhysRange {
         self.range
+    }
+
+    /// 返回当前持有的全部物理窗口，按起始地址排序。
+    ///
+    /// 注册了物理后端时以窗口归属为权威；未注册后端时只有创建时的窗口。
+    pub fn windows(&self) -> alloc::vec::Vec<PhysRange> {
+        if let Some(backend) = super::backend::physical_backend() {
+            let windows = backend.windows_owned(self.id);
+            if !windows.is_empty() {
+                return windows;
+            }
+        }
+        alloc::vec![self.range]
     }
 
     /// 返回页大小。

@@ -321,6 +321,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPACITY_ALLOC => self.capacity_alloc(index, tcb, frame),
             SYS_CAPACITY_FREE => self.capacity_free(index, tcb, frame),
             SYS_CAPACITY_MERGE => self.capacity_merge(index, tcb, frame),
+            SYS_CAPACITY_WINDOWS => self.capacity_windows(index, frame),
             SYS_FRAME_INFO => self.frame_info(index, frame),
             SYS_FRAME_PIN => self.frame_pin(index, tcb, frame),
             SYS_FRAME_SHARE => self.frame_share(index, tcb, frame),

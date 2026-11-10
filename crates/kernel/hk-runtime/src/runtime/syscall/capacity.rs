@@ -53,6 +53,51 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 枚举 Capacity 持有的全部物理窗口。
+    ///
+    /// `capacity == 0` 时只返回窗口数；否则按 16 字节记录写入调用方缓冲。
+    pub(crate) fn capacity_windows(&mut self, index: usize, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let out = frame.arg1();
+        let buffer = frame.arg2() as usize;
+        let Some(handle) = self.handle_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(windows) = self.kernel.capacity_windows(self.tasks[index].tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if buffer == 0 {
+            frame.set_result(windows.len() as u64);
+            return Switch::Continue;
+        }
+        let needed = windows
+            .len()
+            .saturating_mul(hk_syscall::CAPACITY_WINDOW_BYTES);
+        if buffer < needed {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut offset = 0usize;
+        for window in &windows {
+            let Some(address) = out.checked_add(offset as u64) else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            let mut bytes = [0_u8; hk_syscall::CAPACITY_WINDOW_BYTES];
+            bytes[..8].copy_from_slice(&window.start().get().to_le_bytes());
+            bytes[8..].copy_from_slice(&window.len().to_le_bytes());
+            if !self.platform.write_user(address, &bytes) {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+            offset += hk_syscall::CAPACITY_WINDOW_BYTES;
+        }
+        frame.set_result(needed as u64);
+        Switch::Continue
+    }
+
     pub(crate) fn capacity_split(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;

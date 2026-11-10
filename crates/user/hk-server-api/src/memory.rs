@@ -5,10 +5,10 @@ use hk_syscall::{
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
-    SYS_CAPACITY_SPLIT, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
-    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME,
+    SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE,
+    SYS_FRAME_SHARE, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_OBJECT_LEDGER,
+    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
 use hk_syscall::LEDGER_RECORD_BYTES;
@@ -178,9 +178,9 @@ pub use hk_syscall::{
 /// Capacity 快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CapacityInfo {
-    /// 起始物理地址。
+    /// 首个窗口的起始物理地址；完整窗口列表使用 [`capacity_windows`]。
     pub start: u64,
-    /// 区间长度。
+    /// 首个窗口长度；完整窗口列表使用 [`capacity_windows`]。
     pub len: u64,
     /// 用途编码。
     pub kind: u8,
@@ -223,6 +223,31 @@ pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
         peak: u64::from_le_bytes(bytes[48..56].try_into().ok()?),
         soft_limit: u64::from_le_bytes(bytes[56..].try_into().ok()?),
     })
+}
+
+/// 返回 Capacity 当前持有的窗口数。
+pub fn capacity_window_count(capacity: u64) -> Option<usize> {
+    // SAFETY: 内核校验 Capacity 句柄后返回窗口数，不写入用户内存。
+    let count = unsafe { syscall_call(SYS_CAPACITY_WINDOWS, capacity, 0, 0, 0).value };
+    (count != u64::MAX).then_some(count as usize)
+}
+
+/// 把 Capacity 的全部窗口写入调用方缓冲；每条记录 16 字节（起始物理地址 + 长度）。
+///
+/// 返回写入的字节数；缓冲不足时返回 `None`。
+pub fn capacity_windows(capacity: u64, out: &mut [u8]) -> Option<usize> {
+    // SAFETY: 缓冲区属于本进程；内核校验 Capacity 与长度后写入窗口记录。
+    let result = unsafe {
+        syscall_call(
+            SYS_CAPACITY_WINDOWS,
+            capacity,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+            0,
+        )
+        .value
+    };
+    (result != u64::MAX).then_some(result as usize)
 }
 
 /// 从 Capacity 尾部切出子 Capacity。

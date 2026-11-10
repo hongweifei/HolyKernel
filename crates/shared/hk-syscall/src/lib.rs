@@ -254,7 +254,7 @@ pub const SYS_LEDGER_INFO: u64 = 0x4F;
 /// 查询当前任务 Arena 的基址、大小、已用与 Region 数。
 pub const SYS_ARENA_INFO: u64 = 0x90;
 
-/// 查询 Capacity 的区间、用途、页大小、配额与用量。
+/// 查询 Capacity 的首个窗口、用途、页大小、配额与用量。
 pub const SYS_CAPACITY_INFO: u64 = 0x91;
 
 /// 从 Capacity 尾部切出子 Capacity。
@@ -301,6 +301,12 @@ pub const SYS_REGION_GROW: u64 = 0x9F;
 
 /// 查询对象句柄关联的 Ledger。
 pub const SYS_OBJECT_LEDGER: u64 = 0xA0;
+
+/// 枚举 Capacity 当前持有的全部物理窗口。
+pub const SYS_CAPACITY_WINDOWS: u64 = 0xA1;
+
+/// 容量窗口单条记录字节数：起始物理地址 + 长度。
+pub const CAPACITY_WINDOW_BYTES: usize = 16;
 
 /// 容量 Ledger 单条记录字节数。
 pub const LEDGER_RECORD_BYTES: usize = 64;
@@ -716,6 +722,7 @@ mod tests {
             SYS_LEDGER_ENUM,
             SYS_REGION_GROW,
             SYS_OBJECT_LEDGER,
+            SYS_CAPACITY_WINDOWS,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

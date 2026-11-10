@@ -99,7 +99,7 @@ fn overview() -> String {
          TSC Hz: {}\n\
          本任务句柄: {}\n\
          Display: {}\n\
-         System Capacity: {} / {} KiB（峰值 {}）\n\
+         FrameBank: {} / {} KiB（峰值 {}）\n\
          内存分类 KiB: heap {} page-table {} cow {} restore {} image {} dma {} other {}\n",
         stats.threads,
         stats.objects,

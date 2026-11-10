@@ -381,10 +381,11 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
         mib_text(view.sample.system.soft)
     };
     let memory_text = format!(
-        "System {} / {} MiB  ({})  峰值 {} MiB  软 {} MiB",
+        "System 配额 {} / {} MiB ({}) · {} 窗口  峰值 {} MiB  软 {} MiB",
         mib_text(used),
         mib_text(total),
         percent_text(percent),
+        view.sample.system.windows,
         mib_text(view.sample.system.peak),
         soft,
     );
