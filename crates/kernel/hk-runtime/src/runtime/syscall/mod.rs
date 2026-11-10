@@ -327,6 +327,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_FRAME_FREE => self.frame_free(index, tcb, frame),
             SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
             SYS_MEMORY_STATS => self.memory_stats(frame),
+            SYS_LEDGER_ENUM => self.ledger_enum(frame),
             SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
             SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),
             SYS_REGION_MAP => self.region_map(index, tcb, frame),

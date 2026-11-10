@@ -102,6 +102,10 @@ struct MockPlatform {
     released: Arc<AtomicUsize>,
     /// COW 解析返回值；`None` 表示未处理。
     cow: Option<CowOutcome>,
+    /// 容量 Ledger 枚举快照。
+    ledgers: Vec<hk_mem::LedgerStats>,
+    /// 最近一次用户态写入的数据。
+    written: Arc<spin::Mutex<Vec<u8>>>,
 }
 
 impl MockPlatform {
@@ -125,6 +129,8 @@ impl MockPlatform {
             unmapped: Arc::new(AtomicUsize::new(0)),
             released: Arc::new(AtomicUsize::new(0)),
             cow: None,
+            ledgers: Vec::new(),
+            written: Arc::new(spin::Mutex::new(Vec::new())),
         }
     }
 }
@@ -206,6 +212,10 @@ impl UserPlatform for MockPlatform {
         self.cow
     }
 
+    fn ledger_stats(&self) -> Option<Vec<hk_mem::LedgerStats>> {
+        Some(self.ledgers.clone())
+    }
+
     fn user_mapped(&self, _address: u64) -> bool {
         true
     }
@@ -230,7 +240,8 @@ impl UserPlatform for MockPlatform {
         self.activations.fetch_add(1, Ordering::AcqRel);
     }
 
-    fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
+    fn write_user(&self, _address: u64, data: &[u8]) -> bool {
+        *self.written.lock() = data.to_vec();
         true
     }
 
@@ -654,6 +665,83 @@ fn arena_alloc_is_lazy_and_charged() {
     context.rsi = 48;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 48);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn enumerates_capacity_ledgers() {
+    let platform = MockPlatform {
+        ledgers: alloc::vec![
+            hk_mem::LedgerStats {
+                capacity: hk_mem::hmp::CapacityId::new(7),
+                kind: hk_mem::hmp::CapacityKind::User,
+                used: 0x800,
+                limit: 0x1000,
+                peak: 0x900,
+                resident: 0x400,
+                soft_limit: 0x700,
+                pressure: 50,
+            },
+            hk_mem::LedgerStats {
+                capacity: hk_mem::hmp::CapacityId::new(9),
+                kind: hk_mem::hmp::CapacityKind::System,
+                used: 0x2000,
+                limit: 0x4000,
+                peak: 0x3000,
+                resident: 0,
+                soft_limit: 0,
+                pressure: 50,
+            },
+        ],
+        ..MockPlatform::new()
+    };
+    let written = Arc::clone(&platform.written);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_LEDGER_ENUM;
+    context.rdi = 0x400;
+    context.rsi = hk_syscall::LEDGER_RECORD_BYTES as u64;
+    context.rdx = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_syscall::LEDGER_RECORD_BYTES as u64);
+    let data = written.lock();
+    assert_eq!(
+        u64::from_le_bytes(data[..8].try_into().expect("capacity")),
+        7
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[8..16].try_into().expect("used")),
+        0x800
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[16..24].try_into().expect("limit")),
+        0x1000
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[32..40].try_into().expect("pressure")),
+        50
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[40..48].try_into().expect("resident")),
+        0x400
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[48..56].try_into().expect("soft")),
+        0x700
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[56..].try_into().expect("kind")),
+        u64::from(hk_syscall::CAPACITY_KIND_USER)
+    );
+    drop(data);
+
+    context.rax = hk_syscall::SYS_LEDGER_ENUM;
+    context.rdx = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "越界索引返回 0");
     let _ = runtime.finish(0, index);
 }
 

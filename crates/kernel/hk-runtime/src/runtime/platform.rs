@@ -113,6 +113,11 @@ pub trait UserPlatform {
     fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
         None
     }
+
+    /// 返回全部容量 Ledger 的快照。
+    fn ledger_stats(&self) -> Option<Vec<hk_mem::LedgerStats>> {
+        None
+    }
     /// 归还 DeviceGrant 的 DMA 窗口。
     fn dma_free(&self, _range: hk_hal::PhysRange) {}
     /// 取出并清除待处理 IRQ 位图，最多 256 条。

@@ -4,6 +4,6 @@ pub mod frame_bank;
 pub mod pool;
 pub mod registry;
 
-pub use frame_bank::{FrameBank, FrameBankStats, FrameKind};
+pub use frame_bank::{FrameBank, FrameBankStats, FrameKind, LedgerStats};
 pub use pool::PagePool;
 pub use registry::{UserVspace, VspaceRegistry};

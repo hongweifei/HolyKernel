@@ -43,6 +43,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if selftest::verify_capacity() {
         write(b"hk-server-memory: capacity ok\n");
     }
+    if selftest::verify_ledger_enum() {
+        write(b"hk-server-memory: ledger ok\n");
+    }
     loop {
         let mut request = [0_u8; REQUEST_BYTES];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);

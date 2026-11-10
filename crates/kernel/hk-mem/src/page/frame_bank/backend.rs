@@ -149,6 +149,10 @@ impl PhysicalBackend for FrameBank {
         FrameBank::register_ledger(self, owner, limit);
     }
 
+    fn set_ledger_kind(&self, owner: CapacityId, kind: CapacityKind) {
+        FrameBank::set_ledger_kind(self, owner, kind);
+    }
+
     fn set_ledger_limit(&self, owner: CapacityId, limit: u64) {
         FrameBank::set_ledger_limit(self, owner, limit);
     }

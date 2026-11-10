@@ -234,6 +234,10 @@ impl UserPlatform for X86Platform {
         Some(hk_platform_x86_64::paging::FRAME_BANK.stats())
     }
 
+    fn ledger_stats(&self) -> Option<Vec<hk_mem::LedgerStats>> {
+        Some(hk_platform_x86_64::paging::FRAME_BANK.ledger_stats())
+    }
+
     fn zero(&self, address: u64, length: usize) {
         hk_platform_x86_64::cpu::user_access_begin();
         // SAFETY: Arena 页已映射到当前用户页表，SMAP 由 STAC/CLAC 临时放行。

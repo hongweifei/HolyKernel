@@ -73,6 +73,27 @@ pub struct FrameBankStats {
     pub by_kind: [u64; FrameKind::COUNT],
 }
 
+/// 单个 Capacity 的 Ledger 快照。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LedgerStats {
+    /// Capacity 标识。
+    pub capacity: CapacityId,
+    /// Capacity 用途。
+    pub kind: CapacityKind,
+    /// 当前已记账字节数。
+    pub used: u64,
+    /// 硬上限。
+    pub limit: u64,
+    /// 峰值。
+    pub peak: u64,
+    /// 常驻字节数快照。
+    pub resident: u64,
+    /// 软上限；0 表示未设置。
+    pub soft_limit: u64,
+    /// 压力百分比（0–100）。
+    pub pressure: u64,
+}
+
 struct Allocation {
     range: PhysRange,
     kind: FrameKind,
@@ -97,6 +118,8 @@ struct Inner {
     ledger: Ledger,
     /// 每个容量自己的 Ledger。
     ledgers: BTreeMap<CapacityId, Ledger>,
+    /// 容量 Ledger 的用途标签，用于枚举。
+    ledger_kinds: BTreeMap<CapacityId, CapacityKind>,
     allocations: BTreeMap<u64, Allocation>,
     by_kind: [u64; FrameKind::COUNT],
     /// 已登记给容量的窗口，按起始地址索引。
@@ -326,6 +349,7 @@ impl FrameBank {
                 total: 0,
                 ledger: Ledger::new(LedgerId::new(0), 0),
                 ledgers: BTreeMap::new(),
+                ledger_kinds: BTreeMap::new(),
                 allocations: BTreeMap::new(),
                 by_kind: [0; FrameKind::COUNT],
                 owned: BTreeMap::new(),
@@ -701,6 +725,34 @@ impl FrameBank {
             .or_insert_with(|| Ledger::create(limit));
     }
 
+    /// 登记容量 Ledger 的用途标签；重复登记以最后一次为准。
+    pub fn set_ledger_kind(&self, owner: CapacityId, kind: CapacityKind) {
+        self.inner.lock().ledger_kinds.insert(owner, kind);
+    }
+
+    /// 返回按 CapacityId 排序的全部容量 Ledger 快照。
+    pub fn ledger_stats(&self) -> Vec<LedgerStats> {
+        let inner = self.inner.lock();
+        inner
+            .ledgers
+            .iter()
+            .map(|(owner, ledger)| LedgerStats {
+                capacity: *owner,
+                kind: inner
+                    .ledger_kinds
+                    .get(owner)
+                    .copied()
+                    .unwrap_or(CapacityKind::System),
+                used: ledger.charged(),
+                limit: ledger.limit(),
+                peak: ledger.peak(),
+                resident: ledger.resident(),
+                soft_limit: ledger.soft_limit(),
+                pressure: ledger.pressure(),
+            })
+            .collect()
+    }
+
     /// 更新容量 Ledger 的硬上限。
     pub fn set_ledger_limit(&self, owner: CapacityId, limit: u64) {
         if let Some(ledger) = self.inner.lock().ledgers.get_mut(&owner) {
@@ -719,6 +771,7 @@ impl FrameBank {
     pub fn remove_ledger(&self, owner: CapacityId) {
         let mut inner = self.inner.lock();
         inner.ledgers.remove(&owner);
+        inner.ledger_kinds.remove(&owner);
         inner.peaks.remove(&owner);
     }
 

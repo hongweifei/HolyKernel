@@ -69,6 +69,57 @@ fn adopting_owner_charges_its_ledger() {
 }
 
 #[test]
+fn enumerates_capacity_ledgers_by_id() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let system = CapacityId::next();
+    let user = CapacityId::next();
+    bank.reserve_for(system, 0x2000).expect("System 窗口");
+    bank.reserve_for(user, 0x2000).expect("User 窗口");
+    bank.register_ledger(system, 0x2000);
+    bank.set_ledger_kind(system, CapacityKind::System);
+    bank.register_ledger(user, 0x1000);
+    bank.set_ledger_kind(user, CapacityKind::User);
+    bank.set_ledger_soft_limit(user, 0x800);
+    assert!(
+        bank.allocate_owned(system, CapacityKind::System, PAGE_SIZE as u64)
+            .is_some()
+    );
+    assert!(
+        bank.allocate_owned(user, CapacityKind::User, PAGE_SIZE as u64)
+            .is_some()
+    );
+    assert!(
+        bank.allocate_owned(user, CapacityKind::User, PAGE_SIZE as u64)
+            .is_none(),
+        "User 账本上限为 0x1000"
+    );
+
+    let stats = bank.ledger_stats();
+    assert_eq!(stats.len(), 2);
+    assert!(
+        stats
+            .windows(2)
+            .all(|pair| pair[0].capacity.get() < pair[1].capacity.get()),
+        "枚举按 CapacityId 排序"
+    );
+    let user_stats = stats
+        .iter()
+        .find(|stats| stats.capacity == user)
+        .expect("User Ledger");
+    assert_eq!(user_stats.kind, CapacityKind::User);
+    assert_eq!(user_stats.used, PAGE_SIZE as u64);
+    assert_eq!(user_stats.limit, 0x1000);
+    assert_eq!(user_stats.peak, PAGE_SIZE as u64);
+    assert_eq!(user_stats.soft_limit, 0x800);
+    assert_eq!(user_stats.pressure, 100);
+    let system_stats = stats
+        .iter()
+        .find(|stats| stats.capacity == system)
+        .expect("System Ledger");
+    assert_eq!(system_stats.used, PAGE_SIZE as u64);
+}
+
+#[test]
 fn covers_all_usable_regions() {
     let regions = [
         MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2_0000, RegionKind::Usable),

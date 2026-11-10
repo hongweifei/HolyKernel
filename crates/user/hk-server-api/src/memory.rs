@@ -6,9 +6,12 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME, SYS_FRAME_FREE, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_INFO,
-    SYS_MEMORY_STATS, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
+    SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT,
+    SYS_REGION_UNMAP,
 };
+
+use hk_syscall::LEDGER_RECORD_BYTES;
 
 use crate::syscall_call;
 
@@ -454,6 +457,56 @@ pub fn ledger_info() -> Option<LedgerInfo> {
         pressure: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
         resident: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
         soft_limit: u64::from_le_bytes(bytes[40..].try_into().ok()?),
+    })
+}
+
+/// 单个 Capacity 的 Ledger 快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CapacityLedgerInfo {
+    /// Capacity 标识。
+    pub capacity: u64,
+    /// 已记账字节数。
+    pub used: u64,
+    /// 配额字节数。
+    pub limit: u64,
+    /// 峰值字节数。
+    pub peak: u64,
+    /// 压力百分比。
+    pub pressure: u64,
+    /// 常驻字节数。
+    pub resident: u64,
+    /// 软上限；0 表示未设置。
+    pub soft_limit: u64,
+    /// Capacity 用途编码。
+    pub kind: u8,
+}
+
+/// 按索引枚举容量 Ledger；索引越界或平台不支持时返回 `None`。
+pub fn ledger_enum(index: usize) -> Option<CapacityLedgerInfo> {
+    let mut bytes = [0_u8; LEDGER_RECORD_BYTES];
+    // SAFETY: 缓冲区属于本进程；内核按索引写入容量 Ledger 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_LEDGER_ENUM,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            index as u64,
+            0,
+        )
+        .value
+    };
+    if result != LEDGER_RECORD_BYTES as u64 {
+        return None;
+    }
+    Some(CapacityLedgerInfo {
+        capacity: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        limit: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        peak: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        pressure: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
+        resident: u64::from_le_bytes(bytes[40..48].try_into().ok()?),
+        soft_limit: u64::from_le_bytes(bytes[48..56].try_into().ok()?),
+        kind: u64::from_le_bytes(bytes[56..].try_into().ok()?) as u8,
     })
 }
 

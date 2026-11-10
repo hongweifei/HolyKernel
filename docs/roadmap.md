@@ -227,7 +227,7 @@ flowchart LR
 ## 11. 当前状态
 
 - M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
-- 实现现状（设计契约见 [HMP](hmp.md)）：单一物理后端与 Capacity 配额视图；System Capacity 覆盖除 DMA 预留外的全部可用内存，内核堆、页表、镜像/栈/Arena 页计入 System；Memory Server 当前以 System Capacity 共享视图出页（设计目标是 User Capacity 子集）；Arena 以惰性匿名 Region 建立，装载期不预映射，`SYS_ALLOC` 按页推进并计入任务 Ledger；Capacity `used` 只计已分配 Frame，merge 失败由后端返回，多窗口 split 从尾部空闲的窗口切出；`SYS_CAPACITY_INFO` 64 字节（含 peak/soft），`SYS_LEDGER_INFO` 48 字节（含 resident/soft）。
+- 实现现状（设计契约见 [HMP](hmp.md)）：单一物理后端与 Capacity 配额视图；System Capacity 覆盖除 DMA 预留外的全部可用内存，内核堆、页表、镜像/栈/Arena 页计入 System；Memory Server 当前以 System Capacity 共享视图出页（设计目标是 User Capacity 子集）；Arena 以惰性匿名 Region 建立，装载期不预映射，`SYS_ALLOC` 按页推进并计入任务 Ledger；Capacity `used` 只计已分配 Frame，merge 失败由后端返回，多窗口 split 从尾部空闲的窗口切出；`SYS_CAPACITY_INFO` 64 字节（含 peak/soft），`SYS_LEDGER_INFO` 48 字节（含 resident/soft），`SYS_LEDGER_ENUM` 按索引枚举容量 Ledger，每条约 64 字节（含 CapacityId/用途/用量/配额/峰值/压力/常驻/软上限）。
 - 按设计继续收口：Memory Server 回到 User Capacity 子集、镜像与栈页物化为 Region、每个 Capacity 建立显式 Ledger、软上限策略接到 Root/Tempo。
 - 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
 - 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 兼容层；按 M7–M10 继续深化。

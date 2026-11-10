@@ -292,6 +292,12 @@ pub const SYS_MEMORY_STATS: u64 = 0x9C;
 /// 把一个已清空的子 Capacity 并回父 Capacity。
 pub const SYS_CAPACITY_MERGE: u64 = 0x9D;
 
+/// 按索引枚举容量 Ledger 快照。
+pub const SYS_LEDGER_ENUM: u64 = 0x9E;
+
+/// 容量 Ledger 单条记录字节数。
+pub const LEDGER_RECORD_BYTES: usize = 64;
+
 /// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
 pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
 
@@ -579,7 +585,7 @@ mod tests {
         const { assert!(SYS_TICKS >= 0x60 && SYS_KERNEL_STATS < 0x70) };
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
-        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_MEMORY_STATS < 0xA0) };
+        const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_LEDGER_ENUM < 0xA0) };
     }
 
     #[test]
@@ -699,6 +705,7 @@ mod tests {
             SYS_DMA_MAP_FRAME,
             SYS_MEMORY_STATS,
             SYS_CAPACITY_MERGE,
+            SYS_LEDGER_ENUM,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

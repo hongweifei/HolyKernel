@@ -136,6 +136,7 @@ impl Capacity {
         };
         if let Some(backend) = super::backend::physical_backend() {
             backend.register_ledger(id, limit);
+            backend.set_ledger_kind(id, kind);
         }
         Ok(capacity)
     }

@@ -1,7 +1,8 @@
 //! Memory 自检：初始 Capacity 与 Frame 生命周期。
 
 use hk_server_api::{
-    capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, frame_release, frame_share,
+    capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, frame_release,
+    frame_share, ledger_enum,
 };
 use hk_syscall::INITIAL_CAPACITY_HANDLE;
 
@@ -34,4 +35,10 @@ pub(crate) fn verify_capacity() -> bool {
         return false;
     }
     capacity_info(capacity).is_some_and(|after| after.used == before.used)
+}
+
+/// 验证容量 Ledger 枚举接口至少返回一条一致的记录。
+#[cfg(target_os = "none")]
+pub(crate) fn verify_ledger_enum() -> bool {
+    ledger_enum(0).is_some_and(|info| info.capacity != 0 && info.used <= info.limit)
 }
