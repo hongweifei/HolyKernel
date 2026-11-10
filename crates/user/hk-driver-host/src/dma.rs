@@ -9,8 +9,8 @@ use dma_api::{
     DmaDomainId, DmaError, DmaMapHandle, DmaOp,
 };
 use hk_server_api::{
-    CapabilityKind, capability_create, capability_phys, close_handle, dma_map_capability,
-    map_attach, region_unmap,
+    CapabilityKind, capability_create, capability_phys, close_handle, dma_map, map_attach,
+    region_unmap,
 };
 use spin::Mutex;
 
@@ -79,9 +79,7 @@ fn create_region(layout: core::alloc::Layout) -> Option<Region> {
         let _ = close_handle(capability);
         return None;
     };
-    if length < layout.size() as u64
-        || dma_map_capability(grant, capability, layout.size()) == u64::MAX
-    {
+    if length < layout.size() as u64 || dma_map(grant, capability, layout.size()) == u64::MAX {
         let _ = region_unmap(region);
         let _ = close_handle(capability);
         return None;

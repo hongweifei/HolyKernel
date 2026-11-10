@@ -207,7 +207,7 @@ impl CapabilityKind {
 /// 创建类型化能力并分配常驻物理页。
 pub const SYS_CAPABILITY_CREATE: u64 = 0x41;
 
-/// 把类型化能力的一段映射进调用者 VSpace。
+/// 把类型化能力的一段映射进调用者 Arena。
 pub const SYS_REGION_MAP: u64 = 0x42;
 
 /// 查询 Region 的虚拟地址与长度。
@@ -221,9 +221,6 @@ pub const SYS_CAPABILITY_PHYS: u64 = 0x45;
 
 /// 修改已映射 Region 的权利与标志。
 pub const SYS_REGION_PROTECT: u64 = 0x46;
-
-/// 把类型化能力绑定到 DeviceGrant 的 IOMMU 域。
-pub const SYS_DMA_MAP_CAPABILITY: u64 = 0x47;
 
 /// 同步 DMA 缓冲缓存。
 pub const SYS_DMA_SYNC: u64 = 0x48;
@@ -260,7 +257,7 @@ pub const PROVIDER_KIND_DEVICE: u8 = 3;
 /// Provider 类型编码：Anonymous。
 pub const PROVIDER_KIND_ANONYMOUS: u8 = 4;
 
-// === HMP 对象查询 0x90-0x9F ===
+// === HMP 对象 0x90-0xA1 ===
 
 /// 查询当前任务 Arena 的基址、大小、已用与 Region 数。
 pub const SYS_ARENA_INFO: u64 = 0x90;
@@ -289,14 +286,11 @@ pub const SYS_FRAME_SHARE: u64 = 0x97;
 /// 释放一次 Frame 共享引用。
 pub const SYS_FRAME_RELEASE: u64 = 0x98;
 
-/// 把 Frame 归还给 Capacity。
-pub const SYS_FRAME_FREE: u64 = 0x99;
-
 /// 把 Frame 映射进当前任务地址空间。
 pub const SYS_FRAME_MAP: u64 = 0x9A;
 
-/// 把 Frame 绑定到 DeviceGrant 的 IOMMU 域。
-pub const SYS_DMA_MAP_FRAME: u64 = 0x9B;
+/// 把 Frame 或类型化能力绑定到 DeviceGrant 的 IOMMU 域。
+pub const SYS_DMA_MAP: u64 = 0x9B;
 
 /// 查询 FrameBank 物理用量快照（按 CapacityKind 分类）。
 pub const SYS_FRAME_BANK_STATS: u64 = 0x9C;
@@ -321,9 +315,6 @@ pub const CAPACITY_WINDOW_BYTES: usize = 16;
 
 /// 容量 Ledger 单条记录字节数。
 pub const LEDGER_RECORD_BYTES: usize = 64;
-
-/// 初始 Capacity 句柄编号；Root Server 授予每个内存服务一个起始容量。
-pub const INITIAL_CAPACITY_HANDLE: u64 = 0x5001;
 
 /// Capacity 用途编码：System。
 pub const CAPACITY_KIND_SYSTEM: u8 = 0;
@@ -684,7 +675,6 @@ mod tests {
             SYS_REGION_UNMAP,
             SYS_CAPABILITY_PHYS,
             SYS_REGION_PROTECT,
-            SYS_DMA_MAP_CAPABILITY,
             SYS_DMA_SYNC,
             SYS_CAPABILITY_PIN,
             SYS_CAPABILITY_SCANOUT,
@@ -728,9 +718,8 @@ mod tests {
             SYS_FRAME_PIN,
             SYS_FRAME_SHARE,
             SYS_FRAME_RELEASE,
-            SYS_FRAME_FREE,
             SYS_FRAME_MAP,
-            SYS_DMA_MAP_FRAME,
+            SYS_DMA_MAP,
             SYS_FRAME_BANK_STATS,
             SYS_CAPACITY_MERGE,
             SYS_LEDGER_ENUM,

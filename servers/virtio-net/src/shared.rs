@@ -7,7 +7,7 @@ use hk_proto::net::{
 };
 use hk_server_api::{
     CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
-    dma_map_capability, handle_duplicate, send, send_data, send_handle, write,
+    dma_map, handle_duplicate, send, send_data, send_handle, write,
 };
 
 /// 解析是否启用共享帧路径。
@@ -51,7 +51,7 @@ fn attach_role(own: u64, peer: u64, grant: u64, role: u64, virts: &mut [u64]) ->
         if let Some((phys, _)) = capability_phys(handle) {
             register_mapping(virt, phys, NET_SHARED_LEN);
         }
-        let _ = dma_map_capability(grant, handle, NET_SHARED_LEN);
+        let _ = dma_map(grant, handle, NET_SHARED_LEN);
         let duplicate = handle_duplicate(handle, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
         if duplicate == u64::MAX {
             return false;

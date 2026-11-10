@@ -25,6 +25,10 @@ impl UserContext for MockContext {
         self.rdi = argument;
     }
 
+    fn set_start_capacity(&mut self, capacity: u64) {
+        self.rsi = capacity;
+    }
+
     fn for_thread(entry: u64, _stack_top: u64, argument: u64) -> Self {
         Self {
             rax: entry,
@@ -414,6 +418,10 @@ fn arms_wakeup_at_sleep_deadline() {
 #[test]
 fn memory_service_receives_user_capacity_subset() {
     let runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    assert_eq!(
+        runtime.tasks[1].context.rsi, 0x5001,
+        "Root Server 应把初始 Capacity 句柄显式传给服务"
+    );
     let granted = runtime.tasks[1]
         .capacities
         .iter()
@@ -1540,7 +1548,7 @@ fn capacity_windows_reports_all_windows() {
     let Step::Resume { index, mut context } = runtime.step(0) else {
         panic!("任务应可运行");
     };
-    let capacity = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    let capacity = 0x5001;
 
     context.rax = hk_syscall::SYS_CAPACITY_WINDOWS;
     context.rdi = capacity;
@@ -1574,7 +1582,7 @@ fn closing_capacity_handle_revokes_allocation() {
     let before = runtime.process(index).ledger.charged();
 
     context.rax = hk_syscall::SYS_HANDLE_CLOSE;
-    context.rdi = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    context.rdi = 0x5001;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 
@@ -2435,7 +2443,7 @@ fn capacity_merge_returns_child_range_to_parent() {
     assert_eq!(memory, 1);
     assert_ne!(first, memory);
 
-    let parent = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    let parent = 0x5001;
     context.rax = SYS_CAPACITY_INFO;
     context.rdi = parent;
     context.rsi = 0x4000;
@@ -2670,7 +2678,7 @@ fn provider_fault_blocks_caller() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
 
     context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
-    context.rdi = hk_syscall::INITIAL_CAPACITY_HANDLE;
+    context.rdi = 0x5001;
     context.rsi = 4096;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let frame = context.rax;

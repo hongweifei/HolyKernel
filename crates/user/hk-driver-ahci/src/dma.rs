@@ -3,8 +3,7 @@
 use alloc::vec::Vec;
 
 use hk_server_api::{
-    CapabilityKind, capability_create, capability_phys, close_handle, dma_map_capability,
-    map_attach,
+    CapabilityKind, capability_create, capability_phys, close_handle, dma_map, map_attach,
 };
 
 /// FIS 接收区偏移。
@@ -36,7 +35,7 @@ impl DmaArena {
         let capability = capability_create(CapabilityKind::DeviceAllocation, bytes)?;
         let (region, virt) = map_attach(capability)?;
         let (phys, length) = capability_phys(capability)?;
-        if length < bytes as u64 || dma_map_capability(grant, capability, bytes) == u64::MAX {
+        if length < bytes as u64 || dma_map(grant, capability, bytes) == u64::MAX {
             let _ = close_handle(capability);
             return None;
         }

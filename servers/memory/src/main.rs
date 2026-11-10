@@ -15,9 +15,7 @@ use hk_server_api::{
     recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
-use hk_syscall::{
-    INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE,
-};
+use hk_syscall::{PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE};
 
 #[cfg(target_os = "none")]
 mod selftest;
@@ -40,9 +38,9 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(endpoint: u64) -> ! {
+pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     write(b"hk-server-memory: ready\n");
-    if selftest::verify_capacity() {
+    if selftest::verify_capacity(capacity) {
         write(b"hk-server-memory: capacity ok\n");
     }
     if selftest::verify_ledger_enum() {
@@ -57,7 +55,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             } else {
                 0
             };
-            let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, size) else {
+            let Some(frame) = capacity_alloc(capacity, size) else {
                 // 失败回复不带句柄；用 send_handle(…, 0) 会被内核当作坏句柄丢弃，
                 // 请求方会永久阻塞在接收上。
                 let _ = send(sender, MEMORY_FRAME_ALLOCATED, u64::MAX);
@@ -105,7 +103,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         write(b"hk-server-memory: fault\n");
-        let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, PAGE) else {
+        let Some(frame) = capacity_alloc(capacity, PAGE) else {
             let _ = reply(0, u64::MAX);
             continue;
         };

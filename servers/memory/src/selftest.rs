@@ -1,17 +1,14 @@
 //! Memory 自检：初始 Capacity 与 Frame 生命周期。
 
+use crate::PAGE;
 use hk_server_api::{
     capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, frame_release,
     frame_share, ledger_enum,
 };
-use hk_syscall::INITIAL_CAPACITY_HANDLE;
-
-use crate::PAGE;
 
 /// 验证 Root Server 授予的初始 Capacity 与 Frame 生命周期。
 #[cfg(target_os = "none")]
-pub(crate) fn verify_capacity() -> bool {
-    let capacity = INITIAL_CAPACITY_HANDLE;
+pub(crate) fn verify_capacity(capacity: u64) -> bool {
     let Some(before) = capacity_info(capacity) else {
         return false;
     };

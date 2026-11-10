@@ -6,8 +6,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
 use hk_server_api::{
-    CapabilityKind, capability_create, capability_phys, close_handle, device_map,
-    dma_map_capability, dma_sync, map_attach, pci_read, pci_write, region_unmap,
+    CapabilityKind, capability_create, capability_phys, close_handle, device_map, dma_map,
+    dma_sync, map_attach, pci_read, pci_write, region_unmap,
 };
 use spin::Mutex;
 use virtio_drivers::transport::pci::bus::{ConfigurationAccess, DeviceFunction};
@@ -90,7 +90,7 @@ impl HalImpl {
         let capability = capability_create(CapabilityKind::DeviceAllocation, len)?;
         let (region, virt) = map_attach(capability)?;
         let (phys, length) = capability_phys(capability)?;
-        let mapped = dma_map_capability(grant, capability, len);
+        let mapped = dma_map(grant, capability, len);
         if length != len as u64 || mapped == u64::MAX {
             let _ = region_unmap(region);
             let _ = close_handle(capability);

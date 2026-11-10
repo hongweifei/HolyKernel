@@ -31,9 +31,12 @@ fn next_iova(
 }
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
-    pub(crate) fn dma_map_frame(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+    /// 把 Frame 或类型化能力绑定到 DeviceGrant 的 IOMMU 域。
+    ///
+    /// 两者的物理区间来源不同，但 IOMMU 记账、IOVA 分配与去重逻辑一致。
+    pub(crate) fn dma_map(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let grant_number = frame.arg0() as usize;
-        let frame_number = frame.arg1() as usize;
+        let object_number = frame.arg1() as usize;
         let Some(grant_handle) = self.grant_at(index, grant_number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -42,79 +45,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(frame_handle) = self.handle_at(index, frame_number) else {
+        let Some(object) = self.handle_at(index, object_number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, frame_handle) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        let Some(iommu) = self.platform.iommu() else {
-            frame.set_result(0);
-            return Switch::Continue;
-        };
-        let domain = domain_of(&grant);
-        let translating = iommu.translates_device_addresses();
-        let iova = if translating {
-            let Some(window) = grant.dma else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            let Some(iova) = next_iova(
-                &self.tasks[index].dma_mappings,
-                grant_handle,
-                window,
-                range.len() as usize,
-            ) else {
-                frame.set_result(u64::MAX);
-                return Switch::Continue;
-            };
-            iova
+        let range = if let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, object) {
+            range
+        } else if let Ok((_, Some(range))) = self.kernel.capability(tcb, object) {
+            range
         } else {
-            hk_hal::Iova::new(range.start().get())
-        };
-        if self.tasks[index]
-            .dma_mappings
-            .iter()
-            .any(|(_, mapped_domain, mapped_iova, _)| {
-                *mapped_domain == domain && *mapped_iova == iova
-            })
-        {
-            frame.set_result(if translating { iova.get() } else { 0 });
-            return Switch::Continue;
-        }
-        if iommu
-            .map(
-                domain,
-                iova,
-                range,
-                hk_hal::IommuFlags::READ | hk_hal::IommuFlags::WRITE,
-            )
-            .is_err()
-        {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
-        self.tasks[index]
-            .dma_mappings
-            .push((grant_handle, domain, iova, range.len() as usize));
-        frame.set_result(if translating { iova.get() } else { 0 });
-        Switch::Continue
-    }
-
-    pub(crate) fn dma_map_capability(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let grant_number = frame.arg0() as usize;
-        let capability_number = frame.arg1() as usize;
-        let Some(grant_handle) = self.grant_at(index, grant_number) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        let Ok(grant) = self.kernel.device_grant(tcb, grant_handle) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        let Some((_, _, Some(range))) = self.capability_at(index, capability_number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

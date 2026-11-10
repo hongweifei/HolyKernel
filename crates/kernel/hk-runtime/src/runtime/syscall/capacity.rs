@@ -176,13 +176,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn frame_free(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let frame_number = frame.arg0() as usize;
-        let capacity = frame.arg1() as usize;
-        frame.set_result(self.free_frame_at(index, tcb, capacity, frame_number));
-        Switch::Continue
-    }
-
     pub(crate) fn frame_info(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

@@ -21,8 +21,8 @@ use hk_server_api::device::{DEVICE_CLASS_NVME, DEVICE_GRANT, DEVICE_NONE, DEVICE
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, device_info, device_map, dma_map_frame, exit, irq_bind, recv_handle,
-    self_notification, send, service_endpoint, wait_notify, write,
+    close_handle, device_info, device_map, dma_map, exit, irq_bind, recv_handle, self_notification,
+    send, service_endpoint, wait_notify, write,
 };
 #[cfg(target_os = "none")]
 use nvme_driver::{Config, Nvme, NvmeBlockDriver, NvmeIntxSource};
@@ -128,7 +128,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         endpoint,
         &mut disk,
         |virt, phys, length, frame| {
-            if dma_map_frame(grant, frame, length) != u64::MAX {
+            if dma_map(grant, frame, length) != u64::MAX {
                 register_mapping(virt, phys, length);
             }
         },

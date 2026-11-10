@@ -104,7 +104,7 @@ pub struct ServiceManifest {
 
 ### 3.2 Memory Server
 
-- Root Server 建立顶层 User Capacity（初始只切一个页窗口，分配不足时 `Capacity::grow` 从 System 扩窗），以共享视图授予每个服务；Memory Server 的初始句柄为 `0x5001`。
+- Root Server 建立顶层 User Capacity（初始只切一个页窗口，分配不足时 `Capacity::grow` 从 System 扩窗），以共享视图授予每个服务，并把初始 Capacity 句柄作为服务入口的第二个参数显式传入；Memory Server 不再依赖固定槽位常量。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
 - `MEMORY_FRAME` 从授予的 User Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
 - 缺页请求 `PROVIDER_FAULT` 通过 `SYS_CAPACITY_ALLOC` 分配 Frame，`PROVIDER_PROVIDE` 返回 Frame 句柄；内核取得归属并装入能力页，回收时归还 Capacity。
@@ -116,7 +116,7 @@ pub struct ServiceManifest {
 ## 4. Device Manager
 
 - 枚举 PCI（ECAM）或 DTB 设备。
-- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO，`SYS_CAPABILITY_CREATE` 创建 DeviceAllocation 能力并用 `SYS_DMA_MAP_CAPABILITY` 绑定授权 IOMMU 域，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
+- 为每个设备创建 `DeviceGrant`：MMIO 范围、DMA 窗口、IRQ；virtio 设备的 grant 通过 IPC 移交给独立的 virtio 驱动服务。Device Manager 已生成 BAR/IRQ/capability 描述，通过 `SYS_DEVICE_GRANT_CREATE` 创建内核对象，并用 `SYS_DEVICE_MAP` 映射 MMIO，`SYS_CAPABILITY_CREATE` 创建 DeviceAllocation 能力并用 `SYS_DMA_MAP` 绑定授权 IOMMU 域，`SYS_DMA_SYNC` 维护缓存一致性、`SYS_IRQ_BIND` 绑定通知。
 - 服务镜像通过 `.hk_service` 段声明角色（`hk_image::ServiceRole`），构建期写入 Native Task 记录，启动器据此生成 `ServiceSpec`；Device Manager 通过启动清单授予的设备授权工厂句柄创建 DeviceGrant；DMA 窗口在授权关闭或任务退出时归还，IRQ 路由按引用计数解绑。
 - 按设备类别启动驱动：块、网络、输入、显示。独立 `hk-server-virtio` 驱动服务同时承载小块设备：virtio-blk（容量查询、读、写与 flush）、virtio-rng（启动自检与熵源请求）与 virtio-console（字节流读写与宿主回显自检）；同一服务按 `(授权, BAR)` 缓存 MMIO，并在每次设备操作前切回对应授权。Block Server 保留 RAM disk 后端与块协议。
 - Device Manager 常驻并等待驱动的设备授权申请（`DEVICE_REQUEST`），驱动重启后重新枚举并下发 DeviceGrant。

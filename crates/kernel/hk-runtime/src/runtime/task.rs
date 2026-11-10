@@ -113,6 +113,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         });
         task.leader = index;
         task.capacities.push(Some(capacity_handle));
+        task.context.set_start_capacity(
+            crate::runtime::CAPACITY_HANDLE_BASE as u64 + task.capacities.len() as u64,
+        );
         if reuse {
             self.tasks[index] = task;
             self.processes[index] = Some(process);
@@ -292,7 +295,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         })
     }
 
-    /// 终止任务、释放原 VSpace，并保存序列化镜像。
+    /// 终止任务、释放原地址空间，并保存序列化镜像。
     pub fn commit_checkpoint(
         &mut self,
         name: &str,

@@ -5,10 +5,10 @@ use hk_syscall::{
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
-    SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME,
-    SYS_FRAME_BANK_STATS, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN,
-    SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_LEDGER,
-    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
+    SYS_LEDGER_INFO, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
+    SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
@@ -40,7 +40,7 @@ pub fn capability_create(kind: CapabilityKind, length: usize) -> Option<u64> {
     (handle != u64::MAX).then_some(handle)
 }
 
-/// 把类型化能力的一段映射进当前 VSpace，返回 Region 句柄。
+/// 把类型化能力的一段映射进当前任务 Arena，返回 Region 句柄。
 pub fn region_map(
     capability: u64,
     offset: u64,
@@ -137,16 +137,10 @@ pub fn map_attach(capability: u64) -> Option<(u64, u64)> {
     Some((region, virt))
 }
 
-/// 把类型化能力绑定到 DeviceGrant 的 IOMMU 域。
-pub fn dma_map_capability(grant: u64, capability: u64, length: usize) -> u64 {
-    // SAFETY: 内核校验授权、能力句柄与长度后建立 IOMMU 映射。
-    unsafe { syscall_call(SYS_DMA_MAP_CAPABILITY, grant, capability, length as u64, 0).value }
-}
-
-/// 把 Frame 绑定到 DeviceGrant 的 IOMMU 域。
-pub fn dma_map_frame(grant: u64, frame: u64, length: usize) -> u64 {
-    // SAFETY: 内核校验授权、Frame 句柄与长度后建立 IOMMU 映射。
-    unsafe { syscall_call(SYS_DMA_MAP_FRAME, grant, frame, length as u64, 0).value }
+/// 把 Frame 或类型化能力绑定到 DeviceGrant 的 IOMMU 域。
+pub fn dma_map(grant: u64, object: u64, length: usize) -> u64 {
+    // SAFETY: 内核校验授权、对象句柄与长度后建立 IOMMU 映射。
+    unsafe { syscall_call(SYS_DMA_MAP, grant, object, length as u64, 0).value }
 }
 
 /// 固定或解除固定类型化能力。
@@ -347,12 +341,6 @@ pub fn frame_release(frame: u64) -> Option<u64> {
     // SAFETY: 内核校验 Frame 后释放引用。
     let refs = unsafe { syscall_call(SYS_FRAME_RELEASE, frame, 0, 0, 0).value };
     (refs != u64::MAX).then_some(refs)
-}
-
-/// 把 Frame 归还给 Capacity。
-pub fn frame_free(frame: u64, capacity: u64) -> u64 {
-    // SAFETY: 内核校验 Frame、Capacity 与引用状态。
-    unsafe { syscall_call(SYS_FRAME_FREE, frame, capacity, 0, 0).value }
 }
 
 /// 把 Frame 映射进当前任务，返回 Region 句柄。

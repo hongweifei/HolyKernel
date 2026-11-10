@@ -108,6 +108,9 @@ where
             context,
         });
         task.capacities.push(Some(handle));
+        task.context.set_start_capacity(
+            crate::runtime::CAPACITY_HANDLE_BASE as u64 + task.capacities.len() as u64,
+        );
         tasks.push(task);
         processes.push(Some(process));
     }

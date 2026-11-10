@@ -326,7 +326,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_FRAME_PIN => self.frame_pin(index, tcb, frame),
             SYS_FRAME_SHARE => self.frame_share(index, tcb, frame),
             SYS_FRAME_RELEASE => self.frame_release(index, tcb, frame),
-            SYS_FRAME_FREE => self.frame_free(index, tcb, frame),
             SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
             SYS_FRAME_BANK_STATS => self.frame_bank_stats(frame),
             SYS_LEDGER_ENUM => self.ledger_enum(frame),
@@ -346,8 +345,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_LEDGER_INFO => self.ledger_info(index, frame),
             SYS_OBJECT_LEDGER => self.object_ledger(index, frame),
             SYS_HANDLE_DUPLICATE => self.duplicate_handle(index, tcb, frame),
-            SYS_DMA_MAP_CAPABILITY => self.dma_map_capability(index, tcb, frame),
-            SYS_DMA_MAP_FRAME => self.dma_map_frame(index, tcb, frame),
+            SYS_DMA_MAP => self.dma_map(index, tcb, frame),
             SYS_BOOT_CMDLINE => {
                 let pointer = frame.arg0();
                 let capacity = frame.arg1() as usize;

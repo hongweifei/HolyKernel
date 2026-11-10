@@ -258,6 +258,10 @@ impl hk_hal::UserContext for InterruptFrame {
         self.rdi = argument;
     }
 
+    fn set_start_capacity(&mut self, capacity: u64) {
+        self.rsi = capacity;
+    }
+
     fn for_thread(entry: u64, stack_top: u64, argument: u64) -> Self {
         user_frame(entry, stack_top, argument)
     }
