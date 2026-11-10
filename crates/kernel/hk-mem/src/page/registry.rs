@@ -47,6 +47,29 @@ pub trait UserVspace: Sized {
 /// 任务槽位到用户地址空间的映射。
 pub struct VspaceRegistry<T> {
     tables: Mutex<Vec<Option<T>>>,
+    /// 每个页表根的持有者数量；共享地址空间的线程共享同一份页表。
+    roots: Mutex<Vec<(u64, u32)>>,
+}
+
+fn acquire_root(roots: &mut Vec<(u64, u32)>, root: u64) {
+    if let Some(entry) = roots.iter_mut().find(|entry| entry.0 == root) {
+        entry.1 = entry.1.saturating_add(1);
+    } else {
+        roots.push((root, 1));
+    }
+}
+
+fn release_root(roots: &mut Vec<(u64, u32)>, root: u64) -> u32 {
+    let Some(index) = roots.iter().position(|entry| entry.0 == root) else {
+        return 0;
+    };
+    let remaining = roots[index].1.saturating_sub(1);
+    if remaining == 0 {
+        roots.remove(index);
+    } else {
+        roots[index].1 = remaining;
+    }
+    remaining
 }
 
 impl<T> VspaceRegistry<T> {
@@ -54,6 +77,7 @@ impl<T> VspaceRegistry<T> {
     pub const fn new() -> Self {
         Self {
             tables: Mutex::new(Vec::new()),
+            roots: Mutex::new(Vec::new()),
         }
     }
 }
@@ -61,11 +85,22 @@ impl<T> VspaceRegistry<T> {
 impl<T: UserVspace> VspaceRegistry<T> {
     /// 登记任务槽位的地址空间。
     pub fn install(&self, slot: usize, table: T) {
+        let root = table.root();
         let mut tables = self.tables.lock();
+        let old_root = tables
+            .get(slot)
+            .and_then(Option::as_ref)
+            .map(UserVspace::root);
         if tables.len() <= slot {
             tables.resize_with(slot + 1, || None);
         }
         tables[slot] = Some(table);
+        drop(tables);
+        let mut roots = self.roots.lock();
+        if let Some(old_root) = old_root {
+            release_root(&mut roots, old_root);
+        }
+        acquire_root(&mut roots, root);
     }
 
     /// 切换到任务槽位的地址空间。
@@ -76,10 +111,14 @@ impl<T: UserVspace> VspaceRegistry<T> {
         }
     }
 
-    /// 取走任务槽位的地址空间。
+    /// 取走任务槽位的地址空间；只有最后一个根持有者才返回地址空间本身。
     pub fn take(&self, slot: usize) -> Option<T> {
         let mut tables = self.tables.lock();
-        tables.get_mut(slot)?.take()
+        let table = tables.get_mut(slot)?.take()?;
+        let root = table.root();
+        drop(tables);
+        let mut roots = self.roots.lock();
+        (release_root(&mut roots, root) == 0).then_some(table)
     }
 
     /// 借用任务槽位的地址空间。
@@ -147,7 +186,18 @@ impl<T: UserVspace> VspaceRegistry<T> {
         if tables.len() <= child {
             tables.resize_with(child + 1, || None);
         }
+        let root = shared.root();
+        let old_root = tables
+            .get(child)
+            .and_then(Option::as_ref)
+            .map(UserVspace::root);
         tables[child] = Some(shared);
+        drop(tables);
+        let mut roots = self.roots.lock();
+        if let Some(old_root) = old_root {
+            release_root(&mut roots, old_root);
+        }
+        acquire_root(&mut roots, root);
         true
     }
 
@@ -167,7 +217,18 @@ impl<T: UserVspace> VspaceRegistry<T> {
         if tables.len() <= child {
             tables.resize_with(child + 1, || None);
         }
+        let root = child_table.root();
+        let old_root = tables
+            .get(child)
+            .and_then(Option::as_ref)
+            .map(UserVspace::root);
         tables[child] = Some(child_table);
+        drop(tables);
+        let mut roots = self.roots.lock();
+        if let Some(old_root) = old_root {
+            release_root(&mut roots, old_root);
+        }
+        acquire_root(&mut roots, root);
         true
     }
 }
@@ -194,6 +255,19 @@ mod tests {
         fn fork_user(&self) -> Option<Self> {
             Some(Self(self.0 + 1))
         }
+
+        fn share_user(&self) -> Option<Self> {
+            Some(Self(self.0))
+        }
+    }
+
+    #[test]
+    fn shared_root_is_released_only_by_last_holder() {
+        let registry = VspaceRegistry::new();
+        registry.install(0, MockTable(0x1000));
+        assert!(registry.share(0, 1));
+        assert!(registry.take(1).is_none(), "共享根不能提前释放");
+        assert!(registry.take(0).is_some(), "最后一个持有者释放根");
     }
 
     #[test]

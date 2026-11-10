@@ -389,6 +389,9 @@ impl UserPlatform for X86Platform {
                 table.write_phys(frame, &page.data);
             }
             let flags = paging::restore_flags(page.flags);
+            if !paging::mapping_acquire(frame) {
+                return false;
+            }
             if table
                 .map_with(
                     hk_hal::VirtAddr::new(page.virt),
@@ -398,6 +401,7 @@ impl UserPlatform for X86Platform {
                 )
                 .is_err()
             {
+                paging::mapping_release(frame);
                 return false;
             }
         }

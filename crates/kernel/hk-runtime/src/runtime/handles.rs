@@ -454,6 +454,39 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    /// 在任务退出时拆除该进程的全部 Region 与 Arena 覆盖 Region。
+    pub(crate) fn teardown_process(&mut self, index: usize) {
+        let slots: Vec<usize> = (0..self.process(index).regions.len()).collect();
+        for slot in slots {
+            if self
+                .process(index)
+                .regions
+                .get(slot)
+                .is_some_and(|region| region.is_some())
+            {
+                self.teardown_region(index, slot, true);
+            }
+        }
+        self.teardown_arena_region(index);
+    }
+
+    /// 拆除任务 Arena 的内部惰性 Region 与 capability。
+    fn teardown_arena_region(&mut self, index: usize) {
+        let Some(region) = self.process_mut(index).arena_region.take() else {
+            return;
+        };
+        let page = hk_hal::PAGE_SIZE as u64;
+        let mut offset = 0;
+        while offset < region.len as u64 {
+            let _ = self
+                .platform
+                .unmap_user(index, region.virt + offset, page as usize);
+            offset += page;
+        }
+        let _ = self.kernel.close_handle(region.owner, region.handle);
+        let _ = self.kernel.close_handle(region.owner, region.capability);
+    }
+
     /// 解除 Region 的映射并关闭它持有的内部句柄。
     ///
     /// `close_capability` 为 true 时同时关闭 `SYS_FRAME_MAP` 内部创建的

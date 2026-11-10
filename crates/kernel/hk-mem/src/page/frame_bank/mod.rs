@@ -737,6 +737,15 @@ impl FrameBank {
         self.inner.lock().total
     }
 
+    /// 返回一段物理页的分配用途；未登记时返回 `None`。
+    pub fn kind_of(&self, phys: hk_hal::PhysAddr) -> Option<FrameKind> {
+        self.inner
+            .lock()
+            .allocations
+            .get(&phys.get())
+            .map(|allocation| allocation.kind)
+    }
+
     /// 返回已分配字节数。
     pub fn used(&self) -> u64 {
         self.inner.lock().ledger.charged()

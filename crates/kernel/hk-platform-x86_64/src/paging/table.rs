@@ -454,6 +454,24 @@ impl PageTable {
         })
     }
 
+    /// 返回 `address` 当前映射的物理页；未映射或大页时返回 `None`。
+    pub(crate) fn mapped_phys(&self, address: u64) -> Option<PhysAddr> {
+        let mut table = self.root;
+        for level in [39_u32, 30, 21] {
+            let index = ((address >> level) & 0x1FF) as usize;
+            // SAFETY: 页表项经 HHDM 映射，索引在 0..512 范围内。
+            let value = unsafe { self.entry(table, index).read_volatile() };
+            if value & PRESENT == 0 || value & HUGE != 0 {
+                return None;
+            }
+            table = PhysAddr::new(value & ADDRESS_MASK);
+        }
+        let index = ((address >> 12) & 0x1FF) as usize;
+        // SAFETY: 末级页表项经 HHDM 映射，索引在 0..512 范围内。
+        let value = unsafe { self.entry(table, index).read_volatile() };
+        (value & PRESENT != 0).then_some(PhysAddr::new(value & ADDRESS_MASK))
+    }
+
     /// 建立映射，并用调用方提供的分配器分配中间页表。
     pub fn map_with<F>(
         &self,
@@ -671,6 +689,34 @@ impl PageTable {
             }
             let index = ((address >> 12) & 0x1FF) as usize;
             let entry = self.entry(table, index);
+            // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
+            let value = unsafe { entry.read_volatile() };
+            if value & PRESENT != 0 {
+                let physical = PhysAddr::new(value & ADDRESS_MASK);
+                if super::mapping_count(physical) > 0 {
+                    {
+                        let mut refs = super::frame_refs().lock();
+                        if refs.count(physical) > 0 {
+                            let _ = refs.release(physical);
+                        }
+                    }
+                    if super::mapping_release(physical) == 0
+                        && let Some(kind) = super::FRAME_BANK.kind_of(physical)
+                    {
+                        match kind {
+                            hk_mem::FrameKind::Image
+                            | hk_mem::FrameKind::Cow
+                            | hk_mem::FrameKind::Restore => {
+                                super::FRAME_BANK.free_for(
+                                    kind,
+                                    hk_hal::PhysRange::new(physical, PAGE_SIZE as u64),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
             // SAFETY: 末级页表项位于 HHDM 映射的物理内存。
             unsafe { entry.write_volatile(0) };
             self.flush(address);

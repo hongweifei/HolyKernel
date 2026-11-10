@@ -192,6 +192,34 @@ fn pinned_release_is_refused_without_losing_frame() {
 }
 
 #[test]
+fn dropping_pinned_frame_handle_returns_it_to_capacity() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(13),
+        PhysRange::new(PhysAddr::new(0x60_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+    kernel.pin_frame(worker, frame, true).expect("pin");
+    kernel.close_handle(worker, frame).expect("关闭 Frame");
+    assert_eq!(
+        kernel.capacity_info(worker, capacity).expect("Capacity").4,
+        0,
+        "最后一个 pinned 句柄销毁后必须归还物理页"
+    );
+}
+
+#[test]
 fn closing_last_frame_handle_returns_it_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);

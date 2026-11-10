@@ -96,6 +96,10 @@ struct MockPlatform {
     system: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
     /// 每槽位捕获的用户页，供检查点恢复测试。
     pages: Arc<spin::Mutex<alloc::collections::BTreeMap<usize, Vec<hk_checkpoint::Page>>>>,
+    /// 解除映射调用次数。
+    unmapped: Arc<AtomicUsize>,
+    /// 释放地址空间调用次数。
+    released: Arc<AtomicUsize>,
 }
 
 impl MockPlatform {
@@ -116,6 +120,8 @@ impl MockPlatform {
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
             system: Arc::new(spin::Mutex::new(system)),
             pages: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
+            unmapped: Arc::new(AtomicUsize::new(0)),
+            released: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -180,6 +186,8 @@ impl UserPlatform for MockPlatform {
     }
 
     fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
+        self.unmapped
+            .fetch_add(1, core::sync::atomic::Ordering::AcqRel);
         self.unmap_ok
     }
 
@@ -243,6 +251,8 @@ impl UserPlatform for MockPlatform {
     }
 
     fn release_pages(&self, slot: usize) {
+        self.released
+            .fetch_add(1, core::sync::atomic::Ordering::AcqRel);
         self.pages.lock().remove(&slot);
     }
 }
@@ -309,8 +319,7 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
         .kernel
         .set_policy_authority(task, true)
         .expect("策略权限");
-    let rights =
-        hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN;
+    let rights = hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN;
     let cadence = runtime
         .kernel
         .grant_cadence(tcb, task, rights)
@@ -324,10 +333,7 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
         .expect("更新契约");
     runtime.kernel.charge(tcb, 1_234);
 
-    let before = runtime
-        .kernel
-        .task_cadence_snapshot(tcb)
-        .expect("契约快照");
+    let before = runtime.kernel.task_cadence_snapshot(tcb).expect("契约快照");
     let before_meter = runtime.kernel.task_meter_snapshot(tcb).expect("计量快照");
 
     let slot = runtime
@@ -345,10 +351,7 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
         .find(|task| task.name == "a" && task.state != "exited")
         .expect("恢复后的任务");
     let tcb = hk_kernel::TcbId::new(info.tcb);
-    let after = runtime
-        .kernel
-        .task_cadence_snapshot(tcb)
-        .expect("契约快照");
+    let after = runtime.kernel.task_cadence_snapshot(tcb).expect("契约快照");
     let after_meter = runtime.kernel.task_meter_snapshot(tcb).expect("计量快照");
 
     assert_eq!(after.class, before.class);
@@ -1585,6 +1588,37 @@ fn region_protect_updates_lazy_pages() {
         "惰性 Region 的已装入页也必须更新 PTE"
     );
     let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn exit_tears_down_regions_and_releases_vspace() {
+    let platform = MockPlatform::new();
+    let unmapped = Arc::clone(&platform.unmapped);
+    let released = Arc::clone(&platform.released);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
+    assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+
+    context.rax = SYS_EXIT;
+    context.rdi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
+    assert!(runtime.finish(0, index).is_some());
+    assert_eq!(
+        runtime.process(index).regions.iter().flatten().count(),
+        0,
+        "退出时必须拆除 Region"
+    );
+    assert!(
+        unmapped.load(core::sync::atomic::Ordering::Acquire) > 0,
+        "退出时必须解除用户映射"
+    );
+    assert!(
+        released.load(core::sync::atomic::Ordering::Acquire) > 0,
+        "退出时必须释放地址空间"
+    );
 }
 
 #[test]

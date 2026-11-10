@@ -7,7 +7,7 @@ use hk_mem::page::PagePool;
 use hk_paging::FrameRefs;
 
 use super::FRAME_BANK;
-use super::flags::{HUGE, PRESENT, WRITABLE};
+use super::flags::{HUGE, PCD, PRESENT, PWT, WRITABLE};
 use super::table::{ADDRESS_MASK, ENTRIES, KERNEL_PML4_START, PageTable};
 
 fn take_cow_page() -> Option<PhysAddr> {
@@ -100,7 +100,11 @@ impl PageTable {
                 let frame = PhysAddr::new(physical);
                 let tracked = refs.count(frame);
                 let writable = flags & WRITABLE != 0;
-                if writable || tracked > 0 {
+                let mmio = flags & (PWT | PCD) != 0;
+                if !mmio && !super::mapping_acquire(frame) {
+                    return None;
+                }
+                if !mmio && (writable || tracked > 0) {
                     // 可写页在 fork 时新增父、子两个共享者；已经共享的只读页
                     // 只新增当前子地址空间这一份引用。
                     if !refs.acquire(frame) {
@@ -138,7 +142,7 @@ impl PageTable {
 
     /// 判断物理帧是否与其他地址空间共享。
     pub fn is_shared_frame(&self, phys: PhysAddr) -> bool {
-        super::frame_refs().lock().count(phys) > 0
+        super::mapping_count(phys) > 1
     }
 
     /// 处理写时复制页错误：复制页帧并恢复可写映射。
@@ -186,6 +190,9 @@ impl PageTable {
         let Some(frame) = take_cow_page() else {
             return false;
         };
+        if !super::mapping_acquire(frame) {
+            return false;
+        }
         let source = (self.direct_map + physical.get()) as *const u8;
         let target = (self.direct_map + frame.get()) as *mut u8;
         // SAFETY: 源页帧与目标页帧均经 HHDM 映射，长度为整页。
@@ -193,6 +200,7 @@ impl PageTable {
             core::ptr::copy_nonoverlapping(source, target, PAGE_SIZE);
         }
 
+        super::mapping_release(physical);
         refs.release(physical);
         let updated = frame.get() | flags | WRITABLE;
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。

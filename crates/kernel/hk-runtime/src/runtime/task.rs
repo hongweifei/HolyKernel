@@ -801,6 +801,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let tcb = self.tasks[index].tcb;
         self.release_grants(index);
+        if self.tasks[index].leader == index {
+            self.teardown_process(index);
+        }
         let _ = self.kernel.exit(tcb);
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
@@ -810,6 +813,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.tasks[index].leader == index {
             self.exit_threads(index);
         }
+        self.platform.release_pages(index);
         true
     }
 
@@ -824,6 +828,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let tcb = self.tasks[index].tcb;
         self.release_grants(index);
+        if self.tasks[index].leader == index {
+            self.teardown_process(index);
+        }
         let _ = self.kernel.exit(tcb);
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
@@ -834,6 +841,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.tasks[index].leader == index {
             self.exit_threads(index);
         }
+        self.platform.release_pages(index);
         true
     }
 

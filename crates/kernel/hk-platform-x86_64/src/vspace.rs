@@ -59,6 +59,7 @@ impl UserVspace for UserSpace {
             len,
             crate::paging::PageFlags::user(rights, flags),
             flags.contains(RegionFlags::COW),
+            true,
         )
     }
 
@@ -69,6 +70,7 @@ impl UserVspace for UserSpace {
             phys,
             len,
             crate::paging::PageFlags::USER_MMIO,
+            false,
             false,
         )
     }
@@ -86,6 +88,7 @@ impl PageTable {
         len: usize,
         flags: crate::paging::PageFlags,
         cow: bool,
+        track: bool,
     ) -> bool {
         if len == 0
             || !virt.is_multiple_of(hk_hal::PAGE_SIZE as u64)
@@ -93,11 +96,42 @@ impl PageTable {
         {
             return false;
         }
+        let page = hk_hal::PAGE_SIZE as u64;
         let mut offset = 0;
         while offset < len {
             let virt = virt + offset as u64;
             let phys = phys + offset as u64;
             let remaining = len - offset;
+            if track {
+                let physical = hk_hal::PhysAddr::new(phys);
+                let existing = self.mapped_phys(virt);
+                if existing == Some(physical) {
+                    // 权限/标志变更，只重写 PTE，不重复计入映射。
+                    if self
+                        .map_mmio(hk_hal::VirtAddr::new(virt), physical, flags)
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    offset += page as usize;
+                    continue;
+                }
+                if !crate::paging::mapping_acquire(physical) {
+                    return false;
+                }
+                if self
+                    .map_mmio(hk_hal::VirtAddr::new(virt), physical, flags)
+                    .is_err()
+                {
+                    crate::paging::mapping_release(physical);
+                    return false;
+                }
+                if let Some(old) = existing {
+                    crate::paging::mapping_release(old);
+                }
+                offset += page as usize;
+                continue;
+            }
             let size = if !cow {
                 if remaining >= (1 << 30)
                     && virt.is_multiple_of(1 << 30)
@@ -111,12 +145,12 @@ impl PageTable {
                 {
                     1 << 21
                 } else {
-                    hk_hal::PAGE_SIZE as u64
+                    page
                 }
             } else {
-                hk_hal::PAGE_SIZE as u64
+                page
             };
-            if size > hk_hal::PAGE_SIZE as u64
+            if size > page
                 && self
                     .map_huge(
                         hk_hal::VirtAddr::new(virt),
@@ -140,7 +174,7 @@ impl PageTable {
             {
                 return false;
             }
-            offset += hk_hal::PAGE_SIZE;
+            offset += page as usize;
         }
         true
     }

@@ -30,6 +30,9 @@ pub static FRAME_BANK: PageAllocator = PageAllocator::empty();
 /// 用户帧的 COW 共享引用。
 static FRAME_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
 
+/// 物理页在用户地址空间中的映射数。
+static MAPPING_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
+
 /// 把全局帧银行注册为 HMP 的唯一物理后端。
 ///
 /// 之后所有 Capacity 分配都从这里取页并按 `CapacityId` 归因，物理内存不再
@@ -65,9 +68,24 @@ pub fn scrub_phys(phys: PhysAddr, len: usize) {
     }
 }
 
+/// 增加一页的用户映射引用；达到追踪上限时返回 `false`。
+pub fn mapping_acquire(phys: PhysAddr) -> bool {
+    MAPPING_REFS.lock().acquire(phys)
+}
+
+/// 释放一页的用户映射引用，返回剩余映射数。
+pub fn mapping_release(phys: PhysAddr) -> u32 {
+    MAPPING_REFS.lock().release(phys)
+}
+
+/// 返回一页当前的用户映射数。
+pub fn mapping_count(phys: PhysAddr) -> u32 {
+    MAPPING_REFS.lock().count(phys)
+}
+
 /// 判断物理页是否仍被多个地址空间共享。
 pub fn is_shared_frame(phys: PhysAddr) -> bool {
-    frame_refs().lock().count(phys) > 0
+    mapping_count(phys) > 1
 }
 
 /// 判断物理页是否全为零。
@@ -116,12 +134,39 @@ pub fn resolve_cow(address: u64) -> bool {
     table.resolve_cow(address)
 }
 
-/// 释放地址空间：共享帧只递减引用，最后一个引用持有者归还物理帧。
+/// 释放地址空间：先按 PTE 释放映射与 COW 引用，再回收最后一个映射者。
 pub fn release_user(table: &PageTable) {
-    let mut refs = FRAME_REFS.lock();
+    let mut tracked = alloc::vec::Vec::new();
+    table.user_pages(|_, _, physical| {
+        let physical = PhysAddr::new(physical);
+        if mapping_count(physical) == 0 {
+            // MMU/设备映射没有走用户映射计数，不能按 HMP 页回收。
+            return;
+        }
+        tracked.push(physical);
+        {
+            let mut refs = FRAME_REFS.lock();
+            if refs.count(physical) > 0 {
+                let _ = refs.release(physical);
+            }
+        }
+        mapping_release(physical);
+    });
     for frame in table.user_frames() {
-        if refs.release(frame) == 0 {
-            FRAME_BANK.free_for(FrameKind::Cow, PhysRange::new(frame, PAGE_SIZE as u64));
+        let Some(kind) = FRAME_BANK.kind_of(frame) else {
+            continue;
+        };
+        match kind {
+            FrameKind::PageTable => {
+                FRAME_BANK.free_for(kind, PhysRange::new(frame, PAGE_SIZE as u64));
+            }
+            FrameKind::Image | FrameKind::Cow | FrameKind::Restore
+                if tracked.contains(&frame) && mapping_count(frame) == 0 =>
+            {
+                FRAME_BANK.free_for(kind, PhysRange::new(frame, PAGE_SIZE as u64));
+            }
+            // 类型化能力/匿名页由 OwnedFrame 归还；共享时由其他持有者保留。
+            _ => {}
         }
     }
 }
@@ -147,4 +192,22 @@ pub fn is_user_mapped(address: u64) -> bool {
 pub(crate) fn read_cr3() -> PhysAddr {
     let root = Cr3::read_raw().0.start_address().as_u64();
     PhysAddr::new(root & table::ADDRESS_MASK)
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn mapping_refs_count_aliases_and_sharing() {
+        let frame = PhysAddr::new(0x1234_5000);
+        assert_eq!(mapping_count(frame), 0);
+        assert!(mapping_acquire(frame));
+        assert!(!is_shared_frame(frame));
+        assert!(mapping_acquire(frame));
+        assert!(is_shared_frame(frame));
+        assert_eq!(mapping_release(frame), 1);
+        assert!(!is_shared_frame(frame));
+        assert_eq!(mapping_release(frame), 0);
+    }
 }

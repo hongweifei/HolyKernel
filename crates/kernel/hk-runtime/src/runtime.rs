@@ -530,6 +530,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks[index].exit_code = 0;
             self.tasks[index].pending = Pending::None;
             self.wake_joiners(tcb);
+            self.platform.release_pages(index);
         }
     }
 }

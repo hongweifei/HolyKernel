@@ -117,6 +117,14 @@ impl Frame {
     pub fn unpin(&mut self) {
         self.pinned = false;
     }
+
+    /// 对象最后一次销毁时把残余共享引用视为唯一引用。
+    ///
+    /// 只有该 Frame 的最后一个 Handle 被销毁时才会调用；此时仍大于 1 的计数
+    /// 是未归还的显式 share，不能阻止物理页归还。
+    pub fn clear_refs(&mut self) {
+        self.refs = 1;
+    }
 }
 
 #[cfg(test)]

@@ -460,6 +460,9 @@ impl UserMemory for UserPages<'_> {
                 self.allocator,
             )
             .ok()?;
+        if !hk_platform_x86_64::paging::mapping_acquire(frame) {
+            return None;
+        }
 
         // SAFETY: 帧经 HHDM 映射为整页可写；映射建立后返回该页视图。
         Some(unsafe { core::slice::from_raw_parts_mut(destination, PAGE_SIZE) })
