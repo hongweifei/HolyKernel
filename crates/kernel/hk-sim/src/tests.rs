@@ -649,6 +649,104 @@ fn replays_randomized_workload_deterministically() {
 }
 
 #[test]
+fn accepts_two_to_one_share_within_two_percent() {
+    let kernel = Kernel::new();
+    let heavy = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Throughput, 2048),
+        )
+        .expect("高权重任务");
+    let light = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Throughput, 1024),
+        )
+        .expect("低权重任务");
+
+    const QUANTUM: u64 = 1_000;
+    const WINDOW: u64 = 1_000_000;
+    let consumed = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+    let mut simulator = Simulator::new(kernel, 77)
+        .with_quantum(QUANTUM)
+        .with_step_limit(10_000);
+    for (thread, slot) in [(heavy, 0), (light, 1)] {
+        let consumed = consumed.clone();
+        simulator.register(
+            thread,
+            Box::new(move |kernel, tid| {
+                if let Some(meter) = kernel.task_meter_snapshot(tid) {
+                    consumed[slot].store(meter.consumed, Ordering::Relaxed);
+                }
+                if kernel.now() >= WINDOW {
+                    ThreadStep::Exit
+                } else {
+                    ThreadStep::Continue
+                }
+            }),
+        );
+    }
+
+    let report = simulator.run().expect("份额验收回放完成");
+    assert_eq!(report.exits, 2);
+    let heavy_consumed = consumed[0].load(Ordering::Relaxed);
+    let light_consumed = consumed[1].load(Ordering::Relaxed);
+    assert!(heavy_consumed > 0 && light_consumed > 0);
+    // 1 秒窗口内 2:1 份额，误差 ≤ 2%。
+    assert!(
+        heavy_consumed * 100 >= light_consumed * 196
+            && heavy_consumed * 100 <= light_consumed * 204,
+        "2:1 份额误差超过 2%：{heavy_consumed}:{light_consumed}"
+    );
+}
+
+#[test]
+fn accepts_migration_on_four_cpus() {
+    let kernel = Kernel::new();
+    let mut threads = Vec::new();
+    for _ in 0..8 {
+        threads.push(
+            kernel
+                .spawn_task(
+                    HandleTable::with_default_quota(),
+                    CadenceSpec::new(CadenceClass::Throughput, 1024),
+                )
+                .expect("任务"),
+        );
+    }
+
+    let migrations = Arc::new(AtomicU64::new(0));
+    let mut simulator = Simulator::new(kernel, 99)
+        .with_cpus(4)
+        .with_quantum(50)
+        .with_step_limit(5_000);
+    for thread in threads {
+        let runs = Arc::new(AtomicU64::new(0));
+        let observed = migrations.clone();
+        simulator.register(
+            thread,
+            Box::new(move |kernel, tid| {
+                if let Some(meter) = kernel.task_meter_snapshot(tid) {
+                    observed.fetch_max(meter.migrations, Ordering::Relaxed);
+                }
+                if runs.fetch_add(1, Ordering::Relaxed) >= 4 {
+                    ThreadStep::Exit
+                } else {
+                    ThreadStep::Continue
+                }
+            }),
+        );
+    }
+
+    let report = simulator.run().expect("四核迁移回放完成");
+    assert_eq!(report.exits, 8);
+    assert!(
+        migrations.load(Ordering::Relaxed) > 0,
+        "四核回放应发生跨核迁移"
+    );
+}
+
+#[test]
 fn reports_kernel_state_after_run() {
     let kernel = Kernel::new();
     let worker = kernel

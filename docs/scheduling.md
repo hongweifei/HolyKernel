@@ -304,7 +304,7 @@ Meter 字段：
 
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
-| `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；只依赖 `hk-base` |
+| `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；提供 POSIX `nice` ↔ 权重映射基元；只依赖 `hk-base` |
 | `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；Endpoint 等待队列按类别与虚拟键排序、同键 FIFO；父 Task 退出时子契约提升为独立契约 |
 | `hk-runtime` | 已实现 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 需求界准入与 checkpoint→Tempo 重准入；引导期 Realtime 契约由 Root/服务清单直接授予，动态契约由 Tempo 准入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
@@ -347,4 +347,18 @@ Meter 字段：
 
 release 路径已进入 100 µs 目标；debug 仍有 QEMU 调度抖动与离群值（平均可达 352 µs、最大 2.4 ms）。空闲路径在 `stop_tick` 后重新编程一次性 deadline，AP idle 也会在一次性定时器到期时返回调度循环；探针在平均超过 2 ms 时失败。
 
-Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 的硬保证与 Tempo 准入在 M11 验收。Latency、Throughput 与 Idle 构成 1.0 的调度基线。
+### 自动化验收（Hosted / hk-sim，确定性回放）
+
+| 验收项 | 断言 | 落点 |
+| --- | --- | --- |
+| 同类 2:1 份额 | 1 秒虚拟窗口内误差 ≤ 2% | `hk-sim` `accepts_two_to_one_share_within_two_percent` |
+| 唤醒响应 | 挂起被唤醒到运行 ≤ 1 个量子 | `hk-sim` `replays_bounded_wakeup_response` |
+| 四核迁移 | 8 个任务全部退出且发生跨核迁移 | `hk-sim` `accepts_migration_on_four_cpus` |
+| 预算节流与补充 | `Throttled → Eligible` 可见 | `hk-sim` `replays_periodic_refill_after_throttle` |
+| Lending 回放 | 有效契约、双记账、超时恢复确定 | `hk-sim` `replays_lending_deterministically` |
+| checkpoint 恢复 | 恢复后 Cadence/Meter 水位一致 | `hk-runtime` `checkpoint_restore_preserves_cadence_and_meter` |
+| 随机压力回放 | 同种子调度序列一致 | `hk-sim` `replays_randomized_workload_deterministically` |
+
+仍需真实平台验证的项：debug/release 唤醒延迟上限、四核 QEMU 的 NUMA/缓存行为、真实页表下的 checkpoint 恢复、Realtime 截止期保障的 QEMU 测量。POSIX `nice` → Cadence 权重映射基元已在 `hk-cadence` 提供（`nice_to_weight`/`weight_to_nice`），`sched_*` 的 syscall 绑定待 POSIX Server（M10）落地。
+
+Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 语义与 Tempo DBF 准入已实现，硬保证的 QEMU 测量在 M11 验收。Latency、Throughput 与 Idle 构成 1.0 的调度基线。

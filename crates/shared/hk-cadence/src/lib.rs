@@ -16,6 +16,7 @@ mod error;
 mod lending;
 mod meter;
 mod pool;
+mod posix;
 mod snapshot;
 mod time;
 mod weight;
@@ -30,6 +31,7 @@ pub use error::CadenceError;
 pub use lending::{DEFAULT_LENDING_DEPTH, Lending, MAX_LENDING_DEPTH};
 pub use meter::{Meter, NO_CPU};
 pub use pool::{BudgetLease, BudgetPool, BudgetPoolId};
+pub use posix::{NICE_MAX, NICE_MIN, nice_to_weight, weight_to_nice};
 pub use snapshot::{CadenceSnapshot, MeterSnapshot};
 pub use time::{TIME_BASE_HZ, from_platform, micros, millis, to_platform};
 pub use weight::{
