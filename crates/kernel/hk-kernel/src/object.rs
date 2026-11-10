@@ -8,7 +8,9 @@ use hk_device::DeviceGrant;
 use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::hmp::{Arena, Capability, Capacity, Frame, FrameBacking, Ledger, OwnedFrame, Region};
+use hk_mem::hmp::{
+    Arena, Capability, Capacity, Frame, FrameBacking, Ledger, LedgerSnapshot, OwnedFrame, Region,
+};
 use spin::Mutex;
 
 use crate::task::Task;
@@ -379,6 +381,30 @@ impl KernelObject {
     pub fn ledger(&self) -> Option<&Mutex<Ledger>> {
         match &self.payload {
             ObjectPayload::Ledger(ledger) => Some(ledger),
+            _ => None,
+        }
+    }
+
+    /// 返回对象关联 Ledger 的只读快照。
+    pub fn ledger_snapshot(&self) -> Option<LedgerSnapshot> {
+        match &self.payload {
+            ObjectPayload::Arena(arena) => Some(arena.lock().ledger_snapshot()),
+            ObjectPayload::Region(region) => Some(region.lock().ledger_snapshot()),
+            ObjectPayload::Capability { ledger, .. } | ObjectPayload::Frame { ledger, .. } => {
+                Some(ledger.lock().snapshot())
+            }
+            ObjectPayload::Ledger(ledger) => Some(ledger.lock().snapshot()),
+            ObjectPayload::Capacity(capacity) => {
+                let capacity = capacity.lock();
+                Some(LedgerSnapshot {
+                    charged: capacity.used(),
+                    limit: capacity.limit(),
+                    peak: capacity.peak(),
+                    pressure: capacity.pressure(),
+                    resident: 0,
+                    soft_limit: capacity.soft_limit(),
+                })
+            }
             _ => None,
         }
     }

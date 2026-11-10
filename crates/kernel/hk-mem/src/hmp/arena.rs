@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_hal::{PAGE_SIZE, VirtAddr};
 
-use super::{Charge, HmpError, Ledger, Region, RegionId};
+use super::{Charge, HmpError, Ledger, LedgerSnapshot, Region, RegionId};
 
 static NEXT_ARENA_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -217,6 +217,11 @@ impl Arena {
     /// 返回 Arena Ledger 的已记账字节数。
     pub fn used(&self) -> u64 {
         self.ledger.charged()
+    }
+
+    /// 返回 Arena Ledger 的只读快照。
+    pub fn ledger_snapshot(&self) -> LedgerSnapshot {
+        self.ledger.snapshot()
     }
 
     /// 判断地址区间是否落在 Arena 内。

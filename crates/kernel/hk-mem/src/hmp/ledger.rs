@@ -22,6 +22,23 @@ impl LedgerId {
     }
 }
 
+/// Ledger 只读快照。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LedgerSnapshot {
+    /// 当前已记账字节数。
+    pub charged: u64,
+    /// 硬上限。
+    pub limit: u64,
+    /// 峰值。
+    pub peak: u64,
+    /// 压力百分比。
+    pub pressure: u64,
+    /// 常驻字节数。
+    pub resident: u64,
+    /// 软上限。
+    pub soft_limit: u64,
+}
+
 /// 一次记账。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Charge {
@@ -158,6 +175,18 @@ impl Ledger {
             return 100;
         }
         self.charged.saturating_mul(100) / self.limit
+    }
+
+    /// 返回只读快照。
+    pub const fn snapshot(&self) -> LedgerSnapshot {
+        LedgerSnapshot {
+            charged: self.charged,
+            limit: self.limit,
+            peak: self.peak,
+            pressure: self.pressure(),
+            resident: self.resident,
+            soft_limit: self.soft_limit,
+        }
     }
 }
 

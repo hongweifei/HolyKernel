@@ -288,6 +288,72 @@ fn reports_capability_resident_bytes() {
 }
 
 #[test]
+fn object_ledger_reads_arena_capability_and_frame() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+
+    let arena = Arena::new(ArenaId::new(1), VirtAddr::new(0x40_0000), 0x4000).expect("Arena");
+    let arena_handle = kernel
+        .create_arena(worker, arena, rights)
+        .expect("Arena 句柄");
+    assert_eq!(
+        kernel
+            .object_ledger(worker, arena_handle)
+            .expect("Arena Ledger")
+            .charged,
+        0
+    );
+
+    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
+        .expect("能力");
+    let capability_handle = kernel
+        .create_capability(worker, capability, None, rights)
+        .expect("能力句柄");
+    assert_eq!(
+        kernel
+            .object_ledger(worker, capability_handle)
+            .expect("能力 Ledger")
+            .charged,
+        0
+    );
+    let page = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x70_0000), PAGE_SIZE));
+    assert_eq!(
+        kernel.set_capability_page(worker, capability_handle, 0, page),
+        Ok(true)
+    );
+    assert_eq!(
+        kernel
+            .object_ledger(worker, capability_handle)
+            .expect("能力 Ledger")
+            .charged,
+        PAGE_SIZE as u64
+    );
+
+    let capacity = Capacity::new(
+        CapacityId::new(2),
+        PhysRange::new(PhysAddr::new(0x30_0000), 0x4000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("Capacity 句柄");
+    let frame_handle = kernel
+        .allocate_frame(worker, capacity_handle, PAGE_SIZE)
+        .expect("Frame 句柄");
+    assert_eq!(
+        kernel
+            .object_ledger(worker, frame_handle)
+            .expect("Frame Ledger")
+            .charged,
+        PAGE_SIZE as u64
+    );
+}
+
+#[test]
 fn capability_ledger_tracks_lazy_pages() {
     let kernel = kernel();
     let worker = thread(&kernel);

@@ -22,7 +22,7 @@ pub use capacity::{Capacity, CapacityId, CapacityKind, set_frame_scrubber};
 pub use error::HmpError;
 pub use frame::{Frame, FrameId};
 pub use lease::{FrameLease, set_frame_lease_releaser};
-pub use ledger::{Charge, Ledger, LedgerId};
+pub use ledger::{Charge, Ledger, LedgerId, LedgerSnapshot};
 pub use owned::{FrameBacking, OwnedFrame};
 pub use provider::{FaultReply, FaultRequest, ProviderId, ProviderKind};
 pub use region::{Region, RegionFlags, RegionId};

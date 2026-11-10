@@ -245,7 +245,7 @@ pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
 /// 创建按需装入的匿名能力。
 pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
-/// 查询任务 Ledger 的用量、配额、峰值与压力。
+/// 查询任务 Ledger；`arg2` 为对象句柄时查询该对象关联的 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
 
 // === HMP 对象查询 0x90-0x9F ===

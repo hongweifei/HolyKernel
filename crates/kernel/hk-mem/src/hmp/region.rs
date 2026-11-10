@@ -6,7 +6,7 @@ use hk_hal::VirtAddr;
 use hk_handle::{ObjectId, Rights};
 
 use super::capability::Mappable;
-use super::{Capability, CapabilityKind, Charge, HmpError, Ledger};
+use super::{Capability, CapabilityKind, Charge, HmpError, Ledger, LedgerSnapshot};
 
 static NEXT_REGION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -281,6 +281,11 @@ impl Region {
     /// 返回虚拟地址。
     pub const fn virt(&self) -> Option<VirtAddr> {
         self.virt
+    }
+
+    /// 返回 Region Ledger 的只读快照。
+    pub fn ledger_snapshot(&self) -> LedgerSnapshot {
+        self.ledger.snapshot()
     }
 }
 

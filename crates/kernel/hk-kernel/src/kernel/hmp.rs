@@ -283,6 +283,23 @@ impl Kernel {
         Ok((capacity.peak(), capacity.soft_limit()))
     }
 
+    /// 返回对象关联 Ledger 的只读快照。
+    pub fn object_ledger(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<hk_mem::hmp::LedgerSnapshot, KernelError> {
+        let Some(kind) = self.handle_kind(thread, handle) else {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Ledger,
+            });
+        };
+        let (object, _) = self.resolve(thread, handle, Rights::READ, kind)?;
+        object.ledger_snapshot().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Ledger,
+        })
+    }
+
     /// 返回类型化能力的常驻字节数。
     pub fn capability_resident(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;

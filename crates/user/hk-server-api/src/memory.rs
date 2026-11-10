@@ -466,6 +466,33 @@ pub fn ledger_info() -> Option<LedgerInfo> {
     })
 }
 
+/// 查询对象句柄关联的 Ledger；`0` 表示当前任务 Ledger。
+pub fn object_ledger_info(handle: u64) -> Option<LedgerInfo> {
+    let mut bytes = [0_u8; 48];
+    // SAFETY: 缓冲区属于本进程；内核校验对象句柄后写入账本快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_LEDGER_INFO,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            handle,
+            0,
+        )
+        .value
+    };
+    if result != 48 {
+        return None;
+    }
+    Some(LedgerInfo {
+        charged: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        limit: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        pressure: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
+        resident: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
+        soft_limit: u64::from_le_bytes(bytes[40..].try_into().ok()?),
+    })
+}
+
 /// 单个 Capacity 的 Ledger 快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CapacityLedgerInfo {

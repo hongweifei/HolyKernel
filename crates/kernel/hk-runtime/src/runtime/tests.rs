@@ -801,6 +801,40 @@ fn enumerates_capacity_ledgers() {
 }
 
 #[test]
+fn object_ledger_info_reads_handle_ledger() {
+    let platform = MockPlatform::new();
+    let written = Arc::clone(&platform.written);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_LEDGER_INFO;
+    context.rdi = 0x400;
+    context.rsi = 48;
+    context.rdx = capability;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 48);
+    let data = written.lock();
+    assert_eq!(
+        u64::from_le_bytes(data[..8].try_into().expect("charged")),
+        0x1000
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[8..16].try_into().expect("limit")),
+        0x1000
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn waits_for_notification() {
     let mut runtime = runtime();
 
