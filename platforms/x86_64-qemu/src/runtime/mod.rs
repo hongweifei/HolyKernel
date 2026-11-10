@@ -299,8 +299,8 @@ impl UserPlatform for X86Platform {
         USER_ADDRESS_SPACES.root(slot)
     }
 
-    fn fork(&self, parent: usize, child: usize) -> bool {
-        USER_ADDRESS_SPACES.fork(parent, child)
+    fn fork(&self, parent: usize, child: usize, cow_ranges: &[(u64, u64)]) -> bool {
+        USER_ADDRESS_SPACES.fork(parent, child, cow_ranges)
     }
 
     fn share_vspace(&self, parent: usize, child: usize) -> bool {

@@ -169,7 +169,7 @@ pub trait UserPlatform {
         0
     }
     /// 把父任务的用户地址空间复制为子任务的写时复制副本。
-    fn fork(&self, _parent: usize, _child: usize) -> bool {
+    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> bool {
         false
     }
     /// 让子任务与父任务共享同一用户地址空间。

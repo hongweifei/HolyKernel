@@ -101,6 +101,8 @@ struct MockPlatform {
     ledgers: Vec<hk_mem::LedgerStats>,
     /// 最近一次用户态写入的数据。
     written: Arc<spin::Mutex<Vec<u8>>>,
+    /// 最近一次 fork 传入的 COW 区间。
+    last_cow: Arc<spin::Mutex<Vec<(u64, u64)>>>,
 }
 
 impl MockPlatform {
@@ -126,6 +128,7 @@ impl MockPlatform {
             cow: None,
             ledgers: Vec::new(),
             written: Arc::new(spin::Mutex::new(Vec::new())),
+            last_cow: Arc::new(spin::Mutex::new(Vec::new())),
         }
     }
 }
@@ -223,7 +226,8 @@ impl UserPlatform for MockPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize) -> bool {
+    fn fork(&self, _parent: usize, _child: usize, cow_ranges: &[(u64, u64)]) -> bool {
+        *self.last_cow.lock() = cow_ranges.to_vec();
         true
     }
 
@@ -989,6 +993,40 @@ fn forks_task_with_child_context() {
             _ => panic!("子任务应可运行"),
         }
     }
+}
+
+#[test]
+fn fork_cow_ranges_follow_regions() {
+    let platform = MockPlatform::new();
+    let last_cow = Arc::clone(&platform.last_cow);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let virt = runtime.process(index).regions[0]
+        .as_ref()
+        .expect("Region")
+        .virt;
+
+    context.rax = SYS_FORK;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    assert_eq!(*last_cow.lock(), alloc::vec![(virt, 0x1000)]);
+    let _ = runtime.finish(0, index);
 }
 
 #[test]
@@ -2968,7 +3006,7 @@ impl UserPlatform for ShortPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize) -> bool {
+    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> bool {
         true
     }
 

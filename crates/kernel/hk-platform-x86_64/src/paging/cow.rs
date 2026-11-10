@@ -2,7 +2,8 @@
 //!
 //! 共享状态只由 `hk-paging::FrameRefs` 维护，不使用架构专用 PTE 位。
 
-use hk_hal::{PAGE_SIZE, PhysAddr};
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
+use hk_mem::FrameKind;
 use hk_mem::page::PageAllocator;
 use hk_paging::FrameRefs;
 
@@ -15,8 +16,8 @@ fn take_cow_page() -> Option<PhysAddr> {
 }
 
 impl PageTable {
-    /// 复制用户低半区并标记写时复制，返回子页表。
-    pub fn fork_user(&self) -> Option<Self> {
+    /// 复制用户低半区；`cow_ranges` 内的可写页标 COW，其余可写页私有复制。
+    pub fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<Self> {
         let mut refs = super::frame_refs().lock();
         let child_root = take_cow_page()?;
         self.zero_page(child_root);
@@ -44,7 +45,14 @@ impl PageTable {
             self.zero_page(child);
             // SAFETY: 父页表处于活动状态，条目地址经 HHDM 映射。
             let source = PhysAddr::new(value & ADDRESS_MASK);
-            self.clone_level(source, child, 3, (index as u64) << 39, &mut refs)?;
+            self.clone_level(
+                source,
+                child,
+                3,
+                (index as u64) << 39,
+                cow_ranges,
+                &mut refs,
+            )?;
             // SAFETY: 子 PML4 项指向新分配的 PDPT，并保留原有权限位。
             unsafe {
                 self.entry(child_root, index)
@@ -71,6 +79,7 @@ impl PageTable {
         target: PhysAddr,
         level: u32,
         base: u64,
+        cow_ranges: &[(u64, u64)],
         refs: &mut FrameRefs,
     ) -> Option<()> {
         let shift = match level {
@@ -101,12 +110,27 @@ impl PageTable {
                 let tracked = refs.count(frame);
                 let writable = flags & WRITABLE != 0;
                 let mmio = flags & (PWT | PCD) != 0;
+                let cow = cow_ranges
+                    .iter()
+                    .any(|(start, len)| virt >= *start && virt < start.saturating_add(*len));
+                if !mmio && writable && !cow {
+                    // 未登记 Region 的可写页不能隐式共享；为子任务复制私有页，
+                    // 父页表保持原映射与权限。
+                    let child_frame = self.copy_private_page(frame)?;
+                    flags &= !super::flags::COW;
+                    // SAFETY: 子页表叶项指向新分配的私有页帧。
+                    unsafe {
+                        self.entry(target, index)
+                            .write_volatile(child_frame.get() | flags);
+                    }
+                    continue;
+                }
                 if !mmio && !super::mapping_acquire(frame) {
                     return None;
                 }
                 if !mmio && (writable || tracked > 0) {
-                    // 可写页在 fork 时新增父、子两个共享者；已经共享的只读页
-                    // 只新增当前子地址空间这一份引用。
+                    // Region 内的可写页在 fork 时新增父、子两个共享者；
+                    // 已经共享的只读页只新增当前子地址空间这一份引用。
                     if !refs.acquire(frame) {
                         return None;
                     }
@@ -129,7 +153,14 @@ impl PageTable {
             } else {
                 let child = take_cow_page()?;
                 self.zero_page(child);
-                self.clone_level(PhysAddr::new(physical), child, level - 1, virt, refs)?;
+                self.clone_level(
+                    PhysAddr::new(physical),
+                    child,
+                    level - 1,
+                    virt,
+                    cow_ranges,
+                    refs,
+                )?;
                 // SAFETY: 子中间级项指向新页表，并保留原有权限位。
                 unsafe {
                     self.entry(target, index)
@@ -138,6 +169,25 @@ impl PageTable {
             }
         }
         Some(())
+    }
+
+    /// 为子地址空间复制一份私有页。
+    fn copy_private_page(&self, source: PhysAddr) -> Option<PhysAddr> {
+        let frame = FRAME_BANK.allocate_for(FrameKind::Cow)?;
+        let source = (self.direct_map + source.get()) as *const u8;
+        let target = (self.direct_map + frame.get()) as *mut u8;
+        // SAFETY: 源、目标页帧均经 HHDM 映射，长度为整页。
+        unsafe {
+            core::ptr::copy_nonoverlapping(source, target, PAGE_SIZE);
+        }
+        if !super::mapping_acquire(frame) {
+            FRAME_BANK.free_for(
+                FrameKind::Cow,
+                PhysRange::new(frame, hk_hal::PAGE_SIZE as u64),
+            );
+            return None;
+        }
+        Some(frame)
     }
 
     /// 判断物理帧是否与其他地址空间共享。

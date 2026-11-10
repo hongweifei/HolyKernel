@@ -568,7 +568,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let child_index = self.tasks.len();
-        if !self.platform.fork(index, child_index) {
+        let cow_ranges: Vec<(u64, u64)> = self
+            .process(index)
+            .regions
+            .iter()
+            .flatten()
+            .filter(|region| {
+                region.rights.contains(hk_handle::Rights::WRITE)
+                    && !region.flags.contains(hk_mem::hmp::RegionFlags::DONT_FORK)
+            })
+            .map(|region| (region.virt, region.len as u64))
+            .collect();
+        if !self.platform.fork(index, child_index, &cow_ranges) {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
