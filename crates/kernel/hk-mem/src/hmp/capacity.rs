@@ -221,7 +221,9 @@ impl Capacity {
             let mut child = Self::new(id, range, self.page_size, kind, length)?;
             child.parent = Some(self.id);
             self.limit = self.limit.saturating_sub(length);
-            backend.set_ledger_limit(self.id, self.limit);
+            if self.kind != CapacityKind::System {
+                backend.set_ledger_limit(self.id, self.limit);
+            }
             return Ok(child);
         }
 
@@ -326,7 +328,9 @@ impl Capacity {
         if let Some(backend) = super::backend::physical_backend() {
             backend.merge_owned(self.id, child.id, range)?;
             self.limit = self.limit.saturating_add(child.limit);
-            backend.set_ledger_limit(self.id, self.limit);
+            if self.kind != CapacityKind::System {
+                backend.set_ledger_limit(self.id, self.limit);
+            }
             backend.remove_ledger(child.id);
             return Ok(());
         }

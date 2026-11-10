@@ -23,7 +23,9 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
     let range = bank.reserve_remaining(id)?;
     let limit = bank.total().saturating_sub(reserved);
     // 先建立 System 自己的 Ledger，再接管内核堆，保证 adopt 的记账有账可落。
-    bank.register_ledger(id, limit);
+    // 账本上限用物理总量：内核自用不受用户 split 配额扣减影响；用户分配仍由
+    // `Capacity::limit` 校验。
+    bank.register_ledger(id, bank.total());
     if !bank.adopt_owner(id, heap) {
         return None;
     }

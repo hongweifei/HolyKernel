@@ -646,14 +646,17 @@ impl FrameBank {
         true
     }
 
-    /// 注册或更新一个容量自己的 Ledger。
+    /// 注册一个容量自己的 Ledger；已存在时保留原上限。
+    ///
+    /// 上限的后续变化通过 `set_ledger_limit` 显式同步。System 账本由启动期
+    /// 以物理总量注册，容量视图的用户配额（`Capacity::limit`）不覆盖它，
+    /// 这样内核自用不会因为用户 split 掉配额而失败。
     pub fn register_ledger(&self, owner: CapacityId, limit: u64) {
-        let mut inner = self.inner.lock();
-        if let Some(ledger) = inner.ledgers.get_mut(&owner) {
-            ledger.set_limit(limit);
-        } else {
-            inner.ledgers.insert(owner, Ledger::create(limit));
-        }
+        self.inner
+            .lock()
+            .ledgers
+            .entry(owner)
+            .or_insert_with(|| Ledger::create(limit));
     }
 
     /// 更新容量 Ledger 的硬上限。
