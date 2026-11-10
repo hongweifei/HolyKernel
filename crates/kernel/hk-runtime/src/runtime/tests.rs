@@ -1014,6 +1014,32 @@ fn threads_share_process_memory_state() {
 }
 
 #[test]
+fn thread_fault_materializes_arena_page_through_process_capacity() {
+    let mut runtime = runtime();
+    let Step::Resume {
+        index: leader,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_THREAD_CREATE;
+    context.rdi = 0x1000;
+    context.rsi = 0x2000;
+    context.rdx = 7;
+    context.r10 = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let child = runtime.tasks.len() - 1;
+
+    // 线程的句柄表没有进程 Capacity；首次触碰 Arena 惰性页必须仍能装入。
+    let base = runtime.process(leader).arena.base();
+    runtime.current[0] = Some(child);
+    assert!(runtime.anonymous_fault(0, base + 0x8000));
+}
+
+#[test]
 fn activates_address_space_once_per_step() {
     let activations = Arc::new(AtomicUsize::new(0));
     let mut runtime = runtime_on(

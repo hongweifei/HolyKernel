@@ -10,7 +10,9 @@ use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(super) fn allocate_owned(&mut self, index: usize, len: u64) -> Option<FrameBacking> {
-        let tcb = self.tasks[index].tcb;
+        // Capacity 句柄登记在进程主线程的句柄表；同进程线程共享该容量，
+        // 因此必须用主线程的 TCB 解析，线程自己的句柄表没有这份句柄。
+        let tcb = self.tasks[self.leader_of(index)].tcb;
         let handle = self.process(index).allocation_capacity;
         let capacity = self.kernel.capacity_ref(tcb, handle).ok()?;
         let allocated = { capacity.lock().allocate(len as usize) };
