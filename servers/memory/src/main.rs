@@ -12,7 +12,7 @@ use hk_server_api::heap::FreeHeap;
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc, exit,
-    recv_data, reply, reply_handle, send_handle, write,
+    recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{INITIAL_CAPACITY_HANDLE, PROVIDER_FAULT, PROVIDER_PROVIDE};
@@ -53,7 +53,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 0
             };
             let Some(frame) = capacity_alloc(INITIAL_CAPACITY_HANDLE, size) else {
-                let _ = send_handle(sender, MEMORY_FRAME_ALLOCATED, u64::MAX, 0);
+                // 失败回复不带句柄；用 send_handle(…, 0) 会被内核当作坏句柄丢弃，
+                // 请求方会永久阻塞在接收上。
+                let _ = send(sender, MEMORY_FRAME_ALLOCATED, u64::MAX);
                 continue;
             };
             if send_handle(sender, MEMORY_FRAME_ALLOCATED, size as u64, frame) != 0 {
@@ -80,7 +82,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     }
                 });
             let Some(memory) = allocated else {
-                let _ = send_handle(sender, MEMORY_ALLOCATED, u64::MAX, 0);
+                let _ = send(sender, MEMORY_ALLOCATED, u64::MAX);
                 continue;
             };
             if send_handle(sender, MEMORY_ALLOCATED, size as u64, memory) != 0 {

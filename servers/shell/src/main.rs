@@ -41,7 +41,8 @@ use hk_server_api::root::{
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    exit, fault_subscribe, recv_data_try, send_data, service_endpoint, write, write_u64, yield_now,
+    exit, fault_subscribe, recv_data_try, send_data, service_endpoint, sleep_ticks, write,
+    write_u64,
 };
 #[cfg(target_os = "none")]
 use hk_shell::{
@@ -57,9 +58,12 @@ const ROOT_BUFFER: usize = 8192;
 #[cfg(target_os = "none")]
 const LINE_BUFFER: usize = 256;
 
-/// Console 握手超时次数。
+/// Console 握手超时（调度 tick，约 10 ms/tick）。
+///
+/// Console 启动需要向 Memory Server 申请表面并与 Display 往返，期间本端点上的
+/// 业务消息不会被误当成回复；用 tick 等待既不会空转抢占，也给足创建时间。
 #[cfg(target_os = "none")]
-const HANDSHAKE_ATTEMPTS: usize = 4096;
+const HANDSHAKE_TICKS: u64 = 500;
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -245,8 +249,8 @@ fn root_text(op: u64, argument: &str) -> String {
 #[cfg(target_os = "none")]
 fn wait_console(endpoint: u64, console: u64) -> bool {
     let mut buffer = [0_u8; 8];
-    for attempt in 0..HANDSHAKE_ATTEMPTS {
-        if attempt % 64 == 0 {
+    for tick in 0..HANDSHAKE_TICKS {
+        if tick % 16 == 0 {
             let _ = send_data(console, CONSOLE_PING, &[]);
         }
         let (label, _, _, _) = recv_data_try(endpoint, &mut buffer);
@@ -254,7 +258,7 @@ fn wait_console(endpoint: u64, console: u64) -> bool {
             while recv_data_try(endpoint, &mut buffer).0 == CONSOLE_PONG {}
             return true;
         }
-        let _ = yield_now();
+        let _ = sleep_ticks(1);
     }
     false
 }

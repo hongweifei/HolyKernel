@@ -6,7 +6,7 @@
 pub use hk_syscall::DISPLAY_SERVICE;
 
 use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, recv, recv_data, region_unmap, send,
+    CapabilityKind, MemoryClient, close_handle, exit, recv_data_from, region_unmap, send,
     send_handle,
 };
 
@@ -39,17 +39,22 @@ impl Window {
             let _ = region_unmap(region);
             return None;
         }
-        let (label, surface, _sender) = recv(endpoint);
+        // 只接受 Display 的回复：本端点同时承载 Console 等业务消息，不能把它们
+        // 当成握手结果，否则会漏掉表面并让后续回复错位。
+        let mut buffer = [0_u8; 0];
+        let (label, surface, _sender, _length) = recv_data_from(endpoint, display, &mut buffer);
         if label != SURFACE_CREATED || surface == 0 {
             let _ = region_unmap(region);
             return None;
         }
         if send(display, WINDOW_CREATE, surface) == u64::MAX {
+            let _ = send(display, SURFACE_DESTROY, surface);
             let _ = region_unmap(region);
             return None;
         }
-        let (label, window, _sender) = recv(endpoint);
+        let (label, window, _sender, _length) = recv_data_from(endpoint, display, &mut buffer);
         if label != WINDOW_CREATED || window == 0 {
+            let _ = send(display, SURFACE_DESTROY, surface);
             let _ = region_unmap(region);
             return None;
         }
@@ -119,7 +124,9 @@ impl Window {
         let _ = send(self.display, SURFACE_COMMIT, self.surface);
         let mut buffer = [0_u8; 2048];
         loop {
-            let (label, word, _sender, length) = recv_data(self.endpoint, &mut buffer);
+            // 只消费 Display 的帧完成/输入事件，避免误吞同一端点上的业务消息。
+            let (label, word, _sender, length) =
+                recv_data_from(self.endpoint, self.display, &mut buffer);
             match label {
                 SURFACE_FRAME_DONE if word == self.surface => return,
                 DISPLAY_CLOSE => exit(0),

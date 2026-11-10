@@ -398,7 +398,7 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         return None;
     }
     let window = Window::attach(endpoint, display, WIDTH, HEIGHT)?;
-    Some(Terminal {
+    let mut terminal = Terminal {
         width: window.width(),
         height: window.height(),
         window,
@@ -414,5 +414,8 @@ pub(crate) fn attach_terminal(endpoint: u64) -> Option<Terminal> {
         sgr_seen: false,
         utf8_seen: false,
         cjk_seen: false,
-    })
+    };
+    // 新表面内容是未初始化的；先画一次，避免窗口在首条输出前显示为黑块。
+    terminal.refresh();
+    Some(terminal)
 }
