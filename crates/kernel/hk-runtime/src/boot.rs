@@ -106,6 +106,11 @@ where
                         .create_capacity_shared(service.tcb, capacity, rights)
                         .ok()
                 }),
+                CapacityGrant::User => platform.user_capacity().and_then(|capacity| {
+                    kernel
+                        .create_capacity_shared(service.tcb, capacity, rights)
+                        .ok()
+                }),
             };
             if let Some(handle) = handle {
                 task.capacities.push(Some(handle));

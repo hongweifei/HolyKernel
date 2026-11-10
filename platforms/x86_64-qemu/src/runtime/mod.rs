@@ -230,6 +230,10 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::system::capacity()
     }
 
+    fn user_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        hk_platform_x86_64::system::user_capacity()
+    }
+
     fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
         Some(hk_platform_x86_64::paging::FRAME_BANK.stats())
     }

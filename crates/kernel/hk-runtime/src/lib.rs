@@ -33,6 +33,8 @@ pub enum CapacityGrant {
     Split(CapacityKind, usize),
     /// 授予启动期建立的 System Capacity 共享视图。
     System,
+    /// 授予启动期建立的顶层 User Capacity 共享视图。
+    User,
 }
 
 /// 服务清单条目。
@@ -82,6 +84,12 @@ impl ServiceSpec {
     /// 授予启动期建立的 System Capacity 共享视图。
     pub const fn with_system_capacity(mut self) -> Self {
         self.capacity = Some(CapacityGrant::System);
+        self
+    }
+
+    /// 授予启动期建立的顶层 User Capacity 共享视图。
+    pub const fn with_user_capacity(mut self) -> Self {
+        self.capacity = Some(CapacityGrant::User);
         self
     }
 

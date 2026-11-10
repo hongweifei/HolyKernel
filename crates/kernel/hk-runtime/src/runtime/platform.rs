@@ -109,6 +109,11 @@ pub trait UserPlatform {
         None
     }
 
+    /// 返回启动期建立的顶层 User Capacity。
+    fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        None
+    }
+
     /// 返回 System Capacity 的 FrameBank 记账快照。
     fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
         None

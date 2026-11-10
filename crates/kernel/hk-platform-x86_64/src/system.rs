@@ -13,6 +13,7 @@ use hk_mem::hmp::{Capacity, CapacityId, CapacityKind};
 use spin::Mutex;
 
 static SYSTEM: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
+static USER: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 
 /// 建立 System Capacity 并接管内核自用分配的归因。
 ///
@@ -34,14 +35,26 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
         return None;
     }
     bank.set_kernel_owner(Some(id));
-    let capacity = Capacity::with_limit(id, range, PAGE_SIZE, CapacityKind::System, limit).ok()?;
+    let mut capacity =
+        Capacity::with_limit(id, range, PAGE_SIZE, CapacityKind::System, limit).ok()?;
+    // 顶层 User 容量从 System 切出，后续由 Capacity::grow 随用户分配增长。
+    let user_id = CapacityId::next();
+    let user = capacity
+        .split(user_id, PAGE_SIZE, CapacityKind::User)
+        .ok()?;
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
+    *USER.lock() = Some(Arc::new(Mutex::new(user)));
     Some(())
 }
 
 /// 返回共享的 System Capacity。
 pub fn capacity() -> Option<Arc<Mutex<Capacity>>> {
     SYSTEM.lock().clone()
+}
+
+/// 返回 Root 建立、供 Memory Server 共享的顶层 User Capacity。
+pub fn user_capacity() -> Option<Arc<Mutex<Capacity>>> {
+    USER.lock().clone()
 }
 
 /// 从 System Capacity 尾部切出一段独立容量。

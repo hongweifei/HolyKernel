@@ -219,7 +219,7 @@ impl Notification {
 - 块客户端登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一个 Frame 并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP_FRAME` 把 Frame 映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
 - Frame 的最后一个句柄释放时归还所属 Capacity；任务退出关闭句柄、客户端 detach 后回收。类型化能力与 Provider 页遵循同一套 Frame 归属。
-- x86_64 平台启动时建立 64 MiB 连续 Dma Capacity，驱动共享映射与 DMA 缓冲从这里分配；显示表面与匿名内存来自 Memory Server 的 User Capacity 子集，该子集按分配需求从 System 动态扩展。窗口放大时新旧表面会短暂并存，容量需要覆盖这一峰值。
+- x86_64 平台启动时建立 64 MiB 连续 Dma Capacity，驱动共享映射与 DMA 缓冲从这里分配；显示表面与匿名内存来自 Root 建立的顶层 User Capacity（Memory Server 共享），该容量按分配需求从 System 动态扩展。窗口放大时新旧表面会短暂并存，容量需要覆盖这一峰值。
 - 用户虚拟布局集中定义在 `hk_hal::user`：镜像、Arena 与栈由平台固定；Capability、DMA、MMIO 与帧缓冲等动态映射统一从任务私有的自动窗口 `0x2000_0000`–`0x8000_0000` 按页分配并回收。`SYS_CAPABILITY_CREATE`/`SYS_DMA_MAP_CAPABILITY`、`SYS_DEVICE_MAP` 与 `SYS_FRAMEBUFFER_MAP` 同样通过 `out` 返回内核选择的地址。
 
 ---
