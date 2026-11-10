@@ -127,7 +127,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 child_region,
                 capability,
                 region_id,
-                None,
+                false,
                 virt,
                 len,
                 offset,
@@ -200,7 +200,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         handle: Handle,
         capability: Handle,
         region: hk_mem::hmp::RegionId,
-        frame: Option<Handle>,
+        internal_capability: bool,
         virt: u64,
         len: usize,
         offset: u64,
@@ -221,7 +221,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             capability,
             owner: self.tasks[index].tcb,
             region,
-            frame,
+            internal_capability,
             virt,
             len,
             offset,
@@ -564,8 +564,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 解除 Region 的映射并关闭它持有的内部句柄。
     ///
-    /// `close_capability` 为 true 时同时关闭 `SYS_FRAME_MAP` 内部创建的
-    /// capability；用户自己持有的 capability 不在这里关闭。
+    /// `close_capability` 为 true 时同时关闭内核代建的 capability
+    /// （`SYS_FRAME_MAP` / 设备映射）；用户自己持有的 capability 不在这里关闭。
     pub(crate) fn teardown_region(&mut self, index: usize, slot: usize, close_capability: bool) {
         let Some(region) = self
             .process(index)
@@ -577,7 +577,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let owner = region.owner;
         let capability = region.capability;
-        let frame = region.frame;
+        let internal_capability = region.internal_capability;
         let virt = region.virt;
         let length = region.len;
         let region_id = region.region;
@@ -600,12 +600,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
-        if let Some(frame) = frame {
-            let _ = self.kernel.pin_frame(owner, frame, false);
-            let _ = self.kernel.close_handle(owner, frame);
-        }
         let _ = self.kernel.close_handle(owner, region_handle);
-        if close_capability && frame.is_some() {
+        if close_capability && internal_capability {
             let _ = self.kernel.close_handle(owner, capability);
         }
         self.process_mut(index).regions[slot] = None;

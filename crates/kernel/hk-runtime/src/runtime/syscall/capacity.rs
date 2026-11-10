@@ -3,7 +3,7 @@
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
 use hk_mem::hmp::{
-    Capability, CapabilityKind, CapacityKind, FrameBacking, FrameLease, Region, RegionFlags,
+    Capability, CapabilityKind, CapacityKind, FrameBacking, OwnedFrame, Region, RegionFlags,
 };
 use hk_syscall::{
     CAPACITY_KIND_DMA, CAPACITY_KIND_GPU, CAPACITY_KIND_NUMA, CAPACITY_KIND_SYSTEM,
@@ -271,15 +271,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok((range, page_size, _, _, _)) = self.kernel.frame_info(tcb, frame_handle) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        let length = usize::try_from(range.len()).unwrap_or(0);
-        if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
         let rights = Rights::from_bits_truncate(packed as u32);
         let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
         let Ok(granted) =
@@ -293,54 +284,77 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None)
-        else {
+        let Ok(owned) = self.kernel.take_owned_frame(tcb, frame_handle) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let lease = FrameBacking::Imported(FrameLease::import(range.start(), length));
+        let result = self.finish_frame_map(index, tcb, number, owned, rights, flags);
+        let _ = self.kernel.close_handle(tcb, frame_handle);
+        self.clear_handle(index, number);
+        frame.set_result(result);
+        Switch::Continue
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_frame_map(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        number: usize,
+        owned: OwnedFrame,
+        rights: Rights,
+        flags: RegionFlags,
+    ) -> u64 {
+        let range = owned.range();
+        let length = owned.len();
+        let page_size = owned.page_size();
+        if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
+            return u64::MAX;
+        }
+        let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None)
+        else {
+            return u64::MAX;
+        };
+        let backing = FrameBacking::Owned(owned);
         let Ok(capability_handle) = self.kernel.create_capability(
             tcb,
             capability.clone(),
-            Some(lease),
+            Some(backing),
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         ) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            return u64::MAX;
+        };
+        let cleanup = |runtime: &mut Self| {
+            let _ = runtime.kernel.close_handle(tcb, capability_handle);
         };
         let Ok(mut region) = Region::new(&capability, 0, length, rights, flags) else {
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         };
         let Some(virt) = self.process_mut(index).user_window.allocate(length) else {
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         };
         if !self
             .platform
             .map_user(index, virt, range.start().get(), length, rights, flags)
         {
             self.process_mut(index).user_window.release(virt);
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         }
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         }
         let Ok(region_handle) =
             self.kernel
@@ -349,28 +363,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
-            let _ = self.kernel.close_handle(tcb, capability_handle);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+            cleanup(self);
+            return u64::MAX;
         };
-        let _ = self.kernel.pin_frame(tcb, frame_handle, true);
         let charge = self.take_frame_charge(index, number);
-        let result = self.install_region(
+        self.install_region(
             index,
             region_handle,
             capability_handle,
             region_id,
-            Some(frame_handle),
+            true,
             virt,
             length,
             0,
             rights,
             flags,
             charge,
-        );
-        self.clear_handle(index, number);
-        frame.set_result(result);
-        Switch::Continue
+        )
     }
 
     fn free_frame_at(

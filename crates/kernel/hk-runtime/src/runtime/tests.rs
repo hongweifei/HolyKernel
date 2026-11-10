@@ -1713,17 +1713,27 @@ fn frame_maps_and_returns_to_capacity() {
                 | hk_handle::Rights::ADMIN,
         )
         .expect("创建 Capacity");
+    let capacity_handle = handle;
     runtime.tasks[index].capacities.push(Some(handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
     let before = runtime.process(index).ledger.charged();
 
     context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
-    context.rdi = 0x5001;
+    context.rdi = capacity_number;
     context.rsi = hk_hal::PAGE_SIZE as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let frame = context.rax;
     assert_eq!(
         runtime.process(index).ledger.charged(),
         before + hk_hal::PAGE_SIZE as u64
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64
     );
 
     context.rax = hk_syscall::SYS_FRAME_MAP;
@@ -1745,7 +1755,16 @@ fn frame_maps_and_returns_to_capacity() {
             .regions
             .iter()
             .flatten()
-            .all(|region| region.frame.is_some())
+            .all(|region| region.internal_capability)
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64,
+        "映射后物理页仍由 Capacity 记账"
     );
 
     context.rax = hk_syscall::SYS_REGION_UNMAP;
@@ -1757,6 +1776,15 @@ fn frame_maps_and_returns_to_capacity() {
         runtime.process(index).ledger.charged(),
         before,
         "解除映射必须归还映射记账"
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        0,
+        "解除映射必须把物理页归还 Capacity"
     );
     let _ = runtime.finish(0, index);
 }

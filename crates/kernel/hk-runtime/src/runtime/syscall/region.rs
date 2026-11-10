@@ -135,7 +135,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             handle,
             capability_handle,
             region_id,
-            None,
+            false,
             virt,
             length,
             offset,
@@ -450,7 +450,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             region_handle,
             capability_handle,
             region_id,
-            None,
+            true,
             virt,
             len,
             0,
@@ -802,17 +802,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let region_id = self.process(index).regions[slot]
             .as_ref()
             .map(|region| region.region);
-        let frame_handle = self.process(index).regions[slot]
+        let internal_capability = self.process(index).regions[slot]
             .as_ref()
-            .and_then(|region| region.frame);
+            .is_some_and(|region| region.internal_capability);
         if let Some(region_id) = region_id {
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
         }
-        if let Some(frame_handle) = frame_handle {
-            let _ = self.kernel.pin_frame(owner, frame_handle, false);
-            let _ = self.kernel.close_handle(owner, frame_handle);
-            // `SYS_FRAME_MAP` 的 capability 是内核代建的，只被这个 Region 持有；
-            // 解除映射时必须一并关闭，否则 capability 与它的 lease 会泄漏。
+        if internal_capability {
+            // `SYS_FRAME_MAP` / 设备映射的 capability 由内核代建，只被这个
+            // Region 持有；解除映射时必须一并关闭，否则 capability 及其
+            // OwnedFrame/Imported lease 会泄漏。
             let _ = self.kernel.close_handle(owner, capability);
         }
         let _ = self.kernel.close_handle(owner, handle);

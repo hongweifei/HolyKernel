@@ -84,7 +84,8 @@ pub(crate) struct RegionMap {
     pub capability: Handle,
     pub owner: TcbId,
     pub region: hk_mem::hmp::RegionId,
-    pub frame: Option<Handle>,
+    /// capability 是否由内核代建（`SYS_FRAME_MAP` / 设备映射），解除映射时一并关闭。
+    pub internal_capability: bool,
     pub virt: u64,
     pub len: usize,
     pub offset: u64,
@@ -185,7 +186,7 @@ impl Process {
             capability: capability_handle,
             owner: tcb,
             region: region_id,
-            frame: None,
+            internal_capability: true,
             virt: base,
             len,
             offset: 0,
