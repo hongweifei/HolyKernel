@@ -109,7 +109,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        frame.set_result(self.install_frame(index, frame_handle));
+        let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, frame_handle) else {
+            let _ = self.kernel.close_handle(tcb, frame_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
+            let _ = self.kernel.free_frame(tcb, handle, frame_handle);
+            let _ = self.kernel.close_handle(tcb, frame_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        frame.set_result(self.install_frame(index, frame_handle, Some(charge)));
         Switch::Continue
     }
 
@@ -194,7 +205,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         match self.kernel.release_frame(tcb, handle) {
-            Ok(refs) => frame.set_result(refs as u64),
+            Ok(refs) => {
+                if refs == 0
+                    && self.kernel.frame_info(tcb, handle).is_err()
+                    && let Some(charge) = self.take_frame_charge(index, number)
+                {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                }
+                frame.set_result(refs as u64);
+            }
             Err(_) => frame.set_result(u64::MAX),
         }
         Switch::Continue
@@ -290,6 +309,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let _ = self.kernel.pin_frame(tcb, frame_handle, true);
+        let charge = self.take_frame_charge(index, number);
         let result = self.install_region(
             index,
             region_handle,
@@ -301,6 +321,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             0,
             rights,
             flags,
+            charge,
         );
         self.clear_handle(index, number);
         frame.set_result(result);

@@ -1339,6 +1339,7 @@ fn capacity_frame_lifecycle() {
         .expect("创建 Capacity");
     runtime.tasks[index].capacities.push(Some(handle));
     let capacity_number = 0x5001;
+    let before = runtime.process(index).ledger.charged();
 
     context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
     context.rdi = capacity_number;
@@ -1346,6 +1347,11 @@ fn capacity_frame_lifecycle() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let frame = context.rax;
     assert_ne!(frame, u64::MAX);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64,
+        "Frame 分配必须计入任务 Ledger"
+    );
 
     context.rax = hk_syscall::SYS_FRAME_SHARE;
     context.rdi = frame;
@@ -1369,6 +1375,178 @@ fn capacity_frame_lifecycle() {
     context.rsi = frame;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
+    assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before,
+        "归还 Frame 必须释放任务 Ledger"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn duplicate_frame_defers_capacity_free_until_last_handle() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(102),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x80_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(handle));
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    assert_ne!(frame, u64::MAX);
+    let charged = runtime.process(index).ledger.charged();
+
+    context.rax = hk_syscall::SYS_HANDLE_DUPLICATE;
+    context.rdi = frame;
+    context.rsi = u64::from(
+        hk_syscall::RIGHT_READ
+            | hk_syscall::RIGHT_WRITE
+            | hk_syscall::RIGHT_TRANSFER
+            | hk_syscall::RIGHT_ADMIN,
+    );
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let duplicate = context.rax;
+    assert_ne!(duplicate, u64::MAX);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        charged,
+        "复制 Frame 句柄不能重复计费"
+    );
+
+    context.rax = hk_syscall::SYS_CAPACITY_FREE;
+    context.rdi = 0x5001;
+    context.rsi = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "仍有其它句柄时不能归还物理页");
+
+    context.rax = hk_syscall::SYS_HANDLE_CLOSE;
+    context.rdi = duplicate;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = hk_syscall::SYS_CAPACITY_FREE;
+    context.rdi = 0x5001;
+    context.rsi = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1);
+    assert_eq!(runtime.process(index).ledger.charged(), 0);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn duplicate_capability_does_not_double_charge() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let before = runtime.process(index).ledger.charged();
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + 0x2000,
+        "能力驻留内存计入任务 Ledger"
+    );
+
+    context.rax = hk_syscall::SYS_HANDLE_DUPLICATE;
+    context.rdi = capability;
+    context.rsi = u64::from(
+        hk_syscall::RIGHT_READ
+            | hk_syscall::RIGHT_WRITE
+            | hk_syscall::RIGHT_TRANSFER
+            | hk_syscall::RIGHT_ADMIN,
+    );
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let duplicate = context.rax;
+    assert_ne!(duplicate, u64::MAX);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + 0x2000,
+        "复制能力句柄不能重复计费"
+    );
+
+    context.rax = hk_syscall::SYS_HANDLE_CLOSE;
+    context.rdi = duplicate;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    context.rax = hk_syscall::SYS_HANDLE_CLOSE;
+    context.rdi = capability;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(runtime.process(index).ledger.charged(), before);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn exit_releases_frame_charges() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(103),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x82_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(handle));
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    assert!(runtime.process(index).ledger.charged() > 0);
+
+    context.rax = hk_syscall::SYS_EXIT;
+    context.rdi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        0,
+        "任务退出必须释放仍持有的 Frame 记账"
+    );
     assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
     let _ = runtime.finish(0, index);
 }
@@ -1449,12 +1627,17 @@ fn frame_maps_and_returns_to_capacity() {
         )
         .expect("创建 Capacity");
     runtime.tasks[index].capacities.push(Some(handle));
+    let before = runtime.process(index).ledger.charged();
 
     context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
     context.rdi = 0x5001;
     context.rsi = hk_hal::PAGE_SIZE as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let frame = context.rax;
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64
+    );
 
     context.rax = hk_syscall::SYS_FRAME_MAP;
     context.rdi = frame;
@@ -1463,6 +1646,11 @@ fn frame_maps_and_returns_to_capacity() {
     let region = context.rax;
     assert_ne!(region, u64::MAX);
     assert!(runtime.tasks[index].frames.iter().all(Option::is_none));
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before + hk_hal::PAGE_SIZE as u64,
+        "映射只转移 Frame 记账，不能重复计费"
+    );
     assert_eq!(runtime.process(index).regions.iter().flatten().count(), 1);
     assert!(
         runtime
@@ -1478,6 +1666,11 @@ fn frame_maps_and_returns_to_capacity() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
     assert!(runtime.process(index).regions.iter().all(Option::is_none));
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before,
+        "解除映射必须归还映射记账"
+    );
     let _ = runtime.finish(0, index);
 }
 
@@ -2077,12 +2270,18 @@ fn grows_grow_region_and_extends_arena() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let region = context.rax;
     assert_ne!(region, u64::MAX);
+    let charged = runtime.process(index).ledger.charged();
 
     context.rax = SYS_REGION_GROW;
     context.rdi = region;
     context.rsi = 0x2000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0, "GROW Region 应可扩展");
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        charged,
+        "GROW 扩展的是已计费能力，不能重复收费"
+    );
     assert_eq!(
         runtime.region_at(index, region as usize).expect("Region").3,
         0x2000

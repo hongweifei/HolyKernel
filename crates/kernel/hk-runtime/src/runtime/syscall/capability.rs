@@ -136,10 +136,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
         match self.kernel.duplicate_handle(tcb, handle, rights) {
-            Ok(copy) => match self.install_extra_capability(index, copy) {
-                Some(number) => frame.set_result(number),
-                None => frame.set_result(u64::MAX),
-            },
+            Ok(copy) => {
+                // 导出只复制句柄；同一对象的驻留内存已经计入本进程。
+                frame.set_result(self.install_extra_handle(index, copy));
+            }
             Err(_) => frame.set_result(u64::MAX),
         }
         Switch::Continue

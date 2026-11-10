@@ -131,6 +131,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             offset,
             rights,
             flags,
+            None,
         ));
         Switch::Continue
     }
@@ -441,6 +442,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             0,
             Rights::READ | Rights::WRITE,
             RegionFlags::empty(),
+            None,
         );
         true
     }
@@ -755,6 +757,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let owner = region.owner;
         let capability = region.capability;
+        let charge = region.charge;
         let capability_id = self
             .kernel
             .handle_id(owner, capability)
@@ -801,6 +804,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let _ = self.kernel.close_handle(owner, handle);
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
+        if let Some(charge) = charge {
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);
         }

@@ -50,8 +50,8 @@ pub struct UserTask<C> {
     pub(crate) capacities: Vec<Option<Handle>>,
     /// Capacity 空槽。
     pub(crate) capacity_free: Vec<usize>,
-    /// 本线程持有的 Frame。
-    pub(crate) frames: Vec<Option<Handle>>,
+    /// 本线程持有的 Frame 与容量记账。
+    pub(crate) frames: Vec<Option<HandleSlot>>,
     /// Frame 空槽。
     pub(crate) frame_free: Vec<usize>,
     /// 本线程持有的 DeviceGrant 句柄与 DMA 窗口记账。

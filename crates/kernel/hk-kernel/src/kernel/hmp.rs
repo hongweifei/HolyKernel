@@ -156,7 +156,7 @@ impl Kernel {
 
     /// 释放一次 Frame 共享引用。
     ///
-    /// 引用降到零时 Frame 已无所有者，立即归还所属 Capacity 并从对象中取出。
+    /// 引用降到零且没有其它句柄时，立即归还所属 Capacity 并从对象中取出。
     /// 归还后句柄保留但内容为空，后续释放或关闭不会重复归还。
     pub fn release_frame(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
@@ -174,6 +174,11 @@ impl Kernel {
         let refs = frame.release();
         if refs > 0 {
             return Ok(refs);
+        }
+        // 还有其它句柄指向同一个 Frame 时只释放引用计数，不归还物理页；
+        // 最后一个句柄关闭或显式 free 时才回到 Capacity。
+        if object.header().handle_count() > 1 {
+            return Ok(0);
         }
         if let Some(capacity) = capacity_guard.as_mut() {
             capacity.free(&mut slot).map_err(KernelError::Hmp)?;
@@ -218,6 +223,9 @@ impl Kernel {
         let (capacity_object, _) =
             self.resolve(thread, capacity, Rights::WRITE, ObjectKind::Capacity)?;
         let (frame_object, _) = self.resolve(thread, frame, Rights::WRITE, ObjectKind::Frame)?;
+        if frame_object.header().handle_count() > 1 {
+            return Err(KernelError::Hmp(HmpError::PermissionDenied));
+        }
         let capacity_lock = capacity_object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;

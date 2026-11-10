@@ -92,6 +92,8 @@ pub(crate) struct RegionMap {
     pub offset: u64,
     pub rights: Rights,
     pub flags: hk_mem::hmp::RegionFlags,
+    /// 该映射占用的进程记账；解除映射时归还。
+    pub charge: Option<Charge>,
 }
 
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
@@ -191,6 +193,7 @@ impl Process {
             offset: 0,
             rights,
             flags: RegionFlags::empty(),
+            charge: None,
         });
         Ok(())
     }
@@ -539,6 +542,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             let tcb = self.tasks[index].tcb;
             self.release_grants(index);
+            self.release_task_charges(index);
             let _ = self.kernel.exit(tcb);
             self.tasks[index].exited = true;
             self.tasks[index].exit_code = 0;

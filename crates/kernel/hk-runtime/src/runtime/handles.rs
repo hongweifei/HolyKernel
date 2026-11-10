@@ -133,6 +133,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 offset,
                 region_rights,
                 region_flags,
+                None,
             );
         }
     }
@@ -205,6 +206,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         offset: u64,
         rights: Rights,
         flags: hk_mem::hmp::RegionFlags,
+        charge: Option<Charge>,
     ) -> u64 {
         let slot = match self.process_mut(index).region_free.pop() {
             Some(slot) => slot,
@@ -225,6 +227,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             offset,
             rights,
             flags,
+            charge,
         };
         self.process_mut(index).regions[slot] = Some(map);
         (REGION_HANDLE_BASE + slot + 1) as u64
@@ -258,7 +261,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some((slot, *handle))
     }
 
-    pub(crate) fn install_frame(&mut self, index: usize, handle: Handle) -> u64 {
+    pub(crate) fn install_frame(
+        &mut self,
+        index: usize,
+        handle: Handle,
+        charge: Option<Charge>,
+    ) -> u64 {
         let slot = match self.tasks[index].frame_free.pop() {
             Some(slot) => slot,
             None => {
@@ -266,14 +274,60 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.tasks[index].frames.len() - 1
             }
         };
-        self.tasks[index].frames[slot] = Some(handle);
+        self.tasks[index].frames[slot] = Some(HandleSlot { handle, charge });
         (FRAME_HANDLE_BASE + slot + 1) as u64
     }
 
     pub(crate) fn frame_at(&self, index: usize, number: usize) -> Option<(usize, Handle)> {
         let slot = number.checked_sub(FRAME_HANDLE_BASE + 1)?;
-        let handle = self.tasks[index].frames.get(slot)?.as_ref()?;
-        Some((slot, *handle))
+        let entry = self.tasks[index].frames.get(slot)?.as_ref()?;
+        Some((slot, entry.handle))
+    }
+
+    /// 取出指定 Frame 槽位的容量记账，供映射或释放转移。
+    pub(crate) fn take_frame_charge(&mut self, index: usize, number: usize) -> Option<Charge> {
+        if number >= FRAME_HANDLE_BASE {
+            let slot = number.checked_sub(FRAME_HANDLE_BASE + 1)?;
+            self.tasks[index]
+                .frames
+                .get_mut(slot)?
+                .as_mut()?
+                .charge
+                .take()
+        } else if number >= EXTRA_HANDLE_BASE {
+            let slot = number.checked_sub(EXTRA_HANDLE_BASE + 1)?;
+            self.tasks[index]
+                .extra
+                .get_mut(slot)?
+                .as_mut()?
+                .charge
+                .take()
+        } else {
+            None
+        }
+    }
+
+    /// 归还当前线程持有的全部额外记账；任务退出时调用。
+    pub(crate) fn release_task_charges(&mut self, index: usize) {
+        let frames = core::mem::take(&mut self.tasks[index].frames);
+        let capabilities = core::mem::take(&mut self.tasks[index].capabilities);
+        let extra = core::mem::take(&mut self.tasks[index].extra);
+        self.tasks[index].frame_free.clear();
+        self.tasks[index].capability_free.clear();
+        self.tasks[index].extra_free.clear();
+        for slot in frames.into_iter().flatten() {
+            if let Some(charge) = slot.charge {
+                let _ = self.process_mut(index).ledger.release(charge);
+            }
+        }
+        for map in capabilities.into_iter().flatten() {
+            let _ = self.process_mut(index).ledger.release(map.charge);
+        }
+        for slot in extra.into_iter().flatten() {
+            if let Some(charge) = slot.charge {
+                let _ = self.process_mut(index).ledger.release(charge);
+            }
+        }
     }
 
     pub(crate) fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
@@ -374,11 +428,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
         if number >= FRAME_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(FRAME_HANDLE_BASE + 1)
-                && let Some(slot) = self.tasks[index].frames.get_mut(slot_index)
-                && slot.is_some()
+                && let Some(entry) = self.tasks[index]
+                    .frames
+                    .get_mut(slot_index)
+                    .and_then(|slot| slot.take())
             {
-                *slot = None;
                 self.tasks[index].frame_free.push(slot_index);
+                if let Some(charge) = entry.charge {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                }
             }
         } else if number >= CAPACITY_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(CAPACITY_HANDLE_BASE + 1)
@@ -475,6 +533,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.teardown_arena_region(index);
         self.process_mut(index).cow_pages.clear();
+        self.release_task_charges(index);
     }
 
     /// 拆除任务 Arena 的内部惰性 Region 与 capability。
@@ -523,6 +582,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let length = region.len;
         let region_id = region.region;
         let region_handle = region.handle;
+        let charge = region.charge;
         let capability_id = self
             .kernel
             .handle_id(owner, capability)
@@ -550,6 +610,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
+        if let Some(charge) = charge {
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);
         }

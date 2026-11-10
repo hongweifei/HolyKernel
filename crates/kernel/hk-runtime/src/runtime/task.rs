@@ -823,6 +823,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let tcb = self.tasks[index].tcb;
         self.release_grants(index);
+        self.release_task_charges(index);
         if self.tasks[index].leader == index {
             self.teardown_process(index);
         }
@@ -850,6 +851,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         let tcb = self.tasks[index].tcb;
         self.release_grants(index);
+        self.release_task_charges(index);
         if self.tasks[index].leader == index {
             self.teardown_process(index);
         }

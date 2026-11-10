@@ -99,12 +99,13 @@ impl ObjectKind {
     }
 }
 
-/// 对象头：标识、类别与撤销 epoch。
+/// 对象头：标识、类别、撤销 epoch 与句柄计数。
 #[derive(Debug)]
 pub struct ObjectHeader {
     id: ObjectId,
     kind: ObjectKind,
     epoch: AtomicU32,
+    handles: AtomicU32,
 }
 
 impl ObjectHeader {
@@ -114,6 +115,7 @@ impl ObjectHeader {
             id: allocate_object_id(),
             kind,
             epoch: AtomicU32::new(0),
+            handles: AtomicU32::new(0),
         })
     }
 
@@ -123,6 +125,7 @@ impl ObjectHeader {
             id,
             kind,
             epoch: AtomicU32::new(0),
+            handles: AtomicU32::new(0),
         })
     }
 
@@ -144,6 +147,33 @@ impl ObjectHeader {
     /// 递增 epoch，使该对象此前授予的全部句柄失效。
     pub fn revoke_all(&self) -> u32 {
         self.epoch.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// 登记一个指向该对象的新句柄。
+    pub fn acquire_handle(&self) -> u32 {
+        self.handles.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// 注销一个指向该对象的句柄；计数已为零时保持为零。
+    pub fn release_handle(&self) -> u32 {
+        let mut current = self.handles.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(1);
+            match self.handles.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return next,
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    /// 返回当前指向该对象的句柄数。
+    pub fn handle_count(&self) -> u32 {
+        self.handles.load(Ordering::Acquire)
     }
 }
 
@@ -361,6 +391,7 @@ impl HandleTable {
         };
         let generation = self.generations[index as usize];
         let grant_epoch = object.header().epoch();
+        object.header().acquire_handle();
         self.slots[index as usize] = Some(Slot {
             object,
             rights,
@@ -438,7 +469,9 @@ impl HandleTable {
                 .as_ref()
                 .is_some_and(|slot| slot.object.header().id() == id);
             if matches {
-                self.slots[index] = None;
+                if let Some(slot) = self.slots[index].take() {
+                    slot.object.header().release_handle();
+                }
                 self.generations[index] = self.generations[index].wrapping_add(1);
                 self.free.push(index as u32);
                 self.live -= 1;
@@ -461,14 +494,24 @@ impl HandleTable {
         if index >= self.slots.len() || self.generations[index] != handle.generation() {
             return Err(HandleError::BadHandle);
         }
-        if self.slots[index].is_none() {
+        let Some(slot) = self.slots[index].take() else {
             return Err(HandleError::BadHandle);
-        }
-        self.slots[index] = None;
+        };
+        slot.object.header().release_handle();
         self.generations[index] = self.generations[index].wrapping_add(1);
         self.free.push(index as u32);
         self.live -= 1;
         Ok(())
+    }
+}
+
+impl Drop for HandleTable {
+    fn drop(&mut self) {
+        for slot in self.slots.iter_mut() {
+            if let Some(slot) = slot.take() {
+                slot.object.header().release_handle();
+            }
+        }
     }
 }
 
@@ -563,6 +606,34 @@ mod tests {
         let replacement = table.insert(object(), Rights::READ).expect("再次授予");
         assert_eq!(replacement.index(), handle.index());
         assert_ne!(replacement.generation(), handle.generation());
+    }
+
+    #[test]
+    fn tracks_live_handle_count() {
+        let mut first = HandleTable::new(4);
+        let mut second = HandleTable::new(4);
+        let object = object();
+        let header = Arc::clone(&object.header);
+
+        let handle = first
+            .insert(object, Rights::READ | Rights::ADMIN | Rights::TRANSFER)
+            .expect("首个句柄");
+        let duplicate = first.duplicate(handle, Rights::READ).expect("复制句柄");
+        assert_eq!(header.handle_count(), 2);
+
+        let moved = first.take(handle, Rights::READ).expect("转移句柄");
+        let _granted = second
+            .insert(moved.object().clone(), moved.rights())
+            .expect("接收句柄");
+        assert_eq!(header.handle_count(), 2);
+
+        first.close(duplicate).expect("关闭复制句柄");
+        assert_eq!(header.handle_count(), 1);
+
+        drop(first);
+        assert_eq!(header.handle_count(), 1, "另一张表的句柄仍然存在");
+        drop(second);
+        assert_eq!(header.handle_count(), 0);
     }
 
     #[test]

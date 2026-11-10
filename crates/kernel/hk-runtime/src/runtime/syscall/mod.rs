@@ -119,6 +119,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_EXIT => {
                 let code = frame.arg0();
                 self.release_grants(index);
+                self.release_task_charges(index);
                 if self.tasks[index].leader == index {
                     self.teardown_process(index);
                 }
