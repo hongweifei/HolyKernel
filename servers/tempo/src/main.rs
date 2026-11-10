@@ -60,8 +60,7 @@ impl Ledger {
         let name = name.as_bytes();
         self.names.iter().enumerate().find_map(|(index, entry)| {
             let length = usize::from(self.lengths[index]);
-            (self.used[index] && length == name.len() && &entry[..length] == name)
-                .then_some(index)
+            (self.used[index] && length == name.len() && &entry[..length] == name).then_some(index)
         })
     }
 
@@ -83,7 +82,11 @@ impl Ledger {
             if !self.used[index] || Some(index) == replace {
                 continue;
             }
-            tasks[count] = (self.budgets[index], self.periods[index], self.deadlines[index]);
+            tasks[count] = (
+                self.budgets[index],
+                self.periods[index],
+                self.deadlines[index],
+            );
             count += 1;
         }
         tasks[count] = (budget, period, deadline);

@@ -513,14 +513,10 @@ impl Kernel {
             self.clear_active_if(thread);
             return false;
         };
-        let enqueued = self.scheduler.lock().enqueue(
-            thread,
-            class,
-            key,
-            cpu,
-            u64::from(weight),
-            migratable,
-        );
+        let enqueued =
+            self.scheduler
+                .lock()
+                .enqueue(thread, class, key, cpu, u64::from(weight), migratable);
         if enqueued {
             if let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) {
                 task.lock().mark_queued(now);
@@ -547,9 +543,7 @@ impl Kernel {
                 continue;
             };
             let affinity = task.lock().affinity_bits();
-            self.scheduler
-                .lock()
-                .remove_if_disallowed(thread, affinity);
+            self.scheduler.lock().remove_if_disallowed(thread, affinity);
         }
     }
 
@@ -601,7 +595,8 @@ impl Kernel {
     /// 返回 TCB 的有效 Grant 时间片；借贷时取更强契约的时间片。测试辅助。
     #[cfg(test)]
     pub(crate) fn slice_for_thread(&self, thread: TcbId) -> Option<u64> {
-        self.effective_contract(thread).map(|(_, _, slice, _)| slice)
+        self.effective_contract(thread)
+            .map(|(_, _, slice, _)| slice)
     }
 
     /// 返回 `cpu` 下一个需要唤醒的调度时刻：全局预算补充或本地 Grant 结束。

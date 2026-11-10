@@ -182,15 +182,17 @@ pub fn edf_admissible(tasks: &[(u64, u64, u64)]) -> bool {
 
 /// 计算时刻 `at` 前必须完成的累计执行需求。
 fn demand_bound(tasks: &[(u64, u64, u64)], at: u64) -> u64 {
-    tasks.iter().fold(0_u64, |total, (budget, period, deadline)| {
-        let deadline = if *deadline == 0 { *period } else { *deadline };
-        if at < deadline {
-            total
-        } else {
-            let jobs = (at - deadline) / period + 1;
-            total.saturating_add(budget.saturating_mul(jobs))
-        }
-    })
+    tasks
+        .iter()
+        .fold(0_u64, |total, (budget, period, deadline)| {
+            let deadline = if *deadline == 0 { *period } else { *deadline };
+            if at < deadline {
+                total
+            } else {
+                let jobs = (at - deadline) / period + 1;
+                total.saturating_add(budget.saturating_mul(jobs))
+            }
+        })
 }
 
 /// 空闲契约：Idle 类、最小权重。
@@ -598,7 +600,10 @@ mod tests {
 
     #[test]
     fn admits_realtime_set_by_demand_bound() {
-        assert!(edf_admissible(&[(3_000, 16_000, 8_000), (3_000, 16_000, 8_000)]));
+        assert!(edf_admissible(&[
+            (3_000, 16_000, 8_000),
+            (3_000, 16_000, 8_000)
+        ]));
         assert!(!edf_admissible(&[
             (3_000, 16_000, 8_000),
             (3_000, 16_000, 8_000),

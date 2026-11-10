@@ -439,9 +439,7 @@ fn apply_sched(sample: &mut PerfSample, rest: &str) {
     let overruns = number(fields.next()).unwrap_or(0);
     let switches = number(fields.next()).unwrap_or(0);
     let migrations = number(fields.next()).unwrap_or(0);
-    let last_cpu = fields
-        .next()
-        .and_then(|value| value.parse::<u32>().ok());
+    let last_cpu = fields.next().and_then(|value| value.parse::<u32>().ok());
     let Some(row) = sample.rows.iter_mut().find(|row| row.tcb == tcb) else {
         return;
     };

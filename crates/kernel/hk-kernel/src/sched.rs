@@ -218,11 +218,16 @@ impl Scheduler {
     }
 
     /// 按亲和性与负载选择入队 CPU；亲和集合内没有在线 CPU 时返回 `None`。
-    pub fn choose_cpu(&self, affinity: u64, last_cpu: u32, migratable: bool, heat: u32) -> Option<usize> {
+    pub fn choose_cpu(
+        &self,
+        affinity: u64,
+        last_cpu: u32,
+        migratable: bool,
+        heat: u32,
+    ) -> Option<usize> {
         let last = (last_cpu != NO_CPU).then_some(last_cpu as usize);
-        let last_valid = last.is_some_and(|cpu| {
-            cpu < self.online && affinity & (1_u64 << cpu) != 0
-        });
+        let last_valid =
+            last.is_some_and(|cpu| cpu < self.online && affinity & (1_u64 << cpu) != 0);
         if !migratable
             && let Some(last) = last
             && last_valid
@@ -491,7 +496,16 @@ mod tests {
         scheduler.set_online(2);
         assert_eq!(scheduler.choose_cpu(0b100, NO_CPU, true, 0), None);
         assert_eq!(
-            scheduler.enqueue_best(id(1), CadenceClass::Latency, 0, 1024, 0b100, NO_CPU, true, 0),
+            scheduler.enqueue_best(
+                id(1),
+                CadenceClass::Latency,
+                0,
+                1024,
+                0b100,
+                NO_CPU,
+                true,
+                0
+            ),
             None
         );
     }

@@ -1103,9 +1103,7 @@ fn affinity_without_online_cpu_stays_unrunnable() {
     kernel.set_online_cpus(2);
     let spec = CadenceSpec::new(CadenceClass::Latency, 1024)
         .with_affinity(hk_cadence::CpuMask::single(3).expect("CPU 3"));
-    let thread = kernel
-        .spawn_task(HandleTable::new(8), spec)
-        .expect("任务");
+    let thread = kernel.spawn_task(HandleTable::new(8), spec).expect("任务");
     assert_eq!(kernel.state_of(thread), Some(ThreadState::Runnable));
     assert!(!kernel.has_runnable(), "无可用 CPU 时不应进入队列");
     assert_eq!(kernel.schedule(0), None);
@@ -1580,7 +1578,10 @@ fn lending_throttles_caller_while_server_continues() {
         "调用方预算耗尽应进入 Throttled"
     );
     assert_eq!(
-        kernel.task_metrics(server_tcb).expect("服务端计量").consumed,
+        kernel
+            .task_metrics(server_tcb)
+            .expect("服务端计量")
+            .consumed,
         1_000,
         "服务端自身计量继续累计"
     );

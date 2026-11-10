@@ -598,11 +598,8 @@ fn stress_replay(seed: u64) -> RunReport {
             0 => CadenceSpec::new(CadenceClass::Realtime, 1024)
                 .with_budget(millis(1), millis(4))
                 .with_deadline(millis(2)),
-            1 => CadenceSpec::new(
-                CadenceClass::Latency,
-                512 + (lcg(&mut state) % 2048) as u32,
-            )
-            .with_latency(millis(1)),
+            1 => CadenceSpec::new(CadenceClass::Latency, 512 + (lcg(&mut state) % 2048) as u32)
+                .with_latency(millis(1)),
             _ => CadenceSpec::new(
                 CadenceClass::Throughput,
                 256 + (lcg(&mut state) % 2048) as u32,

@@ -118,12 +118,7 @@ impl Kernel {
             let (class, key) = self
                 .queue_entry(thread)
                 .unwrap_or((CadenceClass::Idle, u64::MAX));
-            endpoint.recv_from_prioritized(
-                Waiter::new(thread.get()),
-                expected,
-                class.as_u8(),
-                key,
-            )
+            endpoint.recv_from_prioritized(Waiter::new(thread.get()), expected, class.as_u8(), key)
         } else {
             endpoint.try_recv_from_indexed(expected)
         };
