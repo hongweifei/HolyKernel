@@ -77,6 +77,8 @@ struct Allocation {
     range: PhysRange,
     kind: FrameKind,
     charge: Charge,
+    /// 归属容量自己的 Ledger 记账；内核自用容量同样有一本账。
+    owner_charge: Option<Charge>,
     /// 归属容量；`None` 表示内核自用。
     owner: Option<CapacityId>,
 }
@@ -91,7 +93,10 @@ struct Inner {
     free_by_start: BTreeMap<u64, PhysRange>,
     free_by_len: BTreeMap<u64, BTreeSet<u64>>,
     total: u64,
+    /// 全系统物理用量。
     ledger: Ledger,
+    /// 每个容量自己的 Ledger。
+    ledgers: BTreeMap<CapacityId, Ledger>,
     allocations: BTreeMap<u64, Allocation>,
     by_kind: [u64; FrameKind::COUNT],
     /// 已登记给容量的窗口，按起始地址索引。
@@ -263,8 +268,11 @@ impl Inner {
         None
     }
 
-    /// 返回指定容量名下的已用字节数。
+    /// 返回指定容量名下的已用字节数；优先读该容量的 Ledger。
     fn used_for(&self, owner: CapacityId) -> u64 {
+        if let Some(ledger) = self.ledgers.get(&owner) {
+            return ledger.charged();
+        }
         self.allocations
             .values()
             .filter(|allocation| allocation.owner == Some(owner))
@@ -319,6 +327,7 @@ impl FrameBank {
                 free_by_len: BTreeMap::new(),
                 total: 0,
                 ledger: Ledger::new(LedgerId::new(0), 0),
+                ledgers: BTreeMap::new(),
                 allocations: BTreeMap::new(),
                 by_kind: [0; FrameKind::COUNT],
                 owned: BTreeMap::new(),
@@ -417,12 +426,34 @@ impl FrameBank {
             None => inner.find_free_unowned(length)?,
         };
         let charge = inner.ledger.charge(length).ok()?;
+        let total = inner.total;
+        let owner_charge = match owner {
+            Some(owner) => {
+                let ledger = inner
+                    .ledgers
+                    .entry(owner)
+                    .or_insert_with(|| Ledger::create(total));
+                match ledger.charge(length) {
+                    Ok(charge) => Some(charge),
+                    Err(_) => {
+                        let _ = inner.ledger.release(charge);
+                        return None;
+                    }
+                }
+            }
+            None => None,
+        };
         let Some(allocated) = inner.carve_free(start, length) else {
             let _ = inner.ledger.release(charge);
+            if let (Some(owner), Some(owner_charge)) = (owner, owner_charge)
+                && let Some(ledger) = inner.ledgers.get_mut(&owner)
+            {
+                let _ = ledger.release(owner_charge);
+            }
             return None;
         };
         if let Some(owner) = owner {
-            let used = inner.used_for(owner).saturating_add(length);
+            let used = inner.used_for(owner);
             let peak = inner.peaks.entry(owner).or_insert(0);
             *peak = (*peak).max(used);
         }
@@ -432,6 +463,7 @@ impl FrameBank {
                 range: allocated,
                 kind,
                 charge,
+                owner_charge,
                 owner,
             },
         );
@@ -477,6 +509,11 @@ impl FrameBank {
                 return;
             };
             let _ = inner.ledger.release(allocation.charge);
+            if let (Some(owner), Some(owner_charge)) = (allocation.owner, allocation.owner_charge)
+                && let Some(ledger) = inner.ledgers.get_mut(&owner)
+            {
+                let _ = ledger.release(owner_charge);
+            }
             let slot = &mut inner.by_kind[allocation.kind.index()];
             *slot = slot.saturating_sub(range.len());
             inner.coalesce_free(range);
@@ -579,19 +616,65 @@ impl FrameBank {
     /// 不改变已记入 Ledger 的用量。
     pub fn adopt_owner(&self, owner: CapacityId, range: PhysRange) -> bool {
         let mut inner = self.inner.lock();
-        {
-            let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
-                return false;
-            };
-            if allocation.range != range {
-                return false;
+        let (length, charged) = match inner.allocations.get(&range.start().get()) {
+            Some(allocation) if allocation.range == range => {
+                (allocation.range.len(), allocation.owner_charge)
             }
-            allocation.owner = Some(owner);
-        }
+            _ => return false,
+        };
+        let owner_charge = if charged.is_some() {
+            charged
+        } else {
+            let total = inner.total;
+            let ledger = inner
+                .ledgers
+                .entry(owner)
+                .or_insert_with(|| Ledger::create(total));
+            match ledger.charge(length) {
+                Ok(charge) => Some(charge),
+                Err(_) => return false,
+            }
+        };
+        let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
+            return false;
+        };
+        allocation.owner = Some(owner);
+        allocation.owner_charge = owner_charge;
         let used = inner.used_for(owner);
         let peak = inner.peaks.entry(owner).or_insert(0);
         *peak = (*peak).max(used);
         true
+    }
+
+    /// 注册或更新一个容量自己的 Ledger。
+    pub fn register_ledger(&self, owner: CapacityId, limit: u64) {
+        let mut inner = self.inner.lock();
+        if let Some(ledger) = inner.ledgers.get_mut(&owner) {
+            ledger.set_limit(limit);
+        } else {
+            inner.ledgers.insert(owner, Ledger::create(limit));
+        }
+    }
+
+    /// 更新容量 Ledger 的硬上限。
+    pub fn set_ledger_limit(&self, owner: CapacityId, limit: u64) {
+        if let Some(ledger) = self.inner.lock().ledgers.get_mut(&owner) {
+            ledger.set_limit(limit);
+        }
+    }
+
+    /// 更新容量 Ledger 的软上限。
+    pub fn set_ledger_soft_limit(&self, owner: CapacityId, limit: u64) {
+        if let Some(ledger) = self.inner.lock().ledgers.get_mut(&owner) {
+            ledger.set_soft_limit(limit);
+        }
+    }
+
+    /// 删除容量 Ledger。
+    pub fn remove_ledger(&self, owner: CapacityId) {
+        let mut inner = self.inner.lock();
+        inner.ledgers.remove(&owner);
+        inner.peaks.remove(&owner);
     }
 
     /// 设置内核自用分配的归属容量。

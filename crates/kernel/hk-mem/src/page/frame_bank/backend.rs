@@ -118,6 +118,11 @@ impl PhysicalBackend for FrameBank {
             return false;
         };
         let _ = inner.ledger.release(allocation.charge);
+        if let (Some(owner), Some(owner_charge)) = (allocation.owner, allocation.owner_charge)
+            && let Some(ledger) = inner.ledgers.get_mut(&owner)
+        {
+            let _ = ledger.release(owner_charge);
+        }
         let slot = &mut inner.by_kind[allocation.kind.index()];
         *slot = slot.saturating_sub(range.len());
         // 归属已校验、分配记录已移除；在把区间交回空闲表前清零。此刻持锁，
@@ -132,6 +137,27 @@ impl PhysicalBackend for FrameBank {
     }
 
     fn peak_owned(&self, owner: CapacityId) -> u64 {
-        self.inner.lock().peaks.get(&owner).copied().unwrap_or(0)
+        let inner = self.inner.lock();
+        inner
+            .ledgers
+            .get(&owner)
+            .map(|ledger| ledger.peak())
+            .unwrap_or_else(|| inner.peaks.get(&owner).copied().unwrap_or(0))
+    }
+
+    fn register_ledger(&self, owner: CapacityId, limit: u64) {
+        FrameBank::register_ledger(self, owner, limit);
+    }
+
+    fn set_ledger_limit(&self, owner: CapacityId, limit: u64) {
+        FrameBank::set_ledger_limit(self, owner, limit);
+    }
+
+    fn set_ledger_soft_limit(&self, owner: CapacityId, limit: u64) {
+        FrameBank::set_ledger_soft_limit(self, owner, limit);
+    }
+
+    fn remove_ledger(&self, owner: CapacityId) {
+        FrameBank::remove_ledger(self, owner);
     }
 }

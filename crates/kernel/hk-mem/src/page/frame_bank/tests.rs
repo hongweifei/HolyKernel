@@ -3,6 +3,37 @@ use crate::hmp::{HmpError, PhysicalBackend};
 use hk_hal::RegionKind;
 
 #[test]
+fn capacity_ledger_enforces_owner_quota() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let owner = CapacityId::next();
+    bank.reserve_for(owner, 0x2000).expect("预留");
+    bank.register_ledger(owner, PAGE_SIZE as u64);
+    assert!(
+        bank.allocate_owned(owner, CapacityKind::User, PAGE_SIZE as u64)
+            .is_some()
+    );
+    assert!(
+        bank.allocate_owned(owner, CapacityKind::User, PAGE_SIZE as u64)
+            .is_none(),
+        "超出容量 Ledger 配额应拒绝"
+    );
+    assert_eq!(bank.used_owned(owner), PAGE_SIZE as u64);
+}
+
+#[test]
+fn adopting_owner_charges_its_ledger() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let owner = CapacityId::next();
+    bank.register_ledger(owner, 0x4000);
+    let range = bank.allocate_contiguous(PAGE_SIZE).expect("内核自用页");
+    assert_eq!(bank.used_owned(owner), 0);
+    assert!(bank.adopt_owner(owner, range));
+    assert_eq!(bank.used_owned(owner), PAGE_SIZE as u64);
+    assert!(bank.release_owned(owner, range));
+    assert_eq!(bank.used_owned(owner), 0);
+}
+
+#[test]
 fn covers_all_usable_regions() {
     let regions = [
         MemoryRegion::new(PhysAddr::new(0x1_0000), 0x2_0000, RegionKind::Usable),

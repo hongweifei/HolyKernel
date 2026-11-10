@@ -40,6 +40,18 @@ pub trait PhysicalBackend: Send + Sync {
 
     /// 返回指定容量名下的峰值用量。
     fn peak_owned(&self, owner: CapacityId) -> u64;
+
+    /// 注册或更新一个容量的 Ledger 配额。
+    fn register_ledger(&self, _owner: CapacityId, _limit: u64) {}
+
+    /// 更新指定容量 Ledger 的硬上限。
+    fn set_ledger_limit(&self, _owner: CapacityId, _limit: u64) {}
+
+    /// 更新指定容量 Ledger 的软上限。
+    fn set_ledger_soft_limit(&self, _owner: CapacityId, _soft_limit: u64) {}
+
+    /// 删除指定容量的 Ledger。
+    fn remove_ledger(&self, _owner: CapacityId) {}
 }
 
 static BACKEND: spin::Mutex<Option<&'static dyn PhysicalBackend>> = spin::Mutex::new(None);

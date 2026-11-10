@@ -121,7 +121,7 @@ impl Capacity {
         if limit < page_size as u64 {
             return Err(HmpError::InvalidSize);
         }
-        Ok(Self {
+        let capacity = Self {
             id,
             range,
             page_size,
@@ -133,7 +133,11 @@ impl Capacity {
             peak: 0,
             free: Vec::new(),
             next: range.start().get(),
-        })
+        };
+        if let Some(backend) = super::backend::physical_backend() {
+            backend.register_ledger(id, limit);
+        }
+        Ok(capacity)
     }
 
     /// 分配一段连续物理页，返回 Frame。
@@ -217,6 +221,7 @@ impl Capacity {
             let mut child = Self::new(id, range, self.page_size, kind, length)?;
             child.parent = Some(self.id);
             self.limit = self.limit.saturating_sub(length);
+            backend.set_ledger_limit(self.id, self.limit);
             return Ok(child);
         }
 
@@ -321,6 +326,8 @@ impl Capacity {
         if let Some(backend) = super::backend::physical_backend() {
             backend.merge_owned(self.id, child.id, range)?;
             self.limit = self.limit.saturating_add(child.limit);
+            backend.set_ledger_limit(self.id, self.limit);
+            backend.remove_ledger(child.id);
             return Ok(());
         }
 
@@ -372,6 +379,9 @@ impl Capacity {
     /// 设置软上限；0 表示未设置。软上限只用于报告，不拒绝分配。
     pub fn set_soft_limit(&mut self, limit: u64) {
         self.soft_limit = limit;
+        if let Some(backend) = super::backend::physical_backend() {
+            backend.set_ledger_soft_limit(self.id, limit);
+        }
     }
 
     /// 返回软上限。

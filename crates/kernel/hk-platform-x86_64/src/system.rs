@@ -21,11 +21,13 @@ static SYSTEM: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()> {
     let id = CapacityId::next();
     let range = bank.reserve_remaining(id)?;
+    let limit = bank.total().saturating_sub(reserved);
+    // 先建立 System 自己的 Ledger，再接管内核堆，保证 adopt 的记账有账可落。
+    bank.register_ledger(id, limit);
     if !bank.adopt_owner(id, heap) {
         return None;
     }
     bank.set_kernel_owner(Some(id));
-    let limit = bank.total().saturating_sub(reserved);
     let capacity = Capacity::with_limit(id, range, PAGE_SIZE, CapacityKind::System, limit).ok()?;
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
     Some(())

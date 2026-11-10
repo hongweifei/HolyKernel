@@ -108,6 +108,11 @@ impl Ledger {
         self.limit
     }
 
+    /// 更新硬上限；软上限与已记账量保持不变。
+    pub fn set_limit(&mut self, limit: u64) {
+        self.limit = limit;
+    }
+
     /// 返回当前记账量。
     pub const fn charged(&self) -> u64 {
         self.charged
