@@ -1259,9 +1259,9 @@ fn transports_byte_payloads() {
     let base = u64::from_le_bytes(data[0x300..0x308].try_into().expect("base"));
     let size = u64::from_le_bytes(data[0x308..0x310].try_into().expect("size"));
     let regions = u64::from_le_bytes(data[0x318..0x320].try_into().expect("regions"));
-    assert_eq!(base, 0);
+    assert_ne!(base, 0, "Arena 应报告真实基址");
     assert!(size > 0);
-    assert_eq!(regions, 0);
+    assert_eq!(regions, 1, "内部惰性 Region 应登记进 Arena");
     drop(data);
 
     context.rax = hk_syscall::SYS_MEMORY_STATS;
@@ -2042,14 +2042,18 @@ fn arena_tracks_mapped_regions() {
     let region = context.rax;
     assert_ne!(region, u64::MAX);
     let arena = &runtime.process(0).hmp_arena;
-    assert_eq!(arena.regions().len(), 1);
-    assert_eq!(arena.used(), 0x2000);
+    assert_eq!(arena.regions().len(), 2, "内部 Arena Region + 用户 Region");
+    assert!(arena.used() >= 0x2000);
 
     context.rax = SYS_REGION_UNMAP;
     context.rdi = region;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
-    assert!(runtime.process(0).hmp_arena.regions().is_empty());
+    assert_eq!(
+        runtime.process(0).hmp_arena.regions().len(),
+        1,
+        "只剩内部 Arena Region"
+    );
     let _ = runtime.finish(0, index);
 }
 
@@ -2085,7 +2089,11 @@ fn lazy_region_unmap_failure_keeps_region() {
     context.rdi = region;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
-    assert_eq!(runtime.process(0).hmp_arena.regions().len(), 1);
+    assert_eq!(
+        runtime.process(0).hmp_arena.regions().len(),
+        2,
+        "解除失败时用户 Region 仍登记"
+    );
     assert_eq!(runtime.process(0).regions.iter().flatten().count(), 1);
     let _ = runtime.finish(0, index);
 }

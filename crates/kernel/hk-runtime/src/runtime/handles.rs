@@ -517,6 +517,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let _ = self.kernel.close_handle(region.owner, region.handle);
         let _ = self.kernel.close_handle(region.owner, region.capability);
+        let _ = self.process_mut(index).hmp_arena.remove(region.region);
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);
         }

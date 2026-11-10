@@ -160,10 +160,15 @@ impl Process {
             return Err(KernelError::Hmp(error));
         }
         let region_id = region.id();
+        if self.hmp_arena.insert(&region).is_err() {
+            let _ = kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(HmpError::AlreadyMapped));
+        }
         let region_handle =
             match kernel.create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN) {
                 Ok(handle) => handle,
                 Err(error) => {
+                    let _ = self.hmp_arena.remove(region_id);
                     let _ = kernel.close_handle(tcb, capability_handle);
                     return Err(error);
                 }
