@@ -104,7 +104,7 @@ pub struct ServiceManifest {
 
 ### 3.2 Memory Server
 
-- Root Server 从顶层 User Capacity 中切出子集授予 Memory Server（句柄 `0x5001`）。
+- Root Server 从 System 的 User 窗口按需切出子集授予 Memory Server（句柄 `0x5001`）；初始只切一个页窗口，分配不足时 `Capacity::grow` 继续从 System 扩窗。
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
 - `MEMORY_FRAME` 从授予的 User Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
 - 缺页请求 `PROVIDER_FAULT` 通过 `SYS_CAPACITY_ALLOC` 分配 Frame，`PROVIDER_PROVIDE` 返回 Frame 句柄；内核取得归属并装入能力页，回收时归还 Capacity。

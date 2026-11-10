@@ -166,7 +166,7 @@ impl UserPlatform for MockPlatform {
     ) -> Option<hk_mem::hmp::Capacity> {
         hk_mem::hmp::Capacity::new(
             hk_mem::hmp::CapacityId::next(),
-            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8000_0000), len as u64),
+            hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x9000_0000), len as u64),
             hk_hal::PAGE_SIZE,
             kind,
             0,
@@ -281,7 +281,7 @@ fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> 
 
 fn runtime_on<P: UserPlatform>(second: &'static str, platform: P) -> UserRuntime<MockContext, P> {
     let second = if second == hk_syscall::MEMORY_SERVICE {
-        crate::ServiceSpec::new(second).with_system_capacity()
+        crate::ServiceSpec::new(second).with_capacity(hk_mem::hmp::CapacityKind::User, 0x20_0000)
     } else {
         crate::ServiceSpec::new(second)
     };
@@ -421,7 +421,7 @@ fn arms_wakeup_at_sleep_deadline() {
 }
 
 #[test]
-fn memory_service_receives_shared_system_capacity() {
+fn memory_service_receives_user_capacity_subset() {
     let runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let system = runtime
         .system_capacity
@@ -441,8 +441,63 @@ fn memory_service_receives_shared_system_capacity() {
                 .ok()
         })
         .expect("Memory Server 持有容量");
-    // 授予视图与内核默认匿名容量是同一个对象：两条出页路径共用同一本账。
-    assert_eq!(granted.lock().id(), system);
+    let granted = granted.lock();
+    assert_eq!(granted.kind(), hk_mem::hmp::CapacityKind::User);
+    assert_ne!(
+        granted.id(),
+        system,
+        "Memory Server 不再持有 System 共享视图"
+    );
+    assert_eq!(granted.limit(), 0x20_0000);
+}
+
+#[test]
+fn memory_service_capability_allocates_from_user_capacity() {
+    let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    let Step::Resume { mut context, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    // 让第一个任务阻塞，调度到 Memory Server。
+    context.rax = SYS_RECV;
+    context.rdi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    let Step::Resume {
+        index: memory,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Memory Server 应可运行");
+    };
+    assert_eq!(memory, 1);
+
+    let user_handle = runtime.tasks[memory]
+        .capacities
+        .iter()
+        .flatten()
+        .next()
+        .copied()
+        .expect("User Capacity 句柄");
+    let user = runtime
+        .kernel
+        .capacity_ref(runtime.tasks[memory].tcb, user_handle)
+        .expect("User Capacity");
+    let user_range = user.lock().range();
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX, "能力创建应成功");
+    let (_, _, backing) = runtime
+        .capability_at(memory, capability as usize)
+        .expect("能力句柄");
+    let backing = backing.expect("能力有常驻后备");
+    assert!(
+        backing.start() >= user_range.start() && backing.end() <= user_range.end(),
+        "能力页必须来自 Memory Server 的 User Capacity"
+    );
+    let _ = runtime.finish(0, memory);
 }
 
 #[test]

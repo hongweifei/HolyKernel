@@ -152,7 +152,7 @@ impl Capacity {
         }
 
         if let Some(backend) = super::backend::physical_backend() {
-            if self.used().saturating_add(length) > self.limit {
+            if self.used().saturating_add(length) > self.limit && !self.grow(length) {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
@@ -197,6 +197,25 @@ impl Capacity {
         self.used = self.used.saturating_add(length);
         self.peak = self.peak.max(self.used);
         Ok(frame)
+    }
+
+    /// 从父 Capacity 动态扩出一段窗口，供当前容量继续分配。
+    ///
+    /// 只对通过 `split` 建立的子容量有效；扩出的窗口登记在当前容量名下，
+    /// 父容量只让出对应的空闲尾部，不再按固定大小预切整段。
+    fn grow(&mut self, length: u64) -> bool {
+        let Some(parent) = self.parent else {
+            return false;
+        };
+        let Some(backend) = super::backend::physical_backend() else {
+            return false;
+        };
+        let Some(range) = backend.split_owned(parent, self.id, length) else {
+            return false;
+        };
+        self.limit = self.limit.saturating_add(range.len());
+        backend.set_ledger_limit(self.id, self.limit);
+        true
     }
 
     /// 从未分配尾部切出一个子 Capacity。

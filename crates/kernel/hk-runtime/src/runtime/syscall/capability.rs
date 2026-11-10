@@ -7,8 +7,23 @@ use hk_mem::hmp::{Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedF
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 选择当前任务用于能力分配的容量：优先使用授予的 Capacity，
+    /// 没有授予容量时才退回内核 System Capacity。
+    fn allocation_capacity(&self, index: usize) -> Option<Arc<spin::Mutex<Capacity>>> {
+        let tcb = self.tasks[index].tcb;
+        let handle = self.tasks[index]
+            .capacities
+            .iter()
+            .flatten()
+            .next()
+            .copied()?;
+        self.kernel.capacity_ref(tcb, handle).ok()
+    }
+
     pub(super) fn allocate_owned(&mut self, index: usize, len: u64) -> Option<FrameBacking> {
-        let capacity = self.system_capacity.clone()?;
+        let capacity = self
+            .allocation_capacity(index)
+            .or_else(|| self.system_capacity.clone())?;
         let allocated = { capacity.lock().allocate(len as usize) };
         let frame = match allocated {
             Ok(frame) => frame,

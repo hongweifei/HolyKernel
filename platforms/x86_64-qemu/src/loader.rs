@@ -24,6 +24,9 @@ const USER_STACK_SIZE: u64 = hk_base::user::STACK_SIZE;
 /// 各服务用户栈之间的间隔。
 const USER_STACK_STRIDE: u64 = hk_base::user::STACK_STRIDE;
 
+/// Memory Server 的 User Capacity 初始窗口；后续按分配需求从 System 增长。
+const MEMORY_USER_CAPACITY_INITIAL_BYTES: usize = PAGE_SIZE;
+
 /// 加载默认启动服务并运行到退出。
 pub fn run(
     info: &BootInfo,
@@ -330,9 +333,13 @@ pub fn run(
                 ServiceSpec::new(name)
             };
             if *name == "hk-server-memory" {
-                // Memory Server 持有启动期 System Capacity 的共享视图，作为用户
-                // 内存的唯一来源；不再单独切出一段固定大小的子容量。
-                spec = spec.with_system_capacity();
+                // User Capacity 只预切一个页窗口；分配不足时 `Capacity::grow`
+                // 从 System 动态扩窗，匿名 capability、Frame 与 Provider 页
+                // 都从这本用户账出页。
+                spec = spec.with_capacity(
+                    hk_mem::hmp::CapacityKind::User,
+                    MEMORY_USER_CAPACITY_INITIAL_BYTES,
+                );
             } else if device {
                 spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
             }
