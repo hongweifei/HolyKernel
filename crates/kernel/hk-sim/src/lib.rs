@@ -43,6 +43,8 @@ pub struct RunReport {
     pub seed: u64,
     /// 每次调度的线程编号，按时间顺序。
     pub order: Vec<TcbId>,
+    /// 单次 dispatch 的最大就绪等待时间（契约 tick），用于有界响应分析。
+    pub max_wait: u64,
 }
 
 /// 仿真错误。
@@ -104,6 +106,8 @@ pub struct Simulator {
     order: Vec<TcbId>,
     seed: u64,
     cpus: usize,
+    last_waited: BTreeMap<TcbId, u64>,
+    max_wait: u64,
 }
 
 impl Simulator {
@@ -119,6 +123,8 @@ impl Simulator {
             order: Vec::new(),
             seed,
             cpus: 1,
+            last_waited: BTreeMap::new(),
+            max_wait: 0,
         }
     }
 
@@ -173,6 +179,13 @@ impl Simulator {
                     return Err(SimError::StepLimit { steps: self.steps });
                 }
                 self.order.push(thread);
+                let waited = self
+                    .kernel
+                    .task_meter_snapshot(thread)
+                    .map_or(0, |meter| meter.waited);
+                let previous = self.last_waited.get(&thread).copied().unwrap_or(0);
+                self.max_wait = self.max_wait.max(waited.saturating_sub(previous));
+                self.last_waited.insert(thread, waited);
                 self.kernel.charge(thread, self.quantum);
                 self.clock = self.clock.saturating_add(self.quantum);
 
@@ -215,6 +228,7 @@ impl Simulator {
             trace_events: self.kernel.trace_len(),
             seed: self.seed,
             order: core::mem::take(&mut self.order),
+            max_wait: self.max_wait,
         })
     }
 

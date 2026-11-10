@@ -215,6 +215,11 @@ impl Kernel {
             .find(|task| Arc::ptr_eq(&task.lock().cadence(), cadence))
     }
 
+    /// 按契约标识返回契约描述；用于 checkpoint 恢复时回退父契约。
+    pub fn cadence_spec_by_id(&self, id: CadenceId) -> Option<CadenceSpec> {
+        self.cadence_by_id(id).map(|cadence| cadence.lock().spec())
+    }
+
     /// 按契约标识查找持有的 Cadence；仅用于父契约范围校验。
     fn cadence_by_id(&self, id: CadenceId) -> Option<Arc<spin::Mutex<Cadence>>> {
         let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();

@@ -370,13 +370,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     }
                 }
             }
-            // Tempo 缺失或准入失败：按设计回退默认 Throughput 契约。
+            // 准入失败：优先回退到父契约；父契约缺失时用默认 Throughput（§8）。
             if !granted {
-                restored = Cadence::from_spec(
-                    CadenceId::next(),
-                    CadenceSpec::new(CadenceClass::Throughput, 1024),
-                )
-                .map_err(|error| format!("{error}"))?;
+                let parent = restored.parent();
+                let parent_spec = parent.and_then(|id| self.kernel.cadence_spec_by_id(id));
+                restored = match parent_spec {
+                    Some(spec) => {
+                        Cadence::restore(CadenceId::next(), parent, restored.epoch(), spec)
+                            .map_err(|error| format!("{error}"))?
+                    }
+                    None => Cadence::from_spec(
+                        CadenceId::next(),
+                        CadenceSpec::new(CadenceClass::Throughput, 1024),
+                    )
+                    .map_err(|error| format!("{error}"))?,
+                };
             }
         }
         let base = self.average_virtual_pass(restored.class());

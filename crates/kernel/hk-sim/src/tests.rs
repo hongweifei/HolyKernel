@@ -2,6 +2,7 @@
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_cadence::{CadenceClass, CadenceSpec, DEFAULT_SPEC, millis};
@@ -520,6 +521,131 @@ fn replays_wakeup_preemption() {
         Some(&realtime),
         "发送唤醒后实时任务应立即抢占后台任务"
     );
+}
+
+#[test]
+fn replays_bounded_wakeup_response() {
+    let kernel = Kernel::new();
+    let realtime = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(1)),
+        )
+        .expect("实时任务");
+    let hog = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Throughput, 1024),
+        )
+        .expect("后台任务");
+
+    let mut simulator = Simulator::new(kernel, 5)
+        .with_quantum(10)
+        .with_step_limit(200);
+    let parked = Arc::new(AtomicU64::new(0));
+    let first = parked.clone();
+    simulator.register(
+        realtime,
+        Box::new(move |kernel, tid| {
+            if first.fetch_add(1, Ordering::Relaxed) == 0 {
+                kernel.park(tid).expect("挂起");
+                ThreadStep::Continue
+            } else {
+                ThreadStep::Exit
+            }
+        }),
+    );
+    let runs = Arc::new(AtomicU64::new(0));
+    simulator.register(
+        hog,
+        Box::new(move |kernel, _| {
+            let count = runs.fetch_add(1, Ordering::Relaxed);
+            if count == 2 {
+                kernel.wake_thread(realtime);
+            }
+            if count >= 6 {
+                ThreadStep::Exit
+            } else {
+                ThreadStep::Continue
+            }
+        }),
+    );
+
+    let report = simulator.run().expect("唤醒回放完成");
+    assert_eq!(report.exits, 2);
+    assert!(
+        report.max_wait <= 10,
+        "唤醒到运行应在一个量子内有界，实际 {}",
+        report.max_wait
+    );
+}
+
+fn lcg(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    *state >> 33
+}
+
+fn stress_replay(seed: u64) -> RunReport {
+    let kernel = Kernel::new();
+    let mut state = seed ^ 0x9e37_79b9_7f4a_7c15;
+    let mut threads = Vec::new();
+    for _ in 0..12 {
+        let spec = match lcg(&mut state) % 3 {
+            0 => CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(2)),
+            1 => CadenceSpec::new(
+                CadenceClass::Latency,
+                512 + (lcg(&mut state) % 2048) as u32,
+            )
+            .with_latency(millis(1)),
+            _ => CadenceSpec::new(
+                CadenceClass::Throughput,
+                256 + (lcg(&mut state) % 2048) as u32,
+            ),
+        };
+        threads.push(
+            kernel
+                .spawn_task(HandleTable::with_default_quota(), spec)
+                .expect("任务"),
+        );
+    }
+
+    let mut simulator = Simulator::new(kernel, seed)
+        .with_cpus(2)
+        .with_quantum(10)
+        .with_step_limit(10_000);
+    for thread in threads {
+        let limit = 1 + (lcg(&mut state) % 6);
+        let runs = Arc::new(AtomicU64::new(0));
+        simulator.register(
+            thread,
+            Box::new(move |_, _| {
+                if runs.fetch_add(1, Ordering::Relaxed) >= limit {
+                    ThreadStep::Exit
+                } else {
+                    ThreadStep::Continue
+                }
+            }),
+        );
+    }
+    simulator.run().expect("随机压力回放完成")
+}
+
+#[test]
+fn replays_randomized_workload_deterministically() {
+    let first = stress_replay(1234);
+    let second = stress_replay(1234);
+    assert_eq!(first, second, "相同种子应产生相同的压力回放");
+    assert_eq!(first.exits, 12);
+
+    let other = stress_replay(4321);
+    assert_eq!(other.exits, 12);
+    assert_ne!(first.order, other.order, "不同种子应产生不同调度序列");
 }
 
 #[test]

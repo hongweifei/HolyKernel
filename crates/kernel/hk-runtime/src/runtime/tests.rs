@@ -94,6 +94,8 @@ struct MockPlatform {
     last_map: Arc<core::sync::atomic::AtomicU64>,
     /// 共享的 System Capacity。
     system: Arc<spin::Mutex<hk_mem::hmp::Capacity>>,
+    /// 每槽位捕获的用户页，供检查点恢复测试。
+    pages: Arc<spin::Mutex<alloc::collections::BTreeMap<usize, Vec<hk_checkpoint::Page>>>>,
 }
 
 impl MockPlatform {
@@ -113,6 +115,7 @@ impl MockPlatform {
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
             system: Arc::new(spin::Mutex::new(system)),
+            pages: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
         }
     }
 }
@@ -229,6 +232,19 @@ impl UserPlatform for MockPlatform {
     fn map_framebuffer(&self, _slot: usize, _virt: u64) -> Option<u64> {
         Some(16)
     }
+
+    fn capture_pages(&self, slot: usize) -> Option<Vec<hk_checkpoint::Page>> {
+        Some(self.pages.lock().get(&slot).cloned().unwrap_or_default())
+    }
+
+    fn restore_pages(&self, slot: usize, pages: &[hk_checkpoint::Page]) -> bool {
+        self.pages.lock().insert(slot, pages.to_vec());
+        true
+    }
+
+    fn release_pages(&self, slot: usize) {
+        self.pages.lock().remove(&slot);
+    }
 }
 
 fn runtime_with(second: &'static str) -> UserRuntime<MockContext, MockPlatform> {
@@ -277,6 +293,77 @@ fn renders_cadence_meter_and_tempo_views() {
     assert!(meter.contains("consumed="), "{meter}");
     assert!(runtime.cadence_text("missing").contains("未知任务"));
     assert!(runtime.tempo_text().contains("Tempo 未运行"));
+}
+
+#[test]
+fn checkpoint_restore_preserves_cadence_and_meter() {
+    let mut runtime = runtime();
+    let info = runtime
+        .tasks()
+        .into_iter()
+        .find(|task| task.name == "a")
+        .expect("任务 a");
+    let tcb = hk_kernel::TcbId::new(info.tcb);
+    let task = runtime.kernel.task_of(tcb).expect("Task");
+    runtime
+        .kernel
+        .set_policy_authority(task, true)
+        .expect("策略权限");
+    let rights =
+        hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN;
+    let cadence = runtime
+        .kernel
+        .grant_cadence(tcb, task, rights)
+        .expect("授予 Cadence");
+    let mut spec = runtime.kernel.cadence_spec(task).expect("契约");
+    spec.weight = 2048;
+    spec.latency = hk_cadence::millis(2);
+    runtime
+        .kernel
+        .update_cadence(tcb, cadence, spec)
+        .expect("更新契约");
+    runtime.kernel.charge(tcb, 1_234);
+
+    let before = runtime
+        .kernel
+        .task_cadence_snapshot(tcb)
+        .expect("契约快照");
+    let before_meter = runtime.kernel.task_meter_snapshot(tcb).expect("计量快照");
+
+    let slot = runtime
+        .tasks()
+        .iter()
+        .position(|task| task.name == "a")
+        .expect("任务槽");
+    runtime.checkpoint("a").expect("保存检查点");
+    let restored = runtime.restore_checkpoint("a").expect("恢复检查点");
+    assert_eq!(restored, slot, "应恢复到同一任务槽");
+
+    let info = runtime
+        .tasks()
+        .into_iter()
+        .find(|task| task.name == "a" && task.state != "exited")
+        .expect("恢复后的任务");
+    let tcb = hk_kernel::TcbId::new(info.tcb);
+    let after = runtime
+        .kernel
+        .task_cadence_snapshot(tcb)
+        .expect("契约快照");
+    let after_meter = runtime.kernel.task_meter_snapshot(tcb).expect("计量快照");
+
+    assert_eq!(after.class, before.class);
+    assert_eq!(after.weight, before.weight);
+    assert_eq!(after.budget, before.budget);
+    assert_eq!(after.period, before.period);
+    assert_eq!(after.deadline, before.deadline);
+    assert_eq!(after.latency, before.latency);
+    assert_eq!(after_meter.consumed, before_meter.consumed);
+    assert_eq!(after_meter.waited, before_meter.waited);
+    assert_eq!(after_meter.throttled, before_meter.throttled);
+    assert_eq!(after_meter.switches, before_meter.switches);
+    assert_eq!(after_meter.overruns, before_meter.overruns);
+    assert_eq!(after_meter.migrations, before_meter.migrations);
+    assert_eq!(after_meter.migration_cost, before_meter.migration_cost);
 }
 
 #[test]
