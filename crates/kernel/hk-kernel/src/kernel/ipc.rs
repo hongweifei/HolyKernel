@@ -1,4 +1,5 @@
 use super::*;
+use hk_cadence::CadenceClass;
 
 impl Kernel {
     /// 发送消息；消息入队或直接交付后立即返回，不阻塞发送者。
@@ -113,7 +114,16 @@ impl Kernel {
         let expected = expected.map(|tcb| Waiter::new(tcb.get()));
         // 非阻塞路径不能登记等待者，否则会在端点里留下悬挂的接收者。
         let received = if block_when_empty {
-            endpoint.recv_from_indexed(Waiter::new(thread.get()), expected)
+            // 等待队列按 Cadence 类别与虚拟键排序；同类别同键保持 FIFO。
+            let (class, key) = self
+                .queue_entry(thread)
+                .unwrap_or((CadenceClass::Idle, u64::MAX));
+            endpoint.recv_from_prioritized(
+                Waiter::new(thread.get()),
+                expected,
+                class.as_u8(),
+                key,
+            )
         } else {
             endpoint.try_recv_from_indexed(expected)
         };

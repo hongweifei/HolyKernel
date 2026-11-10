@@ -114,6 +114,10 @@ struct PendingSend {
 struct PendingRecv {
     receiver: Waiter,
     expected: Option<Waiter>,
+    /// 等待者的调度类别；越小越优先。
+    class: u8,
+    /// 等待者的虚拟键；同类别内越小越优先。
+    key: u64,
 }
 
 #[derive(Default)]
@@ -219,9 +223,51 @@ impl Endpoint {
             let pending = state.senders.remove(index)?;
             return Some((index, pending.sender, pending.message));
         }
-        state
+        state.receivers.push_back(PendingRecv {
+            receiver,
+            expected,
+            class: u8::MAX,
+            key: 0,
+        });
+        None
+    }
+
+    /// 接收消息，并按调度类别与虚拟键把接收者插入等待队列。
+    ///
+    /// 类别更小、键更小者优先；类别与键都相同时保持 FIFO（`recv` 的登记顺序）。
+    pub fn recv_from_prioritized(
+        &self,
+        receiver: Waiter,
+        expected: Option<Waiter>,
+        class: u8,
+        key: u64,
+    ) -> Option<(usize, Waiter, Message)> {
+        let mut state = self.state.lock();
+        let index = match expected {
+            None => (!state.senders.is_empty()).then_some(0),
+            Some(expected) => state
+                .senders
+                .iter()
+                .position(|pending| pending.sender == expected),
+        };
+        if let Some(index) = index {
+            let pending = state.senders.remove(index)?;
+            return Some((index, pending.sender, pending.message));
+        }
+        let position = state
             .receivers
-            .push_back(PendingRecv { receiver, expected });
+            .iter()
+            .position(|pending| (pending.class, pending.key) > (class, key))
+            .unwrap_or(state.receivers.len());
+        state.receivers.insert(
+            position,
+            PendingRecv {
+                receiver,
+                expected,
+                class,
+                key,
+            },
+        );
         None
     }
 
@@ -252,9 +298,15 @@ impl Endpoint {
     pub fn restore_receiver(&self, position: usize, receiver: Waiter, expected: Option<Waiter>) {
         let mut state = self.state.lock();
         let position = position.min(state.receivers.len());
-        state
-            .receivers
-            .insert(position, PendingRecv { receiver, expected });
+        state.receivers.insert(
+            position,
+            PendingRecv {
+                receiver,
+                expected,
+                class: u8::MAX,
+                key: 0,
+            },
+        );
     }
 
     /// 交付失败时把发送者消息放回原位置。
@@ -432,6 +484,23 @@ mod tests {
             }
         );
         assert_eq!(endpoint.waiting_receivers(), 0);
+    }
+
+    #[test]
+    fn prioritized_receivers_ordered_by_class_and_key() {
+        let endpoint = Endpoint::new();
+        endpoint.recv_from_prioritized(waiter(1), None, 2, 0);
+        endpoint.recv_from_prioritized(waiter(2), None, 1, 50);
+        endpoint.recv_from_prioritized(waiter(3), None, 1, 10);
+        assert_eq!(endpoint.waiting_receivers(), 3);
+
+        let deliver = |sender| match endpoint.send(waiter(sender), Message::new(1)) {
+            SendOutcome::Delivered { receiver, .. } => receiver,
+            _ => panic!("应直接交付等待者"),
+        };
+        assert_eq!(deliver(10), waiter(3));
+        assert_eq!(deliver(10), waiter(2));
+        assert_eq!(deliver(10), waiter(1));
     }
 
     #[test]
