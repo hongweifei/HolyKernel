@@ -6,12 +6,12 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP_CAPABILITY, SYS_DMA_MAP_FRAME,
-    SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE,
-    SYS_FRAME_SHARE, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_MEMORY_STATS, SYS_OBJECT_LEDGER,
+    SYS_FRAME_BANK_STATS, SYS_FRAME_FREE, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN,
+    SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_LEDGER,
     SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
 };
 
-use hk_syscall::LEDGER_RECORD_BYTES;
+use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
 
 use crate::syscall_call;
 
@@ -401,9 +401,9 @@ pub fn arena_info() -> Option<ArenaInfo> {
     })
 }
 
-/// System Capacity 记账快照。
+/// FrameBank 物理用量快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MemoryStats {
+pub struct FrameBankStats {
     /// 总字节数。
     pub total: u64,
     /// 已用字节数。
@@ -412,17 +412,17 @@ pub struct MemoryStats {
     pub peak: u64,
     /// 空闲字节数。
     pub free: u64,
-    /// 各用途已用字节数：KernelHeap、PageTable、Cow、Restore、Image、Dma、Other。
-    pub by_kind: [u64; 7],
+    /// 各 Capacity 用途已用字节数：System、User、Dma、Gpu、Numa。
+    pub by_capacity: [u64; CAPACITY_KIND_COUNT],
 }
 
-/// 查询 System Capacity 的 FrameBank 记账快照。
-pub fn memory_stats() -> Option<MemoryStats> {
-    let mut bytes = [0_u8; 88];
-    // SAFETY: 缓冲区属于本进程；内核写入 System Capacity 快照。
+/// 查询 FrameBank 物理用量快照。
+pub fn frame_bank_stats() -> Option<FrameBankStats> {
+    let mut bytes = [0_u8; 32 + CAPACITY_KIND_COUNT * 8];
+    // SAFETY: 缓冲区属于本进程；内核写入 FrameBank 物理用量快照。
     let result = unsafe {
         syscall_call(
-            SYS_MEMORY_STATS,
+            SYS_FRAME_BANK_STATS,
             bytes.as_mut_ptr() as u64,
             bytes.len() as u64,
             0,
@@ -430,20 +430,20 @@ pub fn memory_stats() -> Option<MemoryStats> {
         )
         .value
     };
-    if result != 88 {
+    if result != bytes.len() as u64 {
         return None;
     }
-    let mut by_kind = [0_u64; 7];
-    for (index, value) in by_kind.iter_mut().enumerate() {
+    let mut by_capacity = [0_u64; CAPACITY_KIND_COUNT];
+    for (index, value) in by_capacity.iter_mut().enumerate() {
         let start = 32 + index * 8;
         *value = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
     }
-    Some(MemoryStats {
+    Some(FrameBankStats {
         total: u64::from_le_bytes(bytes[..8].try_into().ok()?),
         used: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
         peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
         free: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
-        by_kind,
+        by_capacity,
     })
 }
 

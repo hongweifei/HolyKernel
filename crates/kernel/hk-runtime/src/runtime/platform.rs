@@ -109,8 +109,8 @@ pub trait UserPlatform {
         None
     }
 
-    /// 返回 System Capacity 的 FrameBank 记账快照。
-    fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
+    /// 返回 FrameBank 物理用量快照。
+    fn frame_bank_stats(&self) -> Option<hk_mem::FrameBankStats> {
         None
     }
 

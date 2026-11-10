@@ -136,7 +136,7 @@ pub struct SystemCapacity {
     pub windows: u64,
 }
 
-/// FrameBank 全局记账快照（含分类用量）。
+/// FrameBank 全局记账快照（按 CapacityKind 分类）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameBankMemory {
     /// 总字节数。
@@ -147,20 +147,16 @@ pub struct FrameBankMemory {
     pub peak: u64,
     /// 空闲字节数。
     pub free: u64,
-    /// 内核堆。
-    pub heap: u64,
-    /// 页表。
-    pub page_table: u64,
-    /// 写时复制。
-    pub cow: u64,
-    /// 检查点恢复。
-    pub restore: u64,
-    /// 用户镜像。
-    pub image: u64,
-    /// DMA。
+    /// System Capacity。
+    pub system: u64,
+    /// User Capacity。
+    pub user: u64,
+    /// DMA Capacity。
     pub dma: u64,
-    /// 其他。
-    pub other: u64,
+    /// GPU Capacity。
+    pub gpu: u64,
+    /// NUMA Capacity。
+    pub numa: u64,
 }
 
 /// 一次性能快照。
@@ -303,13 +299,11 @@ pub fn parse_perf(text: &str) -> PerfSample {
                     "used" => sample.frame_bank.used = value,
                     "peak" => sample.frame_bank.peak = value,
                     "free" => sample.frame_bank.free = value,
-                    "heap" => sample.frame_bank.heap = value,
-                    "page_table" => sample.frame_bank.page_table = value,
-                    "cow" => sample.frame_bank.cow = value,
-                    "restore" => sample.frame_bank.restore = value,
-                    "image" => sample.frame_bank.image = value,
+                    "system" => sample.frame_bank.system = value,
+                    "user" => sample.frame_bank.user = value,
                     "dma" => sample.frame_bank.dma = value,
-                    "other" => sample.frame_bank.other = value,
+                    "gpu" => sample.frame_bank.gpu = value,
+                    "numa" => sample.frame_bank.numa = value,
                     _ => {}
                 }
             }

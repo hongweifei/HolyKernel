@@ -23,20 +23,18 @@ impl fmt::Display for Memory {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "System Capacity：used {} KiB / total {} KiB，peak {} KiB；system {} / {} KiB（窗口 {} KiB）；heap {}，page-table {}，cow {}，restore {}，image {}，dma {}，other {}",
+            "FrameBank：used {} KiB / total {} KiB，peak {} KiB；System Capacity {} / {} KiB（窗口 {} KiB）；Capacity 分类 system {}、user {}、dma {}、gpu {}、numa {}",
             self.stats.used / 1024,
             self.stats.total / 1024,
             self.stats.peak / 1024,
             self.system_used / 1024,
             self.system_limit / 1024,
             self.system_span / 1024,
-            self.stats.by_kind[0] / 1024,
-            self.stats.by_kind[1] / 1024,
-            self.stats.by_kind[2] / 1024,
-            self.stats.by_kind[3] / 1024,
-            self.stats.by_kind[4] / 1024,
-            self.stats.by_kind[5] / 1024,
-            self.stats.by_kind[6] / 1024,
+            self.stats.by_capacity[0] / 1024,
+            self.stats.by_capacity[1] / 1024,
+            self.stats.by_capacity[2] / 1024,
+            self.stats.by_capacity[3] / 1024,
+            self.stats.by_capacity[4] / 1024,
         )
     }
 }

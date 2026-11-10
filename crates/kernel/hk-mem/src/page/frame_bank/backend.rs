@@ -117,13 +117,18 @@ impl PhysicalBackend for FrameBank {
         let Some(allocation) = inner.allocations.remove(&start) else {
             return false;
         };
+        let capacity_kind = inner
+            .ledger_kinds
+            .get(&owner)
+            .copied()
+            .unwrap_or(CapacityKind::System);
         let _ = inner.ledger.release(allocation.charge);
         if let (Some(owner), Some(owner_charge)) = (allocation.owner, allocation.owner_charge)
             && let Some(ledger) = inner.ledgers.get_mut(&owner)
         {
             let _ = ledger.release(owner_charge);
         }
-        let slot = &mut inner.by_kind[allocation.kind.index()];
+        let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_sub(range.len());
         // 归属已校验、分配记录已移除；在把区间交回空闲表前清零。此刻持锁，
         // 其他分配无法拿到这段物理区间。

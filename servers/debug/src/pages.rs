@@ -6,7 +6,7 @@ use alloc::vec;
 
 use hk_server_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
 use hk_server_api::{
-    handle_count, kernel_stats, memory_stats, service_endpoint, ticks, tsc_frequency,
+    frame_bank_stats, handle_count, kernel_stats, service_endpoint, ticks, tsc_frequency,
 };
 
 /// Root 控制结果缓冲长度。
@@ -87,7 +87,7 @@ fn root(op: u64) -> String {
 
 fn overview() -> String {
     let stats = kernel_stats();
-    let memory = memory_stats().unwrap_or_default();
+    let memory = frame_bank_stats().unwrap_or_default();
     let display = service_endpoint("hk-server-display");
     format!(
         "同步统计\n\
@@ -99,8 +99,8 @@ fn overview() -> String {
          TSC Hz: {}\n\
          本任务句柄: {}\n\
          Display: {}\n\
-         FrameBank: {} / {} KiB（峰值 {}）\n\
-         内存分类 KiB: heap {} page-table {} cow {} restore {} image {} dma {} other {}\n",
+         FrameBank 物理用量: {} / {} KiB（峰值 {}）\n\
+         Capacity 分类 KiB: system {} user {} dma {} gpu {} numa {}\n",
         stats.threads,
         stats.objects,
         stats.runnable,
@@ -112,12 +112,10 @@ fn overview() -> String {
         memory.used / 1024,
         memory.total / 1024,
         memory.peak / 1024,
-        memory.by_kind[0] / 1024,
-        memory.by_kind[1] / 1024,
-        memory.by_kind[2] / 1024,
-        memory.by_kind[3] / 1024,
-        memory.by_kind[4] / 1024,
-        memory.by_kind[5] / 1024,
-        memory.by_kind[6] / 1024,
+        memory.by_capacity[0] / 1024,
+        memory.by_capacity[1] / 1024,
+        memory.by_capacity[2] / 1024,
+        memory.by_capacity[3] / 1024,
+        memory.by_capacity[4] / 1024,
     )
 }

@@ -68,6 +68,22 @@ pub enum CapacityKind {
     Numa(u8),
 }
 
+impl CapacityKind {
+    /// 用途分类数量；统计数组按 System、User、Dma、Gpu、Numa 排列。
+    pub const COUNT: usize = hk_syscall::CAPACITY_KIND_COUNT;
+
+    /// 返回统计数组下标；所有 NUMA 节点归入同一档。
+    pub const fn index(self) -> usize {
+        match self {
+            Self::System => 0,
+            Self::User => 1,
+            Self::Dma => 2,
+            Self::Gpu => 3,
+            Self::Numa(_) => 4,
+        }
+    }
+}
+
 /// Root Server 授予的物理容量能力。
 pub struct Capacity {
     id: CapacityId,

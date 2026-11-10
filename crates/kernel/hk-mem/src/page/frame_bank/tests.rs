@@ -56,6 +56,53 @@ fn adopts_all_unowned_boot_allocations() {
 }
 
 #[test]
+fn stats_classify_allocations_by_capacity_kind() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let system = CapacityId::next();
+    let user = CapacityId::next();
+    let dma = CapacityId::next();
+    bank.reserve_for(system, PAGE_SIZE).expect("System 窗口");
+    bank.reserve_for(user, PAGE_SIZE).expect("User 窗口");
+    bank.reserve_for(dma, PAGE_SIZE).expect("DMA 窗口");
+    bank.register_ledger(system, PAGE_SIZE as u64);
+    bank.set_ledger_kind(system, CapacityKind::System);
+    bank.register_ledger(user, PAGE_SIZE as u64);
+    bank.set_ledger_kind(user, CapacityKind::User);
+    bank.register_ledger(dma, PAGE_SIZE as u64);
+    bank.set_ledger_kind(dma, CapacityKind::Dma);
+
+    let system_range = bank
+        .allocate_owned(system, CapacityKind::System, PAGE_SIZE as u64)
+        .expect("System 页");
+    let user_range = bank
+        .allocate_owned(user, CapacityKind::User, PAGE_SIZE as u64)
+        .expect("User 页");
+    let _dma_range = bank
+        .allocate_owned(dma, CapacityKind::Dma, PAGE_SIZE as u64)
+        .expect("DMA 页");
+
+    let stats = bank.stats();
+    assert_eq!(
+        stats.by_capacity[CapacityKind::System.index()],
+        PAGE_SIZE as u64
+    );
+    assert_eq!(
+        stats.by_capacity[CapacityKind::User.index()],
+        PAGE_SIZE as u64
+    );
+    assert_eq!(
+        stats.by_capacity[CapacityKind::Dma.index()],
+        PAGE_SIZE as u64
+    );
+
+    assert!(bank.release_owned(user, user_range));
+    assert!(bank.release_owned(system, system_range));
+    let stats = bank.stats();
+    assert_eq!(stats.by_capacity[CapacityKind::System.index()], 0);
+    assert_eq!(stats.by_capacity[CapacityKind::User.index()], 0);
+}
+
+#[test]
 fn adopting_owner_charges_its_ledger() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let owner = CapacityId::next();

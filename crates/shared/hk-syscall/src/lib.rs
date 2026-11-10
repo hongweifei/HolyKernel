@@ -298,8 +298,8 @@ pub const SYS_FRAME_MAP: u64 = 0x9A;
 /// 把 Frame 绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP_FRAME: u64 = 0x9B;
 
-/// 查询 System Capacity 的 FrameBank 记账快照。
-pub const SYS_MEMORY_STATS: u64 = 0x9C;
+/// 查询 FrameBank 物理用量快照（按 CapacityKind 分类）。
+pub const SYS_FRAME_BANK_STATS: u64 = 0x9C;
 
 /// 把一个已清空的子 Capacity 并回父 Capacity。
 pub const SYS_CAPACITY_MERGE: u64 = 0x9D;
@@ -335,6 +335,9 @@ pub const CAPACITY_KIND_DMA: u8 = 2;
 pub const CAPACITY_KIND_GPU: u8 = 3;
 /// Capacity 用途编码：Numa。
 pub const CAPACITY_KIND_NUMA: u8 = 4;
+
+/// Capacity 用途编码数量；统计数组按 System、User、Dma、Gpu、Numa 排列。
+pub const CAPACITY_KIND_COUNT: usize = 5;
 
 // === 设备与中断 0x50-0x5F ===
 
@@ -728,7 +731,7 @@ mod tests {
             SYS_FRAME_FREE,
             SYS_FRAME_MAP,
             SYS_DMA_MAP_FRAME,
-            SYS_MEMORY_STATS,
+            SYS_FRAME_BANK_STATS,
             SYS_CAPACITY_MERGE,
             SYS_LEDGER_ENUM,
             SYS_REGION_GROW,

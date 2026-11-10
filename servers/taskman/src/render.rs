@@ -408,14 +408,12 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
         table,
     );
     let categories = format!(
-        "heap {} · 页表 {} · COW {} · 恢复 {} · 镜像 {} · DMA {} · 其他 {} MiB",
-        mib_text(view.sample.frame_bank.heap),
-        mib_text(view.sample.frame_bank.page_table),
-        mib_text(view.sample.frame_bank.cow),
-        mib_text(view.sample.frame_bank.restore),
-        mib_text(view.sample.frame_bank.image),
+        "System {} · User {} · DMA {} · GPU {} · NUMA {} MiB",
+        mib_text(view.sample.frame_bank.system),
+        mib_text(view.sample.frame_bank.user),
         mib_text(view.sample.frame_bank.dma),
-        mib_text(view.sample.frame_bank.other),
+        mib_text(view.sample.frame_bank.gpu),
+        mib_text(view.sample.frame_bank.numa),
     );
     let mut pen = memory_panel.x + 12;
     surface.draw_text_ellipsis(

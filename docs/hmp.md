@@ -151,6 +151,7 @@ Capacity 是物理容量的授予单位。
 - `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
 - 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
 - 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
+- `SYS_FRAME_BANK_STATS` 返回 FrameBank 物理 `total/used/peak/free` 与按 `CapacityKind` 的用量（System、User、Dma、Gpu、Numa）；`SYS_LEDGER_ENUM` 返回每个 Capacity 的明细。两者使用同一套分类，不再对外暴露 `FrameKind` 统计。
 
 ---
 
@@ -164,6 +165,7 @@ Frame 是唯一的物理内存对象。
 - pinned Frame 保持驻留，用于 DMA、scanout 与设备导出。
 - Frame 可被任何类型的 Region 引用；Revision、Surface、TaskImage、DeviceAllocation、Anonymous 的物理页都由 Frame 承载。
 - Frame 可导出给 IOMMU/GPU；导出转移引用，物理页保持单份。
+- `FrameKind` 只作为 FrameBank 内部分配用途标签（内核堆、页表、COW、恢复、镜像等），用于判断页能否回收；对外统计统一使用 `CapacityKind`。
 
 ---
 

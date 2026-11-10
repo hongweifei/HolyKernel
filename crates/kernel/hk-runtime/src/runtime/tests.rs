@@ -1149,13 +1149,13 @@ fn transports_byte_payloads() {
             )))
         }
 
-        fn memory_stats(&self) -> Option<hk_mem::FrameBankStats> {
+        fn frame_bank_stats(&self) -> Option<hk_mem::FrameBankStats> {
             Some(hk_mem::FrameBankStats {
                 total: 0x1000,
                 used: 0x800,
                 peak: 0x900,
                 free: 0x800,
-                by_kind: [0x100, 0x200, 0x300, 0, 0, 0, 0],
+                by_capacity: [0x100, 0x200, 0x300, 0, 0],
             })
         }
 
@@ -1287,11 +1287,11 @@ fn transports_byte_payloads() {
     assert_eq!(regions, 1, "内部惰性 Region 应登记进 Arena");
     drop(data);
 
-    context.rax = hk_syscall::SYS_MEMORY_STATS;
+    context.rax = hk_syscall::SYS_FRAME_BANK_STATS;
     context.rdi = 0x400;
-    context.rsi = 88;
+    context.rsi = 72;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 88);
+    assert_eq!(context.rax, 72);
     let data = DATA.lock();
     assert_eq!(
         u64::from_le_bytes(data[0x400..0x408].try_into().expect("total")),
@@ -1308,6 +1308,10 @@ fn transports_byte_payloads() {
     assert_eq!(
         u64::from_le_bytes(data[0x418..0x420].try_into().expect("free")),
         0x800
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[0x420..0x428].try_into().expect("system")),
+        0x100
     );
 }
 

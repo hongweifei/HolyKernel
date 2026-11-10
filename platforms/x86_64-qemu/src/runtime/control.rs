@@ -255,7 +255,7 @@ fn push_result(state: &mut ControlState, id: u64, data: Vec<u8>) {
 ///
 /// 文本格式稳定供任务管理器解析：
 /// `perf cpus=.. tasks=.. runnable=.. tsc=.. ticks=..`
-/// 之后 `mem` 为全局 FrameBank 分类用量、`system` 为 System Capacity 快照，
+/// 之后 `mem` 为 FrameBank 物理用量与 CapacityKind 分类、`system` 为 System Capacity 快照，
 /// 每 CPU 一行 `cpu <编号> <忙周期> <恢复次数>`，每任务一行
 /// `task <TCB> <CPU周期> <Arena已用> <Arena总量> <句柄> <状态> <父> <端点> <挂起> <退出码> <提交> <常驻> <名称>`，
 /// 随后每任务一行
@@ -283,18 +283,16 @@ fn perf() -> String {
         hk_platform_x86_64::cpu::uptime_ticks(),
     );
     text.push_str(&format!(
-        "mem total={} used={} peak={} free={} heap={} page_table={} cow={} restore={} image={} dma={} other={}\n",
+        "mem total={} used={} peak={} free={} system={} user={} dma={} gpu={} numa={}\n",
         memory.total,
         memory.used,
         memory.peak,
         memory.free,
-        memory.by_kind[0],
-        memory.by_kind[1],
-        memory.by_kind[2],
-        memory.by_kind[3],
-        memory.by_kind[4],
-        memory.by_kind[5],
-        memory.by_kind[6],
+        memory.by_capacity[0],
+        memory.by_capacity[1],
+        memory.by_capacity[2],
+        memory.by_capacity[3],
+        memory.by_capacity[4],
     ));
     if let Some(capacity) = hk_platform_x86_64::system::capacity() {
         let capacity = capacity.lock();

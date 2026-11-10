@@ -31,22 +31,7 @@ pub enum FrameKind {
 }
 
 impl FrameKind {
-    /// 用途数量。
-    pub const COUNT: usize = 7;
-
-    const fn index(self) -> usize {
-        match self {
-            Self::KernelHeap => 0,
-            Self::PageTable => 1,
-            Self::Cow => 2,
-            Self::Restore => 3,
-            Self::Image => 4,
-            Self::Dma => 5,
-            Self::Other => 6,
-        }
-    }
-
-    /// 把 Capacity 用途映射到 FrameBank 用途分类，用于统计。
+    /// 把 Capacity 用途映射到 FrameBank 分配用途。
     pub const fn from_capacity(kind: CapacityKind) -> Self {
         match kind {
             CapacityKind::System => Self::Other,
@@ -69,8 +54,8 @@ pub struct FrameBankStats {
     pub peak: u64,
     /// 空闲字节数。
     pub free: u64,
-    /// 各用途已用字节数。
-    pub by_kind: [u64; FrameKind::COUNT],
+    /// 各 Capacity 用途已用字节数：System、User、Dma、Gpu、Numa。
+    pub by_capacity: [u64; CapacityKind::COUNT],
 }
 
 /// 单个 Capacity 的 Ledger 快照。
@@ -121,7 +106,7 @@ struct Inner {
     /// 容量 Ledger 的用途标签，用于枚举。
     ledger_kinds: BTreeMap<CapacityId, CapacityKind>,
     allocations: BTreeMap<u64, Allocation>,
-    by_kind: [u64; FrameKind::COUNT],
+    by_capacity: [u64; CapacityKind::COUNT],
     /// 已登记给容量的窗口，按起始地址索引。
     owned: BTreeMap<u64, OwnedWindow>,
     /// 内核自用分配的归属容量；`None` 表示尚未建立 System Capacity。
@@ -379,7 +364,7 @@ impl FrameBank {
                 ledgers: BTreeMap::new(),
                 ledger_kinds: BTreeMap::new(),
                 allocations: BTreeMap::new(),
-                by_kind: [0; FrameKind::COUNT],
+                by_capacity: [0; CapacityKind::COUNT],
                 owned: BTreeMap::new(),
                 kernel_owner: None,
                 peaks: BTreeMap::new(),
@@ -413,7 +398,7 @@ impl FrameBank {
         inner.free_by_len.clear();
         inner.total = 0;
         inner.allocations.clear();
-        inner.by_kind = [0; FrameKind::COUNT];
+        inner.by_capacity = [0; CapacityKind::COUNT];
         inner.owned.clear();
         inner.peaks.clear();
         for region in regions {
@@ -471,6 +456,9 @@ impl FrameBank {
         // 未显式指定归属时落到内核自用容量（System Capacity），内核堆、页表与
         // 镜像页因此计入同一份归因账。
         let owner = owner.or(inner.kernel_owner);
+        let capacity_kind = owner
+            .and_then(|owner| inner.ledger_kinds.get(&owner).copied())
+            .unwrap_or(CapacityKind::System);
         let start = match owner {
             Some(owner) => inner.find_free_in_owned(owner, length)?,
             None => inner.find_free_unowned(length)?,
@@ -517,7 +505,7 @@ impl FrameBank {
                 owner,
             },
         );
-        let slot = &mut inner.by_kind[kind.index()];
+        let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_add(length);
         Some(allocated)
     }
@@ -558,13 +546,17 @@ impl FrameBank {
             let Some(allocation) = inner.allocations.remove(&start) else {
                 return;
             };
+            let capacity_kind = allocation
+                .owner
+                .and_then(|owner| inner.ledger_kinds.get(&owner).copied())
+                .unwrap_or(CapacityKind::System);
             let _ = inner.ledger.release(allocation.charge);
             if let (Some(owner), Some(owner_charge)) = (allocation.owner, allocation.owner_charge)
                 && let Some(ledger) = inner.ledgers.get_mut(&owner)
             {
                 let _ = ledger.release(owner_charge);
             }
-            let slot = &mut inner.by_kind[allocation.kind.index()];
+            let slot = &mut inner.by_capacity[capacity_kind.index()];
             *slot = slot.saturating_sub(range.len());
             inner.coalesce_free(range);
         }
@@ -837,7 +829,7 @@ impl FrameBank {
             used: inner.ledger.charged(),
             peak: inner.ledger.peak(),
             free: inner.total.saturating_sub(inner.ledger.charged()),
-            by_kind: inner.by_kind,
+            by_capacity: inner.by_capacity,
         }
     }
 }
