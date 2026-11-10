@@ -126,6 +126,7 @@ impl Kernel {
             let mut task = task.lock();
             task.set_cadence(cadence, self.now());
         }
+        self.remove_disallowed_home(task_id);
         if was_suspended {
             self.resume_task(task_id);
         } else {
@@ -184,7 +185,16 @@ impl Kernel {
         drop(guard);
         // 新契约从当前时刻开始预算周期，避免 Realtime 绝对截止期落到过去。
         if let Some(owner) = self.task_with_cadence(&cadence) {
-            owner.lock().reset_period(self.now());
+            let (owner_id, running) = {
+                let mut task = owner.lock();
+                task.reset_period(self.now());
+                (task.id(), task.state() == TaskState::Running)
+            };
+            // 亲和性变更后把仍在旧 CPU 队列中的线程重新挂到允许的 CPU。
+            self.remove_disallowed_home(owner_id);
+            if !running {
+                self.enqueue_next_thread(owner_id, None);
+            }
         }
         if let Some(parent) = parent {
             let mut parent = parent.lock();
@@ -300,6 +310,7 @@ impl Kernel {
             let mut target = target.lock();
             target.set_cadence(cadence, self.now());
         }
+        self.remove_disallowed_home(task);
         if was_suspended {
             self.resume_task(task);
         } else {
@@ -325,6 +336,7 @@ impl Kernel {
             let mut target = target.lock();
             target.set_cadence(cadence, self.now());
         }
+        self.remove_disallowed_home(task);
         if was_suspended {
             self.resume_task(task);
         } else {
@@ -355,6 +367,7 @@ impl Kernel {
             task.set_cadence(Arc::clone(&cadence), self.now());
             task.id()
         };
+        self.remove_disallowed_home(task_id);
         if was_suspended {
             self.resume_task(task_id);
         } else {

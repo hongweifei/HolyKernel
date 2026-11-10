@@ -504,17 +504,24 @@ impl Kernel {
             )
         };
         let now = self.now();
-        let enqueued = self.scheduler.lock().enqueue_best(
+        // 硬亲和：亲和集合内没有在线 CPU 时不入队，任务保持 Eligible 等待亲和变化。
+        let Some(cpu) = self
+            .scheduler
+            .lock()
+            .choose_cpu(affinity, last_cpu, migratable, heat)
+        else {
+            self.clear_active_if(thread);
+            return false;
+        };
+        let enqueued = self.scheduler.lock().enqueue(
             thread,
             class,
             key,
+            cpu,
             u64::from(weight),
-            affinity,
-            last_cpu,
             migratable,
-            heat,
         );
-        if let Some(cpu) = enqueued {
+        if enqueued {
             if let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) {
                 task.lock().mark_queued(now);
             }
@@ -526,7 +533,24 @@ impl Kernel {
             );
             self.request_resched_if_needed(thread, class, key, cpu);
         }
-        enqueued.is_some()
+        enqueued
+    }
+
+    /// 契约亲和性变更后，把已排队但 CPU 不再允许的线程移出队列。
+    pub(crate) fn remove_disallowed_home(&self, task_id: TaskId) {
+        let Some(task) = self.task(task_id) else {
+            return;
+        };
+        let threads = task.lock().threads().to_vec();
+        for thread in threads {
+            let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) else {
+                continue;
+            };
+            let affinity = task.lock().affinity_bits();
+            self.scheduler
+                .lock()
+                .remove_if_disallowed(thread, affinity);
+        }
     }
 
     /// 目标 CPU 正在运行的 Task 更弱时，请求该 CPU 立即重新调度。

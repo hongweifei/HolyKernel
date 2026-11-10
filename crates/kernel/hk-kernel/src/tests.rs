@@ -1041,6 +1041,49 @@ fn parent_exit_promotes_child_cadence() {
 }
 
 #[test]
+fn affinity_without_online_cpu_stays_unrunnable() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let spec = CadenceSpec::new(CadenceClass::Latency, 1024)
+        .with_affinity(hk_cadence::CpuMask::single(3).expect("CPU 3"));
+    let thread = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("任务");
+    assert_eq!(kernel.state_of(thread), Some(ThreadState::Runnable));
+    assert!(!kernel.has_runnable(), "无可用 CPU 时不应进入队列");
+    assert_eq!(kernel.schedule(0), None);
+    assert_eq!(kernel.schedule(1), None);
+}
+
+#[test]
+fn affinity_change_rehomes_running_task() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let thread = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024),
+        )
+        .expect("任务");
+    let task = kernel.task_of(thread).expect("Task");
+    kernel.set_policy_authority(task, true).expect("策略权限");
+    let cadence = kernel
+        .grant_cadence(thread, task, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        .expect("授予 Cadence");
+
+    assert_eq!(kernel.schedule(0), Some(thread), "初始在 CPU0 运行");
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.affinity = hk_cadence::CpuMask::single(1).expect("CPU 1");
+    kernel
+        .update_cadence(thread, cadence, spec)
+        .expect("收紧亲和性");
+
+    // Grant 结束后按新亲和性重新入队；CPU0 不再选中它，CPU1 可以。
+    assert_eq!(kernel.schedule(0), None);
+    assert_eq!(kernel.schedule(1), Some(thread));
+}
+
+#[test]
 fn requests_resched_for_higher_priority_wake() {
     RESCHED_CALLS.store(0, Ordering::SeqCst);
     let kernel = kernel();
