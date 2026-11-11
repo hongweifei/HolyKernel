@@ -45,15 +45,32 @@ use hk_root_server::ServiceTable;
 #[cfg(target_os = "none")]
 use hk_test::ExitCode;
 
+/// 内核启动栈字节数。
+///
+/// 装载器与运行时的调试构建需要数百 KiB 栈；Limine 的入口栈容量不保证，
+/// 且可能与启动器的页表同处保留内存。内核从自己的 `.bss` 栈启动，
+/// 只把启动器栈用于最初的几条指令。
+#[cfg(target_os = "none")]
+const BOOT_STACK_SIZE: usize = 1024 * 1024;
+
 #[cfg(target_os = "none")]
 core::arch::global_asm!(
+    ".section .bss",
+    ".balign 16",
+    ".global hk_boot_stack",
+    "hk_boot_stack:",
+    ".skip {size}",
+    ".global hk_boot_stack_top",
+    "hk_boot_stack_top:",
     ".section .text.entry",
     ".global _start",
     "_start:",
+    "lea rsp, [rip + hk_boot_stack_top]",
     "and rsp, -16",
     "xor rbp, rbp",
     "call kmain",
     "ud2",
+    size = const BOOT_STACK_SIZE,
 );
 
 #[cfg(target_os = "none")]
