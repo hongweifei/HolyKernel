@@ -214,7 +214,7 @@ impl Notification {
 - `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
 - 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
-- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区 Frame，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动通过 `SYS_DMA_MAP` 把 Frame 绑定到 IOMMU，设备 DMA 直接读写缓冲区。`BLOCK_DETACH` 按槽位或整体解除 Region；Region 关闭 Frame 句柄并归还 Capacity。
+- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区 Frame，消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动通过 `SYS_DMA_MAP` 把 Frame 绑定到 IOMMU，设备 DMA 直接读写缓冲区。客户端与服务端各自 `SYS_FRAME_MAP` 同一 Frame：共享后背书由内核的共享单元格持有，双方映射同时有效，最后一个映射与句柄释放时才归还 Capacity。`BLOCK_DETACH` 按槽位或整体解除 Region。
 - VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_BUFFER`/`OP_WRITE_BUFFER` 用 8 字节参数携带长度，文件内容直接读写客户端缓冲区映射；服务端按发送者维护 Region 映射，重连时解除旧映射，`VFS_DETACH` 清理映射与会话文件句柄。
 - 块客户端登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一个 Frame 并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP` 把 Frame 映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。

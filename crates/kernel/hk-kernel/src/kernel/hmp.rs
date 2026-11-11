@@ -6,7 +6,7 @@ use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
     Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame, FrameBacking, HmpError,
-    OwnedFrame, ProviderKind, Region,
+    OwnedFrame, ProviderKind, Region, SharedFrame,
 };
 
 impl Kernel {
@@ -19,10 +19,9 @@ impl Kernel {
     ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Frame {
-                frame: Mutex::new(Some(frame)),
-                capacity: None,
-            })),
+            Arc::new(KernelObject::new(ObjectPayload::Frame(Arc::new(
+                SharedFrame::new(frame, None),
+            )))),
             rights,
         )
     }
@@ -36,10 +35,9 @@ impl Kernel {
     ) -> Result<Handle, KernelError> {
         self.register(
             thread,
-            Arc::new(KernelObject::new(ObjectPayload::Frame {
-                frame: Mutex::new(Some(frame)),
-                capacity: Some(capacity),
-            })),
+            Arc::new(KernelObject::new(ObjectPayload::Frame(Arc::new(
+                SharedFrame::new(frame, Some(capacity)),
+            )))),
             rights,
         )
     }
@@ -496,6 +494,18 @@ impl Kernel {
         object
             .take_owned_frame()
             .ok_or(KernelError::Hmp(HmpError::NotMapped))
+    }
+
+    /// 取出 Frame 的映射后备：独占时移交所有权，共享时返回共享引用。
+    pub fn take_frame_backing(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<FrameBacking, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
+        object.take_frame_backing().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Frame,
+        })
     }
 
     /// 在指定线程的句柄表中创建虚拟映射。

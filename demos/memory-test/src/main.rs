@@ -31,11 +31,12 @@ fn fail(code: u64) -> ! {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
-    // 1. Arena 快照可用，且初始 Region 数为零。
+    // 1. Arena 快照可用；装载器已登记镜像与栈 Region，后续按增量校验。
     let Some(arena) = arena_info() else { fail(1) };
-    if arena.size == 0 || arena.regions != 0 {
+    if arena.size == 0 {
         fail(2)
     }
+    let initial_regions = arena.regions;
 
     // 2. 创建按需装入的匿名能力。
     let Some(capability) = capability_create_lazy(CapabilityKind::Anonymous, PAGE) else {
@@ -70,7 +71,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     let Some(after_map) = arena_info() else {
         fail(9)
     };
-    if after_map.regions != 1 || after_map.used < PAGE as u64 {
+    if after_map.regions != initial_regions + 1 || after_map.used < arena.used + PAGE as u64 {
         fail(10)
     }
     if after_map.base != arena.base {
@@ -103,7 +104,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     let Some(after_unmap) = arena_info() else {
         fail(18)
     };
-    if after_unmap.regions != 0 {
+    if after_unmap.regions != initial_regions || after_unmap.used != arena.used {
         fail(19)
     }
 
