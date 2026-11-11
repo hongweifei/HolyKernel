@@ -41,6 +41,15 @@ impl FrameKind {
             CapacityKind::Numa(_) => Self::Other,
         }
     }
+
+    /// 判断该用途的页是否属于用户地址空间。
+    ///
+    /// 用户镜像、写时复制与检查点恢复页都映射在用户低半区；内核堆、
+    /// 页表与内核自用页位于内核高半区。System Arena 按此区分用户页表
+    /// 页与内核页表页。
+    pub const fn is_user_space(self) -> bool {
+        matches!(self, Self::Image | Self::Cow | Self::Restore)
+    }
 }
 
 /// FrameBank 记账快照。
@@ -814,6 +823,20 @@ impl FrameBank {
             .allocations
             .get(&phys.get())
             .map(|allocation| allocation.kind)
+    }
+
+    /// 枚举指定归属容量的全部分配记录，按物理起始地址排序。
+    ///
+    /// 每条记录为 `(物理区间, 分配用途)`；供 System Arena 把内核自用
+    /// 内存登记为 Region。`owner` 为 `None` 时返回尚未归属的启动期分配。
+    pub fn allocations_of(&self, owner: Option<CapacityId>) -> Vec<(PhysRange, FrameKind)> {
+        let inner = self.inner.lock();
+        inner
+            .allocations
+            .values()
+            .filter(|allocation| allocation.owner == owner)
+            .map(|allocation| (allocation.range, allocation.kind))
+            .collect()
     }
 
     /// 返回已分配字节数。

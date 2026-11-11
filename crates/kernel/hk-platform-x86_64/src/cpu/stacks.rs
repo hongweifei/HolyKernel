@@ -40,13 +40,14 @@ pub fn init(paging: &PageTable, allocator: &FrameBank) -> bool {
                     VirtAddr::new(stack_base + page * PAGE),
                     phys,
                     PageFlags::KERNEL_STACK,
-                    allocator,
                 )
                 .is_err()
             {
                 return false;
             }
         }
+        // 栈窗口整体登记进 System Arena；guard 页不在登记范围内。
+        crate::system_arena::register_stack(stack_base, STACK_PAGES * PAGE);
         // guard 页必须保持未映射，栈页必须已映射。
         let guard = WINDOW_BASE + cpu as u64 * STRIDE;
         if paging.translate(VirtAddr::new(guard)).is_some()

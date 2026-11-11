@@ -40,6 +40,7 @@ impl PlatformMemory {
         unsafe {
             core::ptr::write_bytes(pointer, 0, len);
         }
+        crate::system_arena::register_kernel_range(range.start(), range.len(), self.direct_map);
         Some(start)
     }
 
@@ -60,6 +61,7 @@ impl TableMemory for PlatformMemory {
     fn allocate_table(&mut self) -> Option<u64> {
         let frame = self.bank.allocate_for(FrameKind::Other)?;
         self.zero(frame.get());
+        crate::system_arena::register_kernel_page(frame, self.direct_map);
         Some(frame.get())
     }
 

@@ -23,6 +23,7 @@ pub mod port;
 pub mod rtc;
 pub mod serial;
 pub mod system;
+pub mod system_arena;
 pub mod timing;
 
 pub use address_space::{USER_ADDRESS_SPACES, UserSpace};

@@ -8,7 +8,6 @@ use x86_64::instructions::tlb;
 use x86_64::registers::control::Cr4;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
-use hk_mem::page::PageAllocator;
 use hk_mem::{FrameBank, FrameKind};
 
 use super::flags::{FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
@@ -119,6 +118,11 @@ pub struct PageTable {
     pub(crate) pcid: u16,
 }
 
+/// 把高半区位模式还原为规范符号扩展地址。
+fn canonical_high_half(virt: u64) -> u64 {
+    virt | 0xFFFF_0000_0000_0000
+}
+
 impl PageTable {
     /// 读取 CR3 建立句柄。
     pub fn new(direct_map: u64) -> Self {
@@ -146,6 +150,15 @@ impl PageTable {
     /// 以当前页表为模板创建用户页表：复制内核高半区映射，低半区留空。
     pub fn create_user(&self, allocator: &FrameBank) -> Result<Self, PagingError> {
         self.create_user_with(|| allocator.allocate_for(FrameKind::PageTable))
+    }
+
+    /// 分配一页内核高半区页表并登记进 System Arena；用户页表不登记。
+    fn kernel_page_table(&self, virt: u64) -> Option<PhysAddr> {
+        let frame = FRAME_BANK.allocate_for(FrameKind::PageTable)?;
+        if virt >= crate::system_arena::KERNEL_HALF_BASE {
+            crate::system_arena::register_kernel_page(frame, self.direct_map);
+        }
+        Some(frame)
     }
 
     /// 以指定分配器创建用户页表；中间页表也由 `allocate` 提供。
@@ -288,6 +301,60 @@ impl PageTable {
         frames
     }
 
+    /// 遍历内核高半区的叶子映射，供 System Arena 登记内核 Region。
+    ///
+    /// 回调参数为 `(虚拟地址, 物理地址, 长度, 原始属性位)`；大页按实际
+    /// 尺寸报告。中间页表帧本身不是映射视图，由分配记录单独登记。
+    pub fn kernel_half_regions<F>(&self, mut visit: F)
+    where
+        F: FnMut(u64, u64, u64, u64),
+    {
+        for pml4 in KERNEL_PML4_START..ENTRIES {
+            // SAFETY: PML4 经 HHDM 映射，索引在 0..512 范围内。
+            let pml4e = unsafe { self.entry(self.root, pml4).read_volatile() };
+            if pml4e & PRESENT == 0 {
+                continue;
+            }
+            let pdpt = PhysAddr::new(pml4e & ADDRESS_MASK);
+            for pdpt_index in 0..ENTRIES {
+                // SAFETY: PDPT 是已存在的页表帧，经 HHDM 映射。
+                let pdp = unsafe { self.entry(pdpt, pdpt_index).read_volatile() };
+                if pdp & PRESENT == 0 {
+                    continue;
+                }
+                let pdpt_virt =
+                    canonical_high_half((pml4 as u64) << 39) | ((pdpt_index as u64) << 30);
+                if pdp & HUGE != 0 {
+                    visit(pdpt_virt, pdp & ADDRESS_MASK, 1 << 30, pdp & FLAGS_MASK);
+                    continue;
+                }
+                let pd = PhysAddr::new(pdp & ADDRESS_MASK);
+                for pd_index in 0..ENTRIES {
+                    // SAFETY: PD 是已存在的页表帧，经 HHDM 映射。
+                    let pde = unsafe { self.entry(pd, pd_index).read_volatile() };
+                    if pde & PRESENT == 0 {
+                        continue;
+                    }
+                    let pd_virt = pdpt_virt | ((pd_index as u64) << 21);
+                    if pde & HUGE != 0 {
+                        visit(pd_virt, pde & ADDRESS_MASK, 1 << 21, pde & FLAGS_MASK);
+                        continue;
+                    }
+                    let pt = PhysAddr::new(pde & ADDRESS_MASK);
+                    for pt_index in 0..ENTRIES {
+                        // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
+                        let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
+                        if pte & PRESENT == 0 {
+                            continue;
+                        }
+                        let virt = pd_virt | ((pt_index as u64) << 12);
+                        visit(virt, pte & ADDRESS_MASK, PAGE_SIZE as u64, pte & FLAGS_MASK);
+                    }
+                }
+            }
+        }
+    }
+
     /// 从物理帧读取一段字节；帧经 direct map 访问。
     pub fn read_phys(&self, phys: PhysAddr, out: &mut [u8]) {
         let source = (self.direct_map + phys.get()) as *const u8;
@@ -347,7 +414,7 @@ impl PageTable {
     }
 
     pub(super) fn split_huge_at(&self, address: u64) -> bool {
-        let mut allocate = || PageAllocator::new(&FRAME_BANK).page_table();
+        let mut allocate = || self.kernel_page_table(address);
         self.split_huge_at_with(address, &mut allocate).is_ok()
     }
 
@@ -442,16 +509,8 @@ impl PageTable {
     }
 
     /// 建立 4 KiB 映射。
-    pub fn map(
-        &self,
-        virt: VirtAddr,
-        phys: PhysAddr,
-        flags: PageFlags,
-        allocator: &FrameBank,
-    ) -> Result<(), PagingError> {
-        self.map_with(virt, phys, flags, || {
-            allocator.allocate_for(FrameKind::PageTable)
-        })
+    pub fn map(&self, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) -> Result<(), PagingError> {
+        self.map_with(virt, phys, flags, || self.kernel_page_table(virt.get()))
     }
 
     /// 返回 `address` 当前映射的物理页；未映射或大页时返回 `None`。
@@ -531,10 +590,9 @@ impl PageTable {
         phys: PhysAddr,
         flags: PageFlags,
         size: u64,
-        allocator: &FrameBank,
     ) -> Result<(), PagingError> {
         self.map_huge_with(virt, phys, flags, size, || {
-            allocator.allocate_for(FrameKind::PageTable)
+            self.kernel_page_table(virt.get())
         })
     }
 
@@ -732,9 +790,7 @@ impl PageTable {
         phys: PhysAddr,
         flags: PageFlags,
     ) -> Result<(), PagingError> {
-        self.map_with(virt, phys, flags, || {
-            PageAllocator::new(&FRAME_BANK).page_table()
-        })
+        self.map_with(virt, phys, flags, || self.kernel_page_table(virt.get()))
     }
 
     pub(crate) fn entry(&self, table: PhysAddr, index: usize) -> *mut u64 {
@@ -754,6 +810,7 @@ impl PageTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paging::flags::NX;
 
     #[test]
     fn unmaps_absent_range_idempotently() {
@@ -822,5 +879,59 @@ mod tests {
             assert_eq!(root.add(256).read_volatile(), 0x1234);
             assert_eq!(root.add(511).read_volatile(), 0x5678);
         }
+    }
+
+    #[test]
+    fn kernel_half_regions_walks_high_mappings() {
+        // 缓冲区依次容纳 PML4、PDPT、PD、PT 与两个数据页。
+        let mut memory = alloc::vec![0_u8; 6 * PAGE_SIZE];
+        let base = memory.as_mut_ptr() as u64;
+        let table = PageTable {
+            direct_map: base,
+            root: PhysAddr::new(0),
+            pcid: 0,
+        };
+        let pml4 = 0_u64;
+        let pdpt = PAGE_SIZE as u64;
+        let pd = 2 * PAGE_SIZE as u64;
+        let pt = 3 * PAGE_SIZE as u64;
+        let data_a = 4 * PAGE_SIZE as u64;
+        let data_b = 5 * PAGE_SIZE as u64;
+        // 高半区虚拟地址：PML4[256] → PDPT[0] → PD[0] → PT[0..2]。
+        let virt = 0xFFFF_8000_0000_0000_u64;
+        // SAFETY: 各级页表与数据页都在缓冲区内，索引在 0..512 范围内。
+        unsafe {
+            table
+                .entry(PhysAddr::new(pml4), 256)
+                .write_volatile(pdpt | PRESENT | WRITABLE | USER);
+            table
+                .entry(PhysAddr::new(pdpt), 0)
+                .write_volatile(pd | PRESENT | WRITABLE | USER);
+            table
+                .entry(PhysAddr::new(pd), 0)
+                .write_volatile(pt | PRESENT | WRITABLE | USER);
+            table
+                .entry(PhysAddr::new(pt), 0)
+                .write_volatile(data_a | PRESENT | WRITABLE);
+            table
+                .entry(PhysAddr::new(pt), 1)
+                .write_volatile(data_b | PRESENT | WRITABLE | NX);
+        }
+        let mut regions = alloc::vec::Vec::new();
+        table.kernel_half_regions(|virt, phys, len, flags| {
+            regions.push((virt, phys, len, flags));
+        });
+        assert_eq!(
+            regions,
+            alloc::vec![
+                (virt, data_a, PAGE_SIZE as u64, PRESENT | WRITABLE),
+                (
+                    virt + PAGE_SIZE as u64,
+                    data_b,
+                    PAGE_SIZE as u64,
+                    PRESENT | WRITABLE | NX
+                ),
+            ]
+        );
     }
 }

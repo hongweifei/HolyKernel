@@ -7,7 +7,7 @@
 //! 框架策略（页表、CoW、恢复页各从哪个 `FrameKind` 取页）由 `hk-mem::PageAllocator` 提供。
 
 mod cow;
-mod flags;
+pub(crate) mod flags;
 mod table;
 
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -165,6 +165,7 @@ pub fn release_user(table: &PageTable) {
         };
         match kind {
             FrameKind::PageTable => {
+                crate::system_arena::unregister_kernel_page(frame, table.direct_map);
                 FRAME_BANK.free_for(kind, PhysRange::new(frame, PAGE_SIZE as u64));
             }
             FrameKind::Image | FrameKind::Cow | FrameKind::Restore

@@ -526,3 +526,45 @@ fn adopt_owner_attributes_existing_allocation() {
     assert!(!bank.adopt_owner(system, PhysRange::new(heap.start(), 0x1000)));
     assert_eq!(bank.used_owned(system), 0x2000);
 }
+
+#[test]
+fn allocations_enumerate_by_owner_and_kind() {
+    let bank = FrameBank::from_range(0x10_0000, 0x11_0000);
+    let system = CapacityId::next();
+    let user = CapacityId::next();
+    bank.reserve_for(user, 0x2000).expect("预留 User 窗口");
+    bank.reserve_remaining(system).expect("登记 System 窗口");
+    bank.set_kernel_owner(Some(system));
+
+    let heap = bank
+        .allocate_contiguous_for(FrameKind::KernelHeap, 0x2000)
+        .expect("内核堆");
+    let table = bank.allocate_for(FrameKind::PageTable).expect("页表页");
+    let image = bank
+        .allocate_owned(user, CapacityKind::User, PAGE_SIZE as u64)
+        .expect("用户页");
+
+    let system_allocations = bank.allocations_of(Some(system));
+    assert_eq!(
+        system_allocations,
+        alloc::vec![
+            (heap, FrameKind::KernelHeap),
+            (
+                PhysRange::new(table, PAGE_SIZE as u64),
+                FrameKind::PageTable
+            ),
+        ]
+    );
+    let user_allocations = bank.allocations_of(Some(user));
+    assert_eq!(user_allocations, alloc::vec![(image, FrameKind::Image)]);
+    assert!(bank.allocations_of(None).is_empty());
+
+    bank.free_for(
+        FrameKind::PageTable,
+        PhysRange::new(table, PAGE_SIZE as u64),
+    );
+    assert_eq!(
+        bank.allocations_of(Some(system)),
+        alloc::vec![(heap, FrameKind::KernelHeap)]
+    );
+}
