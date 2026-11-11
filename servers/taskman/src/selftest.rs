@@ -86,6 +86,11 @@ fn log_test(app: &App, window: u64) {
     write(b" ");
     write_u64(app.sample.frame_bank.numa);
     write(b"\n");
+    write(b"hk-server-taskman: system-arena ");
+    write_u64(app.sample.system_arena.regions);
+    write(b" ");
+    write_u64(app.sample.system_arena.used);
+    write(b"\n");
     write(b"hk-server-taskman: render ok\n");
     write(b"hk-server-taskman: done\n");
 }

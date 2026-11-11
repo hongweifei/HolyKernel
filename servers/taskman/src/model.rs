@@ -136,6 +136,19 @@ pub struct SystemCapacity {
     pub windows: u64,
 }
 
+/// System Arena 快照（内核内存根对象）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemArena {
+    /// Arena 窗口起始虚拟地址。
+    pub base: u64,
+    /// Arena 窗口长度。
+    pub size: u64,
+    /// 已登记 Region 的字节数。
+    pub used: u64,
+    /// Region 数。
+    pub regions: u64,
+}
+
 /// FrameBank 全局记账快照（按 CapacityKind 分类）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameBankMemory {
@@ -182,6 +195,8 @@ pub struct PerfSample {
     pub system: SystemCapacity,
     /// FrameBank 全局快照。
     pub frame_bank: FrameBankMemory,
+    /// System Arena 快照。
+    pub system_arena: SystemArena,
 }
 
 impl PerfSample {
@@ -320,6 +335,20 @@ pub fn parse_perf(text: &str) -> PerfSample {
                     "soft" => sample.system.soft = value,
                     "span" => sample.system.span = value,
                     "windows" => sample.system.windows = value,
+                    _ => {}
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("system-arena ") {
+            for field in rest.split_whitespace() {
+                let Some((key, value)) = field.split_once('=') else {
+                    continue;
+                };
+                let value = value.parse().unwrap_or(0);
+                match key {
+                    "base" => sample.system_arena.base = value,
+                    "size" => sample.system_arena.size = value,
+                    "used" => sample.system_arena.used = value,
+                    "regions" => sample.system_arena.regions = value,
                     _ => {}
                 }
             }

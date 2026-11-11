@@ -6,7 +6,8 @@ use alloc::vec;
 
 use hk_server_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
 use hk_server_api::{
-    frame_bank_stats, handle_count, kernel_stats, service_endpoint, ticks, tsc_frequency,
+    frame_bank_stats, handle_count, kernel_stats, service_endpoint, system_arena_info,
+    system_arena_region, system_arena_region_count, ticks, tsc_frequency,
 };
 
 /// Root 控制结果缓冲长度。
@@ -89,7 +90,7 @@ fn overview() -> String {
     let stats = kernel_stats();
     let memory = frame_bank_stats().unwrap_or_default();
     let display = service_endpoint("hk-server-display");
-    format!(
+    let mut text = format!(
         "同步统计\n\
          线程: {}\n\
          对象: {}\n\
@@ -117,5 +118,28 @@ fn overview() -> String {
         memory.by_capacity[2] / 1024,
         memory.by_capacity[3] / 1024,
         memory.by_capacity[4] / 1024,
-    )
+    );
+    if let Some(arena) = system_arena_info() {
+        text.push_str(&format!(
+            "System Arena: {} 个 Region / {} KiB（窗口 {} GiB）\n",
+            arena.regions,
+            arena.used / 1024,
+            arena.size / (1024 * 1024 * 1024),
+        ));
+        if let Some(count) = system_arena_region_count() {
+            for index in 0..count.min(16) as usize {
+                let Some(region) = system_arena_region(index) else {
+                    break;
+                };
+                text.push_str(&format!(
+                    "  Region {:#018x} + {} KiB rights={} flags={:#x}\n",
+                    region.virt,
+                    region.len / 1024,
+                    region.rights,
+                    region.flags,
+                ));
+            }
+        }
+    }
+    text
 }

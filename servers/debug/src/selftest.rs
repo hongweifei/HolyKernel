@@ -30,6 +30,13 @@ pub(crate) fn run(
         write(b"hk-server-debug: view ");
         write(page.slug().as_bytes());
         write(b"\n");
+        if page == Page::Overview
+            && let Some(arena) = hk_server_api::system_arena_info()
+        {
+            write(b"hk-server-debug: system-arena ");
+            hk_server_api::write_u64(arena.regions);
+            write(b"\n");
+        }
     }
     if fault_test {
         let child = fork();

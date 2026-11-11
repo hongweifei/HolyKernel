@@ -368,7 +368,7 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
         surface.draw_text(&mut pen, core_panel.bottom() - 20, "…", MUTED, table);
     }
 
-    let memory_panel = Rect::new(MARGIN, 374, width - MARGIN * 2, 130);
+    let memory_panel = Rect::new(MARGIN, 374, width - MARGIN * 2, 144);
     surface.fill(memory_panel, PANEL);
     let mut pen = memory_panel.x + 12;
     surface.draw_text(&mut pen, memory_panel.y + 10, "内存", MUTED, heading);
@@ -424,11 +424,25 @@ fn render_performance(view: &View<'_>, width: i32, height: i32, surface: &Surfac
         MUTED,
         table,
     );
+    let system_arena = format!(
+        "System Arena {} 个 Region · {} MiB",
+        view.sample.system_arena.regions,
+        mib_text(view.sample.system_arena.used),
+    );
+    let mut pen = memory_panel.x + 12;
+    surface.draw_text_ellipsis(
+        &mut pen,
+        memory_panel.y + 54,
+        &system_arena,
+        memory_panel.width - 24,
+        MUTED,
+        table,
+    );
     let memory_graph = Rect::new(
         memory_panel.x + 12,
-        memory_panel.y + 56,
+        memory_panel.y + 70,
         memory_panel.width - 24,
-        memory_panel.height - 68,
+        memory_panel.height - 82,
     );
     draw_graph(
         surface,
