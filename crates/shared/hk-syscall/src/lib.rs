@@ -257,7 +257,7 @@ pub const PROVIDER_KIND_DEVICE: u8 = 3;
 /// Provider 类型编码：Anonymous。
 pub const PROVIDER_KIND_ANONYMOUS: u8 = 4;
 
-// === HMP 对象 0x90-0xA1 ===
+// === HMP 对象 0x90-0xA3 ===
 
 /// 查询当前任务 Arena 的基址、大小、已用与 Region 数。
 pub const SYS_ARENA_INFO: u64 = 0x90;
@@ -309,6 +309,15 @@ pub const SYS_OBJECT_LEDGER: u64 = 0xA0;
 
 /// 枚举 Capacity 当前持有的全部物理窗口。
 pub const SYS_CAPACITY_WINDOWS: u64 = 0xA1;
+
+/// 查询 System Arena 的基址、大小、已用与 Region 数。
+pub const SYS_SYSTEM_ARENA_INFO: u64 = 0xA2;
+
+/// 按索引枚举 System Arena 的 Region；记录为虚拟地址、长度、权利与标志。
+pub const SYS_SYSTEM_ARENA_REGIONS: u64 = 0xA3;
+
+/// System Arena Region 单条记录字节数：虚拟地址 + 长度 + 权利 + 标志。
+pub const SYSTEM_REGION_RECORD_BYTES: usize = 24;
 
 /// 容量窗口单条记录字节数：起始物理地址 + 长度。
 pub const CAPACITY_WINDOW_BYTES: usize = 16;
@@ -604,7 +613,7 @@ mod tests {
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
         const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_REGION_GROW < 0xA0) };
-        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_OBJECT_LEDGER < 0xB0) };
+        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_SYSTEM_ARENA_REGIONS < 0xB0) };
     }
 
     #[test]
@@ -726,6 +735,8 @@ mod tests {
             SYS_REGION_GROW,
             SYS_OBJECT_LEDGER,
             SYS_CAPACITY_WINDOWS,
+            SYS_SYSTEM_ARENA_INFO,
+            SYS_SYSTEM_ARENA_REGIONS,
         ];
         let mut sorted = numbers;
         sorted.sort_unstable();

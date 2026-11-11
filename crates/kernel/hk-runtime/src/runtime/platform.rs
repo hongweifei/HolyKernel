@@ -15,6 +15,32 @@ pub enum CowOutcome {
     Copied(u64),
 }
 
+/// System Arena 快照：内核内存根对象的地址窗口与 Region 统计。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemArenaInfo {
+    /// Arena 窗口起始虚拟地址。
+    pub base: u64,
+    /// Arena 窗口长度。
+    pub size: u64,
+    /// 已登记 Region 的字节数。
+    pub used: u64,
+    /// Region 数。
+    pub regions: u64,
+}
+
+/// System Arena 的单条 Region 记录。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemRegionRecord {
+    /// Region 起始虚拟地址。
+    pub virt: u64,
+    /// Region 字节长度。
+    pub len: u64,
+    /// 权利位图（READ/WRITE/EXECUTE）。
+    pub rights: u32,
+    /// Region 标志位图。
+    pub flags: u32,
+}
+
 /// 平台提供的用户态运行支持。
 pub trait UserPlatform {
     /// 返回调度 tick 计数。
@@ -116,6 +142,16 @@ pub trait UserPlatform {
 
     /// 返回全部容量 Ledger 的快照。
     fn ledger_stats(&self) -> Option<Vec<hk_mem::LedgerStats>> {
+        None
+    }
+
+    /// 返回 System Arena 快照；平台没有 System Arena 时返回 `None`。
+    fn system_arena_info(&self) -> Option<SystemArenaInfo> {
+        None
+    }
+
+    /// 按索引枚举 System Arena 的 Region；越界或平台不支持时返回 `None`。
+    fn system_arena_region(&self, _index: usize) -> Option<SystemRegionRecord> {
         None
     }
     /// 归还 DeviceGrant 的 DMA 窗口。

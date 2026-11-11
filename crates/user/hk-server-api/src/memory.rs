@@ -8,7 +8,7 @@ use hk_syscall::{
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
     SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
     SYS_LEDGER_INFO, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
@@ -386,6 +386,82 @@ pub fn arena_info() -> Option<ArenaInfo> {
         size: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
         used: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
         regions: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+    })
+}
+
+/// System Arena 快照；编码与任务 Arena 相同。
+pub type SystemArenaInfo = ArenaInfo;
+
+/// 查询内核 System Arena。
+pub fn system_arena_info() -> Option<SystemArenaInfo> {
+    let mut bytes = [0_u8; 32];
+    // SAFETY: 缓冲区属于本进程；内核写入 System Arena 快照。
+    let result = unsafe {
+        syscall_call(
+            SYS_SYSTEM_ARENA_INFO,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    if result != 32 {
+        return None;
+    }
+    Some(SystemArenaInfo {
+        base: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        size: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        used: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+        regions: u64::from_le_bytes(bytes[24..].try_into().ok()?),
+    })
+}
+
+/// System Arena 的单条 Region 记录。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SystemRegionRecord {
+    /// Region 起始虚拟地址。
+    pub virt: u64,
+    /// Region 字节长度。
+    pub len: u64,
+    /// 权利位图（RIGHT_READ/RIGHT_WRITE/RIGHT_EXECUTE）。
+    pub rights: u32,
+    /// Region 标志位图（REGION_FLAG_*）。
+    pub flags: u32,
+}
+
+/// 返回 System Arena 的 Region 数；平台不支持时返回 `None`。
+pub fn system_arena_region_count() -> Option<u64> {
+    // SAFETY: 只查询数量，不写入用户内存。
+    let result = unsafe { syscall_call(SYS_SYSTEM_ARENA_REGIONS, 0, 0, 0, 0).value };
+    if result == u64::MAX {
+        return None;
+    }
+    Some(result)
+}
+
+/// 按索引查询 System Arena 的 Region；越界或平台不支持时返回 `None`。
+pub fn system_arena_region(index: usize) -> Option<SystemRegionRecord> {
+    let mut bytes = [0_u8; hk_syscall::SYSTEM_REGION_RECORD_BYTES];
+    // SAFETY: 缓冲区属于本进程；内核写入一条 Region 记录。
+    let result = unsafe {
+        syscall_call(
+            SYS_SYSTEM_ARENA_REGIONS,
+            index as u64,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+        )
+        .value
+    };
+    if result != bytes.len() as u64 {
+        return None;
+    }
+    Some(SystemRegionRecord {
+        virt: u64::from_le_bytes(bytes[..8].try_into().ok()?),
+        len: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        rights: u32::from_le_bytes(bytes[16..20].try_into().ok()?),
+        flags: u32::from_le_bytes(bytes[20..].try_into().ok()?),
     })
 }
 

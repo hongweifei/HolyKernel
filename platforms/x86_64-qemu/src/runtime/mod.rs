@@ -238,6 +238,26 @@ impl UserPlatform for X86Platform {
         Some(hk_platform_x86_64::paging::FRAME_BANK.ledger_stats())
     }
 
+    fn system_arena_info(&self) -> Option<hk_root_server::SystemArenaInfo> {
+        let snapshot = hk_platform_x86_64::system_arena::snapshot()?;
+        Some(hk_root_server::SystemArenaInfo {
+            base: snapshot.base,
+            size: snapshot.size,
+            used: snapshot.used,
+            regions: snapshot.regions,
+        })
+    }
+
+    fn system_arena_region(&self, index: usize) -> Option<hk_root_server::SystemRegionRecord> {
+        let region = hk_platform_x86_64::system_arena::region(index)?;
+        Some(hk_root_server::SystemRegionRecord {
+            virt: region.virt(),
+            len: region.len(),
+            rights: region.rights().bits(),
+            flags: region.flags().bits(),
+        })
+    }
+
     fn zero(&self, address: u64, length: usize) {
         hk_platform_x86_64::cpu::user_access_begin();
         // SAFETY: Arena 页已映射到当前用户页表，SMAP 由 STAC/CLAC 临时放行。

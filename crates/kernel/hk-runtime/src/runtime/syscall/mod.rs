@@ -316,6 +316,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_ARENA_INFO => self.arena_info(index, frame),
+            SYS_SYSTEM_ARENA_INFO => self.system_arena_info(frame),
+            SYS_SYSTEM_ARENA_REGIONS => self.system_arena_regions(frame),
             SYS_CAPACITY_INFO => self.capacity_info(index, frame),
             SYS_CAPACITY_SPLIT => self.capacity_split(index, tcb, frame),
             SYS_CAPACITY_ALLOC => self.capacity_alloc(index, tcb, frame),
