@@ -126,7 +126,7 @@ flowchart TB
 | **IRQHandler** | 中断句柄 | 平台路由、Notification 唤醒、ack/EOI |
 | **DeviceGrant** | 设备句柄集合；内核对象、镜像角色元数据、设备授权工厂、MMIO 映射、DMA 窗口子分配与 IRQ 通知绑定已建立 | 独立 virtio 驱动服务使用 |
 
-内核对象由内核堆分配；HMP 是唯一内存面，Capacity 管理物理容量，Frame 是物理页能力，Region 是类型化能力的唯一映射。ABI 面对所有持权服务统一开放 Capacity/Frame/Region，调用只校验 `Handle + Rights + ObjectKind`；Root Server 通过服务清单决定初始授予。内核与用户态服务共享同一对象图；内核页表、栈与对象元数据由 System Capacity/FrameBank 承载，用户地址映射通过 Region 表达。每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
+内核对象由内核堆分配；HMP 是唯一内存面，Capacity 管理物理容量，Frame 是物理页能力，Region 是类型化能力的唯一映射。ABI 面对所有持权服务统一开放 Capacity/Frame/Region，调用只校验 `Handle + Rights + ObjectKind`；Root Server 通过服务清单决定初始授予。内核与用户态服务共享同一对象图；内核镜像、direct map、内核堆、per-CPU 栈、MMIO 窗口、页表页与 IOMMU 表由 System Capacity/FrameBank 承载，并登记为 System Arena 的 Region，用户地址映射通过任务 Arena 的 Region 表达。每个对象有类型、大小与引用计数。Native Task 持有 HandleTable，表项记录 `index/generation/rights`；TCB 引用同一张表。对象生命周期由 Handle 与内核引用共同管理。
 
 ### 4.1 Native Task
 

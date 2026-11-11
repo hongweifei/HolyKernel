@@ -66,7 +66,7 @@ flowchart LR
 
 ### 交付
 
-- **HMP 共享契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；内核与用户态共享同一对象定义。
+- **HMP 契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；对象定义位于 `hk-mem::hmp`，内核与用户态通过 `hk-syscall` ABI 与 `hk-server-api` 封装共享同一对象语义。
 - **Arena**：任务内存根；创建、Region 映射、增长、检查点、恢复与销毁；栈、堆与工作区归入 Arena。
 - **Capacity**：从完整 BootInfo 内存描述建立 System/User/Dma/Gpu/Numa 容量；拆分、配额、Frame 分配与归还；覆盖全部可用物理内存。
 - **Frame**：FrameId、所属 Capacity、共享引用、pin/unpin、export/import；最后一个引用归还 Capacity，归还前清零。
@@ -212,7 +212,7 @@ flowchart LR
 
 | 挑战 | 影响 | 应对 |
 | --- | --- | --- |
-| HMP 对象面收敛 | 服务与客户端同步改动 | 共享契约 crate、对象面冻结、单测与冒烟门禁 |
+| HMP 对象面收敛 | 服务与客户端同步改动 | 契约冻结于 `hk-mem::hmp`、ABI 单测锁定、单测与冒烟门禁 |
 | Capacity/Frame 实现 | 物理内存碎片与回收 | 全内存区帧库、引用计数、连续分配、压力测试 |
 | Region 物化 | 多架构页表差异 | 页表机制包装、平台后端、memory conformance |
 | Provider 缺页 | IPC 开销 | 内核快速路径、批量、预读与 fault token |

@@ -43,7 +43,7 @@ flowchart LR
 
 - Capacity 从 Root Server 持有的初始 Capacity 派生；Frame 由 Capacity 生成；Region 由 Capability 或 Frame 生成。
 - 每一步只收窄 Rights；Handle 转移是唯一授权方式。
-- 内核持有 System Capacity 与 System Arena 的运行时快照；内核页表、栈与对象元数据由 System Capacity/FrameBank 承载，用户地址映射通过 Region 表达。
+- 内核持有 System Capacity 与 System Arena；内核镜像、direct map、内核堆、per-CPU 栈、MMIO 窗口、页表页与 IOMMU 表由 System Capacity/FrameBank 承载并登记为 System Arena 的 Region，用户地址映射通过任务 Arena 的 Region 表达。
 - 内核与用户态服务共享同一对象图、Rights、错误面与 Ledger 规则。
 
 ### 3. 统一 ABI 面与授予面
@@ -175,7 +175,7 @@ ABI 使用单一 `Handle` 值加 `ObjectKind`：
 - HandleTable 是唯一访问凭据；HMP 的类型化操作在能力层校验。
 - Arena 是任务内存根；Region 是唯一映射视图；Provider 是 Endpoint 服务。
 - Frame 来自 Capacity，每次分配计入 Ledger；pinned Frame 保持驻留。
-- 内核持有 System Capacity 与 System Arena，内核页表与对象元数据使用 Frame。
+- 内核持有 System Capacity 与 System Arena，内核页表与对象元数据使用 Frame，内核自用映射登记为 System Arena 的 Region。
 - Debug 与 Checkpoint 通过 Handle 图枚举 Arena、Capacity、Frame、Capability、Region、Provider 与 Ledger。
 - 内核与用户态服务共享同一组 HMP 对象、Rights 与错误面。
 
