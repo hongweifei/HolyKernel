@@ -1950,6 +1950,21 @@ fn shared_frame_handles_keep_mapping_valid() {
         runtime.kernel.frame_info(tcb, other).is_ok(),
         "共享映射不能耗尽其它句柄的 Frame"
     );
+    // 共享映射存在时显式释放只降计数，不能归还物理页。
+    context.rax = hk_syscall::SYS_FRAME_RELEASE;
+    context.rdi = duplicate;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "共享映射存在时不能归还物理页");
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64,
+        "物理页仍被第一个映射占用"
+    );
+
     context.rax = hk_syscall::SYS_FRAME_MAP;
     context.rdi = duplicate;
     context.rsi = 0b11;

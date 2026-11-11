@@ -116,9 +116,9 @@ impl Kernel {
         if refs > 0 {
             return Ok(refs);
         }
-        // 还有其它句柄指向同一个 Frame 时只释放引用计数，不归还物理页；
-        // 最后一个句柄关闭或显式 free 时才回到 Capacity。
-        if object.header().handle_count() > 1 {
+        // 还有其它句柄或共享映射指向同一个 Frame 时只释放引用计数，不归还
+        // 物理页；最后一个句柄与最后一份映射都释放后才回到 Capacity。
+        if object.header().handle_count() > 1 || frame_lock.is_shared() {
             return Ok(0);
         }
         if let Some(capacity) = capacity_guard.as_mut() {
@@ -163,9 +163,6 @@ impl Kernel {
         let (capacity_object, _) =
             self.resolve(thread, capacity, Rights::WRITE, ObjectKind::Capacity)?;
         let (frame_object, _) = self.resolve(thread, frame, Rights::WRITE, ObjectKind::Frame)?;
-        if frame_object.header().handle_count() > 1 {
-            return Err(KernelError::Hmp(HmpError::PermissionDenied));
-        }
         let capacity_lock = capacity_object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;
@@ -173,6 +170,10 @@ impl Kernel {
         let frame_lock = frame_object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
+        // 共享映射仍在使用物理页时不能归还，否则映射会指向已回收的页。
+        if frame_object.header().handle_count() > 1 || frame_lock.is_shared() {
+            return Err(KernelError::Hmp(HmpError::PermissionDenied));
+        }
         let mut slot = frame_lock.lock();
         if slot.is_none() {
             return Err(KernelError::Hmp(HmpError::NotMapped));
