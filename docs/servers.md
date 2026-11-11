@@ -155,7 +155,7 @@ pub struct ServiceManifest {
 - **ext2/ext4 Server**（`hk-server-ext4`）：独立挂载 ext4，以 Holy 协议向 VFS 提供 `E:`；目录、inode、权限位。
 - **HolyFS Server**：HolyKernel 原生文件系统；`H:` 盘符与文档对象。
 - **tmpfs/devfs/procfs**：VFS 进程内建的合成后端，分别提供 `/tmp`、`/dev`、`/proc`；不单独起服务。
-- VFS 通过 Holy 协议与 ext4、HolyFS 两个独立服务通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享 Frame 服务 POSIX 客户端。
+- VFS 通过 Holy 协议与 ext4、HolyFS 两个独立服务通信；Path Server 通过 Holy 客户端把 VFS 盘符投影为路径，再通过 `VFS_ATTACH`/共享缓冲能力服务 POSIX 客户端。
 - `hk-server-ext4` 通过 virtio 驱动服务的 Block Endpoint 挂载 ext4（`rsext4`）为 E:，`hk-server-holyfs` 提供 H:/I:；VFS 只聚合远程后端并内建 T:/D:/P:。Path Server 不直接访问块设备，只把这些盘符投影到 `/` 或 `/disk`、`/tmp`、`/dev`、`/proc`。
 
 详见 [VFS](vfs.md)。

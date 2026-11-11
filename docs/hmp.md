@@ -231,7 +231,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 
 - 物理页能力；map、phys、pin、export。
 - 用于 IPC、DMA、共享缓冲与 scanout；页已常驻，Provider 契约省略。
-- `SYS_FRAME_MAP` 把 Frame 映射进内核代建的 Frame capability；Region 只持有 capability 句柄，解除时关闭 capability。句柄唯一且没有共享映射时，`OwnedFrame` 直接转移给 capability，最后一个引用解除即归还 Capacity；仍有其它句柄或共享映射时，physical 页留在共享单元格里，所有映射与句柄都释放后才归还。映射仍然消耗被映射的那个句柄，但不再让其它句柄失效，也不保留隐藏句柄。
+- `SYS_FRAME_MAP` 把 Frame 的 `OwnedFrame` 转移给内核代建的 Frame capability；Region 只持有 capability 句柄，解除时关闭 capability 并归还 Capacity。Frame 句柄本身在映射时消耗，不再保留隐藏句柄。需要多方共享的缓冲区使用匿名能力（`Anonymous`）：能力可以同时映射到多个地址空间，句柄不因映射失效。
 
 `PHYS` 查询适用于 Surface、DeviceAllocation、Anonymous 与 Frame；Revision 与 TaskImage 的页由 Provider/Region 管理，不直接暴露物理区间。
 

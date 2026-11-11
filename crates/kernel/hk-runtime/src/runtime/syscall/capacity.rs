@@ -2,7 +2,9 @@
 
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
-use hk_mem::hmp::{Capability, CapabilityKind, CapacityKind, FrameBacking, Region, RegionFlags};
+use hk_mem::hmp::{
+    Capability, CapabilityKind, CapacityKind, FrameBacking, OwnedFrame, Region, RegionFlags,
+};
 use hk_syscall::{
     CAPACITY_KIND_DMA, CAPACITY_KIND_GPU, CAPACITY_KIND_NUMA, CAPACITY_KIND_SYSTEM,
     CAPACITY_KIND_USER,
@@ -275,11 +277,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let Ok(backing) = self.kernel.take_frame_backing(tcb, frame_handle) else {
+        let Ok(owned) = self.kernel.take_owned_frame(tcb, frame_handle) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let result = self.finish_frame_map(index, tcb, number, backing, rights, flags);
+        let result = self.finish_frame_map(index, tcb, number, owned, rights, flags);
         let _ = self.kernel.close_handle(tcb, frame_handle);
         self.clear_handle(index, number);
         frame.set_result(result);
@@ -292,13 +294,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         index: usize,
         tcb: TcbId,
         number: usize,
-        backing: FrameBacking,
+        owned: OwnedFrame,
         rights: Rights,
         flags: RegionFlags,
     ) -> u64 {
-        let range = backing.range();
-        let length = backing.len();
-        let page_size = backing.page_size();
+        let range = owned.range();
+        let length = owned.len();
+        let page_size = owned.page_size();
         if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
             return u64::MAX;
         }
@@ -306,6 +308,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return u64::MAX;
         };
+        let backing = FrameBacking::Owned(owned);
         let Ok(capability_handle) = self.kernel.create_capability(
             tcb,
             capability.clone(),

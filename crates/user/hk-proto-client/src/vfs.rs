@@ -9,8 +9,8 @@ use hk_proto::vfs::{
     VFS_DETACH, VFS_MESSAGE_LEN, VFS_REQUEST, VFS_RESPONSE, encode_request,
 };
 use hk_server_api::{
-    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
-    handle_duplicate, recv_data_from, region_info, region_unmap, send_data, send_handle,
+    CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
+    close_handle, handle_duplicate, recv_data_from, region_unmap, send_data, send_handle,
     service_endpoint,
 };
 
@@ -74,28 +74,14 @@ impl VfsClient {
             return Ok(endpoint);
         }
         if self.frame.is_none() {
-            let Some(frame) = MemoryClient::new(self.own_endpoint).frame(VFS_BUFFER_LEN) else {
+            // 共享缓冲区是匿名能力：客户端与服务端都能映射同一份物理页，
+            // 句柄不随映射失效。
+            let Some((capability, region, virt)) =
+                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, VFS_BUFFER_LEN)
+            else {
                 return Err(STATUS_IO);
             };
-            let attach = handle_duplicate(
-                frame,
-                RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
-            );
-            if attach == u64::MAX {
-                let _ = close_handle(frame);
-                return Err(STATUS_IO);
-            }
-            let Some(region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
-                let _ = close_handle(frame);
-                let _ = close_handle(attach);
-                return Err(STATUS_IO);
-            };
-            let Some((virt, _)) = region_info(region) else {
-                let _ = region_unmap(region);
-                let _ = close_handle(attach);
-                return Err(STATUS_IO);
-            };
-            self.frame = Some(attach);
+            self.frame = Some(capability);
             self.region = region;
             self.mapping_virt = virt;
         }

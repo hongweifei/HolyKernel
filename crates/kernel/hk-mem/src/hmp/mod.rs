@@ -23,6 +23,6 @@ pub use error::HmpError;
 pub use frame::{Frame, FrameId};
 pub use lease::FrameLease;
 pub use ledger::{Charge, Ledger, LedgerId, LedgerSnapshot};
-pub use owned::{FrameBacking, OwnedFrame, SharedFrame, SharedFrameRef};
+pub use owned::{FrameBacking, OwnedFrame};
 pub use provider::{FaultReply, FaultRequest, ProviderId, ProviderKind};
 pub use region::{Region, RegionFlags, RegionId};

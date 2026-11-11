@@ -3,8 +3,7 @@
 use alloc::collections::BTreeMap;
 
 use hk_server_api::{
-    RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info, frame_map,
-    handle_duplicate, region_info, region_unmap,
+    RIGHT_READ, RIGHT_WRITE, capability_phys, close_handle, region_info, region_map, region_unmap,
 };
 use hk_vfs::{FileHandle, Vfs};
 
@@ -60,30 +59,25 @@ impl Sessions {
 
     pub(crate) fn attach_mapping(&mut self, sender: u64, handle: u64, length: usize) -> bool {
         if length == 0 || length > hk_proto::vfs::VFS_BUFFER_LEN {
+            let _ = close_handle(handle);
             return false;
         }
-        if frame_info(handle).is_none_or(|info| info.len != length as u64) {
+        if capability_phys(handle).is_none_or(|(_, capability_len)| capability_len < length as u64)
+        {
+            let _ = close_handle(handle);
             return false;
         }
-        let duplicate = handle_duplicate(
-            handle,
-            RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
-        );
-        if duplicate == u64::MAX {
-            return false;
-        }
-        let Some(region) = frame_map(handle, RIGHT_READ | RIGHT_WRITE, 0) else {
-            let _ = close_handle(duplicate);
+        let Some(region) = region_map(handle, 0, length, RIGHT_READ | RIGHT_WRITE, 0) else {
+            let _ = close_handle(handle);
             return false;
         };
         let Some((virt, _)) = region_info(region) else {
             let _ = region_unmap(region);
-            let _ = close_handle(duplicate);
+            let _ = close_handle(handle);
             return false;
         };
-        if let Some((_old_virt, old_region, _old_len, old_handle)) = self
-            .frames
-            .insert(sender, (virt, region, length, duplicate))
+        if let Some((_old_virt, old_region, _old_len, old_handle)) =
+            self.frames.insert(sender, (virt, region, length, handle))
         {
             let _ = region_unmap(old_region);
             let _ = close_handle(old_handle);

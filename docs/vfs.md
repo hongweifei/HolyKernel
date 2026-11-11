@@ -93,7 +93,7 @@ pub struct Request<'a> {
 | `OP_READ_BUFFER` / `OP_WRITE_BUFFER` | 通过共享 Frame 读写 |
 
 - 请求头为 `op(1) + kind(1) + text_len(2) + arg0(8) + arg1(8)`，后接路径与载荷；VFS 的 `kind` 恒为 0。
-- `VFS_ATTACH`/`VFS_DETACH` 建立或解除共享 Frame 映射。
+- `VFS_ATTACH`/`VFS_DETACH` 建立或解除共享缓冲能力映射。
 - `hk-proto-client` 的 `VfsClient` 提供 `open`、`close`、`read`、`write`、`stat`、`truncate`、`unlink`、`readdir`、`mkdir`、`mounts`、`umount`、`sync`、`read_buffer`、`write_buffer`；收发缓冲在首次请求时分配。
 - 响应状态由 `STATUS_OK`、`STATUS_NOT_FOUND`、`STATUS_INVALID`、`STATUS_PERMISSION`、`STATUS_IO` 等表达。
 

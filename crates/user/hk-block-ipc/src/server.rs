@@ -11,16 +11,19 @@ use hk_proto::block::{
     attach_length, attach_slot, decode_request, encode_response,
 };
 use hk_server_api::{
-    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_info, frame_map, handle_duplicate,
-    recv_data_handle, recv_data_handle_try, region_info, region_unmap, send_data, yield_now,
+    RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle, handle_duplicate,
+    recv_data_handle, recv_data_handle_try, region_info, region_map, region_unmap, send_data,
+    yield_now,
 };
 
 use crate::status::to_status;
 
-/// 服务端映射的一个帧。
+/// 服务端映射的一个共享缓冲区。
 struct ServerMapping {
     virt: u64,
     region: u64,
+    /// 客户端转移来的匿名能力句柄；解除映射时一并关闭。
+    handle: u64,
     len: usize,
     busy: bool,
 }
@@ -135,33 +138,40 @@ pub fn serve_with_wait_and<F, W, O>(
             let previous = frames.remove(&key);
             if let Some(old) = &previous {
                 let _ = region_unmap(old.region);
+                let _ = close_handle(old.handle);
             }
-            let Some(info) = frame_info(received) else {
+            let Some((phys, capability_len)) = capability_phys(received) else {
                 let _ = close_handle(received);
                 continue;
             };
+            if capability_len < length as u64 {
+                let _ = close_handle(received);
+                continue;
+            }
             let duplicate = handle_duplicate(received, RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER);
             if duplicate == u64::MAX {
                 let _ = close_handle(received);
                 continue;
             }
-            let Some(region) = frame_map(received, RIGHT_READ | RIGHT_WRITE, 0) else {
+            let Some(region) = region_map(received, 0, length, RIGHT_READ | RIGHT_WRITE, 0) else {
                 let _ = close_handle(received);
                 let _ = close_handle(duplicate);
                 continue;
             };
             let Some((virt, _)) = region_info(region) else {
                 let _ = region_unmap(region);
+                let _ = close_handle(received);
                 let _ = close_handle(duplicate);
                 continue;
             };
-            hook(virt, info.phys, length, duplicate);
+            hook(virt, phys, length, duplicate);
             let _ = close_handle(duplicate);
             frames.insert(
                 key,
                 ServerMapping {
                     virt,
                     region,
+                    handle: received,
                     len: length,
                     busy: false,
                 },
@@ -170,11 +180,13 @@ pub fn serve_with_wait_and<F, W, O>(
         }
         if label == BLOCK_DETACH {
             if word == u64::MAX {
-                for region in detach_sender(&mut frames, sender) {
+                for (region, handle) in detach_sender(&mut frames, sender) {
                     let _ = region_unmap(region);
+                    let _ = close_handle(handle);
                 }
             } else if let Some(frame) = frames.remove(&(sender, word as u32)) {
                 let _ = region_unmap(frame.region);
+                let _ = close_handle(frame.handle);
             }
             continue;
         }
@@ -282,19 +294,19 @@ fn is_block_label(label: u64) -> bool {
     )
 }
 
-fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) -> Vec<u64> {
+fn detach_sender(frames: &mut BTreeMap<(u64, u32), ServerMapping>, sender: u64) -> Vec<(u64, u64)> {
     let keys: Vec<(u64, u32)> = frames
         .keys()
         .filter(|(owner, _)| *owner == sender)
         .copied()
         .collect();
-    let mut regions = Vec::new();
+    let mut removed = Vec::new();
     for key in keys {
         if let Some(frame) = frames.remove(&key) {
-            regions.push(frame.region);
+            removed.push((frame.region, frame.handle));
         }
     }
-    regions
+    removed
 }
 
 fn reply(sender: u64, tag: u32, status: u8, data: &[u8], response: &mut [u8]) {
@@ -325,12 +337,13 @@ mod tests {
                 ServerMapping {
                     virt: 0x1000 + region,
                     region,
+                    handle: region + 100,
                     len: 512,
                     busy: false,
                 },
             );
         }
-        assert_eq!(detach_sender(&mut frames, 7), vec![11, 22]);
+        assert_eq!(detach_sender(&mut frames, 7), vec![(11, 111), (22, 122)]);
         assert_eq!(frames.len(), 1);
         assert!(frames.contains_key(&(8, 0)));
         assert!(detach_sender(&mut frames, 9).is_empty());

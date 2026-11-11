@@ -8,9 +8,7 @@ use hk_device::DeviceGrant;
 use hk_hal::PhysRange;
 use hk_handle::{Object, ObjectHeader, ObjectId, ObjectKind};
 use hk_ipc::{Endpoint, Notification};
-use hk_mem::hmp::{
-    Capability, Capacity, Frame, FrameBacking, LedgerSnapshot, OwnedFrame, Region, SharedFrame,
-};
+use hk_mem::hmp::{Capability, Capacity, Frame, FrameBacking, LedgerSnapshot, OwnedFrame, Region};
 use spin::Mutex;
 
 use crate::task::Task;
@@ -33,8 +31,13 @@ pub enum ObjectPayload {
     DeviceGrantFactory,
     /// 物理容量能力。
     Capacity(Arc<Mutex<Capacity>>),
-    /// 物理页；多个句柄与共享映射共同持有同一个单元格。
-    Frame(Arc<SharedFrame>),
+    /// 物理页。
+    Frame {
+        /// 页描述；归还 Capacity 后为空。
+        frame: Mutex<Option<Frame>>,
+        /// Frame 归属的 Capacity；关闭最后一个句柄时自动归还。
+        capacity: Option<Arc<Mutex<Capacity>>>,
+    },
     /// 类型化能力。
     Capability {
         /// 能力描述。
@@ -153,27 +156,38 @@ impl KernelObject {
         }
     }
 
-    /// 返回物理页单元格。
-    pub fn frame(&self) -> Option<&Arc<SharedFrame>> {
+    /// 返回物理页。
+    pub fn frame(&self) -> Option<&Mutex<Option<Frame>>> {
         match &self.payload {
-            ObjectPayload::Frame(frame) => Some(frame),
+            ObjectPayload::Frame { frame, .. } => Some(frame),
             _ => None,
         }
     }
 
     /// 返回物理页归属的 Capacity；导入的区间为 `None`。
     pub fn frame_capacity(&self) -> Option<&Arc<Mutex<Capacity>>> {
-        self.frame().and_then(|frame| frame.capacity())
+        match &self.payload {
+            ObjectPayload::Frame { capacity, .. } => capacity.as_ref(),
+            _ => None,
+        }
     }
 
     /// 返回 Frame 当前常驻字节数；只用于报告。
     pub fn frame_resident(&self) -> u64 {
-        self.frame().map_or(0, |frame| frame.len() as u64)
+        match &self.payload {
+            ObjectPayload::Frame { frame, .. } => {
+                frame.lock().as_ref().map_or(0, |frame| frame.len() as u64)
+            }
+            _ => 0,
+        }
     }
 
     /// 取出物理页；取出后 Frame 对象保持为空。
     pub fn take_frame(&self) -> Option<Frame> {
-        self.frame().and_then(|frame| frame.take())
+        match &self.payload {
+            ObjectPayload::Frame { frame, .. } => frame.lock().take(),
+            _ => None,
+        }
     }
 
     /// 返回类型化能力。
@@ -264,29 +278,12 @@ impl KernelObject {
 
     /// 取出 Frame 及其 Capacity 归属。
     pub fn take_owned_frame(&self) -> Option<OwnedFrame> {
-        let frame = self.frame()?;
-        let capacity = frame.capacity()?;
-        let frame = frame.take()?;
+        let ObjectPayload::Frame { frame, capacity } = &self.payload else {
+            return None;
+        };
+        let capacity = capacity.as_ref()?;
+        let frame = frame.lock().take()?;
         Some(OwnedFrame::new(frame, Arc::clone(capacity)))
-    }
-
-    /// 取出 Frame 的映射后备。
-    ///
-    /// 句柄唯一且没有共享映射时移交物理页所有权；否则返回共享引用，
-    /// 让其它句柄与既有映射继续有效。
-    pub fn take_frame_backing(&self) -> Option<FrameBacking> {
-        let frame = self.frame()?;
-        if self.header.handle_count() <= 1
-            && !frame.is_shared()
-            && let Some(capacity) = frame.capacity()
-            && let Some(owned) = frame.take()
-        {
-            return Some(FrameBacking::Owned(OwnedFrame::new(
-                owned,
-                Arc::clone(capacity),
-            )));
-        }
-        Some(FrameBacking::Shared(frame.share()))
     }
 
     /// 返回类型化能力绑定的 Provider 端点。
@@ -401,7 +398,22 @@ impl Object for KernelObject {
 
 impl Drop for KernelObject {
     fn drop(&mut self) {
-        // Frame 的物理页由 `SharedFrame` 负责归还：最后一个句柄与最后一份
-        // 共享映射都释放时才回到 Capacity。
+        let ObjectPayload::Frame {
+            frame, capacity, ..
+        } = &self.payload
+        else {
+            return;
+        };
+        let Some(capacity) = capacity else {
+            return;
+        };
+        let mut capacity = capacity.lock();
+        let mut frame = frame.lock();
+        if let Some(frame) = frame.as_mut() {
+            // 最后一个句柄销毁时，pin 与残余 share 都不再能阻止物理页回收。
+            frame.unpin();
+            frame.clear_refs();
+        }
+        let _ = capacity.free(&mut frame);
     }
 }

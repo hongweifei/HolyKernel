@@ -12,8 +12,8 @@ use hk_proto::block::{
     attach_word, decode_response, encode_request,
 };
 use hk_server_api::{
-    MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, close_handle, frame_map,
-    handle_duplicate, recv_data_handle_try, region_info, region_unmap, send, send_data,
+    CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
+    close_handle, handle_duplicate, recv_data_handle_try, region_unmap, send, send_data,
     send_handle, service_endpoint,
 };
 
@@ -40,11 +40,12 @@ struct Mapping {
     len: usize,
 }
 
-/// 一个客户端帧槽位。
+/// 一个客户端共享缓冲区槽位。
 struct Slot {
     virt: u64,
     region: u64,
-    frame: Option<u64>,
+    /// 本客户端持有的匿名能力；随协议转移的是它的副本。
+    capability: Option<u64>,
     attached: Option<u64>,
     inflight: bool,
 }
@@ -70,9 +71,9 @@ impl Drop for BlockClient {
             let _ = send(self.endpoint, BLOCK_DETACH, u64::MAX);
         }
         for slot in &mut self.slots {
-            if let Some(frame) = slot.frame.take() {
+            if let Some(capability) = slot.capability.take() {
                 let _ = region_unmap(slot.region);
-                let _ = close_handle(frame);
+                let _ = close_handle(capability);
             }
         }
     }
@@ -94,7 +95,7 @@ impl BlockClient {
             .map(|_| Slot {
                 virt: 0,
                 region: 0,
-                frame: None,
+                capability: None,
                 attached: None,
                 inflight: false,
             })
@@ -187,33 +188,19 @@ impl BlockClient {
             }
             self.endpoint = endpoint;
         }
-        if self.slots[slot].frame.is_none() {
-            let Some(frame) = MemoryClient::new(self.own_endpoint).frame(BUFFER_LEN) else {
+        if self.slots[slot].capability.is_none() {
+            // 共享缓冲区是匿名能力而不是裸 Frame：能力可以同时被客户端与服务端
+            // 映射，句柄本身不因映射而失效。
+            let Some((capability, region, virt)) =
+                MemoryClient::new(self.own_endpoint).map(CapabilityKind::Anonymous, BUFFER_LEN)
+            else {
                 return Err(STATUS_ERROR);
             };
-            let attach = handle_duplicate(
-                frame,
-                RIGHT_READ | RIGHT_WRITE | RIGHT_TRANSFER | RIGHT_ADMIN,
-            );
-            if attach == u64::MAX {
-                let _ = close_handle(frame);
-                return Err(STATUS_ERROR);
-            }
-            let Some(region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
-                let _ = close_handle(frame);
-                let _ = close_handle(attach);
-                return Err(STATUS_ERROR);
-            };
-            let Some((virt, _)) = region_info(region) else {
-                let _ = region_unmap(region);
-                let _ = close_handle(attach);
-                return Err(STATUS_ERROR);
-            };
-            self.slots[slot].frame = Some(attach);
+            self.slots[slot].capability = Some(capability);
             self.slots[slot].region = region;
             self.slots[slot].virt = virt;
         }
-        let number = self.slots[slot].frame.ok_or(STATUS_ERROR)?;
+        let number = self.slots[slot].capability.ok_or(STATUS_ERROR)?;
         if self.slots[slot].attached != Some(number) {
             self.attach_mapping(slot, endpoint, number, BUFFER_LEN)?;
             self.slots[slot].attached = Some(number);
