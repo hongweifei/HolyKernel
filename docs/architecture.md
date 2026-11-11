@@ -203,7 +203,7 @@ sequenceDiagram
 - **HMP**：Capacity 管物理容量，Frame 管物理页；Revision/Surface/TaskImage/DeviceAllocation/Anonymous 以类型化能力暴露，Mappable 是统一能力接口，Region 是唯一映射；Provider 按类型提供契约，Ledger 记账。内核与用户态服务使用同一对象图、Rights 与错误面。
 - **铸造链**：Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights。
 - **COW**：`fork` 复制 Region 表并标 `RegionFlags::COW`；未绑定 Provider 的 Anonymous 走内核快速路径，绑定 Provider 的能力由 Provider 处理。
-- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；`SYS_ALLOC` 对应 Arena 内 Region 的增长/提交。
+- **Arena**：任务栈、堆与工作区都是 Arena 内的 Region；装载器登记的镜像/栈 Region 与 `SYS_ALLOC` 按次建立的惰性 Region 共同构成任务地址空间对象面。
 - **DMA**：用户态驱动获得 Frame、DeviceAllocation 与 DeviceGrant；IOMMU 可选。
 
 详见 [HMP 内存模型](hmp.md)、[执行模型](execution.md)。

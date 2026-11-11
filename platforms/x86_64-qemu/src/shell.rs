@@ -5,6 +5,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use hk_hal::{BootInfo, Console};
 use hk_kernel_shell::{Scheduling, ScriptSource};
@@ -54,6 +55,20 @@ impl ShellIo for ConsoleIo<'_> {
 
 impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> {
     fn load(&mut self, name: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
+        self.load_with_regions(name, slot)
+            .map(|(context, _)| context)
+    }
+
+    fn load_module(&mut self, module: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
+        self.load_module_with_regions(module, slot)
+            .map(|(context, _)| context)
+    }
+
+    fn load_with_regions(
+        &mut self,
+        name: &str,
+        slot: usize,
+    ) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
         loader::load_service(
             self.info,
             name,
@@ -64,7 +79,11 @@ impl hk_root_server::service::ServiceLoader<cpu::InterruptFrame> for Loader<'_> 
         )
     }
 
-    fn load_module(&mut self, module: &str, slot: usize) -> Result<cpu::InterruptFrame, String> {
+    fn load_module_with_regions(
+        &mut self,
+        module: &str,
+        slot: usize,
+    ) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
         loader::load_module(
             self.info,
             module,

@@ -469,12 +469,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .flatten()
             .find_map(|region| fault_region(region, address))
-            .or_else(|| {
-                process
-                    .arena_region
-                    .as_ref()
-                    .and_then(|region| fault_region(region, address))
-            })
     }
 
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。

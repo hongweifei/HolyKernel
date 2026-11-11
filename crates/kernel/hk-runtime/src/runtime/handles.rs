@@ -32,6 +32,95 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(self.install_extra_entry(index, handle, Some(charge)))
     }
 
+    /// 把装载器已映射的镜像段与用户栈登记为 Region。
+    pub(crate) fn register_user_regions(
+        &mut self,
+        index: usize,
+        specs: &[UserRegionSpec],
+    ) -> Result<(), KernelError> {
+        for spec in specs {
+            self.register_region(index, *spec, None)?;
+        }
+        Ok(())
+    }
+
+    /// 把一个已物化的用户映射登记为 Region。
+    pub(crate) fn register_region(
+        &mut self,
+        index: usize,
+        spec: UserRegionSpec,
+        charge: Option<Charge>,
+    ) -> Result<(), KernelError> {
+        if spec.len == 0 {
+            return Ok(());
+        }
+        let tcb = self.tasks[index].tcb;
+        let mut rights = Rights::READ;
+        if spec.writable {
+            rights |= Rights::WRITE;
+        }
+        if spec.executable {
+            rights |= Rights::EXECUTE;
+        }
+        let flags = hk_mem::hmp::RegionFlags::empty();
+        let kind = if spec.executable {
+            hk_mem::hmp::CapabilityKind::TaskImage
+        } else {
+            hk_mem::hmp::CapabilityKind::Anonymous
+        };
+        let capability =
+            hk_mem::hmp::Capability::new(kind, spec.len as u64, hk_hal::PAGE_SIZE, None)
+                .map_err(KernelError::Hmp)?;
+        let capability_handle = self.kernel.create_capability(
+            tcb,
+            capability.clone(),
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )?;
+        let mut region = match hk_mem::hmp::Region::new(&capability, 0, spec.len, rights, flags) {
+            Ok(region) => region,
+            Err(error) => {
+                let _ = self.kernel.close_handle(tcb, capability_handle);
+                return Err(KernelError::Hmp(error));
+            }
+        };
+        if let Err(error) = region.map(hk_hal::VirtAddr::new(spec.virt)) {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(error));
+        }
+        let region_id = region.id();
+        if self.process_mut(index).hmp_arena.insert(&region).is_err() {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(hk_mem::hmp::HmpError::AlreadyMapped));
+        }
+        let region_handle = match self.kernel.create_region(
+            tcb,
+            region,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        ) {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = self.process_mut(index).hmp_arena.remove(region_id);
+                let _ = self.kernel.close_handle(tcb, capability_handle);
+                return Err(error);
+            }
+        };
+        self.install_region(
+            index,
+            region_handle,
+            capability_handle,
+            region_id,
+            true,
+            spec.virt,
+            spec.len,
+            0,
+            rights,
+            flags,
+            charge,
+        );
+        Ok(())
+    }
+
     /// 复制父任务的 capability/Region 元数据到 fork 子任务。
     pub(crate) fn fork_regions(&mut self, parent: usize, child: usize) {
         type ForkRegionEntry = (Handle, Handle, u64, usize, u64, hk_mem::hmp::RegionFlags);
@@ -415,12 +504,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .unwrap_or(0),
             );
         }
-        if let Some(region) = &self.process(index).arena_region {
-            total = total.saturating_add(
-                self.kernel
-                    .capability_resident(tcb, region.capability)
-                    .unwrap_or(0),
-            );
+        for region in self.process(index).regions.iter().flatten() {
+            if region.internal_capability {
+                total = total.saturating_add(
+                    self.kernel
+                        .capability_resident(tcb, region.capability)
+                        .unwrap_or(0),
+                );
+            }
         }
         total
     }
@@ -518,7 +609,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    /// 在任务退出时拆除该进程的全部 Region 与 Arena 覆盖 Region。
+    /// 在任务退出时拆除该进程的全部 Region。
     pub(crate) fn teardown_process(&mut self, index: usize) {
         let slots: Vec<usize> = (0..self.process(index).regions.len()).collect();
         for slot in slots {
@@ -531,35 +622,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.teardown_region(index, slot, true);
             }
         }
-        self.teardown_arena_region(index);
         self.process_mut(index).cow_pages.clear();
         self.release_task_charges(index);
-    }
-
-    /// 拆除任务 Arena 的内部惰性 Region 与 capability。
-    fn teardown_arena_region(&mut self, index: usize) {
-        let Some(region) = self.process_mut(index).arena_region.take() else {
-            return;
-        };
-        let capability_id = self
-            .kernel
-            .handle_id(region.owner, region.capability)
-            .ok()
-            .map(|id| id.get());
-        let page = hk_hal::PAGE_SIZE as u64;
-        let mut offset = 0;
-        while offset < region.len as u64 {
-            let _ = self
-                .platform
-                .unmap_user(index, region.virt + offset, page as usize);
-            offset += page;
-        }
-        let _ = self.kernel.close_handle(region.owner, region.handle);
-        let _ = self.kernel.close_handle(region.owner, region.capability);
-        let _ = self.process_mut(index).hmp_arena.remove(region.region);
-        if let Some(capability_id) = capability_id {
-            self.prune_cow_pages(index, capability_id);
-        }
     }
 
     /// 解除 Region 的映射并关闭它持有的内部句柄。
@@ -622,17 +686,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .ok()
                 .map(|id| id.get())
                 == Some(capability_id)
-        }) || self
-            .process(index)
-            .arena_region
-            .as_ref()
-            .is_some_and(|region| {
-                self.kernel
-                    .handle_id(region.owner, region.capability)
-                    .ok()
-                    .map(|id| id.get())
-                    == Some(capability_id)
-            });
+        });
         if !referenced {
             self.process_mut(index)
                 .cow_pages

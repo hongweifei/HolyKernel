@@ -136,8 +136,8 @@ impl MockPlatform {
 /// 测试平台的每任务内存配额。
 const MEMORY_LIMIT: u64 = 1 << 20;
 
-/// 每个进程由内核持有的 Arena 容量与 Region 句柄数。
-const ARENA_HANDLES: usize = 2;
+/// Arena 分配前由内核持有的常驻句柄数。
+const ARENA_HANDLES: usize = 0;
 
 impl UserPlatform for MockPlatform {
     fn timer_ticks(&self) -> u64 {
@@ -493,20 +493,6 @@ fn memory_service_capability_allocates_from_user_capacity() {
 }
 
 #[test]
-fn arena_aligns_and_exhausts() {
-    let mut arena = Arena::new(0x1000, 0x3000);
-    assert_eq!(arena.allocate(16, 8), Some(0x1000));
-    assert_eq!(arena.used(), 0x1000);
-    assert_eq!(arena.allocate(8, 64), Some(0x2000));
-    assert_eq!(arena.used(), 0x2000);
-    assert_eq!(arena.allocate(4096, 8), Some(0x3000));
-    assert_eq!(arena.used(), 0x3000);
-    assert_eq!(arena.allocate(1, 8), None);
-    assert_eq!(arena.allocate(0, 8), None);
-    assert_eq!(arena.allocate(8, 3), None);
-}
-
-#[test]
 fn dispatches_alloc_and_exit() {
     let mut runtime = runtime();
     assert_eq!(runtime.task_count(), 2);
@@ -679,8 +665,8 @@ fn arena_alloc_is_lazy_and_charged() {
         panic!("任务应可运行");
     };
     assert!(
-        runtime.process(index).arena_region.is_some(),
-        "运行时应建立覆盖 Arena 的惰性 Region"
+        runtime.process(index).hmp_arena.regions().is_empty(),
+        "Arena 分配前不应建立 Region"
     );
     let before = runtime.process(index).ledger.charged();
 
@@ -690,6 +676,11 @@ fn arena_alloc_is_lazy_and_charged() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let start = context.rax;
     assert_eq!(start, 0x10_0000);
+    assert_eq!(
+        runtime.process(index).hmp_arena.regions().len(),
+        1,
+        "Arena 分配应登记为 Region"
+    );
     assert_eq!(
         runtime.process(index).ledger.charged(),
         before + hk_hal::PAGE_SIZE as u64,
@@ -996,6 +987,31 @@ fn forks_task_with_child_context() {
 }
 
 #[test]
+fn attach_registers_loader_regions() {
+    let mut runtime = runtime();
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let spec = UserRegionSpec {
+        virt: 0x1000_0000,
+        len: 0x2000,
+        writable: false,
+        executable: true,
+    };
+    runtime
+        .attach_with_regions(index, context, &[spec])
+        .expect("登记装载器 Region");
+    let process = runtime.process(index);
+    assert_eq!(process.hmp_arena.regions().len(), 1);
+    assert_eq!(process.hmp_arena.used(), 0x2000);
+    let region = process.regions.iter().flatten().next().expect("Region");
+    assert_eq!(region.virt, spec.virt);
+    assert_eq!(region.len, spec.len);
+    assert!(region.rights.contains(Rights::EXECUTE));
+    assert!(!region.rights.contains(Rights::WRITE));
+}
+
+#[test]
 fn fork_cow_ranges_follow_regions() {
     let platform = MockPlatform::new();
     let last_cow = Arc::clone(&platform.last_cow);
@@ -1050,8 +1066,8 @@ fn threads_share_process_memory_state() {
     let child = runtime.tasks.len() - 1;
     assert_eq!(runtime.tasks[child].process, runtime.tasks[leader].process);
     assert_eq!(
-        runtime.process(child).arena.base(),
-        runtime.process(leader).arena.base()
+        runtime.process(child).arena_base,
+        runtime.process(leader).arena_base
     );
     assert_eq!(
         runtime.process(child).ledger.limit(),
@@ -1070,6 +1086,13 @@ fn thread_fault_materializes_arena_page_through_process_capacity() {
         panic!("任务应可运行");
     };
 
+    context.rax = SYS_ALLOC;
+    context.rdi = 0x1000;
+    context.rsi = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let base = context.rax;
+    assert_ne!(base, u64::MAX);
+
     context.rax = SYS_THREAD_CREATE;
     context.rdi = 0x1000;
     context.rsi = 0x2000;
@@ -1080,9 +1103,9 @@ fn thread_fault_materializes_arena_page_through_process_capacity() {
     let child = runtime.tasks.len() - 1;
 
     // 线程的句柄表没有进程 Capacity；首次触碰 Arena 惰性页必须仍能装入。
-    let base = runtime.process(leader).arena.base();
+    assert_eq!(base, runtime.process(leader).arena_base);
     runtime.current[0] = Some(child);
-    assert!(runtime.anonymous_fault(0, base + 0x8000));
+    assert!(runtime.anonymous_fault(0, base));
 }
 
 #[test]
@@ -1356,7 +1379,7 @@ fn transports_byte_payloads() {
     let regions = u64::from_le_bytes(data[0x318..0x320].try_into().expect("regions"));
     assert_ne!(base, 0, "Arena 应报告真实基址");
     assert!(size > 0);
-    assert_eq!(regions, 1, "内部惰性 Region 应登记进 Arena");
+    assert_eq!(regions, 0, "Arena 分配前不应有 Region");
     drop(data);
 
     context.rax = hk_syscall::SYS_FRAME_BANK_STATS;
@@ -2535,7 +2558,7 @@ fn arena_tracks_mapped_regions() {
     let region = context.rax;
     assert_ne!(region, u64::MAX);
     let arena = &runtime.process(0).hmp_arena;
-    assert_eq!(arena.regions().len(), 2, "内部 Arena Region + 用户 Region");
+    assert_eq!(arena.regions().len(), 1, "用户 Region 应登记进 Arena");
     assert!(arena.used() >= 0x2000);
 
     context.rax = SYS_REGION_UNMAP;
@@ -2544,8 +2567,8 @@ fn arena_tracks_mapped_regions() {
     assert_eq!(context.rax, 1);
     assert_eq!(
         runtime.process(0).hmp_arena.regions().len(),
-        1,
-        "只剩内部 Arena Region"
+        0,
+        "解除后 Arena 表应为空"
     );
     let _ = runtime.finish(0, index);
 }
@@ -2662,7 +2685,7 @@ fn lazy_region_unmap_failure_keeps_region() {
     assert_eq!(context.rax, 0);
     assert_eq!(
         runtime.process(0).hmp_arena.regions().len(),
-        2,
+        1,
         "解除失败时用户 Region 仍登记"
     );
     assert_eq!(runtime.process(0).regions.iter().flatten().count(), 1);

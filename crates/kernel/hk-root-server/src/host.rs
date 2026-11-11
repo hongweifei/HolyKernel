@@ -13,7 +13,8 @@ use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
 use hk_runtime::runtime::{
-    CheckpointCapture, FaultOutcome, Step, Switch, TaskInfo, UserPlatform, UserRuntime,
+    CheckpointCapture, FaultOutcome, Step, Switch, TaskInfo, UserPlatform, UserRegionSpec,
+    UserRuntime,
 };
 
 use crate::ServiceTable;
@@ -75,10 +76,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
 
     /// 设置任务的用户态初始现场。
     pub fn attach(&self, index: usize, context: C) {
-        if let Some(runtime) = self.runtime.lock().as_mut() {
-            runtime.attach(index, context);
-        }
+        let _ = self.attach_with_regions(index, context, &[]);
+    }
+
+    /// 设置任务的用户态初始现场，并登记装载器交付的 Region。
+    pub fn attach_with_regions(
+        &self,
+        index: usize,
+        context: C,
+        regions: &[UserRegionSpec],
+    ) -> Result<(), String> {
+        let result = self
+            .runtime
+            .lock()
+            .as_mut()
+            .ok_or_else(|| String::from("运行时未初始化"))
+            .and_then(|runtime| {
+                runtime
+                    .attach_with_regions(index, context, regions)
+                    .map_err(|error| format!("{error}"))
+            });
         self.wake_aps();
+        result
     }
 
     /// 返回当前 CPU 正在执行的任务名。
@@ -329,13 +348,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         context: C,
         parent: Option<u64>,
     ) -> Result<u64, String> {
+        self.start_at_with_regions(name, slot, device_authority, cadence, context, parent, &[])
+    }
+
+    /// 在指定槽位启动任务，并登记装载器交付的 Region。
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_at_with_regions(
+        &self,
+        name: &str,
+        slot: usize,
+        device_authority: bool,
+        cadence: CadenceSpec,
+        context: C,
+        parent: Option<u64>,
+        regions: &[UserRegionSpec],
+    ) -> Result<u64, String> {
         let result = {
             let mut guard = self.runtime.lock();
             let runtime = guard
                 .as_mut()
                 .ok_or_else(|| String::from("运行时未初始化"))?;
             runtime
-                .start_at(slot, name, device_authority, cadence, context, parent)
+                .start_at_with_regions(
+                    slot,
+                    name,
+                    device_authority,
+                    cadence,
+                    context,
+                    parent,
+                    regions,
+                )
                 .map_err(|error| format!("{error}"))
         };
         self.wake_aps();

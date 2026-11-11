@@ -345,7 +345,7 @@ pub fn run(
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
-        let context = load(
+        let (context, regions) = load(
             info,
             module,
             index,
@@ -355,7 +355,7 @@ pub fn run(
             paging,
         )?;
         services.register_with_authority(names[index], specs[index].device_authority);
-        runtime::attach(index, context);
+        runtime::attach_with_regions(index, context, &regions)?;
     }
 
     let mut shell_loader = crate::shell::Loader {
@@ -402,7 +402,7 @@ fn load(
     direct_map_base: u64,
     allocator: &FrameBank,
     paging: &PageTable,
-) -> Result<cpu::InterruptFrame, String> {
+) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
     let bytes = info
         .module_bytes(module)
         .ok_or_else(|| format!("模块不在 direct map 内：{}", module.name))?;
@@ -426,13 +426,13 @@ fn load(
         paging: &table,
         allocator,
     };
-    let context = loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
+    let (context, regions) = loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
         cpu::user_frame(entry, stack_top, endpoint)
     })
     .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
     hk_platform_x86_64::USER_ADDRESS_SPACES
         .install(index, hk_platform_x86_64::UserSpace::new(table));
-    Ok(context)
+    Ok((context, regions))
 }
 
 struct UserPages<'a> {
@@ -490,7 +490,7 @@ pub fn load_service(
     direct_map_base: u64,
     allocator: &FrameBank,
     paging: &PageTable,
-) -> Result<cpu::InterruptFrame, String> {
+) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
     load_module(info, name, slot, direct_map_base, allocator, paging)
 }
 
@@ -502,7 +502,7 @@ pub fn load_module(
     direct_map_base: u64,
     allocator: &FrameBank,
     paging: &PageTable,
-) -> Result<cpu::InterruptFrame, String> {
+) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
     let module = info
         .server_modules
         .iter()

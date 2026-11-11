@@ -15,9 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{
-    Arena as HmpArena, Capability, CapabilityKind, Charge, HmpError, Ledger, Region, RegionFlags,
-};
+use hk_mem::hmp::{Arena as HmpArena, Charge, Ledger, RegionFlags};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_INFO,
@@ -46,7 +44,6 @@ use hk_kernel::{Kernel, KernelError, ReplyToken, TcbId, ThreadState};
 use user_window::UserWindow;
 
 /// 随消息接收的句柄编号起点。
-mod arena;
 mod handles;
 mod platform;
 mod reclaim;
@@ -57,7 +54,6 @@ mod user_task;
 mod user_window;
 mod view;
 
-pub use arena::Arena;
 pub use platform::{CowOutcome, UserPlatform};
 pub use state::{FaultOutcome, Pending, Step, Switch};
 pub use user_task::UserTask;
@@ -71,6 +67,22 @@ const REGION_HANDLE_BASE: usize = 0x4000;
 pub(crate) const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
+
+/// 装载器交付的用户映射区间。
+///
+/// 镜像段与用户栈在装载期已经由平台映射；运行时按该描述建立对应的 Region，
+/// 使这些映射进入对象面，而不是只存在于页表中。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UserRegionSpec {
+    /// 用户虚拟地址。
+    pub virt: u64,
+    /// 按页对齐的区间长度。
+    pub len: usize,
+    /// 是否可写。
+    pub writable: bool,
+    /// 是否可执行。
+    pub executable: bool,
+}
 
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
@@ -101,9 +113,10 @@ pub(crate) struct Process {
     pub user_window: UserWindow,
     pub regions: Vec<Option<RegionMap>>,
     pub region_free: Vec<usize>,
-    pub arena: Arena,
-    /// 覆盖整个 Arena 的惰性匿名 Region；不对外暴露句柄。
-    pub arena_region: Option<RegionMap>,
+    /// 任务 Arena 的虚拟区间与线性分配游标。
+    pub arena_base: u64,
+    pub arena_size: u64,
+    pub arena_next: u64,
     /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页。
     pub cow_pages: BTreeMap<(u64, usize), hk_hal::PhysRange>,
     /// 进程能力分配使用的 Capacity 句柄；关闭句柄即撤销分配权。
@@ -118,82 +131,51 @@ impl Process {
         ledger_limit: u64,
         allocation_capacity: Handle,
     ) -> Self {
+        let address_size = hk_base::user::AUTO_WINDOW_LIMIT.saturating_sub(arena_base);
         Self {
-            hmp_arena: HmpArena::create(VirtAddr::new(0), hk_base::user::AUTO_WINDOW_LIMIT)
+            hmp_arena: HmpArena::create(VirtAddr::new(arena_base), address_size)
                 .expect("用户 Arena 布局有效"),
             ledger: Ledger::create(ledger_limit),
             user_window: UserWindow::new(),
             regions: Vec::new(),
             region_free: Vec::new(),
-            arena: Arena::new(arena_base, arena_size),
-            arena_region: None,
+            arena_base,
+            arena_size,
+            arena_next: arena_base,
             cow_pages: BTreeMap::new(),
             allocation_capacity,
             device_factory: None,
         }
     }
 
-    /// 为任务 Arena 建立惰性匿名 Region。
-    ///
-    /// 装载期不再预映射 Arena：Region 覆盖固定的 VA 窗口，首次访问按页从任务
-    /// 容量装入零页；`SYS_ALLOC` 只推进线性分配并计入 Ledger。句柄只在内核侧
-    /// 持有，不暴露给用户态。
-    pub(crate) fn map_arena(&mut self, kernel: &Kernel, tcb: TcbId) -> Result<(), KernelError> {
-        if self.arena_region.is_some() {
-            return Ok(());
+    /// 在任务 Arena 中线性分配一段页对齐区间。
+    pub(crate) fn allocate_arena(&mut self, size: usize, align: usize) -> Option<(u64, usize)> {
+        if size == 0 || !align.is_power_of_two() {
+            return None;
         }
-        let base = self.arena.base();
-        let size = self.arena.size();
-        let len = usize::try_from(size).map_err(|_| KernelError::Hmp(HmpError::InvalidSize))?;
-        let rights = Rights::READ | Rights::WRITE;
-        let capability = Capability::new(CapabilityKind::Anonymous, size, hk_hal::PAGE_SIZE, None)
-            .map_err(KernelError::Hmp)?;
-        let capability_handle = kernel.create_capability(
-            tcb,
-            capability.clone(),
-            None,
-            Rights::READ | Rights::WRITE | Rights::ADMIN,
-        )?;
-        let region = match Region::new(&capability, 0, len, rights, RegionFlags::empty()) {
-            Ok(region) => region,
-            Err(error) => {
-                let _ = kernel.close_handle(tcb, capability_handle);
-                return Err(KernelError::Hmp(error));
-            }
-        };
-        let mut region = region;
-        if let Err(error) = region.map(VirtAddr::new(base)) {
-            let _ = kernel.close_handle(tcb, capability_handle);
-            return Err(KernelError::Hmp(error));
+        let page = hk_hal::PAGE_SIZE as u64;
+        let align = (align.max(8) as u64).max(page);
+        let len = (size as u64).div_ceil(page) * page;
+        let start = (self.arena_next + align - 1) & !(align - 1);
+        let end = start.checked_add(len)?;
+        if end > self.arena_base.checked_add(self.arena_size)? {
+            return None;
         }
-        let region_id = region.id();
-        if self.hmp_arena.insert(&region).is_err() {
-            let _ = kernel.close_handle(tcb, capability_handle);
-            return Err(KernelError::Hmp(HmpError::AlreadyMapped));
-        }
-        let region_handle =
-            match kernel.create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN) {
-                Ok(handle) => handle,
-                Err(error) => {
-                    let _ = self.hmp_arena.remove(region_id);
-                    let _ = kernel.close_handle(tcb, capability_handle);
-                    return Err(error);
-                }
-            };
-        self.arena_region = Some(RegionMap {
-            handle: region_handle,
-            capability: capability_handle,
-            owner: tcb,
-            region: region_id,
-            internal_capability: true,
-            virt: base,
-            len,
-            offset: 0,
-            rights,
-            flags: RegionFlags::empty(),
-            charge: None,
-        });
-        Ok(())
+        self.arena_next = end;
+        Some((start, len as usize))
+    }
+
+    /// 返回 Arena 已分配的虚拟字节数。
+    pub(crate) fn arena_used(&self) -> u64 {
+        self.arena_next.saturating_sub(self.arena_base)
+    }
+
+    /// 恢复 Arena 已分配字节数。
+    pub(crate) fn set_arena_used(&mut self, used: u64) {
+        self.arena_next = self
+            .arena_base
+            .saturating_add(used)
+            .min(self.arena_base.saturating_add(self.arena_size));
     }
 }
 
@@ -433,6 +415,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 设置任务的用户态初始现场，并使任务进入调度。
     pub fn attach(&mut self, index: usize, context: C) {
+        let _ = self.attach_with_regions(index, context, &[]);
+    }
+
+    /// 设置任务的用户态初始现场，并登记装载器交付的 Region。
+    pub fn attach_with_regions(
+        &mut self,
+        index: usize,
+        context: C,
+        regions: &[UserRegionSpec],
+    ) -> Result<(), KernelError> {
+        self.register_user_regions(index, regions)?;
         if let Some(task) = self.tasks.get_mut(index) {
             task.context = context;
             if let Some(slot) = task.capacities.iter().position(Option::is_some) {
@@ -441,6 +434,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             let _ = self.kernel.activate(task.tcb);
         }
+        Ok(())
     }
 
     /// 返回当前 CPU 正在执行的任务名。
@@ -493,8 +487,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     switches: meter.map_or(0, |meter| meter.switches),
                     migrations: meter.map_or(0, |meter| meter.migrations),
                     last_cpu: meter.map_or(u32::MAX, |meter| meter.last_cpu),
-                    arena_used: self.process(index).arena.used(),
-                    arena_size: self.process(index).arena.size(),
+                    arena_used: self.process(index).arena_used(),
+                    arena_size: self.process(index).arena_size,
                     ledger_charged: self.process(index).ledger.charged(),
                     ledger_resident: self.process(index).ledger.resident(),
                     vspace: self.platform.vspace(index),

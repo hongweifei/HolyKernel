@@ -479,9 +479,13 @@ pub(crate) fn host() -> &'static RuntimeHost<InterruptFrame, X86Platform> {
     &RUNTIME
 }
 
-/// 设置任务的用户态初始现场。
-pub fn attach(index: usize, context: InterruptFrame) {
-    RUNTIME.attach(index, context);
+/// 设置任务的用户态初始现场，并登记装载器交付的 Region。
+pub fn attach_with_regions(
+    index: usize,
+    context: InterruptFrame,
+    regions: &[hk_root_server::UserRegionSpec],
+) -> Result<(), String> {
+    RUNTIME.attach_with_regions(index, context, regions)
 }
 
 /// 生成任务视图快照。

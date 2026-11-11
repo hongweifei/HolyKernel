@@ -354,11 +354,11 @@ pub fn frame_map(frame: u64, rights: u32, flags: u32) -> Option<u64> {
 /// 任务 Arena 快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArenaInfo {
-    /// 起始虚拟地址。
+    /// Arena 窗口起始虚拟地址。
     pub base: u64,
-    /// 地址区间长度。
+    /// Arena 窗口长度。
     pub size: u64,
-    /// 已登记 Region 的字节数。
+    /// 已登记 Region 的字节数，包含镜像、栈与动态映射。
     pub used: u64,
     /// Region 数。
     pub regions: u64,

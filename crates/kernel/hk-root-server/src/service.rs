@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use hk_cadence::CadenceSpec;
 use hk_hal::{SyscallFrame, UserContext};
 
-use hk_runtime::UserPlatform;
+use hk_runtime::{UserPlatform, UserRegionSpec};
 
 use crate::{RuntimeHost, ServiceTable};
 
@@ -43,6 +43,24 @@ pub trait ServiceLoader<C> {
     /// 按模块名装载镜像；用于热替换。
     fn load_module(&mut self, module: &str, slot: usize) -> Result<C, String> {
         self.load(module, slot)
+    }
+
+    /// 装载服务并返回已映射的用户区间。
+    fn load_with_regions(
+        &mut self,
+        name: &str,
+        slot: usize,
+    ) -> Result<(C, Vec<UserRegionSpec>), String> {
+        Ok((self.load(name, slot)?, Vec::new()))
+    }
+
+    /// 按模块名装载镜像并返回已映射的用户区间。
+    fn load_module_with_regions(
+        &mut self,
+        module: &str,
+        slot: usize,
+    ) -> Result<(C, Vec<UserRegionSpec>), String> {
+        Ok((self.load_module(module, slot)?, Vec::new()))
     }
 
     /// 指定模块是否存在。
@@ -177,12 +195,12 @@ where
         .and_then(|name| host.tcb_of(name))
         .or(Some(host.root()));
     let slot = host.reuse_slot(name);
-    let context = match module {
-        Some(module) => loader.load_module(module, slot),
-        None => loader.load(name, slot),
+    let loaded = match module {
+        Some(module) => loader.load_module_with_regions(module, slot),
+        None => loader.load_with_regions(name, slot),
     };
-    let context = match context {
-        Ok(context) => context,
+    let (context, regions) = match loaded {
+        Ok(loaded) => loaded,
         Err(error) => return format!("装载失败：{error}\n"),
     };
 
@@ -191,7 +209,15 @@ where
     let device_authority =
         services.device_authority(name) || role & hk_image::ServiceRole::DEVICE != 0;
     let cadence = loader.cadence(source);
-    if let Err(error) = host.start_at(name, slot, device_authority, cadence, context, parent) {
+    if let Err(error) = host.start_at_with_regions(
+        name,
+        slot,
+        device_authority,
+        cadence,
+        context,
+        parent,
+        &regions,
+    ) {
         return format!("启动失败：{error}\n");
     }
 

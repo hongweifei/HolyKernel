@@ -6,8 +6,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::image::{ImageError, load_into};
+use crate::image::{ImageError, load_into_with_regions};
 use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
+use hk_runtime::UserRegionSpec;
 
 /// 从启动模块中选出默认启动的服务。
 pub fn boot_modules(modules: &[BootModule]) -> Vec<&BootModule> {
@@ -61,34 +62,45 @@ pub struct ImageSpec<'a> {
     pub stack_base: u64,
     /// 用户栈大小；镜像 Task 未声明时使用。
     pub stack_size: u64,
-    /// Arena 基址；装载期不映射，运行时按惰性 Region 建立。
+    /// Arena 基址；装载期不映射，`SYS_ALLOC` 按需建立 Region。
     pub arena_base: u64,
-    /// Arena 大小；装载期不映射，运行时按平台布局使用。
+    /// Arena 大小；装载期不映射，分配游标限定在该窗口内。
     pub arena_size: u64,
 }
 
-/// 装载镜像并映射用户栈，返回入口现场。
+/// 装载镜像并映射用户栈，返回入口现场与已映射区间。
 ///
-/// Arena 不在装载期映射：运行时按平台布局建立一个惰性匿名 Region，首次访问
-/// 才按页装入零页。
-pub fn load<C, M, F>(spec: &ImageSpec<'_>, memory: &mut M, make_context: F) -> Result<C, LoadError>
+/// Arena 不在装载期映射：`SYS_ALLOC` 每次分配建立独立的惰性匿名 Region，
+/// 首次访问才按页装入零页。镜像段与栈的区间由返回值交给运行时登记 Region。
+pub fn load<C, M, F>(
+    spec: &ImageSpec<'_>,
+    memory: &mut M,
+    make_context: F,
+) -> Result<(C, Vec<UserRegionSpec>), LoadError>
 where
     M: UserMemory,
     F: FnOnce(u64, u64, u64) -> C,
 {
     let image = hk_image::Image::parse(spec.bytes).ok_or(LoadError::Image(ImageError::Parse))?;
     let task = image.task().ok_or(LoadError::Image(ImageError::Parse))?;
-    let entry = load_into(spec.bytes, memory).map_err(LoadError::Image)?;
+    let (entry, mut regions) =
+        load_into_with_regions(spec.bytes, memory).map_err(LoadError::Image)?;
     let stack_size = if task.stack_size == 0 {
         spec.stack_size
     } else {
         u64::from(task.stack_size)
     };
     map_region(memory, spec.stack_base, stack_size)?;
-    Ok(make_context(
-        entry,
-        spec.stack_base + stack_size - 8,
-        spec.endpoint,
+    let page_size = PAGE_SIZE as u64;
+    regions.push(UserRegionSpec {
+        virt: spec.stack_base,
+        len: stack_size.div_ceil(page_size) as usize * PAGE_SIZE,
+        writable: true,
+        executable: false,
+    });
+    Ok((
+        make_context(entry, spec.stack_base + stack_size - 8, spec.endpoint),
+        regions,
     ))
 }
 

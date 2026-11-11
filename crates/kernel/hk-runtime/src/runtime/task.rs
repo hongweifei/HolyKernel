@@ -44,8 +44,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         name: &str,
         device_authority: bool,
         cadence: CadenceSpec,
+        context: C,
+        parent: Option<u64>,
+    ) -> Result<u64, KernelError> {
+        self.start_at_with_regions(index, name, device_authority, cadence, context, parent, &[])
+    }
+
+    /// 在指定槽位装载任务，并登记装载器交付的 Region。
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_at_with_regions(
+        &mut self,
+        index: usize,
+        name: &str,
+        device_authority: bool,
+        cadence: CadenceSpec,
         mut context: C,
         parent: Option<u64>,
+        regions: &[UserRegionSpec],
     ) -> Result<u64, KernelError> {
         let reuse = index < self.tasks.len();
         if index > self.tasks.len()
@@ -100,7 +115,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.platform.memory_limit(index),
             capacity_handle,
         );
-        process.map_arena(&self.kernel, tcb)?;
         process.device_factory = device_factory;
         let mut task = UserTask::new(TaskInit {
             tcb,
@@ -123,6 +137,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks.push(task);
             self.processes.push(Some(process));
         }
+        self.register_user_regions(index, regions)?;
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }
@@ -271,7 +286,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let context = task.context;
         let parent = task.parent;
-        let arena_used = self.process(index).arena.used();
+        let arena_used = self.process(index).arena_used();
         let cadence = self
             .kernel
             .task_cadence_snapshot(task.tcb)
@@ -507,13 +522,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.platform.memory_limit(slot),
             capacity_handle,
         );
-        process.arena.set_used(arena_used);
+        process.set_arena_used(arena_used);
         process
             .ledger
             .charge(arena_used)
-            .map_err(|error| format!("{error}"))?;
-        process
-            .map_arena(&self.kernel, tcb)
             .map_err(|error| format!("{error}"))?;
         let mut task = UserTask::new(TaskInit {
             tcb,
@@ -528,6 +540,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         task.capacities.push(Some(capacity_handle));
         self.processes[slot] = Some(process);
         self.tasks[slot] = task;
+        if arena_used > 0 {
+            let len = usize::try_from(arena_used).map_err(|_| String::from("Arena 快照过大"))?;
+            self.register_user_regions(
+                slot,
+                &[UserRegionSpec {
+                    virt: arena_base,
+                    len,
+                    writable: true,
+                    executable: false,
+                }],
+            )
+            .map_err(|error| format!("{error}"))?;
+        }
         let _ = self.kernel.activate(tcb);
         Ok(slot)
     }
@@ -626,7 +651,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let mut context = *frame;
         context.set_result(0);
         let name = format!("{}-fork", self.tasks[index].name);
-        let arena = self.process(index).arena;
+        let arena_base = self.process(index).arena_base;
+        let arena_size = self.process(index).arena_size;
+        let arena_used = self.process(index).arena_used();
         let ledger_limit = self.process(index).ledger.limit();
         let parent_capacity = self.process(index).allocation_capacity;
         let Ok(capacity_object) = self.kernel.handle_id(tcb, parent_capacity) else {
@@ -647,14 +674,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 return Switch::Continue;
             }
         };
-        let mut process = Process::new(0, 0, ledger_limit, child_capacity);
-        process.arena = arena;
-        if process.ledger.charge(arena.used()).is_err()
-            || process.map_arena(&self.kernel, child).is_err()
-        {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
+        let mut process = Process::new(arena_base, arena_size, ledger_limit, child_capacity);
+        process.set_arena_used(arena_used);
         process.cow_pages = self.process(index).cow_pages.clone();
         let mut task = UserTask::new(TaskInit {
             tcb: child,

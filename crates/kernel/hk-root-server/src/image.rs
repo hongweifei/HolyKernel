@@ -2,10 +2,12 @@
 //!
 //! 页的分配与映射由平台的 [`UserMemory`] 提供；本模块只负责段解析与布局。
 
+use alloc::vec::Vec;
 use core::cmp::min;
 
 use hk_hal::{PAGE_SIZE, UserMemory};
 use hk_image::Image;
+use hk_runtime::UserRegionSpec;
 
 /// 用户镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,11 +57,34 @@ pub fn load(image: &[u8], sink: &mut impl PageSink) -> Result<u64, ImageError> {
 /// 每页由 [`UserMemory::map_page`] 分配并清零，普通内存段写入文件内容，其余
 /// 保持零填充。
 pub fn load_into<M: UserMemory>(image: &[u8], memory: &mut M) -> Result<u64, ImageError> {
-    load(image, &mut UserSink { memory })
+    load(
+        image,
+        &mut UserSink {
+            memory,
+            regions: None,
+        },
+    )
+}
+
+/// 把段映射进用户地址空间，同时返回各段的 Region 描述。
+pub fn load_into_with_regions<M: UserMemory>(
+    image: &[u8],
+    memory: &mut M,
+) -> Result<(u64, Vec<UserRegionSpec>), ImageError> {
+    let mut regions = Vec::new();
+    let entry = load(
+        image,
+        &mut UserSink {
+            memory,
+            regions: Some(&mut regions),
+        },
+    )?;
+    Ok((entry, regions))
 }
 
 struct UserSink<'a, M> {
     memory: &'a mut M,
+    regions: Option<&'a mut Vec<UserRegionSpec>>,
 }
 
 impl<M: UserMemory> PageSink for UserSink<'_, M> {
@@ -93,6 +118,16 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
             self.memory
                 .protect_page(virtual_address + offset, writable, executable);
         }
+        if pages > 0
+            && let Some(regions) = self.regions.as_mut()
+        {
+            regions.push(UserRegionSpec {
+                virt: virtual_address,
+                len: pages as usize * PAGE_SIZE,
+                writable,
+                executable,
+            });
+        }
         Ok(())
     }
 }
@@ -106,6 +141,68 @@ mod tests {
     fn rejects_malformed_image() {
         let mut sink = NullSink;
         assert_eq!(load(b"not an image", &mut sink), Err(ImageError::Parse));
+    }
+
+    #[test]
+    fn collects_region_specs_while_loading() {
+        let image = build(
+            TaskData {
+                name: "test",
+                role: 0,
+                entry: 0x4000,
+                stack_size: 0,
+                arena_size: 0,
+            },
+            &[RegionData {
+                virtual_address: 0x4000,
+                data: &[1, 2, 3, 4],
+                memory_size: 8,
+                flags: 2,
+            }],
+            &[],
+            &[],
+            &[],
+        );
+        let mut memory = TestMemory::default();
+        let (entry, regions) = load_into_with_regions(&image, &mut memory).expect("装载镜像");
+        assert_eq!(entry, 0x4000);
+        assert_eq!(
+            regions,
+            alloc::vec![UserRegionSpec {
+                virt: 0x4000,
+                len: PAGE_SIZE,
+                writable: true,
+                executable: false,
+            }]
+        );
+        assert_eq!(&memory.data[..4], &[1, 2, 3, 4]);
+    }
+
+    #[derive(Default)]
+    struct TestMemory {
+        data: Vec<u8>,
+        pages: Vec<(u64, bool, bool)>,
+    }
+
+    impl UserMemory for TestMemory {
+        fn map_page(&mut self, virtual_address: u64) -> Option<&mut [u8]> {
+            self.pages.push((virtual_address, true, false));
+            let start = self.data.len();
+            self.data.resize(start + PAGE_SIZE, 0);
+            Some(&mut self.data[start..])
+        }
+
+        fn protect_page(&mut self, virtual_address: u64, writable: bool, executable: bool) {
+            if let Some(page) = self
+                .pages
+                .iter_mut()
+                .rev()
+                .find(|(address, _, _)| *address == virtual_address)
+            {
+                page.1 = writable;
+                page.2 = executable;
+            }
+        }
     }
 
     #[test]
