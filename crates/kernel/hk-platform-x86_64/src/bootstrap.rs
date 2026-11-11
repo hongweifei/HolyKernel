@@ -13,7 +13,6 @@ use hk_hal::{
 use spin::Mutex;
 
 use crate::ioapic::IoApic;
-use hk_mem::FrameBank;
 
 use crate::{FramebufferConsole, PageFlags, PageTable};
 use hk_fw::FirmwareInfo;
@@ -194,7 +193,6 @@ impl InterruptController for IoApicController {
 
 struct AcpiWindow<'a> {
     paging: &'a PageTable,
-    allocator: &'a FrameBank,
     base: u64,
 }
 
@@ -218,7 +216,6 @@ impl AcpiWindow<'_> {
                     VirtAddr::new(self.base + index as u64 * page),
                     PhysAddr::new(page_phys + index as u64 * page),
                     PageFlags::KERNEL_RW,
-                    self.allocator,
                 )
                 .ok()?;
         }
@@ -237,7 +234,6 @@ impl AcpiWindow<'_> {
 pub fn init_ioapic(
     info: &BootInfo,
     paging: &PageTable,
-    allocator: &FrameBank,
     direct_map_base: u64,
 ) -> Result<Option<IoApicSetup>, String> {
     let Some(rsdp) = info.rsdp else {
@@ -246,20 +242,14 @@ pub fn init_ioapic(
 
     let mut window = AcpiWindow {
         paging,
-        allocator,
         base: ACPI_SCRATCH_BASE,
     };
     let tables = hk_fw::acpi::tables::parse(rsdp.get(), |phys, length| window.read(phys, length));
-    crate::iommu::init(&tables, paging, allocator);
+    crate::iommu::init(&tables, paging);
     *POWER.lock() = tables.fadt;
     if let Some(mcfg) = &tables.mcfg {
         for (index, entry) in mcfg.entries.iter().enumerate() {
-            map_ecam(
-                paging,
-                allocator,
-                entry,
-                ECAM_BASE + index as u64 * ECAM_STRIDE,
-            );
+            map_ecam(paging, entry, ECAM_BASE + index as u64 * ECAM_STRIDE);
         }
     }
     if let Some(hpet) = &tables.hpet
@@ -273,7 +263,6 @@ pub fn init_ioapic(
                 VirtAddr::new(HPET_BASE),
                 PhysAddr::new(phys),
                 PageFlags::MMIO,
-                allocator,
             )
             .is_ok()
         {
@@ -319,7 +308,7 @@ pub fn init_ioapic(
     };
     let virt = VirtAddr::new(direct_map_base + phys);
     paging
-        .map(virt, PhysAddr::new(phys), PageFlags::MMIO, allocator)
+        .map(virt, PhysAddr::new(phys), PageFlags::MMIO)
         .map_err(|error| format!("映射 IOAPIC 失败：{error:?}"))?;
 
     crate::keyboard::init();
@@ -360,7 +349,7 @@ pub fn init_ioapic(
 }
 
 /// 把 MCFG 描述的 ECAM 窗口映射到常驻内核虚拟地址。
-fn map_ecam(paging: &PageTable, allocator: &FrameBank, entry: &McfgEntry, virt_base: u64) {
+fn map_ecam(paging: &PageTable, entry: &McfgEntry, virt_base: u64) {
     let length = entry.length();
     let mut offset = 0_u64;
     while offset < length {
@@ -377,17 +366,11 @@ fn map_ecam(paging: &PageTable, allocator: &FrameBank, entry: &McfgEntry, virt_b
                     PhysAddr::new(phys),
                     PageFlags::MMIO,
                     1 << 21,
-                    allocator,
                 )
                 .is_ok()
         } else {
             paging
-                .map(
-                    VirtAddr::new(virt),
-                    PhysAddr::new(phys),
-                    PageFlags::MMIO,
-                    allocator,
-                )
+                .map(VirtAddr::new(virt), PhysAddr::new(phys), PageFlags::MMIO)
                 .is_ok()
         };
         if !mapped {
@@ -606,15 +589,11 @@ pub fn framebuffer_console(info: &BootInfo) -> Option<FramebufferConsole> {
 }
 
 /// 映射 LAPIC 寄存器页并初始化本地 APIC。
-pub fn init_interrupts(
-    paging: &PageTable,
-    allocator: &FrameBank,
-    direct_map_base: u64,
-) -> Result<(), String> {
+pub fn init_interrupts(paging: &PageTable, direct_map_base: u64) -> Result<(), String> {
     let lapic_phys = PhysAddr::new(0xFEE0_0000);
     let lapic_virt = VirtAddr::new(direct_map_base + lapic_phys.get());
     paging
-        .map(lapic_virt, lapic_phys, PageFlags::MMIO, allocator)
+        .map(lapic_virt, lapic_phys, PageFlags::MMIO)
         .map_err(|error| format!("映射 LAPIC 失败：{error:?}"))?;
 
     crate::cpu::init_apic(lapic_virt.get());

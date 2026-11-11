@@ -136,12 +136,9 @@ extern "C" fn kmain() -> ! {
             "内核栈 guard page 初始化失败，回退静态栈\n",
         );
     }
+    hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
 
-    if let Err(error) = bootstrap::init_interrupts(
-        &paging,
-        &hk_platform_x86_64::paging::FRAME_BANK,
-        direct_map_base,
-    ) {
+    if let Err(error) = bootstrap::init_interrupts(&paging, direct_map_base) {
         fail(
             &console,
             screen.as_ref(),
@@ -155,12 +152,7 @@ extern "C" fn kmain() -> ! {
         hk_platform_x86_64::cpu::calibrate_tick(hz);
     }
 
-    match bootstrap::init_ioapic(
-        &info,
-        &paging,
-        &hk_platform_x86_64::paging::FRAME_BANK,
-        direct_map_base,
-    ) {
+    match bootstrap::init_ioapic(&info, &paging, direct_map_base) {
         Ok(Some(ioapic)) => {
             let _ = bootstrap::init_keyboard(&ioapic);
             announce(
@@ -185,6 +177,7 @@ extern "C" fn kmain() -> ! {
             ExitCode::Failure(3),
         ),
     }
+    hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
 
     match smp::start() {
         Ok((started, online)) => {

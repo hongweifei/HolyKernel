@@ -157,7 +157,6 @@ impl PageTable {
                         hk_hal::PhysAddr::new(phys),
                         flags,
                         size,
-                        &crate::paging::FRAME_BANK,
                     )
                     .is_ok()
             {

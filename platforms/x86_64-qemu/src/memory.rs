@@ -11,25 +11,32 @@ use hk_mem::hmp::CapacityId;
 /// 启动期内核堆字节数。
 const KERNEL_HEAP_BYTES: usize = 16 * 1024 * 1024;
 
+/// 内核虚拟基址；与 linker.ld 的链接地址一致。
+const KERNEL_VIRT_BASE: u64 = 0xFFFF_FFFF_8000_0000;
+
 /// 启动完成后的内存快照。
 pub(crate) struct Memory {
     stats: hk_mem::FrameBankStats,
     system_used: u64,
     system_limit: u64,
     system_span: u64,
+    arena_regions: u64,
+    arena_used: u64,
 }
 
 impl fmt::Display for Memory {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "FrameBank：used {} KiB / total {} KiB，peak {} KiB；System Capacity {} / {} KiB（窗口 {} KiB）；Capacity 分类 system {}、user {}、dma {}、gpu {}、numa {}",
+            "FrameBank：used {} KiB / total {} KiB，peak {} KiB；System Capacity {} / {} KiB（窗口 {} KiB）；System Arena {} 个 Region / {} KiB；Capacity 分类 system {}、user {}、dma {}、gpu {}、numa {}",
             self.stats.used / 1024,
             self.stats.total / 1024,
             self.stats.peak / 1024,
             self.system_used / 1024,
             self.system_limit / 1024,
             self.system_span / 1024,
+            self.arena_regions,
+            self.arena_used / 1024,
             self.stats.by_capacity[0] / 1024,
             self.stats.by_capacity[1] / 1024,
             self.stats.by_capacity[2] / 1024,
@@ -68,6 +75,20 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
     }
     hk_platform_x86_64::system::establish(bank, heap, dma_bytes)
         .ok_or_else(|| String::from("无法从可用内存建立 System Capacity"))?;
+    if !hk_platform_x86_64::system_arena::establish() {
+        return Err(String::from("无法建立 System Arena"));
+    }
+    hk_platform_x86_64::system_arena::register_image(
+        KERNEL_VIRT_BASE,
+        hk_hal::PhysRange::new(info.kernel_image.base, info.kernel_image.len),
+    );
+    if let Some(direct_map) = info.direct_map {
+        hk_platform_x86_64::system_arena::register_direct_map(
+            direct_map.virt_base.get(),
+            direct_map.len,
+        );
+    }
+    hk_platform_x86_64::system_arena::register_bank_allocations(bank, direct_map_base);
 
     let stats = bank.stats();
     let (system_used, system_limit, system_span) =
@@ -75,10 +96,14 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
             let capacity = capacity.lock();
             (capacity.used(), capacity.limit(), capacity.range().len())
         });
+    let (arena_regions, arena_used) = hk_platform_x86_64::system_arena::snapshot()
+        .map_or((0, 0), |snapshot| (snapshot.regions, snapshot.used));
     Ok(Memory {
         stats,
         system_used,
         system_limit,
         system_span,
+        arena_regions,
+        arena_used,
     })
 }

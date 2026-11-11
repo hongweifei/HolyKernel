@@ -357,6 +357,8 @@ pub fn run(
         services.register_with_authority(names[index], specs[index].device_authority);
         runtime::attach_with_regions(index, context, &regions)?;
     }
+    // 服务装载可能在高半区新增页表页；补登记新出现的内核映射。
+    hk_platform_x86_64::system_arena::register_kernel_mappings(paging);
 
     let mut shell_loader = crate::shell::Loader {
         info,
@@ -451,12 +453,7 @@ impl UserMemory for UserPages<'_> {
             core::ptr::write_bytes(destination, 0, PAGE_SIZE);
         }
         self.paging
-            .map(
-                VirtAddr::new(virtual_address),
-                frame,
-                PageFlags::USER_RW,
-                self.allocator,
-            )
+            .map(VirtAddr::new(virtual_address), frame, PageFlags::USER_RW)
             .ok()?;
         if !hk_platform_x86_64::paging::mapping_acquire(frame) {
             return None;
