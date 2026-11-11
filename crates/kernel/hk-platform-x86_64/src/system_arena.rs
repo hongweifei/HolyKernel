@@ -11,7 +11,7 @@
 
 use alloc::vec::Vec;
 
-use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
+use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::hmp::{Arena, Capability, CapabilityKind, Region, RegionFlags, RegionId};
 use hk_mem::{FrameBank, Rights};
 use spin::Mutex;
@@ -177,24 +177,10 @@ pub fn region(index: usize) -> Option<SystemRegion> {
     state.regions.get(index).copied()
 }
 
-/// 把内核镜像登记为 Region。
-///
-/// `virt` 是镜像的虚拟基址（链接地址），`image` 是物理区间；长度向上取整
-/// 到页。镜像可执行且常驻，带 `SEALED | PINNED` 标志。
-pub fn register_image(virt: u64, image: PhysRange) -> bool {
-    let len = image.len().div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
-    register(
-        virt,
-        len,
-        Rights::READ | Rights::EXECUTE,
-        RegionFlags::SEALED | RegionFlags::PINNED,
-    )
-}
-
 /// 把 direct map 中不与既有 Region 重叠的空洞登记为可写 Region。
 ///
 /// direct map 覆盖全部物理内存且同时可写可执行；W^X 契约下它不能整体成为
-/// 一个 Region。内核镜像段已按可执行登记，这里只补上其余部分的数据视图。
+/// 一个 Region。这里登记的是数据视图，代码段由页表遍历按可执行段单独登记。
 pub fn register_direct_map(virt: u64, len: u64) -> usize {
     let Some(end) = virt.checked_add(len) else {
         return 0;
@@ -264,13 +250,19 @@ pub fn register_bank_allocations(bank: &FrameBank, direct_map_base: u64) -> usiz
     count
 }
 
-/// 把内核页表高半区中尚未登记的叶子映射登记为 Region。
+/// 把内核页表高半区中尚未登记的叶子映射按实际权利登记为 Region。
 ///
-/// 相邻同属性页合并为一段；MMIO（PWT/PCD）页带 `GUARD` 标志。已有 Region
-/// 覆盖的页跳过，重叠冲突的段也跳过。返回新登记的 Region 数。
+/// 这是内核自用映射的登记事实来源：可执行段登记为 `TaskImage` +
+/// `READ|EXECUTE|SEALED|PINNED`，数据、`.bss`、启动栈与 direct map 数据视图
+/// 登记为 `Anonymous` + `READ|WRITE|PINNED`。相邻同属性页合并为一段；MMIO
+/// （PWT/PCD）页带 `GUARD` 标志；先登记的更具体窗口优先，重叠冲突的段跳过。
+/// 返回新登记的 Region 数。
 pub fn register_kernel_mappings(table: &crate::paging::PageTable) -> usize {
     let mut runs: Vec<(u64, u64, u64)> = Vec::new();
     table.kernel_half_regions(|virt, _phys, len, flags| {
+        // 只保留语义权限位；访问/脏位与软件 COW 位随运行变化，参与合并会把
+        // 同一权限的连续页切成大量不稳定的 Region。
+        let flags = flags & (WRITABLE | NX | PWT | PCD);
         if let Some(last) = runs.last_mut()
             && last.0 + last.1 == virt
             && last.2 == flags
@@ -294,6 +286,10 @@ pub fn register_kernel_mappings(table: &crate::paging::PageTable) -> usize {
             rights.remove(Rights::EXECUTE);
         }
         let mut region_flags = RegionFlags::PINNED;
+        // 可执行段来自内核镜像，登记为不可改写、不可解除密封的代码视图。
+        if rights.contains(Rights::EXECUTE) {
+            region_flags |= RegionFlags::SEALED;
+        }
         if flags & (PWT | PCD) != 0 {
             region_flags |= RegionFlags::GUARD;
         }
@@ -345,6 +341,7 @@ pub fn unregister_kernel_page(phys: PhysAddr, direct_map_base: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paging::flags::PRESENT;
 
     /// 每个测试使用独立的地址段，避免全局状态相互干扰。
     fn segment(index: u64) -> u64 {
@@ -443,12 +440,14 @@ mod tests {
     }
 
     #[test]
-    fn direct_map_fills_holes_around_image() {
+    fn direct_map_fills_holes_around_existing_regions() {
         ensure_established();
         let base = segment(4);
-        assert!(register_image(
+        assert!(register(
             base + 0x1000,
-            PhysRange::new(PhysAddr::new(0x20_0000), 0x2000),
+            0x2000,
+            Rights::READ | Rights::EXECUTE,
+            RegionFlags::SEALED | RegionFlags::PINNED,
         ));
         let count = register_direct_map(base, 0x8000);
         assert_eq!(count, 2);
@@ -462,5 +461,55 @@ mod tests {
         let after = regions_containing(base + 0x3000);
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].len(), 0x5000);
+    }
+
+    #[test]
+    fn kernel_mappings_follow_actual_page_rights() {
+        ensure_established();
+        // 缓冲区依次容纳 PML4、PDPT、PD、PT、代码页与数据页。
+        let mut memory = alloc::vec![0_u8; 6 * PAGE_SIZE];
+        let base = memory.as_mut_ptr() as u64;
+        let table = crate::paging::PageTable {
+            direct_map: base,
+            root: PhysAddr::new(0),
+            pcid: 0,
+        };
+        let (pml4, pdpt, pd, pt) = (
+            0_u64,
+            PAGE_SIZE as u64,
+            2 * PAGE_SIZE as u64,
+            3 * PAGE_SIZE as u64,
+        );
+        let code = 4 * PAGE_SIZE as u64;
+        let data = 5 * PAGE_SIZE as u64;
+        let virt = KERNEL_HALF_BASE;
+        // SAFETY: 各级页表与数据页都在缓冲区内，索引在 0..512 范围内。
+        unsafe {
+            table
+                .entry(PhysAddr::new(pml4), 256)
+                .write_volatile(pdpt | PRESENT | WRITABLE);
+            table
+                .entry(PhysAddr::new(pdpt), 0)
+                .write_volatile(pd | PRESENT | WRITABLE);
+            table
+                .entry(PhysAddr::new(pd), 0)
+                .write_volatile(pt | PRESENT | WRITABLE);
+            table
+                .entry(PhysAddr::new(pt), 0)
+                .write_volatile(code | PRESENT);
+            table
+                .entry(PhysAddr::new(pt), 1)
+                .write_volatile(data | PRESENT | WRITABLE | NX);
+        }
+        assert!(register_kernel_mappings(&table) >= 2);
+        let executable = regions_containing(virt);
+        assert_eq!(executable.len(), 1);
+        assert_eq!(executable[0].rights(), Rights::READ | Rights::EXECUTE);
+        assert!(executable[0].flags().contains(RegionFlags::SEALED));
+        assert!(executable[0].flags().contains(RegionFlags::PINNED));
+        let writable = regions_containing(virt + PAGE_SIZE as u64);
+        assert_eq!(writable.len(), 1);
+        assert_eq!(writable[0].rights(), Rights::READ | Rights::WRITE);
+        assert!(!writable[0].flags().contains(RegionFlags::SEALED));
     }
 }

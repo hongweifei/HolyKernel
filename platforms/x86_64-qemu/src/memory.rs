@@ -11,9 +11,6 @@ use hk_mem::hmp::CapacityId;
 /// 启动期内核堆字节数。
 const KERNEL_HEAP_BYTES: usize = 16 * 1024 * 1024;
 
-/// 内核虚拟基址；与 linker.ld 的链接地址一致。
-const KERNEL_VIRT_BASE: u64 = 0xFFFF_FFFF_8000_0000;
-
 /// 启动完成后的内存快照。
 pub(crate) struct Memory {
     stats: hk_mem::FrameBankStats,
@@ -78,10 +75,6 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
     if !hk_platform_x86_64::system_arena::establish() {
         return Err(String::from("无法建立 System Arena"));
     }
-    hk_platform_x86_64::system_arena::register_image(
-        KERNEL_VIRT_BASE,
-        hk_hal::PhysRange::new(info.kernel_image.base, info.kernel_image.len),
-    );
     if let Some(direct_map) = info.direct_map {
         hk_platform_x86_64::system_arena::register_direct_map(
             direct_map.virt_base.get(),
