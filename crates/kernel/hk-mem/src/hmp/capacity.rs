@@ -178,6 +178,14 @@ impl Capacity {
             if self.used().saturating_add(length) > self.limit() && !self.grow(length) {
                 return Err(HmpError::OutOfCapacity);
             }
+            if let Some(range) = backend.allocate_owned(self.id, self.kind, length) {
+                return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
+            }
+            // 配额尚有余量但既有窗口里没有足够长的连续空闲段：从父容量再扩
+            // 一段连续窗口后重试一次。碎片化不能伪装成容量耗尽。
+            if !self.grow(length) {
+                return Err(HmpError::OutOfCapacity);
+            }
             let range = backend
                 .allocate_owned(self.id, self.kind, length)
                 .ok_or(HmpError::OutOfCapacity)?;

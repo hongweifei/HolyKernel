@@ -151,6 +151,7 @@ Capacity 是物理容量的授予单位。
 
 - `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
 - 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
+- 分配在配额允许但既有窗口没有足够长的连续空闲段时，先向父容量扩出一段连续窗口再重试；查找时相邻且属于同一容量的窗口合并为一段。配额余量不会被窗口碎片伪装成容量耗尽。
 - 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
 - `SYS_FRAME_BANK_STATS` 返回 FrameBank 物理 `total/used/peak/free` 与按 `CapacityKind` 的用量（System、User、Dma、Gpu、Numa）；`SYS_LEDGER_ENUM` 返回每个 Capacity 的明细。两者使用同一套分类，不再对外暴露 `FrameKind` 统计。
 

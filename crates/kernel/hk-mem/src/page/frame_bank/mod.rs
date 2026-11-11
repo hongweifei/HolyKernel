@@ -150,15 +150,24 @@ impl Inner {
     ///
     /// 空闲条目可能与相邻容量合并成大块，也可能被窗口边界切成多段，因此不能
     /// 只看单个条目：这里把落在窗口内的空闲段收集起来、按起点排序并合并相邻
-    /// 段，再找足够长的连续区间。
+    /// 段，再找足够长的连续区间。相邻且属于同一容量的窗口先合并为一段，避免
+    /// 同一容量自己的连续空闲空间被窗口边界切成不可用的碎块。
     fn find_free_in_owned(&self, owner: CapacityId, length: u64) -> Option<u64> {
-        let windows: Vec<(u64, u64)> = self
+        let mut windows: Vec<(u64, u64)> = self
             .owned
             .values()
             .filter(|window| window.capacity == owner)
             .map(|window| (window.range.start().get(), window.range.end().get()))
             .collect();
-        for (ws, we) in windows {
+        windows.sort_unstable();
+        let mut spans: Vec<(u64, u64)> = Vec::with_capacity(windows.len());
+        for (start, end) in windows {
+            match spans.last_mut() {
+                Some(last) if last.1 == start => last.1 = end,
+                _ => spans.push((start, end)),
+            }
+        }
+        for (ws, we) in spans {
             let mut pieces: Vec<(u64, u64)> = self
                 .free_by_start
                 .values()
