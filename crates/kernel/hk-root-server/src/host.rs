@@ -191,20 +191,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         }
     }
 
-    /// `cpu` 是否有下一次唤醒期限。
+    /// 是否有能让任务重新可运行的待办唤醒（预算补充、sleep 到期或 IPC 超时）。
+    pub fn has_pending_wakeup(&self) -> bool {
+        self.runtime
+            .lock()
+            .as_ref()
+            .is_some_and(|runtime| runtime.has_pending_wakeup())
+    }
+
+    /// `cpu` 是否有下一次唤醒期限（含 idle 线程的 grant 结束时间）。
     pub fn has_deadline(&self, cpu: usize) -> bool {
         self.runtime
             .lock()
             .as_ref()
             .is_some_and(|runtime| runtime.next_wakeup(cpu).is_some())
-    }
-
-    /// 是否有尚未到期的休眠任务。
-    pub fn has_sleepers(&self) -> bool {
-        self.runtime
-            .lock()
-            .as_ref()
-            .is_some_and(|runtime| runtime.has_sleepers())
     }
 
     /// 按名称返回任务的 TCB 编号。
@@ -471,7 +471,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         self.run_cpu_budget(cpu, table, usize::MAX);
     }
 
-    /// 在指定 CPU 上调度至多 `budget` 步；返回是否已无可运行线程。
+    /// 在指定 CPU 上调度至多 `budget` 步；返回这一刻是否已没有可被选中的任务。
+    ///
+    /// `true` 只说明当前没有任务能立即运行，任务可能仍在等预算补充或 sleep
+    /// 到期；调用方按 [`Self::has_pending_wakeup`] 与任务状态决定等待还是收尾。
     pub fn run_cpu_budget(
         &self,
         cpu: usize,

@@ -211,6 +211,11 @@ impl Kernel {
         self.scheduler.lock().runnable() > 0
     }
 
+    /// 判断是否有等待预算补充的任务。
+    pub fn pending_refills(&self) -> bool {
+        !self.refills.lock().is_empty()
+    }
+
     /// 取 `cpu` 的下一个 TCB；当前 TCB 按 Task 虚拟时间重新入队。
     pub fn schedule(&self, cpu: usize) -> Option<TcbId> {
         self.ensure_idle(cpu);

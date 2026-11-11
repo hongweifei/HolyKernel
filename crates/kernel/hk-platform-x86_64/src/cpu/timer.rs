@@ -81,11 +81,22 @@ pub fn rearm_tick() {
     interrupts::enable();
 }
 
-/// 为 idle 一次性唤醒启用本地定时器，不重置周期计数。
+/// 为 idle 唤醒启用本地定时器，不重置周期计数。
+///
+/// 进入时关中断并在返回时保持关闭：调用方在关中断状态下编程唤醒期限，再用
+/// [`wait_for_interrupt`] 原子地开中断并 `hlt`，避免一次性唤醒在 `hlt` 之前
+/// 被投递后进入无定时器的永久等待。
 pub fn enable_wakeup_timer() {
+    interrupts::disable();
     TICK_ARMED.store(true, Ordering::SeqCst);
     TICK_ENABLED.store(true, Ordering::SeqCst);
-    interrupts::enable();
+}
+
+/// 等待下一次中断；进入前关中断，返回时中断仍关闭。
+pub fn wait_for_interrupt() {
+    interrupts::disable();
+    interrupts::enable_and_hlt();
+    interrupts::disable();
 }
 
 /// 停止调度 tick 并关中断。

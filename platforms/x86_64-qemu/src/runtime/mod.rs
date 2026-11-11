@@ -534,9 +534,9 @@ pub fn arm_idle_wakeup() {
     RUNTIME.arm_wakeup(0);
 }
 
-/// 是否有尚未到期的休眠任务。
-pub fn has_sleepers() -> bool {
-    RUNTIME.has_sleepers()
+/// 是否有能让任务重新可运行的待办唤醒（预算补充、sleep 到期或 IPC 超时）。
+pub fn has_pending_wakeup() -> bool {
+    RUNTIME.has_pending_wakeup()
 }
 
 /// 返回最近的内核 trace 事件。
@@ -549,7 +549,7 @@ pub fn stats() -> hk_root_server::RuntimeStats {
     RUNTIME.stats()
 }
 
-/// 调度至多 `steps` 步；返回是否已无可运行线程。
+/// 调度至多 `steps` 步；返回这一刻是否已没有可被选中的任务。
 pub fn run_budgeted(table: &mut ServiceTable, steps: usize) -> bool {
     cpu::start_tick();
     let idle = RUNTIME.run_cpu_budget(0, Some(table), steps);

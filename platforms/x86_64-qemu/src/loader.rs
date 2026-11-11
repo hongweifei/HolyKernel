@@ -379,15 +379,18 @@ pub fn run(
             continue;
         }
         if idle {
-            // 图形桌面、控制台自检与任何存在休眠任务的模式都不能直接退出：
-            // 休眠任务需要周期性 tick 才能到期，外部输入则通过中断唤醒空闲 CPU。
-            let keep_alive = desktop || console_test || runtime::has_sleepers();
-            if keep_alive && !runtime::tasks().iter().all(|task| task.state == "exited") {
+            // `idle` 只表示这一刻没有可被选中的任务，不代表系统已经收尾：
+            // 任务可能只是在等实时预算补充、sleep 到期或外部输入。图形桌面与
+            // 控制台自检要一直等外部中断；其他模式只要还有未退出任务且存在
+            // 下一次唤醒期限，就必须等到期，而不是提前收尾。
+            let pending = runtime::tasks().iter().any(|task| task.state != "exited");
+            let keep_alive = desktop || console_test || runtime::has_pending_wakeup();
+            if keep_alive && pending {
+                // 在关中断状态下编程唤醒期限，再由 `wait_for_interrupt` 原子地
+                // 开中断并 `hlt`。否则一次性唤醒可能在 `hlt` 之前被投递，随后
+                // 进入没有定时器的永久等待。
                 runtime::arm_idle_wakeup();
-                // SAFETY: 中断已开启；`hlt` 等待下一次中断，随后关中断回到调度循环。
-                unsafe {
-                    core::arch::asm!("hlt; cli", options(nomem, nostack));
-                }
+                hk_platform_x86_64::cpu::wait_for_interrupt();
                 continue;
             }
             break;

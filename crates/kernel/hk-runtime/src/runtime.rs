@@ -311,9 +311,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.kernel.has_runnable()
     }
 
-    /// 是否有尚未到期的休眠任务。
-    pub fn has_sleepers(&self) -> bool {
-        !self.sleeping.is_empty() || !self.timeouts.is_empty()
+    /// 判断是否有能让任务重新可运行的待办唤醒：预算补充、sleep 到期或 IPC 超时。
+    ///
+    /// 与 [`Self::next_wakeup`] 不同，这里不含 idle 线程的 grant 结束时间；
+    /// 只有这些待办才代表系统还有实质工作要做。
+    pub fn has_pending_wakeup(&self) -> bool {
+        self.kernel.pending_refills() || !self.sleeping.is_empty() || !self.timeouts.is_empty()
     }
 
     /// 唤醒空闲 CPU。

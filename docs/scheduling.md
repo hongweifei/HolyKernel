@@ -186,6 +186,8 @@ stateDiagram-v2
 - 全局时间源：平台单调时钟；Hosted 平台使用虚拟时钟。
 - 周期补充由内核 `refills` 表承载；sleep 与接收/调用超时由 runtime 的 `sleeping`/`timeouts` 表承载。`Runtime::next_wakeup` 合并三者与本地 Grant 结束，Beat 将本地一次性定时器指向该 CPU 的最近事件。
 - idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。
+- 调度调用返回"这一刻没有可选中任务"时，调用方按待办唤醒（`refills`、`sleeping`、`timeouts`）与未退出任务决定继续等待还是收尾；`Throttled` 任务只是在等预算补充，不能据此判定系统完成。
+- 一次性唤醒在关中断状态下编程，再用 `sti; hlt` 原子等待；先开中断再编程会让唤醒在 `hlt` 前被投递，随后进入没有定时器的永久等待。
 
 ### 5.8 亲和性与负载均衡
 

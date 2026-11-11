@@ -32,7 +32,7 @@ pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set
 pub use timer::{
     arm_oneshot, arm_timer, calibrate_tick, calibrate_tick_hpet, disarm_timer, enable_wakeup_timer,
     note_timer_interrupt, oneshot_armed, rearm_tick, resume_periodic, start_ap_tick, start_tick,
-    stop_tick, tick_enabled, timer_finished, timer_ticks, uptime_ticks,
+    stop_tick, tick_enabled, timer_finished, timer_ticks, uptime_ticks, wait_for_interrupt,
 };
 pub use user::{
     FaultAction, FaultHook, NmiHook, exception_name, fault_address, leave_user, resume_user,
