@@ -76,11 +76,13 @@ impl Kernel {
         handle: Handle,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let mut threads = self.threads.lock();
-        let tcb = threads
-            .get_mut(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        Ok(tcb.handles_mut().duplicate(handle, rights)?)
+        let table = self
+            .threads
+            .lock()
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        Ok(table.lock().duplicate(handle, rights)?)
     }
 
     /// 把已有对象的句柄授予指定线程。
@@ -96,13 +98,16 @@ impl Kernel {
 
     /// 关闭线程句柄表中的一个句柄。
     pub fn close_handle(&self, thread: TcbId, handle: Handle) -> Result<(), KernelError> {
+        let table = self
+            .threads
+            .lock()
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
         let id = {
-            let mut threads = self.threads.lock();
-            let tcb = threads
-                .get_mut(&thread)
-                .ok_or(KernelError::UnknownThread(thread))?;
-            let id = tcb.handles().resolve(handle, Rights::empty())?.id();
-            tcb.handles_mut().close(handle)?;
+            let mut table = table.lock();
+            let id = table.resolve(handle, Rights::empty())?.id();
+            table.close(handle)?;
             id
         };
         self.record(thread.get(), Category::Handle, TRACE_HANDLE_CLOSE, id.get());
@@ -111,11 +116,13 @@ impl Kernel {
 
     /// 返回句柄指向的对象标识。
     pub fn handle_id(&self, thread: TcbId, handle: Handle) -> Result<ObjectId, KernelError> {
-        let threads = self.threads.lock();
-        let tcb = threads
+        let table = self
+            .threads
+            .lock()
             .get(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        Ok(tcb.handles().handle_id(handle)?)
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        Ok(table.lock().handle_id(handle)?)
     }
 
     pub(crate) fn register(
@@ -124,14 +131,15 @@ impl Kernel {
         object: Arc<KernelObject>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
-        let handle = {
-            let mut threads = self.threads.lock();
-            let tcb = threads
-                .get_mut(&thread)
-                .ok_or(KernelError::UnknownThread(thread))?;
-            tcb.handles_mut()
-                .insert(Arc::clone(&object) as Arc<dyn Object>, rights)?
-        };
+        let table = self
+            .threads
+            .lock()
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        let handle = table
+            .lock()
+            .insert(Arc::clone(&object) as Arc<dyn Object>, rights)?;
         {
             let mut objects = self.objects.lock();
             objects.insert(object.header().id(), Arc::downgrade(&object));
@@ -155,11 +163,13 @@ impl Kernel {
         required: Rights,
         expected: ObjectKind,
     ) -> Result<(Arc<KernelObject>, ObjectId), KernelError> {
-        let threads = self.threads.lock();
-        let tcb = threads
+        let table = self
+            .threads
+            .lock()
             .get(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        let resolved = tcb.handles().resolve_kind(handle, required, expected)?;
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        let resolved = table.lock().resolve_kind(handle, required, expected)?;
         let id = resolved.id();
         let object = resolved
             .into_any()
@@ -175,12 +185,14 @@ impl Kernel {
         handle: Handle,
         expected: ObjectKind,
     ) -> Result<Rights, KernelError> {
-        let threads = self.threads.lock();
-        let tcb = threads
+        let table = self
+            .threads
+            .lock()
             .get(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        let resolved = tcb
-            .handles()
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        let resolved = table
+            .lock()
             .resolve_kind(handle, Rights::empty(), expected)?;
         Ok(resolved.rights())
     }

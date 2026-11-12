@@ -25,10 +25,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(child) = self
-            .kernel
-            .spawn_thread_parked(task, HandleTable::with_default_quota())
-        else {
+        let Ok(child) = self.kernel.spawn_thread_parked(task) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -36,9 +33,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.endpoints.push(None);
         self.notifications.push(None);
 
-        let (handles, notifications) = self.endpoint_views(child, child_index, None, None);
-        // 线程槽位没有自己的端点；其他任务按槽位下标补齐空洞。
+        // 线程共享主线程的句柄表，视图直接复用主线程的句柄编号。
         self.append_empty_endpoint();
+        let handles = self.tasks[leader].handles.clone();
+        let notifications = self.tasks[leader].notifications.clone();
 
         let process = self.tasks[leader].process;
         let name = format!("{}-thread{}", self.tasks[leader].name, child_index - leader);

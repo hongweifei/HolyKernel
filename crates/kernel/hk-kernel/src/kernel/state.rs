@@ -30,7 +30,7 @@ impl Kernel {
         self.threads
             .lock()
             .get(&thread)
-            .map(|tcb| tcb.handles().live())
+            .map(|tcb| tcb.handles().lock().live())
     }
 
     /// 生成内核状态报告。
@@ -59,7 +59,7 @@ impl Kernel {
                 tcb.task().get(),
                 tcb.state(),
                 class,
-                tcb.handles().live(),
+                tcb.handles().lock().live(),
                 tcb.blocked(),
                 tcb.pending_deliveries()
             );

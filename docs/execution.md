@@ -47,7 +47,7 @@ pub struct Tcb {
 }
 ```
 
-- **TCB** 是唯一的执行单元；同一 Task 的 TCB 共享 Cadence、Meter、Arena 与 HandleTable。
+- **TCB** 是唯一的执行单元；同一 Task 的 TCB 共享 Cadence、Meter、Arena 与 HandleTable。线程创建不复制句柄表：内核把主线程的表句柄表交给新 TCB，运行时端点视图复用主线程的句柄编号；句柄转移在同一张表内按一次加锁完成，跨 Task 转移按表地址固定顺序加锁。
 - TCB 状态：`Created / Eligible / Running / Blocked / Exited`。
 - 线程入口、栈与 TLS 由用户态服务器与 libc 配置。
 - Task 获得 Grant 后，其可运行 TCB 轮转使用该 Grant。

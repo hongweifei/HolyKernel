@@ -1285,9 +1285,7 @@ fn task_serializes_threads_and_rotates_them() {
         .spawn_task(HandleTable::new(8), spec)
         .expect("主线程");
     let task = kernel.task_of(first).expect("任务");
-    let second = kernel
-        .spawn_thread(task, HandleTable::new(8))
-        .expect("第二线程");
+    let second = kernel.spawn_thread(task).expect("第二线程");
 
     let a = kernel.schedule(0).expect("首个 Grant");
     assert!(a == first || a == second);
@@ -1302,6 +1300,39 @@ fn task_serializes_threads_and_rotates_them() {
 }
 
 #[test]
+fn threads_share_task_handle_table() {
+    let kernel = kernel();
+    let first = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("主线程");
+    let task = kernel.task_of(first).expect("任务");
+    let second = kernel.spawn_thread(task).expect("第二线程");
+
+    let endpoint = kernel
+        .create_endpoint(first, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(first, endpoint).expect("对象标识");
+    assert_eq!(
+        kernel.handle_id(second, endpoint),
+        Ok(endpoint_id),
+        "线程共享主线程的句柄编号"
+    );
+
+    let notification = kernel
+        .create_notification(second, Rights::READ)
+        .expect("通知");
+    assert!(
+        kernel.handle_id(first, notification).is_ok(),
+        "线程创建的句柄对主线程可见"
+    );
+    assert_eq!(
+        kernel.handles_live(first),
+        kernel.handles_live(second),
+        "共享表的在用句柄数一致"
+    );
+}
+
+#[test]
 fn task_budget_is_shared_by_threads() {
     let kernel = kernel();
     let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
@@ -1312,9 +1343,7 @@ fn task_budget_is_shared_by_threads() {
         .spawn_task(HandleTable::new(8), spec)
         .expect("主线程");
     let task = kernel.task_of(first).expect("任务");
-    let _second = kernel
-        .spawn_thread(task, HandleTable::new(8))
-        .expect("第二线程");
+    let _second = kernel.spawn_thread(task).expect("第二线程");
 
     let running = kernel.schedule(0).expect("Grant");
     kernel.charge(running, millis(1).ticks() + 1);

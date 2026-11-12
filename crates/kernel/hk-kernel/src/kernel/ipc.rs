@@ -492,15 +492,17 @@ impl Kernel {
         }
 
         if sender == receiver {
-            let threads = self.threads.lock();
-            let source = threads
+            let table = self
+                .threads
+                .lock()
                 .get(&sender)
-                .ok_or(KernelError::UnknownThread(sender))?;
+                .ok_or(KernelError::UnknownThread(sender))?
+                .handles();
+            let table = table.lock();
             for handle in &handles {
-                source
-                    .handles()
-                    .resolve(*handle, Rights::READ | Rights::TRANSFER)?;
+                table.resolve(*handle, Rights::READ | Rights::TRANSFER)?;
             }
+            drop(table);
             self.record(
                 sender.get(),
                 Category::Handle,
@@ -510,76 +512,94 @@ impl Kernel {
             return Ok(());
         }
 
-        let mut threads = self.threads.lock();
-        {
+        // 同一 Task 的线程共享句柄表；此时源与目标表是同一把锁，不能重复加锁。
+        let (source_table, target_table) = {
+            let threads = self.threads.lock();
+            let source = threads
+                .get(&sender)
+                .ok_or(KernelError::UnknownThread(sender))?
+                .handles();
             let target = threads
                 .get(&receiver)
-                .ok_or(KernelError::UnknownThread(receiver))?;
-            let available = target
-                .handles()
-                .quota()
-                .saturating_sub(target.handles().live());
+                .ok_or(KernelError::UnknownThread(receiver))?
+                .handles();
+            (source, target)
+        };
+        let same_table = Arc::ptr_eq(&source_table, &target_table);
+
+        let mut resolved = Vec::with_capacity(handles.len());
+        let mut granted = Vec::with_capacity(resolved.len());
+        if same_table {
+            let mut table = source_table.lock();
+            let available = table.quota().saturating_sub(table.live());
             if available < handles.len() {
                 return Err(hk_handle::HandleError::NoHandles.into());
             }
-        }
-
-        let mut resolved = Vec::with_capacity(handles.len());
-        {
-            let source = threads
-                .get(&sender)
-                .ok_or(KernelError::UnknownThread(sender))?;
             for handle in &handles {
-                resolved.push(
-                    source
-                        .handles()
-                        .resolve(*handle, Rights::READ | Rights::TRANSFER)?,
-                );
+                resolved.push(table.resolve(*handle, Rights::READ | Rights::TRANSFER)?);
             }
-        }
-
-        let mut granted = Vec::with_capacity(resolved.len());
-        {
-            let target = threads
-                .get_mut(&receiver)
-                .ok_or(KernelError::UnknownThread(receiver))?;
             for resolved in &resolved {
-                match target
-                    .handles_mut()
-                    .insert(Arc::clone(resolved.object()), resolved.rights())
-                {
+                match table.insert(Arc::clone(resolved.object()), resolved.rights()) {
                     Ok(handle) => granted.push(handle),
                     Err(error) => {
                         for handle in granted {
-                            let _ = target.handles_mut().close(handle);
+                            let _ = table.close(handle);
                         }
                         return Err(error.into());
                     }
                 }
             }
-        }
-
-        let close_failed = {
-            let source = threads
-                .get_mut(&sender)
-                .ok_or(KernelError::UnknownThread(sender))?;
-            let mut failed = false;
             for handle in &handles {
-                if source.handles_mut().close(*handle).is_err() {
-                    failed = true;
-                    break;
+                if table.close(*handle).is_err() {
+                    for handle in &granted {
+                        let _ = table.close(*handle);
+                    }
+                    return Err(hk_handle::HandleError::BadHandle.into());
                 }
             }
-            failed
-        };
-        if close_failed {
-            let target = threads
-                .get_mut(&receiver)
-                .ok_or(KernelError::UnknownThread(receiver))?;
-            for handle in &granted {
-                let _ = target.handles_mut().close(*handle);
+        } else {
+            // 跨 Task 传输会同时持有两张表；按表地址固定顺序加锁，避免两个
+            // 方向的传输互相等待。
+            let (first, second) = if Arc::as_ptr(&target_table) < Arc::as_ptr(&source_table) {
+                (target_table.clone(), source_table.clone())
+            } else {
+                (source_table.clone(), target_table.clone())
+            };
+            let mut first = first.lock();
+            let mut second = second.lock();
+            let (target, source) = if Arc::as_ptr(&target_table) < Arc::as_ptr(&source_table) {
+                (&mut *first, &mut *second)
+            } else {
+                (&mut *second, &mut *first)
+            };
+            {
+                let available = target.quota().saturating_sub(target.live());
+                if available < handles.len() {
+                    return Err(hk_handle::HandleError::NoHandles.into());
+                }
             }
-            return Err(hk_handle::HandleError::BadHandle.into());
+            for handle in &handles {
+                resolved.push(source.resolve(*handle, Rights::READ | Rights::TRANSFER)?);
+            }
+            for resolved in &resolved {
+                match target.insert(Arc::clone(resolved.object()), resolved.rights()) {
+                    Ok(handle) => granted.push(handle),
+                    Err(error) => {
+                        for handle in granted {
+                            let _ = target.close(handle);
+                        }
+                        return Err(error.into());
+                    }
+                }
+            }
+            for handle in &handles {
+                if source.close(*handle).is_err() {
+                    for handle in &granted {
+                        let _ = target.close(*handle);
+                    }
+                    return Err(hk_handle::HandleError::BadHandle.into());
+                }
+            }
         }
 
         message.handles = [None; hk_ipc::MAX_MESSAGE_HANDLES];

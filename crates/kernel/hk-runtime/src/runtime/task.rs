@@ -180,45 +180,73 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 把新端点追加到已有任务的端点视图。
+    ///
+    /// 同一 Task 的线程共享句柄表：每个 Task（以主线程为代表）只授予一次，
+    /// 该 Task 的所有线程视图复用同一组句柄编号。
     fn append_endpoint(&mut self, endpoint: ObjectId, notification: ObjectId) {
-        let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let mut leaders = Vec::new();
+        for (index, task) in self.tasks.iter().enumerate() {
+            if task.exited || task.leader != index {
+                continue;
+            }
+            leaders.push((
+                index,
+                self.kernel.grant(task.tcb, endpoint, rights).ok(),
+                self.kernel.grant(task.tcb, notification, rights).ok(),
+            ));
+        }
         for task in &mut self.tasks {
             if task.exited {
                 continue;
             }
-            task.handles
-                .push(kernel.grant(task.tcb, endpoint, rights).ok());
-            task.notifications
-                .push(kernel.grant(task.tcb, notification, rights).ok());
+            if let Some((_, endpoint, notification)) =
+                leaders.iter().find(|(leader, _, _)| *leader == task.leader)
+            {
+                task.handles.push(*endpoint);
+                task.notifications.push(*notification);
+            }
         }
     }
 
     /// 在已有槽位替换端点，并同步其他任务的端点视图。
     fn replace_endpoint(&mut self, slot: usize, endpoint: ObjectId, notification: ObjectId) {
-        let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
-        for (index, task) in self.tasks.iter_mut().enumerate() {
-            if index == slot || task.exited {
+        let mut updates = Vec::new();
+        for (index, task) in self.tasks.iter().enumerate() {
+            if index == slot || task.exited || task.leader != index {
                 continue;
             }
             if let Some(old) = task.handles.get(slot).and_then(|handle| *handle) {
-                let _ = kernel.close_handle(task.tcb, old);
+                let _ = self.kernel.close_handle(task.tcb, old);
             }
             if let Some(old) = task.notifications.get(slot).and_then(|handle| *handle) {
-                let _ = kernel.close_handle(task.tcb, old);
+                let _ = self.kernel.close_handle(task.tcb, old);
             }
-            let endpoint_handle = kernel.grant(task.tcb, endpoint, rights).ok();
+            updates.push((
+                index,
+                self.kernel.grant(task.tcb, endpoint, rights).ok(),
+                self.kernel.grant(task.tcb, notification, rights).ok(),
+            ));
+        }
+        for task in &mut self.tasks {
+            if task.exited || task.leader == slot {
+                continue;
+            }
+            let Some((_, endpoint, notification)) =
+                updates.iter().find(|(leader, _, _)| *leader == task.leader)
+            else {
+                continue;
+            };
             if let Some(handle) = task.handles.get_mut(slot) {
-                *handle = endpoint_handle;
+                *handle = *endpoint;
             } else {
-                task.handles.push(endpoint_handle);
+                task.handles.push(*endpoint);
             }
-            let notification_handle = kernel.grant(task.tcb, notification, rights).ok();
             if let Some(handle) = task.notifications.get_mut(slot) {
-                *handle = notification_handle;
+                *handle = *notification;
             } else {
-                task.notifications.push(notification_handle);
+                task.notifications.push(*notification);
             }
         }
     }
@@ -329,18 +357,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 capability_size: capability.size(),
             });
         }
-        // 对象图覆盖该进程的主线程与附加线程；记录只用于审计与枚举。
-        let mut objects = self.object_records(index);
-        let others: Vec<usize> = self
-            .tasks
-            .iter()
-            .enumerate()
-            .filter(|(other, entry)| *other != index && !entry.exited && entry.leader == index)
-            .map(|(other, _)| other)
-            .collect();
-        for other in others {
-            objects.extend(self.object_records(other));
-        }
+        // 同一 Task 的线程共享句柄表，对象图只枚举主线程一次。
+        let objects = self.object_records(index);
         Ok(CheckpointCapture {
             slot: index,
             context,
@@ -611,7 +629,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.kernel
                     .task_of(tcb)
                     .ok_or_else(|| String::from("缺少 Task"))?,
-                HandleTable::with_default_quota(),
             ) {
                 Ok(child) => child,
                 Err(error) => {
@@ -620,11 +637,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 }
             };
             restored_threads.push(child);
-            let child_index = self.tasks.len();
             self.endpoints.push(None);
             self.notifications.push(None);
-            let (handles, notifications) = self.endpoint_views(child, child_index, None, None);
+            // 线程共享主线程的句柄表，视图复用主线程的句柄编号。
             self.append_empty_endpoint();
+            let handles = self.tasks[slot].handles.clone();
+            let notifications = self.tasks[slot].notifications.clone();
             let mut entry = UserTask::new(TaskInit {
                 tcb: child,
                 process: slot,

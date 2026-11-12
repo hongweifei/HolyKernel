@@ -216,9 +216,9 @@ impl Kernel {
 
     /// 返回句柄指向的对象类别。
     pub fn handle_kind(&self, thread: TcbId, handle: Handle) -> Option<ObjectKind> {
-        let threads = self.threads.lock();
-        let tcb = threads.get(&thread)?;
-        tcb.handles()
+        let table = self.threads.lock().get(&thread)?.handles();
+        table
+            .lock()
             .resolve(handle, Rights::READ)
             .ok()
             .map(|resolved| resolved.kind())

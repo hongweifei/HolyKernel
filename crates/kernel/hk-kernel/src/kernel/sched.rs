@@ -134,20 +134,30 @@ impl Kernel {
     }
 
     /// 在已有 Task 内创建 TCB，并立即激活。
-    pub fn spawn_thread(&self, task: TaskId, handles: HandleTable) -> Result<TcbId, KernelError> {
-        let thread = self.spawn_thread_parked(task, handles)?;
+    pub fn spawn_thread(&self, task: TaskId) -> Result<TcbId, KernelError> {
+        let thread = self.spawn_thread_parked(task)?;
         self.activate(thread)?;
         Ok(thread)
     }
 
     /// 在已有 Task 内创建 TCB，但不进入调度队列。
-    pub fn spawn_thread_parked(
-        &self,
-        task: TaskId,
-        handles: HandleTable,
-    ) -> Result<TcbId, KernelError> {
+    ///
+    /// 新 TCB 继承该 Task 已有 TCB 的句柄表；同一 Task 的线程共享句柄。
+    pub fn spawn_thread_parked(&self, task: TaskId) -> Result<TcbId, KernelError> {
         let task_ref = self.task(task).ok_or(KernelError::UnknownTask(task))?;
-        let thread = self.allocate_thread(task, handles);
+        let first = task_ref
+            .lock()
+            .threads()
+            .first()
+            .copied()
+            .ok_or(KernelError::UnknownTask(task))?;
+        let table = self
+            .threads
+            .lock()
+            .get(&first)
+            .map(Tcb::handles)
+            .ok_or(KernelError::UnknownThread(first))?;
+        let thread = self.allocate_thread_with(task, table);
         task_ref.lock().attach(thread);
         Ok(thread)
     }
@@ -155,6 +165,15 @@ impl Kernel {
     fn allocate_thread(&self, task: TaskId, handles: HandleTable) -> TcbId {
         let id = TcbId::new(self.next_tcb.fetch_add(1, Ordering::Relaxed));
         let mut tcb = Tcb::new(id, task, handles);
+        tcb.set_state(ThreadState::Inactive);
+        self.threads.lock().insert(id, tcb);
+        self.record(id.get(), Category::Sched, TRACE_THREAD_SPAWN, 0);
+        id
+    }
+
+    fn allocate_thread_with(&self, task: TaskId, table: Arc<spin::Mutex<HandleTable>>) -> TcbId {
+        let id = TcbId::new(self.next_tcb.fetch_add(1, Ordering::Relaxed));
+        let mut tcb = Tcb::new_shared(id, task, table);
         tcb.set_state(ThreadState::Inactive);
         self.threads.lock().insert(id, tcb);
         self.record(id.get(), Category::Sched, TRACE_THREAD_SPAWN, 0);
@@ -648,7 +667,7 @@ impl Kernel {
             .lock()
             .remove(&thread)
             .ok_or(KernelError::UnknownThread(thread))?;
-        let live = tcb.handles().live();
+        let live = tcb.handles().lock().live();
         let task_id = tcb.task();
         let empty = if let Some(task) = self.task(task_id) {
             let mut task = task.lock();

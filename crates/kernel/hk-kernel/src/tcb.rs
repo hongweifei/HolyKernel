@@ -1,11 +1,13 @@
 //! TCB、线程状态与调用回复。
 
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_cadence::CadenceClass;
 use hk_handle::{HandleTable, ObjectId};
 use hk_ipc::Message;
+use spin::Mutex;
 
 use crate::task::TaskId;
 
@@ -135,7 +137,7 @@ pub struct Tcb {
     id: TcbId,
     task: TaskId,
     state: ThreadState,
-    handles: HandleTable,
+    handles: Arc<Mutex<HandleTable>>,
     blocked: Option<BlockReason>,
     pending_call: Option<PendingCall>,
     orphaned_calls: Vec<u64>,
@@ -147,6 +149,22 @@ pub struct Tcb {
 impl Tcb {
     /// 创建线程控制块，初始状态为就绪。
     pub fn new(id: TcbId, task: TaskId, handles: HandleTable) -> Self {
+        Self {
+            id,
+            task,
+            state: ThreadState::Runnable,
+            handles: Arc::new(Mutex::new(handles)),
+            blocked: None,
+            pending_call: None,
+            orphaned_calls: Vec::new(),
+            deliveries: VecDeque::new(),
+            lending: Vec::new(),
+            sequence: 0,
+        }
+    }
+
+    /// 以共享句柄表创建线程控制块。
+    pub fn new_shared(id: TcbId, task: TaskId, handles: Arc<Mutex<HandleTable>>) -> Self {
         Self {
             id,
             task,
@@ -176,14 +194,9 @@ impl Tcb {
         self.state
     }
 
-    /// 返回句柄表。
-    pub fn handles(&self) -> &HandleTable {
-        &self.handles
-    }
-
-    /// 返回句柄表可变引用。
-    pub fn handles_mut(&mut self) -> &mut HandleTable {
-        &mut self.handles
+    /// 返回句柄表；同一 Task 的 TCB 共享同一张表。
+    pub fn handles(&self) -> Arc<Mutex<HandleTable>> {
+        Arc::clone(&self.handles)
     }
 
     /// 返回阻塞原因。
