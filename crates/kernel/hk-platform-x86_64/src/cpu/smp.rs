@@ -76,12 +76,13 @@ pub fn idle(cpu: usize) {
     // 在途 IPI 或中断。
     interrupts::disable();
     loop {
-        if IDLE.take_wake(cpu) {
+        if IDLE.take_wake(cpu) || take_resched(cpu) {
             break;
         }
         interrupts::enable_and_hlt();
         interrupts::disable();
-        if IDLE.take_wake(cpu) || (armed && !super::timer::oneshot_armed(cpu)) {
+        if IDLE.take_wake(cpu) || take_resched(cpu) || (armed && !super::timer::oneshot_armed(cpu))
+        {
             break;
         }
     }
@@ -106,16 +107,23 @@ pub fn wake_aps() {
     }
 }
 
-/// 请求目标 CPU 重新调度；本地 CPU 由调度循环自然处理。
+/// 请求目标 CPU 重新调度。
+///
+/// 本地 CPU 只置位抢占标志，由系统调用返回、定时器返回或空闲循环消费；
+/// 远程 CPU 另发 reschedule IPI，并在其空闲时置位唤醒标志。
 pub fn reschedule(cpu: usize) {
-    if cpu >= MAX_CPUS || cpu == cpu_index() {
+    if cpu >= MAX_CPUS {
+        return;
+    }
+    RESCHED.fetch_or(1_u64 << cpu, Ordering::SeqCst);
+    if cpu == cpu_index() {
         return;
     }
     let id = APIC_IDS[cpu].load(Ordering::Acquire);
     if id == u32::MAX || id > u32::from(u8::MAX) {
         return;
     }
-    RESCHED.fetch_or(1_u64 << cpu, Ordering::SeqCst);
+    IDLE.wake(cpu);
     send_ipi(id as u8, IPI_VECTOR);
 }
 

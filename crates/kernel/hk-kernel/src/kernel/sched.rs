@@ -54,6 +54,8 @@ impl Kernel {
         let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
         let cadence = Cadence::from_spec(CadenceId::new(id.get()), spec)?;
         let task = Arc::new(spin::Mutex::new(Task::new(id, None, cadence, Meter::new())));
+        // 契约从创建时刻开始预算周期，Realtime 绝对截止期不会落到过去。
+        task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
         self.tasks.lock().insert(id, task);
@@ -87,6 +89,7 @@ impl Kernel {
             child,
             Meter::new(),
         )));
+        task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
         self.tasks.lock().insert(id, task);
@@ -101,6 +104,7 @@ impl Kernel {
     ) -> Result<TcbId, KernelError> {
         let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
         let task = Arc::new(spin::Mutex::new(Task::new(id, None, cadence, Meter::new())));
+        task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
         self.tasks.lock().insert(id, task);
@@ -760,10 +764,8 @@ impl Kernel {
         };
         let throttled = {
             let mut task = task.lock();
-            if matches!(
-                task.state(),
-                TaskState::Blocked | TaskState::Created | TaskState::Suspended
-            ) {
+            // Suspended 只能由 attach/resume 恢复；常规唤醒不得越过撤销。
+            if matches!(task.state(), TaskState::Blocked | TaskState::Created) {
                 task.set_state(TaskState::Eligible);
             }
             task.state() == TaskState::Throttled

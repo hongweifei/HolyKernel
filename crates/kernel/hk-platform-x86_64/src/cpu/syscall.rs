@@ -4,6 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use hk_hal::Console;
 
+use super::smp::take_resched;
 use super::user::leave_user;
 use super::*;
 use crate::serial::{COM1, Serial};
@@ -44,6 +45,7 @@ pub(super) fn handle_syscall(frame: &mut InterruptFrame) {
         } else {
             u64::MAX
         };
+        preempt_if_requested(frame);
         return;
     }
 
@@ -52,7 +54,9 @@ pub(super) fn handle_syscall(frame: &mut InterruptFrame) {
         // SAFETY: 钩子由内核在进入用户态之前注册，指向静态函数并覆盖整个内核运行期。
         let hook: SyscallHook = unsafe { core::mem::transmute(hook) };
         match hook(frame) {
-            SyscallAction::Continue => {}
+            SyscallAction::Continue => {
+                preempt_if_requested(frame);
+            }
             SyscallAction::Block | SyscallAction::Exit => leave_user(),
         }
         return;
@@ -60,7 +64,17 @@ pub(super) fn handle_syscall(frame: &mut InterruptFrame) {
 
     match frame.rax {
         hk_syscall::SYS_EXIT => leave_user(),
-        _ => frame.rax = u64::MAX,
+        _ => {
+            frame.rax = u64::MAX;
+            preempt_if_requested(frame);
+        }
+    }
+}
+
+/// 系统调用返回用户态前消费抢占请求。
+fn preempt_if_requested(frame: &InterruptFrame) {
+    if take_resched(cpu_index()) && preempt(frame) {
+        leave_user();
     }
 }
 

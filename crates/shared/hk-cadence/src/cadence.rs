@@ -419,6 +419,11 @@ impl Cadence {
         self.epoch
     }
 
+    /// 由内核把契约 epoch 与对象头 epoch 对齐。
+    pub fn set_epoch(&mut self, epoch: u32) {
+        self.epoch = epoch.max(1);
+    }
+
     /// 判断 epoch 是否仍有效。
     pub const fn is_current(&self, epoch: u32) -> bool {
         self.epoch == epoch

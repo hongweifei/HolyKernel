@@ -1549,6 +1549,23 @@ fn updates_splits_revokes_and_reattaches_cadence() {
     let epoch = kernel.revoke_cadence(thread, child).expect("撤销契约");
     assert_eq!(epoch, 1);
     assert_eq!(kernel.schedule(0), None);
+    // 撤销使既有句柄在解析时失效；需要由 Root/Tempo 重新授予。
+    assert!(kernel.cadence_snapshot(thread, child).is_err());
+}
+
+#[test]
+fn suspended_task_is_not_revived_by_wake() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+    let cadence = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("授予 Cadence");
+    kernel.park(thread).expect("阻塞");
+    kernel.revoke_cadence(thread, cadence).expect("撤销契约");
+    kernel.wake_thread(thread);
+    assert_eq!(kernel.schedule(0), None, "Suspended 不能被普通唤醒复活");
 }
 
 #[test]

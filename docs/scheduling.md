@@ -52,7 +52,8 @@ flowchart LR
 - Task 启动时由 Root/Tempo 附加 Cadence；子 Task 默认继承父契约的收窄份额。
 - 每一步只收窄 Rights；Handle 转移是唯一授权方式。
 - Cadence 可以拆分为子契约，子契约预算总和不超过父契约。
-- 撤销通过 epoch 完成：Root/Tempo 递增 Cadence epoch，旧 Handle 失效，Task 进入 `Suspended` 并由 Tempo 重新授予。
+- 撤销通过 epoch 完成：Root/Tempo 递增 Cadence 的对象头 epoch 与契约 epoch，所有既有 Handle 在解析时失效，Task 进入 `Suspended` 并由 Tempo 重新授予。
+- `Suspended` 只能由 `SYS_TASK_ATTACH_CADENCE`/重新授予恢复；常规 IPC 或超时唤醒不得把 `Suspended` 置为 `Eligible`。
 
 ### 3.1 默认授予
 
@@ -170,9 +171,10 @@ stateDiagram-v2
 
 ### 5.6 唤醒与抢占
 
-- `wake` 与 `activate` 完成后调用 `resched` 判定：新 Task 的类别或键值优先于当前 Task 时设置 `need_resched`。
-- 目标在其他 CPU 时发送 reschedule IPI。
-- 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。
+- `wake` 与 `activate` 完成后调用 `resched` 判定：新 Task 的类别或键值优先于当前 Task 时置位该 CPU 的 `need_resched`。
+- 目标在其他 CPU 时同时置位抢占标志与空闲唤醒标志，并发送 reschedule IPI。
+- 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。三处都在返回用户态前消费标志并调用抢占判定；中断发生在内核态时保留标志，交由系统调用返回路径消费，避免内核态收到 IPI 时丢失请求。
+- 空闲循环同时检查空闲唤醒标志与抢占标志，任一置位即退出 `hlt` 并重新调度。
 - 当前 Task 的 Grant 到期、进入 `Throttled`、阻塞或退出时立即重新选择。
 - 唤醒延迟由 Beat 的一次性定时器与 IPI 决定。
 
@@ -188,6 +190,7 @@ stateDiagram-v2
 - idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。
 - 调度调用返回"这一刻没有可选中任务"时，调用方按待办唤醒（`refills`、`sleeping`、`timeouts`）与未退出任务决定继续等待还是收尾；`Throttled` 任务只是在等预算补充，不能据此判定系统完成。
 - 一次性唤醒在关中断状态下编程，再用 `sti; hlt` 原子等待；先开中断再编程会让唤醒在 `hlt` 前被投递，随后进入没有定时器的永久等待。
+- 平台把一次性期限钳到 10 ms 上界作为活性看门狗；长睡眠与长周期任务至少每 10 ms 醒一次，Tickless 不是无限期停 tick。
 
 ### 5.8 亲和性与负载均衡
 
@@ -307,7 +310,7 @@ Meter 字段：
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
 | `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、预算池与固定长度快照；提供 POSIX `nice` ↔ 权重映射基元；只依赖 `hk-base` |
-| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、唤醒 reschedule；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；Endpoint 等待队列按类别与虚拟键排序、同键 FIFO；父 Task 退出时子契约提升为独立契约 |
+| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、本地 `need_resched` 与三处抢占检查点、唤醒 reschedule；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；Endpoint 等待队列按类别与虚拟键排序、同键 FIFO；父 Task 退出时子契约提升为独立契约 |
 | `hk-runtime` | 已实现 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 需求界准入与 checkpoint→Tempo 重准入；引导期 Realtime 契约由 Root/服务清单直接授予，动态契约由 Tempo 准入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`handle = 0` 表示当前 Task |

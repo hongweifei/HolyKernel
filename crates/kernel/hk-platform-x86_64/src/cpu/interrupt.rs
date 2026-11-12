@@ -12,7 +12,12 @@ use super::*;
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
         note_timer_interrupt();
-        let switch = frame.cs == u64::from(USER_CODE_SELECTOR) && preempt(frame);
+        let mut switch = false;
+        // 中断发生在内核态时保留抢占标志，由系统调用返回路径消费。
+        if frame.cs == u64::from(USER_CODE_SELECTOR) {
+            let _ = take_resched(cpu_index());
+            switch = preempt(frame);
+        }
         lapic_write(LAPIC_EOI, 0);
         if switch {
             leave_user();
@@ -57,8 +62,9 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == u64::from(IPI_VECTOR) {
         note_ipi();
         handle_tlb_ipi();
-        let resched = take_resched(cpu_index());
-        let switch = resched && frame.cs == u64::from(USER_CODE_SELECTOR) && preempt(frame);
+        let switch = frame.cs == u64::from(USER_CODE_SELECTOR)
+            && take_resched(cpu_index())
+            && preempt(frame);
         lapic_write(LAPIC_EOI, 0);
         if switch {
             leave_user();

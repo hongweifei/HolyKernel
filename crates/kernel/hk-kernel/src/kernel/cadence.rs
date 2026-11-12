@@ -289,10 +289,15 @@ impl Kernel {
         )
     }
 
-    /// 撤销 Cadence；返回新 epoch，并挂起使用该契约的 Task。
+    /// 撤销 Cadence；返回新 epoch，使旧句柄失效，并挂起使用该契约的 Task。
     pub fn revoke_cadence(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
-        let cadence = self.cadence_object(thread, handle, Rights::ADMIN)?;
-        let epoch = cadence.lock().revoke();
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Cadence)?;
+        let cadence = object.cadence().cloned().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Cadence,
+        })?;
+        // 对象头 epoch 与契约 epoch 同源：撤销后所有既有句柄在解析时失效。
+        let epoch = object.header().revoke_all();
+        cadence.lock().set_epoch(epoch);
         self.suspend_using(&cadence);
         Ok(epoch)
     }
