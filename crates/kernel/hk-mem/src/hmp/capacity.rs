@@ -175,7 +175,8 @@ impl Capacity {
         }
 
         if let Some(backend) = super::backend::physical_backend() {
-            if self.used().saturating_add(length) > self.limit() && !self.grow(length) {
+            // 子容量配额是硬上限；扩窗只解决窗口碎片，不扩大授予额。
+            if self.used().saturating_add(length) > self.limit() {
                 return Err(HmpError::OutOfCapacity);
             }
             if let Some(range) = backend.allocate_owned(self.id, self.kind, length) {
@@ -232,28 +233,20 @@ impl Capacity {
 
     /// 从父 Capacity 动态扩出一段窗口，供当前容量继续分配。
     ///
-    /// 只对通过 `split` 建立的子容量有效；扩出的窗口登记在当前容量名下，
-    /// 父容量只让出对应的空闲尾部，不再按固定大小预切整段。
+    /// 只对通过 `split` 建立的子容量有效；扩窗只转移物理窗口的归属，用来
+    /// 消除碎片，不改变任何一侧的配额。子容量的授予额在 `split` 时已经
+    /// 固定，`grow` 不得让它越过父容量授予的范围。
     fn grow(&mut self, length: u64) -> bool {
         let Some(parent) = self.parent else {
             return false;
         };
-        let Some(parent_limit) = self.parent_limit.clone() else {
-            return false;
-        };
-        if parent_limit.load(Ordering::Acquire) < length {
+        if self.parent_limit.is_none() {
             return false;
         }
         let Some(backend) = super::backend::physical_backend() else {
             return false;
         };
-        let Some(range) = backend.split_owned(parent, self.id, length) else {
-            return false;
-        };
-        parent_limit.fetch_sub(range.len(), Ordering::AcqRel);
-        self.set_limit(self.limit().saturating_add(range.len()));
-        backend.set_ledger_limit(self.id, self.limit());
-        true
+        backend.split_owned(parent, self.id, length).is_some()
     }
 
     /// 从未分配尾部切出一个子 Capacity。

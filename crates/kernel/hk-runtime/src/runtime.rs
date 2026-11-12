@@ -56,6 +56,7 @@ mod user_task;
 mod user_window;
 mod view;
 
+pub use hk_mem::hmp::provider::ProviderAccess;
 pub use platform::{CowOutcome, SystemArenaInfo, SystemRegionRecord, UserPlatform};
 pub use state::{FaultOutcome, Pending, Step, Switch};
 pub use user_task::UserTask;
@@ -100,7 +101,8 @@ pub struct CowPage {
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
     pub handle: Handle,
-    pub charge: Charge,
+    /// 已常驻物理页的记账；惰性能力在缺页装页前为 `None`。
+    pub charge: Option<Charge>,
 }
 
 pub(crate) struct RegionMap {
@@ -115,8 +117,10 @@ pub(crate) struct RegionMap {
     pub offset: u64,
     pub rights: Rights,
     pub flags: hk_mem::hmp::RegionFlags,
-    /// 该映射占用的进程记账；解除映射时归还。
+    /// 已常驻物理页的整段记账；惰性映射为 `None`。
     pub charge: Option<Charge>,
+    /// 逐页装入产生的记账，键为能力内页索引。
+    pub page_charges: Vec<(usize, Charge)>,
 }
 
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。

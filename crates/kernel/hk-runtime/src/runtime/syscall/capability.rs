@@ -61,12 +61,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
-                let _ = self.process_mut(index).ledger.release(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         };
-        frame.set_result(self.install_capability(index, handle, charge));
+        frame.set_result(self.install_capability(index, handle, Some(charge)));
         Switch::Continue
     }
 
@@ -167,12 +166,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
-        let Ok(charge) = self.process_mut(index).ledger.charge(aligned) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
+        // 惰性能力在缺页装入物理页时才计入 Task Ledger。
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
-            let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -184,12 +179,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
-                let _ = self.process_mut(index).ledger.release(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
         };
-        frame.set_result(self.install_capability(index, handle, charge));
+        frame.set_result(self.install_capability(index, handle, None));
         Switch::Continue
     }
 

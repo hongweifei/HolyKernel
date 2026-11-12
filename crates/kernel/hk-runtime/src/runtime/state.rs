@@ -73,6 +73,8 @@ pub enum Pending {
         rights: Rights,
         /// 该页所属 Region 的映射标志。
         flags: RegionFlags,
+        /// 触发缺页的访问类型，随 `Fault` 消息发送给 Provider。
+        access: hk_mem::hmp::provider::ProviderAccess,
         /// 是否为写时复制的私有页；Provider 回包安装到进程覆盖而不是能力。
         private: bool,
     },

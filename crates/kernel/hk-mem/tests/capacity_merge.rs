@@ -30,14 +30,26 @@ fn merge_returns_grown_windows_to_parent() {
     .expect("System Capacity");
     let user_id = CapacityId::next();
     let mut user = system
-        .split(user_id, 0x4000, CapacityKind::User)
+        .split(user_id, 0x4_0000, CapacityKind::User)
         .expect("User Capacity");
 
-    let frame = user.allocate(0x1_0000).expect("动态扩窗后分配");
-    assert_eq!(user.windows().len(), 2, "grow 应产生第二个窗口");
+    // 让窗口内只剩不连续的 64 KiB 空闲段，再申请 192 KiB，触发一次扩窗。
+    let mut first = Some(user.allocate(0x1_0000).expect("窗口 A"));
+    let mut second = Some(user.allocate(0x1_0000).expect("窗口 B"));
+    user.free(&mut first).expect("归还窗口 A");
+    let frame = user.allocate(0x3_0000).expect("动态扩窗后分配");
+    assert!(
+        user.windows()
+            .iter()
+            .map(|window| window.len())
+            .sum::<u64>()
+            > 0x4_0000,
+        "grow 应扩出额外窗口"
+    );
     let grown = user.windows();
     let mut frame = Some(frame);
     user.free(&mut frame).expect("归还子页");
+    user.free(&mut second).expect("归还窗口 B");
 
     system.merge(&mut user).expect("并回全部窗口");
     assert_eq!(system.limit(), range.len(), "父配额应在并回后完整恢复");

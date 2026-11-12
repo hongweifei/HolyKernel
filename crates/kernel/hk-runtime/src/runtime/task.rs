@@ -369,6 +369,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             };
             regions.push(hk_checkpoint::RegionSnapshot {
                 virt: region.virt,
+                offset: region.offset,
                 len: region.len as u64,
                 rights: region.rights.bits(),
                 flags: region.flags.bits(),
@@ -702,8 +703,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None,
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         )?;
-        let mut region =
-            Region::new(&capability, 0, len, rights, flags).map_err(KernelError::Hmp)?;
+        let mut region = Region::new(&capability, descriptor.offset, len, rights, flags)
+            .map_err(KernelError::Hmp)?;
         if region.map(VirtAddr::new(descriptor.virt)).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             return Err(KernelError::Hmp(hk_mem::hmp::HmpError::AlreadyMapped));
@@ -729,7 +730,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             true,
             descriptor.virt,
             len,
-            0,
+            descriptor.offset,
             rights,
             flags,
             Some(charge),
@@ -796,7 +797,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             })
             .map(|region| (region.virt, region.len as u64))
             .collect();
-        let Some(copied) = self.platform.fork(index, child_index, &cow_ranges) else {
+        let capacity = self.task_capacity(index);
+        let Some(copied) = self
+            .platform
+            .fork(index, child_index, &cow_ranges, capacity.as_ref())
+        else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -1322,6 +1327,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks.iter().position(|task| task.tcb == tcb)
     }
 
+    /// 返回进程分配 COW 私有页所用的 Capacity。
+    pub(crate) fn task_capacity(
+        &self,
+        index: usize,
+    ) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        let owner = self.leader_of(index);
+        let tcb = self.tasks[owner].tcb;
+        let handle = self.process(owner).allocation_capacity;
+        self.kernel.capacity_ref(tcb, handle).ok()
+    }
+
     /// 返回当前契约时钟（微秒）。平台没有 TSC 频率时按调度 tick 的 10 ms 折算。
     pub(crate) fn contract_now(&self) -> u64 {
         let frequency = self.platform.tsc_frequency();
@@ -1335,8 +1351,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     fn average_virtual_pass(&self, class: hk_cadence::CadenceClass) -> u64 {
         let mut total = 0_u64;
         let mut count = 0_u64;
-        for task in &self.tasks {
-            if task.exited {
+        for (index, task) in self.tasks.iter().enumerate() {
+            // 线程共享 Task 的 Meter；只按主线程统计一次。
+            if task.exited || task.leader != index {
                 continue;
             }
             let Some(cadence) = self.kernel.task_cadence_snapshot(task.tcb) else {
@@ -1465,10 +1482,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             self.call_cycles = self.call_cycles.saturating_add(cycles);
                             self.call_max = self.call_max.max(cycles);
                         }
+                        let handle = self.install_handle(index, &message);
                         let context = &mut self.tasks[index].context;
                         context.set_result(message.label);
                         context.set_word(message.words[0]);
                         context.set_sender(endpoint);
+                        context.set_handle(handle);
                         self.remove_sleep(index);
                     }
                     None => blocked_again = true,
@@ -1480,6 +1499,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 page,
                 rights,
                 flags,
+                access: _,
                 private,
             } => {
                 let caller = self.tasks[index].tcb;
@@ -1521,9 +1541,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             );
                             true
                         } else {
-                            self.kernel
+                            let stored = self
+                                .kernel
                                 .set_capability_page(owner_tcb, capability, page_index, backing)
-                                .unwrap_or(false)
+                                .unwrap_or(false);
+                            if stored {
+                                let Ok(charge) = self.process_mut(index).ledger.charge(range.len())
+                                else {
+                                    let _ = self
+                                        .kernel
+                                        .take_capability_page(owner_tcb, capability, page_index);
+                                    return self.fail_provider(cpu, index, pending);
+                                };
+                                self.record_page_charge_for_capability(
+                                    index, capability, page_index, charge,
+                                );
+                            }
+                            stored
                         };
                         let mapped = stored
                             && self.platform.map_user(
@@ -1531,7 +1565,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 page,
                                 range.start().get(),
                                 range.len() as usize,
-                                rights | hk_handle::Rights::WRITE,
+                                rights,
                                 flags,
                             );
                         if !mapped {

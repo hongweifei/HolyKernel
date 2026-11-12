@@ -113,7 +113,11 @@ pub trait UserPlatform {
     }
 
     /// 解析用户 COW 缺页；平台不支持时返回 `None`。
-    fn resolve_cow(&self, _address: u64) -> Option<CowOutcome> {
+    fn resolve_cow(
+        &self,
+        _address: u64,
+        _capacity: Option<&Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<CowOutcome> {
         None
     }
     /// 为 DeviceGrant 分配连续 DMA 窗口。
@@ -208,7 +212,13 @@ pub trait UserPlatform {
     ///
     /// 成功时返回为子任务复制私有页的字节数；该部分字节由调用方计入
     /// 子任务的 Task Ledger。
-    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> Option<u64> {
+    fn fork(
+        &self,
+        _parent: usize,
+        _child: usize,
+        _cow_ranges: &[(u64, u64)],
+        _capacity: Option<&Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<u64> {
         None
     }
     /// 让子任务与父任务共享同一用户地址空间。

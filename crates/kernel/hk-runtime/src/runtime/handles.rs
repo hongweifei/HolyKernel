@@ -13,7 +13,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 安装一个额外能力句柄并记录容量记账。
     pub(crate) fn install_extra_capability(&mut self, index: usize, handle: Handle) -> Option<u64> {
         let tcb = self.tasks[index].tcb;
-        let Ok((capability, _)) = self.kernel.capability(tcb, handle) else {
+        let Ok((_capability, _)) = self.kernel.capability(tcb, handle) else {
             // Frame 句柄没有类型化能力对象；接收方按物理区间大小记账，
             // 否则 MEMORY_FRAME 之类的转移会完全绕过接收任务的配额。
             let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, handle) else {
@@ -25,7 +25,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             };
             return Some(self.install_extra_entry(index, handle, Some(charge)));
         };
-        let Ok(charge) = self.process_mut(index).ledger.charge(capability.size()) else {
+        // 句柄转移按实际常驻物理页记账；惰性能力在接收方缺页时再计入。
+        let resident = self.kernel.capability_resident(tcb, handle).unwrap_or(0);
+        if resident == 0 {
+            return Some(self.install_extra_entry(index, handle, None));
+        }
+        let Ok(charge) = self.process_mut(index).ledger.charge(resident) else {
             let _ = self.kernel.close_handle(tcb, handle);
             return None;
         };
@@ -186,6 +191,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             };
             let _ = self.kernel.mark_region_cow(parent_tcb, region_handle);
+            // 父任务的映射视图也要标 COW，写缺页解析以这份标志为准。
+            for mapping in self
+                .process_mut(parent)
+                .regions
+                .iter_mut()
+                .flatten()
+                .filter(|mapping| mapping.handle == region_handle)
+            {
+                mapping.flags.insert(hk_mem::hmp::RegionFlags::COW);
+            }
             let region_rights = region.rights();
             let region_flags = region.flags();
             let region_id = region.id();
@@ -217,7 +232,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let _ = self.kernel.close_handle(child_tcb, child_region);
                 continue;
             };
-            self.install_capability(child, capability, charge);
+            self.install_capability(child, capability, Some(charge));
             self.install_region(
                 child,
                 child_region,
@@ -254,7 +269,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         handle: Handle,
-        charge: Charge,
+        charge: Option<Charge>,
     ) -> u64 {
         let slot = match self.tasks[index].capability_free.pop() {
             Some(slot) => slot,
@@ -324,6 +339,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             rights,
             flags,
             charge,
+            page_charges: Vec::new(),
         };
         self.process_mut(index).regions[slot] = Some(map);
         (REGION_HANDLE_BASE + slot + 1) as u64
@@ -417,7 +433,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
         for map in capabilities.into_iter().flatten() {
-            let _ = self.process_mut(index).ledger.release(map.charge);
+            if let Some(charge) = map.charge {
+                let _ = self.process_mut(index).ledger.release(charge);
+            }
         }
         for slot in extra.into_iter().flatten() {
             if let Some(charge) = slot.charge {
@@ -552,7 +570,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .get(slot_index)
                     .is_some_and(|slot| slot.is_some())
             {
-                self.teardown_region(index, slot_index, true);
+                let _ = self.teardown_region(index, slot_index, true, false);
             }
         } else if number >= CAPABILITY_HANDLE_BASE {
             let Some(slot_index) = number.checked_sub(CAPABILITY_HANDLE_BASE + 1) else {
@@ -579,14 +597,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 })
                 .collect();
             for slot in slots {
-                self.teardown_region(index, slot, false);
+                let _ = self.teardown_region(index, slot, false, false);
             }
             if let Some(map) = self.tasks[index]
                 .capabilities
                 .get_mut(slot_index)
                 .and_then(|slot| slot.take())
             {
-                let _ = self.process_mut(index).ledger.release(map.charge);
+                if let Some(charge) = map.charge {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                }
                 self.tasks[index].capability_free.push(slot_index);
             }
         } else if number >= GRANT_HANDLE_BASE {
@@ -626,7 +646,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .get(slot)
                 .is_some_and(|region| region.is_some())
             {
-                self.teardown_region(index, slot, true);
+                let _ = self.teardown_region(index, slot, true, true);
             }
         }
         self.release_cow_charges(index);
@@ -638,14 +658,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ///
     /// `close_capability` 为 true 时同时关闭内核代建的 capability
     /// （`SYS_FRAME_MAP` / 设备映射）；用户自己持有的 capability 不在这里关闭。
-    pub(crate) fn teardown_region(&mut self, index: usize, slot: usize, close_capability: bool) {
+    pub(crate) fn teardown_region(
+        &mut self,
+        index: usize,
+        slot: usize,
+        close_capability: bool,
+        force: bool,
+    ) -> bool {
         let Some(region) = self
             .process(index)
             .regions
             .get(slot)
             .and_then(|region| region.as_ref())
         else {
-            return;
+            return false;
         };
         let owner = region.owner;
         let capability = region.capability;
@@ -655,14 +681,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let region_id = region.region;
         let region_handle = region.handle;
         let charge = region.charge;
+        let page_charges = region.page_charges.clone();
         let pinned = region.flags.contains(hk_mem::hmp::RegionFlags::PINNED);
+        if pinned
+            && !force
+            && self
+                .kernel
+                .pin_capability(owner, capability, false)
+                .is_err()
+        {
+            // scanout 仍驻留：保留映射与句柄，由调用方决定先关闭 scanout。
+            return false;
+        }
         let capability_id = self
             .kernel
             .handle_id(owner, capability)
             .ok()
             .map(|id| id.get());
-        // 逐页解除，兼容惰性 Region 与已物化 Region；也避免在关闭 capability
-        // 之后再去解析它来决定映射范围。
+        // 逐页解除，同时覆盖惰性 Region 与已物化 Region；也避免在关闭
+        // capability 之后再去解析它来决定映射范围。
         let page = hk_hal::PAGE_SIZE as u64;
         let mut offset = 0;
         while offset < length as u64 {
@@ -673,7 +710,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
-        if pinned {
+        if pinned && force {
             let _ = self.kernel.pin_capability(owner, capability, false);
         }
         let _ = self.kernel.close_handle(owner, region_handle);
@@ -685,9 +722,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if let Some(charge) = charge {
             let _ = self.process_mut(index).ledger.release(charge);
         }
+        for (_, charge) in page_charges {
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);
         }
+        true
     }
 
     /// 当能力不再被本进程任何 Region/Arena 引用时，删除它的私有页覆盖。

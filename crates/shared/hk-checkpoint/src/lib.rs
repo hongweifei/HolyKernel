@@ -51,6 +51,8 @@ pub struct ThreadSnapshot {
 pub struct RegionSnapshot {
     /// 用户虚拟地址。
     pub virt: u64,
+    /// 能力内偏移。
+    pub offset: u64,
     /// 映射长度。
     pub len: u64,
     /// Region 权利位。
@@ -190,6 +192,7 @@ impl Snapshot {
         for _ in 0..count {
             regions.push(RegionSnapshot {
                 virt: cursor.u64()?,
+                offset: cursor.u64()?,
                 len: cursor.u64()?,
                 rights: cursor.u32()?,
                 flags: cursor.u32()?,
@@ -286,6 +289,7 @@ pub fn encode_parts(
     push_u32(&mut out, regions.len() as u32);
     for region in regions {
         push_u64(&mut out, region.virt);
+        push_u64(&mut out, region.offset);
         push_u64(&mut out, region.len);
         push_u32(&mut out, region.rights);
         push_u32(&mut out, region.flags);
@@ -334,7 +338,7 @@ fn encoded_size(
     for thread in threads {
         size += 4 + thread.context.len() + 8;
     }
-    size += 4 + regions.len() * (8 + 8 + 4 + 4 + 1 + 8);
+    size += 4 + regions.len() * (8 + 8 + 8 + 4 + 4 + 1 + 8);
     size += 4 + objects.len() * (1 + 4 + 4 + 8 + 8 + 8 + 8 + 8);
     size
 }
@@ -420,6 +424,7 @@ mod tests {
             }],
             regions: vec![RegionSnapshot {
                 virt: 0x1000_0000,
+                offset: 0,
                 len: 0x1000,
                 rights: 0x5,
                 flags: 0x2,
@@ -463,7 +468,7 @@ mod tests {
         let mut bytes = sample().encode();
         // 页计数位于页数据之前；页数据之后还有线程与 Region 两段。
         let threads_len = 4 + (4 + 4 + 8);
-        let regions_len = 4 + (8 + 8 + 4 + 4 + 1 + 8);
+        let regions_len = 4 + (8 + 8 + 8 + 4 + 4 + 1 + 8);
         let objects_len = 4 + (1 + 4 + 4 + 8 + 8 + 8 + 8 + 8);
         let count_at = bytes.len() - 4096 - 20 - 4 - threads_len - regions_len - objects_len;
         bytes[count_at..count_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());

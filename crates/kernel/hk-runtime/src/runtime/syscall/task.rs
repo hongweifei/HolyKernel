@@ -10,20 +10,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let (start, len) = process.allocate_arena(size, align)?;
             (start, len, before)
         };
-        // 每次分配建立独立的惰性匿名 Region；首次访问才装入物理页。
-        let Some(charge) = self.process_mut(slot).ledger.charge(len as u64).ok() else {
-            self.process_mut(slot).set_arena_used(before);
-            return None;
-        };
+        // 每次分配建立独立的惰性匿名 Region；首次访问装入物理页时才记账。
         let spec = UserRegionSpec {
             virt: start,
             len,
             writable: true,
             executable: false,
         };
-        if self.register_region(slot, spec, Some(charge)).is_err() {
+        if self.register_region(slot, spec, None).is_err() {
             self.process_mut(slot).set_arena_used(before);
-            let _ = self.process_mut(slot).ledger.release(charge);
             return None;
         }
         Some(start)
@@ -73,7 +68,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             {
                 return u64::MAX;
             }
-            self.teardown_region(index, slot, true);
+            if !self.teardown_region(index, slot, true, false) {
+                return u64::MAX;
+            }
             return 0;
         }
         if (CAPABILITY_HANDLE_BASE..REGION_HANDLE_BASE).contains(&endpoint) {
@@ -92,7 +89,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 })
                 .collect();
             for slot in slots {
-                self.teardown_region(index, slot, false);
+                let _ = self.teardown_region(index, slot, false, false);
             }
         }
 

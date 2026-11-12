@@ -32,7 +32,7 @@ fn reset() -> (Capacity, Capacity) {
     .expect("System Capacity");
     let user_id = CapacityId::next();
     let user = system
-        .split(user_id, PAGE_SIZE, CapacityKind::User)
+        .split(user_id, 0x30_0000, CapacityKind::User)
         .expect("User Capacity");
     (system, user)
 }
@@ -50,14 +50,14 @@ fn fragmentation_does_not_report_out_of_capacity() {
     user.free(&mut first).expect("归还窗口 A");
     user.free(&mut last).expect("归还窗口 C");
 
-    let windows = user.windows().len();
+    let window_bytes: u64 = user.windows().iter().map(|window| window.len()).sum();
     let mut grown = Some(
         user.allocate((unit * 2) as usize)
             .expect("碎片化不能伪装成容量耗尽"),
     );
-    assert_eq!(
-        user.windows().len(),
-        windows + 1,
+    let grown_bytes: u64 = user.windows().iter().map(|window| window.len()).sum();
+    assert!(
+        grown_bytes > window_bytes,
         "扩出的连续窗口必须登记在容量名下"
     );
     user.free(&mut grown).expect("归还扩窗分配");

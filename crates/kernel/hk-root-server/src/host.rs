@@ -13,8 +13,8 @@ use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
 use hk_runtime::runtime::{
-    CheckpointCapture, FaultOutcome, Step, Switch, TaskInfo, UserPlatform, UserRegionSpec,
-    UserRuntime,
+    CheckpointCapture, FaultOutcome, ProviderAccess, Step, Switch, TaskInfo, UserPlatform,
+    UserRegionSpec, UserRuntime,
 };
 
 use crate::ServiceTable;
@@ -159,20 +159,32 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     }
 
     /// 把缺页请求转给绑定 Provider；`context` 是缺页现场，任务恢复时从这里继续。
-    pub fn provider_fault(&self, cpu: usize, address: u64, context: C) -> bool {
+    pub fn provider_fault(
+        &self,
+        cpu: usize,
+        address: u64,
+        access: ProviderAccess,
+        context: C,
+    ) -> bool {
         self.runtime
             .lock()
             .as_mut()
-            .is_some_and(|runtime| runtime.provider_fault(cpu, address, context))
+            .is_some_and(|runtime| runtime.provider_fault(cpu, address, access, context))
     }
 
     /// 解析一次 Region 后处理缺页。
-    pub fn handle_fault(&self, cpu: usize, address: u64, context: C) -> FaultOutcome {
+    pub fn handle_fault(
+        &self,
+        cpu: usize,
+        address: u64,
+        access: ProviderAccess,
+        context: C,
+    ) -> FaultOutcome {
         self.runtime
             .lock()
             .as_mut()
             .map_or(FaultOutcome::Unhandled, |runtime| {
-                runtime.handle_fault(cpu, address, context)
+                runtime.handle_fault(cpu, address, access, context)
             })
     }
 

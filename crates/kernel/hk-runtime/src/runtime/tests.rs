@@ -236,7 +236,11 @@ impl UserPlatform for MockPlatform {
         self.shared
     }
 
-    fn resolve_cow(&self, _address: u64) -> Option<CowOutcome> {
+    fn resolve_cow(
+        &self,
+        _address: u64,
+        _capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<CowOutcome> {
         self.cow
     }
 
@@ -256,7 +260,13 @@ impl UserPlatform for MockPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize, cow_ranges: &[(u64, u64)]) -> Option<u64> {
+    fn fork(
+        &self,
+        _parent: usize,
+        _child: usize,
+        cow_ranges: &[(u64, u64)],
+        _capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<u64> {
         *self.last_cow.lock() = cow_ranges.to_vec();
         Some(0)
     }
@@ -417,6 +427,53 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
 }
 
 #[test]
+fn checkpoint_preserves_region_offset() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0x1000;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+
+    let offset = runtime
+        .process(index)
+        .regions
+        .iter()
+        .flatten()
+        .next()
+        .map(|region| region.offset);
+    assert_eq!(offset, Some(0x1000));
+
+    // 检查点要求任务不在任何 CPU 上执行。
+    runtime.current[0] = None;
+    runtime.checkpoint("a").expect("保存检查点");
+    runtime.restore_checkpoint("a").expect("恢复检查点");
+
+    let restored = runtime
+        .process(index)
+        .regions
+        .iter()
+        .flatten()
+        .next()
+        .map(|region| region.offset);
+    assert_eq!(restored, Some(0x1000), "恢复必须保留 Region 的能力内偏移");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn restart_grants_device_service_its_dma_capacity() {
     let mut runtime = runtime();
     let name = "hk-device-restart";
@@ -480,7 +537,7 @@ fn checkpoint_restores_threads_and_regions() {
     let thread = context.rax;
     assert_ne!(thread, u64::MAX);
 
-    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
     context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
     context.rsi = 0x2000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
@@ -879,14 +936,15 @@ fn arena_alloc_is_lazy_and_charged() {
     );
     assert_eq!(
         runtime.process(index).ledger.charged(),
-        before + hk_hal::PAGE_SIZE as u64,
-        "Arena 分配按页计入进程 Ledger"
+        before,
+        "Arena 分配只保留虚拟区间，不占用物理配额"
     );
-    // 首次访问才装入零页；分配本身不建立页表映射。
+    // 首次访问才装入零页并计入 Task Ledger。
     assert!(runtime.anonymous_fault(0, start));
     assert_eq!(
         runtime.process(index).ledger.charged(),
-        before + hk_hal::PAGE_SIZE as u64
+        before + hk_hal::PAGE_SIZE as u64,
+        "装入物理页后计入 Task Ledger"
     );
     assert_eq!(
         runtime.process_resident(index),
@@ -1101,6 +1159,65 @@ fn calls_and_replies() {
     assert_eq!(context.rdx, 6);
     assert_eq!(context.rcx, 2);
     assert_eq!(runtime.tasks()[caller].pending, "-");
+}
+
+#[test]
+fn call_reply_transfers_handle_to_caller() {
+    let mut runtime = runtime();
+
+    let Step::Resume {
+        index: caller,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    context.rax = SYS_CALL;
+    context.rdi = 2;
+    context.rsi = 9;
+    context.rdx = 5;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    assert_eq!(runtime.tasks()[caller].pending, "call");
+
+    let Step::Resume {
+        index: server,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(server, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rcx, 1, "调用方编号");
+
+    // 服务端把自己的通知句柄随回复转移给调用方。
+    context.rax = SYS_SELF_NOTIFICATION;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let transferred = context.rax;
+    assert_ne!(transferred, u64::MAX);
+    context.rax = SYS_REPLY_HANDLE;
+    context.rdi = 10;
+    context.rsi = 6;
+    context.rdx = transferred;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(index, caller);
+    assert_eq!(context.rax, 10);
+    assert_eq!(context.rdx, 6);
+    assert_ne!(context.r8, 0, "调用方应收到可用的句柄编号");
+
+    let mut close = context;
+    close.rax = SYS_HANDLE_CLOSE;
+    close.rdi = close.r8;
+    assert_eq!(runtime.dispatch(0, &mut close), Switch::Continue);
+    assert_eq!(close.rax, 0);
+    let _ = runtime.finish(0, caller);
 }
 
 #[test]
@@ -1753,7 +1870,7 @@ fn duplicate_capability_does_not_double_charge() {
     };
     let before = runtime.process(index).ledger.charged();
 
-    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
     context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
     context.rsi = 0x2000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
@@ -2414,6 +2531,12 @@ fn cow_resolution_records_private_page_override() {
     };
     let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
     assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    // fork 后的 Region 才是 COW；显式标记后再触发写时复制。
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = 0x4001;
+    context.rsi = 0b11 | ((hk_mem::hmp::RegionFlags::COW.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
     assert!(runtime.resolve_cow(0, hk_base::user::AUTO_WINDOW_BASE));
 
     assert!(
@@ -2444,6 +2567,12 @@ fn fork_copies_cow_private_page_overrides() {
     };
     let _capability = create_lazy_region(&mut runtime, &mut context, 0x2000);
     assert!(runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE));
+    // fork 后的 Region 才是 COW；显式标记后再触发写时复制。
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = 0x4001;
+    context.rsi = 0b11 | ((hk_mem::hmp::RegionFlags::COW.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
     assert!(runtime.resolve_cow(0, hk_base::user::AUTO_WINDOW_BASE));
     assert_eq!(
         runtime.process(index).regions.iter().flatten().count(),
@@ -2955,7 +3084,12 @@ fn provider_fault_blocks_caller() {
     context.r10 = 0b11;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
 
-    assert!(runtime.provider_fault(0, hk_base::user::AUTO_WINDOW_BASE, MockContext::default()));
+    assert!(runtime.provider_fault(
+        0,
+        hk_base::user::AUTO_WINDOW_BASE,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    ));
     assert_eq!(runtime.tasks()[0].pending, "provider-fault");
 
     let Step::Resume {
@@ -2993,6 +3127,89 @@ fn provider_fault_blocks_caller() {
 }
 
 #[test]
+fn provider_fault_installs_region_rights() {
+    let platform = MockPlatform::new();
+    let last_map = Arc::clone(&platform.last_map);
+    let mut runtime = runtime_on(hk_syscall::MEMORY_SERVICE, platform);
+    let Step::Resume {
+        index: _,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_ANONYMOUS);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    // 只读 Region：Provider 回包后 PTE 不得被升级为可写。
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b01;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    last_map.store(0, Ordering::Release);
+
+    assert!(runtime.provider_fault(
+        0,
+        hk_base::user::AUTO_WINDOW_BASE,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    ));
+
+    let Step::Resume {
+        index: provider,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Provider 应可运行");
+    };
+    assert_eq!(provider, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = 4096;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    assert_ne!(frame, u64::MAX);
+
+    context.rax = hk_syscall::SYS_REPLY_HANDLE;
+    context.rdi = hk_syscall::PROVIDER_PROVIDE;
+    context.rsi = 0;
+    context.rdx = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("缺页任务应恢复");
+    };
+    assert_eq!(index, 0);
+    let packed = last_map.load(Ordering::Acquire);
+    let rights = hk_handle::Rights::from_bits_truncate(packed as u32);
+    assert_eq!(
+        rights,
+        hk_handle::Rights::READ,
+        "只读 Region 的 Provider 页必须保持只读"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn anonymous_fault_defers_to_bound_provider() {
     let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -3023,7 +3240,12 @@ fn anonymous_fault_defers_to_bound_provider() {
         !runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
         "绑定 Provider 后不进入内核零页快速路径"
     );
-    assert!(runtime.provider_fault(0, hk_base::user::AUTO_WINDOW_BASE, MockContext::default()));
+    assert!(runtime.provider_fault(
+        0,
+        hk_base::user::AUTO_WINDOW_BASE,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    ));
     let _ = runtime.finish(0, index);
 }
 
@@ -3034,29 +3256,48 @@ fn ledger_limit_rejects_over_quota_and_releases_on_close() {
         panic!("任务应可运行");
     };
 
-    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    // 常驻能力按物理页占满 Task Ledger。
+    context.rax = SYS_CAPABILITY_CREATE;
     context.rdi = 4;
     context.rsi = MEMORY_LIMIT;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    let capability = context.rax;
-    assert_ne!(capability, u64::MAX);
+    let resident = context.rax;
+    assert_ne!(resident, u64::MAX, "常驻能力占满配额");
 
+    // 惰性能力创建不记账，首次缺页装页时才申请配额。
     context.rax = SYS_CAPABILITY_CREATE_LAZY;
     context.rdi = 4;
     context.rsi = 0x1000;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, u64::MAX, "超出配额应被拒绝");
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX, "惰性能力创建不占物理配额");
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    assert!(
+        !runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
+        "物理页超出配额应被拒绝"
+    );
 
     context.rax = SYS_HANDLE_CLOSE;
-    context.rdi = capability;
+    context.rdi = resident;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
 
-    context.rax = SYS_CAPABILITY_CREATE_LAZY;
-    context.rdi = 4;
-    context.rsi = MEMORY_LIMIT;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_ne!(context.rax, u64::MAX, "关闭后配额应归还");
+    let charged = runtime.process(index).ledger.charged();
+    let (used, limit) = runtime.task_capacity(index).map_or((0, 0), |capacity| {
+        let capacity = capacity.lock();
+        (capacity.used(), capacity.limit())
+    });
+    assert!(
+        runtime.anonymous_fault(0, hk_base::user::AUTO_WINDOW_BASE),
+        "释放后配额应归还：charged={charged} used={used} limit={limit}"
+    );
     let _ = runtime.finish(0, index);
 }
 
@@ -3144,6 +3385,58 @@ fn scanout_requires_surface_and_holds_pin() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX, "匿名能力不能 scanout");
 
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn closing_region_during_scanout_is_rejected() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 1;
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let surface = context.rax;
+    assert_ne!(surface, u64::MAX);
+
+    context.rax = SYS_CAPABILITY_SCANOUT;
+    context.rdi = surface;
+    context.rsi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = surface;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::PINNED.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    context.rax = SYS_HANDLE_CLOSE;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "scanout 驻留期间不能关闭 Region");
+    assert_eq!(
+        runtime.process(0).regions.iter().flatten().count(),
+        1,
+        "拒绝关闭时 Region 与映射必须保留"
+    );
+
+    context.rax = SYS_CAPABILITY_SCANOUT;
+    context.rdi = surface;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = SYS_HANDLE_CLOSE;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "退出 scanout 后可关闭 Region");
     let _ = runtime.finish(0, index);
 }
 
@@ -3261,7 +3554,13 @@ impl UserPlatform for ShortPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> Option<u64> {
+    fn fork(
+        &self,
+        _parent: usize,
+        _child: usize,
+        _cow_ranges: &[(u64, u64)],
+        _capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<u64> {
         Some(0)
     }
 

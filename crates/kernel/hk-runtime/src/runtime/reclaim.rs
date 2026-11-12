@@ -19,12 +19,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub fn reclaim_zero_pages(&mut self, index: usize, budget: u64) -> u64 {
         let owner = self.leader_of(index);
         let page = PAGE_SIZE as u64;
-        let regions: Vec<(TcbId, Handle)> = self
+        let regions: Vec<(usize, TcbId, Handle)> = self
             .process(owner)
             .regions
             .iter()
-            .flatten()
-            .map(|region| (region.owner, region.capability))
+            .enumerate()
+            .filter_map(|(slot, region)| {
+                region
+                    .as_ref()
+                    .map(|region| (slot, region.owner, region.capability))
+            })
             .collect();
         // 只要同一个 capability 有任一 PINNED 别名，就不能回收其页，
         // 否则另一个固定驻留映射会看到悬空 PTE。
@@ -41,7 +45,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             })
             .collect();
         let mut released = 0;
-        for (tcb, handle) in regions {
+        for (slot, tcb, handle) in regions {
             if released >= budget {
                 break;
             }
@@ -86,10 +90,31 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     continue;
                 };
                 drop(lease);
+                self.release_page_charge(index, slot, page_index);
                 released = released.saturating_add(page);
             }
         }
         released
+    }
+
+    /// 释放被回收页在 Task Ledger 中的记账。
+    fn release_page_charge(&mut self, index: usize, slot: usize, page_index: usize) {
+        let position = self
+            .process(index)
+            .regions
+            .get(slot)
+            .and_then(|map| map.as_ref())
+            .and_then(|map| {
+                map.page_charges
+                    .iter()
+                    .position(|(page, _)| *page == page_index)
+            });
+        if let Some(position) = position
+            && let Some(map) = self.process_mut(index).regions[slot].as_mut()
+        {
+            let (_, charge) = map.page_charges.swap_remove(position);
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
     }
 
     /// 解除映射该能力第 `page_index` 页的所有映射。

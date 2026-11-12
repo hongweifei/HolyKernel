@@ -128,7 +128,10 @@ pub enum CowResolution {
 }
 
 /// 解析用户写保护页错误。
-pub fn resolve_cow(address: u64) -> Option<CowResolution> {
+pub fn resolve_cow(
+    address: u64,
+    capacity: Option<&alloc::sync::Arc<Mutex<hk_mem::hmp::Capacity>>>,
+) -> Option<CowResolution> {
     let direct_map = DIRECT_MAP.load(Ordering::Acquire);
     if direct_map == 0 {
         return None;
@@ -138,7 +141,7 @@ pub fn resolve_cow(address: u64) -> Option<CowResolution> {
         root: read_cr3(),
         pcid: 0,
     };
-    table.resolve_cow(address)
+    table.resolve_cow(address, capacity)
 }
 
 /// 释放地址空间：先按 PTE 释放映射与 COW 引用，再回收最后一个映射者。

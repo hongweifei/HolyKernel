@@ -15,6 +15,9 @@ use spin::Mutex;
 static SYSTEM: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 static USER: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 
+/// 顶层 User Capacity 切出后留给内核堆与页表的物理余量。
+const USER_RESERVE_BYTES: u64 = 32 * 1024 * 1024;
+
 /// 建立 System Capacity 并接管内核自用分配的归因。
 ///
 /// `heap` 是启动期已分配的内核堆区间；`reserved` 是已预留给他人的字节数
@@ -37,10 +40,20 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
     bank.set_kernel_owner(Some(id));
     let mut capacity =
         Capacity::with_limit(id, range, PAGE_SIZE, CapacityKind::System, limit).ok()?;
-    // 顶层 User 容量从 System 切出，后续由 Capacity::grow 随用户分配增长。
+    // 顶层 User 容量从 System 显式切出：授予配额必须覆盖服务镜像、栈与
+    // 运行期匿名页；System 保留固定余量供内核堆与页表继续增长。
+    let reserve = USER_RESERVE_BYTES.min(capacity.limit() / 2);
+    let available = capacity
+        .limit()
+        .saturating_sub(capacity.used())
+        .saturating_sub(reserve);
+    let user_limit = available / PAGE_SIZE as u64 * PAGE_SIZE as u64;
+    if user_limit < PAGE_SIZE as u64 {
+        return None;
+    }
     let user_id = CapacityId::next();
     let user = capacity
-        .split(user_id, PAGE_SIZE, CapacityKind::User)
+        .split(user_id, user_limit as usize, CapacityKind::User)
         .ok()?;
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
     *USER.lock() = Some(Arc::new(Mutex::new(user)));

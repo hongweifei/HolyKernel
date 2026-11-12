@@ -1,5 +1,6 @@
 //! 每任务用户页表登记、切换与写时复制分叉。
 
+use alloc::sync::Arc;
 use core::ops::Deref;
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
@@ -36,8 +37,12 @@ impl UserAddressSpace for UserSpace {
         PageTable::root(self.0.backend()).get()
     }
 
-    fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)> {
-        PageTable::fork_user(self.0.backend(), cow_ranges)
+    fn fork_user(
+        &self,
+        cow_ranges: &[(u64, u64)],
+        capacity: Option<&Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<(Self, u64)> {
+        PageTable::fork_user(self.0.backend(), cow_ranges, capacity)
             .map(|(table, copied)| (UserSpace::new(table), copied))
     }
 

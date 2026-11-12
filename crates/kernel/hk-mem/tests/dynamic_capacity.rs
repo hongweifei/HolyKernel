@@ -1,4 +1,4 @@
-//! 动态 User Capacity：子容量在配额不足时从父 System 扩窗。
+//! User Capacity 的授予配额是硬上限；扩窗只消除碎片。
 
 use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, RegionKind};
 use hk_mem::FrameBank;
@@ -7,7 +7,7 @@ use hk_mem::hmp::{Capacity, CapacityId, CapacityKind, PhysicalBackend, set_physi
 static BANK: FrameBank = FrameBank::empty();
 
 #[test]
-fn user_capacity_grows_from_system_on_demand() {
+fn user_capacity_cannot_exceed_grant() {
     BANK.init(
         &[MemoryRegion::new(
             PhysAddr::new(0x10_0000),
@@ -34,24 +34,16 @@ fn user_capacity_grows_from_system_on_demand() {
     assert_eq!(user.limit(), PAGE_SIZE as u64);
     let system_limit_after_split = system.limit();
 
-    let frame = user.allocate(PAGE_SIZE * 4).expect("动态扩窗后分配");
+    assert_eq!(
+        user.allocate(PAGE_SIZE * 4).err(),
+        Some(hk_mem::hmp::HmpError::OutOfCapacity),
+        "子容量不得越过授予配额"
+    );
+    assert_eq!(user.limit(), PAGE_SIZE as u64);
     assert_eq!(
         system.limit(),
-        system_limit_after_split - (PAGE_SIZE * 4) as u64,
-        "User 扩窗必须同步扣减父 System 配额"
+        system_limit_after_split,
+        "拒绝分配不得改变父配额"
     );
-    assert_eq!(frame.len(), PAGE_SIZE * 4);
-    assert!(
-        user.limit() >= (PAGE_SIZE * 5) as u64,
-        "User Capacity 应随分配增长"
-    );
-    assert_eq!(
-        BANK.used_owned(user_id),
-        (PAGE_SIZE * 4) as u64,
-        "扩窗后的页归入 User 账本"
-    );
-
-    let mut frame = Some(frame);
-    user.free(&mut frame).expect("归还页面");
     assert_eq!(BANK.used_owned(user_id), 0);
 }

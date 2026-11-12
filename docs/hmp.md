@@ -126,7 +126,7 @@ Arena 是任务内存的根对象。
 - Arena 保存 Region 表、用户栈、堆与工作区；栈与堆都是 Arena 内的 Region。
 - 装载器把镜像段与用户栈映射后登记为 Region；`SYS_ALLOC` 每次分配建立独立的惰性匿名 Region，不再维护第二套 bump Arena。
 - Arena 从 Capacity 取得 Frame；物理页计入任务 Ledger，Arena 快照报告地址窗口利用率。
-- Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`；任务通过 Region 操作使用 Arena 内的映射。
+- Arena 由运行时持有，提供 Region 表的 `insert`、`resize`、`remove` 与 `used` 统计；`checkpoint`、`restore`、`destroy` 由运行时按 Region 元数据编排，Arena 不单独执行这些动作。任务通过 Region 操作使用 Arena 内的映射。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
 - `SYS_ARENA_INFO` 报告任务 Arena 的地址窗口：`base` 是基址，`size` 是窗口长度，`used` 是已登记 Region 的字节数，`regions` 是 Region 数。`SYS_ALLOC` 的可分配窗口与游标由 `TaskInfo.arena_size`/`arena_used` 报告；Arena 窗口包含镜像、栈与动态窗口映射，两套口径分别用于对象视图与分配配额。
@@ -153,7 +153,7 @@ Capacity 是物理容量的授予单位。
 
 - `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
 - 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
-- 分配在配额允许但既有窗口没有足够长的连续空闲段时，先向父容量扩出一段连续窗口再重试；查找时相邻且属于同一容量的窗口合并为一段。配额余量不会被窗口碎片伪装成容量耗尽。
+- 子 Capacity 的 `limit` 是 `split` 时授予的硬上限：分配超过配额直接失败。配额内既有窗口没有足够长的连续空闲段时，只从父容量转移一段物理窗口再重试，不改变任何一侧的配额；窗口碎片不会伪装成容量耗尽。顶层 User Capacity 在启动时按可用物理内存切出，System 保留固定余量供内核堆与页表增长；`merge` 或析构把窗口与配额并回父容量。
 - 服务镜像段与用户栈从顶层 User Capacity 分配，按页映射并登记 Region；页表页仍由 System 承载。装载页计入任务 Ledger，容量窗口与物理归因不再落到 System。
 - 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
 - `SYS_FRAME_BANK_STATS` 返回 FrameBank 物理 `total/used/peak/free` 与按 `CapacityKind` 的用量（System、User、Dma、Gpu、Numa）；`SYS_LEDGER_ENUM` 返回每个 Capacity 的明细。两者使用同一套分类，不再对外暴露 `FrameKind` 统计。
@@ -186,7 +186,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - Region 是虚拟地址分配、缺页、COW 与保护的单元。
 - CPU、GPU、DMA、scanout 都通过 Region 访问。
 - 内核页表是 Region 的物化；Region 是唯一映射视图。
-- `SYS_REGION_PROTECT` 只允许把权利收窄到被映射能力句柄 Rights 覆盖的范围；只读能力句柄不能提升为可写映射。
+- `SYS_REGION_PROTECT` 的权限上限是被映射能力句柄的 Rights：可在句柄范围内调整，只读能力句柄不能提升为可写映射。
 - `PINNED` 在映射或 protect 时固定能力（需要 `Capability` 的 ADMIN），解除映射时解除固定；scanout 驻留期间拒绝解除。
 - Region 句柄属于创建它的任务，不参与 `SYS_HANDLE_DUPLICATE` 或 IPC 转移；`unmap`/`grow` 校验 Region 句柄的 ADMIN。
 - unmap 释放 Region；所引用的类型化能力继续持有对象。
@@ -248,7 +248,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 
 - `Fault`（`0x1200`）：请求页。8 个字为 `[offset, page, address, access, capability, rights, flags, reserved]`；`access` 为 0 读、1 写，`capability` 是能力对象标识，`rights`/`flags` 来自 Region。
 - `Provide`（`0x1201`）：返回 Frame；必须携带句柄并以该标签回包。`Error`（`0x1204`）或其它标签按缺页故障处理，缺页任务终止而不是永久阻塞。
-- `Evict`（`0x1202`）/ `Writeback`（`0x1203`）：驱逐与回写通知，由内核在能力页被回收或回写时发送；Provider 只确认。
+- `Evict`（`0x1202`）/ `Writeback`（`0x1203`）：预留的驱逐与回写通知标签；当前内核回收匿名零页时不发送通知，Provider 可保留确认分支。
 - `GUARD` 页在 Provider 分派前判定：命中即故障，不装零页，也不转发 Provider。
 - 批量、预读、fault token 与异步回写属于契约细节。
 - `RevisionProvider`：fault、readahead、writeback、commit、snapshot、gc。
@@ -322,13 +322,13 @@ HMP 的文件页缓存以修订为中心。
 
 Ledger 分为三层，避免同一批字节在多本账上重复执行硬配额：
 
-- **Task Ledger**：任务配额的唯一硬账。`SYS_LEDGER_INFO` 返回它；超过 `limit` 的分配失败。
+- **Task Ledger**：任务配额的唯一硬账。`SYS_LEDGER_INFO` 返回它；超过 `limit` 的分配失败。`charged` 只统计常驻物理页：装载器镜像与栈、常驻能力、匿名缺页装入页、COW/fork 私有页、DMA 与设备映射。虚拟 Region 与惰性能力创建不占用 Task Ledger；页被回收、Region 关闭或进程退出时释放对应记账。
 - **Capacity / FrameBank**：物理边界。Capacity 按 `CapacityId` 归因物理窗口，FrameBank 维护物理总量与峰值。
-- **对象利用率快照**：Arena、Region、Capability、Frame 不持有独立 `Charge`，也不执行硬配额；`SYS_OBJECT_LEDGER` 按当前占用与对象容量计算 `charged/limit/peak/pressure`，只用于报告。Arena 报告地址窗口利用率，Region 报告映射利用率，Capability 报告常驻利用率，Frame 报告常驻量。
-- 记账随 Handle 转移：发送方归还，接收方按能力大小重新记入 Task Ledger；接收方超配额则拒绝。
+- **对象利用率快照**：Region、Capability、Frame 不持有独立 `Charge`，也不执行硬配额；`SYS_OBJECT_LEDGER` 按当前占用与对象容量计算 `charged/limit/peak/pressure`，只用于报告。Region 报告映射利用率，Capability 报告常驻利用率，Frame 报告常驻量；Arena 的地址窗口利用率由 `SYS_ARENA_INFO` 报告。
+- 记账随 Handle 转移：发送方归还，接收方按实际常驻物理页重新记入 Task Ledger；惰性能力在接收方首次缺页时记账，接收方超配额则拒绝。
 - 关闭 Handle 归还 Task Ledger 记账；设备授权与 DMA 窗口、帧缓冲映射、装载器镜像/用户栈、COW 私有页与 fork 私有复制同样计入任务配额。
-- 池紧张时内核回收可证明为零的匿名页，解除映射并归还 Frame，然后重试一次；再次缺页装入的仍是零页。
-- 回收范围限于可回收匿名页：内容为零、pin 已解除、驻留状态为可丢弃；pinned Frame 与 Provider 提供的页由驻留策略保留。
+- 池紧张时内核回收可证明为零的匿名页，解除映射并归还 Frame，然后重试一次；再次缺页装入的仍是零页。绑定 Provider 的匿名页可被回收，但 Provider 必须对被回收页再次提供零填充内容。
+- 回收范围限于可回收匿名页：内容为零、pin 已解除、驻留状态为可丢弃；pinned Frame 始终保留，Provider 提供的页按上面的零填充契约处理。
 - Debug/Checkpoint 可以枚举 Ledger；内核 System Capacity 同样记账。
 
 ---
@@ -381,7 +381,7 @@ flowchart LR
 - 释放清零；Frame 回 Capacity 前清空敏感内容。
 - 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 或能力句柄决定。IOMMU 映射与 CPU 的 Region 都从同一句柄派生：`SYS_DMA_MAP` 解析 Frame/Capability 后建立设备页表项，不构成第二条 CPU 访问路径。
 - Debug Server 枚举 Capacity、Frame、类型化能力、Region 与 Provider；Arena/Ledger 通过运行时快照报告。
-- Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力：运行时快照记录对象类别、权利、句柄编号、对象标识、大小、物理地址与类别细节；`SYS_OBJECT_ENUM` 提供同一份只读枚举。恢复只重建页、Region 元数据与 TCB；Capacity/Frame/能力句柄属于授权，由 Root/Memory Server 在恢复后重新授予。
+- Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力：运行时快照记录对象类别、权利、句柄编号、对象标识、大小、物理地址与类别细节；`SYS_OBJECT_ENUM` 提供同一份只读枚举。恢复重建页、Region 元数据与 TCB，并由运行时建立临时能力与 User Capacity 视图；正式 Capacity/Frame 授权仍由 Root/Memory Server 在恢复后授予或收窄。
 - 内存压力、配额与 OOM 决策可审计。
 
 ---

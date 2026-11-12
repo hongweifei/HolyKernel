@@ -16,6 +16,7 @@ use hk_syscall::PROVIDER_FAULT;
 struct FaultRegion {
     tcb: TcbId,
     capability: Handle,
+    region: hk_mem::hmp::RegionId,
     virt: u64,
     offset: u64,
     rights: Rights,
@@ -28,6 +29,7 @@ fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
     (address >= region.virt && address < end).then_some(FaultRegion {
         tcb: region.owner,
         capability: region.capability,
+        region: region.region,
         virt: region.virt,
         offset: region.offset,
         rights: region.rights,
@@ -531,7 +533,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。
-    pub fn provider_fault(&mut self, cpu: usize, address: u64, context: C) -> bool {
+    pub fn provider_fault(
+        &mut self,
+        cpu: usize,
+        address: u64,
+        access: hk_mem::hmp::provider::ProviderAccess,
+        context: C,
+    ) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;
         };
@@ -555,7 +563,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return false;
         };
-        if self.provider_fault_region(index, region, address, &capability, provider, false) {
+        if self.provider_fault_region(index, region, address, &capability, provider, access) {
             self.current[cpu] = None;
             true
         } else {
@@ -570,7 +578,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         address: u64,
         capability: &Capability,
         provider: ObjectId,
-        write: bool,
+        access: hk_mem::hmp::provider::ProviderAccess,
     ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
         let offset = region.capability_offset(address, page);
@@ -584,11 +592,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             offset,
             page,
             address,
-            access: if write {
-                hk_mem::hmp::provider::ProviderAccess::Write
-            } else {
-                hk_mem::hmp::provider::ProviderAccess::Read
-            },
+            access,
             capability: capability_id.get(),
             rights: region.rights.bits(),
             flags: region.flags.bits(),
@@ -608,13 +612,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             page: region.page_address(offset),
             rights: region.rights,
             flags: region.flags,
-            private: write,
+            access,
+            private: access == hk_mem::hmp::provider::ProviderAccess::Write,
         };
         true
     }
 
     /// 一次解析 Region 后分派 Provider 或匿名缺页。
-    pub fn handle_fault(&mut self, cpu: usize, address: u64, context: C) -> FaultOutcome {
+    pub fn handle_fault(
+        &mut self,
+        cpu: usize,
+        address: u64,
+        access: hk_mem::hmp::provider::ProviderAccess,
+        context: C,
+    ) -> FaultOutcome {
         let Some(index) = self.current[cpu] else {
             return FaultOutcome::Unhandled;
         };
@@ -639,7 +650,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .flatten();
         if let Some(provider) = provider {
             self.tasks[index].context = context;
-            if self.provider_fault_region(index, region, address, &capability, provider, false) {
+            if self.provider_fault_region(index, region, address, &capability, provider, access) {
                 self.current[cpu] = None;
                 FaultOutcome::Blocked
             } else {
@@ -713,6 +724,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(region) = self.find_fault_region(index, address) else {
             return false;
         };
+        // 只有可写且标记 COW 的 Region 才允许走写时复制；只读、SEALED 或
+        // 未共享的 Region 的写缺页是保护错误，不能升级为可写映射。
+        if !region.rights.contains(hk_handle::Rights::WRITE)
+            || !region.flags.contains(RegionFlags::COW)
+        {
+            return false;
+        }
         let page = hk_hal::PAGE_SIZE as u64;
         let page_index = (region.capability_offset(address, page) / page) as usize;
         let Ok((capability, _)) = self.kernel.capability(region.tcb, region.capability) else {
@@ -726,9 +744,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .ok()
             .flatten();
         if let Some(provider) = provider {
-            return self.provider_fault_region(index, region, address, &capability, provider, true);
+            return self.provider_fault_region(
+                index,
+                region,
+                address,
+                &capability,
+                provider,
+                hk_mem::hmp::provider::ProviderAccess::Write,
+            );
         }
-        match self.platform.resolve_cow(address) {
+        let capacity = self.task_capacity(index);
+        match self.platform.resolve_cow(address, capacity.as_ref()) {
             Some(crate::runtime::CowOutcome::Copied(physical)) => {
                 let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
                     return false;
@@ -844,6 +870,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(backing) = self.allocate_owned(index, page) else {
             return false;
         };
+        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+            return false;
+        };
         let range = backing.range();
         if !self.platform.map_user(
             index,
@@ -853,6 +882,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             region.rights,
             region.flags,
         ) {
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         }
         if !self
@@ -861,10 +891,50 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or(false)
         {
             let _ = self.platform.unmap_user(index, page_address, page as usize);
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         }
+        self.record_page_charge(index, region.region, page_index, charge);
         self.platform.zero(page_address, page as usize);
         true
+    }
+
+    /// 记录逐页装入产生的 Task Ledger 记账。
+    pub(crate) fn record_page_charge(
+        &mut self,
+        index: usize,
+        region: hk_mem::hmp::RegionId,
+        page_index: usize,
+        charge: Charge,
+    ) {
+        if let Some(slot) = self
+            .process(index)
+            .regions
+            .iter()
+            .position(|map| map.as_ref().is_some_and(|map| map.region == region))
+            && let Some(map) = self.process_mut(index).regions[slot].as_mut()
+        {
+            map.page_charges.push((page_index, charge));
+        }
+    }
+
+    /// 按能力句柄记录逐页装入产生的 Task Ledger 记账。
+    pub(crate) fn record_page_charge_for_capability(
+        &mut self,
+        index: usize,
+        capability: hk_handle::Handle,
+        page_index: usize,
+        charge: Charge,
+    ) {
+        if let Some(slot) = self
+            .process(index)
+            .regions
+            .iter()
+            .position(|map| map.as_ref().is_some_and(|map| map.capability == capability))
+            && let Some(map) = self.process_mut(index).regions[slot].as_mut()
+        {
+            map.page_charges.push((page_index, charge));
+        }
     }
 
     pub(crate) fn region_unmap(&mut self, index: usize, _tcb: TcbId, frame: &mut C) -> Switch {
@@ -889,6 +959,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let capability = region.capability;
         let charge = region.charge;
+        let page_charges = region.page_charges.clone();
         let pinned = region.flags.contains(RegionFlags::PINNED);
         if pinned
             && self
@@ -946,6 +1017,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
         if let Some(charge) = charge {
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
+        for (_, charge) in page_charges {
             let _ = self.process_mut(index).ledger.release(charge);
         }
         if let Some(capability_id) = capability_id {

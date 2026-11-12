@@ -2,22 +2,29 @@
 //!
 //! 共享状态只由 `hk-paging::FrameRefs` 维护，不使用架构专用 PTE 位。
 
-use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
-use hk_mem::FrameKind;
+use alloc::sync::Arc;
+
+use hk_hal::{PAGE_SIZE, PhysAddr};
+use hk_mem::hmp::{Capacity, Frame};
 use hk_mem::page::PageAllocator;
 use hk_paging::FrameRefs;
+use spin::Mutex;
 
 use super::FRAME_BANK;
 use super::flags::{HUGE, PCD, PRESENT, PWT, WRITABLE};
 use super::table::{ADDRESS_MASK, ENTRIES, KERNEL_PML4_START, PageTable};
 
-/// 取一页 COW 私有数据页；从 User Capacity 分配，物理归因不再落到 System。
-fn take_cow_page() -> Option<PhysAddr> {
-    crate::system::user_capacity()?
-        .lock()
-        .allocate(PAGE_SIZE)
-        .ok()
-        .map(|frame| frame.phys())
+/// 取一页 COW 私有数据页；物理来源是发生缺页的任务 Capacity。
+fn take_cow_page(capacity: &Arc<Mutex<Capacity>>) -> Option<(PhysAddr, Frame)> {
+    let frame = capacity.lock().allocate(PAGE_SIZE).ok()?;
+    let phys = frame.phys();
+    Some((phys, frame))
+}
+
+/// 归还一页未能安装的 COW 页，物理归因回到任务 Capacity。
+fn release_cow_page(capacity: &Arc<Mutex<Capacity>>, frame: Frame) {
+    let mut frame = Some(frame);
+    let _ = capacity.lock().free(&mut frame);
 }
 
 /// 取一页页表；页表页始终由 System 承载。
@@ -29,17 +36,24 @@ fn take_table_page() -> Option<PhysAddr> {
 struct ForkState<'a> {
     cow_ranges: &'a [(u64, u64)],
     refs: &'a mut FrameRefs,
+    capacity: &'a Arc<Mutex<Capacity>>,
     copied: u64,
 }
 
 impl PageTable {
     /// 复制用户低半区；`cow_ranges` 内的可写页标 COW，其余可写页私有复制。
     /// 返回副本与私有复制页的字节数，供 Task Ledger 记账。
-    pub fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)> {
+    pub fn fork_user(
+        &self,
+        cow_ranges: &[(u64, u64)],
+        capacity: Option<&Arc<Mutex<Capacity>>>,
+    ) -> Option<(Self, u64)> {
+        let capacity = capacity?;
         let mut refs = super::frame_refs().lock();
         let mut state = ForkState {
             cow_ranges,
             refs: &mut refs,
+            capacity,
             copied: 0,
         };
         let child_root = take_table_page()?;
@@ -135,7 +149,8 @@ impl PageTable {
                 if !mmio && writable && !cow {
                     // 未登记 Region 的可写页不能隐式共享；为子任务复制私有页，
                     // 父页表保持原映射与权限。
-                    let child_frame = self.copy_private_page(frame, &mut state.copied)?;
+                    let child_frame =
+                        self.copy_private_page(frame, state.capacity, &mut state.copied)?;
                     flags &= !super::flags::COW;
                     // SAFETY: 子页表叶项指向新分配的私有页帧。
                     unsafe {
@@ -184,8 +199,13 @@ impl PageTable {
     }
 
     /// 为子地址空间复制一份私有页，并累计复制字节数。
-    fn copy_private_page(&self, source: PhysAddr, copied: &mut u64) -> Option<PhysAddr> {
-        let frame = take_cow_page()?;
+    fn copy_private_page(
+        &self,
+        source: PhysAddr,
+        capacity: &Arc<Mutex<Capacity>>,
+        copied: &mut u64,
+    ) -> Option<PhysAddr> {
+        let (frame, allocation) = take_cow_page(capacity)?;
         let source = (self.direct_map + source.get()) as *const u8;
         let target = (self.direct_map + frame.get()) as *mut u8;
         // SAFETY: 源、目标页帧均经 HHDM 映射，长度为整页。
@@ -193,10 +213,7 @@ impl PageTable {
             core::ptr::copy_nonoverlapping(source, target, PAGE_SIZE);
         }
         if !super::mapping_acquire(frame) {
-            FRAME_BANK.free_for(
-                FrameKind::Image,
-                PhysRange::new(frame, hk_hal::PAGE_SIZE as u64),
-            );
+            release_cow_page(capacity, allocation);
             return None;
         }
         *copied = copied.saturating_add(PAGE_SIZE as u64);
@@ -209,7 +226,12 @@ impl PageTable {
     }
 
     /// 处理写时复制页错误：复制页帧并恢复可写映射。
-    pub fn resolve_cow(&self, address: u64) -> Option<super::CowResolution> {
+    pub fn resolve_cow(
+        &self,
+        address: u64,
+        capacity: Option<&Arc<Mutex<Capacity>>>,
+    ) -> Option<super::CowResolution> {
+        let capacity = capacity?;
         if !self.split_huge_at(address) {
             return None;
         }
@@ -250,8 +272,9 @@ impl PageTable {
             return Some(super::CowResolution::Writable);
         }
 
-        let frame = take_cow_page()?;
+        let (frame, allocation) = take_cow_page(capacity)?;
         if !super::mapping_acquire(frame) {
+            release_cow_page(capacity, allocation);
             return None;
         }
         let source = (self.direct_map + physical.get()) as *const u8;

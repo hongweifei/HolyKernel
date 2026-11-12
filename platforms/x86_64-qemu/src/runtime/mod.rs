@@ -167,8 +167,12 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::paging::is_shared_frame(phys)
     }
 
-    fn resolve_cow(&self, address: u64) -> Option<CowOutcome> {
-        match hk_platform_x86_64::paging::resolve_cow(address) {
+    fn resolve_cow(
+        &self,
+        address: u64,
+        capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<CowOutcome> {
+        match hk_platform_x86_64::paging::resolve_cow(address, capacity) {
             Some(hk_platform_x86_64::paging::CowResolution::Writable) => Some(CowOutcome::Writable),
             Some(hk_platform_x86_64::paging::CowResolution::Copied(phys)) => {
                 Some(CowOutcome::Copied(phys.get()))
@@ -319,8 +323,14 @@ impl UserPlatform for X86Platform {
         USER_ADDRESS_SPACES.root(slot)
     }
 
-    fn fork(&self, parent: usize, child: usize, cow_ranges: &[(u64, u64)]) -> Option<u64> {
-        USER_ADDRESS_SPACES.fork(parent, child, cow_ranges)
+    fn fork(
+        &self,
+        parent: usize,
+        child: usize,
+        cow_ranges: &[(u64, u64)],
+        capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
+    ) -> Option<u64> {
+        USER_ADDRESS_SPACES.fork(parent, child, cow_ranges, capacity)
     }
 
     fn share_vspace(&self, parent: usize, child: usize) -> bool {
@@ -788,7 +798,12 @@ fn resched(cpu: usize) {
 
 fn fault(frame: &mut InterruptFrame) -> FaultAction {
     if frame.vector == 14 && frame.error & 0b1 == 0 {
-        match RUNTIME.handle_fault(cpu::cpu_index(), cpu::fault_address(), *frame) {
+        let access = if frame.error & 0b10 == 0 {
+            hk_mem::hmp::provider::ProviderAccess::Read
+        } else {
+            hk_mem::hmp::provider::ProviderAccess::Write
+        };
+        match RUNTIME.handle_fault(cpu::cpu_index(), cpu::fault_address(), access, *frame) {
             FaultOutcome::Blocked => return FaultAction::Block,
             FaultOutcome::Resumed => return FaultAction::Resume,
             FaultOutcome::Unhandled => {}
