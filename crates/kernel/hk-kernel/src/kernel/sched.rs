@@ -51,9 +51,24 @@ impl Kernel {
         handles: HandleTable,
         spec: CadenceSpec,
     ) -> Result<TcbId, KernelError> {
+        self.spawn_task_parked_with_parent(handles, spec, None)
+    }
+
+    /// 创建 Task 与主 TCB 并恢复内核父链；服务装载与检查点恢复使用。
+    pub fn spawn_task_parked_with_parent(
+        &self,
+        handles: HandleTable,
+        spec: CadenceSpec,
+        parent: Option<TaskId>,
+    ) -> Result<TcbId, KernelError> {
         let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
         let cadence = Cadence::from_spec(CadenceId::new(id.get()), spec)?;
-        let task = Arc::new(spin::Mutex::new(Task::new(id, None, cadence, Meter::new())));
+        let task = Arc::new(spin::Mutex::new(Task::new(
+            id,
+            parent,
+            cadence,
+            Meter::new(),
+        )));
         // 契约从创建时刻开始预算周期，Realtime 绝对截止期不会落到过去。
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);

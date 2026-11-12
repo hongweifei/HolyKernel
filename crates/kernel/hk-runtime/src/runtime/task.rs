@@ -73,7 +73,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         context.set_start_argument(endpoint);
 
         let kernel = &self.kernel;
-        let tcb = kernel.spawn_task_parked(HandleTable::with_default_quota(), cadence)?;
+        let parent_task = parent.and_then(|number| kernel.task_of(TcbId::new(number)));
+        let tcb = kernel.spawn_task_parked_with_parent(
+            HandleTable::with_default_quota(),
+            cadence,
+            parent_task,
+        )?;
         let own = kernel.create_endpoint(tcb, Rights::READ | Rights::WRITE | Rights::TRANSFER)?;
         let own_id = kernel.handle_id(tcb, own)?;
         let own_notification =
@@ -101,15 +106,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        let user_capacity = self
-            .platform
-            .user_capacity()
-            .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
-        let capacity_handle = self.kernel.create_capacity_shared(
-            tcb,
-            user_capacity,
-            Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
-        )?;
+        let capacity_rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+        let capacity_handle = match crate::service_capacity(device_authority) {
+            crate::CapacityGrant::Split(kind, bytes) => {
+                let capacity = self
+                    .platform
+                    .reserve_capacity(bytes, kind)
+                    .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+                self.kernel
+                    .create_capacity(tcb, capacity, capacity_rights)?
+            }
+            crate::CapacityGrant::User => {
+                let capacity = self
+                    .platform
+                    .user_capacity()
+                    .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
+                self.kernel
+                    .create_capacity_shared(tcb, capacity, capacity_rights)?
+            }
+        };
         let mut process = Process::new(
             arena_base,
             arena_size,

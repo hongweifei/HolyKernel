@@ -417,6 +417,54 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
 }
 
 #[test]
+fn restart_grants_device_service_its_dma_capacity() {
+    let mut runtime = runtime();
+    let name = "hk-device-restart";
+    let slot = runtime.reuse_slot(name);
+    runtime
+        .start_at_with_regions(
+            slot,
+            name,
+            true,
+            hk_cadence::DEFAULT_SPEC,
+            MockContext::default(),
+            None,
+            &[],
+        )
+        .expect("启动设备服务");
+    let process = runtime.process(slot);
+    let tcb = runtime.tasks[slot].tcb;
+    let (_, kind, _, limit, _) = runtime
+        .kernel
+        .capacity_info(tcb, process.allocation_capacity)
+        .expect("容量信息");
+    assert_eq!(kind, hk_mem::hmp::CapacityKind::Dma);
+    assert_eq!(limit, crate::DEVICE_CAPACITY_BYTES as u64);
+
+    runtime.terminate(name, 0);
+    let slot = runtime.reuse_slot(name);
+    runtime
+        .start_at_with_regions(
+            slot,
+            name,
+            true,
+            hk_cadence::DEFAULT_SPEC,
+            MockContext::default(),
+            None,
+            &[],
+        )
+        .expect("重启设备服务");
+    let process = runtime.process(slot);
+    let tcb = runtime.tasks[slot].tcb;
+    let (_, kind, _, limit, _) = runtime
+        .kernel
+        .capacity_info(tcb, process.allocation_capacity)
+        .expect("重启后的容量信息");
+    assert_eq!(kind, hk_mem::hmp::CapacityKind::Dma);
+    assert_eq!(limit, crate::DEVICE_CAPACITY_BYTES as u64);
+}
+
+#[test]
 fn checkpoint_restores_threads_and_regions() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

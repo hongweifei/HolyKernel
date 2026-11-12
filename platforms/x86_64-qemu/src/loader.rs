@@ -329,14 +329,11 @@ pub fn run(
         .map(|(module, name)| {
             let bytes = info.module_bytes(module);
             let device = bytes.is_some_and(loader::service_has_device_authority);
-            let mut spec = if device {
+            let spec = if device {
                 ServiceSpec::device(name)
             } else {
                 ServiceSpec::new(name)
             };
-            if device {
-                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Dma, 1024 * 1024);
-            }
             let mut spec = spec.with_cadence(hk_catalog::default_cadence(name));
             if hk_catalog::policy_authority(name) {
                 spec = spec.with_policy_authority();

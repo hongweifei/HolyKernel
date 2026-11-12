@@ -51,6 +51,7 @@ pub struct Tcb {
 - TCB 状态：`Created / Eligible / Running / Blocked / Exited`。
 - 线程入口、栈与 TLS 由用户态服务器与 libc 配置。
 - Task 获得 Grant 后，其可运行 TCB 轮转使用该 Grant。
+- 服务启动时的 `parent` 同时写入内核 Task 父链；父 Task 退出时子契约提升为独立契约，与 fork 出的子任务一致。
 
 ### 1.3 Native Task
 

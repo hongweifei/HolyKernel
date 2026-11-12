@@ -1300,6 +1300,28 @@ fn task_serializes_threads_and_rotates_them() {
 }
 
 #[test]
+fn parked_task_with_parent_promotes_when_parent_exits() {
+    let kernel = kernel();
+    let parent_thread = thread(&kernel);
+    let parent = kernel.task_of(parent_thread).expect("父 Task");
+    let child = kernel
+        .spawn_task_parked_with_parent(HandleTable::new(8), DEFAULT_SPEC, Some(parent))
+        .expect("子 Task");
+    let child_task = kernel.task_of(child).expect("子 Task 存在");
+    assert_eq!(
+        kernel.task(child_task).expect("Task").lock().parent(),
+        Some(parent)
+    );
+    kernel.activate(child).expect("激活子 Task");
+    kernel.exit(parent_thread).expect("父 Task 退出");
+    assert_eq!(
+        kernel.task(child_task).expect("Task").lock().parent(),
+        None,
+        "父退出后子任务提升为独立契约"
+    );
+}
+
+#[test]
 fn threads_share_task_handle_table() {
     let kernel = kernel();
     let first = kernel

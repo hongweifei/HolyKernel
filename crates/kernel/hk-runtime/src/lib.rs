@@ -26,6 +26,18 @@ use hk_mem::hmp::CapacityKind;
 const ROOT_CADENCE: CadenceSpec =
     CadenceSpec::new(CadenceClass::Latency, 4096).with_latency(millis(1));
 
+/// 设备服务默认的独立 Dma 容量。
+pub const DEVICE_CAPACITY_BYTES: usize = 1024 * 1024;
+
+/// 服务的初始 Capacity 授予策略；启动与重启共用同一规则。
+pub const fn service_capacity(device_authority: bool) -> CapacityGrant {
+    if device_authority {
+        CapacityGrant::Split(CapacityKind::Dma, DEVICE_CAPACITY_BYTES)
+    } else {
+        CapacityGrant::User
+    }
+}
+
 /// 初始 Capacity 授予方式。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapacityGrant {
@@ -67,7 +79,7 @@ impl ServiceSpec {
         Self {
             name,
             device_authority: true,
-            capacity: CapacityGrant::User,
+            capacity: service_capacity(true),
             cadence: DEFAULT_SPEC,
             policy_authority: false,
         }
@@ -76,6 +88,12 @@ impl ServiceSpec {
     /// 声明初始 Capacity 授予：从 System Capacity 尾部切出独立子容量。
     pub const fn with_capacity(mut self, kind: CapacityKind, bytes: usize) -> Self {
         self.capacity = CapacityGrant::Split(kind, bytes);
+        self
+    }
+
+    /// 指定初始 Capacity 授予。
+    pub const fn with_grant(mut self, capacity: CapacityGrant) -> Self {
+        self.capacity = capacity;
         self
     }
 
