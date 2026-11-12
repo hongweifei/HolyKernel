@@ -164,9 +164,9 @@ Capacity 是物理容量的授予单位。
 
 Frame 是唯一的物理内存对象。
 
-- 带 `FrameId`、所属 Capacity、页大小/order、引用与 pin 状态。
-- 引用来源：Region 的常驻页、DMA/scanout pin、显式 export。
-- 最后一个引用归还 Capacity，归还前清零。
+- 带 `FrameId`、所属 Capacity、页大小/order 与 pin 状态。
+- 引用就是句柄：Frame 的最后一个句柄关闭（或显式 `SYS_CAPACITY_FREE`）时归还 Capacity，归还前清零；映射由页表机制单独维护，不再有独立的 share/release 计数。
+- `SYS_FRAME_INFO` 的 `refs` 字段报告指向该 Frame 的句柄数。
 - pinned Frame 保持驻留，用于 DMA、scanout 与设备导出。
 - Frame 可被任何类型的 Region 引用；Revision、Surface、TaskImage、DeviceAllocation、Anonymous 的物理页都由 Frame 承载。
 - Frame 可导出给 IOMMU/GPU；导出转移引用，物理页保持单份。

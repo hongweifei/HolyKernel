@@ -2,8 +2,7 @@
 
 use crate::PAGE;
 use hk_server_api::{
-    capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, frame_release,
-    frame_share, ledger_enum,
+    capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, ledger_enum,
 };
 
 /// 验证 Root Server 授予的初始 Capacity 与 Frame 生命周期。
@@ -21,11 +20,7 @@ pub(crate) fn verify_capacity(capacity: u64) -> bool {
     if info.len != PAGE as u64 || info.refs != 1 || info.pinned {
         return false;
     }
-    if frame_share(frame) != Some(2)
-        || frame_pin(frame, true) != 0
-        || frame_pin(frame, false) != 0
-        || frame_release(frame) != Some(1)
-    {
+    if frame_pin(frame, true) != 0 || frame_pin(frame, false) != 0 {
         return false;
     }
     if capacity_free(capacity, frame) != 1 {

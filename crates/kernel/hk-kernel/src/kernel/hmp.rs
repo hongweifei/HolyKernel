@@ -62,7 +62,8 @@ impl Kernel {
             PhysRange::new(frame.phys(), frame.len() as u64),
             frame.page_size(),
             frame.capacity(),
-            frame.refs(),
+            // `refs` 字段报告指向该 Frame 的句柄数：Frame 的引用就是句柄。
+            object.header().handle_count(),
             frame.is_pinned(),
         ))
     }
@@ -76,60 +77,6 @@ impl Kernel {
     pub fn frame_resident(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
         Ok(object.frame_resident())
-    }
-
-    /// 返回 Frame 的共享引用数。
-    pub fn frame_refs(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
-        self.frame_info(thread, handle)
-            .map(|(_, _, _, refs, _)| refs)
-    }
-
-    /// 增加 Frame 的共享引用。
-    pub fn share_frame(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
-        let frame = object.frame().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Frame,
-        })?;
-        let mut frame = frame.lock();
-        let frame = frame
-            .as_mut()
-            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        frame.share().map_err(KernelError::Hmp)
-    }
-
-    /// 释放一次 Frame 共享引用。
-    ///
-    /// 引用降到零且没有其它句柄时，立即归还所属 Capacity 并从对象中取出。
-    /// 归还后句柄保留但内容为空，后续释放或关闭不会重复归还。
-    pub fn release_frame(&self, thread: TcbId, handle: Handle) -> Result<u32, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
-        let frame_lock = object.frame().ok_or(KernelError::WrongKind {
-            expected: ObjectKind::Frame,
-        })?;
-        let capacity = object.frame_capacity();
-        let mut capacity_guard = capacity.map(|capacity| capacity.lock());
-        let mut slot = frame_lock.lock();
-        let frame = slot.as_mut().ok_or(KernelError::Hmp(HmpError::NotMapped))?;
-        // 固定驻留的 Frame 必须先解除 pin；直接释放会把计数降到 0 又归还失败。
-        if frame.is_pinned() {
-            return Err(KernelError::Hmp(HmpError::PermissionDenied));
-        }
-        let refs = frame.release();
-        if refs > 0 {
-            return Ok(refs);
-        }
-        // 还有其它句柄指向同一个 Frame 时只释放引用计数，不归还物理页；
-        // 最后一个句柄关闭或显式 free 时才回到 Capacity。
-        if object.header().handle_count() > 1 {
-            return Ok(0);
-        }
-        if let Some(capacity) = capacity_guard.as_mut() {
-            capacity.free(&mut slot).map_err(KernelError::Hmp)?;
-        } else {
-            // 导入的区间没有 Capacity 归属，只丢弃描述。
-            slot.take();
-        }
-        Ok(0)
     }
 
     /// 设置 Frame 的固定驻留状态。

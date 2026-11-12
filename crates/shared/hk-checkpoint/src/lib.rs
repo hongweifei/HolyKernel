@@ -1,7 +1,8 @@
 //! Native Task 检查点快照格式。
 //!
-//! 快照只描述任务自身：寄存器现场、父子关系、Arena 用量与用户页内容。设备与
-//! 共享 Frame 不进入快照；格式带版本号，解析失败时返回 `None`。
+//! 快照描述任务自身：主线程与附加线程的寄存器现场、父子关系、Region 元数据、
+//! Arena 用量与用户页内容。设备、Provider 与跨任务共享能力不进入快照；格式带
+//! 版本号，解析失败时返回 `None`。
 
 #![no_std]
 extern crate alloc;
@@ -33,6 +34,35 @@ pub struct Page {
     pub data: Vec<u8>,
 }
 
+/// 附加线程的现场与 TLS 基址。
+///
+/// 主线程现场保存在 [`Snapshot::context`]；本类型只描述同一进程内的其它线程，
+/// 按槽位顺序排列。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadSnapshot {
+    /// 平台寄存器现场编码。
+    pub context: Vec<u8>,
+    /// 线程指针（TLS 基址）。
+    pub tls: u64,
+}
+
+/// Region 元数据；恢复时据此重建能力与映射描述。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegionSnapshot {
+    /// 用户虚拟地址。
+    pub virt: u64,
+    /// 映射长度。
+    pub len: u64,
+    /// Region 权利位。
+    pub rights: u32,
+    /// Region 标志位。
+    pub flags: u32,
+    /// 能力种类判别值。
+    pub kind: u8,
+    /// 能力总长度。
+    pub capability_size: u64,
+}
+
 /// 一次检查点快照。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -52,6 +82,10 @@ pub struct Snapshot {
     pub meter: MeterSnapshot,
     /// 用户页。
     pub pages: Vec<Page>,
+    /// 附加线程。
+    pub threads: Vec<ThreadSnapshot>,
+    /// Region 元数据。
+    pub regions: Vec<RegionSnapshot>,
 }
 
 impl Snapshot {
@@ -66,12 +100,20 @@ impl Snapshot {
             self.cadence,
             self.meter,
             &self.pages,
+            &self.threads,
+            &self.regions,
         )
     }
 
     /// 返回编码后的字节数。
     pub fn encoded_size(&self) -> usize {
-        encoded_size(self.name.len(), self.context.len(), &self.pages)
+        encoded_size(
+            self.name.len(),
+            self.context.len(),
+            &self.pages,
+            &self.threads,
+            &self.regions,
+        )
     }
 
     /// 从字节流解码；格式不匹配或截断时返回 `None`。
@@ -105,6 +147,31 @@ impl Snapshot {
             let data = cursor.bytes()?.to_vec();
             pages.push(Page { virt, flags, data });
         }
+        let count = cursor.u32()? as usize;
+        if count > cursor.remaining() / 12 {
+            return None;
+        }
+        let mut threads = Vec::with_capacity(count);
+        for _ in 0..count {
+            let context = cursor.bytes()?.to_vec();
+            let tls = cursor.u64()?;
+            threads.push(ThreadSnapshot { context, tls });
+        }
+        let count = cursor.u32()? as usize;
+        if count > cursor.remaining() / 33 {
+            return None;
+        }
+        let mut regions = Vec::with_capacity(count);
+        for _ in 0..count {
+            regions.push(RegionSnapshot {
+                virt: cursor.u64()?,
+                len: cursor.u64()?,
+                rights: cursor.u32()?,
+                flags: cursor.u32()?,
+                kind: cursor.u8()?,
+                capability_size: cursor.u64()?,
+            });
+        }
         Some(Self {
             slot,
             name,
@@ -114,6 +181,8 @@ impl Snapshot {
             cadence,
             meter,
             pages,
+            threads,
+            regions,
         })
     }
 }
@@ -129,8 +198,16 @@ pub fn encode_parts(
     cadence: CadenceSnapshot,
     meter: MeterSnapshot,
     pages: &[Page],
+    threads: &[ThreadSnapshot],
+    regions: &[RegionSnapshot],
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(encoded_size(name.len(), context.len(), pages));
+    let mut out = Vec::with_capacity(encoded_size(
+        name.len(),
+        context.len(),
+        pages,
+        threads,
+        regions,
+    ));
     out.extend_from_slice(&MAGIC);
     push_u32(&mut out, VERSION);
     push_u32(&mut out, slot);
@@ -156,10 +233,30 @@ pub fn encode_parts(
         push_u64(&mut out, page.flags);
         push_bytes(&mut out, &page.data);
     }
+    push_u32(&mut out, threads.len() as u32);
+    for thread in threads {
+        push_bytes(&mut out, &thread.context);
+        push_u64(&mut out, thread.tls);
+    }
+    push_u32(&mut out, regions.len() as u32);
+    for region in regions {
+        push_u64(&mut out, region.virt);
+        push_u64(&mut out, region.len);
+        push_u32(&mut out, region.rights);
+        push_u32(&mut out, region.flags);
+        out.push(region.kind);
+        push_u64(&mut out, region.capability_size);
+    }
     out
 }
 
-fn encoded_size(name: usize, context: usize, pages: &[Page]) -> usize {
+fn encoded_size(
+    name: usize,
+    context: usize,
+    pages: &[Page],
+    threads: &[ThreadSnapshot],
+    regions: &[RegionSnapshot],
+) -> usize {
     let mut size = 4
         + 4
         + 4
@@ -176,6 +273,11 @@ fn encoded_size(name: usize, context: usize, pages: &[Page]) -> usize {
     for page in pages {
         size += 8 + 8 + 4 + page.data.len();
     }
+    size += 4;
+    for thread in threads {
+        size += 4 + thread.context.len() + 8;
+    }
+    size += 4 + regions.len() * (8 + 8 + 4 + 4 + 1 + 8);
     size
 }
 
@@ -254,6 +356,18 @@ mod tests {
                 flags: 0x27,
                 data: vec![0xAA; 4096],
             }],
+            threads: vec![ThreadSnapshot {
+                context: vec![5, 6, 7, 8],
+                tls: 0x7000,
+            }],
+            regions: vec![RegionSnapshot {
+                virt: 0x1000_0000,
+                len: 0x1000,
+                rights: 0x5,
+                flags: 0x2,
+                kind: 2,
+                capability_size: 0x1000,
+            }],
         }
     }
 
@@ -279,7 +393,10 @@ mod tests {
     #[test]
     fn rejects_huge_page_count() {
         let mut bytes = sample().encode();
-        let count_at = bytes.len() - 4096 - 20 - 4;
+        // 页计数位于页数据之前；页数据之后还有线程与 Region 两段。
+        let threads_len = 4 + (4 + 4 + 8);
+        let regions_len = 4 + (8 + 8 + 4 + 4 + 1 + 8);
+        let count_at = bytes.len() - 4096 - 20 - 4 - threads_len - regions_len;
         bytes[count_at..count_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(Snapshot::decode(&bytes), None);
     }

@@ -102,8 +102,23 @@ impl Kernel {
         handles: HandleTable,
         cadence: Cadence,
     ) -> Result<TcbId, KernelError> {
+        self.spawn_task_with_cadence_and_parent(handles, cadence, None)
+    }
+
+    /// 以现成 Cadence 创建 Task 并恢复内核父链；checkpoint 恢复使用。
+    pub fn spawn_task_with_cadence_and_parent(
+        &self,
+        handles: HandleTable,
+        cadence: Cadence,
+        parent: Option<TaskId>,
+    ) -> Result<TcbId, KernelError> {
         let id = TaskId::new(self.next_task.fetch_add(1, Ordering::Relaxed));
-        let task = Arc::new(spin::Mutex::new(Task::new(id, None, cadence, Meter::new())));
+        let task = Arc::new(spin::Mutex::new(Task::new(
+            id,
+            parent,
+            cadence,
+            Meter::new(),
+        )));
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);

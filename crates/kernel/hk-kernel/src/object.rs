@@ -410,9 +410,8 @@ impl Drop for KernelObject {
         let mut capacity = capacity.lock();
         let mut frame = frame.lock();
         if let Some(frame) = frame.as_mut() {
-            // 最后一个句柄销毁时，pin 与残余 share 都不再能阻止物理页回收。
+            // 最后一个句柄销毁时，pin 不再能阻止物理页回收。
             frame.unpin();
-            frame.clear_refs();
         }
         let _ = capacity.free(&mut frame);
     }

@@ -1,6 +1,7 @@
 //! 任务生命周期与调度。
 
 use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, DEFAULT_SPEC};
+use hk_mem::hmp::{Capability, CapabilityKind, Region};
 
 use super::*;
 
@@ -235,6 +236,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let capture = self.capture_checkpoint(name)?;
         let mut context = alloc::vec![0_u8; C::SAVED_BYTES];
         capture.context.save(&mut context);
+        let threads: Vec<hk_checkpoint::ThreadSnapshot> = capture
+            .threads
+            .iter()
+            .map(|(thread, tls)| {
+                let mut bytes = alloc::vec![0_u8; C::SAVED_BYTES];
+                thread.save(&mut bytes);
+                hk_checkpoint::ThreadSnapshot {
+                    context: bytes,
+                    tls: *tls,
+                }
+            })
+            .collect();
         let image = hk_checkpoint::encode_parts(
             capture.slot as u32,
             name,
@@ -244,6 +257,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             capture.cadence,
             capture.meter,
             &capture.pages,
+            &threads,
+            &capture.regions,
         );
         let size = image.len();
         self.commit_checkpoint(name, capture, image)?;
@@ -268,21 +283,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Err(String::from("任务正在 CPU 上执行"));
         }
         let task = &self.tasks[index];
+        // 设备授权与 DMA 窗口不进入快照；类型化能力按 Region 元数据恢复为
+        // 惰性能力，因此不再阻止检查点。
         if self.process(index).device_factory.is_some()
-            || task.capabilities.iter().flatten().next().is_some()
             || task.grants.iter().flatten().next().is_some()
         {
-            return Err(String::from("任务持有设备或共享能力"));
-        }
-        if let Some((_, entry)) = self
-            .tasks
-            .iter()
-            .enumerate()
-            .find(|(other, entry)| *other != index && !entry.exited && entry.leader == index)
-        {
-            let mut message = String::from("任务仍有线程：");
-            message.push_str(&entry.name);
-            return Err(message);
+            return Err(String::from("任务持有设备或 DMA 窗口"));
         }
         let context = task.context;
         let parent = task.parent;
@@ -299,6 +305,29 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .platform
             .capture_pages(index)
             .ok_or_else(|| String::from("无法捕获地址空间"))?;
+        // 同一进程的附加线程按槽位顺序保存现场与 TLS。
+        let threads: Vec<(C, u64)> = self
+            .tasks
+            .iter()
+            .enumerate()
+            .filter(|(other, entry)| *other != index && !entry.exited && entry.leader == index)
+            .map(|(_, entry)| (entry.context, entry.tls))
+            .collect();
+        let mut regions = Vec::new();
+        for region in self.process(index).regions.iter().flatten() {
+            let Ok((capability, _)) = self.kernel.capability(region.owner, region.capability)
+            else {
+                return Err(String::from("无法读取 Region 能力"));
+            };
+            regions.push(hk_checkpoint::RegionSnapshot {
+                virt: region.virt,
+                len: region.len as u64,
+                rights: region.rights.bits(),
+                flags: region.flags.bits(),
+                kind: capability.kind() as u8,
+                capability_size: capability.size(),
+            });
+        }
         Ok(CheckpointCapture {
             slot: index,
             context,
@@ -307,6 +336,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             cadence,
             meter,
             pages,
+            threads,
+            regions,
         })
     }
 
@@ -354,6 +385,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             snapshot.cadence,
             snapshot.meter,
             &snapshot.pages,
+            &snapshot.threads,
+            &snapshot.regions,
         );
         if result.is_err() {
             self.checkpoints.push((saved, checkpoint));
@@ -373,6 +406,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         cadence: hk_cadence::CadenceSnapshot,
         meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
+        threads: &[hk_checkpoint::ThreadSnapshot],
+        regions: &[hk_checkpoint::RegionSnapshot],
     ) -> Result<usize, String> {
         if self
             .current
@@ -398,7 +433,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Err(String::from("无法重建地址空间"));
         }
 
-        let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
         let mut restored = Cadence::restore(
             CadenceId::new(cadence.id),
@@ -475,25 +509,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
         let base = self.average_virtual_pass(restored.class());
-        let tcb = kernel
-            .spawn_task_with_cadence(HandleTable::with_default_quota(), restored)
+        // 恢复内核父链：快照记录的是父任务 TCB 编号。
+        let parent_task = parent.and_then(|number| self.kernel.task_of(TcbId::new(number)));
+        let tcb = self
+            .kernel
+            .spawn_task_with_cadence_and_parent(
+                HandleTable::with_default_quota(),
+                restored,
+                parent_task,
+            )
             .map_err(|error| format!("{error}"))?;
-        if let Some(task) = kernel.task_of(tcb) {
+        if let Some(task) = self.kernel.task_of(tcb) {
             let mut meter = meter;
             meter.virtual_pass = base;
-            let _ = kernel.restore_meter(task, meter);
-            kernel.reset_budget_period(task, self.contract_now());
+            let _ = self.kernel.restore_meter(task, meter);
+            self.kernel.reset_budget_period(task, self.contract_now());
         }
-        let own = kernel
+        let own = self
+            .kernel
             .create_endpoint(tcb, rights)
             .map_err(|error| format!("{error}"))?;
-        let own_id = kernel
+        let own_id = self
+            .kernel
             .handle_id(tcb, own)
             .map_err(|error| format!("{error}"))?;
-        let own_notification = kernel
+        let own_notification = self
+            .kernel
             .create_notification(tcb, rights)
             .map_err(|error| format!("{error}"))?;
-        let own_notification_id = kernel
+        let own_notification_id = self
+            .kernel
             .handle_id(tcb, own_notification)
             .map_err(|error| format!("{error}"))?;
         self.endpoints[slot] = Some(own_id);
@@ -523,10 +568,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             capacity_handle,
         );
         process.set_arena_used(arena_used);
-        process
-            .ledger
-            .charge(arena_used)
-            .map_err(|error| format!("{error}"))?;
         let mut task = UserTask::new(TaskInit {
             tcb,
             process: slot,
@@ -540,21 +581,119 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         task.capacities.push(Some(capacity_handle));
         self.processes[slot] = Some(process);
         self.tasks[slot] = task;
-        if arena_used > 0 {
-            let len = usize::try_from(arena_used).map_err(|_| String::from("Arena 快照过大"))?;
-            self.register_user_regions(
-                slot,
-                &[UserRegionSpec {
-                    virt: arena_base,
-                    len,
-                    writable: true,
-                    executable: false,
-                }],
-            )
-            .map_err(|error| format!("{error}"))?;
+        // 按 Region 元数据重建能力、映射描述与记账；页表已由 `restore_pages`
+        // 还原，这里不再次安装 PTE。
+        for descriptor in regions {
+            self.restore_region(slot, *descriptor)
+                .map_err(|error| format!("{error}"))?;
+        }
+        let mut restored_threads = Vec::new();
+        for (offset, thread) in threads.iter().enumerate() {
+            let Some(context) = C::load(&thread.context) else {
+                self.abort_restore(slot, tcb, &restored_threads);
+                return Err(String::from("线程现场损坏"));
+            };
+            let child = match self.kernel.spawn_thread_parked(
+                self.kernel
+                    .task_of(tcb)
+                    .ok_or_else(|| String::from("缺少 Task"))?,
+                HandleTable::with_default_quota(),
+            ) {
+                Ok(child) => child,
+                Err(error) => {
+                    self.abort_restore(slot, tcb, &restored_threads);
+                    return Err(format!("{error}"));
+                }
+            };
+            restored_threads.push(child);
+            let child_index = self.tasks.len();
+            self.endpoints.push(None);
+            self.notifications.push(None);
+            let (handles, notifications) = self.endpoint_views(child, child_index, None, None);
+            self.append_empty_endpoint();
+            let mut entry = UserTask::new(TaskInit {
+                tcb: child,
+                process: slot,
+                name: format!("{name}-thread{}", offset + 1),
+                parent: Some(tcb.get()),
+                handles,
+                notifications,
+                context,
+            });
+            entry.leader = slot;
+            entry.tls = thread.tls;
+            self.tasks.push(entry);
+            self.processes.push(None);
+            let _ = self.kernel.activate(child);
         }
         let _ = self.kernel.activate(tcb);
         Ok(slot)
+    }
+
+    /// 按 Region 元数据恢复一个映射视图。
+    fn restore_region(
+        &mut self,
+        index: usize,
+        descriptor: hk_checkpoint::RegionSnapshot,
+    ) -> Result<(), KernelError> {
+        let tcb = self.tasks[index].tcb;
+        let kind = CapabilityKind::from_u8(descriptor.kind)
+            .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::WrongCapability))?;
+        let rights = Rights::from_bits_truncate(descriptor.rights);
+        let flags = hk_mem::hmp::RegionFlags::from_bits_truncate(descriptor.flags);
+        let len = usize::try_from(descriptor.len)
+            .map_err(|_| KernelError::Hmp(hk_mem::hmp::HmpError::InvalidSize))?;
+        let capability = Capability::new(kind, descriptor.capability_size, hk_hal::PAGE_SIZE, None)
+            .map_err(KernelError::Hmp)?;
+        let capability_handle = self.kernel.create_capability(
+            tcb,
+            capability.clone(),
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )?;
+        let mut region =
+            Region::new(&capability, 0, len, rights, flags).map_err(KernelError::Hmp)?;
+        if region.map(VirtAddr::new(descriptor.virt)).is_err() {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(hk_mem::hmp::HmpError::AlreadyMapped));
+        }
+        let region_id = region.id();
+        if self.process_mut(index).hmp_arena.insert(&region).is_err() {
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            return Err(KernelError::Hmp(hk_mem::hmp::HmpError::AlreadyMapped));
+        }
+        let region_handle =
+            self.kernel
+                .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)?;
+        let charge = self
+            .process_mut(index)
+            .ledger
+            .charge(descriptor.len)
+            .map_err(KernelError::Hmp)?;
+        self.install_region(
+            index,
+            region_handle,
+            capability_handle,
+            region_id,
+            true,
+            descriptor.virt,
+            len,
+            0,
+            rights,
+            flags,
+            Some(charge),
+        );
+        Ok(())
+    }
+
+    /// 恢复失败时退出已创建的 TCB，避免留下半初始化任务。
+    fn abort_restore(&mut self, slot: usize, tcb: TcbId, threads: &[TcbId]) {
+        for thread in threads {
+            let _ = self.kernel.exit(*thread);
+        }
+        let _ = self.kernel.exit(tcb);
+        self.tasks[slot].exited = true;
+        self.tasks[slot].exit_code = u64::MAX;
     }
 
     /// 从序列化镜像重建任务；返回任务名与槽位。
@@ -574,6 +713,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             snapshot.cadence,
             snapshot.meter,
             &snapshot.pages,
+            &snapshot.threads,
+            &snapshot.regions,
         )?;
         Ok((snapshot.name, slot))
     }

@@ -10,7 +10,7 @@ use hk_mem::hmp::{
 };
 
 use crate::{Kernel, TcbId, ThreadState, TraceCategory};
-use hk_cadence::{CadenceClass, CadenceSpec, DEFAULT_SPEC, millis};
+use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, DEFAULT_SPEC, millis};
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -112,7 +112,6 @@ fn allocates_splits_and_frees_capacity_frames() {
     assert_eq!(refs, 1);
     assert!(!pinned);
     assert_eq!(kernel.frame_resident(worker, frame), Ok(PAGE_SIZE as u64));
-    assert_eq!(kernel.share_frame(worker, frame), Ok(2));
     assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
     assert_eq!(
         kernel.free_frame(worker, capacity, frame).err(),
@@ -121,7 +120,6 @@ fn allocates_splits_and_frees_capacity_frames() {
         ))
     );
     assert_eq!(kernel.pin_frame(worker, frame, false), Ok(()));
-    assert_eq!(kernel.release_frame(worker, frame), Ok(1));
     assert_eq!(kernel.free_frame(worker, capacity, frame), Ok(()));
     assert_eq!(kernel.frame_resident(worker, frame), Ok(0));
     assert!(matches!(
@@ -142,7 +140,7 @@ fn allocates_splits_and_frees_capacity_frames() {
 }
 
 #[test]
-fn pinned_release_is_refused_without_losing_frame() {
+fn pinned_frame_is_not_returned_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
@@ -162,17 +160,18 @@ fn pinned_release_is_refused_without_losing_frame() {
         .expect("分配 Frame");
     kernel.pin_frame(worker, frame, true).expect("pin");
     assert_eq!(
-        kernel.release_frame(worker, frame).err(),
+        kernel.free_frame(worker, capacity, frame).err(),
         Some(crate::KernelError::Hmp(
             hk_mem::hmp::HmpError::PermissionDenied
-        ))
+        )),
+        "固定驻留的 Frame 不能被归还"
     );
     let (_, _, _, refs, pinned) = kernel.frame_info(worker, frame).expect("Frame 仍在");
-    assert_eq!(refs, 1, "拒绝释放不能消耗引用计数");
+    assert_eq!(refs, 1, "拒绝归还不能改变句柄数");
     assert!(pinned);
 
     kernel.pin_frame(worker, frame, false).expect("unpin");
-    assert_eq!(kernel.release_frame(worker, frame), Ok(0));
+    kernel.free_frame(worker, capacity, frame).expect("归还");
     assert_eq!(
         kernel.capacity_info(worker, capacity).expect("Capacity").4,
         0,
@@ -421,7 +420,7 @@ fn capability_ledger_tracks_lazy_pages() {
 }
 
 #[test]
-fn releasing_last_reference_returns_frame_to_capacity() {
+fn last_handle_returns_frame_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
@@ -440,40 +439,38 @@ fn releasing_last_reference_returns_frame_to_capacity() {
         .allocate_frame(worker, capacity, PAGE_SIZE)
         .expect("分配 Frame");
 
-    assert_eq!(kernel.share_frame(worker, frame), Ok(2));
-    assert_eq!(kernel.release_frame(worker, frame), Ok(1));
+    let copy = kernel
+        .duplicate_handle(worker, frame, rights)
+        .expect("复制句柄");
     assert_eq!(
         kernel
             .capacity_info(worker, capacity)
             .expect("Capacity 信息")
             .4,
         PAGE_SIZE as u64,
-        "仍有引用时不归还"
+        "仍有句柄时不归还"
+    );
+    kernel.close_handle(worker, copy).expect("关闭副本");
+    assert_eq!(
+        kernel.frame_info(worker, frame).expect("Frame 信息").3,
+        1,
+        "帧引用就是句柄数"
     );
 
-    assert_eq!(kernel.release_frame(worker, frame), Ok(0));
+    kernel.free_frame(worker, capacity, frame).expect("归还");
     assert_eq!(
         kernel
             .capacity_info(worker, capacity)
             .expect("Capacity 信息")
             .4,
         0,
-        "最后一个引用归还 Capacity"
+        "最后一个句柄归还 Capacity"
     );
     assert!(matches!(
         kernel.frame_info(worker, frame),
         Err(crate::KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped))
     ));
-
-    // 句柄保留但负载已空；关闭它不会再次归还。
     kernel.close_handle(worker, frame).expect("关闭 Frame");
-    assert_eq!(
-        kernel
-            .capacity_info(worker, capacity)
-            .expect("Capacity 信息")
-            .4,
-        0
-    );
 }
 
 #[test]
@@ -494,9 +491,13 @@ fn tracks_frame_refs() {
         .create_frame(worker, frame, rights)
         .expect("创建 Frame");
 
-    assert_eq!(kernel.frame_refs(worker, frame), Ok(1));
-    assert_eq!(kernel.share_frame(worker, frame), Ok(2));
-    assert_eq!(kernel.pin_frame(worker, frame, true), Ok(()));
+    assert_eq!(kernel.frame_info(worker, frame).expect("Frame 信息").3, 1);
+    let copy = kernel
+        .duplicate_handle(worker, frame, rights)
+        .expect("复制句柄");
+    assert_eq!(kernel.frame_info(worker, frame).expect("Frame 信息").3, 2);
+    kernel.close_handle(worker, copy).expect("关闭副本");
+    kernel.pin_frame(worker, frame, true).expect("pin");
     assert!(kernel.frame_range(worker, frame).is_ok());
 }
 
@@ -1514,6 +1515,31 @@ fn attaches_and_regrants_named_cadence() {
         .set_policy_authority(task, true)
         .expect("授予策略权限");
     assert!(kernel.is_policy_authority(thread));
+}
+
+#[test]
+fn spawned_task_with_parent_promotes_when_parent_exits() {
+    let kernel = kernel();
+    let parent_thread = thread(&kernel);
+    let parent = kernel.task_of(parent_thread).expect("父 Task");
+    let child = kernel
+        .spawn_task_with_cadence_and_parent(
+            HandleTable::new(8),
+            Cadence::from_spec(CadenceId::next(), DEFAULT_SPEC).expect("契约"),
+            Some(parent),
+        )
+        .expect("子 Task");
+    let child_task = kernel.task_of(child).expect("子 Task 存在");
+    assert_eq!(
+        kernel.task(child_task).expect("Task").lock().parent(),
+        Some(parent)
+    );
+    kernel.exit(parent_thread).expect("父 Task 退出");
+    assert_eq!(
+        kernel.task(child_task).expect("Task").lock().parent(),
+        None,
+        "父退出后应提升为独立契约"
+    );
 }
 
 #[test]

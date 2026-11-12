@@ -256,10 +256,11 @@ Meter 字段：
 
 快照包含：
 
-- Task 身份、父子关系与 TCB 列表；
+- Task 身份、父子关系与 TCB 列表；主线程与附加线程的现场、TLS 基址按槽位顺序保存；
 - Cadence 的类别、权重、预算、周期、截止期、延迟目标、亲和性、lending 策略与父契约身份；
 - Meter 水位与 `virtual_pass`；
-- TCB 现场与阻塞原因。
+- Region 元数据（虚拟地址、长度、权利、标志、能力种类与总长度）；
+- 用户页内容。
 
 恢复流程：
 
@@ -319,7 +320,7 @@ Meter 字段：
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 已实现 | 硬亲和（无在线可用 CPU 时不入队）、亲和变更重挂、按权重+可运行数压力选核、缓存热度容差、仅 migratable 参与窃取；迁移计数与 `weight × (heat + MIGRATION_BASE_COST)` 成本写入 Meter，`migrate` 进入 trace |
 | Lending | 已实现 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片与超限判定；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
-| Checkpoint | 已实现 | Cadence/Meter 水位已保存并回填；恢复重建 Cadence id/parent/epoch，父契约缺失时提升为独立契约；Realtime 契约经 DBF 准入，失败时回退父契约、父契约缺失回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter/TCB 一致 |
+| Checkpoint | 已实现 | 主线程与附加线程现场、Region 元数据、Cadence/Meter 水位已保存并回填；恢复重建内核父链与 Cadence id/parent/epoch，父契约缺失时提升为独立契约；Realtime 契约经 DBF 准入，失败时回退父契约、父契约缺失回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter/TCB 一致 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |
 | `hk-sim` | 已实现 | 多 CPU 虚拟时钟、量子计费与确定性重放覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；`RunReport.max_wait` 提供有界唤醒响应分析，随机负载同种子产生相同调度序列 |

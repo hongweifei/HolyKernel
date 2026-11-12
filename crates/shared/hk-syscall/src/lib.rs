@@ -277,17 +277,11 @@ pub const SYS_CAPACITY_ALLOC: u64 = 0x93;
 /// 把 Frame 归还给 Capacity。
 pub const SYS_CAPACITY_FREE: u64 = 0x94;
 
-/// 查询 Frame 的物理区间、页大小、所属 Capacity、引用数与固定状态。
+/// 查询 Frame 的物理区间、页大小、所属 Capacity、句柄数与固定状态。
 pub const SYS_FRAME_INFO: u64 = 0x95;
 
 /// 固定或解除固定 Frame。
 pub const SYS_FRAME_PIN: u64 = 0x96;
-
-/// 增加 Frame 共享引用。
-pub const SYS_FRAME_SHARE: u64 = 0x97;
-
-/// 释放一次 Frame 共享引用。
-pub const SYS_FRAME_RELEASE: u64 = 0x98;
 
 /// 把 Frame 映射进当前任务地址空间。
 pub const SYS_FRAME_MAP: u64 = 0x9A;
@@ -729,8 +723,6 @@ mod tests {
             SYS_CAPACITY_FREE,
             SYS_FRAME_INFO,
             SYS_FRAME_PIN,
-            SYS_FRAME_SHARE,
-            SYS_FRAME_RELEASE,
             SYS_FRAME_MAP,
             SYS_DMA_MAP,
             SYS_FRAME_BANK_STATS,

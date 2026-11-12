@@ -6,9 +6,9 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_RELEASE, SYS_FRAME_SHARE, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_LEDGER,
+    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
@@ -290,7 +290,7 @@ pub struct FrameInfo {
     pub page_size: u64,
     /// 所属 Capacity 标识。
     pub capacity: u64,
-    /// 共享引用数。
+    /// 指向该 Frame 的句柄数。
     pub refs: u64,
     /// 是否固定驻留。
     pub pinned: bool,
@@ -327,20 +327,6 @@ pub fn frame_info(frame: u64) -> Option<FrameInfo> {
 pub fn frame_pin(frame: u64, pinned: bool) -> u64 {
     // SAFETY: 内核校验 Frame 与驻留状态。
     unsafe { syscall_call(SYS_FRAME_PIN, frame, u64::from(pinned), 0, 0).value }
-}
-
-/// 增加 Frame 共享引用。
-pub fn frame_share(frame: u64) -> Option<u64> {
-    // SAFETY: 内核校验 Frame 后增加引用。
-    let refs = unsafe { syscall_call(SYS_FRAME_SHARE, frame, 0, 0, 0).value };
-    (refs != u64::MAX).then_some(refs)
-}
-
-/// 释放一次 Frame 共享引用。
-pub fn frame_release(frame: u64) -> Option<u64> {
-    // SAFETY: 内核校验 Frame 后释放引用。
-    let refs = unsafe { syscall_call(SYS_FRAME_RELEASE, frame, 0, 0, 0).value };
-    (refs != u64::MAX).then_some(refs)
 }
 
 /// 把 Frame 映射进当前任务，返回 Region 句柄。

@@ -108,7 +108,7 @@ pub struct ServiceManifest {
 - `MEMORY_ALLOC` 按能力类型分配并返回 Capability；匿名能力绑定自身为 Provider。
 - `MEMORY_FRAME` 从授予的 User Capacity 分配 Frame 并转移句柄；客户端用 `SYS_FRAME_MAP` 映射，解除 Region 时自动归还 Capacity。
 - 缺页请求 `PROVIDER_FAULT` 通过 `SYS_CAPACITY_ALLOC` 分配 Frame，`PROVIDER_PROVIDE` 返回 Frame 句柄；内核取得归属并装入能力页，回收时归还 Capacity。
-- 启动自检覆盖 `CAPACITY_INFO`、`CAPACITY_ALLOC`、`FRAME_INFO`、`FRAME_PIN`、`FRAME_SHARE`、`FRAME_RELEASE` 与 `CAPACITY_FREE`。
+- 启动自检覆盖 `CAPACITY_INFO`、`CAPACITY_ALLOC`、`FRAME_INFO`、`FRAME_PIN` 与 `CAPACITY_FREE`。
 - 内存授权由 Handle 与 Rights 决定；任何持有 Capacity/Capability 的服务使用同一组 HMP 对象操作。
 
 ---

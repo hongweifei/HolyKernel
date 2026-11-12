@@ -324,9 +324,6 @@ impl Capacity {
         if inner.is_pinned() {
             return Err(HmpError::PermissionDenied);
         }
-        if inner.refs() > 1 {
-            return Err(HmpError::PermissionDenied);
-        }
         let (phys, len) = (inner.phys(), inner.len());
         self.release(phys, len)?;
         frame.take();
@@ -620,28 +617,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_shared_frame_until_last_reference() {
+    fn frees_frame_once_and_reuses_the_range() {
         let mut capacity = capacity();
-        let mut frame = capacity.allocate(4096).expect("页");
-        assert_eq!(frame.share(), Ok(2));
-        let mut slot = Some(frame);
-        assert_eq!(
-            capacity.free(&mut slot).err(),
-            Some(HmpError::PermissionDenied)
-        );
-        assert!(slot.is_some(), "共享 Frame 不能丢失");
-    }
-
-    #[test]
-    fn frees_frame_after_last_reference_released() {
-        let mut capacity = capacity();
-        let mut frame = capacity.allocate(4096).expect("页");
-        assert_eq!(frame.share(), Ok(2));
-        assert_eq!(frame.release(), 1);
-        assert_eq!(frame.release(), 0);
-
+        let frame = capacity.allocate(4096).expect("页");
         let mut frame = Some(frame);
-        capacity.free(&mut frame).expect("归零后可归还");
+        capacity.free(&mut frame).expect("归还");
         assert!(frame.is_none());
         assert_eq!(capacity.used(), 0);
         let reused = capacity.allocate(4096).expect("复用");

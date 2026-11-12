@@ -223,40 +223,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn frame_share(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let number = frame.arg0() as usize;
-        let Some(handle) = self.handle_at(index, number) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        match self.kernel.share_frame(tcb, handle) {
-            Ok(refs) => frame.set_result(refs as u64),
-            Err(_) => frame.set_result(u64::MAX),
-        }
-        Switch::Continue
-    }
-
-    pub(crate) fn frame_release(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        let number = frame.arg0() as usize;
-        let Some(handle) = self.handle_at(index, number) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        match self.kernel.release_frame(tcb, handle) {
-            Ok(refs) => {
-                if refs == 0
-                    && self.kernel.frame_info(tcb, handle).is_err()
-                    && let Some(charge) = self.take_frame_charge(index, number)
-                {
-                    let _ = self.process_mut(index).ledger.release(charge);
-                }
-                frame.set_result(refs as u64);
-            }
-            Err(_) => frame.set_result(u64::MAX),
-        }
-        Switch::Continue
-    }
-
     pub(crate) fn frame_map(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let packed = frame.arg1();

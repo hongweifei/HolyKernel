@@ -282,13 +282,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         cadence: hk_cadence::CadenceSnapshot,
         meter: hk_cadence::MeterSnapshot,
         pages: &[Page],
+        threads: &[hk_checkpoint::ThreadSnapshot],
+        regions: &[hk_checkpoint::RegionSnapshot],
     ) -> Result<usize, String> {
         self.runtime
             .lock()
             .as_mut()
             .ok_or_else(|| String::from("运行时未初始化"))?
             .restore_parts(
-                name, slot, context, parent, arena_used, cadence, meter, pages,
+                name, slot, context, parent, arena_used, cadence, meter, pages, threads, regions,
             )
     }
 

@@ -19,7 +19,37 @@ struct MockContext {
 }
 
 impl UserContext for MockContext {
+    const SAVED_BYTES: usize = 7 * 8;
+
     fn resume(&self) {}
+
+    fn save(&self, out: &mut [u8]) {
+        let fields = [
+            self.rax, self.rdi, self.rsi, self.rdx, self.rcx, self.r8, self.r10,
+        ];
+        for (index, field) in fields.iter().enumerate() {
+            out[index * 8..index * 8 + 8].copy_from_slice(&field.to_le_bytes());
+        }
+    }
+
+    fn load(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < 7 * 8 {
+            return None;
+        }
+        let mut fields = [0_u64; 7];
+        for (index, field) in fields.iter_mut().enumerate() {
+            *field = u64::from_le_bytes(bytes[index * 8..index * 8 + 8].try_into().ok()?);
+        }
+        Some(Self {
+            rax: fields[0],
+            rdi: fields[1],
+            rsi: fields[2],
+            rdx: fields[3],
+            rcx: fields[4],
+            r8: fields[5],
+            r10: fields[6],
+        })
+    }
 
     fn set_start_argument(&mut self, argument: u64) {
         self.rdi = argument;
@@ -384,6 +414,69 @@ fn checkpoint_restore_preserves_cadence_and_meter() {
     assert_eq!(after_meter.overruns, before_meter.overruns);
     assert_eq!(after_meter.migrations, before_meter.migrations);
     assert_eq!(after_meter.migration_cost, before_meter.migration_cost);
+}
+
+#[test]
+fn checkpoint_restores_threads_and_regions() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_THREAD_CREATE;
+    context.rdi = 0x4000;
+    context.rsi = 0x8000;
+    context.rdx = 0;
+    context.r10 = 0x7000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let thread = context.rax;
+    assert_ne!(thread, u64::MAX);
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region_handle = context.rax;
+    assert_ne!(region_handle, u64::MAX);
+    let before = runtime
+        .process(index)
+        .regions
+        .iter()
+        .flatten()
+        .find(|region| region.len == 0x2000)
+        .expect("已登记 Region");
+    let (virt, len, rights) = (before.virt, before.len, before.rights);
+    let _ = runtime.finish(0, index);
+
+    runtime.checkpoint("a").expect("保存检查点");
+    let slot = runtime.restore_checkpoint("a").expect("恢复检查点");
+    assert_eq!(slot, index);
+
+    let restored: Vec<_> = runtime
+        .tasks()
+        .into_iter()
+        .filter(|task| task.state != "exited" && task.name.starts_with('a'))
+        .collect();
+    assert_eq!(restored.len(), 2, "主线程与附加线程都应恢复");
+
+    let region = runtime
+        .process(slot)
+        .regions
+        .iter()
+        .flatten()
+        .find(|region| region.virt == virt)
+        .expect("恢复 Region");
+    assert_eq!(region.len, len);
+    assert_eq!(region.rights, rights);
 }
 
 #[test]
@@ -1452,10 +1545,6 @@ fn capacity_frame_lifecycle() {
         "Frame 分配必须计入任务 Ledger"
     );
 
-    context.rax = hk_syscall::SYS_FRAME_SHARE;
-    context.rdi = frame;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 2);
     context.rax = hk_syscall::SYS_FRAME_PIN;
     context.rdi = frame;
     context.rsi = 1;
@@ -1465,9 +1554,6 @@ fn capacity_frame_lifecycle() {
     context.rsi = 0;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0);
-    context.rax = hk_syscall::SYS_FRAME_RELEASE;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 1);
 
     context.rax = hk_syscall::SYS_CAPACITY_FREE;
     context.rdi = capacity_number;

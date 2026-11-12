@@ -327,8 +327,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPACITY_WINDOWS => self.capacity_windows(index, frame),
             SYS_FRAME_INFO => self.frame_info(index, frame),
             SYS_FRAME_PIN => self.frame_pin(index, tcb, frame),
-            SYS_FRAME_SHARE => self.frame_share(index, tcb, frame),
-            SYS_FRAME_RELEASE => self.frame_release(index, tcb, frame),
             SYS_FRAME_MAP => self.frame_map(index, tcb, frame),
             SYS_FRAME_BANK_STATS => self.frame_bank_stats(frame),
             SYS_LEDGER_ENUM => self.ledger_enum(frame),
