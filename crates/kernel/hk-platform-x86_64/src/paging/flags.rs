@@ -15,8 +15,6 @@ pub(crate) const USER: u64 = PTF::USER_ACCESSIBLE.bits();
 pub(crate) const PWT: u64 = PTF::WRITE_THROUGH.bits();
 pub(crate) const PCD: u64 = PTF::NO_CACHE.bits();
 pub(crate) const HUGE: u64 = PTF::HUGE_PAGE.bits();
-/// 写时复制标记：x86_64 的软件可用位 9，硬件忽略。
-pub(crate) const COW: u64 = 1 << 9;
 pub(crate) const NX: u64 = PTF::NO_EXECUTE.bits();
 pub(crate) const FLAGS_MASK: u64 = 0xFFF | NX;
 
@@ -88,11 +86,11 @@ impl PageFlags {
     }
 }
 
-/// 把快照属性转换为恢复用属性：清除共享/COW 与大页位，共享页恢复为可写私有页。
+/// 把快照属性转换为恢复用属性：清除共享标记与大页位，共享页恢复为可写私有页。
 pub const fn restore_flags(bits: u64) -> PageFlags {
-    let shared = bits & (COW | hk_checkpoint::PAGE_FLAG_SHARED) != 0;
+    let shared = bits & hk_checkpoint::PAGE_FLAG_SHARED != 0;
     let writable = if shared { WRITABLE } else { bits & WRITABLE };
-    PageFlags((bits & !COW & !HUGE & !hk_checkpoint::PAGE_FLAG_SHARED) | writable | USER)
+    PageFlags((bits & !HUGE & !hk_checkpoint::PAGE_FLAG_SHARED) | writable | USER)
 }
 
 #[cfg(test)]
@@ -118,7 +116,6 @@ mod tests {
     fn cow_regions_map_read_only_without_architecture_marker() {
         let cow = PageFlags::user(Rights::READ | Rights::WRITE, RegionFlags::COW);
         assert_eq!(cow.raw() & WRITABLE, 0);
-        assert_eq!(cow.raw() & COW, 0);
         assert_eq!(cow.raw() & USER, USER);
     }
 

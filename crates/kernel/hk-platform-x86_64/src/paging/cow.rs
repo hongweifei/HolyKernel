@@ -151,7 +151,6 @@ impl PageTable {
                     // 父页表保持原映射与权限。
                     let child_frame =
                         self.copy_private_page(frame, state.capacity, &mut state.copied)?;
-                    flags &= !super::flags::COW;
                     // SAFETY: 子页表叶项指向新分配的私有页帧。
                     unsafe {
                         self.entry(target, index)
@@ -174,8 +173,6 @@ impl PageTable {
                     }
                     flags &= !WRITABLE;
                 }
-                // 清掉旧快照可能留下的软件 COW 位。
-                flags &= !super::flags::COW;
                 // SAFETY: 父页表叶项经 HHDM 可写，保持不变共享页帧。
                 unsafe {
                     self.entry(source, index).write_volatile(physical | flags);
@@ -191,7 +188,7 @@ impl PageTable {
                 // SAFETY: 子中间级项指向新页表，并保留原有权限位。
                 unsafe {
                     self.entry(target, index)
-                        .write_volatile(child.get() | (flags & !super::flags::COW));
+                        .write_volatile(child.get() | flags);
                 }
             }
         }
@@ -254,7 +251,7 @@ impl PageTable {
         }
 
         let physical = PhysAddr::new(value & ADDRESS_MASK);
-        let flags = value & !ADDRESS_MASK & !super::flags::COW;
+        let flags = value & !ADDRESS_MASK;
         let mut refs = super::frame_refs().lock();
         let count = refs.count(physical);
         if count == 0 {
