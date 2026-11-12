@@ -1,7 +1,7 @@
 //! 挂载、路径投影与文件句柄。
 //!
 //! 后端契约是 `hk_fs::Backend`（DocId/集合/修订）；路径与偏移只作为
-//! 兼容投影存在，供旧客户端与 POSIX 层使用。
+//! POSIX/Linux/Harmony 兼容投影层存在，供路径客户端与兼容层使用。
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;

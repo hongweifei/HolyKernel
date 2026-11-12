@@ -2,7 +2,7 @@
 
 状态：**现行** · 上级：[总体架构](architecture.md) · 关联：[服务器](servers.md)、[HolyFS](holyfs.md)、[POSIX 与 libc](posix.md)
 
-HolyKernel 把文件访问拆成两个用户态服务：**VFS Server** 维护 Holy 原生命名空间与文件系统后端，**Path Server** 维护路径、fd、dentry 与页缓存，并把盘符投影为 POSIX 风格路径。
+HolyKernel 把文件访问拆成两个用户态服务：**VFS Server** 维护 Holy 原生命名空间与文件系统后端，**Path Server** 维护路径、fd、dentry 与页缓存，并把盘符投影为 POSIX/Linux/Harmony 兼容路径。
 
 ---
 
