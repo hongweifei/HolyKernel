@@ -11,6 +11,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        // Region 句柄不参与复制与转移：它属于创建它的任务，语义由
+        // `SYS_REGION_*` 按运行时槽位使用。
+        if self.kernel.handle_kind(tcb, handle) == Some(hk_handle::ObjectKind::Region) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let rights = Rights::from_bits_truncate(frame.arg1() as u32);
         match self.kernel.duplicate_handle(tcb, handle, rights) {
             Ok(copy) => {

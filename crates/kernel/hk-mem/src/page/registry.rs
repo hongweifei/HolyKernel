@@ -15,7 +15,8 @@ pub trait UserAddressSpace: Sized {
     fn root(&self) -> u64;
     /// 复制为子地址空间；`cow_ranges` 指定需要标 COW 的虚拟区间，
     /// 其余可写页必须复制为私有页。
-    fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<Self>;
+    /// 复制为写时复制副本；返回副本与为子地址空间复制私有页的字节数。
+    fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)>;
     /// 返回同一地址空间的共享句柄；不支持时返回 `None`。
     fn share_user(&self) -> Option<Self> {
         None
@@ -205,16 +206,11 @@ impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
     /// 把父任务地址空间分叉为子任务副本。
     ///
     /// `cow_ranges` 来自父任务的 Region 表；范围外的可写页由机制层私有复制。
-    pub fn fork(&self, parent: usize, child: usize, cow_ranges: &[(u64, u64)]) -> bool {
+    pub fn fork(&self, parent: usize, child: usize, cow_ranges: &[(u64, u64)]) -> Option<u64> {
         let mut tables = self.tables.lock();
-        let child_table = {
-            let Some(table) = tables.get(parent).and_then(Option::as_ref) else {
-                return false;
-            };
-            let Some(table) = table.fork_user(cow_ranges) else {
-                return false;
-            };
-            table
+        let (child_table, copied) = {
+            let table = tables.get(parent).and_then(Option::as_ref)?;
+            table.fork_user(cow_ranges)?
         };
 
         if tables.len() <= child {
@@ -232,7 +228,7 @@ impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
             release_root(&mut roots, old_root);
         }
         acquire_root(&mut roots, root);
-        true
+        Some(copied)
     }
 }
 
@@ -255,8 +251,8 @@ mod tests {
             self.0
         }
 
-        fn fork_user(&self, _cow_ranges: &[(u64, u64)]) -> Option<Self> {
-            Some(Self(self.0 + 1))
+        fn fork_user(&self, _cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)> {
+            Some((Self(self.0 + 1), 0))
         }
 
         fn share_user(&self) -> Option<Self> {
@@ -280,8 +276,8 @@ mod tests {
         assert_eq!(registry.root(1), 0x1000);
         assert_eq!(registry.root(2), 0);
 
-        assert!(registry.fork(1, 2, &[]));
+        assert!(registry.fork(1, 2, &[]).is_some());
         assert_eq!(registry.root(2), 0x1001);
-        assert!(!registry.fork(3, 4, &[]));
+        assert!(registry.fork(3, 4, &[]).is_none());
     }
 }

@@ -604,10 +604,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             })
             .map(|region| (region.virt, region.len as u64))
             .collect();
-        if !self.platform.fork(index, child_index, &cow_ranges) {
+        let Some(copied) = self.platform.fork(index, child_index, &cow_ranges) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
-        }
+        };
 
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
@@ -676,7 +676,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let mut process = Process::new(arena_base, arena_size, ledger_limit, child_capacity);
         process.set_arena_used(arena_used);
-        process.cow_pages = self.process(index).cow_pages.clone();
+        // 子进程继承父进程的私有页视图，但不继承记账与所有权：物理页仍由
+        // 父进程持有，子进程写入时再复制自己的页。
+        process.cow_pages = self
+            .process(index)
+            .cow_pages
+            .iter()
+            .map(|(key, page)| {
+                (
+                    *key,
+                    crate::runtime::CowPage {
+                        range: page.range,
+                        charge: None,
+                        backing: None,
+                    },
+                )
+            })
+            .collect();
+        if copied > 0 {
+            let Ok(charge) = process.ledger.charge(copied) else {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            };
+            process.cow_charge = Some(charge);
+        }
         let mut task = UserTask::new(TaskInit {
             tcb: child,
             process: child_index,
@@ -1265,6 +1288,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 page,
                 rights,
                 flags,
+                private,
             } => {
                 let caller = self.tasks[index].tcb;
                 let owner = self.leader_of(index);
@@ -1278,22 +1302,39 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     });
                     if let Some(frame) = frame {
                         let range = frame.range();
-                        let stored = self
-                            .kernel
-                            .set_capability_page(
-                                owner_tcb,
-                                capability,
-                                page_index,
-                                hk_mem::hmp::FrameBacking::Owned(frame),
-                            )
-                            .unwrap_or(false);
+                        let backing = hk_mem::hmp::FrameBacking::Owned(frame);
+                        // 写时复制：Provider 回包只作为当前进程的私有覆盖，
+                        // 不改共享能力页；读缺页直接安装到能力。
+                        let stored = if private {
+                            let Ok(charge) = self.process_mut(index).ledger.charge(range.len())
+                            else {
+                                return self.fail_provider(cpu, index, pending);
+                            };
+                            let Ok(id) = self.kernel.handle_id(owner_tcb, capability) else {
+                                let _ = self.process_mut(index).ledger.release(charge);
+                                return self.fail_provider(cpu, index, pending);
+                            };
+                            self.process_mut(index).cow_pages.insert(
+                                (id.get(), page_index),
+                                crate::runtime::CowPage {
+                                    range,
+                                    charge: Some(charge),
+                                    backing: Some(backing),
+                                },
+                            );
+                            true
+                        } else {
+                            self.kernel
+                                .set_capability_page(owner_tcb, capability, page_index, backing)
+                                .unwrap_or(false)
+                        };
                         let mapped = stored
                             && self.platform.map_user(
                                 index,
                                 page,
                                 range.start().get(),
                                 range.len() as usize,
-                                rights,
+                                rights | hk_handle::Rights::WRITE,
                                 flags,
                             );
                         if !mapped {

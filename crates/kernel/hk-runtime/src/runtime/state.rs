@@ -73,6 +73,8 @@ pub enum Pending {
         rights: Rights,
         /// 该页所属 Region 的映射标志。
         flags: RegionFlags,
+        /// 是否为写时复制的私有页；Provider 回包安装到进程覆盖而不是能力。
+        private: bool,
     },
     /// 休眠到指定契约时刻（微秒）。
     Sleep {

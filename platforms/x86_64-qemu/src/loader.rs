@@ -7,12 +7,16 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use alloc::sync::Arc;
+
 use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, UserMemory, VirtAddr};
 use hk_mem::FrameBank;
+use hk_mem::hmp::Capacity;
 use hk_platform_x86_64::cpu;
 use hk_platform_x86_64::{PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
 use hk_root_server::{ServiceSpec, ServiceTable};
+use spin::Mutex;
 
 use crate::runtime;
 
@@ -426,10 +430,12 @@ fn load(
     let table = paging
         .create_user(allocator)
         .map_err(|error| format!("创建地址空间失败：{error:?}"))?;
+    let capacity = hk_platform_x86_64::system::user_capacity()
+        .ok_or_else(|| String::from("User Capacity 尚未建立"))?;
     let mut memory = UserPages {
         direct_map_base,
         paging: &table,
-        allocator,
+        capacity,
     };
     let (context, regions) = loader::load(&spec, &mut memory, |entry, stack_top, endpoint| {
         cpu::user_frame(entry, stack_top, endpoint)
@@ -443,22 +449,24 @@ fn load(
 struct UserPages<'a> {
     direct_map_base: u64,
     paging: &'a PageTable,
-    allocator: &'a FrameBank,
+    /// 镜像与用户栈从任务所属的 User Capacity 取页，物理归因不再落到 System。
+    capacity: Arc<Mutex<Capacity>>,
 }
 
 impl UserMemory for UserPages<'_> {
     fn map_page(&mut self, virtual_address: u64) -> Option<&mut [u8]> {
-        let frame = self.allocator.allocate_for(hk_mem::FrameKind::Image)?;
-        let destination = (self.direct_map_base + frame.get()) as *mut u8;
+        let frame = self.capacity.lock().allocate(PAGE_SIZE).ok()?;
+        let physical = frame.phys();
+        let destination = (self.direct_map_base + physical.get()) as *mut u8;
 
         // SAFETY: 新分配的帧经 HHDM 可写，长度为整页。
         unsafe {
             core::ptr::write_bytes(destination, 0, PAGE_SIZE);
         }
         self.paging
-            .map(VirtAddr::new(virtual_address), frame, PageFlags::USER_RW)
+            .map(VirtAddr::new(virtual_address), physical, PageFlags::USER_RW)
             .ok()?;
-        if !hk_platform_x86_64::paging::mapping_acquire(frame) {
+        if !hk_platform_x86_64::paging::mapping_acquire(physical) {
             return None;
         }
 

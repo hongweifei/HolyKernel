@@ -205,8 +205,11 @@ pub trait UserPlatform {
         0
     }
     /// 把父任务的用户地址空间复制为子任务的写时复制副本。
-    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> bool {
-        false
+    ///
+    /// 成功时返回为子任务复制私有页的字节数；该部分字节由调用方计入
+    /// 子任务的 Task Ledger。
+    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> Option<u64> {
+        None
     }
     /// 让子任务与父任务共享同一用户地址空间。
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {

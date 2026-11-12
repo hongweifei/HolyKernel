@@ -226,9 +226,9 @@ impl UserPlatform for MockPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize, cow_ranges: &[(u64, u64)]) -> bool {
+    fn fork(&self, _parent: usize, _child: usize, cow_ranges: &[(u64, u64)]) -> Option<u64> {
         *self.last_cow.lock() = cow_ranges.to_vec();
-        true
+        Some(0)
     }
 
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
@@ -2098,6 +2098,49 @@ fn region_map_rejects_rights_not_granted_by_handle() {
 }
 
 #[test]
+fn region_protect_cannot_exceed_capability_rights() {
+    let platform = MockPlatform::new();
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    let (handle, _, _) = runtime
+        .capability_at(index, capability as usize)
+        .expect("capability");
+    let readonly = runtime
+        .kernel
+        .duplicate_handle(tcb, handle, hk_handle::Rights::READ)
+        .expect("只读副本");
+    let extra = runtime
+        .install_extra_capability(index, readonly)
+        .expect("安装只读句柄");
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = extra;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    // 只读能力句柄不能被 protect 提升为可写映射。
+    context.rax = SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "protect 不能超过能力句柄权限");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn region_protect_updates_rights_and_page_table() {
     let platform = MockPlatform::new();
     let last_map = Arc::clone(&platform.last_map);
@@ -2189,7 +2232,7 @@ fn cow_resolution_records_private_page_override() {
             .process(index)
             .cow_pages
             .values()
-            .any(|range| range.start().get() == 0x7000_0000),
+            .any(|page| page.range.start().get() == 0x7000_0000),
         "COW 复制页必须登记为进程私有覆盖"
     );
     runtime.teardown_process(index);
@@ -2233,7 +2276,7 @@ fn fork_copies_cow_private_page_overrides() {
             .process(child)
             .cow_pages
             .values()
-            .any(|range| range.start().get() == 0x7000_1000),
+            .any(|page| page.range.start().get() == 0x7000_1000),
         "fork 必须复制进程级覆盖表"
     );
     let _ = runtime.finish(0, index);
@@ -3029,8 +3072,8 @@ impl UserPlatform for ShortPlatform {
         MEMORY_LIMIT
     }
 
-    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> bool {
-        true
+    fn fork(&self, _parent: usize, _child: usize, _cow_ranges: &[(u64, u64)]) -> Option<u64> {
+        Some(0)
     }
 
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {

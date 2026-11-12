@@ -80,7 +80,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if !granted.covers(rights) {
+        if !granted.covers(rights)
+            || (flags.contains(RegionFlags::PINNED) && !granted.contains(Rights::ADMIN))
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -130,6 +132,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 return Switch::Continue;
             }
         };
+        if flags.contains(RegionFlags::PINNED)
+            && self
+                .kernel
+                .pin_capability(tcb, capability_handle, true)
+                .is_err()
+        {
+            let _ = self.kernel.close_handle(tcb, handle);
+            let _ = self.process_mut(index).hmp_arena.remove(region_id);
+            let _ = self.platform.unmap_user(index, virt, length);
+            self.process_mut(index).user_window.release(virt);
+            let _ = self.kernel.close_handle(tcb, capability_handle);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         frame.set_result(self.install_region(
             index,
             handle,
@@ -154,10 +170,43 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let packed = frame.arg1();
         let rights = Rights::from_bits_truncate(packed as u32);
         let flags = RegionFlags::from_bits_truncate((packed >> 32) as u32);
-        let Some((_, handle, virt, length)) = self.region_at(index, number) else {
+        let Some((slot, handle, virt, length)) = self.region_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        // 权限只能收窄或被映射能力句柄覆盖：protect 不能把只读能力提升为可写。
+        let Some((owner, capability)) = self.process(index).regions[slot]
+            .as_ref()
+            .map(|region| (region.owner, region.capability))
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(granted) =
+            self.kernel
+                .handle_rights(owner, capability, hk_handle::ObjectKind::Capability)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !granted.covers(rights)
+            || (flags.contains(RegionFlags::PINNED) && !granted.contains(Rights::ADMIN))
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let was_pinned = self.process(index).regions[slot]
+            .as_ref()
+            .is_some_and(|region| region.flags.contains(RegionFlags::PINNED));
+        if was_pinned != flags.contains(RegionFlags::PINNED)
+            && self
+                .kernel
+                .pin_capability(owner, capability, flags.contains(RegionFlags::PINNED))
+                .is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         if self
             .kernel
             .protect_region(tcb, handle, rights, flags)
@@ -225,7 +274,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         self.process(index)
                             .cow_pages
                             .get(&(id, page_index))
-                            .copied()
+                            .map(|page| page.range)
                     })
                     .or_else(|| {
                         self.kernel
@@ -401,12 +450,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         len: usize,
         virt: u64,
     ) -> bool {
+        // 设备映射按实际窗口计入任务配额；解除映射时归还。
+        let Ok(charge) = self.process_mut(index).ledger.charge(len as u64) else {
+            return false;
+        };
         let Ok(capability) = Capability::new(
             CapabilityKind::DeviceAllocation,
             len as u64,
             hk_hal::PAGE_SIZE,
             None,
         ) else {
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         };
         let lease = FrameBacking::Imported(FrameLease::import(hk_hal::PhysAddr::new(phys), len));
@@ -416,6 +470,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(lease),
             Rights::READ | Rights::WRITE,
         ) else {
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         };
         let Ok(mut region) = Region::new(
@@ -426,15 +481,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             RegionFlags::empty(),
         ) else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         };
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         }
         let Ok(region_handle) =
@@ -443,6 +501,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
+            let _ = self.process_mut(index).ledger.release(charge);
             return false;
         };
         self.install_region(
@@ -456,7 +515,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             0,
             Rights::READ | Rights::WRITE,
             RegionFlags::empty(),
-            None,
+            Some(charge),
         );
         true
     }
@@ -496,7 +555,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return false;
         };
-        if self.provider_fault_region(index, region, address, &capability, provider) {
+        if self.provider_fault_region(index, region, address, &capability, provider, false) {
             self.current[cpu] = None;
             true
         } else {
@@ -511,6 +570,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         address: u64,
         capability: &Capability,
         provider: ObjectId,
+        write: bool,
     ) -> bool {
         let page = hk_hal::PAGE_SIZE as u64;
         let offset = region.capability_offset(address, page);
@@ -521,6 +581,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         words[0] = offset;
         words[1] = page;
         words[2] = address;
+        // 3 = 访问类型：0 读，1 写；Provider 据此决定复制、共享或拒绝。
+        words[3] = u64::from(write);
         let message = Message::new(PROVIDER_FAULT).with_words(words);
         if self
             .kernel
@@ -535,6 +597,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             page: region.page_address(offset),
             rights: region.rights,
             flags: region.flags,
+            private: write,
         };
         true
     }
@@ -561,7 +624,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .flatten();
         if let Some(provider) = provider {
             self.tasks[index].context = context;
-            if self.provider_fault_region(index, region, address, &capability, provider) {
+            if self.provider_fault_region(index, region, address, &capability, provider, false) {
                 self.current[cpu] = None;
                 FaultOutcome::Blocked
             } else {
@@ -577,6 +640,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 在 fork 前把惰性 Region 的页装入父地址空间。
+    ///
+    /// 绑定 Provider 的 Region 不预装入：子任务首次访问时由 Provider 按需
+    /// 提供，否则含懒 Surface/Revision 的任务无法 fork。
     pub(crate) fn populate_lazy_regions(&mut self, index: usize) -> bool {
         let ranges: alloc::vec::Vec<(u64, usize)> = self
             .process(index)
@@ -588,7 +654,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .kernel
                     .capability(region.owner, region.capability)
                     .ok()?;
-                backing.is_none().then_some((region.virt, region.len))
+                if backing.is_some() {
+                    return None;
+                }
+                let provider = self
+                    .kernel
+                    .capability_provider(region.owner, region.capability)
+                    .ok()
+                    .flatten();
+                provider.is_none().then_some((region.virt, region.len))
             })
             .collect();
         if ranges.is_empty() {
@@ -624,14 +698,37 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let page = hk_hal::PAGE_SIZE as u64;
         let page_index = (region.capability_offset(address, page) / page) as usize;
+        let Ok((capability, _)) = self.kernel.capability(region.tcb, region.capability) else {
+            return false;
+        };
+        // 绑定 Provider 的能力把写时复制交给 Provider；匿名与已常驻能力由内核
+        // 复制并记入 Task Ledger。
+        let provider = self
+            .kernel
+            .capability_provider(region.tcb, region.capability)
+            .ok()
+            .flatten();
+        if let Some(provider) = provider {
+            return self.provider_fault_region(index, region, address, &capability, provider, true);
+        }
         match self.platform.resolve_cow(address) {
             Some(crate::runtime::CowOutcome::Copied(physical)) => {
+                let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+                    return false;
+                };
                 let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
-                if let Ok(id) = self.kernel.handle_id(region.tcb, region.capability) {
-                    self.process_mut(index)
-                        .cow_pages
-                        .insert((id.get(), page_index), range);
-                }
+                let Ok(id) = self.kernel.handle_id(region.tcb, region.capability) else {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                    return false;
+                };
+                self.process_mut(index).cow_pages.insert(
+                    (id.get(), page_index),
+                    crate::runtime::CowPage {
+                        range,
+                        charge: Some(charge),
+                        backing: None,
+                    },
+                );
                 true
             }
             Some(crate::runtime::CowOutcome::Writable) => true,
@@ -694,7 +791,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.process(index)
                 .cow_pages
                 .get(&(id, page_index))
-                .copied()
+                .map(|page| page.range)
         });
         if let Some(range) = overridden {
             if !self.platform.user_mapped(page_address) {
@@ -764,8 +861,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let owner = region.owner;
+        if !self
+            .kernel
+            .handle_rights(owner, handle, hk_handle::ObjectKind::Region)
+            .is_ok_and(|rights| rights.contains(Rights::ADMIN))
+        {
+            // 只有通过 Region 句柄的 ADMIN 才能解除映射。
+            frame.set_result(0);
+            return Switch::Continue;
+        }
         let capability = region.capability;
         let charge = region.charge;
+        let pinned = region.flags.contains(RegionFlags::PINNED);
+        if pinned
+            && self
+                .kernel
+                .pin_capability(owner, capability, false)
+                .is_err()
+        {
+            // 仍在 scanout 驻留的映射不能解除。
+            frame.set_result(0);
+            return Switch::Continue;
+        }
         let capability_id = self
             .kernel
             .handle_id(owner, capability)

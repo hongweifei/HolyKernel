@@ -85,6 +85,17 @@ pub struct UserRegionSpec {
     pub executable: bool,
 }
 
+/// 进程私有 COW 页；`charge` 只属于拥有该页的进程，fork 复制出的子进程
+/// 条目不带记账。
+pub struct CowPage {
+    /// 私有物理页区间。
+    pub range: hk_hal::PhysRange,
+    /// 该页占用的进程记账。
+    pub charge: Option<Charge>,
+    /// Provider 提供的私有页；内核 COW 页由页表持有，这里为 `None`。
+    pub backing: Option<hk_mem::hmp::FrameBacking>,
+}
+
 /// 任务持有的共享 Frame。
 pub(crate) struct CapabilityMap {
     pub handle: Handle,
@@ -118,8 +129,10 @@ pub(crate) struct Process {
     pub arena_base: u64,
     pub arena_size: u64,
     pub arena_next: u64,
-    /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页。
-    pub cow_pages: BTreeMap<(u64, usize), hk_hal::PhysRange>,
+    /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页与记账。
+    pub cow_pages: BTreeMap<(u64, usize), CowPage>,
+    /// fork 时为子任务复制私有页产生的记账；任务退出时归还。
+    pub cow_charge: Option<Charge>,
     /// 进程能力分配使用的 Capacity 句柄；关闭句柄即撤销分配权。
     pub allocation_capacity: Handle,
     pub device_factory: Option<Handle>,
@@ -144,6 +157,7 @@ impl Process {
             arena_size,
             arena_next: arena_base,
             cow_pages: BTreeMap::new(),
+            cow_charge: None,
             allocation_capacity,
             device_factory: None,
         }

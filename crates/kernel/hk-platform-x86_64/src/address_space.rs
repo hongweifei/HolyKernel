@@ -36,8 +36,9 @@ impl UserAddressSpace for UserSpace {
         PageTable::root(self.0.backend()).get()
     }
 
-    fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<Self> {
-        PageTable::fork_user(self.0.backend(), cow_ranges).map(UserSpace::new)
+    fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)> {
+        PageTable::fork_user(self.0.backend(), cow_ranges)
+            .map(|(table, copied)| (UserSpace::new(table), copied))
     }
 
     fn share_user(&self) -> Option<Self> {

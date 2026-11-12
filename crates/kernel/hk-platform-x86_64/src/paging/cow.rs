@@ -11,15 +11,38 @@ use super::FRAME_BANK;
 use super::flags::{HUGE, PCD, PRESENT, PWT, WRITABLE};
 use super::table::{ADDRESS_MASK, ENTRIES, KERNEL_PML4_START, PageTable};
 
+/// 取一页 COW 私有数据页；从 User Capacity 分配，物理归因不再落到 System。
 fn take_cow_page() -> Option<PhysAddr> {
-    PageAllocator::new(&FRAME_BANK).cow()
+    crate::system::user_capacity()?
+        .lock()
+        .allocate(PAGE_SIZE)
+        .ok()
+        .map(|frame| frame.phys())
+}
+
+/// 取一页页表；页表页始终由 System 承载。
+fn take_table_page() -> Option<PhysAddr> {
+    PageAllocator::new(&FRAME_BANK).page_table()
+}
+
+/// fork 期间的共享状态：COW 区间、帧引用表与私有复制字节数。
+struct ForkState<'a> {
+    cow_ranges: &'a [(u64, u64)],
+    refs: &'a mut FrameRefs,
+    copied: u64,
 }
 
 impl PageTable {
     /// 复制用户低半区；`cow_ranges` 内的可写页标 COW，其余可写页私有复制。
-    pub fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<Self> {
+    /// 返回副本与私有复制页的字节数，供 Task Ledger 记账。
+    pub fn fork_user(&self, cow_ranges: &[(u64, u64)]) -> Option<(Self, u64)> {
         let mut refs = super::frame_refs().lock();
-        let child_root = take_cow_page()?;
+        let mut state = ForkState {
+            cow_ranges,
+            refs: &mut refs,
+            copied: 0,
+        };
+        let child_root = take_table_page()?;
         self.zero_page(child_root);
 
         for index in KERNEL_PML4_START..ENTRIES {
@@ -41,18 +64,11 @@ impl PageTable {
                 return None;
             }
 
-            let child = take_cow_page()?;
+            let child = take_table_page()?;
             self.zero_page(child);
             // SAFETY: 父页表处于活动状态，条目地址经 HHDM 映射。
             let source = PhysAddr::new(value & ADDRESS_MASK);
-            self.clone_level(
-                source,
-                child,
-                3,
-                (index as u64) << 39,
-                cow_ranges,
-                &mut refs,
-            )?;
+            self.clone_level(source, child, 3, (index as u64) << 39, &mut state)?;
             // SAFETY: 子 PML4 项指向新分配的 PDPT，并保留原有权限位。
             unsafe {
                 self.entry(child_root, index)
@@ -66,11 +82,14 @@ impl PageTable {
         // 父地址空间的页表项已改为只读；PCID 模式下写 CR3 不会刷新。
         self.flush(0);
         self.activate();
-        Some(Self {
-            direct_map: self.direct_map,
-            root: child_root,
-            pcid: super::table::allocate_pcid(),
-        })
+        Some((
+            Self {
+                direct_map: self.direct_map,
+                root: child_root,
+                pcid: super::table::allocate_pcid(),
+            },
+            state.copied,
+        ))
     }
 
     fn clone_level(
@@ -79,8 +98,7 @@ impl PageTable {
         target: PhysAddr,
         level: u32,
         base: u64,
-        cow_ranges: &[(u64, u64)],
-        refs: &mut FrameRefs,
+        state: &mut ForkState<'_>,
     ) -> Option<()> {
         let shift = match level {
             3 => 30,
@@ -107,16 +125,17 @@ impl PageTable {
             let mut flags = value & !ADDRESS_MASK;
             if level == 1 {
                 let frame = PhysAddr::new(physical);
-                let tracked = refs.count(frame);
+                let tracked = state.refs.count(frame);
                 let writable = flags & WRITABLE != 0;
                 let mmio = flags & (PWT | PCD) != 0;
-                let cow = cow_ranges
+                let cow = state
+                    .cow_ranges
                     .iter()
                     .any(|(start, len)| virt >= *start && virt < start.saturating_add(*len));
                 if !mmio && writable && !cow {
                     // 未登记 Region 的可写页不能隐式共享；为子任务复制私有页，
                     // 父页表保持原映射与权限。
-                    let child_frame = self.copy_private_page(frame)?;
+                    let child_frame = self.copy_private_page(frame, &mut state.copied)?;
                     flags &= !super::flags::COW;
                     // SAFETY: 子页表叶项指向新分配的私有页帧。
                     unsafe {
@@ -131,11 +150,11 @@ impl PageTable {
                 if !mmio && (writable || tracked > 0) {
                     // Region 内的可写页在 fork 时新增父、子两个共享者；
                     // 已经共享的只读页只新增当前子地址空间这一份引用。
-                    if !refs.acquire(frame) {
+                    if !state.refs.acquire(frame) {
                         return None;
                     }
-                    if tracked == 0 && writable && !refs.acquire(frame) {
-                        refs.release(frame);
+                    if tracked == 0 && writable && !state.refs.acquire(frame) {
+                        state.refs.release(frame);
                         return None;
                     }
                     flags &= !WRITABLE;
@@ -151,16 +170,9 @@ impl PageTable {
                     self.entry(target, index).write_volatile(physical | flags);
                 }
             } else {
-                let child = take_cow_page()?;
+                let child = take_table_page()?;
                 self.zero_page(child);
-                self.clone_level(
-                    PhysAddr::new(physical),
-                    child,
-                    level - 1,
-                    virt,
-                    cow_ranges,
-                    refs,
-                )?;
+                self.clone_level(PhysAddr::new(physical), child, level - 1, virt, state)?;
                 // SAFETY: 子中间级项指向新页表，并保留原有权限位。
                 unsafe {
                     self.entry(target, index)
@@ -171,9 +183,9 @@ impl PageTable {
         Some(())
     }
 
-    /// 为子地址空间复制一份私有页。
-    fn copy_private_page(&self, source: PhysAddr) -> Option<PhysAddr> {
-        let frame = FRAME_BANK.allocate_for(FrameKind::Cow)?;
+    /// 为子地址空间复制一份私有页，并累计复制字节数。
+    fn copy_private_page(&self, source: PhysAddr, copied: &mut u64) -> Option<PhysAddr> {
+        let frame = take_cow_page()?;
         let source = (self.direct_map + source.get()) as *const u8;
         let target = (self.direct_map + frame.get()) as *mut u8;
         // SAFETY: 源、目标页帧均经 HHDM 映射，长度为整页。
@@ -182,11 +194,12 @@ impl PageTable {
         }
         if !super::mapping_acquire(frame) {
             FRAME_BANK.free_for(
-                FrameKind::Cow,
+                FrameKind::Image,
                 PhysRange::new(frame, hk_hal::PAGE_SIZE as u64),
             );
             return None;
         }
+        *copied = copied.saturating_add(PAGE_SIZE as u64);
         Some(frame)
     }
 

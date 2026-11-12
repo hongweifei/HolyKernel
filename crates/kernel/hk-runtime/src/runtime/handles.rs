@@ -39,7 +39,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         specs: &[UserRegionSpec],
     ) -> Result<(), KernelError> {
         for spec in specs {
-            self.register_region(index, *spec, None)?;
+            // 镜像与用户栈页由装载器从任务 Capacity 分配；虚拟区间同样计入
+            // Task Ledger，配额不能只约束 `SYS_ALLOC`。
+            let charge = self
+                .process_mut(index)
+                .ledger
+                .charge(spec.len as u64)
+                .map_err(KernelError::Hmp)?;
+            self.register_region(index, *spec, Some(charge))?;
         }
         Ok(())
     }
@@ -622,6 +629,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.teardown_region(index, slot, true);
             }
         }
+        self.release_cow_charges(index);
         self.process_mut(index).cow_pages.clear();
         self.release_task_charges(index);
     }
@@ -647,6 +655,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let region_id = region.region;
         let region_handle = region.handle;
         let charge = region.charge;
+        let pinned = region.flags.contains(hk_mem::hmp::RegionFlags::PINNED);
         let capability_id = self
             .kernel
             .handle_id(owner, capability)
@@ -664,6 +673,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
+        if pinned {
+            let _ = self.kernel.pin_capability(owner, capability, false);
+        }
         let _ = self.kernel.close_handle(owner, region_handle);
         if close_capability && internal_capability {
             let _ = self.kernel.close_handle(owner, capability);
@@ -688,9 +700,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 == Some(capability_id)
         });
         if !referenced {
-            self.process_mut(index)
+            let removed: Vec<(u64, usize)> = self
+                .process(index)
                 .cow_pages
-                .retain(|(id, _), _| *id != capability_id);
+                .keys()
+                .filter(|(id, _)| *id == capability_id)
+                .copied()
+                .collect();
+            for key in removed {
+                if let Some(page) = self.process_mut(index).cow_pages.remove(&key)
+                    && let Some(charge) = page.charge
+                {
+                    let _ = self.process_mut(index).ledger.release(charge);
+                }
+            }
+        }
+    }
+
+    /// 归还全部 COW 私有页记账。
+    fn release_cow_charges(&mut self, index: usize) {
+        let charges: Vec<Option<Charge>> = self
+            .process_mut(index)
+            .cow_pages
+            .values()
+            .map(|page| page.charge)
+            .collect();
+        for charge in charges.into_iter().flatten() {
+            let _ = self.process_mut(index).ledger.release(charge);
+        }
+        if let Some(charge) = self.process_mut(index).cow_charge.take() {
+            let _ = self.process_mut(index).ledger.release(charge);
         }
     }
 
