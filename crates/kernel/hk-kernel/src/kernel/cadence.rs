@@ -51,6 +51,16 @@ impl Kernel {
         Ok(meter.lock().snapshot())
     }
 
+    /// 重置 Meter 计量；需要 Meter 的 ADMIN。
+    pub fn reset_meter(&self, thread: TcbId, handle: Handle) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Meter)?;
+        let meter = object.meter().cloned().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Meter,
+        })?;
+        meter.lock().reset();
+        Ok(())
+    }
+
     /// 读取 TCB 所属 Task 的 Meter 快照。
     pub fn task_meter_snapshot(&self, thread: TcbId) -> Option<MeterSnapshot> {
         let task = self.task(self.task_of(thread)?)?;

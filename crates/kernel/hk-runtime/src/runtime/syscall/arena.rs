@@ -3,6 +3,11 @@
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 查询任务 Arena 的地址窗口与 Region 统计。
+    ///
+    /// `size` 是 Arena 覆盖的地址窗口，`used` 是已登记 Region 的字节数；
+    /// `SYS_ALLOC` 的可分配窗口与游标由 `TaskInfo.arena_size`/`arena_used`
+    /// 报告。两者口径不同：Arena 窗口包含镜像、栈与动态窗口映射。
     pub(crate) fn arena_info(&mut self, index: usize, frame: &mut C) -> Switch {
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;

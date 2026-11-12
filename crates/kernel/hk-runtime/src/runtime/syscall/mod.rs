@@ -101,6 +101,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             SYS_CADENCE_INFO => self.cadence_info(index, frame),
             SYS_METER_INFO => self.meter_info(index, frame),
+            SYS_METER_RESET => self.meter_reset(index, tcb, frame),
             SYS_CADENCE_UPDATE => self.cadence_update(index, tcb, frame),
             SYS_CADENCE_SPLIT => self.cadence_split(index, tcb, frame),
             SYS_CADENCE_REVOKE => self.cadence_revoke(index, tcb, frame),

@@ -96,6 +96,8 @@ struct Allocation {
     owner_charge: Option<Charge>,
     /// 归属容量；`None` 表示内核自用。
     owner: Option<CapacityId>,
+    /// 物理页归 HMP 对象持有（`OwnedFrame`），页表拆除时不得代为归还。
+    object_owned: bool,
 }
 
 /// 登记给某个容量的窗口。
@@ -521,6 +523,7 @@ impl FrameBank {
                 charge,
                 owner_charge,
                 owner,
+                object_owned: false,
             },
         );
         let slot = &mut inner.by_capacity[capacity_kind.index()];
@@ -554,6 +557,14 @@ impl FrameBank {
         {
             let mut inner = self.inner.lock();
             let start = range.start().get();
+            let owned_by_object = inner
+                .allocations
+                .get(&start)
+                .is_some_and(|allocation| allocation.object_owned);
+            if owned_by_object {
+                // 页表拆除只解除映射；物理页由 OwnedFrame 归还。
+                return;
+            }
             let matches = inner
                 .allocations
                 .get(&start)
@@ -584,6 +595,16 @@ impl FrameBank {
     /// 归还一段用途为 `Other` 的物理区间。
     pub fn free(&self, range: PhysRange) {
         self.free_for(FrameKind::Other, range);
+    }
+
+    /// 标记一段已分配区间由 HMP 对象持有；页表拆除不再归还它。
+    pub fn mark_object_owned(&self, range: PhysRange) {
+        let mut inner = self.inner.lock();
+        if let Some(allocation) = inner.allocations.get_mut(&range.start().get())
+            && allocation.range == range
+        {
+            allocation.object_owned = true;
+        }
     }
 
     /// 从空闲空间预留一段区间并登记给指定容量，返回区间。

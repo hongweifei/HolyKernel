@@ -105,6 +105,10 @@ impl PhysicalBackend for FrameBank {
         self.allocate_contiguous_owned(FrameKind::from_capacity(kind), len as usize, Some(owner))
     }
 
+    fn mark_object_owned(&self, range: PhysRange) {
+        FrameBank::mark_object_owned(self, range);
+    }
+
     fn release_owned(&self, owner: CapacityId, range: PhysRange) -> bool {
         let mut inner = self.inner.lock();
         let start = range.start().get();

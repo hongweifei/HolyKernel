@@ -129,6 +129,7 @@ Arena 是任务内存的根对象。
 - Arena 操作：`map`、`unmap`、`grow`、`checkpoint`、`restore`、`destroy`；任务通过 Region 操作使用 Arena 内的映射。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
+- `SYS_ARENA_INFO` 报告任务 Arena 的地址窗口：`base` 是基址，`size` 是窗口长度，`used` 是已登记 Region 的字节数，`regions` 是 Region 数。`SYS_ALLOC` 的可分配窗口与游标由 `TaskInfo.arena_size`/`arena_used` 报告；Arena 窗口包含镜像、栈与动态窗口映射，两套口径分别用于对象视图与分配配额。
 - 内核自身持有 System Arena；内核镜像、direct map、内核堆、per-CPU 栈、MMIO 窗口、页表页与 IOMMU 表都以 Region 登记。System Arena 覆盖内核高半区，物理页仍由 System Capacity/FrameBank 承载；`SYS_SYSTEM_ARENA_INFO` 报告窗口与 Region 统计，`SYS_SYSTEM_ARENA_REGIONS` 按索引枚举 Region（虚拟地址、长度、权利、标志）。
 - 内核高半区的登记以页表实际权利为准：可执行段登记为 `TaskImage` + `READ|EXECUTE|SEALED|PINNED`，数据段、`.bss`、启动栈、per-CPU 栈与 direct map 数据视图登记为 `Anonymous` + `READ|WRITE|PINNED`；先登记的窗口优先，重叠的后续登记跳过。
 
@@ -235,7 +236,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 
 - 物理页能力；map、phys、pin、export。
 - 用于 IPC、DMA、共享缓冲与 scanout；页已常驻，Provider 契约省略。
-- `SYS_FRAME_MAP` 把 Frame 的 `OwnedFrame` 转移给内核代建的 Frame capability；Region 只持有 capability 句柄，解除时关闭 capability 并归还 Capacity。Frame 句柄本身在映射时消耗，不再保留隐藏句柄。需要多方共享的缓冲区使用匿名能力（`Anonymous`）：能力可以同时映射到多个地址空间，句柄不因映射失效。
+- `SYS_FRAME_MAP` 把 Frame 的 `OwnedFrame` 转移给内核代建的 Frame capability；Region 只持有 capability 句柄，解除时关闭 capability 并归还 Capacity。Frame 句柄本身在映射时消耗，原 Frame 的 pin 与 share 状态不再延续，不再保留隐藏句柄。需要多方共享的缓冲区使用匿名能力（`Anonymous`）：能力可以同时映射到多个地址空间，句柄不因映射失效。
 
 `PHYS` 查询适用于 Surface、DeviceAllocation、Anonymous 与 Frame；Revision 与 TaskImage 的页由 Provider/Region 管理，不直接暴露物理区间。
 
@@ -377,7 +378,7 @@ flowchart LR
 - 访问权在 Handle/Region 上；映射时持有对应类型化能力或 Frame 的 Handle。
 - W^X、NX、guard、ASLR 在 Region/页表层执行；设备页默认按 NX 映射。
 - 释放清零；Frame 回 Capacity 前清空敏感内容。
-- 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 决定。
+- 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 或能力句柄决定。IOMMU 映射与 CPU 的 Region 都从同一句柄派生：`SYS_DMA_MAP` 解析 Frame/Capability 后建立设备页表项，不构成第二条 CPU 访问路径。
 - Debug Server 枚举 Capacity、Frame、类型化能力、Region 与 Provider；Arena/Ledger 通过运行时快照报告。
 - Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力；Arena 由运行时快照恢复。
 - 内存压力、配额与 OOM 决策可审计。

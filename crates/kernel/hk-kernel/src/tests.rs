@@ -1569,6 +1569,28 @@ fn suspended_task_is_not_revived_by_wake() {
 }
 
 #[test]
+fn meter_reset_requires_admin_and_clears_counters() {
+    let kernel = kernel();
+    let thread = thread(&kernel);
+    let task = kernel.task_of(thread).expect("任务存在");
+    let read_only = kernel
+        .grant_meter(thread, task, Rights::READ)
+        .expect("只读 Meter");
+    assert!(kernel.reset_meter(thread, read_only).is_err());
+
+    let admin = kernel
+        .grant_meter(thread, task, Rights::READ | Rights::ADMIN)
+        .expect("管理 Meter");
+    kernel.charge(thread, 10);
+    assert!(kernel.meter_snapshot(thread, admin).expect("快照").consumed > 0);
+    kernel.reset_meter(thread, admin).expect("重置");
+    assert_eq!(
+        kernel.meter_snapshot(thread, admin).expect("快照").consumed,
+        0
+    );
+}
+
+#[test]
 fn policy_task_can_split_and_attach_own_cadence() {
     let kernel = kernel();
     let thread = thread(&kernel);

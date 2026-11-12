@@ -35,6 +35,9 @@ pub trait PhysicalBackend: Send + Sync {
     /// 从指定容量名下归还一段物理区间。
     fn release_owned(&self, owner: CapacityId, range: PhysRange) -> bool;
 
+    /// 标记一段已分配区间由 HMP 对象持有；页表拆除不再代为归还。
+    fn mark_object_owned(&self, _range: PhysRange) {}
+
     /// 返回容量当前持有的全部窗口，按起始地址排序。
     fn windows_owned(&self, _owner: CapacityId) -> alloc::vec::Vec<PhysRange> {
         alloc::vec::Vec::new()

@@ -699,6 +699,12 @@ pub fn meter_info(handle: u64, buffer: &mut [u8]) -> u64 {
     }
 }
 
+/// 重置 Meter 计量；需要 Meter 的 ADMIN 权利。
+pub fn meter_reset(handle: u64) -> u64 {
+    // SAFETY: 句柄由内核授予；内核校验 Meter ADMIN。
+    unsafe { syscall_call(SYS_METER_RESET, handle, 0, 0, 0).value }
+}
+
 /// 为 Task 重新附加 Cadence；需要 Task 的 ADMIN 权利。
 pub fn task_attach_cadence(task: u64, cadence: u64) -> u64 {
     // SAFETY: 两个句柄均由内核授予；内核校验 Tasks/Cadence 权利。

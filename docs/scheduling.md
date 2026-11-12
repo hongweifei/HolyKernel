@@ -79,7 +79,7 @@ flowchart LR
 | 对象 | READ | WRITE | TRANSFER | ADMIN |
 | --- | --- | --- | --- | --- |
 | `Cadence` | 查询类别、权重、预算、周期、截止期、亲和性、Meter | 在父契约范围内调整 weight/budget/latency | 转移契约 | 创建、拆分、撤销、设置 lending |
-| `Meter` | 读取计量 | — | — | 重置、设置水位 |
+| `Meter` | 读取计量 | — | — | 重置计量 |
 
 - 普通 Task 持有自身 Cadence 的 READ 与自身 Meter 的 READ。
 - WRITE 授予 Tempo 与父 Task；ADMIN 授予 Root/Tempo。
@@ -99,6 +99,7 @@ flowchart LR
 | `SYS_CADENCE_SPLIT(parent, params, out)` | 派生子契约 |
 | `SYS_CADENCE_REVOKE(handle)` | 撤销契约 |
 | `SYS_METER_INFO(handle, out)` | 查询计量 |
+| `SYS_METER_RESET(handle)` | 重置计量；需要 Meter 的 ADMIN |
 | `SYS_TASK_ATTACH_CADENCE(task, cadence)` | Root/Tempo 为 Task 附加契约 |
 
 Task、Cadence、Meter 都使用统一 Handle 表示；Rust 客户端库提供零成本类型包装。

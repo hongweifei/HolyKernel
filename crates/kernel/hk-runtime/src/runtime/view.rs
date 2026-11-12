@@ -123,6 +123,8 @@ pub struct TaskInfo {
     pub switches: u64,
     /// Meter 跨 CPU 迁移次数。
     pub migrations: u64,
+    /// Meter 迁移累计缓存成本。
+    pub migration_cost: u64,
     /// 最近运行的 CPU；`u32::MAX` 表示尚未运行。
     pub last_cpu: u32,
     /// Arena 已用字节数。

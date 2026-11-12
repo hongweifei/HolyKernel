@@ -16,6 +16,10 @@ pub struct OwnedFrame {
 impl OwnedFrame {
     /// 以 Frame 与所属 Capacity 创建持有关系。
     pub fn new(frame: Frame, capacity: Arc<Mutex<Capacity>>) -> Self {
+        // 所有权转移到对象后，页表拆除不得再归还这段物理区间。
+        if let Some(backend) = super::backend::physical_backend() {
+            backend.mark_object_owned(hk_hal::PhysRange::new(frame.phys(), frame.len() as u64));
+        }
         Self {
             frame: Some(frame),
             capacity,
@@ -53,7 +57,21 @@ impl OwnedFrame {
 impl Drop for OwnedFrame {
     fn drop(&mut self) {
         let mut frame = self.frame.take();
-        let _ = self.capacity.lock().free(&mut frame);
+        let (phys, len, capacity) = frame.as_ref().map_or((0, 0, None), |frame| {
+            (
+                frame.phys().get(),
+                frame.len(),
+                Some(frame.capacity().get()),
+            )
+        });
+        // 归还不变量被破坏（帧仍被 pin、仍有共享引用或归属不匹配）时继续运行
+        // 只会泄漏物理页；在错误位置直接终止。
+        let result = self.capacity.lock().free(&mut frame);
+        assert!(
+            result.is_ok(),
+            "OwnedFrame 归还 Capacity 失败: phys={phys:#x} len={len} frame_capacity={capacity:?} capacity={} error={result:?}",
+            self.capacity.lock().id().get()
+        );
     }
 }
 

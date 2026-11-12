@@ -21,6 +21,22 @@ fn capacity_ledger_enforces_owner_quota() {
 }
 
 #[test]
+fn object_owned_range_survives_page_table_teardown() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let owner = CapacityId::next();
+    bank.reserve_for(owner, 0x2000).expect("预留");
+    let page = bank
+        .allocate_owned(owner, CapacityKind::User, PAGE_SIZE as u64)
+        .expect("分配");
+    bank.mark_object_owned(page);
+    // 页表拆除调用 free_for；对象持有的页必须保留，等待 OwnedFrame 归还。
+    bank.free_for(FrameKind::Image, page);
+    assert_eq!(bank.used_owned(owner), PAGE_SIZE as u64);
+    assert!(bank.release_owned(owner, page), "对象归还仍然有效");
+    assert_eq!(bank.used_owned(owner), 0);
+}
+
+#[test]
 fn register_ledger_preserves_existing_limit() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let owner = CapacityId::next();

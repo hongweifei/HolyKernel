@@ -56,6 +56,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// `SYS_METER_RESET(handle)`；只有持有 Meter ADMIN 的调用方可以重置。
+    pub(crate) fn meter_reset(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let result = self
+            .handle_at(index, frame.arg0() as usize)
+            .and_then(|handle| self.kernel.reset_meter(tcb, handle).ok())
+            .map_or(u64::MAX, |()| 0);
+        frame.set_result(result);
+        Switch::Continue
+    }
+
     /// `SYS_CADENCE_UPDATE(handle, spec, len)`。
     pub(crate) fn cadence_update(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let handle = self

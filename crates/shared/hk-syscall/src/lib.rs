@@ -88,6 +88,9 @@ pub const SYS_HANDLE_COUNT: u64 = 0x11;
 /// 复制句柄。
 pub const SYS_HANDLE_DUPLICATE: u64 = 0x12;
 
+/// 重置 Meter 计量；需要 Meter 的 ADMIN。`handle = 0` 不接受。
+pub const SYS_METER_RESET: u64 = 0x13;
+
 // === IPC、通知与同步 0x20-0x3F ===
 
 /// 向端点发送消息。
@@ -604,7 +607,7 @@ mod tests {
     #[test]
     fn syscall_numbers_stay_in_their_groups() {
         const { assert!(SYS_THREAD_SET_TLS < 0x10 && SYS_CADENCE_SELF < 0x10) };
-        const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_HANDLE_DUPLICATE < 0x20) };
+        const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_METER_RESET < 0x20) };
         const { assert!(SYS_SEND >= 0x20 && SYS_REPLY_HANDLE < 0x40) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
         const { assert!(SYS_ALLOC >= 0x40 && SYS_LEDGER_INFO < 0x50) };
@@ -655,6 +658,7 @@ mod tests {
             SYS_HANDLE_CLOSE,
             SYS_HANDLE_COUNT,
             SYS_HANDLE_DUPLICATE,
+            SYS_METER_RESET,
             SYS_SEND,
             SYS_SEND_HANDLE,
             SYS_SEND_DATA,
