@@ -42,7 +42,8 @@ use hk_server_api::{
     MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, boot_cmdline, call, close_handle,
     exit, frame_info, frame_map, futex_wait, futex_wake, ledger_info, notify, recv, recv_data_try,
     region_info, region_unmap, self_notification, send, send_handle, service_endpoint,
-    thread_create, thread_join, tsc, tsc_frequency, wait_notify, write, write_u64, yield_now,
+    service_restarts, thread_create, thread_join, tsc, tsc_frequency, wait_notify, write,
+    write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -324,11 +325,12 @@ fn verify_driver_restart(endpoint: u64) -> bool {
     if old == 0 {
         return false;
     }
+    let before = service_restarts("hk-server-virtio");
     send(old, BLOCK_SHUTDOWN, 0);
     let mut restarted = false;
+    // 重启复用同一任务槽位，端点编号不变；用累计重启次数判定。
     for _ in 0..100_000 {
-        let current = service_endpoint("hk-server-virtio");
-        if current != 0 && current != old {
+        if service_restarts("hk-server-virtio") > before {
             restarted = true;
             break;
         }

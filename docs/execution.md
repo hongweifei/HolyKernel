@@ -216,7 +216,7 @@ impl Notification {
 - 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。`SYS_REGION_PROTECT` 只允许收窄到能力句柄 Rights 覆盖的范围；Region 句柄不参与复制与转移。
 - Provider 缺页消息携带 `{offset, page, address, access}`，`access` 区分读与写；写缺页由 Provider 决定复制、共享或拒绝，回包作为当前进程的私有 COW 覆盖安装。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
-- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区，缓冲区是从 Memory Server 申请的匿名能力（`Anonymous`），消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动通过 `SYS_DMA_MAP` 把能力绑定到 IOMMU，设备 DMA 直接读写缓冲区。客户端与服务端各自 `SYS_REGION_MAP` 同一能力，映射不消耗句柄，`BLOCK_DETACH` 按槽位或整体解除 Region 并关闭转移来的能力句柄。
+- 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区，缓冲区是从 Memory Server 申请的匿名能力（`Anonymous`），消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动通过 `SYS_DMA_MAP` 把能力绑定到 IOMMU，设备 DMA 直接读写缓冲区。客户端与服务端各自 `SYS_REGION_MAP` 同一能力，映射不消耗句柄，`BLOCK_DETACH` 按槽位或整体解除 Region 并关闭转移来的能力句柄。服务重启复用同一任务槽位、端点编号不变，客户端因此同时跟踪 `SYS_SERVICE_RESTARTS` 的代际：代际变化时重新 `BLOCK_ATTACH`，否则新服务实例看不到旧缓冲区映射。
 - VFS 协议：客户端发送 `VFS_ATTACH` 后，`OP_READ_BUFFER`/`OP_WRITE_BUFFER` 用 8 字节参数携带长度，文件内容直接读写客户端缓冲区映射；服务端按发送者维护 Region 映射，重连时解除旧映射，`VFS_DETACH` 清理映射与会话文件句柄。
 - 块客户端可以登记 VFS 客户端缓冲区映射；当后端把该映射作为缓冲区时，块客户端临时 attach 同一个共享缓冲能力并让驱动 DMA 直达，实现 HolyFS 文档路径的零拷贝。HolyFS inode 缓存避免元数据读把数据缓冲区切回自有映射。
 - 块驱动在 attach 后用 `SYS_DMA_MAP` 把 Frame 映射进 DeviceGrant 的 IOMMU 域，并使用该物理地址作为 virtio DMA 缓冲；`SYS_DMA_SYNC` 接受本任务持有的 Frame 区间。
@@ -390,7 +390,7 @@ pub struct CivilTime { ... }
 | --- | --- | --- |
 | `0x00-0x0F` | 进程、线程与调度 | `EXIT`、`YIELD`、`FORK`、`THREAD_CREATE`/`THREAD_JOIN`/`THREAD_SET_TLS`、`SLEEP`、`CADENCE_INFO`/`CADENCE_UPDATE`/`CADENCE_SPLIT`/`CADENCE_REVOKE`、`METER_INFO`、`TASK_ATTACH_CADENCE`、`CADENCE_SELF`、`TASK_ATTACH_NAMED`/`TASK_REGRANT_NAMED` |
 | `0x10-0x1F` | 句柄与计量 | `HANDLE_CLOSE`/`HANDLE_COUNT`/`HANDLE_DUPLICATE`、`METER_RESET` |
-| `0x20-0x3F` | IPC、通知与同步 | `SEND*`、`RECV*`（含超时）、`CALL`/`CALL_TIMEOUT`、`REPLY*`、`NOTIFY`、`WAIT_NOTIFY*`、`SELF_NOTIFICATION`、`SERVICE_ENDPOINT`、`FUTEX_WAIT`/`FUTEX_WAKE`、`CADENCE_NAMED` |
+| `0x20-0x3F` | IPC、通知与同步 | `SEND*`、`RECV*`（含超时）、`CALL`/`CALL_TIMEOUT`、`REPLY*`、`NOTIFY`、`WAIT_NOTIFY*`、`SELF_NOTIFICATION`、`SERVICE_ENDPOINT`/`SERVICE_RESTARTS`、`FUTEX_WAIT`/`FUTEX_WAKE`、`CADENCE_NAMED` |
 | `0x40-0x4F` | HMP 与共享 Frame | `ALLOC`、`CAPABILITY_*`、`REGION_*`、`DMA_SYNC`、`LEDGER_INFO` |
 | `0x50-0x5F` | 设备与中断 | `PCI_READ`/`PCI_WRITE`、`DEVICE_*`、`IRQ_BIND`/`MSI_BIND` |
 | `0x60-0x6F` | 时间与系统信息 | `TICKS`、`TSC*`、`CIVIL_TIME`、`BOOT_CMDLINE`、`KERNEL_STATS` |

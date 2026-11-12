@@ -72,6 +72,8 @@ pub struct UserTask<C> {
     pub exited: bool,
     /// 退出码。
     pub exit_code: u64,
+    /// 该槽位累计重启次数；首次启动为 0。
+    pub restarts: u64,
 }
 
 impl<C> UserTask<C> {
@@ -103,6 +105,7 @@ impl<C> UserTask<C> {
             reply: None,
             exited: false,
             exit_code: 0,
+            restarts: 0,
         }
     }
 }

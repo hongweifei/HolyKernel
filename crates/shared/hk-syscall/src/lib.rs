@@ -144,6 +144,9 @@ pub const SYS_SELF_NOTIFICATION: u64 = 0x2E;
 /// 按服务名查询当前任务端点。
 pub const SYS_SERVICE_ENDPOINT: u64 = 0x2F;
 
+/// 按服务名查询累计重启次数；同名槽位的最大值，包含正在重启的窗口。
+pub const SYS_SERVICE_RESTARTS: u64 = 0x36;
+
 // === 同步 0x30-0x3F ===
 
 /// 在共享内存字上等待。
@@ -685,6 +688,7 @@ mod tests {
             SYS_WAIT_NOTIFY_TRY,
             SYS_SELF_NOTIFICATION,
             SYS_SERVICE_ENDPOINT,
+            SYS_SERVICE_RESTARTS,
             SYS_FUTEX_WAIT,
             SYS_FUTEX_WAKE,
             SYS_ALLOC,

@@ -100,6 +100,7 @@ flowchart LR
 | `SYS_CADENCE_REVOKE(handle)` | 撤销契约 |
 | `SYS_METER_INFO(handle, out)` | 查询计量 |
 | `SYS_METER_RESET(handle)` | 重置计量；需要 Meter 的 ADMIN |
+| `SYS_SERVICE_RESTARTS(name)` | 同名服务累计重启次数，用于客户端在重启后重建共享缓冲区映射 |
 | `SYS_TASK_ATTACH_CADENCE(task, cadence)` | Root/Tempo 为 Task 附加契约 |
 
 Task、Cadence、Meter 都使用统一 Handle 表示；Rust 客户端库提供零成本类型包装。

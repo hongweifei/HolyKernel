@@ -142,6 +142,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             context,
         });
         task.leader = index;
+        // 复用已退出槽位表示一次重启；计数供服务发现与重启测试观察。
+        if reuse {
+            task.restarts = self.tasks[index].restarts.saturating_add(1);
+        }
         task.capacities.push(Some(capacity_handle));
         task.context.set_start_capacity(
             crate::runtime::CAPACITY_HANDLE_BASE as u64 + task.capacities.len() as u64,

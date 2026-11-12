@@ -14,7 +14,7 @@ use hk_proto::block::{
 use hk_server_api::{
     CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
     close_handle, handle_duplicate, recv_data_handle_try, region_unmap, send, send_data,
-    send_handle, service_endpoint,
+    send_handle, service_endpoint, service_restarts,
 };
 
 use crate::status::from_status;
@@ -58,6 +58,8 @@ pub struct BlockClient {
     request: Vec<u8>,
     response: Vec<u8>,
     endpoint: u64,
+    /// 服务实例代际；服务重启后共享缓冲区必须重新 attach。
+    generation: u64,
     /// 已完成但尚未被对应请求取走的标签。
     deferred: Vec<(u32, u8, usize)>,
     /// 直写缓冲区随客户端生命周期存在，不跨客户端共享。
@@ -107,6 +109,7 @@ impl BlockClient {
             request: vec![0_u8; 64],
             response: vec![0_u8; 64 * 1024],
             endpoint: 0,
+            generation: u64::MAX,
             deferred: Vec::new(),
             mappings: Vec::new(),
             mapping_capacity,
@@ -182,11 +185,13 @@ impl BlockClient {
         if endpoint == 0 {
             return Err(STATUS_ERROR);
         }
-        if self.endpoint != endpoint {
+        let generation = service_restarts(self.service.as_str());
+        if self.endpoint != endpoint || self.generation != generation {
             for entry in &mut self.slots {
                 entry.attached = None;
             }
             self.endpoint = endpoint;
+            self.generation = generation;
         }
         if self.slots[slot].capability.is_none() {
             // 共享缓冲区是匿名能力而不是裸 Frame：能力可以同时被客户端与服务端
@@ -213,11 +218,13 @@ impl BlockClient {
         if endpoint == 0 {
             return Err(STATUS_ERROR);
         }
-        if self.endpoint != endpoint {
+        let generation = service_restarts(self.service.as_str());
+        if self.endpoint != endpoint || self.generation != generation {
             for entry in &mut self.slots {
                 entry.attached = None;
             }
             self.endpoint = endpoint;
+            self.generation = generation;
         }
         if self.slots[slot].attached != Some(frame.0) {
             self.attach_mapping(slot, endpoint, frame.0, frame.2)?;

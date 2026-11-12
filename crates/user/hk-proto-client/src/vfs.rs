@@ -11,7 +11,7 @@ use hk_proto::vfs::{
 use hk_server_api::{
     CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
     close_handle, handle_duplicate, recv_data_from, region_unmap, send_data, send_handle,
-    service_endpoint,
+    service_endpoint, service_restarts,
 };
 
 /// VFS 客户端；缓冲与共享帧在首次使用时建立。
@@ -25,6 +25,8 @@ pub struct VfsClient {
     region: u64,
     mapping_virt: u64,
     attached: u64,
+    /// 服务实例代际；重启后共享缓冲区需要重新 attach。
+    generation: u64,
 }
 
 impl Drop for VfsClient {
@@ -53,6 +55,7 @@ impl VfsClient {
             region: 0,
             mapping_virt: 0,
             attached: 0,
+            generation: u64::MAX,
         }
     }
 
@@ -70,7 +73,8 @@ impl VfsClient {
         if endpoint == 0 {
             return Err(STATUS_IO);
         }
-        if self.attached == endpoint && self.frame.is_some() {
+        let generation = service_restarts(self.service);
+        if self.attached == endpoint && self.generation == generation && self.frame.is_some() {
             return Ok(endpoint);
         }
         if self.frame.is_none() {
@@ -97,6 +101,7 @@ impl VfsClient {
             return Err(STATUS_IO);
         }
         self.attached = endpoint;
+        self.generation = generation;
         Ok(endpoint)
     }
 
