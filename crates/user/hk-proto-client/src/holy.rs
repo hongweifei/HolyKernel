@@ -5,10 +5,10 @@ use alloc::vec::Vec;
 use hk_proto::holy::{
     DOC_LEN, DRIVE_SERVICE, DocId, DocumentKind, DocumentView, HOLY_REQUEST, HOLY_RESPONSE,
     MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK,
-    OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID,
-    OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
+    OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT_ID,
+    OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
     OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION,
-    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS,
+    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE,
     OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA,
     OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
     OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID,
@@ -96,30 +96,12 @@ impl HolyClient {
             .map(|_| ())
     }
 
-    /// 枚举集合文档，返回编码后的集合项字节数。
-    pub fn enumerate(&mut self, path: &str) -> Result<&[u8], u8> {
-        let length = self.exchange(OP_ENUMERATE, path, 0, 0, &[])?;
-        Ok(&self.response[3..3 + length])
-    }
-
     /// 整文档读取，返回内容字节数。
     pub fn read(&mut self, path: &str, out: &mut [u8]) -> Result<usize, u8> {
         let length = self.exchange(OP_READ, path, 0, 0, &[])?;
         let copy = length.min(out.len());
         out[..copy].copy_from_slice(&self.response[3..3 + copy]);
         Ok(length)
-    }
-
-    /// 查询文档视图。
-    pub fn document(&mut self, path: &str) -> Result<DocumentView, u8> {
-        let length = self.exchange(OP_DOCUMENT, path, 0, 0, &[])?;
-        decode_document(&self.response[3..3 + length]).ok_or(STATUS_INVALID)
-    }
-
-    /// 枚举修订链，返回编码后的修订字节数。
-    pub fn revisions(&mut self, path: &str) -> Result<&[u8], u8> {
-        let length = self.exchange(OP_REVISIONS, path, 0, 0, &[])?;
-        Ok(&self.response[3..3 + length])
     }
 
     /// 读取根集合文档身份。

@@ -117,7 +117,7 @@ fn class_matches(device: Device, requested: u64) -> bool {
         }
         DEVICE_CLASS_NETWORK => device.class == 0x02,
         // 过渡设备号并不总等于 `0x1000 + virtio 设备号`，这里显式列出。
-        DEVICE_CLASS_INPUT => virtio_device(device, 0x1012, 0x1052),
+        DEVICE_CLASS_INPUT => virtio_modern(device, 0x1052),
         DEVICE_CLASS_RNG => virtio_device(device, 0x1005, 0x1044),
         DEVICE_CLASS_CONSOLE => virtio_device(device, 0x1003, 0x1043),
         _ => false,
@@ -128,6 +128,12 @@ fn class_matches(device: Device, requested: u64) -> bool {
 #[cfg(target_os = "none")]
 fn virtio_device(device: Device, legacy: u16, modern: u16) -> bool {
     device.vendor == 0x1AF4 && (device.device == legacy || device.device == modern)
+}
+
+/// 判断设备是否为指定现代 virtio 设备；驱动不支持的过渡号不得授权。
+#[cfg(target_os = "none")]
+fn virtio_modern(device: Device, modern: u16) -> bool {
+    device.vendor == 0x1AF4 && device.device == modern
 }
 
 /// 把缓存授权编码并交给申请者。

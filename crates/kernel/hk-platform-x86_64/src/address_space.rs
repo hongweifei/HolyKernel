@@ -93,7 +93,7 @@ impl PageTable {
         phys: u64,
         len: usize,
         flags: crate::paging::PageFlags,
-        cow: bool,
+        force_4k: bool,
         track: bool,
     ) -> bool {
         if len == 0
@@ -138,7 +138,7 @@ impl PageTable {
                 offset += page as usize;
                 continue;
             }
-            let size = if !cow {
+            let size = if !force_4k {
                 if remaining >= (1 << 30)
                     && virt.is_multiple_of(1 << 30)
                     && phys.is_multiple_of(1 << 30)

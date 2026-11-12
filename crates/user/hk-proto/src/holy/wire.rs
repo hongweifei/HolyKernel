@@ -7,14 +7,8 @@ pub const HOLY_REQUEST: u64 = crate::labels::HOLY;
 /// 响应标签。
 pub const HOLY_RESPONSE: u64 = crate::labels::HOLY + 1;
 
-/// 按 DocPath 枚举集合。
-pub const OP_ENUMERATE: u8 = 1;
 /// 按 DocPath 整文档读取。
 pub const OP_READ: u8 = 2;
-/// 按 DocPath 查询文档视图。
-pub const OP_DOCUMENT: u8 = 3;
-/// 按 DocPath 枚举修订链。
-pub const OP_REVISIONS: u8 = 4;
 /// 读取根文档身份。
 pub const OP_ROOT: u8 = 5;
 /// 在集合中按名字解析。

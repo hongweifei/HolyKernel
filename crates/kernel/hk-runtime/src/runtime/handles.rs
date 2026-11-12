@@ -13,6 +13,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 安装一个额外能力句柄并记录容量记账。
     pub(crate) fn install_extra_capability(&mut self, index: usize, handle: Handle) -> Option<u64> {
         let tcb = self.tasks[index].tcb;
+        // DeviceGrant 统一进入 Grant 段，避免同一对象出现两套句柄编号。
+        if self.kernel.device_grant(tcb, handle).is_ok() {
+            return Some(self.install_grant(index, handle, None));
+        }
         let Ok((_capability, _)) = self.kernel.capability(tcb, handle) else {
             // Frame 句柄没有类型化能力对象；接收方按物理区间大小记账，
             // 否则 MEMORY_FRAME 之类的转移会完全绕过接收任务的配额。
@@ -445,22 +449,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn grant_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if let Some(entry) = number
+        number
             .checked_sub(GRANT_HANDLE_BASE + 1)
             .and_then(|slot| self.tasks[index].grants.get(slot))
             .and_then(|slot| slot.as_ref())
-        {
-            return Some(entry.handle);
-        }
-        let handle = self.tasks[index]
-            .extra
-            .get(number.checked_sub(EXTRA_HANDLE_BASE + 1)?)
-            .and_then(|slot| slot.as_ref())?
-            .handle;
-        self.kernel
-            .device_grant(self.tasks[index].tcb, handle)
-            .ok()?;
-        Some(handle)
+            .map(|entry| entry.handle)
     }
 
     pub(crate) fn install_grant(

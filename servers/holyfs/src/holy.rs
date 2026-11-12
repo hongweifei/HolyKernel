@@ -7,15 +7,15 @@ use hk_fs_holyfs::{MaintenanceReport, Quota, RevisionId};
 use hk_proto::holy::{
     DocId as WireDocId, DriveView, MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE,
     OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK, OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG,
-    OP_DETACH_DRIVE, OP_DOCUMENT, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG,
-    OP_ENUMERATE, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
-    OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME,
-    OP_REPAIR, OP_RESOLVE, OP_RESTORE, OP_REVISIONS, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME,
-    OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG,
-    OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
-    OP_UNTAG, OP_VOLUME, OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, Request,
-    TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_INSPECT, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, VolumeView,
-    decode_quota, decode_u64, encode_maintenance, encode_quota,
+    OP_DETACH_DRIVE, OP_DOCUMENT_ID, OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE_ID,
+    OP_FORGET, OP_GRANT, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID,
+    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE,
+    OP_RESTORE, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL,
+    OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
+    OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, Request, TOKEN_RIGHT_ADMIN,
+    TOKEN_RIGHT_INSPECT, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, VolumeView, decode_quota, decode_u64,
+    encode_maintenance, encode_quota,
 };
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
@@ -186,20 +186,8 @@ pub(crate) fn handle(
     }
     let session = sessions.doc(sender, letter);
     match request.op {
-        OP_ENUMERATE => match drive.enumerate(request.path) {
-            Ok(entries) => response::entries(body, &entries),
-            Err(error) => (response::status(error), 0),
-        },
         OP_READ => match drive.read_document(request.path) {
             Ok(content) => response::bytes(body, &content),
-            Err(error) => (response::status(error), 0),
-        },
-        OP_DOCUMENT => match drive.document(request.path) {
-            Ok(info) => response::info(body, info),
-            Err(error) => (response::status(error), 0),
-        },
-        OP_REVISIONS => match drive.revisions(request.path) {
-            Ok(revisions) => response::revisions(body, &revisions),
             Err(error) => (response::status(error), 0),
         },
         OP_ROOT => response::doc(body, drive.root()),
