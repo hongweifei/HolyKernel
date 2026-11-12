@@ -189,7 +189,7 @@ stateDiagram-v2
 - 一次性定时器：编程到 `grant_end`、下一个虚拟截止期、下一个周期补充、下一个 sleep/IPC 超时的最早者。
 - 全局时间源：平台单调时钟；Hosted 平台使用虚拟时钟。
 - 周期补充由内核 `refills` 表承载；sleep 与接收/调用超时由 runtime 的 `sleeping`/`timeouts` 表承载。`Runtime::next_wakeup` 合并三者与本地 Grant 结束，Beat 将本地一次性定时器指向该 CPU 的最近事件。
-- idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。
+- idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。AP 进入空闲前切回内核地址空间，避免 CR3 仍指向已被其它 CPU 回收的用户页表；LAPIC 伪中断与未注册的硬件向量直接忽略，不进入异常报告路径。
 - 调度调用返回"这一刻没有可选中任务"时，调用方按待办唤醒（`refills`、`sleeping`、`timeouts`）与未退出任务决定继续等待还是收尾；`Throttled` 任务只是在等预算补充，不能据此判定系统完成。
 - 一次性唤醒在关中断状态下编程，再用 `sti; hlt` 原子等待；先开中断再编程会让唤醒在 `hlt` 前被投递，随后进入没有定时器的永久等待。
 - 平台把一次性期限钳到 10 ms 上界作为活性看门狗；长睡眠与长周期任务至少每 10 ms 醒一次，Tickless 不是无限期停 tick。

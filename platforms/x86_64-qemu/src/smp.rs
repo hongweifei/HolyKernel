@@ -2,11 +2,32 @@
 
 use alloc::format;
 use alloc::string::String;
+use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
 
 use hk_boot::limine::ApCpu;
+use hk_hal::MAX_CPUS;
 use hk_platform_x86_64::cpu;
 use hk_smp::AP_POOL;
+
+/// 每个 AP 的调度栈大小；Limine 提供的引导栈太小，深层启动路径会溢出。
+const AP_STACK_SIZE: usize = 256 * 1024;
+
+/// 16 字节对齐的 AP 栈；用 `UnsafeCell` 保证落入可写 `.bss` 而不是只读段。
+#[repr(align(16))]
+struct ApStack(UnsafeCell<[u8; AP_STACK_SIZE]>);
+
+// SAFETY: 每个 CPU 只写自己的栈，且栈在 CPU 运行期间独占。
+unsafe impl Sync for ApStack {}
+
+/// 每 CPU 的调度栈；BSP 使用内核启动栈，AP 在入口切换到自己的栈。
+static AP_STACKS: [ApStack; MAX_CPUS] =
+    [const { ApStack(UnsafeCell::new([0; AP_STACK_SIZE])) }; MAX_CPUS];
+
+fn ap_stack_top(cpu: usize) -> u64 {
+    let stack = &AP_STACKS[cpu.min(MAX_CPUS - 1)];
+    stack.0.get() as u64 + AP_STACK_SIZE as u64
+}
 
 /// 启动 AP、等待其初始化完成，并发送一次 IPI 自检。
 pub fn start() -> Result<(usize, usize), String> {
@@ -89,8 +110,37 @@ unsafe extern "C" fn ap_entry(info: *mut ApCpu) -> ! {
         let cpu = &*info;
         (cpu.lapic_id, cpu.extra.load(Ordering::Acquire) as usize)
     };
+    // Limine 的 AP 引导栈容量不足；先切到静态调度栈，再执行 GDT/IDT 与调度循环。
+    switch_ap_stack(cpu_index, lapic_id)
+}
+
+/// 在静态栈上继续 AP 初始化；不返回。
+fn switch_ap_stack(cpu_index: usize, lapic_id: u32) -> ! {
+    let top = ap_stack_top(cpu_index);
+    // SAFETY: 栈顶来自本 CPU 的静态数组，16 字节对齐且不会与其它 CPU 重叠；
+    // 入口函数签名为 `extern "C" fn(u64, u64) -> !`。
+    unsafe {
+        core::arch::asm!(
+            "mov rsp, {top}",
+            "sub rsp, 8",
+            "xor ebp, ebp",
+            "mov rdi, {lapic}",
+            "mov rsi, {cpu}",
+            "jmp {entry}",
+            top = in(reg) top,
+            lapic = in(reg) u64::from(lapic_id),
+            cpu = in(reg) cpu_index as u64,
+            entry = sym ap_main,
+            options(noreturn),
+        );
+    }
+}
+
+/// AP 主循环；运行在静态调度栈上。
+extern "C" fn ap_main(lapic_id: u64, cpu_index: u64) -> ! {
+    let cpu_index = cpu_index as usize;
     cpu::init_ap(cpu_index);
     cpu::start_ap_tick();
-    AP_POOL.mark_online(lapic_id);
+    AP_POOL.mark_online(lapic_id as u32);
     crate::runtime::run_ap(cpu_index)
 }

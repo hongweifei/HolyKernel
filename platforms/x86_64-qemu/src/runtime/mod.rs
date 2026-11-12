@@ -596,6 +596,9 @@ fn watchdog_snapshot() {
 pub fn run_ap(cpu: usize) -> ! {
     loop {
         RUNTIME.run_cpu(cpu, None);
+        // 没有任务时切回内核地址空间：否则 AP 的 CR3 可能仍指向已被其它
+        // CPU 回收的用户页表，空闲期间的中断会踩到已释放的映射。
+        paging::kernel_table().activate();
         if RUNTIME.has_deadline(cpu) {
             cpu::enable_wakeup_timer();
             RUNTIME.arm_wakeup(cpu);

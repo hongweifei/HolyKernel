@@ -72,6 +72,12 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
         return;
     }
 
+    // 未注册的硬件向量（含 LAPIC 伪中断 0xFF）不能按异常处理；否则
+    // `report_exception` 会以无效向量索引异常名表并级联成三重故障。
+    if frame.vector >= 32 {
+        return;
+    }
+
     if frame.cs == u64::from(USER_CODE_SELECTOR)
         && let Some(action) = dispatch_fault(frame)
     {

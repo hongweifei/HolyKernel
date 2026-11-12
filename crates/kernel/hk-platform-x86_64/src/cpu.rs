@@ -118,7 +118,7 @@ const TIMER_INITIAL_COUNT: u32 = 1_000_000;
 const TICK_INITIAL_COUNT: u32 = 100_000;
 
 /// 系统调用栈大小。
-const SYSCALL_STACK_SIZE: usize = 32 * 1024;
+const SYSCALL_STACK_SIZE: usize = 128 * 1024;
 
 /// 支持的 CPU 数量上限。
 pub const MAX_CPUS: usize = 16;
