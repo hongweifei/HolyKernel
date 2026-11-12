@@ -21,6 +21,8 @@ use crate::workspace;
 
 /// 等待内核退出的上限。
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// Shell 冒烟覆盖多服务重启、热替换与文件系统检查，调试构建需要更长预算。
+const SHELL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// HolyDoc 自检含快照与多次渲染，debug 构建需要更长时间。
 const HOLYDOC_TIMEOUT: Duration = Duration::from_secs(90);
@@ -273,7 +275,7 @@ impl SmokeMode {
                 "父",
                 "句柄",
                 "Arena",
-                "VSpace",
+                "页表根",
                 "/2048K",
                 "Handle 计数",
                 "重启",
@@ -947,6 +949,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         SmokeMode::Holydoc | SmokeMode::HolyDocResize | SmokeMode::Workbench
     ) {
         HOLYDOC_TIMEOUT
+    } else if mode == SmokeMode::Shell {
+        SHELL_TIMEOUT
     } else {
         TIMEOUT
     };

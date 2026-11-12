@@ -639,10 +639,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    /// 在 fork 前把惰性 Region 的页装入父地址空间。
+    /// 在 fork 前把惰性匿名 Region 的页装入父地址空间。
     ///
-    /// 绑定 Provider 的 Region 不预装入：子任务首次访问时由 Provider 按需
-    /// 提供，否则含懒 Surface/Revision 的任务无法 fork。
+    /// 只处理 `Anonymous` 且未绑定 Provider 的 Region：装载器映射、TaskImage
+    /// 与 Provider 管理的页已经存在或由对应服务提供，内核不能代为装入。已经
+    /// 建立 PTE 的页保持原映射，避免把镜像或栈替换成零页。
     pub(crate) fn populate_lazy_regions(&mut self, index: usize) -> bool {
         let ranges: alloc::vec::Vec<(u64, usize)> = self
             .process(index)
@@ -650,11 +651,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .iter()
             .flatten()
             .filter_map(|region| {
-                let (_, backing) = self
+                let (capability, backing) = self
                     .kernel
                     .capability(region.owner, region.capability)
                     .ok()?;
-                if backing.is_some() {
+                if backing.is_some() || capability.kind() != CapabilityKind::Anonymous {
                     return None;
                 }
                 let provider = self
@@ -679,7 +680,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         for (virt, len) in ranges {
             let mut offset = 0;
             while offset < len as u64 {
-                if !self.anonymous_fault(cpu, virt + offset) {
+                let address = virt + offset;
+                if !self.platform.user_mapped(address) && !self.anonymous_fault(cpu, address) {
                     return false;
                 }
                 offset += page;
