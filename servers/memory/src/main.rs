@@ -98,6 +98,16 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
             continue;
         }
+        if matches!(
+            label,
+            hk_syscall::PROVIDER_EVICT
+                | hk_syscall::PROVIDER_WRITEBACK
+                | hk_syscall::PROVIDER_ERROR
+        ) {
+            // 匿名页没有后备存储；驱逐、回写与错误通知只需确认。
+            let _ = reply(0, 0);
+            continue;
+        }
         if label != PROVIDER_FAULT {
             let _ = reply(0, u64::MAX);
             continue;

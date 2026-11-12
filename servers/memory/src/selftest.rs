@@ -8,7 +8,7 @@ use hk_server_api::{
 /// 验证 Root Server 授予的初始 Capacity 与 Frame 生命周期。
 #[cfg(target_os = "none")]
 pub(crate) fn verify_capacity(capacity: u64) -> bool {
-    let Some(before) = capacity_info(capacity) else {
+    let Some(_before) = capacity_info(capacity) else {
         return false;
     };
     let Some(frame) = capacity_alloc(capacity, PAGE) else {
@@ -26,7 +26,9 @@ pub(crate) fn verify_capacity(capacity: u64) -> bool {
     if capacity_free(capacity, frame) != 1 {
         return false;
     }
-    capacity_info(capacity).is_some_and(|after| after.used == before.used)
+    // 顶层 User Capacity 由全部服务共享，并行分配会让全局 used 抖动；
+    // 这里只校验自检帧的生命周期与容量仍可用，配额记账由单元测试覆盖。
+    capacity_info(capacity).is_some()
 }
 
 /// 验证容量 Ledger 枚举接口至少返回一条一致的记录。

@@ -483,6 +483,15 @@ pub const PROVIDER_FAULT: u64 = 0x1200;
 /// Provider 回复缺页请求的标签。
 pub const PROVIDER_PROVIDE: u64 = 0x1201;
 
+/// 内核通知 Provider 驱逐页的标签。
+pub const PROVIDER_EVICT: u64 = 0x1202;
+
+/// 内核要求 Provider 回写页的标签。
+pub const PROVIDER_WRITEBACK: u64 = 0x1203;
+
+/// Provider 拒绝请求或报告失败的标签。
+pub const PROVIDER_ERROR: u64 = 0x1204;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 

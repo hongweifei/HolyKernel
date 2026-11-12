@@ -1467,6 +1467,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let owner = self.leader_of(index);
                 let owner_tcb = self.tasks[owner].tcb;
                 if let Some(message) = self.kernel.take_reply(caller) {
+                    // Provider 只能以 PROVIDE 标签回包；ERROR 与其它标签都按
+                    // 缺页故障处理，避免消费回复后永久阻塞。
+                    if message.label != hk_syscall::PROVIDER_PROVIDE {
+                        return self.fail_provider(cpu, index, pending);
+                    }
                     let frame_handle = message.handles[0];
                     let frame = frame_handle.and_then(|handle| {
                         let frame = self.kernel.take_owned_frame(caller, handle).ok();

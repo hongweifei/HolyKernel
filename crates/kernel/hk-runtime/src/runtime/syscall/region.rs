@@ -577,12 +577,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if offset >= capability.size() {
             return false;
         }
-        let mut words = [0_u64; 8];
-        words[0] = offset;
-        words[1] = page;
-        words[2] = address;
-        // 3 = 访问类型：0 读，1 写；Provider 据此决定复制、共享或拒绝。
-        words[3] = u64::from(write);
+        let Ok(capability_id) = self.kernel.handle_id(region.tcb, region.capability) else {
+            return false;
+        };
+        let words = hk_mem::hmp::provider::FaultMessage {
+            offset,
+            page,
+            address,
+            access: if write {
+                hk_mem::hmp::provider::ProviderAccess::Write
+            } else {
+                hk_mem::hmp::provider::ProviderAccess::Read
+            },
+            capability: capability_id.get(),
+            rights: region.rights.bits(),
+            flags: region.flags.bits(),
+        }
+        .encode();
         let message = Message::new(PROVIDER_FAULT).with_words(words);
         if self
             .kernel
@@ -610,6 +621,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(region) = self.find_fault_region(index, address) else {
             return FaultOutcome::Unhandled;
         };
+        // Guard 命中即故障：不装零页，也不转发 Provider。
+        if region.flags.contains(RegionFlags::GUARD) {
+            return FaultOutcome::Unhandled;
+        }
         let Ok((capability, backing)) = self.kernel.capability(region.tcb, region.capability)
         else {
             return FaultOutcome::Unhandled;

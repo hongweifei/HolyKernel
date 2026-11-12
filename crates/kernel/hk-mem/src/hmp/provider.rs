@@ -75,6 +75,85 @@ impl ProviderKind {
     }
 }
 
+/// Provider 访问类型。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderAccess {
+    /// 读取。
+    Read,
+    /// 写入（写时复制由 Provider 决定复制、共享或拒绝）。
+    Write,
+}
+
+impl ProviderAccess {
+    /// 返回 ABI 编码。
+    pub const fn as_u64(self) -> u64 {
+        match self {
+            Self::Read => 0,
+            Self::Write => 1,
+        }
+    }
+
+    /// 从 ABI 编码还原。
+    pub const fn from_u64(value: u64) -> Option<Self> {
+        Some(match value {
+            0 => Self::Read,
+            1 => Self::Write,
+            _ => return None,
+        })
+    }
+}
+
+/// 缺页消息的定长字布局。
+///
+/// `[offset, page, address, access, capability, rights, flags, reserved]`；
+/// 标签由 `hk_syscall::PROVIDER_FAULT` 指定。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FaultMessage {
+    /// 能力内偏移。
+    pub offset: u64,
+    /// 请求页长度。
+    pub page: u64,
+    /// 触发缺页的用户虚拟地址。
+    pub address: u64,
+    /// 访问类型。
+    pub access: ProviderAccess,
+    /// 能力标识。
+    pub capability: u64,
+    /// Region 权利位。
+    pub rights: u32,
+    /// Region 标志位。
+    pub flags: u32,
+}
+
+impl FaultMessage {
+    /// 编码为 8 个字。
+    pub const fn encode(self) -> [u64; 8] {
+        [
+            self.offset,
+            self.page,
+            self.address,
+            self.access.as_u64(),
+            self.capability,
+            self.rights as u64,
+            self.flags as u64,
+            0,
+        ]
+    }
+
+    /// 从 8 个字还原。
+    pub fn decode(words: &[u64; 8]) -> Option<Self> {
+        Some(Self {
+            offset: words[0],
+            page: words[1],
+            address: words[2],
+            access: ProviderAccess::from_u64(words[3])?,
+            capability: words[4],
+            rights: words[5] as u32,
+            flags: words[6] as u32,
+        })
+    }
+}
+
 /// 缺页请求。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FaultRequest {
@@ -163,6 +242,23 @@ mod tests {
         assert!(ProviderKind::Device.supports(CapabilityKind::DeviceAllocation));
         assert!(ProviderKind::Anonymous.supports(CapabilityKind::Anonymous));
         assert!(!ProviderKind::Anonymous.supports(CapabilityKind::Surface));
+    }
+
+    #[test]
+    fn fault_word_layout_roundtrips() {
+        let message = FaultMessage {
+            offset: 0x2000,
+            page: 0x1000,
+            address: 0x4000_2000,
+            access: ProviderAccess::Write,
+            capability: 7,
+            rights: 0x13,
+            flags: 0x20,
+        };
+        assert_eq!(FaultMessage::decode(&message.encode()), Some(message));
+        let mut words = message.encode();
+        words[3] = 9;
+        assert_eq!(FaultMessage::decode(&words), None);
     }
 
     #[test]
