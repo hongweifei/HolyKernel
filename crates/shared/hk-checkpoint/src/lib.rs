@@ -63,6 +63,27 @@ pub struct RegionSnapshot {
     pub capability_size: u64,
 }
 
+/// HMP 对象图的只读描述；不承载授权，恢复后由 Root/Memory Server 重新授予。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectSnapshot {
+    /// 对象类别：0 Capacity，1 Frame，2 Capability，3 Region，4 其它。
+    pub kind: u8,
+    /// 句柄权利。
+    pub rights: u32,
+    /// 用户态句柄编号。
+    pub number: u32,
+    /// 持有该句柄的 TCB。
+    pub owner: u64,
+    /// 对象标识。
+    pub object: u64,
+    /// 对象大小（Capacity 配额 / Frame 长度 / 能力长度 / Region 长度）。
+    pub size: u64,
+    /// 物理起始地址；惰性对象为 0。
+    pub phys: u64,
+    /// 类别相关细节（Capacity 页大小 / Frame 页大小 / 能力种类 / Region 虚拟地址）。
+    pub detail: u64,
+}
+
 /// 一次检查点快照。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -86,6 +107,8 @@ pub struct Snapshot {
     pub threads: Vec<ThreadSnapshot>,
     /// Region 元数据。
     pub regions: Vec<RegionSnapshot>,
+    /// HMP 对象图描述；只记录，不用于重建授权。
+    pub objects: Vec<ObjectSnapshot>,
 }
 
 impl Snapshot {
@@ -102,6 +125,7 @@ impl Snapshot {
             &self.pages,
             &self.threads,
             &self.regions,
+            &self.objects,
         )
     }
 
@@ -113,6 +137,7 @@ impl Snapshot {
             &self.pages,
             &self.threads,
             &self.regions,
+            &self.objects,
         )
     }
 
@@ -172,6 +197,23 @@ impl Snapshot {
                 capability_size: cursor.u64()?,
             });
         }
+        let count = cursor.u32()? as usize;
+        if count > cursor.remaining() / 49 {
+            return None;
+        }
+        let mut objects = Vec::with_capacity(count);
+        for _ in 0..count {
+            objects.push(ObjectSnapshot {
+                kind: cursor.u8()?,
+                rights: cursor.u32()?,
+                number: cursor.u32()?,
+                owner: cursor.u64()?,
+                object: cursor.u64()?,
+                size: cursor.u64()?,
+                phys: cursor.u64()?,
+                detail: cursor.u64()?,
+            });
+        }
         Some(Self {
             slot,
             name,
@@ -183,6 +225,7 @@ impl Snapshot {
             pages,
             threads,
             regions,
+            objects,
         })
     }
 }
@@ -200,6 +243,7 @@ pub fn encode_parts(
     pages: &[Page],
     threads: &[ThreadSnapshot],
     regions: &[RegionSnapshot],
+    objects: &[ObjectSnapshot],
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(encoded_size(
         name.len(),
@@ -207,6 +251,7 @@ pub fn encode_parts(
         pages,
         threads,
         regions,
+        objects,
     ));
     out.extend_from_slice(&MAGIC);
     push_u32(&mut out, VERSION);
@@ -247,6 +292,17 @@ pub fn encode_parts(
         out.push(region.kind);
         push_u64(&mut out, region.capability_size);
     }
+    push_u32(&mut out, objects.len() as u32);
+    for object in objects {
+        out.push(object.kind);
+        push_u32(&mut out, object.rights);
+        push_u32(&mut out, object.number);
+        push_u64(&mut out, object.owner);
+        push_u64(&mut out, object.object);
+        push_u64(&mut out, object.size);
+        push_u64(&mut out, object.phys);
+        push_u64(&mut out, object.detail);
+    }
     out
 }
 
@@ -256,6 +312,7 @@ fn encoded_size(
     pages: &[Page],
     threads: &[ThreadSnapshot],
     regions: &[RegionSnapshot],
+    objects: &[ObjectSnapshot],
 ) -> usize {
     let mut size = 4
         + 4
@@ -278,6 +335,7 @@ fn encoded_size(
         size += 4 + thread.context.len() + 8;
     }
     size += 4 + regions.len() * (8 + 8 + 4 + 4 + 1 + 8);
+    size += 4 + objects.len() * (1 + 4 + 4 + 8 + 8 + 8 + 8 + 8);
     size
 }
 
@@ -368,6 +426,16 @@ mod tests {
                 kind: 2,
                 capability_size: 0x1000,
             }],
+            objects: vec![ObjectSnapshot {
+                kind: 2,
+                rights: 0x1f,
+                number: 0x3001,
+                owner: 9,
+                object: 0x10,
+                size: 0x1000,
+                phys: 0x40_0000,
+                detail: 1,
+            }],
         }
     }
 
@@ -396,7 +464,8 @@ mod tests {
         // 页计数位于页数据之前；页数据之后还有线程与 Region 两段。
         let threads_len = 4 + (4 + 4 + 8);
         let regions_len = 4 + (8 + 8 + 4 + 4 + 1 + 8);
-        let count_at = bytes.len() - 4096 - 20 - 4 - threads_len - regions_len;
+        let objects_len = 4 + (1 + 4 + 4 + 8 + 8 + 8 + 8 + 8);
+        let count_at = bytes.len() - 4096 - 20 - 4 - threads_len - regions_len - objects_len;
         bytes[count_at..count_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(Snapshot::decode(&bytes), None);
     }

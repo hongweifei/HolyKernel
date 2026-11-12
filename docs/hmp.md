@@ -380,7 +380,7 @@ flowchart LR
 - 释放清零；Frame 回 Capacity 前清空敏感内容。
 - 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 或能力句柄决定。IOMMU 映射与 CPU 的 Region 都从同一句柄派生：`SYS_DMA_MAP` 解析 Frame/Capability 后建立设备页表项，不构成第二条 CPU 访问路径。
 - Debug Server 枚举 Capacity、Frame、类型化能力、Region 与 Provider；Arena/Ledger 通过运行时快照报告。
-- Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力；Arena 由运行时快照恢复。
+- Checkpoint Server 按 Handle 图捕获 Region、Frame、Capacity 与类型化能力：运行时快照记录对象类别、权利、句柄编号、对象标识、大小、物理地址与类别细节；`SYS_OBJECT_ENUM` 提供同一份只读枚举。恢复只重建页、Region 元数据与 TCB；Capacity/Frame/能力句柄属于授权，由 Root/Memory Server 在恢复后重新授予。
 - 内存压力、配额与 OOM 决策可审计。
 
 ---

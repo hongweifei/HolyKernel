@@ -480,6 +480,61 @@ fn checkpoint_restores_threads_and_regions() {
 }
 
 #[test]
+fn enumerates_owned_objects() {
+    let platform = MockPlatform::new();
+    let written = Arc::clone(&platform.written);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+
+    context.rax = hk_syscall::SYS_OBJECT_ENUM;
+    context.rdi = 0;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let count = context.rax;
+    assert!(count >= 2, "至少包含 Capacity 与能力记录");
+
+    context.rax = hk_syscall::SYS_OBJECT_ENUM;
+    context.rdi = 0;
+    context.rsi = 0x1000;
+    context.rdx = 64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 64);
+    let record = written.lock();
+    assert_eq!(record.len(), 64);
+    assert_eq!(record[0], 0, "第一条记录是 Capacity");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn checkpoint_records_object_graph() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let _ = runtime.finish(0, index);
+
+    let size = runtime.checkpoint("a").expect("保存检查点");
+    let image = runtime.checkpoint_chunk("a", 0, size).expect("读取快照");
+    let snapshot = hk_checkpoint::Snapshot::decode(&image).expect("解码快照");
+    assert!(!snapshot.objects.is_empty(), "快照应记录对象图");
+    assert!(snapshot.objects.iter().any(|object| object.kind == 2));
+    runtime.restore_checkpoint("a").expect("恢复检查点");
+}
+
+#[test]
 fn reports_self_cadence_and_meter() {
     let mut runtime = runtime();
     let Step::Resume { mut context, .. } = runtime.step(0) else {

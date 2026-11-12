@@ -6,9 +6,9 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_LEDGER,
-    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
-    SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_ENUM,
+    SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT,
+    SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
@@ -327,6 +327,31 @@ pub fn frame_info(frame: u64) -> Option<FrameInfo> {
 pub fn frame_pin(frame: u64, pinned: bool) -> u64 {
     // SAFETY: 内核校验 Frame 与驻留状态。
     unsafe { syscall_call(SYS_FRAME_PIN, frame, u64::from(pinned), 0, 0).value }
+}
+
+/// 单条对象记录的编码长度。
+pub const OBJECT_RECORD_BYTES: usize = 64;
+
+/// 枚举当前任务持有的 HMP 对象；返回记录数。
+pub fn object_enum_count() -> Option<u64> {
+    // SAFETY: 只读取当前任务的句柄表，不涉及用户指针。
+    let count = unsafe { syscall_call(SYS_OBJECT_ENUM, 0, 0, 0, 0).value };
+    (count != u64::MAX).then_some(count)
+}
+
+/// 读取第 `index` 条对象记录。
+pub fn object_enum(index: u64, out: &mut [u8; OBJECT_RECORD_BYTES]) -> u64 {
+    // SAFETY: 缓冲区属于本进程；内核写入定长记录。
+    unsafe {
+        syscall_call(
+            SYS_OBJECT_ENUM,
+            index,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+            0,
+        )
+        .value
+    }
 }
 
 /// 把 Frame 映射进当前任务，返回 Region 句柄。

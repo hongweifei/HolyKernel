@@ -259,6 +259,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             &capture.pages,
             &threads,
             &capture.regions,
+            &capture.objects,
         );
         let size = image.len();
         self.commit_checkpoint(name, capture, image)?;
@@ -328,6 +329,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 capability_size: capability.size(),
             });
         }
+        // 对象图覆盖该进程的主线程与附加线程；记录只用于审计与枚举。
+        let mut objects = self.object_records(index);
+        let others: Vec<usize> = self
+            .tasks
+            .iter()
+            .enumerate()
+            .filter(|(other, entry)| *other != index && !entry.exited && entry.leader == index)
+            .map(|(other, _)| other)
+            .collect();
+        for other in others {
+            objects.extend(self.object_records(other));
+        }
         Ok(CheckpointCapture {
             slot: index,
             context,
@@ -338,6 +351,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             pages,
             threads,
             regions,
+            objects,
         })
     }
 
