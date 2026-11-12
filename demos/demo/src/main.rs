@@ -29,7 +29,7 @@ use hk_coroutine::{Coroutine, State, suspend};
 #[cfg(target_os = "none")]
 use hk_proto::block::BLOCK_SHUTDOWN;
 #[cfg(target_os = "none")]
-use hk_proto::echo::{ENDPOINT_ECHO, WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
+use hk_proto::echo::{WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE};
 #[cfg(target_os = "none")]
@@ -97,7 +97,8 @@ const NOTIFY_REQUEST: u64 = 0x300;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-demo running\n");
-    let (label, word, _sender) = call(ENDPOINT_ECHO, REQUEST, 21);
+    let echo = service_endpoint("hk-server-echo");
+    let (label, word, _sender) = call(echo, REQUEST, 21);
 
     if label == REPLY && word == 42 {
         write("hk-server-demo 收到回复 42\n".as_bytes());
@@ -144,14 +145,14 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(1)
         }
 
-        send(ENDPOINT_ECHO, NOTIFY_REQUEST, 0);
+        send(echo, NOTIFY_REQUEST, 0);
         if wait_notify(endpoint, 1) != 1 {
             write("hk-server-demo 通知等待失败\n".as_bytes());
             exit(1)
         }
         write("hk-server-demo 通知等待 ok\n".as_bytes());
 
-        send_handle(ENDPOINT_ECHO, HANDOFF, 7, ENDPOINT_ECHO);
+        send_handle(echo, HANDOFF, 7, echo);
         let (label, word, _sender) = recv(endpoint);
         if label != HANDOFF_REPLY || word != 14 {
             write("hk-server-demo 句柄转移失败\n".as_bytes());
@@ -667,11 +668,12 @@ fn verify_memory(endpoint: u64) -> bool {
 #[cfg(target_os = "none")]
 fn verify_worker(endpoint: u64) -> bool {
     const COUNT: u64 = 4;
+    let echo = service_endpoint("hk-server-echo");
     let mut buffer = [0_u8; 8];
     for word in 1..=COUNT {
         let mut sent = false;
         for _ in 0..64 {
-            if send(ENDPOINT_ECHO, WORK_REQUEST, word) == 0 {
+            if send(echo, WORK_REQUEST, word) == 0 {
                 sent = true;
                 break;
             }
@@ -706,7 +708,7 @@ fn verify_worker(endpoint: u64) -> bool {
 
     let mut sent = false;
     for _ in 0..64 {
-        if send(ENDPOINT_ECHO, WORK_STATS, 0) == 0 {
+        if send(echo, WORK_STATS, 0) == 0 {
             sent = true;
             break;
         }

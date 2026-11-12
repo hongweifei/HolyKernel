@@ -15,14 +15,7 @@ use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
 
 use crate::syscall_call;
 
-/// Memory Server 分配请求；与 `hk-proto::labels::MEMORY` 区间一致。
-pub const MEMORY_ALLOC: u64 = 0x1100;
-/// Memory Server 分配成功回复。
-pub const MEMORY_ALLOCATED: u64 = 0x1101;
-/// Memory Server 分配 Frame 请求。
-pub const MEMORY_FRAME: u64 = 0x1102;
-/// Memory Server 分配 Frame 成功回复。
-pub const MEMORY_FRAME_ALLOCATED: u64 = 0x1103;
+pub use hk_syscall::{MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED};
 
 /// 创建类型化能力，返回能力句柄。
 pub fn capability_create(kind: CapabilityKind, length: usize) -> Option<u64> {
@@ -161,13 +154,6 @@ pub fn capability_commit(capability: u64) -> Option<u64> {
     let version = unsafe { syscall_call(SYS_CAPABILITY_COMMIT, capability, 0, 0, 0).value };
     (version != u64::MAX).then_some(version)
 }
-
-/// Capacity 用途编码。
-pub use hk_syscall::{
-    CAPACITY_KIND_DMA as CAPACITY_DMA, CAPACITY_KIND_GPU as CAPACITY_GPU,
-    CAPACITY_KIND_NUMA as CAPACITY_NUMA, CAPACITY_KIND_SYSTEM as CAPACITY_SYSTEM,
-    CAPACITY_KIND_USER as CAPACITY_USER,
-};
 
 /// Capacity 快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

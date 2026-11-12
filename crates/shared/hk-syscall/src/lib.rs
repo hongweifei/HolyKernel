@@ -144,6 +144,22 @@ pub const SYS_SERVICE_ENDPOINT: u64 = 0x2F;
 /// 按服务名查询累计重启次数；同名槽位的最大值，包含正在重启的窗口。
 pub const SYS_SERVICE_RESTARTS: u64 = 0x36;
 
+/// Memory Server 分配请求。
+pub const MEMORY_ALLOC: u64 = 0x1100;
+/// Memory Server 分配成功回复。
+pub const MEMORY_ALLOCATED: u64 = 0x1101;
+/// Memory Server 分配 Frame 请求。
+pub const MEMORY_FRAME: u64 = 0x1102;
+/// Memory Server 分配 Frame 成功回复。
+pub const MEMORY_FRAME_ALLOCATED: u64 = 0x1103;
+
+/// DeviceGrant 移交标签。
+pub const DEVICE_GRANT: u64 = 0x602;
+/// 没有匹配设备。
+pub const DEVICE_NONE: u64 = 0x603;
+/// 驱动请求下发设备授权。
+pub const DEVICE_REQUEST: u64 = 0x604;
+
 // === 同步 0x30-0x3F ===
 
 /// 在共享内存字上等待。

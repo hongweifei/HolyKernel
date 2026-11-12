@@ -77,9 +77,9 @@ pub const LABEL_GROUPS: &[(&str, u64, &[u64])] = &[
         &[
             crate::block::BLOCK_REQUEST,
             crate::block::BLOCK_RESPONSE,
-            crate::block::BLOCK_GRANT,
-            crate::block::BLOCK_NO_DEVICE,
-            crate::block::DEVICE_REQUEST,
+            hk_syscall::DEVICE_GRANT,
+            hk_syscall::DEVICE_NONE,
+            hk_syscall::DEVICE_REQUEST,
             crate::block::BLOCK_SHUTDOWN,
             crate::block::BLOCK_ATTACH,
             crate::block::BLOCK_DETACH,
@@ -211,10 +211,10 @@ pub const LABEL_GROUPS: &[(&str, u64, &[u64])] = &[
         "memory",
         MEMORY,
         &[
-            hk_server_api::memory::MEMORY_ALLOC,
-            hk_server_api::memory::MEMORY_ALLOCATED,
-            hk_server_api::memory::MEMORY_FRAME,
-            hk_server_api::memory::MEMORY_FRAME_ALLOCATED,
+            hk_syscall::MEMORY_ALLOC,
+            hk_syscall::MEMORY_ALLOCATED,
+            hk_syscall::MEMORY_FRAME,
+            hk_syscall::MEMORY_FRAME_ALLOCATED,
         ],
     ),
     (

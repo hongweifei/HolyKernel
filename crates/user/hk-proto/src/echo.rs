@@ -3,9 +3,6 @@
 //! 普通请求以 `label + 1` 回复；计算请求由工作线程处理后用独立标签回复，
 //! 因此多个请求可以并行完成、乱序返回。
 
-/// echo 服务的端点编号。
-pub const ENDPOINT_ECHO: u64 = 2;
-
 /// 计算请求：`word` 为任务编号。
 pub const WORK_REQUEST: u64 = crate::labels::ECHO;
 /// 计算回复：`word` 为结果。

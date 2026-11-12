@@ -7,9 +7,8 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_proto::echo::ENDPOINT_ECHO;
 #[cfg(target_os = "none")]
-use hk_server_api::{call, exit, tsc, tsc_frequency, write, write_u64};
+use hk_server_api::{call, exit, service_endpoint, tsc, tsc_frequency, write, write_u64};
 
 /// 测量轮数。
 #[cfg(target_os = "none")]
@@ -27,11 +26,12 @@ const REPLY: u64 = 0x401;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
+    let echo = service_endpoint("hk-server-echo");
     let start = tsc();
     let mut failures = 0_u64;
     let mut completed = 0_u64;
     while completed < ITERATIONS {
-        let (label, word, _sender) = call(ENDPOINT_ECHO, REQUEST, 1);
+        let (label, word, _sender) = call(echo, REQUEST, 1);
         if label != REPLY || word != 2 {
             failures += 1;
         }

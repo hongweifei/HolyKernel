@@ -10,12 +10,7 @@ use crate::wire::{self, RequestHeader};
 pub const BLOCK_REQUEST: u64 = crate::labels::DEVICE_BLOCK;
 /// 响应标签。
 pub const BLOCK_RESPONSE: u64 = crate::labels::DEVICE_BLOCK + 1;
-/// DeviceGrant 移交标签。
-pub use hk_server_api::device::DEVICE_GRANT as BLOCK_GRANT;
-/// 没有块设备标签。
-pub use hk_server_api::device::DEVICE_NONE as BLOCK_NO_DEVICE;
-/// 驱动请求下发设备授权。
-pub use hk_server_api::device::DEVICE_REQUEST;
+pub use hk_syscall::{DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 /// 请求块设备服务退出（用于故障注入与重启测试）。
 pub const BLOCK_SHUTDOWN: u64 = crate::labels::DEVICE_BLOCK + 5;
 /// 附加共享 Frame；消息字见 [`attach_word`]。
