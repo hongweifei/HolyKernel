@@ -108,9 +108,6 @@ pub const SYS_RECV: u64 = 0x23;
 /// 接收带字节载荷的消息。
 pub const SYS_RECV_DATA: u64 = 0x24;
 
-/// 接收带字节载荷的消息，并指定期望的发送端点。
-pub const SYS_RECV_DATA_FROM: u64 = 0x25;
-
 /// 接收带字节载荷的消息，并把随消息收到的句柄编号打包返回。
 pub const SYS_RECV_DATA_HANDLE: u64 = 0x26;
 
@@ -673,7 +670,6 @@ mod tests {
             SYS_SEND_DATA,
             SYS_RECV,
             SYS_RECV_DATA,
-            SYS_RECV_DATA_FROM,
             SYS_RECV_DATA_HANDLE,
             SYS_RECV_DATA_TRY,
             SYS_RECV_DATA_HANDLE_TRY,

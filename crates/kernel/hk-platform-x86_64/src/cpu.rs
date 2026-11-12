@@ -54,7 +54,7 @@ pub const USER_DATA_SELECTOR: u16 = 0x2B;
 /// 用户代码段选择子。
 pub const USER_CODE_SELECTOR: u16 = 0x33;
 
-/// 系统调用中断向量。
+/// `syscall` 快路径合成的中断向量；不安装 IDT 门。
 pub const SYSCALL_VECTOR: u64 = 0x80;
 
 /// 定时器中断向量。
@@ -88,7 +88,6 @@ const USER_DATA_DESCRIPTOR: u64 = 0x00CF_F200_0000_FFFF;
 const USER_CODE_DESCRIPTOR: u64 = 0x00AF_FA00_0000_FFFF;
 
 /// 用户态中断门：P=1、DPL=3、type=0xE。
-const USER_INTERRUPT_GATE: u8 = 0xEE;
 
 /// 中断门属性：P=1、DPL=0、type=0xE。
 const INTERRUPT_GATE: u8 = 0x8E;

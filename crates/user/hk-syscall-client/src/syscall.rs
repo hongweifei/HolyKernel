@@ -139,7 +139,7 @@ pub fn recv_data_from(endpoint: u64, expected: u64, buffer: &mut [u8]) -> (u64, 
     // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
     let result = unsafe {
         syscall_call(
-            SYS_RECV_DATA_FROM,
+            SYS_RECV_DATA,
             endpoint,
             buffer.as_mut_ptr() as u64,
             buffer.len() as u64,

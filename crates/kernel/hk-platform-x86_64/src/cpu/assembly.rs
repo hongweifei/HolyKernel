@@ -212,7 +212,6 @@ core::arch::global_asm!(
     "ISR_NOERR 93",
     "ISR_NOERR 94",
     "ISR_NOERR 95",
-    "ISR_NOERR 128",
     "ISR_NOERR 158",
     "ISR_NOERR 159",
     "ISR_NOERR 240",

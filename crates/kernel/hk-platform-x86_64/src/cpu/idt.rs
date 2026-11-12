@@ -124,7 +124,6 @@ unsafe extern "C" {
     fn isr_93();
     fn isr_94();
     fn isr_95();
-    fn isr_128();
     fn isr_158();
     fn isr_159();
     fn isr_240();
@@ -171,8 +170,6 @@ pub(super) fn init_idt() {
         idt[TIMER_VECTOR as usize] = IdtEntry::new(isr_32 as *const () as usize, 0);
         idt[crate::board::KEYBOARD_VECTOR as usize] =
             IdtEntry::new(isr_33 as *const () as usize, 0);
-        idt[SYSCALL_VECTOR as usize] =
-            IdtEntry::with_attributes(isr_128 as *const () as usize, 0, USER_INTERRUPT_GATE);
         idt[HPET_VECTOR as usize] = IdtEntry::new(isr_158 as *const () as usize, 0);
         idt[SCI_VECTOR as usize] = IdtEntry::new(isr_159 as *const () as usize, 0);
         idt[IPI_VECTOR as usize] = IdtEntry::new(isr_240 as *const () as usize, 0);
