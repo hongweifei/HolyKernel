@@ -29,9 +29,9 @@ fn encode(flags: MappingFlags) -> u64 {
 pub struct PageFlags(u64);
 
 impl PageFlags {
-    /// 内核可读写页；保持可执行以兼容既有映射。
-    pub const KERNEL_RW: Self = Self(PRESENT | WRITABLE);
-    /// 用户可读写页；服务镜像页依赖可执行。
+    /// 内核可读写数据页；不可执行。
+    pub const KERNEL_RW: Self = Self(PRESENT | WRITABLE | NX);
+    /// 用户页的加载器初始属性；随后按段权限收紧。
     pub const USER_RW: Self = Self(PRESENT | WRITABLE | USER);
     /// 内核栈页：可写、不可执行、禁止用户访问。
     pub const KERNEL_STACK: Self = Self(PRESENT | WRITABLE | NX);

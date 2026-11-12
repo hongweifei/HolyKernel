@@ -147,10 +147,11 @@ extern "C" fn kmain() -> ! {
     let paging = PageTable::new(direct_map_base);
 
     if !hk_platform_x86_64::cpu::init_stacks(&paging, &hk_platform_x86_64::paging::FRAME_BANK) {
-        announce(
+        fail(
             &console,
             screen.as_ref(),
-            "内核栈 guard page 初始化失败，回退静态栈\n",
+            "内核栈 guard page 初始化失败\n",
+            ExitCode::Failure(3),
         );
     }
     hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
