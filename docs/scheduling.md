@@ -60,8 +60,8 @@ flowchart LR
 | 服务角色 | 默认 Cadence |
 | --- | --- |
 | Root Server | `Latency { weight: 4096, latency: 1ms }` |
-| Tempo Server | `Realtime { weight: 4096, budget: 8ms, period: 16ms, latency: 2ms }` |
-| Display / Input / Console | `Realtime { budget: 3ms, period: 16ms, deadline: 8ms }` |
+| Tempo Server | `Realtime { weight: 4096, budget: 4ms, period: 16ms, deadline: 16ms, latency: 2ms }` |
+| Display / Input / Console | `Realtime { budget: 2ms, period: 16ms, deadline: 8ms }` |
 | VFS / HolyFS / VirtIO | `Latency { weight: 3072, latency: 4ms }` |
 | Network / POSIX / Checkpoint / Debug | `Latency { weight: 2048, latency: 4ms }` |
 | Toolchain / 后台任务 | `Throughput { weight: 1024 }` |
@@ -370,7 +370,8 @@ release 路径已进入 100 µs 目标；debug 仍有 QEMU 调度抖动与离群
 | Lending 回放 | frame 建立与弹出、回放确定 | `hk-sim` `replays_lending_deterministically` |
 | checkpoint 恢复 | 恢复后 Cadence/Meter 水位与 Region 偏移一致 | `hk-runtime` `checkpoint_restore_preserves_cadence_and_meter`、`checkpoint_preserves_region_offset` |
 | 随机压力回放 | 同种子调度序列一致 | `hk-sim` `replays_randomized_workload_deterministically` |
+| Realtime 硬截止期 | EDF 回放与 QEMU 启动清单下 `overruns=0` | `hk-sim` `realtime_task_meets_edf_deadlines`、`smoke --mode realtime` |
 
-仍需真实平台验证的项：debug/release 唤醒延迟上限、四核 QEMU 的 NUMA/缓存行为、真实页表下的 checkpoint 恢复、Realtime 截止期保障的 QEMU 测量。POSIX `nice` → Cadence 权重映射基元已在 `hk-cadence` 提供（`nice_to_weight`/`weight_to_nice`），`sched_*` 的 syscall 绑定待 POSIX Server（M10）落地。
+仍需真实平台验证的项：debug/release 唤醒延迟上限、四核 QEMU 的 NUMA/缓存行为、真实页表下的 checkpoint 恢复。POSIX `nice` → Cadence 权重映射基元已在 `hk-cadence` 提供（`nice_to_weight`/`weight_to_nice`），`sched_*` 的 syscall 绑定待 POSIX Server（M10）落地。
 
-Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 语义与 Tempo DBF 准入已实现，硬保证的 QEMU 测量在 M11 验收。Latency、Throughput 与 Idle 构成 1.0 的调度基线。
+Realtime 的契约、类别与对象面随 1.0 定义；EDF/CBS 与 Tempo DBF 准入已实现，启动清单基线负载下的硬截止期由 `smoke --mode realtime` 验收，M11 扩展压力与跨架构验证。Latency、Throughput 与 Idle 构成 1.0 的调度基线。

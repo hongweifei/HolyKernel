@@ -87,7 +87,7 @@ flowchart LR
 4. 服务、驱动、客户端与 demo 使用同一组 HMP 对象与 Rights。
 5. AArch64 目标编译通过；`memory` conformance 覆盖对象面统一语义。
 6. `cargo xtask lint`、`cargo test --workspace`、`cargo xtask docs` 全绿。
-7. Cadence/Meter、Tempo 与 Beat 的机制与冒烟全绿；空闲 CPU 用户态占用 0%，同权重份额误差 ≤2%，唤醒延迟 ≤100µs。Realtime 的硬保证与准入策略在 M11 验收。
+7. Cadence/Meter、Tempo 与 Beat 的机制与冒烟全绿；空闲 CPU 用户态占用 0%，同权重份额误差 ≤2%，唤醒延迟 ≤100µs；`smoke --mode realtime` 在启动清单基线负载下 `overruns=0`。M11 扩展压力与跨架构验证。
 
 ---
 

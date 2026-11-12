@@ -65,6 +65,16 @@ pub fn run(
     {
         modules.push(module);
     }
+    let realtime_test =
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("realtime-test"));
+    if realtime_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-realtime")
+    {
+        modules.push(module);
+    }
     let wakeup_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("wakeup-test"));
     if wakeup_test
         && let Some(module) = info

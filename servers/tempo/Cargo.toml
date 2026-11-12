@@ -11,6 +11,7 @@ name = "hk-server-tempo"
 path = "src/main.rs"
 
 [dependencies]
+hk-catalog = { version = "0.1.0", path = "../../crates/shared/hk-catalog" }
 hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
 hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }

@@ -451,6 +451,53 @@ fn replays_migration_deterministically() {
 }
 
 #[test]
+fn realtime_task_meets_edf_deadlines() {
+    let kernel = Kernel::new();
+    let realtime = kernel
+        .spawn_task(
+            HandleTable::with_default_quota(),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(8))
+                .with_deadline(millis(4)),
+        )
+        .expect("实时任务");
+    let mut simulator = Simulator::new(kernel, 7)
+        .with_quantum(100)
+        .with_step_limit(5_000);
+    let runs = Arc::new(AtomicU64::new(0));
+    let overruns = Arc::new(AtomicU64::new(u64::MAX));
+    let throttled = Arc::new(AtomicU64::new(0));
+    let overruns_body = Arc::clone(&overruns);
+    let throttled_body = Arc::clone(&throttled);
+    simulator.register(
+        realtime,
+        Box::new(move |kernel, tid| {
+            if runs.fetch_add(1, Ordering::Relaxed) >= 100 {
+                if let Some(meter) = kernel.task_meter_snapshot(tid) {
+                    overruns_body.store(meter.overruns, Ordering::Relaxed);
+                    throttled_body.store(meter.throttled, Ordering::Relaxed);
+                }
+                ThreadStep::Exit
+            } else {
+                ThreadStep::Continue
+            }
+        }),
+    );
+
+    let report = simulator.run().expect("实时回放完成");
+    assert_eq!(report.exits, 1);
+    assert_eq!(
+        overruns.load(Ordering::Relaxed),
+        0,
+        "EDF 调度不应错过绝对截止期"
+    );
+    assert!(
+        throttled.load(Ordering::Relaxed) > 0,
+        "1 ms 预算应在 8 ms 周期内节流"
+    );
+}
+
+#[test]
 fn replays_wakeup_preemption() {
     let kernel = Kernel::new();
     let realtime = kernel

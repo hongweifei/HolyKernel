@@ -69,6 +69,9 @@ pub enum SmokeMode {
     /// sleep 到期到恢复运行的唤醒延迟
     #[value(name = "wakeup")]
     Wakeup,
+    /// Realtime EDF 硬截止期与预算节流
+    #[value(name = "realtime")]
+    Realtime,
     /// 多 CPU MADT 本地 APIC 枚举
     #[value(name = "smp")]
     Smp,
@@ -170,6 +173,7 @@ impl SmokeMode {
             Self::Preempt => None,
             Self::Tempo => Some(String::from("tempo-test")),
             Self::Wakeup => Some(String::from("wakeup-test")),
+            Self::Realtime => Some(String::from("realtime-test")),
             Self::Smp => Some(String::from("shell-test tasks;stats")),
             Self::Restart => Some(String::from("restart-test")),
             Self::Ext4Root => Some(String::from("vfs.root=ext4")),
@@ -313,6 +317,7 @@ impl SmokeMode {
                 "hk-server-tempo-test: ok weight=512",
             ],
             Self::Wakeup => &["hk-server-wakeup: min=", "hk-server-wakeup: ok"],
+            Self::Realtime => &["hk-server-realtime: overruns=0", "hk-server-realtime: ok"],
             Self::Smp => &[
                 "本地 APIC：4 个",
                 "AP 在线：3 个（启动 3，IPI 1 次）",
@@ -581,6 +586,7 @@ impl SmokeMode {
             | Self::Preempt
             | Self::Tempo
             | Self::Wakeup
+            | Self::Realtime
             | Self::Restart
             | Self::Ext4Root
             | Self::HolyFs
@@ -625,6 +631,7 @@ impl SmokeMode {
             Self::Preempt => "build/serial-preempt.log",
             Self::Tempo => "build/serial-tempo.log",
             Self::Wakeup => "build/serial-wakeup.log",
+            Self::Realtime => "build/serial-realtime.log",
             Self::Smp => "build/serial-smp.log",
             Self::Restart => "build/serial-restart.log",
             Self::Ext4Root => "build/serial-ext4root.log",

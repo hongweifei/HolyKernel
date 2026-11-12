@@ -1,0 +1,22 @@
+[package]
+name = "hk-server-realtime"
+description = "Realtime EDF 硬截止期探针：准入、预算与超限统计"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-realtime"
+path = "src/main.rs"
+
+[dependencies]
+hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
+hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true

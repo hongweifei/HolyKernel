@@ -1297,6 +1297,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-realtime"
+version = "0.1.0"
+dependencies = [
+ "hk-cadence",
+ "hk-proto-client",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-shell"
 version = "0.1.0"
 dependencies = [
@@ -1333,6 +1343,7 @@ name = "hk-server-tempo"
 version = "0.1.0"
 dependencies = [
  "hk-cadence",
+ "hk-catalog",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",

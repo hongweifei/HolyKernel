@@ -56,6 +56,25 @@ impl Ledger {
         }
     }
 
+    /// 把启动清单中未经过 Tempo 的 Realtime 服务计入基线负载。
+    fn seed_base_load(&mut self) {
+        for service in hk_catalog::SERVICES {
+            if !service.boot
+                || service.name == "hk-server-tempo"
+                || !hk_catalog::is_realtime(service.name)
+            {
+                continue;
+            }
+            let Some(slot) = self.free() else {
+                break;
+            };
+            self.used[slot] = true;
+            self.budgets[slot] = service.cadence.budget.ticks();
+            self.periods[slot] = service.cadence.period.ticks();
+            self.deadlines[slot] = service.cadence.deadline.ticks();
+        }
+    }
+
     fn find(&self, name: &str) -> Option<usize> {
         let name = name.as_bytes();
         self.names.iter().enumerate().find_map(|(index, entry)| {
@@ -203,6 +222,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1);
     };
     let mut ledger = Ledger::new();
+    ledger.seed_base_load();
     write(b"hk-server-tempo: ready\n");
 
     let mut buffer = [0_u8; MAX_REQUEST];

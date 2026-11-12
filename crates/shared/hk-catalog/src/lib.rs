@@ -24,7 +24,7 @@ pub struct Service {
 
 /// 交互类服务：显示、输入与终端。
 const REALTIME: CadenceSpec = CadenceSpec::new(CadenceClass::Realtime, 4096)
-    .with_budget(millis(3), millis(16))
+    .with_budget(millis(2), millis(16))
     .with_deadline(millis(8))
     .with_latency(millis(8))
     .with_lending(Lending::caller_pays());
@@ -45,8 +45,8 @@ const THROUGHPUT: CadenceSpec =
 
 /// Tempo 的初始策略池：实时类、带硬预算，子契约在其中收窄。
 const TEMPO_POOL: CadenceSpec = CadenceSpec::new(CadenceClass::Realtime, 4096)
-    .with_budget(millis(8), millis(16))
-    .with_deadline(millis(8))
+    .with_budget(millis(4), millis(16))
+    .with_deadline(millis(16))
     .with_latency(millis(2))
     .with_lending(Lending::caller_pays());
 
@@ -111,6 +111,7 @@ services![
     ("hk-server-checkpoint-test", true, 9, THROUGHPUT),
     ("hk-server-memory-test", false, 9, THROUGHPUT),
     ("hk-server-tempo-test", false, 9, THROUGHPUT),
+    ("hk-server-realtime", false, 9, THROUGHPUT),
     ("hk-server-wakeup", false, 9, THROUGHPUT),
 ];
 
@@ -134,6 +135,11 @@ pub fn default_cadence(name: &str) -> CadenceSpec {
     service(name).map_or(DEFAULT_CADENCE, |service| service.cadence)
 }
 
+/// 判断服务默认是否属于 Realtime 类别。
+pub fn is_realtime(name: &str) -> bool {
+    default_cadence(name).class == CadenceClass::Realtime
+}
+
 /// 判断服务是否持有调度策略授权；当前只有 Tempo。
 pub fn policy_authority(name: &str) -> bool {
     name == "hk-server-tempo"
@@ -142,6 +148,22 @@ pub fn policy_authority(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realtime_catalog_load_fits_period() {
+        let mut total = 0_u64;
+        for service in SERVICES {
+            if service.boot && service.name != "hk-server-tempo" && is_realtime(service.name) {
+                total = total.saturating_add(service.cadence.budget.ticks());
+            }
+        }
+        total = total.saturating_add(default_cadence("hk-server-tempo").budget.ticks());
+        // 预留给动态准入的最小 1 ms Realtime 子契约。
+        assert!(
+            total.saturating_add(millis(1).ticks()) <= millis(16).ticks(),
+            "启动清单的 Realtime 预算必须为动态准入留出余量"
+        );
+    }
 
     #[test]
     fn desktop_services_default_to_realtime_interactive_contract() {
