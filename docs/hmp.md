@@ -151,7 +151,7 @@ Capacity 是物理容量的授予单位。
 
 报告口径：
 
-- `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
+- `Capacity::limit` 是授予配额视图；Task Ledger 的 `limit` 是任务配额，创建时取自该任务分配 Capacity 的 `limit`；FrameBank Ledger 保持物理总量。三者口径不同：Capacity 配额随 `split` 扣减、随 `merge` 或析构恢复，Task Ledger 随任务分配/转移变化。
 - 容量可以持有多个窗口（`grow` 或 `split` 产生）。`SYS_CAPACITY_INFO` 的 `start/len` 只表示首个窗口；完整列表用 `SYS_CAPACITY_WINDOWS` 枚举，每条记录为起始物理地址与长度。
 - 子 Capacity 的 `limit` 是 `split` 时授予的硬上限：分配超过配额直接失败。配额内既有窗口没有足够长的连续空闲段时，只从父容量转移一段物理窗口再重试，不改变任何一侧的配额；窗口碎片不会伪装成容量耗尽。顶层 User Capacity 在启动时按可用物理内存切出，System 保留固定余量供内核堆与页表增长；`merge` 或析构把窗口与配额并回父容量。
 - 服务镜像段与用户栈从顶层 User Capacity 分配，按页映射并登记 Region；页表页仍由 System 承载。装载页计入任务 Ledger，容量窗口与物理归因不再落到 System。

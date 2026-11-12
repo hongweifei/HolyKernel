@@ -125,12 +125,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .create_capacity_shared(tcb, capacity, capacity_rights)?
             }
         };
-        let mut process = Process::new(
-            arena_base,
-            arena_size,
-            self.platform.memory_limit(index),
-            capacity_handle,
-        );
+        let ledger_limit = self
+            .kernel
+            .capacity_ref(tcb, capacity_handle)
+            .map(|capacity| capacity.lock().limit())
+            .unwrap_or_else(|_| self.platform.memory_limit(index));
+        let mut process = Process::new(arena_base, arena_size, ledger_limit, capacity_handle);
         process.device_factory = device_factory;
         let mut task = UserTask::new(TaskInit {
             tcb,
@@ -613,12 +613,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
             )
             .map_err(|error| format!("{error}"))?;
-        let mut process = Process::new(
-            arena_base,
-            arena_size,
-            self.platform.memory_limit(slot),
-            capacity_handle,
-        );
+        let ledger_limit = self
+            .kernel
+            .capacity_ref(tcb, capacity_handle)
+            .map(|capacity| capacity.lock().limit())
+            .unwrap_or_else(|_| self.platform.memory_limit(slot));
+        let mut process = Process::new(arena_base, arena_size, ledger_limit, capacity_handle);
         process.set_arena_used(arena_used);
         let mut task = UserTask::new(TaskInit {
             tcb,

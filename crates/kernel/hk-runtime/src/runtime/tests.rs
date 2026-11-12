@@ -3250,6 +3250,14 @@ fn anonymous_fault_defers_to_bound_provider() {
 }
 
 #[test]
+fn process_ledger_limit_comes_from_capacity_quota() {
+    let runtime = runtime();
+    let capacity = runtime.task_capacity(0).expect("任务 Capacity");
+    let limit = capacity.lock().limit();
+    assert_eq!(runtime.process(0).ledger.limit(), limit);
+}
+
+#[test]
 fn ledger_limit_rejects_over_quota_and_releases_on_close() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -3257,9 +3265,10 @@ fn ledger_limit_rejects_over_quota_and_releases_on_close() {
     };
 
     // 常驻能力按物理页占满 Task Ledger。
+    let ledger_limit = runtime.process(index).ledger.limit();
     context.rax = SYS_CAPABILITY_CREATE;
     context.rdi = 4;
-    context.rsi = MEMORY_LIMIT;
+    context.rsi = ledger_limit;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     let resident = context.rax;
     assert_ne!(resident, u64::MAX, "常驻能力占满配额");
