@@ -386,19 +386,6 @@ impl Task {
         self.queued_at = None;
     }
 
-    /// 记入一次调度：等待时间、切换次数与超限；返回（等待, 是否超限）。
-    pub fn dispatch(&mut self, now: u64) -> (u64, bool) {
-        let (class, key, latency) = {
-            let cadence = self.cadence.lock();
-            (
-                cadence.class(),
-                self.queue_key_locked(&cadence),
-                cadence.latency().ticks(),
-            )
-        };
-        self.dispatch_with(now, class, key, latency)
-    }
-
     /// 按有效契约记入一次调度。
     ///
     /// `class`、`key` 与 `latency` 由调用方提供，可以是服务端自身契约，也可以是

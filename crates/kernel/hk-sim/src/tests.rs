@@ -359,8 +359,13 @@ fn lending_replay(seed: u64) -> RunReport {
         Box::new(
             move |kernel, tid| match kernel.recv(tid, endpoint).expect("接收") {
                 Some(received) => {
+                    assert!(
+                        kernel.lending_depth(tid) > 0,
+                        "服务端收到调用后必须持有 lending frame"
+                    );
                     if let Some(token) = received.reply {
                         kernel.reply(tid, token, Message::new(2)).expect("回复");
+                        assert_eq!(kernel.lending_depth(tid), 0, "回复后必须弹出 lending frame");
                     }
                     ThreadStep::Exit
                 }

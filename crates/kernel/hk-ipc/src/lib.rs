@@ -97,6 +97,10 @@ pub enum SendOutcome {
         receiver: Waiter,
         /// 接收者匹配的发送者。
         expected: Option<Waiter>,
+        /// 接收者的调度类别；交付失败时用于原样恢复。
+        class: u8,
+        /// 接收者的虚拟键；交付失败时用于原样恢复。
+        key: u64,
         /// 交付的消息。
         message: Message,
     },
@@ -179,6 +183,8 @@ impl Endpoint {
                     position: index,
                     receiver: pending.receiver,
                     expected: pending.expected,
+                    class: pending.class,
+                    key: pending.key,
                     message,
                 }
             }
@@ -295,7 +301,14 @@ impl Endpoint {
     }
 
     /// 交付失败时把接收者放回原位置。
-    pub fn restore_receiver(&self, position: usize, receiver: Waiter, expected: Option<Waiter>) {
+    pub fn restore_receiver(
+        &self,
+        position: usize,
+        receiver: Waiter,
+        expected: Option<Waiter>,
+        class: u8,
+        key: u64,
+    ) {
         let mut state = self.state.lock();
         let position = position.min(state.receivers.len());
         state.receivers.insert(
@@ -303,8 +316,8 @@ impl Endpoint {
             PendingRecv {
                 receiver,
                 expected,
-                class: u8::MAX,
-                key: 0,
+                class,
+                key,
             },
         );
     }
@@ -480,6 +493,8 @@ mod tests {
                 position: 0,
                 receiver: waiter(2),
                 expected: None,
+                class: u8::MAX,
+                key: 0,
                 message
             }
         );
@@ -518,6 +533,8 @@ mod tests {
                 position: 0,
                 receiver: waiter(3),
                 expected: Some(waiter(1)),
+                class: u8::MAX,
+                key: 0,
                 message: expected,
             }
         );

@@ -4,7 +4,11 @@ impl Kernel {
     /// 在指定线程的句柄表中创建端点。
     pub fn create_endpoint(&self, thread: TcbId, rights: Rights) -> Result<Handle, KernelError> {
         let payload = ObjectPayload::Endpoint(hk_ipc::Endpoint::new());
-        self.register(thread, Arc::new(KernelObject::new(payload)), rights)
+        let handle = self.register(thread, Arc::new(KernelObject::new(payload)), rights)?;
+        if let (Some(task), Ok(id)) = (self.task_of(thread), self.handle_id(thread, handle)) {
+            self.endpoint_servers.lock().insert(id, task);
+        }
+        Ok(handle)
     }
 
     /// 在指定线程的句柄表中创建设备授权工厂。

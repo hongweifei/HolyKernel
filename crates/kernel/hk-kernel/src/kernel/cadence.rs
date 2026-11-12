@@ -214,6 +214,25 @@ impl Kernel {
         Ok(())
     }
 
+    /// 吊销所有指向该 Cadence 的句柄对象头，使既有句柄在解析时失效。
+    ///
+    /// 同一 Cadence 可能被多次授予而拥有多个对象头；撤销必须覆盖全部
+    /// 句柄，而不是只吊销发起撤销的那一个。
+    fn revoke_cadence_handles(&self, cadence: &Arc<spin::Mutex<Cadence>>) {
+        let tables: Vec<_> = self.threads.lock().values().map(Tcb::handles).collect();
+        for table in tables {
+            table.lock().revoke_matching(|object| {
+                let any = Arc::clone(object).into_any();
+                let Ok(object) = any.downcast::<KernelObject>() else {
+                    return false;
+                };
+                object
+                    .cadence()
+                    .is_some_and(|owned| Arc::ptr_eq(owned, cadence))
+            });
+        }
+    }
+
     /// 返回持有指定 Cadence 的 Task。
     fn task_with_cadence(
         &self,
@@ -308,6 +327,7 @@ impl Kernel {
         // 对象头 epoch 与契约 epoch 同源：撤销后所有既有句柄在解析时失效。
         let epoch = object.header().revoke_all();
         cadence.lock().set_epoch(epoch);
+        self.revoke_cadence_handles(&cadence);
         self.suspend_using(&cadence);
         Ok(epoch)
     }
@@ -351,6 +371,7 @@ impl Kernel {
         let was_suspended = target.lock().state() == TaskState::Suspended;
         let previous = { target.lock().cadence() };
         let epoch = previous.lock().revoke();
+        self.revoke_cadence_handles(&previous);
         self.release_child_budget(&previous.lock());
         {
             let mut target = target.lock();

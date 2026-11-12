@@ -10,7 +10,8 @@ use hk_mem::hmp::{
 };
 
 impl Kernel {
-    /// 在指定线程的句柄表中创建物理页。
+    /// 在指定线程的句柄表中创建物理页；仅测试用于构造 Frame 句柄。
+    #[cfg(test)]
     pub fn create_frame(
         &self,
         thread: TcbId,

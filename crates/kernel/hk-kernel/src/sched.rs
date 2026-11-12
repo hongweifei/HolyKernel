@@ -381,11 +381,6 @@ impl Scheduler {
             .sum()
     }
 
-    /// 返回某个 CPU 的 idle TCB 是否在队列中。
-    pub fn idle_runnable(&self, cpu: usize) -> bool {
-        self.beats[cpu].class_runnable[CadenceClass::Idle.as_u8() as usize] > 0
-    }
-
     /// 返回某个 CPU 的加权负载。
     pub fn load(&self, cpu: usize) -> u64 {
         self.beats[cpu].load

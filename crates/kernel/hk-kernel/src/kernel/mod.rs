@@ -82,6 +82,8 @@ pub struct Kernel {
     resched: core::sync::atomic::AtomicUsize,
     idle: Mutex<BTreeMap<usize, TcbId>>,
     refills: Mutex<BTreeMap<u64, Vec<TaskId>>>,
+    /// 端点对象到服务 Task 的绑定；服务退出时据此取消调用方。
+    endpoint_servers: Mutex<BTreeMap<ObjectId, TaskId>>,
     idle_enabled: core::sync::atomic::AtomicBool,
     moment: AtomicU64,
     clock: AtomicU64,
@@ -101,6 +103,7 @@ impl Kernel {
             resched: core::sync::atomic::AtomicUsize::new(0),
             idle: Mutex::new(BTreeMap::new()),
             refills: Mutex::new(BTreeMap::new()),
+            endpoint_servers: Mutex::new(BTreeMap::new()),
             idle_enabled: core::sync::atomic::AtomicBool::new(false),
             moment: AtomicU64::new(0),
             clock: AtomicU64::new(0),

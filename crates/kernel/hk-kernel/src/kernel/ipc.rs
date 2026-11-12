@@ -24,11 +24,19 @@ impl Kernel {
                 position,
                 receiver,
                 expected,
+                class,
+                key,
                 mut message,
             } => {
                 let receiver = TcbId::new(receiver.get());
                 if let Err(error) = self.transfer_handles(thread, receiver, &mut message) {
-                    endpoint.restore_receiver(position, Waiter::new(receiver.get()), expected);
+                    endpoint.restore_receiver(
+                        position,
+                        Waiter::new(receiver.get()),
+                        expected,
+                        class,
+                        key,
+                    );
                     return Err(error);
                 }
                 {
@@ -268,16 +276,28 @@ impl Kernel {
                 position,
                 receiver,
                 expected,
+                class,
+                key,
                 mut message,
             } => {
                 let receiver = TcbId::new(receiver.get());
                 if let Err(error) = self.transfer_handles(thread, receiver, &mut message) {
-                    endpoint.restore_receiver(position, Waiter::new(receiver.get()), expected);
+                    endpoint.restore_receiver(
+                        position,
+                        Waiter::new(receiver.get()),
+                        expected,
+                        class,
+                        key,
+                    );
                     if let Some(tcb) = self.threads.lock().get_mut(&thread) {
                         tcb.set_pending_call(None);
                     }
                     return Err(error);
                 }
+                let token = ReplyToken {
+                    caller: thread,
+                    sequence,
+                };
                 {
                     let mut threads = self.threads.lock();
                     let target = threads
@@ -286,12 +306,12 @@ impl Kernel {
                     target.push_delivery(PendingDelivery {
                         sender: thread,
                         message,
-                        reply: Some(ReplyToken {
-                            caller: thread,
-                            sequence,
-                        }),
+                        reply: Some(token),
                     });
                 }
+                // 调用一旦投递就建立 lending frame，使服务端被唤醒后的首次
+                // dispatch 与抢占判定立即使用调用方契约。
+                self.lend_contract(receiver, token);
                 self.wake(receiver);
             }
             SendOutcome::Queued => {}

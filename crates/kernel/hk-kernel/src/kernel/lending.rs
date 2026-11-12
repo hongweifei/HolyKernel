@@ -48,6 +48,16 @@ impl Kernel {
             .get_mut(&thread)
             .is_some_and(|tcb| tcb.push_lending(frame, depth));
         if pushed {
+            // 服务端已在运行时，缩短当前 Grant，使调用方的时间片立即生效。
+            if let Some(server_task) = self.task_of(thread).and_then(|id| self.task(id)) {
+                let now = self.now();
+                let mut server_task = server_task.lock();
+                if server_task.state() == TaskState::Running {
+                    let remaining = server_task.grant_end().saturating_sub(now);
+                    let end = now.saturating_add(slice.min(remaining));
+                    server_task.set_grant_end(end);
+                }
+            }
             self.record(
                 thread.get(),
                 Category::Sched,

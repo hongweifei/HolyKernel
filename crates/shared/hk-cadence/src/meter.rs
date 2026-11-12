@@ -86,11 +86,6 @@ impl Meter {
         self.migration_cost
     }
 
-    /// 直接推进虚拟时间。
-    pub fn advance_virtual(&mut self, amount: u64) {
-        self.virtual_pass = self.virtual_pass.saturating_add(amount);
-    }
-
     /// 清空全部计量。
     pub fn reset(&mut self) {
         *self = Self::new();

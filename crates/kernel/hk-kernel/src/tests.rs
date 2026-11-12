@@ -791,6 +791,36 @@ fn call_and_reply_round_trip() {
 }
 
 #[test]
+fn server_exit_fails_pending_calls() {
+    let kernel = kernel();
+    let client = thread(&kernel);
+    let server = thread(&kernel);
+
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("服务端创建端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(client, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予客户端句柄");
+
+    assert!(kernel.recv(server, endpoint).expect("接收").is_none());
+    kernel
+        .call(client, client_endpoint, Message::new(7))
+        .expect("调用");
+    assert_eq!(kernel.state_of(client), Some(ThreadState::Blocked));
+
+    kernel.exit(server).expect("服务端退出");
+    assert_eq!(
+        kernel.state_of(client),
+        Some(ThreadState::Runnable),
+        "服务端退出应唤醒调用方"
+    );
+    let reply = kernel.take_reply(client).expect("错误回复");
+    assert_eq!(reply.label, u64::MAX);
+}
+
+#[test]
 fn rejects_invalid_reply_token() {
     let kernel = kernel();
     let client = thread(&kernel);
@@ -1560,7 +1590,14 @@ fn attaches_and_regrants_named_cadence() {
         .regrant_cadence_to_task(thread, task, cadence)
         .expect("撤销并重新授予");
     assert_eq!(epoch, before.epoch + 1);
-    let after = kernel.cadence_snapshot(thread, cadence).expect("契约快照");
+    assert!(
+        kernel.cadence_snapshot(thread, cadence).is_err(),
+        "重授予后旧句柄必须失效"
+    );
+    let renewed = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("重新授予 Cadence");
+    let after = kernel.cadence_snapshot(thread, renewed).expect("契约快照");
     assert_eq!(after.epoch, epoch);
     kernel
         .set_policy_authority(task, true)

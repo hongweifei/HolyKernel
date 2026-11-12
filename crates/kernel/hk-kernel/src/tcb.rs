@@ -263,6 +263,14 @@ impl Tcb {
 
     /// 压入一次借贷；超过深度上限时返回 `false`。
     pub fn push_lending(&mut self, frame: LendingFrame, depth: u64) -> bool {
+        // 投递时建立 frame，`recv` 取消息时会再次尝试；同一调用只压入一次。
+        if self
+            .lending
+            .iter()
+            .any(|existing| existing.caller == frame.caller && existing.sequence == frame.sequence)
+        {
+            return true;
+        }
         if depth == 0 || self.lending.len() as u64 >= depth {
             return false;
         }

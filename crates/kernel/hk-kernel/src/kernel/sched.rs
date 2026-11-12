@@ -418,6 +418,12 @@ impl Kernel {
             };
             if throttled {
                 self.schedule_refill(caller);
+                if let Some(caller_thread) = self
+                    .task(caller)
+                    .and_then(|task| task.lock().threads().first().copied())
+                {
+                    self.record(caller_thread.get(), Category::Sched, TRACE_THROTTLE, 0);
+                }
             }
         }
         let Some(task_id) = self.task_of(thread) else {
@@ -708,6 +714,8 @@ impl Kernel {
             // 父 Task 退出：把子 Task 的收窄契约提升为独立契约，子任务继续运行；
             // 显式“回收”仍由 Tempo 通过 revoke/regrant 完成。
             self.promote_children(task_id);
+            let endpoints = self.take_endpoint_servers(task_id);
+            self.fail_calls_to(&endpoints);
             self.tasks.lock().remove(&task_id);
         } else {
             if let Some(task) = self.task(task_id) {
@@ -723,6 +731,43 @@ impl Kernel {
             live as u64,
         );
         Ok(())
+    }
+
+    /// 取出并移除绑定到指定 Task 的端点。
+    fn take_endpoint_servers(&self, task: TaskId) -> Vec<ObjectId> {
+        let mut servers = self.endpoint_servers.lock();
+        let endpoints: Vec<ObjectId> = servers
+            .iter()
+            .filter(|(_, server)| **server == task)
+            .map(|(endpoint, _)| *endpoint)
+            .collect();
+        servers.retain(|_, server| *server != task);
+        endpoints
+    }
+
+    /// 服务退出时让所有等待这些端点的调用方立即收到错误回复。
+    fn fail_calls_to(&self, endpoints: &[ObjectId]) {
+        if endpoints.is_empty() {
+            return;
+        }
+        let mut callers = Vec::new();
+        {
+            let mut threads = self.threads.lock();
+            for (id, tcb) in threads.iter_mut() {
+                let Some(pending) = tcb.pending_call_mut() else {
+                    continue;
+                };
+                if !pending.answered && endpoints.contains(&pending.endpoint) {
+                    pending.reply = Some(Message::new(u64::MAX));
+                    pending.answered = true;
+                    callers.push(*id);
+                }
+            }
+        }
+        for caller in callers {
+            self.record(caller.get(), Category::Ipc, TRACE_REPLY, 0);
+            self.wake(caller);
+        }
     }
 
     /// 父 Task 退出时提升其子 Task：解除 Task 父链与 Cadence 父链。

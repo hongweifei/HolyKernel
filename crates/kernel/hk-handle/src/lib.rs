@@ -475,6 +475,23 @@ impl HandleTable {
         closed
     }
 
+    /// 按谓词吊销对象头，使匹配的句柄在解析时失效；返回吊销数量。
+    ///
+    /// 句柄槽位保留，`resolve` 通过对象头 epoch 与授予 epoch 不一致判定失效。
+    pub fn revoke_matching<F>(&mut self, mut predicate: F) -> usize
+    where
+        F: FnMut(&Arc<dyn Object>) -> bool,
+    {
+        let mut revoked = 0;
+        for slot in self.slots.iter_mut().flatten() {
+            if predicate(&slot.object) {
+                slot.object.header().revoke_all();
+                revoked += 1;
+            }
+        }
+        revoked
+    }
+
     fn slot(&self, handle: Handle) -> Result<&Slot, HandleError> {
         let index = handle.index() as usize;
         if index >= self.slots.len() || self.generations[index] != handle.generation() {
