@@ -30,7 +30,6 @@ pub struct RemoteHolyFs {
 }
 
 impl RemoteHolyFs {
-    /// 连接独立服务并读取指定盘符的根文档。
     /// 连接指定服务并读取盘符的根文档与卷视图。
     pub fn new(own_endpoint: u64, drive: u8, service: &'static str) -> Result<Self, Error> {
         let mut client = HolyClient::new_with_service(own_endpoint, service);

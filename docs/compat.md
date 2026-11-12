@@ -60,7 +60,7 @@ flowchart TB
     HarmonyP -->|surface / seat| NativeSvc
 ```
 
-- **内核**：每任务维护 `Personality { Native, Posix, Linux }`；Native 走现有 `int 0x80`，Linux 走 `syscall` 指令；Harmony 用户态通过 POSIX/Linux personality 启动。内核保存上下文并把 Linux syscall 转发给 Linux personality。
+- **内核**：每任务维护 `Personality { Native, Posix, Linux }`；Native 与 Linux 均走 `syscall` 指令，由 Personality 决定转发目标；Harmony 用户态通过 POSIX/Linux personality 启动。内核保存上下文并把 Linux syscall 转发给 Linux personality。
 - **Compatibility Server**：用户态 supervisor，按应用声明选择 personality；负责命名空间、rootfs、启动与资源配额，运行在内核可信基之外。
 - **Linux Personality**：实现 Linux syscall 语义、ELF/动态加载器辅助、信号帧、`/proc`/`/sys` 视图与设备 ioctl；通过 POSIX Server、VFS、Network、Display、Device 完成实际工作。
 - **POSIX Personality**：既服务 L1/L1.5 应用，也作为 L2/L3 的内部后端；进程、fd、信号、cwd 等状态集中管理。
@@ -93,7 +93,7 @@ HMP 是兼容 personality 的内存底座：地址空间视图由 Region 表达�
 ### 4.1 Personality 与入口
 
 - 任务创建时指定 personality；`exec` 根据 ELF 类型切换。
-- Native / POSIX 应用继续使用 `int 0x80` 与现有 HK syscall 编号。
+- Native / POSIX 应用继续使用 `syscall` 与现有 HK syscall 编号。
 - Linux 应用使用 x86_64 `syscall` 指令；内核设置 `LSTAR` 入口，保存 `rcx`/`r11` 与用户栈。
 - 内核对 Linux personality 的任务执行 `SYS_FOREIGN_SYSCALL` 路径：打包 syscall 号、6 个参数、返回地址与栈指针，发送到已注册的 ABI Server Endpoint，阻塞线程等待回复。
 - ABI Server 返回 `rax`；负值按 Linux `-errno` 约定返回。信号、重启与 `ERESTART*` 由 ABI Server 与 POSIX Server 协作处理。

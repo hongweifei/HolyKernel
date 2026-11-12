@@ -87,8 +87,6 @@ const USER_DATA_DESCRIPTOR: u64 = 0x00CF_F200_0000_FFFF;
 /// 用户代码段描述符：DPL=3、L=1、type=0xA。
 const USER_CODE_DESCRIPTOR: u64 = 0x00AF_FA00_0000_FFFF;
 
-/// 用户态中断门：P=1、DPL=3、type=0xE。
-
 /// 中断门属性：P=1、DPL=0、type=0xE。
 const INTERRUPT_GATE: u8 = 0x8E;
 

@@ -35,7 +35,6 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, fault_subscribe, kernel_stats, recv_data, send, write, write_u64};
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
 use pages::Page;
 #[cfg(target_os = "none")]
 use render::{HEIGHT, WIDTH, line_count, render, visible_lines};

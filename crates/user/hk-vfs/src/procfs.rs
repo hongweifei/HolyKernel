@@ -15,7 +15,12 @@ impl Procfs {
     /// 构造默认的只读系统信息视图。
     pub fn new() -> Self {
         let mut files = BTreeMap::new();
-        files.insert("version".to_string(), b"HolyKernel 0.1\n".to_vec());
+        files.insert(
+            "version".to_string(),
+            concat!("HolyKernel ", env!("CARGO_PKG_VERSION"), "\n")
+                .as_bytes()
+                .to_vec(),
+        );
         files.insert("uptime".to_string(), b"0.00 0.00\n".to_vec());
         files.insert("mounts".to_string(), b"/\n/tmp\n/dev\n/proc\n".to_vec());
         Self { files }
@@ -129,8 +134,12 @@ mod tests {
         let fs = Procfs::new();
         let version = fs.lookup(0, "version").expect("version");
         assert_eq!(fs.metadata(version).expect("元数据").kind, FileType::File);
-        let mut buffer = [0_u8; 16];
-        assert_eq!(fs.read(version, 0, &mut buffer).expect("读取"), 15);
+        let mut buffer = [0_u8; 32];
+        let expected = concat!("HolyKernel ", env!("CARGO_PKG_VERSION"), "\n");
+        assert_eq!(
+            fs.read(version, 0, &mut buffer).expect("读取"),
+            expected.len()
+        );
         assert!(buffer.starts_with(b"HolyKernel"));
         assert_eq!(fs.readdir(0).expect("目录").len(), 3);
         assert_eq!(fs.lookup(0, "missing"), Err(VfsError::NotFound));

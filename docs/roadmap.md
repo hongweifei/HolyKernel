@@ -231,7 +231,7 @@ flowchart LR
 - 按设计继续收口：loader 的镜像/栈页仍直接安装页表，尚未物化为 Region；软上限策略接到 Root/Tempo。
 - Region 的 `GROW`/`PINNED` 已接入运行时，并提供 `SYS_REGION_GROW`；Arena 内部惰性 Region 已进入 HMP Arena 表；Task Ledger 是唯一硬配额，Arena、Region、类型化 Capability 与 Frame 的对象账本快照只报告利用率，可按句柄经 `SYS_OBJECT_LEDGER` 查询。
 - 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
-- 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 兼容层；按 M7–M10 继续深化。
+- 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX 映射基元（nice↔权重）；POSIX Server 与 libc 属后续里程碑。
 - 当前代码分层与清单见 [Crate 分层](crates.md)；构建、运行与冒烟入口见 [工程策略](engineering.md)。
 
 ---

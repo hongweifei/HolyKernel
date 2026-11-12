@@ -11,7 +11,7 @@
 ## 决策
 
 1. **三层兼容**：L1 源码兼容（musl + `hk-abi`）、L2 Linux ELF 二进制兼容（Linux ABI Server）、L3 VM/容器兜底。
-2. **内核只做机制**：每任务维护 `Personality { Native, Posix, Linux }`；Native 使用现有 `int 0x80`，Linux 使用 `syscall`；内核保存上下文并把原始 syscall 转发到已注册的 ABI Server Endpoint，不解析 Linux 语义。
+2. **内核只做机制**：每任务维护 `Personality { Native, Posix, Linux }`；Native 与 Linux 均使用 `syscall`，由 Personality 决定转发目标；内核保存上下文并把原始 syscall 转发到已注册的 ABI Server Endpoint，不解析 Linux 语义。
 3. **Linux ABI Server 运行在用户态**：负责 syscall 分派、ELF/`PT_INTERP`、auxv、TLS、信号帧、`clone`/futex、`mmap`、`epoll`/`ioctl`、`/proc`/`/sys` 最小视图与 vDSO。
 4. **复用现有后端**：POSIX Server、VFS、Network、Display、Device 提供进程、文件、socket、终端与设备能力；兼容层不复制这些状态。
 5. **x86_64 优先**：先支持静态 musl/glibc，再支持动态 glibc；AArch64/RISC-V 在后续里程碑增量接入。

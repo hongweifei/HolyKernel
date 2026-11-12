@@ -114,7 +114,7 @@ pub struct Request<'a> {
 - VFS 或 Path Server 退出后由 Root Server 按重启策略重启。
 - 客户端通过 `SYS_SERVICE_ENDPOINT` 解析当前端点；服务重启后新请求自动重连。
 - 在途请求通过 `SYS_RECV_DATA` 的期望发送者参数绑定旧端点；服务退出时返回空响应并映射为 `EIO`。
-- Path Server 重启后从 VFS 重新读取盘符，按策略重建文件句柄与页缓存。
+- Path Server 持有路径挂载表，重启时按盘符重新连接 VFS 并重建文件句柄与页缓存。
 - ext4 或 HolyFS 重启后 VFS 的远程后端按服务名重新握手，`E:`/`H:`/`I:` 继续可用。
 - VFS 不持有块设备句柄，ext4 驱动重启不会牵动 VFS 的地址空间。
 
