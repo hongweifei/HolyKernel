@@ -174,7 +174,7 @@ stateDiagram-v2
 
 ### 5.6 唤醒与抢占
 
-- 硬亲和集合内没有在线 CPU 时 Task 保持 `Eligible` 但不入队，该段时间不计入 `Meter.waited`。
+- 硬亲和集合内没有在线 CPU 时 Task 保持 `Eligible` 但不入队，从保持 Eligible 起计入 `Meter.waited`，亲和变更后由 dispatch 结算。
 - `wake` 与 `activate` 完成后调用 `resched` 判定：新 Task 的类别或键值优先于当前 Task 时置位该 CPU 的 `need_resched`。
 - 目标在其他 CPU 时同时置位抢占标志与空闲唤醒标志，并发送 reschedule IPI。
 - 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。三处都在返回用户态前消费标志并调用抢占判定；中断发生在内核态时保留标志，交由系统调用返回路径消费，避免内核态收到 IPI 时丢失请求。
@@ -188,9 +188,9 @@ stateDiagram-v2
 
 - 类别队列：`realtime` 最小堆、`latency` 最小堆、`throughput` 最小堆、idle TCB。
 - 当前 Grant：`task`、`tcb`、`grant_end`、`budget_left`。
-- 一次性定时器：编程到 `grant_end`、下一个虚拟截止期、下一个周期补充、下一个 sleep/IPC 超时的最早者。
+- 一次性定时器：编程到 `grant_end`、下一个 Realtime 绝对截止期、下一个周期补充、下一个 sleep/IPC 超时的最早者；Latency/Throughput 的虚拟键只用于队列选择，不作为墙钟期限。
 - 全局时间源：平台单调时钟；Hosted 平台使用虚拟时钟。
-- 周期补充由内核 `refills` 表承载；sleep 与接收/调用超时由 runtime 的 `sleeping`/`timeouts` 表承载。`Runtime::next_wakeup` 合并三者与本地 Grant 结束，Beat 将本地一次性定时器指向该 CPU 的最近事件。
+- 周期补充由内核 `refills` 表承载；sleep 与接收/调用超时由 runtime 的 `sleeping`/`timeouts` 表承载。`Runtime::next_wakeup` 合并三者、本地 Grant 结束与最早 Realtime 截止期，Beat 将本地一次性定时器指向该 CPU 的最近事件。
 - idle TCB 执行 `hlt`；IPI 或定时器中断唤醒 CPU。AP 进入空闲前切回内核地址空间，避免 CR3 仍指向已被其它 CPU 回收的用户页表；LAPIC 伪中断与未注册的硬件向量直接忽略，不进入异常报告路径。
 - 调度调用返回"这一刻没有可选中任务"时，调用方按待办唤醒（`refills`、`sleeping`、`timeouts`）与未退出任务决定继续等待还是收尾；`Throttled` 任务只是在等预算补充，不能据此判定系统完成。
 - 一次性唤醒在关中断状态下编程，再用 `sti; hlt` 原子等待；先开中断再编程会让唤醒在 `hlt` 前被投递，随后进入没有定时器的永久等待。
@@ -322,13 +322,13 @@ Meter 字段：
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予编号与内核分派；`SYS_CADENCE_INFO`/`SYS_METER_INFO` 的 `handle = 0` 表示当前 Task |
 | `hk-server-tempo` | 已实现 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令；池为 Realtime，服务内维护 EDF 需求界账本（`budget/period/deadline`）并拒绝不可调度申请，恢复路径复用同一门禁；运行时恢复直接按该判据准入，`TEMPO_READMIT` 保留给 Shell 显式重准入 |
-| Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
+| Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束、最早 Realtime 截止期与全局补充/sleep/接收/调用超时的最早者；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 已实现 | 硬亲和（无在线可用 CPU 时不入队）、亲和变更重挂、按权重+可运行数压力选核、缓存热度容差、仅 migratable 参与窃取；迁移计数与 `weight × (heat + MIGRATION_BASE_COST)` 成本写入 Meter，`migrate` 进入 trace |
 | Lending | 已实现 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片与超限判定；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
 | Checkpoint | 已实现 | 主线程与附加线程现场、Region 元数据、Cadence/Meter 水位已保存并回填；恢复重建内核父链与 Cadence id/parent/epoch，父契约缺失时提升为独立契约；Realtime 契约经 DBF 准入，失败时回退父契约、父契约缺失回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter 与 Region 偏移一致 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |
-| `hk-sim` | 已实现 | 多 CPU 虚拟时钟、量子计费与确定性重放覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；`RunReport.max_wait` 提供有界唤醒响应分析，随机负载同种子产生相同调度序列 |
+| `hk-sim` | 已实现 | 多 CPU 虚拟时钟、量子计费与确定性重放覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；`RunReport.max_wait` 提供有界唤醒响应分析，注册 reschedule hook 并统计 IPI 请求，随机负载同种子产生相同调度序列 |
 
 实现约定：
 

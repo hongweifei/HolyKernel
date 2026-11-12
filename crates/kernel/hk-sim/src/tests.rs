@@ -526,6 +526,7 @@ fn replays_wakeup_preemption() {
         Some(&realtime),
         "发送唤醒后实时任务应立即抢占后台任务"
     );
+    assert!(report.resched_requests > 0, "唤醒抢占应请求 reschedule IPI");
 }
 
 #[test]

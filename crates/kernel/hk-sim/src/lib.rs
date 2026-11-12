@@ -45,6 +45,8 @@ pub struct RunReport {
     pub order: Vec<TcbId>,
     /// 单次 dispatch 的最大就绪等待时间（契约 tick），用于有界响应分析。
     pub max_wait: u64,
+    /// 回放期间内核请求的重新调度次数。
+    pub resched_requests: u64,
 }
 
 /// 仿真错误。
@@ -110,9 +112,12 @@ pub struct Simulator {
     max_wait: u64,
 }
 
+fn sim_resched(_cpu: usize) {}
+
 impl Simulator {
     /// 以内核与随机种子构造仿真器。
     pub fn new(kernel: Kernel, seed: u64) -> Self {
+        kernel.set_resched_hook(sim_resched);
         Self {
             kernel,
             bodies: BTreeMap::new(),
@@ -229,6 +234,7 @@ impl Simulator {
             seed: self.seed,
             order: core::mem::take(&mut self.order),
             max_wait: self.max_wait,
+            resched_requests: self.kernel.resched_requests(),
         })
     }
 

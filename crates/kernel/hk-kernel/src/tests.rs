@@ -1252,6 +1252,54 @@ fn affinity_without_online_cpu_stays_unrunnable() {
 }
 
 #[test]
+fn affinity_wait_is_counted_after_cpu_becomes_allowed() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let thread = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(3).expect("CPU 3")),
+        )
+        .expect("任务");
+    let task = kernel.task_of(thread).expect("Task");
+    kernel.set_policy_authority(task, true).expect("策略权限");
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
+    let handle = kernel
+        .grant_cadence(thread, task, rights)
+        .expect("契约句柄");
+
+    kernel.set_clock(1_000);
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.affinity = hk_cadence::CpuMask::single(0).expect("CPU 0");
+    kernel
+        .update_cadence(thread, handle, spec)
+        .expect("亲和变更");
+
+    assert!(kernel.schedule(0).is_some(), "亲和变更后应可运行");
+    let meter = kernel.task_meter_snapshot(thread).expect("计量");
+    assert!(meter.waited >= 1_000, "无在线亲和 CPU 的等待应计入 Meter");
+}
+
+#[test]
+fn next_deadline_includes_queued_realtime_deadline() {
+    let kernel = kernel();
+    kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(1), millis(4))
+                .with_deadline(millis(1)),
+        )
+        .expect("实时任务");
+    assert_eq!(
+        kernel.next_deadline(0),
+        Some(millis(1).ticks()),
+        "一次性定时器应包含最早 Realtime 截止期"
+    );
+}
+
+#[test]
 fn affinity_change_rehomes_running_task() {
     let kernel = kernel();
     kernel.set_online_cpus(2);

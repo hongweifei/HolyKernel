@@ -80,6 +80,7 @@ pub struct Kernel {
     scheduler: Mutex<Scheduler>,
     trace: Mutex<TraceRing<TRACE_CAPACITY>>,
     resched: core::sync::atomic::AtomicUsize,
+    resched_requests: AtomicU64,
     idle: Mutex<BTreeMap<usize, TcbId>>,
     refills: Mutex<BTreeMap<u64, Vec<TaskId>>>,
     /// 端点对象到服务 Task 的绑定；服务退出时据此取消调用方。
@@ -101,6 +102,7 @@ impl Kernel {
             scheduler: Mutex::new(Scheduler::new()),
             trace: Mutex::new(TraceRing::new()),
             resched: core::sync::atomic::AtomicUsize::new(0),
+            resched_requests: AtomicU64::new(0),
             idle: Mutex::new(BTreeMap::new()),
             refills: Mutex::new(BTreeMap::new()),
             endpoint_servers: Mutex::new(BTreeMap::new()),
@@ -128,12 +130,18 @@ impl Kernel {
 
     /// 请求目标 CPU 重新调度。
     fn request_resched(&self, cpu: usize) {
+        self.resched_requests.fetch_add(1, Ordering::Relaxed);
         let hook = self.resched.load(core::sync::atomic::Ordering::Acquire);
         if hook != 0 {
             // SAFETY: 回调只在平台初始化时注册，指向静态函数并覆盖内核运行期。
             let hook: fn(usize) = unsafe { core::mem::transmute(hook) };
             hook(cpu);
         }
+    }
+
+    /// 返回累计的重新调度请求数；供确定性回放断言。
+    pub fn resched_requests(&self) -> u64 {
+        self.resched_requests.load(Ordering::Relaxed)
     }
 
     /// 设置调度器可见的在线 CPU 数。

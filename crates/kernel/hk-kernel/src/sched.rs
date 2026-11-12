@@ -381,6 +381,14 @@ impl Scheduler {
             .sum()
     }
 
+    /// 返回 CPU 上最早的 Realtime 绝对截止期；队列为空时返回 `None`。
+    pub fn next_realtime_deadline(&self, cpu: usize) -> Option<u64> {
+        self.beats[cpu].queues[CadenceClass::Realtime.as_u8() as usize]
+            .iter()
+            .next()
+            .map(|(key, _, _)| *key)
+    }
+
     /// 返回某个 CPU 的加权负载。
     pub fn load(&self, cpu: usize) -> u64 {
         self.beats[cpu].load

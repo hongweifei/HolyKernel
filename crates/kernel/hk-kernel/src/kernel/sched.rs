@@ -574,6 +574,11 @@ impl Kernel {
             .lock()
             .choose_cpu(affinity, last_cpu, migratable, heat)
         else {
+            // 亲和集合内没有在线 CPU：Task 保持 Eligible 但尚未入队，
+            // 等待时间从这一刻开始累计，亲和变化后由 dispatch 计入 Meter。
+            if let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) {
+                task.lock().mark_queued(now);
+            }
             self.clear_active_if(thread);
             return false;
         };
@@ -665,15 +670,29 @@ impl Kernel {
 
     /// 返回 `cpu` 下一个需要唤醒的调度时刻：全局预算补充或本地 Grant 结束。
     pub fn next_deadline(&self, cpu: usize) -> Option<u64> {
+        let now = self.now();
         let mut earliest = self.refills.lock().keys().next().copied();
+        if let Some(deadline) = self.scheduler.lock().next_realtime_deadline(cpu)
+            && deadline > now
+        {
+            earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
+        }
         let current = self.scheduler.lock().current(cpu);
         if let Some(thread) = current
             && let Some(task_id) = self.task_of(thread)
             && let Some(task) = self.task(task_id)
         {
-            let end = task.lock().grant_end();
+            let task = task.lock();
+            let end = task.grant_end();
             if end > 0 {
                 earliest = Some(earliest.map_or(end, |value: u64| value.min(end)));
+            }
+            // 当前正在运行的 Realtime Task 也要把绝对截止期纳入一次性定时器。
+            if task.class() == CadenceClass::Realtime {
+                let deadline = task.queue_key();
+                if deadline > now {
+                    earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
+                }
             }
         }
         earliest
@@ -833,6 +852,8 @@ impl Kernel {
                 TaskState::Throttled | TaskState::Suspended | TaskState::Exited
             ) {
                 task.set_state(TaskState::Blocked);
+                // 阻塞期间不再等待 CPU；唤醒时重新记录等待起点。
+                task.clear_queued();
             }
             task.set_active(None);
         }
