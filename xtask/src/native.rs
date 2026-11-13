@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use hk_image::{CAP_DEVICE, CapabilityData, FILE_SUFFIX, RegionData, SymbolData, TaskData, build};
 use xmas_elf::ElfFile;
@@ -161,15 +161,52 @@ pub(crate) fn native_image(path: &Path) -> Result<Vec<u8>> {
     ))
 }
 
+/// 定位符号表工具：PATH 上的 `nm`，其次 `llvm-nm`，最后工具链自带的 `llvm-nm`
+/// （rustup 把 LLVM 塞在 `lib/rustlib/<host>/bin` 下，Windows 默认没有 `nm`）。
+fn nm_tool() -> std::ffi::OsString {
+    for name in ["nm", "llvm-nm"] {
+        if Command::new(name)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            return name.into();
+        }
+    }
+    let sysroot = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .ok()
+        .map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()));
+    if let Some(sysroot) = sysroot
+        && let Ok(hosts) = fs::read_dir(sysroot.join("lib/rustlib"))
+    {
+        for host in hosts.flatten() {
+            let candidate = host.path().join("bin").join(if cfg!(windows) {
+                "llvm-nm.exe"
+            } else {
+                "llvm-nm"
+            });
+            if candidate.is_file() {
+                return candidate.into_os_string();
+            }
+        }
+    }
+    "nm".into()
+}
+
 fn collect_symbols(binary: &Path, prefix: &str) -> Result<Vec<(u64, String)>> {
-    let output = Command::new("nm")
+    let tool = nm_tool();
+    let output = Command::new(&tool)
         .args(["-n", "-C", "--defined-only"])
         .arg(binary)
         .output()
-        .map_err(|error| Failure::new(format!("执行 nm 失败：{error}")))?;
+        .map_err(|error| Failure::new(format!("执行 {tool:?} 失败：{error}")))?;
     if !output.status.success() {
         return Err(Failure::new(format!(
-            "nm 失败：{}",
+            "{tool:?} 失败：{}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }

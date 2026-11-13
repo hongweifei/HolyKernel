@@ -59,6 +59,16 @@ fn limine_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(DEFAULT_LIMINE_DIR))
 }
 
+/// 定位 `limine` 宿主工具：优先 `HK_LIMINE_DIR` 下的可执行文件，其次 PATH。
+fn limine_tool() -> PathBuf {
+    let dir = limine_dir();
+    ["limine.exe", "limine"]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from("limine"))
+}
+
 fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<PathBuf> {
     let root = workspace::root();
     let suffix = std::env::var("HK_ISO_SUFFIX").unwrap_or_default();
@@ -114,6 +124,9 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
         return Ok(iso);
     }
     let mut xorriso = Command::new("xorriso");
+    // Windows 上的 xorriso 可能是 Cygwin 构建，只认 POSIX/相对路径，`D:\...` 会被
+    // 当成 cwd 下的相对名。相对 staging 的写法在两个平台都成立。
+    let iso_argument = Path::new("..").join(iso.file_name().expect("iso 有文件名"));
     xorriso
         .current_dir(&staging)
         .env("SOURCE_DATE_EPOCH", "0")
@@ -137,7 +150,7 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
             ".",
             "-o",
         ])
-        .arg(&iso);
+        .arg(&iso_argument);
     let status = xorriso
         .status()
         .map_err(|error| Failure::new(format!("启动 xorriso 失败：{error}")))?;
@@ -145,7 +158,7 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
         return Err(Failure::new(format!("xorriso 失败：{status}")));
     }
 
-    let status = Command::new("limine")
+    let status = Command::new(limine_tool())
         .arg("bios-install")
         .arg(&iso)
         .status()
