@@ -144,12 +144,12 @@ impl Port {
     pub fn poll_complete(&mut self, hba: &Hba) -> Option<(u64, Result<usize, BlockError>)> {
         let issued = hba.commands_issued(self.index);
         let failed = hba.port_error(self.index);
-        for slot in 0..SLOTS {
-            let entry = self.slots[slot];
-            if !entry.in_use || issued & (1 << slot) != 0 {
+        for (slot, cell) in self.slots.iter_mut().enumerate() {
+            if !cell.in_use || issued & (1 << slot) != 0 {
                 continue;
             }
-            self.slots[slot] = EMPTY_SLOT;
+            let entry = *cell;
+            *cell = EMPTY_SLOT;
             let result = if failed {
                 Err(BlockError::Io)
             } else {
