@@ -250,7 +250,7 @@ impl Notification {
 - `SYS_THREAD_JOIN(thread)` 等待线程退出；等待期间当前 TCB 由内核挂起，目标退出时唤醒。
 - `SYS_THREAD_SET_TLS(tls)` 设置当前线程的 TLS 基址；每次调度切换时运行库写入线程指针寄存器（x86_64 为 `IA32_FS_BASE`）。
 - `SYS_FUTEX_WAIT(address, expected)` 与 `SYS_FUTEX_WAKE(address, count)` 以共享内存字为键挂起与唤醒线程，地址按 Task 归属区分。
-- 线程共享页表与 Arena；创建时把当前句柄对象授予新 TCB，之后新开的句柄只对所属线程可见。
+- 线程共享页表、Arena 与句柄表；任一线程新开的句柄对其他线程同样可见，句柄编号在线程间通用。
 - IPC 的接收者身份由 Task 主线程承担；线程专注计算、共享内存与 futex 同步。
 - `SYS_FAULT_SUBSCRIBE(endpoint)` 注册异常出口；内核把原始现场作为 `FAULT_EVENT` 投递给订阅端点，订阅者缓存与符号化。
 
