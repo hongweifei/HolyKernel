@@ -262,6 +262,7 @@ impl Notification {
 - 协程内可以恢复其他协程；恢复前的当前协程会被保存，返回后自动还原，嵌套恢复可用。
 - 协程把等待点组织成顺序代码；真正的阻塞由 Endpoint、Notification 或 futex 承担。
 - 同一线程同一时刻只运行一个协程；跨线程并发使用请让每个线程各自持有协程集合。
+- 栈切换按 System V x86_64 约定（`rdi`/`rsi` 传参、`rbx`/`rbp`/`r12`-`r15` 为 callee-saved）编写；Windows 宿主（MSVC ABI）不编译该 crate，裸机与 Unix 宿主不受影响。
 
 ### 5.3 异步执行器
 

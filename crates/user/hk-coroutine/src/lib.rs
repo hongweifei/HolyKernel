@@ -1,13 +1,18 @@
 //! 用户态有栈协程。
 //!
-//! 每个协程持有自己的栈与保存的执行现场；[`Coroutine::resume`] 从调用方栈切到
-//! 协程栈，[`suspend`] 再切回调用方。切换只保存 callee-saved 寄存器与栈指针，
+//! 每个协程持有自己的栈与保存的执行现场；`Coroutine::resume` 从调用方栈切到
+//! 协程栈，`suspend` 再切回调用方。切换只保存 callee-saved 寄存器与栈指针，
 //! 不经过内核，适合把等待点组织成顺序代码。
 //!
 //! 同一时刻只有一个协程在某个线程上运行；跨线程并发使用请让每个线程各自持有
 //! 协程集合。
+//!
+//! 栈切换按 System V x86_64 调用约定（`rdi`/`rsi` 传参、`rbx`/`rbp`/`r12`-`r15`
+//! 为 callee-saved）编写，因此只在非 Windows 宿主与 `x86_64-unknown-none` 上
+//! 编译；Windows 宿主（MSVC ABI）下本 crate 不提供任何条目。
 
 #![no_std]
+#![cfg(not(target_os = "windows"))]
 
 extern crate alloc;
 

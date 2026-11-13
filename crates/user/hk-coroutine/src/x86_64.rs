@@ -3,10 +3,11 @@
 //! 切换只保存 callee-saved 寄存器（rbp、rbx、r12-r15）与栈指针；返回地址留在
 //! 各自栈上，恢复后由 `ret` 继续执行。
 
+// `.type`/`.size` 是 ELF 专有伪指令，MSVC 与 Mach-O 汇编器不接受；符号本身
+// 由 `.globl` + 标签定义，跨目标只需这一份指令序列。
 core::arch::global_asm!(
     ".text",
     ".globl hk_swap_context",
-    ".type hk_swap_context,@function",
     "hk_swap_context:",
     "push rbp",
     "push rbx",
@@ -23,14 +24,11 @@ core::arch::global_asm!(
     "pop rbx",
     "pop rbp",
     "ret",
-    ".size hk_swap_context, .-hk_swap_context",
     ".globl hk_coroutine_start",
-    ".type hk_coroutine_start,@function",
     "hk_coroutine_start:",
     "mov rdi, r12",
     "call hk_coroutine_entry",
     "ud2",
-    ".size hk_coroutine_start, .-hk_coroutine_start",
 );
 
 unsafe extern "C" {
