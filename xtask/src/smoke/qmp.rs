@@ -1,7 +1,9 @@
 //! QMP 按键注入：把文本转成 `send-key` 命令。
 
 use std::path::Path;
+#[cfg(unix)]
 use std::thread;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use crate::failure::{Failure, Result};
@@ -183,6 +185,7 @@ pub(super) fn inject_pointer_drag(
     Err(Failure::new("指针输入冒烟只在 Unix 主机上运行"))
 }
 
+#[cfg(any(unix, test))]
 fn qcodes(text: &str) -> Vec<String> {
     text.chars()
         .map(|character| match character {
