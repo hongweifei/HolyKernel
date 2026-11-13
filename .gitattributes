@@ -1,0 +1,6 @@
+# 文本文件统一以 LF 存储、以 LF 检出，跨 Windows/Linux/macOS 保持一致。
+# 即使本机 core.autocrlf=true，也不会再检出 CRLF 造成全仓库改动。
+* text=auto eol=lf
+
+# 二进制资源，禁止任何换行符转换与文本 diff。
+*.ttf binary

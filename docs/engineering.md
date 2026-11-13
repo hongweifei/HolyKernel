@@ -66,6 +66,8 @@ HolyKernel/
 - Edition：2024。
 - 目标：`x86_64-unknown-none`、`aarch64-unknown-none`、host triple。
 - 构建配置：`opt-level="s"`、`lto="thin"`、`overflow-checks=true`、`panic="abort"`。
+- 换行符与编码：统一 UTF-8 + LF，由 `.gitattributes`（`* text=auto eol=lf`）与 `.editorconfig` 固化；即使本机 `core.autocrlf=true`，检出与提交也保持 LF，二进制资源（`*.ttf`）不做转换。
+- Windows 检出：路径含 Windows 保留设备名（本仓库为 `servers/virtio/src/aux`）时 `git` 无法打开文件，`git status` 会误报为已修改；在该克隆执行 `git config core.protectNTFS false` 即可。
 
 ### xtask
 
