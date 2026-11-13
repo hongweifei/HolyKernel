@@ -1211,7 +1211,6 @@ dependencies = [
 name = "hk-server-latency"
 version = "0.1.0"
 dependencies = [
- "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]

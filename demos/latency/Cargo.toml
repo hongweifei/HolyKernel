@@ -11,7 +11,6 @@ name = "hk-server-latency"
 path = "src/main.rs"
 
 [dependencies]
-hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
 hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
 
 [build-dependencies]
