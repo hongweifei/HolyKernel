@@ -368,6 +368,11 @@ impl Capacity {
         if child.parent != Some(self.id) {
             return Err(HmpError::WrongCapability);
         }
+        if child.released {
+            // 已并回的容量再次 merge 会把配额重复加回父容量，fallback 路径还会
+            // 把同一区间二次插入空闲表。
+            return Err(HmpError::WrongCapability);
+        }
         if child.page_size != self.page_size {
             return Err(HmpError::InvalidSize);
         }
@@ -385,6 +390,11 @@ impl Capacity {
             return Ok(());
         }
 
+        // 子容量若已切出孙容量，其 `limit` 小于窗口长度；孙容量仍持有窗口内的
+        // 物理页，直接把整段并回父容量的空闲表会让同一区间被分配两次。
+        if child.limit() != range.len() {
+            return Err(HmpError::OutOfCapacity);
+        }
         // 父容量的 limit 在 split 时已扣除子容量；校验区间时先把子容量
         // 的配额加回来，再在成功并回后恢复父容量配额。
         let limit_end = self
@@ -398,6 +408,12 @@ impl Capacity {
         if range.end().get() == self.next {
             self.next = range.start().get();
         } else {
+            // 防御：区间不得与既有空闲窗口重叠（重复并回会破坏唯一物理页）。
+            if self.free.iter().any(|free| {
+                free.start().get() < range.end().get() && range.start().get() < free.end().get()
+            }) {
+                return Err(HmpError::WrongCapability);
+            }
             self.free.push(range);
             self.coalesce();
         }
@@ -766,5 +782,40 @@ mod tests {
             again.range(),
             PhysRange::new(PhysAddr::new(0x10_0000), 0x4000)
         );
+    }
+
+    #[test]
+    fn merge_rejects_repeated_merge() {
+        let mut parent = capacity();
+        let original = parent.limit();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x4000, CapacityKind::User)
+            .expect("子 Capacity");
+        parent.merge(&mut child).expect("并回");
+        assert_eq!(parent.limit(), original);
+        assert_eq!(
+            parent.merge(&mut child).err(),
+            Some(HmpError::WrongCapability),
+            "已并回的容量不能再次 merge"
+        );
+        assert_eq!(parent.limit(), original, "配额不得重复放大");
+    }
+
+    #[test]
+    fn merge_rejects_child_with_grandchild_windows() {
+        let mut parent = capacity();
+        let mut child = parent
+            .split(CapacityId::new(2), 0x8000, CapacityKind::User)
+            .expect("子 Capacity");
+        let mut grandchild = child
+            .split(CapacityId::new(3), 0x4000, CapacityKind::User)
+            .expect("孙 Capacity");
+        assert_eq!(
+            parent.merge(&mut child).err(),
+            Some(HmpError::OutOfCapacity),
+            "孙容量仍持有窗口时不能并回"
+        );
+        let frame = grandchild.allocate(4096).expect("孙容量仍可分配");
+        assert!(frame.phys().get() >= child.range().start().get());
     }
 }
