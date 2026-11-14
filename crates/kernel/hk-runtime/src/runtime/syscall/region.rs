@@ -92,6 +92,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        // GUARD 要求页面保持未映射；带常驻 backing 的区域一建立就会有可访问
+        // PTE，与“命中即故障”的契约相反，直接拒绝。
+        if flags.contains(RegionFlags::GUARD) && backing.is_some() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Some(virt) = self.process_mut(index).user_window.allocate(length) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -238,6 +244,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             map.rights = rights;
             map.flags = flags;
         }
+        if flags.contains(RegionFlags::GUARD) {
+            // GUARD 区域不保留任何 PTE：访问回到缺页路径，由故障处理按 Region
+            // 标志终止或交策略决定，未装入页也不会被零页填充。
+            let _ = self.platform.unmap_user(index, virt, length);
+            frame.set_result(0);
+            return Switch::Continue;
+        }
         let backing = self
             .kernel
             .capability(owner, capability)
@@ -383,7 +396,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let delta = new_len - length;
-        if let Some(backing) = backing {
+        let mapped_delta = !flags.contains(RegionFlags::GUARD) && backing.is_some();
+        if mapped_delta && let Some(backing) = backing {
             let phys = backing
                 .start()
                 .get()
@@ -403,7 +417,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         }
         if self.kernel.grow_region(tcb, handle, new_len).is_err() {
-            if backing.is_some() {
+            if mapped_delta {
                 let _ = self.platform.unmap_user(index, virt + length as u64, delta);
             }
             let _ = self.process_mut(index).hmp_arena.resize(region_id, length);

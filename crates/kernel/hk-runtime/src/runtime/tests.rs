@@ -2366,6 +2366,111 @@ fn rejected_frame_map_keeps_frame_handle() {
 }
 
 #[test]
+fn protect_to_guard_unmaps_region() {
+    let platform = MockPlatform::new();
+    let unmapped = Arc::clone(&platform.unmapped);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+    let (_, _, virt, _) = runtime.region_at(index, region as usize).expect("Region");
+
+    let before = unmapped.load(Ordering::Acquire);
+    context.rax = hk_syscall::SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b11 | ((hk_mem::hmp::RegionFlags::GUARD.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "protect 为 GUARD 应成功");
+    assert!(
+        unmapped.load(Ordering::Acquire) > before,
+        "GUARD 区域必须拆除页表映射"
+    );
+
+    assert_eq!(
+        runtime.handle_fault(
+            0,
+            virt,
+            hk_mem::hmp::provider::ProviderAccess::Read,
+            MockContext::default()
+        ),
+        FaultOutcome::Unhandled,
+        "GUARD 命中必须落到故障路径"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn frame_map_rejects_guard_with_backing() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(103),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x84_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    // GUARD 与常驻 backing 互斥：拒绝且不消费句柄，物理页不归还。
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11 | ((hk_mem::hmp::RegionFlags::GUARD.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert!(
+        runtime.handle_at(index, frame as usize).is_some(),
+        "GUARD 拒绝不得消费 Frame 句柄"
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn rejects_device_grant_without_authority() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
