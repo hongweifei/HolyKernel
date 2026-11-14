@@ -226,7 +226,7 @@ impl SmokeMode {
             Self::Checkpoint => Some(String::from(
                 "checkpoint-test shell-test help;checkpoint hk-server-memory;restore-checkpoint hk-server-memory;tasks",
             )),
-            Self::CheckpointServer => Some(String::from("checkpoint-srv-test")),
+            Self::CheckpointServer => Some(String::from("vfs.fs=holyfs checkpoint-srv-test")),
             Self::Memory => Some(String::from("memory-test")),
         }
     }
@@ -914,7 +914,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         inject(&socket, "hi\n")?;
     }
     if mode == SmokeMode::InputDriver {
-        wait_for(&log, "hk-server-input: ready", Duration::from_secs(15))?;
+        wait_for(&log, "hk-server-console: sgr ok", Duration::from_secs(20))?;
         inject(&socket, "hi\n")?;
     }
     if mode == SmokeMode::Pointer {

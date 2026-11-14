@@ -129,19 +129,40 @@ fn inject_codes(socket: &str, codes: &[String]) -> Result<()> {
         .write_all(b"{\"execute\":\"qmp_capabilities\"}\n")
         .and_then(|()| writer.flush())
         .map_err(|error| Failure::new(format!("发送 QMP 握手失败：{error}")))?;
-    thread::sleep(Duration::from_millis(100));
+    wait_reply(&mut reader)?;
 
     for key in codes {
         let command = format!(
-            "{{\"execute\":\"send-key\",\"arguments\":{{\"keys\":[{{\"type\":\"qcode\",\"data\":\"{key}\"}}]}}}}\n"
+            "{{\"execute\":\"input-send-event\",\"arguments\":{{\"events\":[{{\"type\":\"key\",\"data\":{{\"down\":true,\"key\":{{\"type\":\"qcode\",\"data\":\"{key}\"}}}}}},{{\"type\":\"key\",\"data\":{{\"down\":false,\"key\":{{\"type\":\"qcode\",\"data\":\"{key}\"}}}}}}]}}}}\n"
         );
         writer
             .write_all(command.as_bytes())
             .and_then(|()| writer.flush())
             .map_err(|error| Failure::new(format!("发送按键失败：{error}")))?;
+        wait_reply(&mut reader)?;
         thread::sleep(Duration::from_millis(40));
     }
     Ok(())
+}
+
+/// 读取一条 QMP 回执；异步事件行跳过，`error` 直接上抛。
+fn wait_reply<R: std::io::BufRead>(reader: &mut R) -> Result<()> {
+    loop {
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .map_err(|error| Failure::new(format!("读取 QMP 回执失败：{error}")))?;
+        if line.trim().is_empty() {
+            return Err(Failure::new("QMP 连接提前关闭"));
+        }
+        if line.contains("\"event\"") {
+            continue;
+        }
+        if line.contains("\"error\"") {
+            return Err(Failure::new(format!("QMP 拒绝命令：{}", line.trim())));
+        }
+        return Ok(());
+    }
 }
 
 fn qcodes(text: &str) -> Vec<String> {

@@ -223,6 +223,7 @@ pub fn run(
         }
         if checkpoint_srv_test {
             // Checkpoint Server 自检：服务、目标任务、客户端与 HolyFS 落盘链路。
+            // `hk-server-path` 通过 `hk-server-vfs` 探测盘符，缺了它目标任务会直接退出。
             return matches!(
                 name,
                 "hk-server-echo"
@@ -233,6 +234,7 @@ pub fn run(
                     | "hk-server-virtio"
                     | "hk-server-block"
                     | "hk-server-holyfs"
+                    | "hk-server-vfs"
                     | "hk-server-memory"
             );
         }
