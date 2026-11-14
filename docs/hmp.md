@@ -256,7 +256,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 - `ImageProvider`：load、seal、execute。
 - `DeviceProvider`：residency、eviction、pin、export/import、IOMMU。
 - `AnonymousProvider`：zero-fill、COW、compress、swap、grow。
-- 除 Frame 外的类型化能力都可以创建为无 backing 的懒加载能力；绑定 `ProviderKind` 匹配的端点后，缺页转发给 Provider。Frame 是常驻页能力，不参与懒加载。
+- 除 Frame 外的类型化能力都可以创建为无 backing 的懒加载能力；绑定 `ProviderKind` 匹配的端点后，缺页转发给 Provider。Frame 是常驻页能力，不参与懒加载。未绑定 Provider 的非 Anonymous 能力没有后备来源，`SYS_REGION_MAP` 直接拒绝。
 
 内核快速路径：
 

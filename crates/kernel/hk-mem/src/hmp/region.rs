@@ -177,16 +177,24 @@ impl Region {
     ///
     /// SEALED 与 COW 都是单向状态：不能通过 protect 清除。
     pub fn protect(&mut self, rights: Rights, flags: RegionFlags) -> Result<(), HmpError> {
+        self.check_protect(rights, flags)?;
+        self.rights = rights;
+        self.flags = flags;
+        Ok(())
+    }
+
+    /// 只校验一次 protect 是否合法，不修改状态。
+    ///
+    /// 运行时用它先验证再重映射：页表映射失败时内核 Region 尚未改变，不需要
+    /// 反向回滚（SEALED 之后无法撤销）。
+    pub fn check_protect(&self, rights: Rights, flags: RegionFlags) -> Result<(), HmpError> {
         if self.flags.contains(RegionFlags::SEALED) && !flags.contains(RegionFlags::SEALED) {
             return Err(HmpError::ReadOnly);
         }
         if self.flags.contains(RegionFlags::COW) && !flags.contains(RegionFlags::COW) {
             return Err(HmpError::PermissionDenied);
         }
-        validate(&self.capability, rights, flags)?;
-        self.rights = rights;
-        self.flags = flags;
-        Ok(())
+        validate(&self.capability, rights, flags)
     }
 
     /// 返回 Region 标识。

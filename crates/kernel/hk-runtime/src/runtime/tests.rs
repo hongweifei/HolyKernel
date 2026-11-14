@@ -112,7 +112,7 @@ struct MockPlatform {
     /// 物理页是否报告为跨地址空间共享。
     shared: bool,
     /// 解除映射的返回值。
-    unmap_ok: bool,
+    unmap_ok: Arc<AtomicBool>,
     /// 地址空间激活次数。
     activations: Arc<AtomicUsize>,
     /// 最近一次 `map_user` 的页表参数。
@@ -187,7 +187,7 @@ impl MockPlatform {
         Self {
             zero: true,
             shared: false,
-            unmap_ok: true,
+            unmap_ok: Arc::new(AtomicBool::new(true)),
             activations: Arc::new(AtomicUsize::new(0)),
             last_map: Arc::new(core::sync::atomic::AtomicU64::new(0)),
             user: Arc::new(spin::Mutex::new(user)),
@@ -266,7 +266,7 @@ impl UserPlatform for MockPlatform {
     fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
         self.unmapped
             .fetch_add(1, core::sync::atomic::Ordering::AcqRel);
-        self.unmap_ok
+        self.unmap_ok.load(Ordering::Acquire)
     }
 
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
@@ -2757,6 +2757,97 @@ fn frame_map_honours_pinned_flag() {
 }
 
 #[test]
+fn unmap_failure_keeps_region_and_retries() {
+    let platform = MockPlatform::new();
+    let unmap_ok = Arc::clone(&platform.unmap_ok);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+    let (slot, ..) = runtime.region_at(index, region as usize).expect("Region");
+    let charged = runtime.process(index).ledger.charged();
+
+    unmap_ok.store(false, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "解除失败必须报错");
+    assert!(
+        runtime.process(index).regions[slot].is_some(),
+        "失败时必须保留 Region 元数据"
+    );
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        charged,
+        "失败时不得释放记账"
+    );
+
+    unmap_ok.store(true, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1, "恢复后重试应成功");
+    assert!(runtime.process(index).regions[slot].is_none());
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn reclaim_releases_page_charges_of_all_aliases() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    // 同一能力映射两次，页在第二个 Region 上缺页装入并记账。
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let first = context.rax;
+    assert_ne!(first, u64::MAX);
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let second = context.rax;
+    assert_ne!(second, u64::MAX);
+
+    let (.., second_virt, _) = runtime.region_at(index, second as usize).expect("Region");
+    assert!(runtime.anonymous_fault(0, second_virt));
+    let charged = runtime.process(index).ledger.charged();
+    assert_eq!(runtime.reclaim_zero_pages(0, 0x1000), 0x1000);
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        charged - 0x1000,
+        "回收必须释放该能力在所有别名上的记账"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn region_protect_rolls_back_on_map_failure() {
     let platform = MockPlatform::new();
     let map_ok = Arc::clone(&platform.map_ok);
@@ -2805,6 +2896,29 @@ fn region_protect_rolls_back_on_map_failure() {
     context.rsi = 0b1;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 0, "恢复后应可成功收窄");
+
+    // 新增 SEALED 时映射失败：内核 Region 尚未提交，不会出现“已密封无法回滚”。
+    map_ok.store(false, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b1 | ((hk_mem::hmp::RegionFlags::SEALED.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert!(
+        !runtime.process(index).regions[slot]
+            .as_ref()
+            .expect("映射")
+            .flags
+            .contains(hk_mem::hmp::RegionFlags::SEALED),
+        "失败不得提交 SEALED"
+    );
+
+    map_ok.store(true, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b1 | ((hk_mem::hmp::RegionFlags::SEALED.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "重试后应成功密封");
     let _ = runtime.finish(0, index);
 }
 
@@ -3838,7 +3952,7 @@ fn lazy_region_unmap_failure_keeps_region() {
     let mut runtime = runtime_on(
         "b",
         MockPlatform {
-            unmap_ok: false,
+            unmap_ok: Arc::new(AtomicBool::new(false)),
             ..MockPlatform::new()
         },
     );

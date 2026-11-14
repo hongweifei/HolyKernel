@@ -607,6 +607,24 @@ impl Kernel {
         region.lock().grow(len).map_err(KernelError::Hmp)
     }
 
+    /// 校验一次 Region protect 是否合法，不修改状态。
+    pub fn check_protect_region(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        rights: Rights,
+        flags: hk_mem::hmp::RegionFlags,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Region)?;
+        let region = object.region().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Region,
+        })?;
+        region
+            .lock()
+            .check_protect(rights, flags)
+            .map_err(KernelError::Hmp)
+    }
+
     /// 修改 Region 的权利与标志；能力层校验 W^X 与 sealed 约束。
     pub fn protect_region(
         &self,
