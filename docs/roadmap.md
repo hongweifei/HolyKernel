@@ -89,6 +89,16 @@ flowchart LR
 6. `cargo xtask lint`、`cargo test --workspace`、`cargo xtask docs` 全绿。
 7. Cadence/Meter、Tempo 与 Beat 的机制与冒烟全绿；空闲 CPU 用户态占用 0%，同权重份额误差 ≤2%，唤醒延迟 ≤100µs；`smoke --mode realtime` 在启动清单基线负载下 `overruns=0`。M11 扩展压力与跨架构验证。
 
+### M6 待收口（审计交接，2026-11-14）
+
+下列缺口来自 2026-11-10 的 HMP 内存面审计（M1–M18 与 C1–C14 已完成），不参与 M6 退出标准判定，转入后续里程碑：
+
+- **Provider 服务端**：Memory Server 只实现 Anonymous 的懒加载与故障服务（`servers/memory/src/main.rs` 仅对 `CapabilityKind::Anonymous` 建懒能力）；Revision/Surface 的 fault/writeback/evict 服务端尚未实现，内核侧契约与类型化校验已就绪。
+- **Capability 操作收敛**：`SYS_CAPABILITY_*` 仍无 `Swap` 入口（`CapabilityOp::Swap` 只对 Anonymous 定义）；`CapabilityOp::Map` 对所有能力恒真，未按类型收敛。
+- **System Arena 覆盖面**：用户地址空间的页表页（Image/Cow/Restore 用途）属于任务地址空间，未登记 System Arena；Hosted 平台没有物理页表，`SYS_SYSTEM_ARENA_*` 查询返回失败。
+- **客户端类型层**：`Handle<Revision>` 一类零成本句柄包装尚未在客户端库实现（[ADR-0016](adr/0016-hmp-native-contract.md) 第 6 节）。
+- **COW 记账**：私有页仍按能力行与 `page_charges` 记账，未统一为单一 Frame 引用模型。
+
 ---
 
 ## 5. M7 — 平台与引导
@@ -228,7 +238,7 @@ flowchart LR
 
 - M0–M5 已完成；当前焦点是 **M6 底层收敛**：HMP 对象面、Capacity 帧库、Region 物化、COW、MMIO/DMA 与 HMP ABI。
 - 实现现状（设计契约见 [HMP](hmp.md)）：单一物理后端与 Capacity 配额视图；System Capacity 覆盖除 DMA 预留外的全部可用内存，内核堆、页表、镜像/栈/Arena 页计入 System；Root 建立只预切一个页窗口、按分配从 System 动态增长的顶层 User Capacity，每个服务启动时取得该容量，Memory Server 共享该容量，匿名 capability、Frame、Arena 与 Provider 页从该用户账出页；Arena 以惰性匿名 Region 建立，装载期不预映射，`SYS_ALLOC` 按页推进并计入任务 Ledger；Capacity `used` 只计已分配 Frame，merge 失败由后端返回，多窗口 split 从尾部空闲的窗口切出；`SYS_CAPACITY_INFO` 64 字节（含 peak/soft），`SYS_LEDGER_INFO` 48 字节（含 resident/soft），`SYS_LEDGER_ENUM` 按索引枚举容量 Ledger，每条约 64 字节（含 CapacityId/用途/用量/配额/峰值/压力/常驻/软上限）。
-- 按设计继续收口：loader 的镜像/栈页仍直接安装页表，尚未物化为 Region；软上限策略接到 Root/Tempo。
+- 按设计继续收口：镜像/栈页已通过 Region 物化（`hk-root-server` 的 `UserRegionSpec` + `attach_with_regions`），软上限策略仍待接到 Root/Tempo；M6 剩余的集成缺口见上文「M6 待收口」。
 - Region 的 `GROW`/`PINNED` 已接入运行时，并提供 `SYS_REGION_GROW`；Arena 内部惰性 Region 已进入 HMP Arena 表；Task Ledger 是唯一硬配额，Arena、Region、类型化 Capability 与 Frame 的对象账本快照只报告利用率，可按句柄经 `SYS_OBJECT_LEDGER` 查询。
 - 调度以 [Holy Cadence Model](scheduling.md) 为唯一契约；Cadence/Meter、Tempo、Beat 与 Lending 随 M6 落地。
 - 已落地原型资产：Display、Console、Input、HolyDoc、Workbench、Debug、Checkpoint、Task Manager、HolyFS、POSIX/Linux/Harmony 兼容投影基础（Path/VFS 路径层与 nice↔权重）；Compatibility Server、POSIX Server 与 libc 属后续里程碑。
