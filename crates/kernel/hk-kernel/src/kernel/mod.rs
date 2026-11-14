@@ -88,6 +88,8 @@ pub struct Kernel {
     idle_enabled: core::sync::atomic::AtomicBool,
     moment: AtomicU64,
     clock: AtomicU64,
+    /// 句柄转移已在内核侧记账、尚未被运行时安装取走的账目。
+    transfer_charges: Mutex<BTreeMap<(u64, u32, u32), hk_mem::hmp::Charge>>,
 }
 
 impl Kernel {
@@ -109,6 +111,59 @@ impl Kernel {
             idle_enabled: core::sync::atomic::AtomicBool::new(false),
             moment: AtomicU64::new(0),
             clock: AtomicU64::new(0),
+            transfer_charges: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// 给任务挂上共享账本；运行时建立 Process 后调用。
+    pub fn set_task_ledger(
+        &self,
+        task: TaskId,
+        ledger: hk_mem::hmp::SharedLedger,
+    ) -> Result<(), KernelError> {
+        let task = self.task(task).ok_or(KernelError::UnknownTask(task))?;
+        task.lock().set_ledger(ledger);
+        Ok(())
+    }
+
+    /// 返回线程所属任务的共享账本。
+    pub(crate) fn thread_ledger(&self, thread: TcbId) -> Option<hk_mem::hmp::SharedLedger> {
+        let task = {
+            let threads = self.threads.lock();
+            threads.get(&thread)?.task()
+        };
+        let task = self.task(task)?;
+        task.lock().ledger().cloned()
+    }
+
+    /// 取走内核侧为一次句柄转移记录的账目。
+    ///
+    /// 运行时安装句柄时调用；未取走的账目在关闭句柄或线程退出时释放。
+    pub fn take_transfer_charge(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Option<hk_mem::hmp::Charge> {
+        self.transfer_charges
+            .lock()
+            .remove(&(thread.get(), handle.index(), handle.generation()))
+    }
+
+    /// 释放某线程尚未被取走的转移账目。
+    pub(crate) fn release_transfer_charges(&self, thread: TcbId) {
+        let ledger = self.thread_ledger(thread);
+        let mut charges = self.transfer_charges.lock();
+        let keys: Vec<(u64, u32, u32)> = charges
+            .keys()
+            .copied()
+            .filter(|(owner, _, _)| *owner == thread.get())
+            .collect();
+        for key in keys {
+            if let Some(charge) = charges.remove(&key)
+                && let Some(ledger) = &ledger
+            {
+                let _ = ledger.release(charge);
+            }
         }
     }
 

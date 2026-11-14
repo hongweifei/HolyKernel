@@ -180,6 +180,13 @@ pub trait Object: Send + Sync + core::any::Any {
 
     /// 以类型擦除的 `Arc` 返回对象，供内核还原具体对象类型。
     fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync>;
+
+    /// 返回对象常驻的物理字节数；句柄转移按它计入接收方账本。
+    ///
+    /// 没有物理后备的对象（端点、通知、Capacity 等）返回 0。
+    fn resident_bytes(&self) -> u64 {
+        0
+    }
 }
 
 bitflags::bitflags! {

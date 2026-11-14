@@ -510,6 +510,8 @@ impl Kernel {
         {
             return Err(hk_handle::HandleError::BadHandle.into());
         }
+        // 接收方账本：同表转移不重复记账（发送方稍后经运行时释放槽位记账）。
+        let receiver_ledger = self.thread_ledger(receiver);
 
         if sender == receiver {
             let table = self
@@ -612,12 +614,50 @@ impl Kernel {
                     }
                 }
             }
+            // 句柄转移与接收方配额在同一事务里：装不下就撤销本次转移，
+            // 发送方句柄保持有效，消息也不会投递。
+            let mut transfer_charges: Vec<(Handle, hk_mem::hmp::Charge)> = Vec::new();
+            if let Some(ledger) = &receiver_ledger {
+                for (resolved, handle) in resolved.iter().zip(granted.iter()) {
+                    let bytes = resolved.object().resident_bytes();
+                    if bytes == 0 {
+                        continue;
+                    }
+                    match ledger.charge(bytes) {
+                        Ok(charge) => transfer_charges.push((*handle, charge)),
+                        Err(_) => {
+                            for (handle, charge) in transfer_charges.drain(..) {
+                                let _ = ledger.release(charge);
+                                let _ = target.close(handle);
+                            }
+                            for handle in &granted {
+                                let _ = target.close(*handle);
+                            }
+                            return Err(KernelError::Hmp(hk_mem::hmp::HmpError::LedgerLimit));
+                        }
+                    }
+                }
+            }
             for handle in &handles {
                 if source.close(*handle).is_err() {
                     for handle in &granted {
                         let _ = target.close(*handle);
                     }
+                    if let Some(ledger) = &receiver_ledger {
+                        for (_, charge) in transfer_charges.drain(..) {
+                            let _ = ledger.release(charge);
+                        }
+                    }
                     return Err(hk_handle::HandleError::BadHandle.into());
+                }
+            }
+            if !transfer_charges.is_empty() {
+                let mut pending = self.transfer_charges.lock();
+                for (handle, charge) in transfer_charges {
+                    pending.insert(
+                        (receiver.get(), handle.index(), handle.generation()),
+                        charge,
+                    );
                 }
             }
         }

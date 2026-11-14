@@ -325,7 +325,7 @@ Ledger 分为三层，避免同一批字节在多本账上重复执行硬配额�
 - **Task Ledger**：任务配额的唯一硬账。`SYS_LEDGER_INFO` 返回它；超过 `limit` 的分配失败。`charged` 只统计常驻物理页：装载器镜像与栈、常驻能力、匿名缺页装入页、COW/fork 私有页、DMA 与设备映射。虚拟 Region 与惰性能力创建不占用 Task Ledger；页被回收、Region 关闭或进程退出时释放对应记账。
 - **Capacity / FrameBank**：物理边界。Capacity 按 `CapacityId` 归因物理窗口，FrameBank 维护物理总量与峰值。
 - **对象利用率快照**：Region、Capability、Frame 不持有独立 `Charge`，也不执行硬配额；`SYS_OBJECT_LEDGER` 按当前占用与对象容量计算 `charged/limit/peak/pressure`，只用于报告。Region 报告映射利用率，Capability 报告常驻利用率，Frame 报告常驻量；Arena 的地址窗口利用率由 `SYS_ARENA_INFO` 报告。
-- 记账随 Handle 转移：发送方归还，接收方按实际常驻物理页重新记入 Task Ledger；惰性能力在接收方首次缺页时记账，接收方超配额则拒绝。
+- 记账随 Handle 转移：发送方归还，接收方按实际常驻物理页重新记入 Task Ledger；惰性能力在接收方首次缺页时记账。转移与配额在内核的句柄转移事务中一次完成：接收方超配额时转移失败，消息保持可再次接收，句柄仍归发送方。
 - 关闭 Handle 归还 Task Ledger 记账；设备授权与 DMA 窗口、帧缓冲映射、装载器镜像/用户栈、COW 私有页与 fork 私有复制同样计入任务配额。
 - 池紧张时内核回收可证明为零的匿名页，解除映射并归还 Frame，然后重试一次；再次缺页装入的仍是零页。绑定 Provider 的匿名页可被回收，但 Provider 必须对被回收页再次提供零填充内容。
 - 回收范围限于可回收匿名页：内容为零、pin 已解除、驻留状态为可丢弃；pinned Frame 始终保留，Provider 提供的页按上面的零填充契约处理。

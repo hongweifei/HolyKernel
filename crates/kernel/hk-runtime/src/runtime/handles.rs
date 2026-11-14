@@ -18,9 +18,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 安装一个额外能力句柄并记录容量记账。
     pub(crate) fn install_extra_capability(&mut self, index: usize, handle: Handle) -> Option<u64> {
         let tcb = self.tasks[index].tcb;
+        // IPC 转移已由内核在转移事务里记账；本地安装只取走那笔账目。
+        // 非转移路径（测试、内核代建）没有预记账，才在这里补记。
+        let transfer_charge = self.kernel.take_transfer_charge(tcb, handle);
         // DeviceGrant 统一进入 Grant 段，避免同一对象出现两套句柄编号。
         if self.kernel.device_grant(tcb, handle).is_ok() {
-            return Some(self.install_grant(index, handle, None));
+            return Some(self.install_grant(index, handle, transfer_charge));
         }
         let Ok((_capability, _)) = self.kernel.capability(tcb, handle) else {
             // Frame 句柄没有类型化能力对象；接收方按物理区间大小记账，
@@ -28,12 +31,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, handle) else {
                 return Some(self.install_extra_handle(index, handle));
             };
+            if let Some(charge) = transfer_charge {
+                return Some(self.install_extra_entry(index, handle, Some(charge)));
+            }
             let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
                 let _ = self.kernel.close_handle(tcb, handle);
                 return None;
             };
             return Some(self.install_extra_entry(index, handle, Some(charge)));
         };
+        if let Some(charge) = transfer_charge {
+            return Some(self.install_extra_entry(index, handle, Some(charge)));
+        }
         // 句柄转移按实际常驻物理页记账；惰性能力在接收方缺页时再计入。
         let resident = self.kernel.capability_resident(tcb, handle).unwrap_or(0);
         if resident == 0 {

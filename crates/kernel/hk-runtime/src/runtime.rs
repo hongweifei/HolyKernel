@@ -15,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Arena as HmpArena, Charge, Ledger, RegionFlags};
+use hk_mem::hmp::{Arena as HmpArena, Charge, RegionFlags, SharedLedger};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_INFO,
@@ -126,7 +126,7 @@ pub(crate) struct RegionMap {
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
 pub(crate) struct Process {
     pub hmp_arena: HmpArena,
-    pub ledger: Ledger,
+    pub ledger: SharedLedger,
     pub user_window: UserWindow,
     pub regions: Vec<Option<RegionMap>>,
     pub region_free: Vec<usize>,
@@ -154,7 +154,7 @@ impl Process {
         Self {
             hmp_arena: HmpArena::create(VirtAddr::new(arena_base), address_size)
                 .expect("用户 Arena 布局有效"),
-            ledger: Ledger::create(ledger_limit),
+            ledger: SharedLedger::create(ledger_limit),
             user_window: UserWindow::new(),
             regions: Vec::new(),
             region_free: Vec::new(),

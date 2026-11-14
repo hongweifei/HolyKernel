@@ -85,6 +85,8 @@ pub struct Task {
     grant_end: u64,
     queued_at: Option<u64>,
     cache_heat: u32,
+    /// 任务账本；由运行时在建立 Process 后挂上，句柄转移在内核侧记账。
+    ledger: Option<hk_mem::hmp::SharedLedger>,
 }
 
 impl Task {
@@ -105,6 +107,7 @@ impl Task {
             grant_end: 0,
             queued_at: None,
             cache_heat: 0,
+            ledger: None,
         }
     }
 
@@ -169,6 +172,16 @@ impl Task {
     /// 设置 Task 状态。
     pub fn set_state(&mut self, state: TaskState) {
         self.state = state;
+    }
+
+    /// 挂上任务账本；同一本账运行时也会引用。
+    pub fn set_ledger(&mut self, ledger: hk_mem::hmp::SharedLedger) {
+        self.ledger = Some(ledger);
+    }
+
+    /// 返回任务账本。
+    pub fn ledger(&self) -> Option<&hk_mem::hmp::SharedLedger> {
+        self.ledger.as_ref()
     }
 
     /// 判断 Task 是否持有调度策略授权。

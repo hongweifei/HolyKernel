@@ -1,5 +1,6 @@
 //! Ledger：容量、常驻、配额与压力记账。
 
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::HmpError;
@@ -200,6 +201,152 @@ impl Ledger {
             pressure: self.pressure(),
             resident: self.resident,
             soft_limit: self.soft_limit,
+        }
+    }
+}
+
+/// 共享记账对象。
+///
+/// 与 [`Ledger`] 的方法集相同，但内部状态放在 `Arc` + 原子量里：同一本 Task
+/// Ledger 由运行时与内核共同持有，句柄转移可以在内核事务里直接记账，克隆
+/// `SharedLedger` 只是共享同一本账。
+#[derive(Clone)]
+pub struct SharedLedger {
+    inner: Arc<SharedInner>,
+}
+
+struct SharedInner {
+    id: LedgerId,
+    limit: AtomicU64,
+    soft_limit: AtomicU64,
+    charged: AtomicU64,
+    peak: AtomicU64,
+    resident: AtomicU64,
+}
+
+impl SharedLedger {
+    /// 以标识与配额创建。
+    pub fn new(id: LedgerId, limit: u64) -> Self {
+        Self {
+            inner: Arc::new(SharedInner {
+                id,
+                limit: AtomicU64::new(limit),
+                soft_limit: AtomicU64::new(0),
+                charged: AtomicU64::new(0),
+                peak: AtomicU64::new(0),
+                resident: AtomicU64::new(0),
+            }),
+        }
+    }
+
+    /// 分配一本共享账本。
+    pub fn create(limit: u64) -> Self {
+        Self::new(
+            LedgerId::new(NEXT_LEDGER_ID.fetch_add(1, Ordering::Relaxed)),
+            limit,
+        )
+    }
+
+    /// 记入一段容量。
+    pub fn charge(&self, amount: u64) -> Result<Charge, HmpError> {
+        loop {
+            let current = self.inner.charged.load(Ordering::Acquire);
+            let next = current.checked_add(amount).ok_or(HmpError::LedgerLimit)?;
+            if next > self.inner.limit.load(Ordering::Acquire) {
+                return Err(HmpError::LedgerLimit);
+            }
+            if self
+                .inner
+                .charged
+                .compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                self.inner.peak.fetch_max(next, Ordering::AcqRel);
+                return Ok(Charge {
+                    ledger: self.id(),
+                    amount,
+                });
+            }
+        }
+    }
+
+    /// 释放一次记账。
+    pub fn release(&self, charge: Charge) -> Result<(), HmpError> {
+        if charge.ledger != self.id() {
+            return Err(HmpError::WrongCapability);
+        }
+        let _ = self
+            .inner
+            .charged
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                Some(current.saturating_sub(charge.amount))
+            });
+        Ok(())
+    }
+
+    /// 返回标识。
+    pub fn id(&self) -> LedgerId {
+        self.inner.id
+    }
+
+    /// 返回配额。
+    pub fn limit(&self) -> u64 {
+        self.inner.limit.load(Ordering::Acquire)
+    }
+
+    /// 更新硬上限。
+    pub fn set_limit(&self, limit: u64) {
+        self.inner.limit.store(limit, Ordering::Release);
+    }
+
+    /// 返回当前记账量。
+    pub fn charged(&self) -> u64 {
+        self.inner.charged.load(Ordering::Acquire)
+    }
+
+    /// 返回峰值。
+    pub fn peak(&self) -> u64 {
+        self.inner.peak.load(Ordering::Acquire)
+    }
+
+    /// 设置软上限。
+    pub fn set_soft_limit(&self, limit: u64) {
+        self.inner.soft_limit.store(limit, Ordering::Release);
+    }
+
+    /// 返回软上限。
+    pub fn soft_limit(&self) -> u64 {
+        self.inner.soft_limit.load(Ordering::Acquire)
+    }
+
+    /// 更新常驻字节数快照。
+    pub fn set_resident(&self, resident: u64) {
+        self.inner.resident.store(resident, Ordering::Release);
+    }
+
+    /// 返回常驻字节数快照。
+    pub fn resident(&self) -> u64 {
+        self.inner.resident.load(Ordering::Acquire)
+    }
+
+    /// 返回压力百分比。
+    pub fn pressure(&self) -> u64 {
+        let limit = self.limit();
+        if limit == 0 {
+            return 100;
+        }
+        self.charged().saturating_mul(100) / limit
+    }
+
+    /// 返回只读快照。
+    pub fn snapshot(&self) -> LedgerSnapshot {
+        LedgerSnapshot {
+            charged: self.charged(),
+            limit: self.limit(),
+            peak: self.peak(),
+            pressure: self.pressure(),
+            resident: self.resident(),
+            soft_limit: self.soft_limit(),
         }
     }
 }

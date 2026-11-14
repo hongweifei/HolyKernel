@@ -104,6 +104,10 @@ where
             .unwrap_or_else(|_| platform.memory_limit(index));
         let mut process = Process::new(arena_base, arena_size, ledger_limit, handle);
         process.device_factory = factory;
+        // 把同一本 Task Ledger 挂到内核 Task：句柄转移在内核侧事务里记账。
+        if let Some(task) = kernel.task_of(service.tcb) {
+            kernel.set_task_ledger(task, process.ledger.clone())?;
+        }
         let mut task = UserTask::new(TaskInit {
             tcb: service.tcb,
             process: index,

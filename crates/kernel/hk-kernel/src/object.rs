@@ -198,6 +198,12 @@ impl KernelObject {
         }
     }
 
+    /// 返回对象当前常驻的物理字节数；句柄转移按它计入接收方账本。
+    pub fn resident_bytes(&self) -> u64 {
+        self.frame_resident()
+            .saturating_add(self.capability_resident())
+    }
+
     /// 返回类型化能力的常驻字节数。
     pub fn capability_resident(&self) -> u64 {
         let ObjectPayload::Capability { backing, pages, .. } = &self.payload else {
@@ -393,6 +399,10 @@ impl KernelObject {
 }
 
 impl Object for KernelObject {
+    fn resident_bytes(&self) -> u64 {
+        KernelObject::resident_bytes(self)
+    }
+
     fn header(&self) -> &ObjectHeader {
         &self.header
     }

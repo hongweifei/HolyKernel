@@ -701,6 +701,7 @@ impl Kernel {
     /// 终止 TCB；Task 的最后一个 TCB 退出时回收 Task。
     pub fn exit(&self, thread: TcbId) -> Result<(), KernelError> {
         self.release_lending(thread);
+        self.release_transfer_charges(thread);
         self.clear_active_if(thread);
         let tcb = self
             .threads

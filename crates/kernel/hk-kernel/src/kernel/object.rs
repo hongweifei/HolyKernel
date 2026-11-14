@@ -114,6 +114,16 @@ impl Kernel {
             table.close(handle)?;
             id
         };
+        // 转移时内核已按常驻字节记入接收方账本；运行时没来得及取走的账目
+        // 随句柄关闭一并释放。
+        if let Some(charge) = self.transfer_charges.lock().remove(&(
+            thread.get(),
+            handle.index(),
+            handle.generation(),
+        )) && let Some(ledger) = self.thread_ledger(thread)
+        {
+            let _ = ledger.release(charge);
+        }
         self.record(thread.get(), Category::Handle, TRACE_HANDLE_CLOSE, id.get());
         Ok(())
     }

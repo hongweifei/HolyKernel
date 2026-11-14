@@ -134,6 +134,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or_else(|_| self.platform.memory_limit(index));
         let mut process = Process::new(arena_base, arena_size, ledger_limit, capacity_handle);
         process.device_factory = device_factory;
+        self.attach_task_ledger(tcb, &process.ledger);
         let mut task = UserTask::new(TaskInit {
             tcb,
             process: index,
@@ -622,6 +623,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or_else(|_| self.platform.memory_limit(slot));
         let mut process = Process::new(arena_base, arena_size, ledger_limit, capacity_handle);
         process.set_arena_used(arena_used);
+        self.attach_task_ledger(tcb, &process.ledger);
         let mut task = UserTask::new(TaskInit {
             tcb,
             process: slot,
@@ -874,6 +876,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         };
         let mut process = Process::new(arena_base, arena_size, ledger_limit, child_capacity);
+        if let Some(task) = self.kernel.task_of(child) {
+            let _ = self.kernel.set_task_ledger(task, process.ledger.clone());
+        }
         process.set_arena_used(arena_used);
         // 子进程继承父进程的私有页视图，但不继承记账与所有权：物理页仍由
         // 父进程持有，子进程写入时再复制自己的页。
@@ -1391,6 +1396,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 把 `cpu` 的下一次唤醒写给平台；没有待办时只保留 watchdog。
     pub fn arm_wakeup(&self, cpu: usize) {
         self.platform.arm_wakeup(self.next_wakeup(cpu));
+    }
+
+    /// 把进程账本挂到内核 Task，供句柄转移在核内记账。
+    fn attach_task_ledger(&self, tcb: TcbId, ledger: &hk_mem::hmp::SharedLedger) {
+        if let Some(task) = self.kernel.task_of(tcb) {
+            let _ = self.kernel.set_task_ledger(task, ledger.clone());
+        }
     }
 
     /// 把平台周期数换算为契约 tick。
