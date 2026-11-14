@@ -2266,6 +2266,41 @@ fn pinned_frame_maps_and_returns_to_capacity() {
 }
 
 #[test]
+fn shared_user_capacity_grants_no_admin() {
+    let runtime = runtime_with("b");
+    let tcb = runtime.tasks[1].tcb;
+    let handle = runtime.tasks[1].capacities[0].expect("服务应有初始容量句柄");
+    let rights = runtime
+        .kernel
+        .handle_rights(tcb, handle, hk_handle::ObjectKind::Capacity)
+        .expect("容量权限");
+    assert!(
+        rights.contains(hk_handle::Rights::READ | hk_handle::Rights::WRITE),
+        "服务需要读写以分配与查询容量"
+    );
+    assert!(
+        !rights.contains(hk_handle::Rights::ADMIN),
+        "共享 User Capacity 不得授予拆分/合并权限"
+    );
+    assert!(
+        !rights.contains(hk_handle::Rights::TRANSFER),
+        "共享 User Capacity 不随服务转移"
+    );
+    assert!(
+        runtime
+            .kernel
+            .split_capacity(
+                tcb,
+                handle,
+                hk_hal::PAGE_SIZE,
+                hk_mem::hmp::CapacityKind::User
+            )
+            .is_err(),
+        "缺少 ADMIN 的服务不能拆分共享 User Capacity"
+    );
+}
+
+#[test]
 fn rejects_device_grant_without_authority() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

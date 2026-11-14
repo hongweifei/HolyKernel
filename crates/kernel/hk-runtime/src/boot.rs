@@ -79,19 +79,23 @@ where
         } else {
             None
         };
-        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+        // 共享的顶层 User Capacity 只授予分配所需权利：ADMIN 会允许任一服务
+        // 拆分/合并这同一份容量，永久削减其他服务与 Memory Server 的配额。
+        let shared_rights = Rights::READ | Rights::WRITE;
+        // 服务自己的子容量（设备 Dma 等）由它独占，保留拆分与转移能力。
+        let owned_rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
         let handle = match specs[index].capacity {
             CapacityGrant::Split(kind, bytes) => {
                 let capacity = platform
                     .reserve_capacity(bytes, kind)
                     .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
-                kernel.create_capacity(service.tcb, capacity, rights)?
+                kernel.create_capacity(service.tcb, capacity, owned_rights)?
             }
             CapacityGrant::User => {
                 let capacity = platform
                     .user_capacity()
                     .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
-                kernel.create_capacity_shared(service.tcb, capacity, rights)?
+                kernel.create_capacity_shared(service.tcb, capacity, shared_rights)?
             }
         };
         let ledger_limit = kernel

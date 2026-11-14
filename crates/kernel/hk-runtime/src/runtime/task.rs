@@ -106,15 +106,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let (arena_base, arena_size) = self.platform.arena_layout(index);
-        let capacity_rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
+        // 与 `boot` 同一规则：共享 User Capacity 只授予分配所需权利，ADMIN 会
+        // 允许单个服务拆分/合并全局用户容量；独占子容量保留全套权利。
+        let shared_rights = Rights::READ | Rights::WRITE;
+        let owned_rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN;
         let capacity_handle = match crate::service_capacity(device_authority) {
             crate::CapacityGrant::Split(kind, bytes) => {
                 let capacity = self
                     .platform
                     .reserve_capacity(bytes, kind)
                     .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
-                self.kernel
-                    .create_capacity(tcb, capacity, capacity_rights)?
+                self.kernel.create_capacity(tcb, capacity, owned_rights)?
             }
             crate::CapacityGrant::User => {
                 let capacity = self
@@ -122,7 +124,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .user_capacity()
                     .ok_or(KernelError::Hmp(hk_mem::hmp::HmpError::OutOfCapacity))?;
                 self.kernel
-                    .create_capacity_shared(tcb, capacity, capacity_rights)?
+                    .create_capacity_shared(tcb, capacity, shared_rights)?
             }
         };
         let ledger_limit = self
