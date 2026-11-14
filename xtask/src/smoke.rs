@@ -27,6 +27,16 @@ const SHELL_TIMEOUT: Duration = Duration::from_secs(90);
 /// HolyDoc 自检含快照与多次渲染，debug 构建需要更长时间。
 const HOLYDOC_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// 冒烟预算：慢速宿主（WHPX/TCG）可用 `HK_SMOKE_TIMEOUT=<秒>` 整体放宽。
+fn smoke_timeout(default: Duration) -> Duration {
+    std::env::var("HK_SMOKE_TIMEOUT")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(default)
+}
+
 /// ext4 自检写入的标记内容。
 const FS_MARKER: &[u8] = b"HolyKernel ext4 ok\n";
 
@@ -958,16 +968,18 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         serve_tcp_echo(listener)?;
     }
 
-    let timeout = if matches!(
-        mode,
-        SmokeMode::Holydoc | SmokeMode::HolyDocResize | SmokeMode::Workbench
-    ) {
-        HOLYDOC_TIMEOUT
-    } else if mode == SmokeMode::Shell {
-        SHELL_TIMEOUT
-    } else {
-        TIMEOUT
-    };
+    let timeout = smoke_timeout(
+        if matches!(
+            mode,
+            SmokeMode::Holydoc | SmokeMode::HolyDocResize | SmokeMode::Workbench
+        ) {
+            HOLYDOC_TIMEOUT
+        } else if mode == SmokeMode::Shell {
+            SHELL_TIMEOUT
+        } else {
+            TIMEOUT
+        },
+    );
     let deadline = Instant::now() + timeout;
     let status = loop {
         match session.try_wait() {
@@ -1113,7 +1125,7 @@ fn serve_vcon_echo(listener: TcpListener) -> Result<()> {
 
 /// 接受一次 QEMU 宿主的 TCP 连接并回显。
 fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
-    let deadline = Instant::now() + TIMEOUT;
+    let deadline = Instant::now() + smoke_timeout(TIMEOUT);
     loop {
         match listener.accept() {
             Ok((mut stream, _)) => {
@@ -1149,7 +1161,7 @@ fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
 
 /// 回显一次 UDP 数据报，供 QEMU 内 UDP 自检使用。
 fn serve_udp_echo(socket: UdpSocket) -> Result<()> {
-    let deadline = Instant::now() + TIMEOUT;
+    let deadline = Instant::now() + smoke_timeout(TIMEOUT);
     let mut buffer = [0_u8; 64];
     loop {
         match socket.recv_from(&mut buffer) {

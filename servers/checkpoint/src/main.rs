@@ -35,7 +35,7 @@ use hk_server_api::{recv_data, send_data, service_endpoint, write};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
+const HEAP_SIZE: usize = 256 * 1024;
 
 /// 快照分块大小。
 #[cfg(target_os = "none")]
