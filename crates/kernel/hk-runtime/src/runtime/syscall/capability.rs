@@ -48,7 +48,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
+        let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE) else {
             let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -167,7 +167,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
         // 惰性能力在缺页装入物理页时才计入 Task Ledger。
-        let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE, None) else {
+        let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

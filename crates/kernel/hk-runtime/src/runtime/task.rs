@@ -697,7 +697,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let flags = hk_mem::hmp::RegionFlags::from_bits_truncate(descriptor.flags);
         let len = usize::try_from(descriptor.len)
             .map_err(|_| KernelError::Hmp(hk_mem::hmp::HmpError::InvalidSize))?;
-        let capability = Capability::new(kind, descriptor.capability_size, hk_hal::PAGE_SIZE, None)
+        let capability = Capability::new(kind, descriptor.capability_size, hk_hal::PAGE_SIZE)
             .map_err(KernelError::Hmp)?;
         let capability_handle = self.kernel.create_capability(
             tcb,

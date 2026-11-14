@@ -511,7 +511,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             CapabilityKind::DeviceAllocation,
             len as u64,
             hk_hal::PAGE_SIZE,
-            None,
         ) else {
             let _ = self.process_mut(index).ledger.release(charge);
             return false;

@@ -93,9 +93,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         } else {
             hk_mem::hmp::CapabilityKind::Anonymous
         };
-        let capability =
-            hk_mem::hmp::Capability::new(kind, spec.len as u64, hk_hal::PAGE_SIZE, None)
-                .map_err(KernelError::Hmp)?;
+        let capability = hk_mem::hmp::Capability::new(kind, spec.len as u64, hk_hal::PAGE_SIZE)
+            .map_err(KernelError::Hmp)?;
         let capability_handle = self.kernel.create_capability(
             tcb,
             capability.clone(),

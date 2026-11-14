@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_handle::ObjectId;
 
-use super::{HmpError, ProviderId};
+use super::HmpError;
 
 pub use hk_syscall::CapabilityKind;
 
@@ -71,23 +71,16 @@ pub struct Capability {
     kind: CapabilityKind,
     size: u64,
     page_size: usize,
-    provider: Option<ProviderId>,
 }
 
 impl Capability {
     /// 创建一份类型化能力。
-    pub fn new(
-        kind: CapabilityKind,
-        size: u64,
-        page_size: usize,
-        provider: Option<ProviderId>,
-    ) -> Result<Self, HmpError> {
+    pub fn new(kind: CapabilityKind, size: u64, page_size: usize) -> Result<Self, HmpError> {
         Self::with_id(
             ObjectId::new(NEXT_CAPABILITY_ID.fetch_add(1, Ordering::Relaxed)),
             kind,
             size,
             page_size,
-            provider,
         )
     }
 
@@ -97,7 +90,6 @@ impl Capability {
         kind: CapabilityKind,
         size: u64,
         page_size: usize,
-        provider: Option<ProviderId>,
     ) -> Result<Self, HmpError> {
         if size == 0
             || page_size == 0
@@ -111,7 +103,6 @@ impl Capability {
             kind,
             size,
             page_size,
-            provider,
         })
     }
 
@@ -133,11 +124,6 @@ impl Capability {
     /// 返回页大小。
     pub const fn page_size(&self) -> usize {
         self.page_size
-    }
-
-    /// 返回 Provider。
-    pub const fn provider(&self) -> Option<ProviderId> {
-        self.provider
     }
 
     /// 判断是否支持一项类型化操作。
@@ -168,11 +154,6 @@ pub trait Mappable {
     /// 返回页大小。
     fn page_size(&self) -> usize {
         self.capability().page_size()
-    }
-
-    /// 返回 Provider。
-    fn provider(&self) -> Option<ProviderId> {
-        self.capability().provider()
     }
 }
 
@@ -211,21 +192,20 @@ mod tests {
 
     #[test]
     fn capability_validates_layout_and_operations() {
-        let capability =
-            Capability::new(CapabilityKind::Revision, 0x2000, 4096, None).expect("能力");
+        let capability = Capability::new(CapabilityKind::Revision, 0x2000, 4096).expect("能力");
         assert!(capability.allows(CapabilityOp::Map));
         assert_eq!(
             capability.require(CapabilityOp::Scanout).err(),
             Some(HmpError::WrongCapability)
         );
         assert_eq!(
-            Capability::new(CapabilityKind::Surface, 0x1000, 4096, None)
+            Capability::new(CapabilityKind::Surface, 0x1000, 4096)
                 .expect("能力")
                 .size(),
             0x1000
         );
         assert_eq!(
-            Capability::new(CapabilityKind::Surface, 0x1000, 4096, None).err(),
+            Capability::new(CapabilityKind::Surface, 0x1000, 4096).err(),
             None
         );
     }
@@ -233,17 +213,15 @@ mod tests {
     #[test]
     fn rejects_unaligned_capability_size() {
         assert_eq!(
-            Capability::new(CapabilityKind::Anonymous, 0x1001, 4096, None).err(),
+            Capability::new(CapabilityKind::Anonymous, 0x1001, 4096).err(),
             Some(HmpError::InvalidSize)
         );
     }
 
     #[test]
     fn mappable_exposes_capability_layout() {
-        let capability =
-            Capability::new(CapabilityKind::Surface, 0x2000, 4096, None).expect("能力");
+        let capability = Capability::new(CapabilityKind::Surface, 0x2000, 4096).expect("能力");
         assert_eq!(capability.size(), 0x2000);
         assert_eq!(capability.page_size(), 4096);
-        assert_eq!(capability.provider(), None);
     }
 }

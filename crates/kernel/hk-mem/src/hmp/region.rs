@@ -298,7 +298,7 @@ mod tests {
     use hk_handle::ObjectId;
 
     fn capability(kind: CapabilityKind, size: u64) -> Capability {
-        Capability::with_id(ObjectId::new(1), kind, size, 4096, None).expect("能力")
+        Capability::with_id(ObjectId::new(1), kind, size, 4096).expect("能力")
     }
 
     #[test]

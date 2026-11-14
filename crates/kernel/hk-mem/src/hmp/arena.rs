@@ -232,7 +232,6 @@ mod tests {
             CapabilityKind::Anonymous,
             0x4000,
             PAGE_SIZE,
-            None,
         )
         .expect("能力");
         let mut region = Region::new(
@@ -288,7 +287,6 @@ mod tests {
             CapabilityKind::Anonymous,
             PAGE_SIZE as u64,
             PAGE_SIZE,
-            None,
         )
         .expect("能力");
         let region = Region::new(

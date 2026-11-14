@@ -1174,6 +1174,69 @@ fn enumerates_capacity_ledgers() {
 }
 
 #[test]
+fn object_ledger_reports_loader_region_charge() {
+    let platform = MockPlatform::new();
+    let written = Arc::clone(&platform.written);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+
+    // 模拟装载器登记：无 backing 的镜像能力 + 已计费的 Region。
+    let capability = hk_mem::hmp::Capability::new(
+        hk_mem::hmp::CapabilityKind::TaskImage,
+        hk_hal::PAGE_SIZE as u64,
+        hk_hal::PAGE_SIZE,
+    )
+    .expect("能力");
+    runtime
+        .kernel
+        .create_capability(
+            tcb,
+            capability,
+            None,
+            hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    let spec = UserRegionSpec {
+        virt: 0x20_0000,
+        len: hk_hal::PAGE_SIZE,
+        writable: false,
+        executable: true,
+    };
+    let charge = runtime
+        .process_mut(index)
+        .ledger
+        .charge(hk_hal::PAGE_SIZE as u64)
+        .expect("记账");
+    runtime
+        .register_region(index, spec, Some(charge))
+        .expect("登记 Region");
+    let capability_handle = runtime.process(index).regions[0]
+        .as_ref()
+        .expect("Region")
+        .capability;
+    let number = runtime
+        .install_extra_capability(index, capability_handle)
+        .expect("安装能力");
+
+    context.rax = SYS_OBJECT_LEDGER;
+    context.rdi = 0x480;
+    context.rsi = 48;
+    context.rdx = number;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 48);
+    let data = written.lock();
+    assert_eq!(
+        u64::from_le_bytes(data[32..40].try_into().expect("resident")),
+        hk_hal::PAGE_SIZE as u64,
+        "装载器 Region 的常驻必须可见"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn object_ledger_info_reads_handle_ledger() {
     let platform = MockPlatform::new();
     let written = Arc::clone(&platform.written);
@@ -2546,6 +2609,61 @@ fn protect_to_guard_unmaps_region() {
         ),
         FaultOutcome::Unhandled,
         "GUARD 命中必须落到故障路径"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn frame_map_honours_pinned_flag() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(106),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8c_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11 | ((hk_mem::hmp::RegionFlags::PINNED.bits() as u64) << 32);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+
+    let (slot, ..) = runtime.region_at(index, region as usize).expect("Region");
+    let capability = runtime.process(index).regions[slot]
+        .as_ref()
+        .expect("映射")
+        .capability;
+    assert_eq!(
+        runtime.kernel.capability_pinned(tcb, capability),
+        Ok(true),
+        "PINNED 帧映射必须固定代建能力"
     );
     let _ = runtime.finish(0, index);
 }

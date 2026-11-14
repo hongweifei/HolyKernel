@@ -66,7 +66,7 @@ fn creates_hmp_objects() {
     .expect("Capacity");
     let frame = capacity.allocate(PAGE_SIZE).expect("Frame");
     let capability =
-        Capability::new(CapabilityKind::Anonymous, 0x2000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Anonymous, 0x2000, PAGE_SIZE).expect("Capability");
     let region =
         Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
     kernel
@@ -289,8 +289,8 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
 fn reports_capability_resident_bytes() {
     let kernel = kernel();
     let worker = thread(&kernel);
-    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
-        .expect("能力");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
     let backing = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x70_0000), PAGE_SIZE));
     let handle = kernel
         .create_capability(
@@ -312,8 +312,8 @@ fn object_ledger_reads_capability_and_frame() {
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
 
-    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
-        .expect("能力");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
     let capability_handle = kernel
         .create_capability(worker, capability, None, rights)
         .expect("能力句柄");
@@ -366,8 +366,8 @@ fn object_ledger_reports_utilization_not_quota() {
     let worker = thread(&kernel);
     let rights = Rights::READ | Rights::WRITE | Rights::ADMIN;
 
-    let capability = Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE, None)
-        .expect("能力");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
     let mut region = Region::new(
         &capability,
         0,
@@ -388,13 +388,8 @@ fn object_ledger_reports_utilization_not_quota() {
     assert_eq!(region_ledger.peak, PAGE_SIZE as u64);
     assert_eq!(region_ledger.pressure, 100);
 
-    let capability = Capability::new(
-        CapabilityKind::Anonymous,
-        (PAGE_SIZE * 2) as u64,
-        PAGE_SIZE,
-        None,
-    )
-    .expect("能力");
+    let capability = Capability::new(CapabilityKind::Anonymous, (PAGE_SIZE * 2) as u64, PAGE_SIZE)
+        .expect("能力");
     let capability_handle = kernel
         .create_capability(worker, capability, None, rights)
         .expect("能力句柄");
@@ -416,13 +411,8 @@ fn object_ledger_reports_utilization_not_quota() {
 fn capability_ledger_tracks_lazy_pages() {
     let kernel = kernel();
     let worker = thread(&kernel);
-    let capability = Capability::new(
-        CapabilityKind::Anonymous,
-        (PAGE_SIZE * 2) as u64,
-        PAGE_SIZE,
-        None,
-    )
-    .expect("能力");
+    let capability = Capability::new(CapabilityKind::Anonymous, (PAGE_SIZE * 2) as u64, PAGE_SIZE)
+        .expect("能力");
     let handle = kernel
         .create_capability(
             worker,
@@ -538,7 +528,7 @@ fn commits_revision_capability_versions() {
     let kernel = kernel();
     let worker = thread(&kernel);
     let capability =
-        Capability::new(CapabilityKind::Revision, 0x1000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Revision, 0x1000, PAGE_SIZE).expect("Capability");
     let handle = kernel
         .create_capability(
             worker,
@@ -937,7 +927,7 @@ fn transfers_handles_over_ipc() {
         .expect("授予服务端句柄");
 
     let capability =
-        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE).expect("Capability");
     let frame = kernel
         .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
         .expect("创建能力");
@@ -989,7 +979,7 @@ fn handle_transfer_failure_preserves_sender_and_receiver() {
         .expect("授予服务端句柄");
 
     let capability =
-        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE).expect("Capability");
     let frame = kernel
         .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
         .expect("创建能力");
@@ -1040,7 +1030,7 @@ fn handle_transfer_rejects_duplicate_and_invalid_handles() {
         .expect("授予服务端句柄");
 
     let capability =
-        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE).expect("Capability");
     let frame = kernel
         .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
         .expect("创建能力");
@@ -1087,7 +1077,7 @@ fn transfers_handles_to_self_without_moving_them() {
     let client = thread(&kernel);
 
     let capability =
-        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE, None).expect("Capability");
+        Capability::new(CapabilityKind::Anonymous, 0x1000, PAGE_SIZE).expect("Capability");
     let frame = kernel
         .create_capability(client, capability, None, Rights::READ | Rights::TRANSFER)
         .expect("创建能力");

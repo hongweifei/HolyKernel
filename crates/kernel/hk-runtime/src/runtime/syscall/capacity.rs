@@ -250,7 +250,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(probe) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None) else {
+        let Ok(probe) = Capability::new(CapabilityKind::Frame, range.len(), page_size) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -287,8 +287,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
             return u64::MAX;
         }
-        let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None)
-        else {
+        let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size) else {
             return u64::MAX;
         };
         let backing = FrameBacking::Owned(owned);
@@ -303,6 +302,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let cleanup = |runtime: &mut Self| {
             let _ = runtime.kernel.close_handle(tcb, capability_handle);
         };
+        // `PINNED` 在帧映射上与 Region 映射语义一致：固定代建的能力，阻止回收。
+        if flags.contains(RegionFlags::PINNED)
+            && self
+                .kernel
+                .pin_capability_internal(tcb, capability_handle, true)
+                .is_err()
+        {
+            cleanup(self);
+            return u64::MAX;
+        }
         let Ok(mut region) = Region::new(&capability, 0, length, rights, flags) else {
             cleanup(self);
             return u64::MAX;

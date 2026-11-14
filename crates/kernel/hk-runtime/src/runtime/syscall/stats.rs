@@ -50,10 +50,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(snapshot) = self.kernel.object_ledger(self.tasks[index].tcb, handle) else {
+        let Ok(mut snapshot) = self.kernel.object_ledger(self.tasks[index].tcb, handle) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        // 装载器登记的镜像/栈能力没有 backing，常驻页由 Region 的记账表达；
+        // 能力快照回落到该 Region 的 charge，避免报告恒为 0。
+        if snapshot.resident == 0
+            && let Some(mapping) = self
+                .process(index)
+                .regions
+                .iter()
+                .flatten()
+                .find(|mapping| mapping.capability == handle)
+        {
+            let mut resident = mapping.charge.map_or(0, |charge| charge.amount());
+            for (_, charge) in &mapping.page_charges {
+                resident = resident.saturating_add(charge.amount());
+            }
+            snapshot.resident = resident;
+        }
         let mut bytes = [0_u8; 48];
         bytes[..8].copy_from_slice(&snapshot.charged.to_le_bytes());
         bytes[8..16].copy_from_slice(&snapshot.limit.to_le_bytes());

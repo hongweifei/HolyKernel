@@ -30,6 +30,8 @@ pub struct Frame {
     phys: PhysAddr,
     len: usize,
     page_size: usize,
+    /// 页大小的以 2 为底的阶；由 `page_size` 派生，供容量/帧拓扑查询。
+    page_shift: u8,
     capacity: CapacityId,
     pinned: bool,
 }
@@ -41,7 +43,11 @@ impl Frame {
         page_size: usize,
         capacity: CapacityId,
     ) -> Result<Self, HmpError> {
-        if len == 0 || page_size == 0 || !len.is_multiple_of(page_size) {
+        if len == 0
+            || page_size == 0
+            || !len.is_multiple_of(page_size)
+            || !phys.get().is_multiple_of(page_size as u64)
+        {
             return Err(HmpError::InvalidSize);
         }
         Ok(Self {
@@ -49,6 +55,7 @@ impl Frame {
             phys,
             len,
             page_size,
+            page_shift: page_size.trailing_zeros() as u8,
             capacity,
             pinned: false,
         })
@@ -79,6 +86,11 @@ impl Frame {
         self.page_size
     }
 
+    /// 返回页大小的阶（4 KiB → 12）。
+    pub const fn order(&self) -> u8 {
+        self.page_shift
+    }
+
     /// 返回所属 Capacity。
     pub const fn capacity(&self) -> CapacityId {
         self.capacity
@@ -103,6 +115,19 @@ impl Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derives_order_and_requires_alignment() {
+        let frame = Frame::new(PhysAddr::new(0x20_0000), 0x2000, 0x1000, CapacityId::new(1))
+            .expect("Frame");
+        assert_eq!(frame.order(), 12);
+        assert_eq!(frame.page_size(), 0x1000);
+        assert_eq!(
+            Frame::new(PhysAddr::new(0x20_0800), 0x1000, 0x1000, CapacityId::new(1)).err(),
+            Some(HmpError::InvalidSize),
+            "物理起始地址必须按页对齐"
+        );
+    }
 
     #[test]
     fn validates_frame_geometry() {

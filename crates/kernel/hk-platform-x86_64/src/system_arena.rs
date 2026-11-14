@@ -113,7 +113,7 @@ pub fn register(virt: u64, len: u64, rights: Rights, flags: RegionFlags) -> bool
     } else {
         CapabilityKind::Anonymous
     };
-    let Ok(capability) = Capability::new(kind, len, PAGE_SIZE, None) else {
+    let Ok(capability) = Capability::new(kind, len, PAGE_SIZE) else {
         return false;
     };
     let Ok(mut region) = Region::new(&capability, 0, len as usize, rights, flags) else {

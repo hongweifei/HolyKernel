@@ -1,28 +1,8 @@
 //! Provider 契约：类型化能力的缺页、回写与驻留服务。
 
-use core::sync::atomic::{AtomicU64, Ordering};
-
 use hk_handle::{ObjectId, Rights};
 
 use super::{CapabilityKind, FrameId, HmpError};
-
-static NEXT_PROVIDER_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Provider 标识。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProviderId(u64);
-
-impl ProviderId {
-    /// 构造标识。
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// 返回标识数值。
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
 
 /// Provider 类型。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,11 +189,6 @@ pub trait Provider {
     fn fault(&self, _request: FaultRequest) -> FaultReply {
         FaultReply::Error(HmpError::ProviderMissing)
     }
-}
-
-/// 分配一个 Provider 标识。
-pub fn next_provider_id() -> ProviderId {
-    ProviderId::new(NEXT_PROVIDER_ID.fetch_add(1, Ordering::Relaxed))
 }
 
 #[cfg(test)]
