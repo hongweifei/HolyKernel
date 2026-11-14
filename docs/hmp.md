@@ -228,7 +228,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 ### Anonymous
 
 - 页面初始为零；Provider 提供后备。
-- 操作：map、grow、truncate、compress、swap。
+- 操作：map、grow、truncate、compress、swap、pin（pin 阻止零页回收）。
 - 用于共享零页、IPC 缓冲与独立匿名对象；任务栈、堆与工作区由 Arena 承载。
 - Provider：Memory Server。
 

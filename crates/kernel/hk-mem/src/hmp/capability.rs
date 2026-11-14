@@ -22,8 +22,13 @@ impl CapabilityKindExt for CapabilityKind {
             CapabilityOp::Commit => matches!(self, Self::Revision),
             CapabilityOp::Scanout => matches!(self, Self::Surface),
             CapabilityOp::Execute => matches!(self, Self::TaskImage | Self::Frame),
+            // 匿名页也有驻留语义：pin 阻止零页回收；Surface/DeviceAllocation
+            // 用于 scanout 与 DMA 驻留。
             CapabilityOp::Pin => {
-                matches!(self, Self::Surface | Self::DeviceAllocation | Self::Frame)
+                matches!(
+                    self,
+                    Self::Surface | Self::DeviceAllocation | Self::Anonymous | Self::Frame
+                )
             }
             CapabilityOp::Export => matches!(self, Self::DeviceAllocation | Self::Frame),
             CapabilityOp::Swap => matches!(self, Self::Anonymous),
@@ -188,6 +193,9 @@ mod tests {
         assert!(CapabilityKind::TaskImage.supports(CapabilityOp::Execute));
         assert!(CapabilityKind::Frame.supports(CapabilityOp::Execute));
         assert!(CapabilityKind::DeviceAllocation.supports(CapabilityOp::Pin));
+        assert!(CapabilityKind::Anonymous.supports(CapabilityOp::Pin));
+        assert!(CapabilityKind::Frame.supports(CapabilityOp::Pin));
+        assert!(!CapabilityKind::Revision.supports(CapabilityOp::Pin));
         assert!(CapabilityKind::Anonymous.supports(CapabilityOp::Swap));
         assert!(CapabilityKind::Frame.supports(CapabilityOp::Phys));
         assert!(CapabilityKind::Surface.supports(CapabilityOp::Phys));

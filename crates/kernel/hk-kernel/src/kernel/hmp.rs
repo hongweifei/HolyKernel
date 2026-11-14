@@ -521,11 +521,13 @@ impl Kernel {
         pinned: bool,
     ) -> Result<(), KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capability)?;
-        if object.capability().is_none() {
-            return Err(KernelError::WrongKind {
-                expected: ObjectKind::Capability,
-            });
-        }
+        let capability = object.capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })?;
+        // 类型化操作只接受匹配的能力：Revision/TaskImage 没有驻留语义。
+        capability
+            .require(CapabilityOp::Pin)
+            .map_err(KernelError::Hmp)?;
         if !pinned && object.capability_scanout() {
             return Err(KernelError::ScanoutActive);
         }
