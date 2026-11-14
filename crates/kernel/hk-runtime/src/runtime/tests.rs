@@ -133,6 +133,43 @@ struct MockPlatform {
     written: Arc<spin::Mutex<Vec<u8>>>,
     /// 最近一次 fork 传入的 COW 区间。
     last_cow: Arc<spin::Mutex<Vec<(u64, u64)>>>,
+    /// 可选的记录型 IOMMU；`None` 表示平台没有 IOMMU。
+    iommu: Option<RecordingIommu>,
+}
+
+/// 只记录映射权限的软件 IOMMU，用于验证 DMA 映射从句柄派生 Rights。
+struct RecordingIommu {
+    maps: Arc<spin::Mutex<Vec<(hk_hal::Iova, hk_hal::IommuFlags)>>>,
+}
+
+impl hk_hal::Iommu for RecordingIommu {
+    fn map(
+        &self,
+        _domain: hk_hal::IommuDomain,
+        iova: hk_hal::Iova,
+        _phys: hk_hal::PhysRange,
+        flags: hk_hal::IommuFlags,
+    ) -> Result<(), hk_hal::IommuError> {
+        self.maps.lock().push((iova, flags));
+        Ok(())
+    }
+
+    fn unmap(
+        &self,
+        _domain: hk_hal::IommuDomain,
+        _iova: hk_hal::Iova,
+        _len: usize,
+    ) -> Result<(), hk_hal::IommuError> {
+        Ok(())
+    }
+
+    fn flush(&self, _domain: hk_hal::IommuDomain) -> Result<(), hk_hal::IommuError> {
+        Ok(())
+    }
+
+    fn translates_device_addresses(&self) -> bool {
+        true
+    }
 }
 
 impl MockPlatform {
@@ -159,6 +196,7 @@ impl MockPlatform {
             ledgers: Vec::new(),
             written: Arc::new(spin::Mutex::new(Vec::new())),
             last_cow: Arc::new(spin::Mutex::new(Vec::new())),
+            iommu: None,
         }
     }
 }
@@ -292,6 +330,10 @@ impl UserPlatform for MockPlatform {
             stride: 8,
             format: hk_hal::PixelFormat::Rgb32,
         })
+    }
+
+    fn iommu(&self) -> Option<&dyn hk_hal::Iommu> {
+        self.iommu.as_ref().map(|iommu| iommu as &dyn hk_hal::Iommu)
     }
 
     fn map_framebuffer(&self, _slot: usize, _virt: u64) -> Option<u64> {
@@ -2557,6 +2599,122 @@ fn frame_map_rejects_guard_with_backing() {
             .expect("Capacity")
             .4,
         hk_hal::PAGE_SIZE as u64
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn dma_map_derives_rights_and_pins() {
+    let maps = Arc::new(spin::Mutex::new(Vec::new()));
+    let platform = MockPlatform {
+        iommu: Some(RecordingIommu {
+            maps: Arc::clone(&maps),
+        }),
+        ..MockPlatform::new()
+    };
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+
+    let grant = hk_device::DeviceGrant {
+        address: hk_device::PciAddress {
+            segment: 0,
+            bus: 1,
+            device: 2,
+            function: 0,
+            offset: 0,
+        },
+        vendor: 0x1af4,
+        device: 0x1000,
+        mmio: [None; 6],
+        io: [None; 6],
+        dma: Some(hk_hal::PhysRange::new(
+            hk_hal::PhysAddr::new(0x1_0000),
+            0x2000,
+        )),
+        irq: None,
+        capabilities: [0; 8],
+        capability_count: 0,
+    };
+    let grant_handle = runtime
+        .kernel
+        .create_device_grant(
+            tcb,
+            grant,
+            hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建设备授权");
+    let grant_number = runtime.install_grant(index, grant_handle, None);
+
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(105),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x8a_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let frame = runtime
+        .kernel
+        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE)
+        .expect("Frame");
+    let writable = runtime
+        .install_extra_capability(index, frame)
+        .expect("安装可写 Frame");
+    let readonly_handle = runtime
+        .kernel
+        .duplicate_handle(tcb, frame, hk_handle::Rights::READ)
+        .expect("只读副本");
+    let readonly = runtime
+        .install_extra_capability(index, readonly_handle)
+        .expect("安装只读 Frame");
+
+    context.rax = hk_syscall::SYS_DMA_MAP;
+    context.rdi = grant_number;
+    context.rsi = readonly;
+    context.rdx = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX, "只读句柄应可建立只读映射");
+    assert_eq!(
+        maps.lock().last().map(|(_, flags)| *flags),
+        Some(hk_hal::IommuFlags::READ),
+        "只读句柄只能建立只读设备映射"
+    );
+
+    context.rax = hk_syscall::SYS_DMA_MAP;
+    context.rdi = grant_number;
+    context.rsi = writable;
+    context.rdx = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX, "可写句柄应建立可写映射");
+    assert_eq!(
+        maps.lock().last().map(|(_, flags)| *flags),
+        Some(hk_hal::IommuFlags::READ | hk_hal::IommuFlags::WRITE),
+        "可写句柄才能建立可写设备映射"
+    );
+    assert!(
+        runtime.kernel.frame_info(tcb, frame).expect("Frame").4,
+        "DMA 映射期间必须固定 Frame"
+    );
+
+    runtime.release_dma_mappings(index, grant_handle);
+    assert!(
+        !runtime.kernel.frame_info(tcb, frame).expect("Frame").4,
+        "解除 DMA 映射后必须解除固定"
     );
     let _ = runtime.finish(0, index);
 }

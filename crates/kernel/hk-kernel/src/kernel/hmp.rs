@@ -103,6 +103,51 @@ impl Kernel {
         Ok(())
     }
 
+    /// 内核内部固定 Frame 驻留，用于 DMA 等由内核保证的正确性约束。
+    ///
+    /// 与 [`Self::pin_frame`] 不同，这里不要求 WRITE：调用方（运行时）已经通过
+    /// DeviceGrant 与句柄授权完成检查，固定只是防止页在设备访问期间被回收。
+    pub fn pin_frame_internal(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        pinned: bool,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Frame)?;
+        let frame = object.frame().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Frame,
+        })?;
+        let mut frame = frame.lock();
+        let frame = frame
+            .as_mut()
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))?;
+        if pinned {
+            frame.pin();
+        } else {
+            frame.unpin();
+        }
+        Ok(())
+    }
+
+    /// 内核内部固定类型化能力驻留，用于 DMA 映射期间阻止回收。
+    ///
+    /// 不要求 ADMIN：最小权限的服务可能只持有 READ|WRITE 的共享缓冲能力。
+    pub fn pin_capability_internal(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        pinned: bool,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        if object.capability().is_none() {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        }
+        object.set_capability_pinned(pinned);
+        Ok(())
+    }
+
     /// 把 Frame 归还给 Capacity。
     pub fn free_frame(
         &self,

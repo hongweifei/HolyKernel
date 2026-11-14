@@ -13,14 +13,21 @@ pub(crate) fn domain_of(grant: &DeviceGrant) -> hk_hal::IommuDomain {
 
 /// 在授权的 DMA 窗口内为一次映射分配 IOVA。
 fn next_iova(
-    mappings: &[(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)],
+    mappings: &[(
+        Handle,
+        Handle,
+        hk_hal::IommuDomain,
+        hk_hal::Iova,
+        usize,
+        hk_handle::ObjectKind,
+    )],
     grant: Handle,
     window: hk_hal::PhysRange,
     len: usize,
 ) -> Option<hk_hal::Iova> {
     let page = hk_hal::PAGE_SIZE as u64;
     let mut offset = 0_u64;
-    for (mapped_grant, _, _, mapped_len) in mappings {
+    for (mapped_grant, _, _, _, mapped_len, _) in mappings {
         if *mapped_grant == grant {
             offset = offset.checked_add((*mapped_len as u64).div_ceil(page) * page)?;
         }
@@ -57,6 +64,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        // 设备映射的权限来自句柄：READ 才能导出，WRITE 才能让设备写；缺少对应
+        // 权利时不能把只读对象以可写方式交给设备。
+        let Some(kind) = self.kernel.handle_kind(tcb, object) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(rights) = self.kernel.handle_rights(tcb, object, kind) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if !rights.contains(Rights::READ) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut iommu_flags = hk_hal::IommuFlags::READ;
+        if rights.contains(Rights::WRITE) {
+            iommu_flags |= hk_hal::IommuFlags::WRITE;
+        }
         let Some(iommu) = self.platform.iommu() else {
             frame.set_result(0);
             return Switch::Continue;
@@ -84,29 +109,58 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.tasks[index]
             .dma_mappings
             .iter()
-            .any(|(_, mapped_domain, mapped_iova, _)| {
+            .any(|(_, _, mapped_domain, mapped_iova, _, _)| {
                 *mapped_domain == domain && *mapped_iova == iova
             })
         {
             frame.set_result(if translating { iova.get() } else { 0 });
             return Switch::Continue;
         }
-        if iommu
-            .map(
-                domain,
-                iova,
-                range,
-                hk_hal::IommuFlags::READ | hk_hal::IommuFlags::WRITE,
-            )
-            .is_err()
-        {
+        // DMA 期间固定对象，避免回收/复用正在被设备访问的物理页。
+        let pinned = match kind {
+            hk_handle::ObjectKind::Frame => {
+                self.kernel.pin_frame_internal(tcb, object, true).is_ok()
+            }
+            hk_handle::ObjectKind::Capability => self
+                .kernel
+                .pin_capability_internal(tcb, object, true)
+                .is_ok(),
+            _ => false,
+        };
+        if !pinned {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        self.tasks[index]
-            .dma_mappings
-            .push((grant_handle, domain, iova, range.len() as usize));
+        if iommu.map(domain, iova, range, iommu_flags).is_err() {
+            let _ = self.unpin_dma_object(tcb, object, kind);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        self.tasks[index].dma_mappings.push((
+            grant_handle,
+            object,
+            domain,
+            iova,
+            range.len() as usize,
+            kind,
+        ));
         frame.set_result(if translating { iova.get() } else { 0 });
         Switch::Continue
+    }
+
+    /// 解除 DMA 映射期间对对象的固定。
+    pub(crate) fn unpin_dma_object(
+        &self,
+        tcb: TcbId,
+        object: Handle,
+        kind: hk_handle::ObjectKind,
+    ) -> Result<(), KernelError> {
+        match kind {
+            hk_handle::ObjectKind::Frame => self.kernel.pin_frame_internal(tcb, object, false),
+            hk_handle::ObjectKind::Capability => {
+                self.kernel.pin_capability_internal(tcb, object, false)
+            }
+            _ => Ok(()),
+        }
     }
 }

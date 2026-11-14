@@ -968,26 +968,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn release_dma_mappings(&mut self, index: usize, grant: Handle) {
+        let tcb = self.tasks[index].tcb;
         let mappings = core::mem::take(&mut self.tasks[index].dma_mappings);
         let mut kept = Vec::new();
-        for (handle, domain, iova, len) in mappings {
+        for (handle, object, domain, iova, len, kind) in mappings {
             if handle == grant {
                 if let Some(iommu) = self.platform.iommu() {
                     let _ = iommu.unmap(domain, iova, len);
                 }
+                let _ = self.unpin_dma_object(tcb, object, kind);
             } else {
-                kept.push((handle, domain, iova, len));
+                kept.push((handle, object, domain, iova, len, kind));
             }
         }
         self.tasks[index].dma_mappings = kept;
     }
 
     fn release_all_dma_mappings(&mut self, index: usize) {
+        let tcb = self.tasks[index].tcb;
         let mappings = core::mem::take(&mut self.tasks[index].dma_mappings);
-        if let Some(iommu) = self.platform.iommu() {
-            for (_, domain, iova, len) in mappings {
+        for (_, object, domain, iova, len, kind) in mappings {
+            if let Some(iommu) = self.platform.iommu() {
                 let _ = iommu.unmap(domain, iova, len);
             }
+            let _ = self.unpin_dma_object(tcb, object, kind);
         }
     }
 

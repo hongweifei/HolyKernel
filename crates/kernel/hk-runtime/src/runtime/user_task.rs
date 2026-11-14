@@ -58,8 +58,15 @@ pub struct UserTask<C> {
     pub(crate) grants: Vec<Option<HandleSlot>>,
     /// DeviceGrant 句柄到已绑定 IRQ、通知与通知位的映射。
     pub bound_irqs: Vec<(Handle, u8, hk_hal::NotificationId, u64)>,
-    /// DeviceGrant 的 IOMMU 映射。
-    pub dma_mappings: Vec<(Handle, hk_hal::IommuDomain, hk_hal::Iova, usize)>,
+    /// DeviceGrant 的 IOMMU 映射：授权与对象句柄、域、IOVA、长度、对象类别。
+    pub dma_mappings: Vec<(
+        Handle,
+        Handle,
+        hk_hal::IommuDomain,
+        hk_hal::Iova,
+        usize,
+        hk_handle::ObjectKind,
+    )>,
     /// 用户现场。
     pub context: C,
     /// 累计运行周期数（TSC）。
