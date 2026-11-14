@@ -3,11 +3,16 @@
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
-    pub(crate) fn install_handle(&mut self, index: usize, message: &Message) -> u64 {
-        let Some(handle) = message.handles[0] else {
-            return 0;
-        };
-        self.install_extra_capability(index, handle).unwrap_or(0)
+    /// 安装消息携带的句柄。
+    ///
+    /// `Some(0)` 表示消息本身没有句柄；`None` 表示消息带句柄但接收方无法安装
+    /// （句柄配额或 Task Ledger 不足）。调用方必须把本次接收作为失败返回，
+    /// 不能把“句柄丢失”当成“无句柄”成功。
+    pub(crate) fn install_handle(&mut self, index: usize, message: &Message) -> Option<u64> {
+        match message.handles[0] {
+            None => Some(0),
+            Some(handle) => self.install_extra_capability(index, handle),
+        }
     }
 
     /// 安装一个额外能力句柄并记录容量记账。

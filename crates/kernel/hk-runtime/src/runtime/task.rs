@@ -1414,14 +1414,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let tcb = self.tasks[index].tcb;
                 match self.kernel.recv(tcb, handle) {
                     Ok(Some(received)) => {
-                        self.tasks[index].reply = received.reply;
                         let sender = self.endpoint_of(received.sender);
-                        let handle = self.install_handle(index, &received.message);
-                        let context = &mut self.tasks[index].context;
-                        context.set_result(received.message.label);
-                        context.set_word(received.message.words[0]);
-                        context.set_sender(sender);
-                        context.set_handle(handle);
+                        match self.install_handle(index, &received.message) {
+                            Some(handle) => {
+                                self.tasks[index].reply = received.reply;
+                                let context = &mut self.tasks[index].context;
+                                context.set_result(received.message.label);
+                                context.set_word(received.message.words[0]);
+                                context.set_sender(sender);
+                                context.set_handle(handle);
+                            }
+                            None => {
+                                self.tasks[index].reply = None;
+                                self.tasks[index].context.set_result(u64::MAX);
+                            }
+                        }
                     }
                     Ok(None) => blocked_again = true,
                     Err(_) => self.tasks[index].context.set_result(u64::MAX),
@@ -1440,10 +1447,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     Ok(Some(received)) => {
                         let mut frame = self.tasks[index].context;
                         if handle_out {
-                            let number = self.install_handle(index, &received.message);
-                            let _ = self.deliver_data_handle(
-                                index, &mut frame, &received, buffer, capacity, number,
-                            );
+                            match self.install_handle(index, &received.message) {
+                                Some(number) => {
+                                    let _ = self.deliver_data_handle(
+                                        index, &mut frame, &received, buffer, capacity, number,
+                                    );
+                                }
+                                None => frame.set_result(u64::MAX),
+                            }
                         } else {
                             let _ =
                                 self.deliver_data(index, &mut frame, &received, buffer, capacity);
@@ -1484,7 +1495,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             self.call_cycles = self.call_cycles.saturating_add(cycles);
                             self.call_max = self.call_max.max(cycles);
                         }
-                        let handle = self.install_handle(index, &message);
+                        let Some(handle) = self.install_handle(index, &message) else {
+                            self.tasks[index].context.set_result(u64::MAX);
+                            self.remove_sleep(index);
+                            return false;
+                        };
                         let context = &mut self.tasks[index].context;
                         context.set_result(message.label);
                         context.set_word(message.words[0]);

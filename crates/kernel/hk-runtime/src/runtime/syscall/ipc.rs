@@ -59,9 +59,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
         match self.kernel.recv(tcb, handle) {
             Ok(Some(received)) => {
-                self.tasks[index].reply = received.reply;
                 let sender = self.endpoint_of(received.sender);
-                let handle = self.install_handle(index, &received.message);
+                let Some(handle) = self.install_handle(index, &received.message) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                self.tasks[index].reply = received.reply;
                 frame.set_result(received.message.label);
                 frame.set_word(received.message.words[0]);
                 frame.set_sender(sender);
@@ -364,7 +367,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let expected = self.tcb_of_endpoint(frame.arg3());
         match self.kernel.recv_from(tcb, handle, expected) {
             Ok(Some(received)) => {
-                let number = self.install_handle(index, &received.message);
+                let Some(number) = self.install_handle(index, &received.message) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
                 self.deliver_data_handle(index, frame, &received, buffer, capacity, number)
             }
             Ok(None) => {
@@ -409,7 +415,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let expected = self.tcb_of_endpoint(frame.arg3());
         match self.kernel.try_recv_from(tcb, handle, expected) {
             Ok(Some(received)) => {
-                let number = self.install_handle(index, &received.message);
+                let Some(number) = self.install_handle(index, &received.message) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
                 self.deliver_data_handle(index, frame, &received, buffer, capacity, number)
             }
             Ok(None) => {

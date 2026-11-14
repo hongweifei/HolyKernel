@@ -912,6 +912,97 @@ fn transfers_handle_over_ipc() {
 }
 
 #[test]
+fn ipc_handle_delivery_fails_when_receiver_quota_exhausted() {
+    let mut runtime = runtime();
+
+    let Step::Resume { index: sender, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let mut context = MockContext {
+        rax: SYS_YIELD,
+        ..MockContext::default()
+    };
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+
+    let Step::Resume {
+        index: receiver,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(receiver, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(index, sender);
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(104),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x88_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let frame = runtime
+        .kernel
+        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE)
+        .expect("Frame");
+    let number = runtime
+        .install_extra_capability(index, frame)
+        .expect("安装 Frame");
+
+    // 把接收方配额填到只剩 2 KiB，无法容纳一页 Frame。
+    let limit = runtime.process(receiver).ledger.limit();
+    runtime
+        .process_mut(receiver)
+        .ledger
+        .charge(limit - 2048)
+        .expect("填满配额");
+    let handles = runtime.tasks()[receiver].handles;
+
+    context.rax = SYS_SEND_HANDLE;
+    context.rdi = 2;
+    context.rsi = 9;
+    context.rdx = 5;
+    context.r10 = number;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(index, receiver);
+    assert_eq!(
+        context.rax,
+        u64::MAX,
+        "接收方配额不足时 recv 必须失败，而不是报告无句柄"
+    );
+    assert_eq!(
+        runtime.tasks()[receiver].handles,
+        handles,
+        "安装失败不得留下句柄槽位"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn arena_alloc_is_lazy_and_charged() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
