@@ -95,15 +95,27 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 `exit` 与冒烟测试通过 `isa-debug-exit` 退出 QEMU；缺少该设备时内核安全停机。
 
-冒烟产物按模式隔离到 `build/smoke/<mode>/`（`serial.log`、`disk.img`、`qmp.sock`）；`boot` 模式同时保留 `build/serial.log` 便于查看。`HK_SMOKE_KEY` 可覆盖目录键，`HK_ISO_SUFFIX` 可隔离并行构建。
+冒烟产物按模式隔离到 `build/smoke/<mode>/`（`serial.log`、`disk.img`）；QMP 注入走环回 TCP 的临时端口，不再落套接字文件。`boot` 模式同时保留 `build/serial.log` 便于查看。`HK_SMOKE_KEY` 可覆盖目录键，`HK_ISO_SUFFIX` 可隔离并行构建，`HK_SMOKE_TIMEOUT=<秒>` 可整体放宽等待预算（慢速宿主）。
 
-图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`xtask run` 在存在 `/dev/kvm` 时自动启用 `-accel kvm -cpu host`，手动 QEMU 可同样加速。
+图形桌面使用 `cargo xtask run --target x86_64-qemu --ui`，或给镜像传 `--cmdline desktop` 并附加 `virtio-keyboard-pci`/`virtio-tablet-pci`；该模式启动 Display、Console、Input 与 HolyDoc。`run` 与 `smoke` 统一经 `qemu::accelerate` 选加速器：Linux 上存在 `/dev/kvm` 时用 `-accel kvm -cpu host`，Windows 上用 `-accel whpx,ssd=off -cpu host`。
 
 当前 crate 清单与依赖规则见 [Crate 分层](crates.md)；`cargo xtask deps` 在 `lint` 与 CI 中强制检查。多架构分层与 COW 契约见 [ADR-0018](adr/0018-multiarch-platform.md)。
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像；镜像构建使用固定磁盘时间戳与 `--locked`，ISO 以暂存树内容键缓存，重复构建校验和一致。
 
 `xtask` 与 `hk-server-build` 是宿主构建期成员（`std`）；裸机构建按平台包选择目标，避免对整个 workspace 使用裸机 target。
+
+### Windows 宿主
+
+裸机目标的交叉编译与 Linux 一致，宿主侧工具需要单独准备：
+
+- **QEMU**：`winget install SoftwareFreedomConservancy.QEMU`（11.x）。加速用 WHPX，需要启用可选功能 `HypervisorPlatform`（`DISM /online /Enable-Feature /FeatureName:HypervisorPlatform /All`，重启一次生效）。
+- **xorriso**：用 Cygwin 构建（`xorriso.exe` + `cygwin1.dll`）。它只认 POSIX/相对路径，`image` 因此把 `-o` 写成相对暂存目录的形式，绝对 `D:\...` 会被当成 cwd 下的相对名。
+- **Limine**：取 GitHub Release 的 `limine-binary.zip`；`limine.exe` 要能和 `limine-bios-cd.bin`、`limine-bios.sys`、`limine-uefi-cd.bin`、`BOOTX64.EFI` 一起被找到，设 `HK_LIMINE_DIR` 指向该目录即可（`image` 优先从那里取可执行文件，不必进 `PATH`）。
+- **符号表**：`native.rs` 按 `nm` → `llvm-nm` → rustup 工具链自带的 `llvm-nm.exe` 回退，Windows 上不需要另装 binutils。
+- **冒烟**：QMP 走环回 TCP，输入类模式与 Linux 同一套代码；WHPX 的 virtio-blk 吞吐低一个量级，慢速宿主机用 `HK_SMOKE_TIMEOUT` 放宽预算（检查点用例约 68 s）。
+
+Windows + WHPX 下 39 个冒烟模式通过 38 个。已知失败：`debugfault` —— `hk-server-debug` 写 `AUTO_WINDOW_BASE`（`0x2000_0000`）时缺页被 `handle_fault` 判为 `Unhandled`，任务终止后无人发送 `DISPLAY_SHUTDOWN`，整机进入 idle，待查。
 
 ---
 
