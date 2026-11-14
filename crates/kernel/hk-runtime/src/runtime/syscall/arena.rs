@@ -29,8 +29,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 判断当前任务是否有权枚举内核映射。
+    ///
+    /// System Arena 暴露内核高半区的虚拟地址与权限，只授予 Debug/Checkpoint
+    /// 服务；普通服务查询返回失败。
+    fn may_enumerate_system_arena(&self, index: usize) -> bool {
+        let name = self.tasks[index].name.as_str();
+        name == hk_syscall::DEBUG_SERVICE || name == hk_syscall::CHECKPOINT_SERVICE
+    }
+
     /// 查询 System Arena 快照；编码与 `SYS_ARENA_INFO` 相同。
-    pub(crate) fn system_arena_info(&mut self, frame: &mut C) -> Switch {
+    pub(crate) fn system_arena_info(&mut self, index: usize, frame: &mut C) -> Switch {
+        if !self.may_enumerate_system_arena(index) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;
         if out == 0 || capacity < 32 {
@@ -58,7 +71,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ///
     /// `out == 0` 时只返回 Region 数；否则写入一条
     /// `SYSTEM_REGION_RECORD_BYTES` 记录（虚拟地址、长度、权利、标志）。
-    pub(crate) fn system_arena_regions(&mut self, frame: &mut C) -> Switch {
+    pub(crate) fn system_arena_regions(&mut self, task: usize, frame: &mut C) -> Switch {
+        if !self.may_enumerate_system_arena(task) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let index = frame.arg0() as usize;
         let out = frame.arg1();
         let capacity = frame.arg2() as usize;

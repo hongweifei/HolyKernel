@@ -490,6 +490,12 @@ pub const MEMORY_SERVICE: &str = "hk-server-memory";
 /// 显示服务名称；只有该服务可以访问帧缓冲。
 pub const DISPLAY_SERVICE: &str = "hk-server-display";
 
+/// 调试服务名称；只有该服务可以枚举 System Arena 与内核映射。
+pub const DEBUG_SERVICE: &str = "hk-server-debug";
+
+/// 检查点服务名称；只有该服务可以在快照中枚举 System Arena。
+pub const CHECKPOINT_SERVICE: &str = "hk-server-checkpoint";
+
 /// 内核投递原始异常现场使用的消息标签。
 pub const FAULT_EVENT: u64 = 0xD00;
 

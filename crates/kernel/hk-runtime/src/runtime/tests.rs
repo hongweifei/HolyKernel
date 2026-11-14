@@ -4289,6 +4289,8 @@ fn system_arena_info_and_regions_are_enumerable() {
     let Step::Resume { mut context, .. } = runtime.step(0) else {
         panic!("任务应可运行");
     };
+    // 只有 Debug/Checkpoint 服务可以枚举内核映射。
+    runtime.tasks[0].name = String::from(hk_syscall::DEBUG_SERVICE);
 
     context.rax = hk_syscall::SYS_SYSTEM_ARENA_INFO;
     context.rdi = 0x500;
@@ -4342,6 +4344,27 @@ fn system_arena_info_and_regions_are_enumerable() {
     context.rdx = hk_syscall::SYSTEM_REGION_RECORD_BYTES as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
+}
+
+#[test]
+fn system_arena_enumeration_requires_debug_service() {
+    let mut runtime = runtime();
+    let Step::Resume { mut context, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_SYSTEM_ARENA_INFO;
+    context.rdi = 0x500;
+    context.rsi = 32;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "普通服务不得枚举 System Arena");
+
+    context.rax = hk_syscall::SYS_SYSTEM_ARENA_REGIONS;
+    context.rdi = 0;
+    context.rsi = 0;
+    context.rdx = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "普通服务不得枚举 System Region");
 }
 
 #[test]
