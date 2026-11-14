@@ -222,21 +222,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             };
             // 子任务的自动窗口必须知道这段继承映射已经占用。
             let _ = self.process_mut(child).user_window.reserve(virt, len);
-            let Ok((_, size)) = self
-                .kernel
-                .capability(child_tcb, capability)
-                .map(|(capability, _)| (capability.clone(), capability.size()))
-            else {
-                let _ = self.kernel.close_handle(child_tcb, capability);
-                let _ = self.kernel.close_handle(child_tcb, child_region);
-                continue;
-            };
-            let Ok(charge) = self.process_mut(child).ledger.charge(size) else {
-                let _ = self.kernel.close_handle(child_tcb, capability);
-                let _ = self.kernel.close_handle(child_tcb, child_region);
-                continue;
-            };
-            self.install_capability(child, capability, Some(charge));
+            // 继承的页与父任务共享（可写 Region 已标 COW），不为子任务重复记账：
+            // Task Ledger 只记子任务实际拥有的常驻物理页，fork 时私有的字节已由
+            // `platform.fork` 返回的 `copied` 记入，子侧 COW 缺页再逐页记账。
+            self.install_capability(child, capability, None);
             self.install_region(
                 child,
                 child_region,

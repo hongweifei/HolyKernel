@@ -2832,6 +2832,43 @@ fn cow_resolution_records_private_page_override() {
 }
 
 #[test]
+fn fork_does_not_charge_inherited_pages() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x2000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let parent = runtime.process(index).ledger.charged();
+    assert!(parent >= 0x2000, "能力的常驻页计入父任务");
+
+    context.rax = SYS_FORK;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let child = runtime.task_count() - 1;
+    assert_eq!(
+        runtime.process(child).ledger.charged(),
+        0,
+        "继承页与父任务共享，不得重复计入子任务"
+    );
+    assert_eq!(runtime.process(index).ledger.charged(), parent);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn fork_copies_cow_private_page_overrides() {
     let platform = MockPlatform {
         cow: Some(CowOutcome::Copied(0x7000_1000)),
