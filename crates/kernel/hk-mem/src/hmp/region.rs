@@ -78,6 +78,15 @@ impl Region {
             return Err(HmpError::OutOfRange);
         }
         capability.require(CapabilityOp::Map)?;
+        // 任务镜像与不可变修订天然只读：`SEALED` 由对象种类派生，调用方不必
+        // 记得携带，也不能在 protect 中清除。
+        let mut flags = flags;
+        if matches!(
+            capability.kind(),
+            CapabilityKind::TaskImage | CapabilityKind::Revision
+        ) {
+            flags |= RegionFlags::SEALED;
+        }
         validate(capability, rights, flags)?;
         Ok(Self {
             id: RegionId::new(NEXT_REGION_ID.fetch_add(1, Ordering::Relaxed)),
@@ -387,13 +396,36 @@ mod tests {
             .err(),
             Some(HmpError::ReadOnly)
         );
-        assert!(Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty()).is_ok());
         let mut region = Region::new(&capability, 0, 0x1000, Rights::READ, RegionFlags::empty())
             .expect("Region");
+        assert!(
+            region.flags().contains(RegionFlags::SEALED),
+            "修订 Region 必须自动密封"
+        );
         assert_eq!(
             region.protect(Rights::READ | Rights::WRITE, RegionFlags::empty()),
             Err(HmpError::ReadOnly)
         );
+        assert_eq!(
+            region.protect(Rights::READ, RegionFlags::empty()),
+            Err(HmpError::ReadOnly),
+            "protect 不能清除派生的 SEALED"
+        );
+    }
+
+    #[test]
+    fn image_regions_are_sealed() {
+        let image = capability(CapabilityKind::TaskImage, 0x1000);
+        let region =
+            Region::new(&image, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
+        assert!(
+            region.flags().contains(RegionFlags::SEALED),
+            "任务镜像 Region 必须自动密封"
+        );
+        let anonymous = capability(CapabilityKind::Anonymous, 0x1000);
+        let region =
+            Region::new(&anonymous, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
+        assert!(!region.flags().contains(RegionFlags::SEALED));
     }
 
     #[test]
