@@ -716,6 +716,24 @@ impl FrameBank {
                 Err(_) => return false,
             }
         };
+        let old_kind = inner
+            .allocations
+            .get(&range.start().get())
+            .and_then(|allocation| allocation.owner)
+            .and_then(|owner| inner.ledger_kinds.get(&owner).copied())
+            .unwrap_or(CapacityKind::System);
+        let new_kind = inner
+            .ledger_kinds
+            .get(&owner)
+            .copied()
+            .unwrap_or(CapacityKind::System);
+        if old_kind != new_kind {
+            // 采纳改变了物理用量的分类归属，统计必须跟着迁移。
+            let old = &mut inner.by_capacity[old_kind.index()];
+            *old = old.saturating_sub(length);
+            let new = &mut inner.by_capacity[new_kind.index()];
+            *new = new.saturating_add(length);
+        }
         let Some(allocation) = inner.allocations.get_mut(&range.start().get()) else {
             return false;
         };

@@ -75,13 +75,15 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
     if !hk_platform_x86_64::system_arena::establish() {
         return Err(String::from("无法建立 System Arena"));
     }
+    // 先登记内核自用分配（堆、页表、IOMMU 表），direct map 只补剩余空洞，
+    // 否则整段 direct map 会先占住窗口，细粒度 Region 全部被重叠规则跳过。
+    hk_platform_x86_64::system_arena::register_bank_allocations(bank, direct_map_base);
     if let Some(direct_map) = info.direct_map {
         hk_platform_x86_64::system_arena::register_direct_map(
             direct_map.virt_base.get(),
             direct_map.len,
         );
     }
-    hk_platform_x86_64::system_arena::register_bank_allocations(bank, direct_map_base);
 
     let stats = bank.stats();
     let (system_used, system_limit, system_span) =

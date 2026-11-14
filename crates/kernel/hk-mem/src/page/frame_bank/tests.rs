@@ -132,6 +132,30 @@ fn adopting_owner_charges_its_ledger() {
 }
 
 #[test]
+fn adopting_owner_moves_capacity_kind_usage() {
+    let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
+    let owner = CapacityId::next();
+    bank.register_ledger(owner, 0x4000);
+    bank.set_ledger_kind(owner, CapacityKind::User);
+    let range = bank.allocate_contiguous(PAGE_SIZE).expect("内核自用页");
+    assert_eq!(
+        bank.stats().by_capacity[CapacityKind::System.index()],
+        PAGE_SIZE as u64
+    );
+    assert!(bank.adopt_owner(owner, range));
+    let stats = bank.stats();
+    assert_eq!(
+        stats.by_capacity[CapacityKind::System.index()],
+        0,
+        "采纳后不得残留 System 归类"
+    );
+    assert_eq!(
+        stats.by_capacity[CapacityKind::User.index()],
+        PAGE_SIZE as u64
+    );
+}
+
+#[test]
 fn enumerates_capacity_ledgers_by_id() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let system = CapacityId::next();

@@ -134,9 +134,11 @@ impl PhysicalBackend for FrameBank {
         }
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_sub(range.len());
-        // 归属已校验、分配记录已移除；在把区间交回空闲表前清零。此刻持锁，
-        // 其他分配无法拿到这段物理区间。
+        // 分配记录已经移除，区间尚未进入空闲表，其他分配不可能拿到它；这时
+        // 放锁清零，避免在 spin 锁内逐字节访问物理内存（与 free_for 一致）。
+        drop(inner);
         crate::hmp::capacity::scrub(range.start(), range.len() as usize);
+        let mut inner = self.inner.lock();
         inner.coalesce_free(range);
         true
     }

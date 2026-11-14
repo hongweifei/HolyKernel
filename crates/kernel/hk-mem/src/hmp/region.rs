@@ -279,6 +279,10 @@ fn validate(capability: &Capability, rights: Rights, flags: RegionFlags) -> Resu
     if flags.contains(RegionFlags::COW) && flags.contains(RegionFlags::SEALED) {
         return Err(HmpError::ReadOnly);
     }
+    // 只有匿名能力可以按需增长；其它能力的大小由对象/Provider 决定。
+    if flags.contains(RegionFlags::GROW) && !capability.allows(CapabilityOp::Grow) {
+        return Err(HmpError::WrongCapability);
+    }
     Ok(())
 }
 
@@ -426,6 +430,20 @@ mod tests {
         let region =
             Region::new(&anonymous, 0, 0x1000, Rights::READ, RegionFlags::empty()).expect("Region");
         assert!(!region.flags().contains(RegionFlags::SEALED));
+    }
+
+    #[test]
+    fn grow_is_limited_to_anonymous() {
+        let image = capability(CapabilityKind::TaskImage, 0x2000);
+        assert_eq!(
+            Region::new(&image, 0, 0x1000, Rights::READ, RegionFlags::GROW).err(),
+            Some(HmpError::WrongCapability)
+        );
+        let anonymous = capability(CapabilityKind::Anonymous, 0x2000);
+        assert!(
+            Region::new(&anonymous, 0, 0x1000, Rights::READ, RegionFlags::GROW).is_ok(),
+            "匿名 Region 允许按需增长"
+        );
     }
 
     #[test]

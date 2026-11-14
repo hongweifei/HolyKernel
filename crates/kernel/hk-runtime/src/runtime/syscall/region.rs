@@ -204,9 +204,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let was_pinned = self.process(index).regions[slot]
+        let Some((old_rights, old_flags)) = self.process(index).regions[slot]
             .as_ref()
-            .is_some_and(|region| region.flags.contains(RegionFlags::PINNED));
+            .map(|mapping| (mapping.rights, mapping.flags))
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let was_pinned = old_flags.contains(RegionFlags::PINNED);
         if was_pinned != flags.contains(RegionFlags::PINNED)
             && self
                 .kernel
@@ -240,14 +245,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
-            map.rights = rights;
-            map.flags = flags;
-        }
         if flags.contains(RegionFlags::GUARD) {
             // GUARD 区域不保留任何 PTE：访问回到缺页路径，由故障处理按 Region
             // 标志终止或交策略决定，未装入页也不会被零页填充。
             let _ = self.platform.unmap_user(index, virt, length);
+            if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
+                map.rights = rights;
+                map.flags = flags;
+            }
             frame.set_result(0);
             return Switch::Continue;
         }
@@ -275,6 +280,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .platform
                 .map_user(index, virt, phys, length, rights, flags)
             {
+                self.rollback_protect(
+                    tcb, handle, owner, capability, old_rights, old_flags, was_pinned, flags,
+                );
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -322,14 +330,42 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         flags,
                     )
                 {
+                    self.rollback_protect(
+                        tcb, handle, owner, capability, old_rights, old_flags, was_pinned, flags,
+                    );
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 }
                 relative += page;
             }
         }
+        if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
+            map.rights = rights;
+            map.flags = flags;
+        }
         frame.set_result(0);
         Switch::Continue
+    }
+
+    /// 页表重映射失败时把 Region 元数据与 pin 恢复到 protect 之前。
+    #[allow(clippy::too_many_arguments)]
+    fn rollback_protect(
+        &mut self,
+        tcb: TcbId,
+        handle: Handle,
+        owner: TcbId,
+        capability: Handle,
+        old_rights: Rights,
+        old_flags: RegionFlags,
+        was_pinned: bool,
+        new_flags: RegionFlags,
+    ) {
+        let _ = self
+            .kernel
+            .protect_region(tcb, handle, old_rights, old_flags);
+        if was_pinned != new_flags.contains(RegionFlags::PINNED) {
+            let _ = self.kernel.pin_capability(owner, capability, was_pinned);
+        }
     }
 
     /// 按 `GROW` 标志扩展 Region，并同步 Arena 表、用户窗口与已有物理映射。

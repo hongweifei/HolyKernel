@@ -60,7 +60,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .ledger
                 .charge(spec.len as u64)
                 .map_err(KernelError::Hmp)?;
-            self.register_region(index, *spec, Some(charge))?;
+            if let Err(error) = self.register_region(index, *spec, Some(charge)) {
+                // 注册失败时这笔记账没有被任何槽位持有，必须归还。
+                let _ = self.process_mut(index).ledger.release(charge);
+                return Err(error);
+            }
         }
         Ok(())
     }

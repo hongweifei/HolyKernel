@@ -99,6 +99,8 @@ pub struct Capacity {
     used: u64,
     peak: u64,
     free: Vec<PhysRange>,
+    /// 未注册后端时已分配的区间；用于校验归还归属与阻止重复释放。
+    allocated: Vec<PhysRange>,
     next: u64,
     /// 已通过 `merge` 显式并回父容量；析构时不再重复归还。
     released: bool,
@@ -154,6 +156,7 @@ impl Capacity {
             used: 0,
             peak: 0,
             free: Vec::new(),
+            allocated: Vec::new(),
             next: range.start().get(),
             released: false,
         };
@@ -226,6 +229,8 @@ impl Capacity {
             self.page_size,
             self.id,
         )?;
+        self.allocated
+            .push(PhysRange::new(PhysAddr::new(start), length));
         self.used = self.used.saturating_add(length);
         self.peak = self.peak.max(self.used);
         Ok(frame)
@@ -349,6 +354,15 @@ impl Capacity {
         if start < self.range.start().get() || end > limit_end {
             return Err(HmpError::OutOfRange);
         }
+        // fallback 没有后端分配记录，必须自证区间属于本容量且未归还过。
+        let Some(index) = self
+            .allocated
+            .iter()
+            .position(|range| range.start().get() == start && range.len() == length)
+        else {
+            return Err(HmpError::NotMapped);
+        };
+        self.allocated.swap_remove(index);
         scrub(phys, length as usize);
 
         self.used = self.used.saturating_sub(length);
@@ -437,10 +451,8 @@ impl Capacity {
     /// 注册了物理后端时以窗口归属为权威；未注册后端时只有创建时的窗口。
     pub fn windows(&self) -> alloc::vec::Vec<PhysRange> {
         if let Some(backend) = super::backend::physical_backend() {
-            let windows = backend.windows_owned(self.id);
-            if !windows.is_empty() {
-                return windows;
-            }
+            // 后端是窗口归属的权威：已被 split/merge 清空时不伪造创建时的区间。
+            return backend.windows_owned(self.id);
         }
         alloc::vec![self.range]
     }
@@ -781,6 +793,24 @@ mod tests {
         assert_eq!(
             again.range(),
             PhysRange::new(PhysAddr::new(0x10_0000), 0x4000)
+        );
+    }
+
+    #[test]
+    fn release_rejects_unowned_and_repeated_ranges() {
+        let mut parent = capacity();
+        let frame = parent.allocate(4096).expect("分配");
+        let mut frame = Some(frame);
+        parent.free(&mut frame).expect("归还");
+        assert_eq!(
+            parent.release(PhysAddr::new(0x10_0000), 4096).err(),
+            Some(HmpError::NotMapped),
+            "重复释放必须拒绝"
+        );
+        assert_eq!(
+            parent.release(PhysAddr::new(0x10_3000), 4096).err(),
+            Some(HmpError::NotMapped),
+            "未分配区间必须拒绝"
         );
     }
 

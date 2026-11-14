@@ -257,8 +257,14 @@ impl Kernel {
             expected: ObjectKind::Capacity,
         })?;
         let capacity = capacity.lock();
+        // 窗口可能已被 split/merge 改变，`start/len` 报告首个真实窗口。
+        let range = capacity
+            .windows()
+            .first()
+            .copied()
+            .unwrap_or_else(|| capacity.range());
         Ok((
-            capacity.range(),
+            range,
             capacity.kind(),
             capacity.page_size(),
             capacity.limit(),

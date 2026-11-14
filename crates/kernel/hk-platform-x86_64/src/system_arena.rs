@@ -255,7 +255,8 @@ pub fn register_bank_allocations(bank: &FrameBank, direct_map_base: u64) -> usiz
 /// 这是内核自用映射的登记事实来源：可执行段登记为 `TaskImage` +
 /// `READ|EXECUTE|SEALED|PINNED`，数据、`.bss`、启动栈与 direct map 数据视图
 /// 登记为 `Anonymous` + `READ|WRITE|PINNED`。相邻同属性页合并为一段；MMIO
-/// （PWT/PCD）页带 `GUARD` 标志；先登记的更具体窗口优先，重叠冲突的段跳过。
+/// （PWT/PCD）页按可访问设备窗口登记（不带 `GUARD`）；先登记的更具体窗口
+/// 优先，重叠冲突的段跳过。
 /// 返回新登记的 Region 数。
 pub fn register_kernel_mappings(table: &crate::paging::PageTable) -> usize {
     let mut runs: Vec<(u64, u64, u64)> = Vec::new();
@@ -290,9 +291,8 @@ pub fn register_kernel_mappings(table: &crate::paging::PageTable) -> usize {
         if rights.contains(Rights::EXECUTE) {
             region_flags |= RegionFlags::SEALED;
         }
-        if flags & (PWT | PCD) != 0 {
-            region_flags |= RegionFlags::GUARD;
-        }
+        // MMIO 窗口（PWT/PCD）是可访问的设备寄存器区间，不能标成 GUARD；
+        // GUARD 表示“命中即故障”，两者语义相反。驻留性已由 PINNED 表达。
         if register(virt, len, rights, region_flags) {
             count += 1;
         }

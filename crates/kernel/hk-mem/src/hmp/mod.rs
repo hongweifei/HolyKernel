@@ -1,7 +1,7 @@
 //! Holy Memory Plane（HMP）核心对象模型。
 //!
 //! 本模块定义 Region 统一映射、类型化能力、Provider 契约与 Ledger 记账的
-//! 对象层。内核对象、系统调用与服务接入在后续阶段完成。
+//! 对象层；对象由内核句柄承载，运行时经 `SYS_*` 系统调用与服务接入使用。
 
 pub mod arena;
 pub mod backend;

@@ -104,7 +104,7 @@ ABI 使用单一 `Handle` 值加 `ObjectKind`：
 
 - 内核用 `Handle + ObjectKind + Rights` 校验类型与权限；HandleTable 保持 duplicate、close、transfer、epoch 撤销与配额。
 - Rust 客户端库提供 `Handle<Revision>`、`Handle<Surface>`、`Handle<Capability>` 等零成本类型包装；ABI 保持单一 Handle 表示。
-- 类型化操作在能力层校验：`commit` 接受 Revision，`scanout` 接受 Surface，`execute` 接受 TaskImage，`pin/export` 接受 Frame/Surface/DeviceAllocation，`grow/swap` 接受 Anonymous。
+- 类型化操作在能力层校验：`commit` 接受 Revision，`scanout` 接受 Surface，`execute` 接受 TaskImage，`pin` 接受 Frame/Surface/DeviceAllocation/Anonymous，`export` 接受 Frame/DeviceAllocation，`grow/swap` 接受 Anonymous。
 
 ### 7. COW、页大小、GPU、Arena、MMIO
 

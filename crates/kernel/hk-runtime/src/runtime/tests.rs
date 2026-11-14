@@ -3,7 +3,7 @@
 use crate::runtime::*;
 use alloc::string::String;
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use hk_hal::{SyscallFrame, UserContext};
 
 /// 最小用户现场。
@@ -135,6 +135,8 @@ struct MockPlatform {
     last_cow: Arc<spin::Mutex<Vec<(u64, u64)>>>,
     /// 可选的记录型 IOMMU；`None` 表示平台没有 IOMMU。
     iommu: Option<RecordingIommu>,
+    /// `map_user` 的返回值；用于构造页表重映射失败。
+    map_ok: Arc<AtomicBool>,
 }
 
 /// 只记录映射权限的软件 IOMMU，用于验证 DMA 映射从句柄派生 Rights。
@@ -197,6 +199,7 @@ impl MockPlatform {
             written: Arc::new(spin::Mutex::new(Vec::new())),
             last_cow: Arc::new(spin::Mutex::new(Vec::new())),
             iommu: None,
+            map_ok: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -257,7 +260,7 @@ impl UserPlatform for MockPlatform {
             rights.bits() as u64 | ((flags.bits() as u64) << 32),
             Ordering::Release,
         );
-        true
+        self.map_ok.load(Ordering::Acquire)
     }
 
     fn unmap_user(&self, _slot: usize, _virt: u64, _len: usize) -> bool {
@@ -2548,6 +2551,58 @@ fn protect_to_guard_unmaps_region() {
 }
 
 #[test]
+fn region_protect_rolls_back_on_map_failure() {
+    let platform = MockPlatform::new();
+    let map_ok = Arc::clone(&platform.map_ok);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    let (slot, ..) = runtime.region_at(index, region as usize).expect("Region");
+    let before = runtime.process(index).regions[slot]
+        .as_ref()
+        .expect("映射")
+        .rights;
+
+    map_ok.store(false, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "重映射失败必须报错");
+    assert_eq!(
+        runtime.process(index).regions[slot]
+            .as_ref()
+            .expect("映射")
+            .rights,
+        before,
+        "失败不得提交新权限"
+    );
+
+    map_ok.store(true, Ordering::Release);
+    context.rax = hk_syscall::SYS_REGION_PROTECT;
+    context.rdi = region;
+    context.rsi = 0b1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "恢复后应可成功收窄");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn frame_map_rejects_guard_with_backing() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -3358,14 +3413,12 @@ fn region_grow_requires_anonymous_capability() {
     context.rdx = 0x1000;
     context.r10 = 0b11 | ((hk_mem::hmp::RegionFlags::GROW.bits() as u64) << 32);
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    let region = context.rax;
-    assert_ne!(region, u64::MAX);
+    assert_eq!(context.rax, u64::MAX, "只有 Anonymous 能力可以带 GROW 映射");
 
-    context.rax = SYS_REGION_GROW;
-    context.rdi = region;
-    context.rsi = 0x2000;
+    context.rax = SYS_REGION_MAP;
+    context.r10 = 0b11;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, u64::MAX, "只有 Anonymous 能力可以增长");
+    assert_ne!(context.rax, u64::MAX, "去掉了 GROW 的非匿名映射仍应允许");
     let _ = runtime.finish(0, index);
 }
 

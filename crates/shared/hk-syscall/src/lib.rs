@@ -276,7 +276,7 @@ pub const PROVIDER_KIND_DEVICE: u8 = 3;
 /// Provider 类型编码：Anonymous。
 pub const PROVIDER_KIND_ANONYMOUS: u8 = 4;
 
-// === HMP 对象 0x90-0xA3 ===
+// === HMP 对象 0x90-0xA4 ===
 
 /// 查询当前任务 Arena 的基址、大小、已用与 Region 数。
 pub const SYS_ARENA_INFO: u64 = 0x90;
