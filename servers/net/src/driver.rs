@@ -113,6 +113,25 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
     true
 }
 
+/// 向驱动发一次握手探测，短时间内收到 INFO 响应即视为存活。
+#[cfg(target_os = "none")]
+fn probe_driver(endpoint: u64, driver: u64, info: &mut [u8; NET_INFO_BYTES]) -> bool {
+    if driver == 0 {
+        return false;
+    }
+    let _ = send(driver, NET_INFO_REQUEST, 0);
+    let _ = notify(driver, NET_NOTIFY_TX);
+    let window = now_ms().saturating_add(POLL_WAIT_MS * 5);
+    while now_ms() < window {
+        let (label, _word, sender, length) = recv_data_try(endpoint, info);
+        if label == NET_INFO_RESPONSE && sender == driver && length >= NET_INFO_BYTES {
+            return true;
+        }
+        let _ = yield_now();
+    }
+    false
+}
+
 /// 请求驱动退出，等待 Root Server 重启后重新握手并验证链路。
 #[cfg(target_os = "none")]
 pub(crate) fn restart_network(
@@ -125,38 +144,32 @@ pub(crate) fn restart_network(
 ) -> u64 {
     write("hk-server-net: driver restart\n".as_bytes());
     let _ = send(old, NET_SHUTDOWN, 0);
-    let deadline = now_ms().saturating_add(WAIT_MS);
+    // 运行时复用退出的任务槽，重启后的端点编号可能与旧值相同，不能靠比较端点
+    // 判断是否重启：先等旧实例不再应答，再等新实例应答。
+    let mut info = [0_u8; NET_INFO_BYTES];
     let mut driver = old;
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    let mut silent = false;
+    let mut restarted = false;
     while now_ms() < deadline {
         let _ = recv_data_try(endpoint, frame);
-        let candidate = service_endpoint("hk-server-virtio-net");
-        if candidate != 0 && candidate != old {
+        if let Some(candidate) = Some(service_endpoint("hk-server-virtio-net")).filter(|c| *c != 0)
+        {
             driver = candidate;
+        }
+        let answered = probe_driver(endpoint, driver, &mut info);
+        if silent && answered {
+            restarted = true;
             break;
+        }
+        if !answered {
+            silent = true;
         }
         let _ = yield_now();
     }
-    if driver == old {
+    if !restarted {
         write("hk-server-net: driver restart failed\n".as_bytes());
         return old;
-    }
-
-    let mut info = [0_u8; NET_INFO_BYTES];
-    let _ = send(driver, NET_INFO_REQUEST, 0);
-    let _ = notify(driver, NET_NOTIFY_TX);
-    let deadline = now_ms().saturating_add(WAIT_MS);
-    let mut rehandshaked = false;
-    while now_ms() < deadline {
-        let (label, _word, sender, length) = recv_data_try(endpoint, &mut info);
-        if label == NET_INFO_RESPONSE && sender == driver && length >= NET_INFO_BYTES {
-            rehandshaked = true;
-            break;
-        }
-        let _ = yield_now();
-    }
-    if !rehandshaked {
-        write("hk-server-net: driver rehandshake failed\n".as_bytes());
-        return driver;
     }
 
     let Ok(icmp) = stack.open_icmp(0x1235) else {

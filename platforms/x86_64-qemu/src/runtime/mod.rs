@@ -817,10 +817,14 @@ fn fault(frame: &mut InterruptFrame) -> FaultAction {
     }
 
     let console = Serial::new(COM1);
+    let task = RUNTIME
+        .current_task_name(cpu::cpu_index())
+        .unwrap_or_default();
     console.write_str(&format!(
-        "用户异常：{}（CPU {}）cr2={:#x} rip={:#x}\n",
+        "用户异常：{}（CPU {}，任务 {}）cr2={:#x} rip={:#x}\n",
         cpu::exception_name(frame.vector),
         cpu::cpu_index(),
+        if task.is_empty() { "?" } else { &task },
         cpu::fault_address(),
         frame.rip
     ));
