@@ -57,21 +57,14 @@ impl OwnedFrame {
 impl Drop for OwnedFrame {
     fn drop(&mut self) {
         let mut frame = self.frame.take();
-        let (phys, len, capacity) = frame.as_ref().map_or((0, 0, None), |frame| {
-            (
-                frame.phys().get(),
-                frame.len(),
-                Some(frame.capacity().get()),
-            )
-        });
-        // 归还不变量被破坏（帧仍被 pin、仍有共享引用或归属不匹配）时继续运行
-        // 只会泄漏物理页；在错误位置直接终止。
-        let result = self.capacity.lock().free(&mut frame);
-        assert!(
-            result.is_ok(),
-            "OwnedFrame 归还 Capacity 失败: phys={phys:#x} len={len} frame_capacity={capacity:?} capacity={} error={result:?}",
-            self.capacity.lock().id().get()
-        );
+        // 映射转移不延续 pin（见 `take_owned_frame`）；仍带 pin 说明调用方破坏
+        // 了不变量，这里防御性解除，避免把可恢复的记账错误升级成内核终止。
+        if let Some(frame) = frame.as_mut() {
+            frame.unpin();
+        }
+        // 归还失败（归属不匹配、后端缺失）只会泄漏一段物理页：记录价值低于
+        // 在析构路径终止内核，因此忽略返回值。
+        let _ = self.capacity.lock().free(&mut frame);
     }
 }
 

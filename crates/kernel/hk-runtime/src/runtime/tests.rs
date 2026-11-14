@@ -2195,6 +2195,77 @@ fn frame_maps_and_returns_to_capacity() {
 }
 
 #[test]
+fn pinned_frame_maps_and_returns_to_capacity() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(101),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x80_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
+    let before = runtime.process(index).ledger.charged();
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    // 先固定再映射：pin 不随 OwnedFrame 转移，解映射时不得因 pinned 拒绝归还。
+    context.rax = hk_syscall::SYS_FRAME_PIN;
+    context.rdi = frame;
+    context.rsi = 1;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "pin 应成功");
+
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX, "pinned Frame 仍应可映射");
+
+    context.rax = hk_syscall::SYS_REGION_UNMAP;
+    context.rdi = region;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1, "解映射应成功");
+    assert_eq!(
+        runtime.process(index).ledger.charged(),
+        before,
+        "解映射必须归还映射记账"
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        0,
+        "pinned Frame 解映射后仍须归还物理页"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn rejects_device_grant_without_authority() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

@@ -277,12 +277,18 @@ impl KernelObject {
     }
 
     /// 取出 Frame 及其 Capacity 归属。
+    ///
+    /// 转移不延续原 Frame 的 pin：契约规定 `SYS_FRAME_MAP` 消耗句柄后由 Region
+    /// 的 `PINNED` 标志表达驻留，残留的 pin 会让后续归还被拒绝。
     pub fn take_owned_frame(&self) -> Option<OwnedFrame> {
         let ObjectPayload::Frame { frame, capacity } = &self.payload else {
             return None;
         };
         let capacity = capacity.as_ref()?;
-        let frame = frame.lock().take()?;
+        let mut frame = frame.lock().take()?;
+        if frame.is_pinned() {
+            frame.unpin();
+        }
         Some(OwnedFrame::new(frame, Arc::clone(capacity)))
     }
 

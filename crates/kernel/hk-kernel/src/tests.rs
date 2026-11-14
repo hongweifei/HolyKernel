@@ -212,6 +212,38 @@ fn dropping_pinned_frame_handle_returns_it_to_capacity() {
 }
 
 #[test]
+fn taking_pinned_frame_clears_pin_and_returns_page() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let rights = Rights::READ | Rights::WRITE | Rights::ADMIN | Rights::TRANSFER;
+    let capacity = Capacity::new(
+        CapacityId::new(14),
+        PhysRange::new(PhysAddr::new(0x70_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity = kernel
+        .create_capacity(worker, capacity, rights)
+        .expect("创建 Capacity");
+    let frame = kernel
+        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .expect("分配 Frame");
+    kernel.pin_frame(worker, frame, true).expect("pin");
+
+    // `SYS_FRAME_MAP` 走这条路径：pin 不随所有权转移，否则归还时会被拒绝。
+    let owned = kernel.take_owned_frame(worker, frame).expect("取走 Frame");
+    assert_eq!(owned.len(), PAGE_SIZE);
+    drop(owned);
+    assert_eq!(
+        kernel.capacity_info(worker, capacity).expect("Capacity").4,
+        0,
+        "转移出的 pinned Frame 销毁时必须归还物理页"
+    );
+}
+
+#[test]
 fn closing_last_frame_handle_returns_it_to_capacity() {
     let kernel = kernel();
     let worker = thread(&kernel);
