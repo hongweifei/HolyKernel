@@ -2301,6 +2301,71 @@ fn shared_user_capacity_grants_no_admin() {
 }
 
 #[test]
+fn rejected_frame_map_keeps_frame_handle() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(102),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x82_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    // W^X 冲突：Region 校验失败，调用方 Frame 必须原样保留。
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b110;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert!(
+        runtime.handle_at(index, frame as usize).is_some(),
+        "映射失败不得销毁 Frame 句柄"
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64,
+        "失败不得归还或清零物理页"
+    );
+
+    // 合法参数下仍可映射，证明句柄未被破坏。
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let mapped = context.rax;
+    assert_ne!(mapped, u64::MAX, "合法映射失败");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn rejects_device_grant_without_authority() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

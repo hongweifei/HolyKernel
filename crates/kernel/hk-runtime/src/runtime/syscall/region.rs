@@ -144,7 +144,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
-            let _ = self.kernel.close_handle(tcb, capability_handle);
+            // 能力句柄属于调用方，失败路径只回滚本调用建立的 Region 与 pin，
+            // 不得销毁用户仍持有并可能继续使用的对象。
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }

@@ -243,6 +243,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
+        // 先按目标能力几何做一次 Region 校验再消费句柄：失败的系统调用不能
+        // 销毁调用方的 Frame（会导致数据页被清零且无法重试）。GUARD 要求页面
+        // 永不安装映射，与 Frame 的常驻 backing 互斥。
+        let Ok((range, page_size, _, _, _)) = self.kernel.frame_info(tcb, frame_handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(probe) = Capability::new(CapabilityKind::Frame, range.len(), page_size, None) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if flags.contains(RegionFlags::GUARD)
+            || Region::new(&probe, 0, range.len() as usize, rights, flags).is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Ok(owned) = self.kernel.take_owned_frame(tcb, frame_handle) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
