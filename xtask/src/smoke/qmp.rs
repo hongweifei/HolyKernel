@@ -1,28 +1,23 @@
 //! QMP 按键注入：把文本转成 `send-key` 命令。
 
-use std::path::Path;
-#[cfg(unix)]
+use std::net::TcpStream;
 use std::thread;
-#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use crate::failure::{Failure, Result};
 
 /// 通过 QMP 套接字注入一串按键。
-#[cfg(unix)]
-pub(super) fn inject(socket: &Path, text: &str) -> Result<()> {
+pub(super) fn inject(socket: &str, text: &str) -> Result<()> {
     inject_codes(socket, &qcodes(text))
 }
 
 /// 通过 QMP 套接字注入一个 qcode（例如 `tab`）。
-#[cfg(unix)]
-pub(super) fn inject_key(socket: &Path, code: &str) -> Result<()> {
+pub(super) fn inject_key(socket: &str, code: &str) -> Result<()> {
     inject_codes(socket, &[String::from(code)])
 }
 
 /// 通过 QMP 注入绝对指针移动与左键点击。
-#[cfg(unix)]
-pub(super) fn inject_pointer(socket: &Path, x: u64, y: u64) -> Result<()> {
+pub(super) fn inject_pointer(socket: &str, x: u64, y: u64) -> Result<()> {
     send_pointer_events(
         socket,
         &format!(
@@ -33,9 +28,8 @@ pub(super) fn inject_pointer(socket: &Path, x: u64, y: u64) -> Result<()> {
 }
 
 /// 通过 QMP 注入标题栏拖拽：按下、移动、释放。
-#[cfg(unix)]
 pub(super) fn inject_pointer_drag(
-    socket: &Path,
+    socket: &str,
     from_x: u64,
     from_y: u64,
     to_x: u64,
@@ -58,7 +52,6 @@ pub(super) fn inject_pointer_drag(
 }
 
 /// 构造绝对坐标事件。
-#[cfg(unix)]
 fn absolute(x: u64, y: u64) -> String {
     format!(
         "{{\"type\":\"abs\",\"data\":{{\"axis\":\"x\",\"value\":{x}}}}},{{\"type\":\"abs\",\"data\":{{\"axis\":\"y\",\"value\":{y}}}}}"
@@ -66,14 +59,12 @@ fn absolute(x: u64, y: u64) -> String {
 }
 
 /// 通过 QMP 发送一组 `input-send-event` 事件。
-#[cfg(unix)]
-fn send_pointer_events(socket: &Path, events: &str) -> Result<()> {
+fn send_pointer_events(socket: &str, events: &str) -> Result<()> {
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let stream = loop {
-        match UnixStream::connect(socket) {
+        match TcpStream::connect(socket) {
             Ok(stream) => break stream,
             Err(_) if Instant::now() < deadline => {
                 thread::sleep(Duration::from_millis(100));
@@ -108,14 +99,12 @@ fn send_pointer_events(socket: &Path, events: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn inject_codes(socket: &Path, codes: &[String]) -> Result<()> {
+fn inject_codes(socket: &str, codes: &[String]) -> Result<()> {
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let stream = loop {
-        match UnixStream::connect(socket) {
+        match TcpStream::connect(socket) {
             Ok(stream) => break stream,
             Err(_) if Instant::now() < deadline => {
                 thread::sleep(Duration::from_millis(100));
@@ -155,37 +144,6 @@ fn inject_codes(socket: &Path, codes: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// 非 Unix 主机不支持 QMP 套接字。
-#[cfg(not(unix))]
-pub(super) fn inject(_socket: &Path, _text: &str) -> Result<()> {
-    Err(Failure::new("键盘输入冒烟只在 Unix 主机上运行"))
-}
-
-/// 非 Unix 主机不支持 QMP 套接字。
-#[cfg(not(unix))]
-pub(super) fn inject_key(_socket: &Path, _code: &str) -> Result<()> {
-    Err(Failure::new("键盘输入冒烟只在 Unix 主机上运行"))
-}
-
-/// 非 Unix 主机不支持 QMP 套接字。
-#[cfg(not(unix))]
-pub(super) fn inject_pointer(_socket: &Path, _x: u64, _y: u64) -> Result<()> {
-    Err(Failure::new("指针输入冒烟只在 Unix 主机上运行"))
-}
-
-/// 非 Unix 主机不支持 QMP 套接字。
-#[cfg(not(unix))]
-pub(super) fn inject_pointer_drag(
-    _socket: &Path,
-    _from_x: u64,
-    _from_y: u64,
-    _to_x: u64,
-    _to_y: u64,
-) -> Result<()> {
-    Err(Failure::new("指针输入冒烟只在 Unix 主机上运行"))
-}
-
-#[cfg(any(unix, test))]
 fn qcodes(text: &str) -> Vec<String> {
     text.chars()
         .map(|character| match character {

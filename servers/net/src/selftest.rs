@@ -121,7 +121,9 @@ pub(crate) fn run(
     write("hk-server-net: udp ok\n".as_bytes());
 
     // DNS 自检按需开启：`net.dns=<name>`。默认启动路径只验证 DHCP/ICMP/TCP/UDP。
-    let mut name_buffer = [0_u8; 128];
+    // 缓冲区与 `main` 的 256 字节保持一致：静态网络配置加 `net.tcp/net.udp`
+    // 拼接后超过 128 字节，取不到命令行会静默跳过 DNS 自检。
+    let mut name_buffer = [0_u8; 256];
     if let Some(name) = hk_server_api::boot_cmdline(&mut name_buffer).and_then(|line| {
         line.split_whitespace()
             .find_map(|part| part.strip_prefix("net.dns="))

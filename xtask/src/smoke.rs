@@ -183,8 +183,10 @@ impl SmokeMode {
                 net.unwrap().0,
                 net.unwrap().1
             )),
-            Self::NetStatic => Some(String::from(
-                "net-test net.dhcp=off net.ip=10.0.2.15 net.prefix=24 net.gw=10.0.2.2 net.resolver=10.0.2.3 net.dns=localhost shell-test net",
+            Self::NetStatic => Some(format!(
+                "net-test net.dhcp=off net.ip=10.0.2.15 net.prefix=24 net.gw=10.0.2.2 net.resolver=10.0.2.3 net.dns=localhost shell-test net net.tcp={} net.udp={}",
+                net.unwrap().0,
+                net.unwrap().1
             )),
             Self::NetRestart => Some(format!(
                 "net-test net.restart net.dns=localhost shell-test net net.tcp={} net.udp={}",
@@ -671,6 +673,20 @@ impl SmokeMode {
         )
     }
 
+    /// 需要 QMP 通道注入输入或读取画面的模式。
+    fn uses_qmp(self) -> bool {
+        matches!(
+            self,
+            Self::Input
+                | Self::Console
+                | Self::Display
+                | Self::Terminal
+                | Self::InputDriver
+                | Self::Pointer
+                | Self::HolyDocResize
+        )
+    }
+
     /// 需要断言先后的输出片段。
     fn ordered(self) -> Option<(&'static str, &'static str)> {
         match self {
@@ -684,7 +700,6 @@ impl SmokeMode {
 struct Artifacts {
     log: PathBuf,
     disk: PathBuf,
-    socket: PathBuf,
 }
 
 impl Artifacts {
@@ -709,11 +724,9 @@ impl Artifacts {
         let artifacts = Self {
             log: dir.join("serial.log"),
             disk: dir.join("disk.img"),
-            socket: dir.join("qmp.sock"),
         };
         let _ = fs::remove_file(&artifacts.log);
         let _ = fs::remove_file(&artifacts.disk);
-        let _ = fs::remove_file(&artifacts.socket);
         Ok(artifacts)
     }
 
@@ -793,7 +806,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let artifacts = Artifacts::new(mode)?;
     let disk = prepare_disk(mode, &artifacts.disk)?;
     let log = artifacts.log.clone();
-    let socket = artifacts.socket.clone();
+    let socket = format!("127.0.0.1:{}", free_port()?);
 
     let vcon = if mode == SmokeMode::Vcon {
         let listener = TcpListener::bind(("127.0.0.1", 0))
@@ -811,9 +824,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     };
 
     let mut command = Command::new("qemu-system-x86_64");
-    if Path::new("/dev/kvm").exists() {
-        command.args(["-accel", "kvm", "-cpu", "host"]);
-    }
+    crate::qemu::accelerate(&mut command);
     command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
         .arg(&iso)
@@ -834,9 +845,14 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         command.args(["-device", "virtio-net-pci,netdev=net0"]);
     }
     if mode == SmokeMode::Rng {
-        command
-            .args(["-object", "rng-random,id=rng0,filename=/dev/urandom"])
-            .args(["-device", "virtio-rng-pci,rng=rng0"]);
+        // Windows 上没有 `/dev/urandom`；`rng-builtin` 只是固定种子的伪随机，
+        // 但冒烟校验的是 virtio-rng 驱动链路，不是熵质量。
+        if cfg!(windows) {
+            command.args(["-object", "rng-builtin,id=rng0"]);
+        } else {
+            command.args(["-object", "rng-random,id=rng0,filename=/dev/urandom"]);
+        }
+        command.args(["-device", "virtio-rng-pci,rng=rng0"]);
     }
     if let Some((_, port)) = &vcon {
         command
@@ -851,19 +867,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if matches!(mode, SmokeMode::Pointer | SmokeMode::HolyDocResize) {
         command.args(["-device", "virtio-tablet-pci"]);
     }
-    if matches!(
-        mode,
-        SmokeMode::Input
-            | SmokeMode::Console
-            | SmokeMode::Display
-            | SmokeMode::Terminal
-            | SmokeMode::InputDriver
-            | SmokeMode::Pointer
-            | SmokeMode::HolyDocResize
-    ) {
+    if mode.uses_qmp() {
         command
             .arg("-qmp")
-            .arg(format!("unix:{},server=on,wait=off", socket.display()));
+            .arg(format!("tcp:{socket},server=on,wait=off"));
     }
 
     let child = command
@@ -1106,10 +1113,15 @@ fn serve_vcon_echo(listener: TcpListener) -> Result<()> {
 
 /// 接受一次 QEMU 宿主的 TCP 连接并回显。
 fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + TIMEOUT;
     loop {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                // Windows 上 accept 返回的套接字继承监听端的非阻塞状态，Linux 不会；
+                // 先切回阻塞，读超时才生效。
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|error| Failure::new(format!("设置 TCP echo 阻塞失败：{error}")))?;
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .map_err(|error| Failure::new(format!("设置 TCP 读取超时失败：{error}")))?;
@@ -1137,7 +1149,7 @@ fn serve_tcp_echo(listener: TcpListener) -> Result<()> {
 
 /// 回显一次 UDP 数据报，供 QEMU 内 UDP 自检使用。
 fn serve_udp_echo(socket: UdpSocket) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + TIMEOUT;
     let mut buffer = [0_u8; 64];
     loop {
         match socket.recv_from(&mut buffer) {
@@ -1190,6 +1202,17 @@ fn wait_for(log: &Path, token: &str, timeout: Duration) -> Result<()> {
         }
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// 预留一个空闲的环回端口：绑定到 0 取号后立即释放，交给 QEMU 监听。
+fn free_port() -> Result<u16> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| Failure::new(format!("绑定 QMP 端口失败：{error}")))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| Failure::new(format!("读取 QMP 端口失败：{error}")))?
+        .port();
+    Ok(port)
 }
 
 /// 生成新的测试磁盘。
