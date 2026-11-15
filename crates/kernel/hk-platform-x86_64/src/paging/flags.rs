@@ -16,6 +16,10 @@ pub(crate) const PWT: u64 = PTF::WRITE_THROUGH.bits();
 pub(crate) const PCD: u64 = PTF::NO_CACHE.bits();
 /// 4 KiB 页表项第 7 位是 PAT 选择位，与 PCD/PWT 组成 PAT 索引。
 pub(crate) const PAT: u64 = 1 << 7;
+/// 设备页判定位：命中任一即表示该页不是普通用户数据页。
+///
+/// 页表遍历与写时复制共用这一组位跳过设备映射，新增缓存属性时只改这里。
+pub(crate) const DEVICE: u64 = PWT | PCD | PAT;
 pub(crate) const HUGE: u64 = PTF::HUGE_PAGE.bits();
 pub(crate) const NX: u64 = PTF::NO_EXECUTE.bits();
 pub(crate) const FLAGS_MASK: u64 = 0xFFF | NX;

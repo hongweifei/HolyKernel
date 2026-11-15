@@ -61,7 +61,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - Surface/Seat 协议：`SURFACE_CREATE`/`SURFACE_DAMAGE`/`SURFACE_COMMIT`/`SURFACE_DESTROY` 与 `WINDOW_CREATE` 把表面与窗口分离；damage 在表面坐标裁剪并合并，提交时只重绘受影响区域；`SURFACE_SET_INPUT_REGION` 控制正文命中，`SURFACE_SET_CURSOR` 声明该表面的光标形状，标题栏与装饰始终由服务端处理；`SEAT_FOCUS` 统一焦点，`SEAT_SET_CLIPBOARD`/`SEAT_GET_CLIPBOARD` 提供剪贴板。指针在窗口正文内移动时经 `DISPLAY_POINTER` 把窗口内坐标发给对应客户端，离开时发 `DISPLAY_POINTER_LEAVE`；事件按悬停窗口路由，不依赖焦点。所有原生客户端统一走 surface/window 两段式创建与表面提交。`smoke --mode display` 验证局部 damage、焦点与剪贴板。
 - Workbench 走同一 surface/window 协议：三栏布局展示 `H:` 文档树、编辑器与输出面板；文档经 Holy 协议整篇读写，键盘支持方向键、Home/End、Delete 编辑与 Ctrl+S 保存，Ctrl+B 统计构建、Ctrl+R 运行 `@exec`、Ctrl+D 读取异常回溯；鼠标可命中文档树与编辑器定位。`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
 - 合成按窗口矩形做 damage 区域重绘，背景与上层窗口在同一区域重新合成，不重画整屏；所有绘制先写入离屏后备缓冲，damage 合并后一次性提交帧缓冲，避免中间状态闪烁。
-- Display 启动 2 秒后连续做 3 次全屏合成 + present 并取最小值，输出 `full redraw min`；QEMU 1280×800 桌面（含窗口与投影）实测约 3.0–3.3 ms，满足 M9 的 ≤8 ms 目标。
+- Display 启动 2 秒后连续做 3 次全屏合成 + present 并取最小值，输出 `full redraw min`；QEMU 1280×800 桌面（含窗口与投影）release 实测约 1.3–1.6 ms，满足 M9 的 ≤8 ms 目标。帧缓冲按可缓存映射（PAT 索引 4，见 `PageFlags::USER_FRAMEBUFFER`）：非缓存映射下每个 4 字节写都是独立设备访问，同一份合成要 300 ms。debug 镜像的合成本身是未优化代码的 CPU 开销（约 74 ms），UI 性能看 release。
 - 输入自检阶段由内核控制台提供键盘字节，显示服务按焦点经 IPC 转发给客户端（消息携带窗口编号）；后续由 Input Driver/DeviceGrant 取代。`smoke --mode display` 注入 Tab 与按键验证。
 - Console 服务发现 Display 后创建 640×432 终端窗口，用 8×16 位图字体渲染网格并提交合成；支持 SGR 16/256/真彩色与粗体/暗淡/下划线/反显，以及光标定位和行列擦除。它只负责行编辑、回显与按行交付，不包含命令解析。桌面交互命令由用户态 `hk-server-shell` 接管：Shell 通过 PING/PONG 握手确认 Console 已进入接收循环，再写入提示符并逐行执行。
 - 用户态 `hk-server-input` 通过带索引的 DeviceGrant 申请接管多个 virtio-input 设备（键盘 + 平板），分别绑定 IRQ 通知、解码 evdev 键码与绝对坐标，把按键/指针事件发给 Display。`smoke --mode inputdriver/pointer` 验证。

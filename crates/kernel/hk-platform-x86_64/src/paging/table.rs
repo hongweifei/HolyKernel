@@ -10,7 +10,7 @@ use x86_64::registers::control::Cr4;
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::{FrameBank, FrameKind};
 
-use super::flags::{FLAGS_MASK, HUGE, PAT, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
+use super::flags::{DEVICE, FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
 use super::{FRAME_BANK, read_cr3};
 
 #[cfg(not(test))]
@@ -188,7 +188,10 @@ impl PageTable {
         })
     }
 
-    /// 遍历低半区的 4 KiB 用户页；大页展开为 4 KiB，设备（PWT/PCD）页跳过。
+    /// 遍历低半区的 4 KiB 用户页；大页展开为 4 KiB。
+    ///
+    /// 设备页按 `DEVICE` 位跳过：4 KiB 页为 `PWT | PCD | PAT`，大页只有
+    /// `PWT | PCD` 可用（大页的第 7 位是页大小标志，不是 PAT）。
     pub fn user_pages<F>(&self, mut visit: F)
     where
         F: FnMut(u64, u64, u64),
@@ -249,7 +252,7 @@ impl PageTable {
                         if pte & PRESENT == 0 || pte & USER == 0 {
                             continue;
                         }
-                        if pte & (PWT | PCD | PAT) != 0 {
+                        if pte & DEVICE != 0 {
                             continue;
                         }
                         let virt = pd_virt | ((pt_index as u64) << 12);
@@ -291,7 +294,7 @@ impl PageTable {
                     for pt_index in 0..ENTRIES {
                         // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
                         let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
-                        if pte & PRESENT == 0 || pte & (PWT | PCD | PAT) != 0 {
+                        if pte & PRESENT == 0 || pte & DEVICE != 0 {
                             continue;
                         }
                         frames.push(PhysAddr::new(pte & ADDRESS_MASK));

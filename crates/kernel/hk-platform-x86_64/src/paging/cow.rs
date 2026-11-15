@@ -11,7 +11,7 @@ use hk_paging::FrameRefs;
 use spin::Mutex;
 
 use super::FRAME_BANK;
-use super::flags::{HUGE, PAT, PCD, PRESENT, PWT, WRITABLE};
+use super::flags::{DEVICE, HUGE, PRESENT, WRITABLE};
 use super::table::{ADDRESS_MASK, ENTRIES, KERNEL_PML4_START, PageTable};
 
 /// 取一页 COW 私有数据页；物理来源是发生缺页的任务 Capacity。
@@ -141,7 +141,7 @@ impl PageTable {
                 let frame = PhysAddr::new(physical);
                 let tracked = state.refs.count(frame);
                 let writable = flags & WRITABLE != 0;
-                let mmio = flags & (PWT | PCD | PAT) != 0;
+                let mmio = flags & DEVICE != 0;
                 let cow = state
                     .cow_ranges
                     .iter()
