@@ -705,6 +705,12 @@ pub fn capability_create_lazy(kind: CapabilityKind, length: usize) -> Option<u64
     (handle != u64::MAX).then_some(handle)
 }
 
+/// Provider 按对象标识重新取得自己提供的能力句柄；权利限制在映射所需范围。
+pub fn grant_capability(capability: u64, rights: u32) -> Option<u64> {
+    let handle = hk_syscall_client::syscall::capability_grant(capability, rights);
+    (handle != u64::MAX).then_some(handle)
+}
+
 /// 把类型化能力绑定到 Provider 端点；`kind` 使用 `PROVIDER_KIND_*` 编码。
 pub fn capability_bind_provider(capability: u64, endpoint: u64, kind: u8) -> u64 {
     // SAFETY: 内核校验能力、端点句柄与 Provider 类型后建立绑定。

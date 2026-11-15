@@ -265,6 +265,13 @@ pub const SYS_CAPABILITY_BIND_PROVIDER: u64 = 0x4D;
 /// 创建按需装入的类型化能力；Provider 绑定后由缺页转发装入。
 pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 
+/// Provider 按对象标识重新取得自己提供的能力句柄。
+///
+/// 参数：`arg0` 能力对象标识、`arg1` 请求权利（只取 READ/WRITE/EXECUTE/TRANSFER，
+/// ADMIN 被忽略）。只有该能力的 Provider 任务可以调用，用于把同一个修订/表面
+/// 能力分享给多个映射者，而不额外持有一个会阻止 `PROVIDER_RELEASE` 的句柄。
+pub const SYS_CAPABILITY_GRANT: u64 = 0xA6;
+
 /// 查询当前任务 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
 
@@ -666,7 +673,7 @@ mod tests {
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
         const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_REGION_GROW < 0xA0) };
-        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_OBJECT_ENUM < 0xB0) };
+        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_CAPABILITY_GRANT < 0xB0) };
     }
 
     #[test]

@@ -719,6 +719,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if backing.is_some() {
             return FaultOutcome::Unhandled;
         }
+        // 命中能力里已装入的页：直接建立本任务的 PTE，不再打扰 Provider。
+        // 这是设计里的“已常驻页零 IPC”快速路径，也是同一修订被多个任务映射时
+        // 共享同一份物理页的前提。
+        if access == hk_mem::hmp::provider::ProviderAccess::Read
+            || !region.flags.contains(RegionFlags::COW)
+        {
+            match self.map_resident_capability_page(index, region, address, &capability) {
+                Some(true) => return FaultOutcome::Resumed,
+                Some(false) => return FaultOutcome::Unhandled,
+                None => {}
+            }
+        }
         let provider = self
             .kernel
             .capability_provider(region.tcb, region.capability)
@@ -853,6 +865,57 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(crate::runtime::CowOutcome::Writable) => true,
             None => false,
         }
+    }
+
+    /// 把能力里已经装入的页映射进当前任务。
+    ///
+    /// 同一个能力被多个 Region/任务映射时，第一份缺页由 Provider 装入，后续
+    /// 缺页在这里直接共享同一物理页，只按当前任务记账。
+    ///
+    /// 返回 `None` 表示能力里没有这一页；`Some(false)` 表示有页但本次映射失败
+    /// （配额/页表），调用方不得再转发 Provider 覆盖共享页。
+    fn map_resident_capability_page(
+        &mut self,
+        index: usize,
+        region: FaultRegion,
+        address: u64,
+        capability: &Capability,
+    ) -> Option<bool> {
+        let page = hk_hal::PAGE_SIZE as u64;
+        let offset = region.capability_offset(address, page);
+        if offset >= capability.size() {
+            return None;
+        }
+        let page_index = (offset / page) as usize;
+        let page_address = region.page_address(offset);
+        if self.platform.user_mapped(page_address) {
+            return Some(true);
+        }
+        let Ok(Some(range)) =
+            self.kernel
+                .capability_page(region.tcb, region.capability, page_index)
+        else {
+            return None;
+        };
+        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+            return Some(false);
+        };
+        if !self.platform.map_region(
+            index,
+            &hk_mem::RegionMapping {
+                virt: page_address,
+                phys: range.start().get(),
+                len: page as usize,
+                rights: region.rights,
+                flags: region.flags,
+                policy: capability.cache(),
+            },
+        ) {
+            let _ = self.process_mut(index).ledger.release(charge);
+            return Some(false);
+        }
+        self.record_page_charge(index, region.region, page_index, charge);
+        Some(true)
     }
 
     /// 处理匿名能力的按需零页缺页。

@@ -46,6 +46,8 @@ pub enum ObjectPayload {
         backing: Option<FrameBacking>,
         /// 缺页/回写 Provider 端点。
         provider: Mutex<Option<ObjectId>>,
+        /// 绑定 Provider 的任务；只有该任务能按对象标识重新取得句柄。
+        provider_task: Mutex<Option<u64>>,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
         /// 常驻字节数的历史峰值；只用于报告。
@@ -319,10 +321,24 @@ impl KernelObject {
         }
     }
 
-    /// 绑定类型化能力的 Provider 端点。
-    pub fn set_capability_provider(&self, endpoint: ObjectId) {
-        if let ObjectPayload::Capability { provider, .. } = &self.payload {
+    /// 绑定类型化能力的 Provider 端点与任务。
+    pub fn set_capability_provider(&self, endpoint: ObjectId, task: u64) {
+        if let ObjectPayload::Capability {
+            provider,
+            provider_task,
+            ..
+        } = &self.payload
+        {
             *provider.lock() = Some(endpoint);
+            *provider_task.lock() = Some(task);
+        }
+    }
+
+    /// 返回绑定该能力 Provider 的任务。
+    pub fn capability_provider_task(&self) -> Option<u64> {
+        match &self.payload {
+            ObjectPayload::Capability { provider_task, .. } => *provider_task.lock(),
+            _ => None,
         }
     }
 

@@ -2,7 +2,7 @@
 
 use hk_device::{DeviceGrant, MmioRange, PciAddress};
 use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
-use hk_handle::{HandleTable, Rights};
+use hk_handle::{HandleTable, ObjectKind, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{
     Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, FrameBacking, FrameLease,
@@ -2245,4 +2245,44 @@ fn signals_notification_by_object_id() {
         kernel.wait(worker, notification, 0b100).expect("等待通知"),
         Some(0b100)
     );
+}
+
+#[test]
+fn provider_grants_capability_by_id() {
+    let kernel = kernel();
+    let owner = thread(&kernel);
+    let other = thread(&kernel);
+    let endpoint = kernel
+        .create_endpoint(owner, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let capability = kernel
+        .create_capability(
+            owner,
+            Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力"),
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    kernel
+        .bind_capability_provider(owner, capability, endpoint, ProviderKind::Anonymous)
+        .expect("绑定 Provider");
+    let id = kernel.handle_id(owner, capability).expect("对象标识");
+
+    assert!(
+        kernel.grant_capability(other, id, Rights::READ).is_err(),
+        "非 Provider 任务不能按标识取句柄"
+    );
+    let granted = kernel
+        .grant_capability(
+            owner,
+            id,
+            Rights::READ | Rights::TRANSFER | Rights::ADMIN | Rights::WRITE,
+        )
+        .expect("Provider 取句柄");
+    let rights = kernel
+        .handle_rights(owner, granted, ObjectKind::Capability)
+        .expect("句柄权利");
+    assert!(rights.contains(Rights::READ | Rights::TRANSFER));
+    assert!(rights.contains(Rights::WRITE));
+    assert!(!rights.contains(Rights::ADMIN), "授权永不含 ADMIN");
 }

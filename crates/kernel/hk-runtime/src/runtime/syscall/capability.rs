@@ -1,7 +1,7 @@
 //! 类型化能力的创建与物理区间查询。
 
 use hk_hal::PAGE_SIZE;
-use hk_handle::Rights;
+use hk_handle::{ObjectId, Rights};
 use hk_mem::hmp::{
     Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame, ProviderKind,
 };
@@ -225,6 +225,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         };
         frame.set_result(self.install_capability(index, handle, None));
+        Switch::Continue
+    }
+
+    /// Provider 按对象标识重新取得自己提供的能力句柄。
+    pub(crate) fn capability_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let id = ObjectId::new(frame.arg0());
+        let rights = Rights::from_bits_truncate(frame.arg1() as u32);
+        match self.kernel.grant_capability(tcb, id, rights) {
+            Ok(handle) => frame.set_result(self.install_capability(index, handle, None)),
+            Err(_) => frame.set_result(u64::MAX),
+        }
         Switch::Continue
     }
 

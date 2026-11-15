@@ -1179,7 +1179,6 @@ fn arena_alloc_is_lazy_and_charged() {
         "Arena 分配前不应建立 Region"
     );
     let before = runtime.process(index).ledger.charged();
-
     context.rax = SYS_ALLOC;
     context.rdi = 64;
     context.rsi = 16;
@@ -5001,4 +5000,73 @@ fn system_arena_queries_fail_without_platform_support() {
     context.rdx = 0;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
+}
+
+#[test]
+fn resident_capability_page_maps_without_provider() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let endpoint = runtime
+        .kernel
+        .create_endpoint(tcb, hk_handle::Rights::READ | hk_handle::Rights::WRITE)
+        .expect("端点");
+
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_mem::hmp::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+    runtime
+        .kernel
+        .bind_capability_provider(
+            tcb,
+            runtime
+                .handle_at(index, capability as usize)
+                .expect("能力句柄"),
+            endpoint,
+            hk_mem::hmp::ProviderKind::Anonymous,
+        )
+        .expect("绑定 Provider");
+
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = u64::from(hk_handle::Rights::READ.bits());
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    assert_ne!(region, u64::MAX);
+    let (_, _, virt, _) = runtime.region_at(index, region as usize).expect("Region");
+
+    runtime
+        .kernel
+        .set_capability_page(
+            tcb,
+            runtime
+                .handle_at(index, capability as usize)
+                .expect("能力句柄"),
+            0,
+            hk_mem::hmp::FrameBacking::Imported(hk_mem::hmp::FrameLease::import(
+                hk_hal::PhysAddr::new(0x70_0000),
+                hk_hal::PAGE_SIZE,
+            )),
+        )
+        .expect("装入页");
+
+    assert_eq!(
+        runtime.handle_fault(
+            0,
+            virt,
+            hk_mem::hmp::provider::ProviderAccess::Read,
+            MockContext::default(),
+        ),
+        FaultOutcome::Resumed,
+        "已常驻能力页应直接映射，不应转发 Provider"
+    );
+    assert!(runtime.platform.user_mapped(virt));
+    let _ = runtime.finish(0, index);
 }

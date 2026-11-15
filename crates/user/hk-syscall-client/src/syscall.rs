@@ -475,6 +475,12 @@ pub fn irq_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     unsafe { syscall_call(SYS_IRQ_BIND, grant, notification, bits, 0).value }
 }
 
+/// Provider 按对象标识重新取得自己提供的能力句柄。
+pub fn capability_grant(capability: u64, rights: u32) -> u64 {
+    // SAFETY: 内核校验调用方是否该能力的 Provider，并按权利掩码创建句柄。
+    unsafe { syscall_call(SYS_CAPABILITY_GRANT, capability, u64::from(rights), 0, 0).value }
+}
+
 /// 把 MSI/MSI-X 向量绑定到通知；不建立 IOAPIC 路由。
 pub fn msi_bind(grant: u64, notification: u64, bits: u64) -> u64 {
     // SAFETY: 内核校验授权与通知句柄。

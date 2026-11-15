@@ -370,6 +370,7 @@ impl Kernel {
                 capability,
                 backing,
                 provider: Mutex::new(None),
+                provider_task: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
                 resident_peak: AtomicU64::new(resident),
                 pinned: AtomicBool::new(false),
@@ -411,8 +412,35 @@ impl Kernel {
         }
         let (_, endpoint_id) =
             self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
-        object.set_capability_provider(endpoint_id);
+        object.set_capability_provider(endpoint_id, thread.get());
         Ok(())
+    }
+
+    /// Provider 按对象标识重新取得自己提供的能力句柄。
+    ///
+    /// 只允许绑定该能力的 Provider 任务调用；返回句柄只携带映射需要的权利，
+    /// 永远不含 ADMIN。句柄是普通引用，最后一位映射者关闭后对象析构，
+    /// `PROVIDER_RELEASE` 随之到达。
+    pub fn grant_capability(
+        &self,
+        thread: TcbId,
+        id: ObjectId,
+        rights: Rights,
+    ) -> Result<Handle, KernelError> {
+        let object = self
+            .objects
+            .lock()
+            .get(&id)
+            .and_then(|weak| weak.upgrade())
+            .ok_or(KernelError::StaleObject(id))?;
+        object.capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })?;
+        if object.capability_provider_task() != Some(thread.get()) {
+            return Err(KernelError::Hmp(HmpError::PermissionDenied));
+        }
+        let rights = rights & (Rights::READ | Rights::WRITE | Rights::EXECUTE | Rights::TRANSFER);
+        self.register(thread, object, rights)
     }
 
     /// 返回类型化能力绑定的 Provider 端点。
