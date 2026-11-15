@@ -678,6 +678,7 @@ dependencies = [
 name = "hk-driver-virtio"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
  "hk-base",
  "hk-block",
  "hk-device",

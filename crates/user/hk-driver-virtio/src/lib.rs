@@ -131,11 +131,8 @@ pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> 
             Ok(Device::Rng(alloc::boxed::Box::new(Rng::new(rng))))
         }
         DeviceType::Console => {
-            let console = virtio_drivers::device::console::VirtIOConsole::new(transport)
-                .map_err(|_| ProbeError::Device)?;
-            Ok(Device::Console(alloc::boxed::Box::new(Console::new(
-                console,
-            ))))
+            let console = Console::new(transport).map_err(|_| ProbeError::Device)?;
+            Ok(Device::Console(alloc::boxed::Box::new(console)))
         }
         DeviceType::GPU => {
             let gpu = virtio_drivers::device::gpu::VirtIOGpu::new(transport)

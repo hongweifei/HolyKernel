@@ -124,6 +124,9 @@ pub enum SmokeMode {
     /// virtio-console 驱动与宿主回显
     #[value(name = "vcon")]
     Vcon,
+    /// virtio-console 多端口（port 1 走 virtserialport）
+    #[value(name = "vconmulti")]
+    VconMulti,
     /// Display 服务帧缓冲映射与测试图案
     #[value(name = "display")]
     Display,
@@ -229,7 +232,7 @@ impl SmokeMode {
             Self::Rng => Some(String::from("rng-test")),
             Self::Gpu => Some(String::from("gpu-test")),
             Self::BlockReadOnly => Some(String::from("rng-test")),
-            Self::Vcon => Some(String::from("vcon-test")),
+            Self::Vcon | Self::VconMulti => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
             Self::GpuDisplay => Some(String::from(
                 "theme=light ui.scale=2 display-test gpu.scanout",
@@ -454,6 +457,11 @@ impl SmokeMode {
                 "hk-server-virtio: console ready",
                 "hk-server-virtio: console echo ok",
             ],
+            Self::VconMulti => &[
+                "hk-server-virtio: console ready ports 2",
+                "hk-server-virtio: console echo ok",
+                "hk-server-virtio: console port 1 ok",
+            ],
             Self::Display => &[
                 "hk-server-display: font scalable 32",
                 "hk-server-display: theme light",
@@ -647,6 +655,7 @@ impl SmokeMode {
             | Self::Gpu
             | Self::BlockReadOnly
             | Self::Vcon
+            | Self::VconMulti
             | Self::Display
             | Self::GpuDisplay
             | Self::Terminal
@@ -697,6 +706,7 @@ impl SmokeMode {
             Self::Gpu => "build/serial-gpu.log",
             Self::BlockReadOnly => "build/serial-blkro.log",
             Self::Vcon => "build/serial-vcon.log",
+            Self::VconMulti => "build/serial-vconmulti.log",
             Self::Display => "build/serial-display.log",
             Self::GpuDisplay => "build/serial-gpudisplay.log",
             Self::Terminal => "build/serial-terminal.log",
@@ -862,7 +872,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let log = artifacts.log.clone();
     let socket = format!("127.0.0.1:{}", free_port()?);
 
-    let vcon = if mode == SmokeMode::Vcon {
+    let vcon = if matches!(mode, SmokeMode::Vcon | SmokeMode::VconMulti) {
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .map_err(|error| Failure::new(format!("绑定 vcon echo 失败：{error}")))?;
         listener
@@ -871,6 +881,21 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         let port = listener
             .local_addr()
             .map_err(|error| Failure::new(format!("读取 vcon echo 端口失败：{error}")))?
+            .port();
+        Some((listener, port))
+    } else {
+        None
+    };
+
+    let vcon_extra = if mode == SmokeMode::VconMulti {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|error| Failure::new(format!("绑定 vcon 1 echo 失败：{error}")))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| Failure::new(format!("设置 vcon 1 echo 非阻塞失败：{error}")))?;
+        let port = listener
+            .local_addr()
+            .map_err(|error| Failure::new(format!("读取 vcon 1 echo 端口失败：{error}")))?
             .port();
         Some((listener, port))
     } else {
@@ -921,11 +946,19 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         command.args(["-vga", "none", "-device", "virtio-gpu-pci"]);
     }
     if let Some((_, port)) = &vcon {
+        let ports = if mode == SmokeMode::VconMulti { 2 } else { 1 };
         command
             .arg("-chardev")
             .arg(format!("socket,id=vcon,host=127.0.0.1,port={port}"))
-            .args(["-device", "virtio-serial-pci,max_ports=1"])
+            .arg("-device")
+            .arg(format!("virtio-serial-pci,max_ports={ports}"))
             .args(["-device", "virtconsole,chardev=vcon"]);
+        if let Some((_, extra)) = &vcon_extra {
+            command
+                .arg("-chardev")
+                .arg(format!("socket,id=vcon1,host=127.0.0.1,port={extra}"))
+                .args(["-device", "virtserialport,chardev=vcon1,name=vport1"]);
+        }
     }
     if mode == SmokeMode::InputDriver {
         command.args(["-device", "virtio-keyboard-pci"]);
@@ -947,6 +980,8 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let mut session = QemuSession::new(child);
 
     let vcon_peer = vcon.map(|(listener, _)| thread::spawn(move || serve_vcon_echo(listener)));
+    let vcon_extra_peer =
+        vcon_extra.map(|(listener, _)| thread::spawn(move || serve_port_echo(listener)));
 
     if mode == SmokeMode::Input {
         // 等内核 Shell 打出提示符再注入；启动耗时随机器负载变化，固定等待会丢按键。
@@ -1057,6 +1092,11 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             .join()
             .map_err(|_| Failure::new("vcon echo 线程崩溃"))??;
     }
+    if let Some(handle) = vcon_extra_peer {
+        handle
+            .join()
+            .map_err(|_| Failure::new("vcon 1 echo 线程崩溃"))??;
+    }
 
     let expected = mode.expected();
     let read_deadline = Instant::now() + Duration::from_secs(1);
@@ -1121,6 +1161,56 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
 }
 
 /// 接受 QEMU 的 virtio-console 连接，等待测试行并回显确认。
+/// 把收到的字节原样回送，直到看到 `vcon p1\n`；用于多端口回显。
+fn serve_port_echo(listener: TcpListener) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() > deadline {
+                    return Err(Failure::new("QEMU 未连接 vcon 1 echo"));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(Failure::new(format!("vcon 1 echo accept 失败：{error}"))),
+        }
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| Failure::new(format!("设置 vcon 1 echo 超时失败：{error}")))?;
+    let mut seen = Vec::new();
+    let mut buffer = [0_u8; 64];
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => return Err(Failure::new("vcon 1 echo 连接提前关闭")),
+            Ok(length) => {
+                seen.extend_from_slice(&buffer[..length]);
+                stream
+                    .write_all(&buffer[..length])
+                    .map_err(|error| Failure::new(format!("vcon 1 echo 写回失败：{error}")))?;
+                if seen.windows(b"vcon p1\n".len()).any(|w| w == b"vcon p1\n") {
+                    return Ok(());
+                }
+                if seen.len() > 4096 {
+                    return Err(Failure::new("vcon 1 echo 收到过多数据"));
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if Instant::now() > deadline + Duration::from_secs(30) {
+                    return Err(Failure::new("vcon 1 echo 超时"));
+                }
+            }
+            Err(error) => return Err(Failure::new(format!("vcon 1 echo 读取失败：{error}"))),
+        }
+    }
+}
+
 fn serve_vcon_echo(listener: TcpListener) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut stream = loop {

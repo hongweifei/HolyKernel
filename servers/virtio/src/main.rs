@@ -105,12 +105,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
     if let Some(handle) = grants.console {
-        if let Some(Device::Console(device)) = probe_grant(handle) {
-            write(b"hk-server-virtio: console ready\n");
-            if aux::console::self_test(&device) {
+        if let Some(Device::Console(mut device)) = probe_grant(handle) {
+            hk_server_api::format::Line::new()
+                .text(b"hk-server-virtio: console ready ports ")
+                .number(device.ports() as u64)
+                .text(b"\n")
+                .finish();
+            if aux::console::self_test(&mut device) {
                 write(b"hk-server-virtio: console echo ok\n");
             } else {
                 write(b"hk-server-virtio: console echo timeout\n");
+            }
+            for port in 1..device.ports() {
+                let ok = aux::console::self_test_port(&mut device, port);
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-virtio: console port ")
+                    .number(port as u64)
+                    .text(if ok {
+                        b" ok\n".as_slice()
+                    } else {
+                        b" failed\n".as_slice()
+                    })
+                    .finish();
             }
             devices.console = Some(*device);
         } else {
@@ -214,7 +230,7 @@ fn probe_grant(handle: u64) -> Option<Device> {
 
 /// 块设备主循环；辅助设备消息由 `devices` 分派。
 #[cfg(target_os = "none")]
-fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -> ! {
+fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, mut devices: Aux) -> ! {
     hk_server_api::format::Line::new()
         .text(b"hk-server-virtio: virtio-blk sectors=")
         .number(block.capacity_blocks())
@@ -272,7 +288,7 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -
 
 /// 没有块设备时只服务辅助设备。
 #[cfg(target_os = "none")]
-fn serve_aux(endpoint: u64, devices: Aux) -> ! {
+fn serve_aux(endpoint: u64, mut devices: Aux) -> ! {
     let mut buffer = [0_u8; AUX_BUFFER];
     loop {
         let (label, word, sender, length, received) = recv_data_handle(endpoint, &mut buffer, 0);

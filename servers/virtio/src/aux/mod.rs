@@ -19,11 +19,11 @@ pub struct Aux {
 
 impl Aux {
     /// 按协议标签分派一条消息；不属于自己的标签由各设备自行忽略。
-    pub fn handle(&self, label: u64, word: u64, sender: u64, data: &[u8]) {
+    pub fn handle(&mut self, label: u64, word: u64, sender: u64, data: &[u8]) {
         if let Some(device) = &self.rng {
             rng::handle(device, label, word, sender);
         }
-        if let Some(device) = &self.console {
+        if let Some(device) = &mut self.console {
             console::handle(device, label, word, sender, data);
         }
         if let Some(device) = &self.gpu {
