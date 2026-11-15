@@ -2111,6 +2111,39 @@ fn frame_content_roundtrips_through_user_buffers() {
 }
 
 #[test]
+fn handle_id_is_queryable() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(97),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x61_0000), 0x1_0000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ | hk_handle::Rights::WRITE,
+        )
+        .expect("创建 Capacity");
+    let slot = runtime.tasks[index].capacities.len();
+    runtime.tasks[index].capacities.push(Some(handle));
+    let expected = runtime.kernel.handle_id(tcb, handle).expect("对象标识");
+
+    context.rax = hk_syscall::SYS_HANDLE_ID;
+    context.rdi = 0x5001 + slot as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, expected.get());
+}
+
+#[test]
 fn capacity_frame_lifecycle() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

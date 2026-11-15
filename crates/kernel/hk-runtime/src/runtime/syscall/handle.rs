@@ -5,6 +5,19 @@ use hk_handle::Rights;
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 返回句柄对应的对象标识；Provider 用它关联缺页消息中的能力。
+    pub(crate) fn object_id(&mut self, index: usize, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        match self.kernel.handle_id(self.tasks[index].tcb, handle) {
+            Ok(id) => frame.set_result(id.get()),
+            Err(_) => frame.set_result(u64::MAX),
+        }
+        Switch::Continue
+    }
     pub(crate) fn duplicate_handle(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let Some(handle) = self.handle_at(index, number) else {
