@@ -59,6 +59,8 @@ static GPE_EVENTS: AtomicU64 = AtomicU64::new(0);
 /// 已订阅 ACPI 电源/睡眠事件的用户监听者数量。
 static ACPI_LISTENERS: AtomicUsize = AtomicUsize::new(0);
 static FIRMWARE: Mutex<Option<hk_fw::acpi::tables::Tables>> = Mutex::new(None);
+/// 启动期解析的 NUMA 物理邻近域；空表示单节点 0。
+static NUMA: Mutex<Vec<(hk_hal::PhysRange, u8)>> = Mutex::new(Vec::new());
 static FIRMWARE_INFO: Mutex<Option<FirmwareInfo>> = Mutex::new(None);
 static IOAPIC: Mutex<Option<IoApicState>> = Mutex::new(None);
 static IRQ_BINDINGS: Mutex<BTreeMap<u32, Vec<NotificationId>>> = Mutex::new(BTreeMap::new());
@@ -228,6 +230,49 @@ impl AcpiWindow<'_> {
         }
         Some(bytes)
     }
+}
+
+/// 把已解析的 SRAT 内存邻近域应用到 FrameBank，并记录给 `SYS_NUMA_INFO`。
+///
+/// 必须在 ACPI 表解析完成后调用；内存接管阶段先用单节点建立空闲表，这里按
+/// 节点边界重新切分，已分配区间的归属也随之重算。返回物理记录数。
+pub fn apply_numa_topology() -> usize {
+    let ranges: Vec<(hk_hal::PhysRange, u8)> = FIRMWARE
+        .lock()
+        .as_ref()
+        .and_then(|tables| tables.srat.as_ref())
+        .map(|srat| {
+            srat.memory
+                .iter()
+                .filter(|entry| {
+                    entry.enabled && entry.length > 0 && entry.proximity <= u8::MAX as u32
+                })
+                .map(|entry| {
+                    (
+                        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(entry.base), entry.length),
+                        entry.proximity as u8,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    {
+        let mut sorted = ranges.clone();
+        sorted.sort_unstable_by_key(|(range, node)| (range.start().get(), *node));
+        *NUMA.lock() = sorted;
+    }
+    crate::paging::FRAME_BANK.set_nodes(&ranges);
+    ranges.len()
+}
+
+/// 记录启动期 NUMA 拓扑，供 `SYS_NUMA_INFO` 报告。
+pub fn set_numa(ranges: &[(hk_hal::PhysRange, u8)]) {
+    *NUMA.lock() = ranges.to_vec();
+}
+
+/// 返回启动期 NUMA 拓扑。
+pub fn numa_topology() -> Vec<(hk_hal::PhysRange, u8)> {
+    NUMA.lock().clone()
 }
 
 /// 解析 MADT，映射 IOAPIC 并把键盘 GSI 路由到键盘向量。

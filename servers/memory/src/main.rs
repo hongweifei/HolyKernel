@@ -46,6 +46,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     if selftest::verify_ledger_enum() {
         write(b"hk-server-memory: ledger ok\n");
     }
+    let records = hk_server_api::numa_node_count().unwrap_or(0);
+    hk_server_api::format::Line::new()
+        .text(b"hk-server-memory: numa records ")
+        .number(records as u64)
+        .text(b"\n")
+        .finish();
     loop {
         let mut request = [0_u8; REQUEST_BYTES];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);

@@ -8,11 +8,12 @@ use hk_syscall::{
     SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP,
     SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_READ,
     SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_MESSAGE_WORDS,
-    SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP,
-    SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_NUMA_INFO, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
+    SYS_SYSTEM_ARENA_REGIONS,
 };
 
-use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
+use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES, MAX_NUMA_NODES, NUMA_NODE_BYTES};
 
 use crate::syscall_call;
 
@@ -181,11 +182,13 @@ pub struct CapacityInfo {
     pub peak: u64,
     /// 软上限；0 表示未设置。
     pub soft_limit: u64,
+    /// 绑定的 NUMA 节点；`None` 表示任意节点。
+    pub node: Option<u8>,
 }
 
 /// 查询 Capacity。
 pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; 72];
     // SAFETY: 缓冲区属于本进程；内核写入 Capacity 快照。
     let result = unsafe {
         syscall_call(
@@ -197,9 +200,10 @@ pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
         )
         .value
     };
-    if result != 64 {
+    if result != 72 {
         return None;
     }
+    let node = u32::from_le_bytes(bytes[64..68].try_into().ok()?);
     Some(CapacityInfo {
         start: u64::from_le_bytes(bytes[..8].try_into().ok()?),
         len: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
@@ -208,7 +212,8 @@ pub fn capacity_info(capacity: u64) -> Option<CapacityInfo> {
         limit: u64::from_le_bytes(bytes[32..40].try_into().ok()?),
         used: u64::from_le_bytes(bytes[40..48].try_into().ok()?),
         peak: u64::from_le_bytes(bytes[48..56].try_into().ok()?),
-        soft_limit: u64::from_le_bytes(bytes[56..].try_into().ok()?),
+        soft_limit: u64::from_le_bytes(bytes[56..64].try_into().ok()?),
+        node: (node != u32::MAX).then_some(node as u8),
     })
 }
 
@@ -238,14 +243,21 @@ pub fn capacity_windows(capacity: u64, out: &mut [u8]) -> Option<usize> {
 }
 
 /// 从 Capacity 尾部切出子 Capacity；`page_size` 为 0 时继承父容量。
-pub fn capacity_split(capacity: u64, length: usize, kind: u8, page_size: usize) -> Option<u64> {
-    // SAFETY: 内核校验 Capacity、长度、页大小后切出子容量。
+pub fn capacity_split(
+    capacity: u64,
+    length: usize,
+    kind: u8,
+    page_size: usize,
+    node: Option<u8>,
+) -> Option<u64> {
+    let encoded_kind = u64::from(kind) | (u64::from(node.unwrap_or(0)) << 8);
+    // SAFETY: 内核校验 Capacity、长度、页大小与节点后切出子容量。
     let child = unsafe {
         syscall_call(
             SYS_CAPACITY_SPLIT,
             capacity,
             length as u64,
-            u64::from(kind),
+            encoded_kind,
             page_size as u64,
         )
         .value
@@ -255,9 +267,48 @@ pub fn capacity_split(capacity: u64, length: usize, kind: u8, page_size: usize) 
 
 /// 从 Capacity 分配一个 Frame。
 pub fn capacity_alloc(capacity: u64, length: usize) -> Option<u64> {
-    // SAFETY: 内核校验 Capacity 与长度后分配 Frame。
-    let frame = unsafe { syscall_call(SYS_CAPACITY_ALLOC, capacity, length as u64, 0, 0).value };
+    capacity_alloc_on(capacity, length, None)
+}
+
+/// 从 Capacity 分配一个 Frame，并给出 NUMA 节点偏好。
+///
+/// 绑定节点的 Capacity 忽略与自身不一致的偏好并返回失败，不会静默跨节点。
+pub fn capacity_alloc_on(capacity: u64, length: usize, node: Option<u8>) -> Option<u64> {
+    let hint = node.map_or(0, |node| u64::from(node) + 1);
+    // SAFETY: 内核校验 Capacity、长度与节点后分配 Frame。
+    let frame = unsafe { syscall_call(SYS_CAPACITY_ALLOC, capacity, length as u64, hint, 0).value };
     (frame != u64::MAX).then_some(frame)
+}
+
+/// 返回 NUMA 拓扑记录数。
+pub fn numa_node_count() -> Option<usize> {
+    // SAFETY: 内核只返回拓扑记录数，不写入用户内存。
+    let count = unsafe { syscall_call(SYS_NUMA_INFO, 0, 0, 0, 0).value };
+    (count != u64::MAX).then_some(count as usize)
+}
+
+/// 读取一条 NUMA 拓扑记录：`(node, start, len)`。
+pub fn numa_node(index: usize) -> Option<(u8, u64, u64)> {
+    let mut bytes = [0_u8; NUMA_NODE_BYTES];
+    // SAFETY: 缓冲区属于本进程；内核校验索引后写入一条拓扑记录。
+    let result = unsafe {
+        syscall_call(
+            SYS_NUMA_INFO,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            index as u64,
+            0,
+        )
+        .value
+    };
+    if result != NUMA_NODE_BYTES as u64 {
+        return None;
+    }
+    Some((
+        u32::from_le_bytes(bytes[..4].try_into().ok()?) as u8,
+        u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+    ))
 }
 
 /// 把 Frame 归还给 Capacity。
@@ -535,11 +586,13 @@ pub struct FrameBankStats {
     pub free: u64,
     /// 各 Capacity 用途已用字节数：System、User、Dma、Gpu、Numa。
     pub by_capacity: [u64; CAPACITY_KIND_COUNT],
+    /// 各 NUMA 节点已用字节数。
+    pub by_node: [u64; MAX_NUMA_NODES],
 }
 
 /// 查询 FrameBank 物理用量快照。
 pub fn frame_bank_stats() -> Option<FrameBankStats> {
-    let mut bytes = [0_u8; 32 + CAPACITY_KIND_COUNT * 8];
+    let mut bytes = [0_u8; 32 + CAPACITY_KIND_COUNT * 8 + MAX_NUMA_NODES * 8];
     // SAFETY: 缓冲区属于本进程；内核写入 FrameBank 物理用量快照。
     let result = unsafe {
         syscall_call(
@@ -559,12 +612,19 @@ pub fn frame_bank_stats() -> Option<FrameBankStats> {
         let start = 32 + index * 8;
         *value = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
     }
+    let mut by_node = [0_u64; MAX_NUMA_NODES];
+    let base = 32 + CAPACITY_KIND_COUNT * 8;
+    for (index, value) in by_node.iter_mut().enumerate() {
+        let start = base + index * 8;
+        *value = u64::from_le_bytes(bytes[start..start + 8].try_into().ok()?);
+    }
     Some(FrameBankStats {
         total: u64::from_le_bytes(bytes[..8].try_into().ok()?),
         used: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
         peak: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
         free: u64::from_le_bytes(bytes[24..32].try_into().ok()?),
         by_capacity,
+        by_node,
     })
 }
 

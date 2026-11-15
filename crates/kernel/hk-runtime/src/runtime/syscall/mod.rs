@@ -366,6 +366,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_HANDLE_ID => self.object_id(index, frame),
             SYS_MESSAGE_WORDS => self.message_words(index, frame),
             SYS_FRAME_BANK_STATS => self.frame_bank_stats(frame),
+            SYS_NUMA_INFO => self.numa_info(frame),
             SYS_LEDGER_ENUM => self.ledger_enum(frame),
             SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
             SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),

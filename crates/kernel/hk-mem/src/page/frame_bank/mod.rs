@@ -52,6 +52,9 @@ impl FrameKind {
     }
 }
 
+/// 支持的 NUMA 节点上限。
+pub const MAX_NODES: usize = hk_syscall::MAX_NUMA_NODES;
+
 /// FrameBank 记账快照。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameBankStats {
@@ -65,6 +68,8 @@ pub struct FrameBankStats {
     pub free: u64,
     /// 各 Capacity 用途已用字节数：System、User、Dma、Gpu、Numa。
     pub by_capacity: [u64; CapacityKind::COUNT],
+    /// 各 NUMA 节点已用字节数；未配置拓扑时只有节点 0。
+    pub by_node: [u64; MAX_NODES],
 }
 
 /// 单个 Capacity 的 Ledger 快照。
@@ -98,6 +103,8 @@ struct Allocation {
     owner: Option<CapacityId>,
     /// 物理页归 HMP 对象持有（`OwnedFrame`），页表拆除时不得代为归还。
     object_owned: bool,
+    /// 分配所在的 NUMA 节点。
+    node: u8,
 }
 
 /// 登记给某个容量的窗口。
@@ -118,6 +125,9 @@ struct Inner {
     ledger_kinds: BTreeMap<CapacityId, CapacityKind>,
     allocations: BTreeMap<u64, Allocation>,
     by_capacity: [u64; CapacityKind::COUNT],
+    /// 物理邻近域拓扑；空表示单节点 0。
+    nodes: Vec<(PhysRange, u8)>,
+    by_node: [u64; MAX_NODES],
     /// 已登记给容量的窗口，按起始地址索引。
     owned: BTreeMap<u64, OwnedWindow>,
     /// 内核自用分配的归属容量；`None` 表示尚未建立 System Capacity。
@@ -127,6 +137,80 @@ struct Inner {
 }
 
 impl Inner {
+    /// 返回物理地址所属节点；未配置拓扑时归入节点 0。
+    fn node_for(&self, addr: u64) -> u8 {
+        for (range, node) in &self.nodes {
+            if addr >= range.start().get() && addr < range.end().get() {
+                return *node;
+            }
+        }
+        0
+    }
+
+    /// 按节点边界切分现有空闲条目，并清空节点统计。
+    fn split_free_by_nodes(&mut self) {
+        self.by_node = [0; MAX_NODES];
+        if self.nodes.is_empty() {
+            return;
+        }
+        let ranges: Vec<PhysRange> = self.free_by_start.values().copied().collect();
+        self.free_by_start.clear();
+        self.free_by_len.clear();
+        for range in ranges {
+            let start = range.start().get();
+            let end = range.end().get();
+            let mut cuts = alloc::vec![start, end];
+            for (node_range, _) in &self.nodes {
+                let node_start = node_range.start().get();
+                let node_end = node_range.end().get();
+                if node_start > start && node_start < end {
+                    cuts.push(node_start);
+                }
+                if node_end > start && node_end < end {
+                    cuts.push(node_end);
+                }
+            }
+            cuts.sort_unstable();
+            cuts.dedup();
+            for window in cuts.windows(2) {
+                let piece_start = window[0];
+                let piece_end = window[1];
+                if piece_end > piece_start {
+                    self.insert_free(PhysRange::new(
+                        PhysAddr::new(piece_start),
+                        piece_end - piece_start,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// 把一段区间按节点边界切成多段，保证空闲条目不跨节点。
+    fn node_pieces(&self, range: PhysRange) -> Vec<PhysRange> {
+        if self.nodes.is_empty() {
+            return alloc::vec![range];
+        }
+        let start = range.start().get();
+        let end = range.end().get();
+        let mut cuts = alloc::vec![start, end];
+        for (node_range, _) in &self.nodes {
+            let node_start = node_range.start().get();
+            let node_end = node_range.end().get();
+            if node_start > start && node_start < end {
+                cuts.push(node_start);
+            }
+            if node_end > start && node_end < end {
+                cuts.push(node_end);
+            }
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+        cuts.windows(2)
+            .filter(|window| window[1] > window[0])
+            .map(|window| PhysRange::new(PhysAddr::new(window[0]), window[1] - window[0]))
+            .collect()
+    }
+
     fn insert_free(&mut self, range: PhysRange) {
         let start = range.start().get();
         self.free_by_len
@@ -154,7 +238,13 @@ impl Inner {
     /// 只看单个条目：这里把落在窗口内的空闲段收集起来、按起点排序并合并相邻
     /// 段，再找足够长的连续区间。相邻且属于同一容量的窗口先合并为一段，避免
     /// 同一容量自己的连续空闲空间被窗口边界切成不可用的碎块。
-    fn find_free_in_owned(&self, owner: CapacityId, length: u64, align: u64) -> Option<u64> {
+    fn find_free_in_owned(
+        &self,
+        owner: CapacityId,
+        length: u64,
+        align: u64,
+        node: Option<u8>,
+    ) -> Option<u64> {
         let mut windows: Vec<(u64, u64)> = self
             .owned
             .values()
@@ -185,9 +275,16 @@ impl Inner {
                 // 与当前运行段相邻（或重叠）时延长它，否则从本段开始新运行段。
                 // 每一段都要检查长度，末尾的长空闲段不能被跳过。
                 let (run_start, run_end) = match run {
-                    Some((run_start, run_end)) if run_end >= start => (run_start, run_end.max(end)),
+                    Some((run_start, run_end))
+                        if run_end >= start && self.node_for(run_start) == self.node_for(start) =>
+                    {
+                        (run_start, run_end.max(end))
+                    }
                     _ => (start, end),
                 };
+                if node.is_some_and(|node| self.node_for(run_start) != node) {
+                    continue;
+                }
                 if run_end.saturating_sub(run_start) >= length
                     && let Some(aligned) = align_up_u64(run_start, align)
                     && aligned.saturating_add(length) <= run_end
@@ -261,7 +358,7 @@ impl Inner {
     ///
     /// 先把相邻空闲段合并成连续运行段，再跳过与已登记窗口相交的部分，避免
     /// 整块大区间因含有一小段归属区而被整体弃用。
-    fn find_free_unowned(&self, length: u64, align: u64) -> Option<u64> {
+    fn find_free_unowned(&self, length: u64, align: u64, node: Option<u8>) -> Option<u64> {
         let mut spans: Vec<(u64, u64)> = self
             .free_by_start
             .values()
@@ -271,11 +368,16 @@ impl Inner {
         let mut runs: Vec<(u64, u64)> = Vec::new();
         for (start, end) in spans {
             match runs.last_mut() {
-                Some(last) if last.1 == start => last.1 = end,
+                Some(last) if last.1 == start && self.node_for(last.0) == self.node_for(start) => {
+                    last.1 = end;
+                }
                 _ => runs.push((start, end)),
             }
         }
         for (start, end) in runs {
+            if node.is_some_and(|node| self.node_for(start) != node) {
+                continue;
+            }
             let mut cursor = align_up_u64(start, align)?;
             while cursor.saturating_add(length) <= end {
                 let blocked = self
@@ -348,6 +450,7 @@ impl Inner {
             .next_back()
             .map(|(_, range)| *range)
             && previous.end().get() == merged.start().get()
+            && self.node_for(previous.start().get()) == self.node_for(merged.start().get())
         {
             self.take_free(previous.start().get());
             merged = PhysRange::new(
@@ -362,6 +465,7 @@ impl Inner {
             .next()
             .map(|(_, range)| *range)
             && next.start().get() == next_start
+            && self.node_for(next.start().get()) == self.node_for(merged.start().get())
         {
             self.take_free(next.start().get());
             merged = PhysRange::new(merged.start(), merged.len().saturating_add(next.len()));
@@ -388,6 +492,8 @@ impl FrameBank {
                 ledger_kinds: BTreeMap::new(),
                 allocations: BTreeMap::new(),
                 by_capacity: [0; CapacityKind::COUNT],
+                nodes: Vec::new(),
+                by_node: [0; MAX_NODES],
                 owned: BTreeMap::new(),
                 kernel_owner: None,
                 peaks: BTreeMap::new(),
@@ -407,6 +513,58 @@ impl FrameBank {
             None,
         );
         bank
+    }
+
+    /// 以 NUMA 拓扑初始化：空列表等价于单节点 0。
+    pub fn init_with_nodes(
+        &self,
+        regions: &[MemoryRegion],
+        kernel: MemoryRegion,
+        nodes: &[(PhysRange, u8)],
+    ) {
+        self.init(regions, kernel);
+        let mut inner = self.inner.lock();
+        inner.nodes = nodes
+            .iter()
+            .filter(|(range, _)| !range.is_empty())
+            .copied()
+            .collect();
+        inner.split_free_by_nodes();
+    }
+
+    /// 在内存接管之后设置 NUMA 拓扑。
+    ///
+    /// 启动期先按 Limine 内存图建立空闲表，ACPI 表解析完成后再调用这里：空闲
+    /// 条目按节点边界切分，已分配区间的节点归属按物理地址重算，统计随之一致。
+    pub fn set_nodes(&self, nodes: &[(PhysRange, u8)]) {
+        let mut inner = self.inner.lock();
+        inner.nodes = nodes
+            .iter()
+            .filter(|(range, _)| !range.is_empty())
+            .copied()
+            .collect();
+        inner.split_free_by_nodes();
+        let updates: Vec<(u64, u64, u8)> = inner
+            .allocations
+            .values()
+            .map(|allocation| {
+                (
+                    allocation.range.start().get(),
+                    allocation.range.len(),
+                    inner.node_for(allocation.range.start().get()),
+                )
+            })
+            .collect();
+        for (start, _, node) in &updates {
+            if let Some(allocation) = inner.allocations.get_mut(start) {
+                allocation.node = *node;
+            }
+        }
+        inner.by_node = [0; MAX_NODES];
+        for (_, length, node) in updates {
+            let slot = &mut inner.by_node[usize::from(node) % MAX_NODES];
+            *slot = slot.saturating_add(length);
+        }
     }
 
     /// 从启动信息的全部可用区域初始化，并避开内核镜像。
@@ -458,7 +616,7 @@ impl FrameBank {
 
     /// 按用途分配一段连续物理内存，长度按页向上取整。
     pub fn allocate_contiguous_for(&self, kind: FrameKind, len: usize) -> Option<PhysRange> {
-        self.allocate_contiguous_owned(kind, len, None, PAGE_SIZE as u64)
+        self.allocate_contiguous_owned(kind, len, None, PAGE_SIZE as u64, None)
     }
 
     /// 按用途与归属容量分配一段连续物理内存。
@@ -471,6 +629,7 @@ impl FrameBank {
         len: usize,
         owner: Option<CapacityId>,
         align: u64,
+        node: Option<u8>,
     ) -> Option<PhysRange> {
         let align = align.max(PAGE_SIZE as u64);
         let length = (len as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
@@ -485,8 +644,8 @@ impl FrameBank {
             .and_then(|owner| inner.ledger_kinds.get(&owner).copied())
             .unwrap_or(CapacityKind::System);
         let start = match owner {
-            Some(owner) => inner.find_free_in_owned(owner, length, align)?,
-            None => inner.find_free_unowned(length, align)?,
+            Some(owner) => inner.find_free_in_owned(owner, length, align, node)?,
+            None => inner.find_free_unowned(length, align, node)?,
         };
         let charge = inner.ledger.charge(length).ok()?;
         let total = inner.total;
@@ -520,6 +679,7 @@ impl FrameBank {
             let peak = inner.peaks.entry(owner).or_insert(0);
             *peak = (*peak).max(used);
         }
+        let node = inner.node_for(allocated.start().get());
         inner.allocations.insert(
             start,
             Allocation {
@@ -529,10 +689,13 @@ impl FrameBank {
                 owner_charge,
                 owner,
                 object_owned: false,
+                node,
             },
         );
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_add(length);
+        let node_slot = &mut inner.by_node[usize::from(node) % MAX_NODES];
+        *node_slot = node_slot.saturating_add(length);
         Some(allocated)
     }
 
@@ -592,6 +755,8 @@ impl FrameBank {
             }
             let slot = &mut inner.by_capacity[capacity_kind.index()];
             *slot = slot.saturating_sub(range.len());
+            let node_slot = &mut inner.by_node[usize::from(allocation.node) % MAX_NODES];
+            *node_slot = node_slot.saturating_sub(range.len());
             inner.coalesce_free(range);
         }
         crate::hmp::capacity::scrub(range.start(), range.len() as usize);
@@ -628,27 +793,20 @@ impl FrameBank {
         if inner.owned.values().any(|window| window.capacity == owner) {
             return None;
         }
-        let start = inner.find_free_unowned(length, PAGE_SIZE as u64)?;
-        let range = inner.take_free(start)?;
-        let start = range.start();
-        let remaining = range.len() - length;
-        if remaining > 0 {
-            inner.insert_free(PhysRange::new(
-                PhysAddr::new(start.get() + length),
-                remaining,
-            ));
+        let start = inner.find_free_unowned(length, PAGE_SIZE as u64, None)?;
+        let range = inner.carve_free(start, length)?;
+        // 区间仍页空闲，但归属该容量：按节点边界重新登记为可分配但仍属该容量。
+        for piece in inner.node_pieces(range) {
+            inner.insert_free(piece);
         }
-        let reserved = PhysRange::new(start, length);
-        // 区间仍页空闲，但归属该容量：重新按页登记为可分配但仍属该容量。
-        inner.insert_free(reserved);
         inner.owned.insert(
-            start.get(),
+            range.start().get(),
             OwnedWindow {
                 capacity: owner,
-                range: reserved,
+                range,
             },
         );
-        Some(reserved)
+        Some(range)
     }
 
     /// 把当前全部未归属的空闲区间登记给 `owner`，返回这些区间的外接范围。
@@ -906,6 +1064,7 @@ impl FrameBank {
             peak: inner.ledger.peak(),
             free: inner.total.saturating_sub(inner.ledger.charged()),
             by_capacity: inner.by_capacity,
+            by_node: inner.by_node,
         }
     }
 }

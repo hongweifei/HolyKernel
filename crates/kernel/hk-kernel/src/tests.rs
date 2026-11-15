@@ -107,7 +107,7 @@ fn allocates_splits_and_frees_capacity_frames() {
         .expect("创建 Capacity");
 
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
     let (range, page_size, _, refs, pinned) = kernel.frame_info(worker, frame).expect("Frame 信息");
     assert_eq!(range.start(), PhysAddr::new(0x30_0000));
@@ -131,7 +131,7 @@ fn allocates_splits_and_frees_capacity_frames() {
     ));
 
     let child = kernel
-        .split_capacity(worker, capacity, 0x4000, CapacityKind::User, 0)
+        .split_capacity(worker, capacity, 0x4000, CapacityKind::User, 0, None)
         .expect("分割 Capacity");
     let (child_range, kind, _, limit, used) = kernel
         .capacity_info(worker, child)
@@ -159,7 +159,7 @@ fn pinned_frame_is_not_returned_to_capacity() {
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
     kernel.pin_frame(worker, frame, true).expect("pin");
     assert_eq!(
@@ -203,7 +203,7 @@ fn dropping_pinned_frame_handle_returns_it_to_capacity() {
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
     kernel.pin_frame(worker, frame, true).expect("pin");
     kernel.close_handle(worker, frame).expect("关闭 Frame");
@@ -231,7 +231,7 @@ fn taking_pinned_frame_clears_pin_and_returns_page() {
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
     kernel.pin_frame(worker, frame, true).expect("pin");
 
@@ -263,7 +263,7 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
     assert_eq!(
         kernel
@@ -393,7 +393,7 @@ fn object_ledger_reads_capability_and_frame() {
         .create_capacity(worker, capacity, rights)
         .expect("Capacity 句柄");
     let frame_handle = kernel
-        .allocate_frame(worker, capacity_handle, PAGE_SIZE)
+        .allocate_frame(worker, capacity_handle, PAGE_SIZE, None)
         .expect("Frame 句柄");
     assert_eq!(
         kernel
@@ -502,7 +502,7 @@ fn last_handle_returns_frame_to_capacity() {
         .create_capacity(worker, capacity, rights)
         .expect("创建 Capacity");
     let frame = kernel
-        .allocate_frame(worker, capacity, PAGE_SIZE)
+        .allocate_frame(worker, capacity, PAGE_SIZE, None)
         .expect("分配 Frame");
 
     let copy = kernel
@@ -2285,4 +2285,22 @@ fn provider_grants_capability_by_id() {
     assert!(rights.contains(Rights::READ | Rights::TRANSFER));
     assert!(rights.contains(Rights::WRITE));
     assert!(!rights.contains(Rights::ADMIN), "授权永不含 ADMIN");
+}
+
+#[test]
+fn capacity_reports_bound_node() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capacity = Capacity::new(
+        CapacityId::next(),
+        PhysRange::new(PhysAddr::new(0x50_0000), 0x10_000),
+        PAGE_SIZE,
+        CapacityKind::Numa(3),
+        0,
+    )
+    .expect("NUMA Capacity");
+    let handle = kernel
+        .create_capacity(worker, capacity, Rights::READ | Rights::ADMIN)
+        .expect("Capacity 句柄");
+    assert_eq!(kernel.capacity_node(worker, handle).expect("节点"), Some(3));
 }

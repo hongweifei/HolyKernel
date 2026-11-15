@@ -9,7 +9,7 @@ fn aligns_large_page_allocations() {
     let window = bank.reserve_for(owner, 0x40_0000).expect("预留");
     bank.register_ledger(owner, window.len());
     let range = bank
-        .allocate_owned_aligned(owner, CapacityKind::User, 0x20_0000, 0x20_0000)
+        .allocate_owned_aligned(owner, CapacityKind::User, 0x20_0000, 0x20_0000, None)
         .expect("2 MiB 对齐分配");
     assert_eq!(range.start().get() % 0x20_0000, 0);
     assert_eq!(range.len(), 0x20_0000);
@@ -620,4 +620,61 @@ fn allocations_enumerate_by_owner_and_kind() {
         bank.allocations_of(Some(system)),
         alloc::vec![(heap, FrameKind::KernelHeap)]
     );
+}
+
+#[test]
+fn allocates_on_requested_node() {
+    let bank = FrameBank::empty();
+    bank.init_with_nodes(
+        &[MemoryRegion::new(
+            PhysAddr::new(0x20_0000),
+            0x40_0000,
+            RegionKind::Usable,
+        )],
+        MemoryRegion::new(PhysAddr::new(0x10_0000), 0x1000, RegionKind::Kernel),
+        &[
+            (PhysRange::new(PhysAddr::new(0x20_0000), 0x20_0000), 0),
+            (PhysRange::new(PhysAddr::new(0x40_0000), 0x20_0000), 1),
+        ],
+    );
+    let owner0 = CapacityId::next();
+    let window0 = bank.reserve_for(owner0, 0x20_0000).expect("节点 0 窗口");
+    bank.register_ledger(owner0, window0.len());
+    let owner1 = CapacityId::next();
+    let window1 = bank.reserve_for(owner1, 0x20_0000).expect("节点 1 窗口");
+    bank.register_ledger(owner1, window1.len());
+
+    let node0 = bank
+        .allocate_owned_aligned(
+            owner0,
+            CapacityKind::User,
+            PAGE_SIZE as u64,
+            PAGE_SIZE as u64,
+            Some(0),
+        )
+        .expect("节点 0");
+    let node1 = bank
+        .allocate_owned_aligned(
+            owner1,
+            CapacityKind::User,
+            PAGE_SIZE as u64,
+            PAGE_SIZE as u64,
+            Some(1),
+        )
+        .expect("节点 1");
+    assert!(node0.start().get() < 0x40_0000);
+    assert!(node1.start().get() >= 0x40_0000);
+
+    let stats = bank.stats();
+    assert_eq!(stats.by_node[0], PAGE_SIZE as u64);
+    assert_eq!(stats.by_node[1], PAGE_SIZE as u64);
+
+    let wrong = bank.allocate_owned_aligned(
+        owner0,
+        CapacityKind::User,
+        PAGE_SIZE as u64,
+        PAGE_SIZE as u64,
+        Some(1),
+    );
+    assert!(wrong.is_none(), "跨节点分配必须失败");
 }

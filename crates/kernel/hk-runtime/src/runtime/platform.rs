@@ -150,6 +150,11 @@ pub trait UserPlatform {
     fn dma_free(&self, _range: hk_hal::PhysRange) {}
     /// 取出并清除待处理 IRQ 位图，最多 256 条。
     fn take_irqs(&self, _pending: &mut [u64; 4]) {}
+    /// 返回启动期 NUMA 拓扑；默认单节点 0。
+    fn numa_topology(&self) -> alloc::vec::Vec<(hk_hal::PhysRange, u8)> {
+        alloc::vec::Vec::new()
+    }
+
     /// 返回平台中断控制器。
     fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
         None

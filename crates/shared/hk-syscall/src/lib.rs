@@ -272,6 +272,18 @@ pub const SYS_CAPABILITY_CREATE_LAZY: u64 = 0x4E;
 /// 能力分享给多个映射者，而不额外持有一个会阻止 `PROVIDER_RELEASE` 的句柄。
 pub const SYS_CAPABILITY_GRANT: u64 = 0xA6;
 
+/// 查询 NUMA 拓扑。
+///
+/// `arg0` 输出缓冲、`arg1` 缓冲长度、`arg2` 节点索引；`arg1 == 0` 时返回节点数。
+/// 每个节点记录 24 字节：`node u32`、保留 `u32`、`start u64`、`len u64`。
+pub const SYS_NUMA_INFO: u64 = 0xA7;
+
+/// `SYS_NUMA_INFO` 单条记录长度。
+pub const NUMA_NODE_BYTES: usize = 24;
+
+/// 统计数组支持的 NUMA 节点上限。
+pub const MAX_NUMA_NODES: usize = 8;
+
 /// 查询当前任务 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;
 
@@ -296,12 +308,15 @@ pub const SYS_CAPACITY_INFO: u64 = 0x91;
 
 /// 从 Capacity 尾部切出子 Capacity。
 ///
-/// 参数：`arg0` 父 Capacity 句柄、`arg1` 切出长度、`arg2` 用途编码、
-/// `arg3` 页大小（0 表示继承父容量）。切出的窗口只需按 4 KiB 对齐，
-/// 更大的页在 Frame 分配时对齐。
+/// 参数：`arg0` 父 Capacity 句柄、`arg1` 切出长度、`arg2` 用途编码与节点
+/// （低 8 位 kind，高 8 位 NUMA 节点，`Numa` 时生效）、`arg3` 页大小（0 表示
+/// 继承父容量）。切出的窗口只需按 4 KiB 对齐，更大的页在 Frame 分配时对齐。
 pub const SYS_CAPACITY_SPLIT: u64 = 0x92;
 
 /// 从 Capacity 分配一个 Frame。
+///
+/// `arg2` 为节点偏好 + 1（0 表示不限）；绑定节点的 Capacity 会忽略冲突偏好
+/// 并返回失败，不会静默跨节点。
 pub const SYS_CAPACITY_ALLOC: u64 = 0x93;
 
 /// 把 Frame 归还给 Capacity。
@@ -673,7 +688,7 @@ mod tests {
         const { assert!(SYS_WRITE >= 0x70 && SYS_FRAMEBUFFER_MAP < 0x80) };
         const { assert!(SYS_ROOT_CONTROL >= 0x80 && SYS_FAULT_SUBSCRIBE < 0x90) };
         const { assert!(SYS_ARENA_INFO >= 0x90 && SYS_REGION_GROW < 0xA0) };
-        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_CAPABILITY_GRANT < 0xB0) };
+        const { assert!(SYS_OBJECT_LEDGER >= 0xA0 && SYS_NUMA_INFO < 0xB0) };
     }
 
     #[test]

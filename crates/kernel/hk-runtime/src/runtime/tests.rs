@@ -1041,7 +1041,7 @@ fn ipc_send_rejected_when_receiver_quota_exhausted() {
     runtime.tasks[index].capacities.push(Some(capacity_handle));
     let frame = runtime
         .kernel
-        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE)
+        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE, None)
         .expect("Frame");
     let number = runtime
         .install_extra_capability(index, frame)
@@ -1119,7 +1119,7 @@ fn ipc_queued_handle_waits_for_receiver_quota() {
     runtime.tasks[sender].capacities.push(Some(capacity_handle));
     let frame = runtime
         .kernel
-        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE)
+        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE, None)
         .expect("Frame");
     let number = runtime
         .install_extra_capability(sender, frame)
@@ -1883,6 +1883,7 @@ fn transports_byte_payloads() {
                 peak: 0x900,
                 free: 0x800,
                 by_capacity: [0x100, 0x200, 0x300, 0, 0],
+                by_node: [0x800, 0, 0, 0, 0, 0, 0, 0],
             })
         }
 
@@ -2016,9 +2017,9 @@ fn transports_byte_payloads() {
 
     context.rax = hk_syscall::SYS_FRAME_BANK_STATS;
     context.rdi = 0x400;
-    context.rsi = 72;
+    context.rsi = 136;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 72);
+    assert_eq!(context.rax, 136);
     let data = DATA.lock();
     assert_eq!(
         u64::from_le_bytes(data[0x400..0x408].try_into().expect("total")),
@@ -2607,7 +2608,7 @@ fn receiving_frame_charges_receiver_ledger() {
         .expect("创建 Capacity");
     let frame = runtime
         .kernel
-        .allocate_frame(tcb, capacity, hk_hal::PAGE_SIZE)
+        .allocate_frame(tcb, capacity, hk_hal::PAGE_SIZE, None)
         .expect("Frame");
 
     let before = runtime.process(index).ledger.charged();
@@ -2830,7 +2831,8 @@ fn shared_user_capacity_grants_no_admin() {
                 handle,
                 hk_hal::PAGE_SIZE,
                 hk_mem::hmp::CapacityKind::User,
-                0
+                0,
+                None
             )
             .is_err(),
         "缺少 ADMIN 的服务不能拆分共享 User Capacity"
@@ -3295,7 +3297,7 @@ fn dma_map_derives_rights_and_pins() {
     runtime.tasks[index].capacities.push(Some(capacity_handle));
     let frame = runtime
         .kernel
-        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE)
+        .allocate_frame(tcb, capacity_handle, hk_hal::PAGE_SIZE, None)
         .expect("Frame");
     let writable = runtime
         .install_extra_capability(index, frame)
@@ -4054,9 +4056,9 @@ fn capacity_merge_returns_child_range_to_parent() {
     context.rax = SYS_CAPACITY_INFO;
     context.rdi = parent;
     context.rsi = 0x4000;
-    context.rdx = 64;
+    context.rdx = 72;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 64);
+    assert_eq!(context.rax, 72);
 
     context.rax = SYS_CAPACITY_SPLIT;
     context.rdi = parent;
@@ -4076,7 +4078,7 @@ fn capacity_merge_returns_child_range_to_parent() {
     context.rax = SYS_CAPACITY_INFO;
     context.rdi = child;
     context.rsi = 0x4000;
-    context.rdx = 64;
+    context.rdx = 72;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX, "合并后子句柄已失效");
     let _ = runtime.finish(0, memory);

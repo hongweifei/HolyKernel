@@ -250,6 +250,8 @@ pub struct Capacity {
     allocated: Vec<PhysRange>,
     /// 已通过 `merge` 显式并回父容量；析构时不再重复归还。
     released: bool,
+    /// 绑定的 NUMA 节点；`None` 表示可从任意节点分配。
+    node: Option<u8>,
 }
 
 impl Capacity {
@@ -304,6 +306,10 @@ impl Capacity {
             pool: Arc::new(Mutex::new(Pool::new(range.start().get(), limit))),
             allocated: Vec::new(),
             released: false,
+            node: match kind {
+                CapacityKind::Numa(node) => Some(node),
+                _ => None,
+            },
         };
         if let Some(backend) = super::backend::physical_backend() {
             backend.register_ledger(id, limit);
@@ -317,6 +323,18 @@ impl Capacity {
     /// 注册了物理后端时由后端统一分配并按 `id` 归因；否则退回本容量自带的
     /// 窗口分配器（单元测试与 Hosted）。
     pub fn allocate(&mut self, len: usize) -> Result<Frame, HmpError> {
+        self.allocate_on(len, None)
+    }
+
+    /// 按 NUMA 节点偏好分配；与容量绑定的节点冲突时直接失败。
+    pub fn allocate_on(&mut self, len: usize, node: Option<u8>) -> Result<Frame, HmpError> {
+        let node = match (self.node, node) {
+            (Some(bound), Some(requested)) if bound != requested => {
+                return Err(HmpError::OutOfCapacity);
+            }
+            (Some(bound), _) => Some(bound),
+            (None, requested) => requested,
+        };
         let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
         if length == 0 {
             return Err(HmpError::InvalidSize);
@@ -327,9 +345,13 @@ impl Capacity {
             if self.used().saturating_add(length) > self.limit() {
                 return Err(HmpError::OutOfCapacity);
             }
-            if let Some(range) =
-                backend.allocate_owned_aligned(self.id, self.kind, length, self.page_size as u64)
-            {
+            if let Some(range) = backend.allocate_owned_aligned(
+                self.id,
+                self.kind,
+                length,
+                self.page_size as u64,
+                node,
+            ) {
                 return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
             }
             // 配额尚有余量但既有窗口里没有足够长的连续空闲段：从父容量再扩
@@ -338,7 +360,13 @@ impl Capacity {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
-                .allocate_owned_aligned(self.id, self.kind, length, self.page_size as u64)
+                .allocate_owned_aligned(
+                    self.id,
+                    self.kind,
+                    length,
+                    self.page_size as u64,
+                    self.node,
+                )
                 .ok_or(HmpError::OutOfCapacity)?;
             return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
         }
@@ -398,6 +426,59 @@ impl Capacity {
         kind: CapacityKind,
         page_size: usize,
     ) -> Result<Self, HmpError> {
+        let node = match kind {
+            CapacityKind::Numa(node) => Some(node),
+            _ => self.node,
+        };
+        self.split_with_page_size_and_node(id, len, kind, page_size, node)
+    }
+
+    /// 把父容量窗口内的空闲页尽量转移给子容量，覆盖多个 NUMA 节点。
+    ///
+    /// 顶层 User 容量用它拿到分散在多个节点的空闲窗口；后端不支持时退化为
+    /// 尾部切分。
+    pub fn split_free(
+        &mut self,
+        id: CapacityId,
+        kind: CapacityKind,
+        limit: u64,
+    ) -> Result<Self, HmpError> {
+        let limit = align_up(limit as usize, self.page_size).ok_or(HmpError::InvalidSize)?;
+        if limit == 0 || self.limit() < limit {
+            return Err(HmpError::OutOfCapacity);
+        }
+        if let Some(backend) = super::backend::physical_backend() {
+            let (range, moved) = backend
+                .split_free_to(self.id, id, limit)
+                .ok_or(HmpError::OutOfCapacity)?;
+            if moved == 0 {
+                return Err(HmpError::OutOfCapacity);
+            }
+            let mut child = Self::new(id, range, self.page_size, kind, moved)?;
+            child.parent = Some(self.id);
+            child.limit.link_to(&self.limit);
+            self.set_limit(self.limit().saturating_sub(moved));
+            if self.kind != CapacityKind::System {
+                backend.set_ledger_limit(self.id, self.limit());
+            }
+            return Ok(child);
+        }
+        let length = usize::try_from(limit).map_err(|_| HmpError::InvalidSize)?;
+        self.split(id, length, kind)
+    }
+
+    /// 按页大小与 NUMA 节点切出子容量。
+    ///
+    /// `node = Some(n)` 时子容量只从该节点的物理窗口分配；后端没有节点拓扑
+    /// 或该节点没有足够窗口时返回 `OutOfCapacity`，不会静默跨节点。
+    pub fn split_with_page_size_and_node(
+        &mut self,
+        id: CapacityId,
+        len: usize,
+        kind: CapacityKind,
+        page_size: usize,
+        node: Option<u8>,
+    ) -> Result<Self, HmpError> {
         let page_size = if page_size == 0 {
             self.page_size
         } else {
@@ -415,10 +496,13 @@ impl Capacity {
             return Err(HmpError::OutOfCapacity);
         }
         if let Some(backend) = super::backend::physical_backend() {
-            let range = backend
-                .split_owned(self.id, id, length)
-                .ok_or(HmpError::OutOfCapacity)?;
+            let range = match node {
+                Some(node) => backend.split_owned_node(self.id, id, length, node),
+                None => backend.split_owned(self.id, id, length),
+            }
+            .ok_or(HmpError::OutOfCapacity)?;
             let mut child = Self::new(id, range, page_size, kind, length)?;
+            child.node = node.or(child.node);
             child.parent = Some(self.id);
             child.limit.link_to(&self.limit);
             self.set_limit(self.limit().saturating_sub(length));
@@ -434,6 +518,7 @@ impl Capacity {
             .take(length, page_size as u64)
             .ok_or(HmpError::OutOfCapacity)?;
         let mut child = Self::new(id, range, page_size, kind, length)?;
+        child.node = node.or(child.node);
         child.parent = Some(self.id);
         child.limit.link_to(&self.limit);
         child.pool.lock().link_to(&self.pool);
@@ -573,6 +658,11 @@ impl Capacity {
     /// 返回页大小。
     pub const fn page_size(&self) -> usize {
         self.page_size
+    }
+
+    /// 返回绑定的 NUMA 节点；`None` 表示任意节点。
+    pub const fn node(&self) -> Option<u8> {
+        self.node
     }
 
     /// 返回用途。

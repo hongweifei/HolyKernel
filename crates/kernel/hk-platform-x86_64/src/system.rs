@@ -53,7 +53,7 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
     }
     let user_id = CapacityId::next();
     let user = capacity
-        .split(user_id, user_limit as usize, CapacityKind::User)
+        .split_free(user_id, CapacityKind::User, user_limit)
         .ok()?;
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
     *USER.lock() = Some(Arc::new(Mutex::new(user)));
@@ -75,4 +75,34 @@ pub fn split_capacity(len: usize, kind: CapacityKind) -> Option<Capacity> {
     let system = capacity()?;
     let mut system = system.lock();
     system.split(CapacityId::next(), len, kind).ok()
+}
+
+/// 启动自检：从 System 切出节点 1 的容量、分配一页并验证物理地址落在该节点。
+///
+/// 返回分配的物理地址；没有多节点拓扑、节点 1 没有窗口或分配失败时返回
+/// `None`。分配后立即归还并合并，不改变启动后的容量树。
+pub fn verify_numa_node() -> Option<u64> {
+    let system = capacity()?;
+    let node = 1_u8;
+    let mut system = system.lock();
+    let mut child = system
+        .split_with_page_size_and_node(
+            CapacityId::next(),
+            hk_hal::PAGE_SIZE,
+            CapacityKind::Numa(node),
+            hk_hal::PAGE_SIZE,
+            Some(node),
+        )
+        .ok()?;
+    let frame = child.allocate_on(hk_hal::PAGE_SIZE, Some(node)).ok()?;
+    let phys = frame.phys().get();
+    let in_node = crate::bootstrap::numa_topology()
+        .iter()
+        .any(|(range, owner)| {
+            *owner == node && range.start().get() <= phys && phys < range.end().get()
+        });
+    let mut frame = Some(frame);
+    let _ = child.free(&mut frame);
+    let merged = system.merge(&mut child).is_ok();
+    (in_node && merged).then_some(phys)
 }

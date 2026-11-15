@@ -184,6 +184,9 @@ pub enum SmokeMode {
     /// HMP 内存对象面 conformance
     #[value(name = "memory")]
     Memory,
+    /// 多 NUMA 节点拓扑与节点容量分配
+    #[value(name = "numa")]
+    Numa,
 }
 
 impl SmokeMode {
@@ -263,6 +266,7 @@ impl SmokeMode {
             )),
             Self::CheckpointServer => Some(String::from("vfs.fs=holyfs checkpoint-srv-test")),
             Self::Memory => Some(String::from("memory-test")),
+            Self::Numa => None,
         }
     }
 
@@ -642,6 +646,7 @@ impl SmokeMode {
                 "hk-server-checkpoint-test: done",
             ],
             Self::Memory => &["hk-server-memory-test: ok"],
+            Self::Numa => Self::Boot.expected(),
         }
     }
 
@@ -687,7 +692,8 @@ impl SmokeMode {
             | Self::Hotswap
             | Self::Checkpoint
             | Self::CheckpointServer
-            | Self::DisplayRestart => QEMU_SUCCESS,
+            | Self::DisplayRestart
+            | Self::Numa => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Memory => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -741,6 +747,7 @@ impl SmokeMode {
             Self::Checkpoint => "build/serial-checkpoint.log",
             Self::CheckpointServer => "build/serial-checkpointsrv.log",
             Self::Memory => "build/serial-memory.log",
+            Self::Numa => "build/serial-numa.log",
         }
     }
 
@@ -928,8 +935,25 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
 
     let mut command = Command::new(crate::qemu::program());
     crate::qemu::accelerate(&mut command);
+    command.args(["-M", "q35"]);
+    if mode == SmokeMode::Numa {
+        command.args([
+            "-m",
+            "256M",
+            "-object",
+            "memory-backend-ram,id=mem0,size=128M",
+            "-object",
+            "memory-backend-ram,id=mem1,size=128M",
+            "-numa",
+            "node,nodeid=0,memdev=mem0",
+            "-numa",
+            "node,nodeid=1,memdev=mem1",
+        ]);
+    } else {
+        command.args(["-m", "256M"]);
+    }
     command
-        .args(["-M", "q35", "-m", "256M", "-cdrom"])
+        .arg("-cdrom")
         .arg(&iso)
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
@@ -1014,6 +1038,15 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let vcon_extra_peer =
         vcon_extra.map(|(listener, _)| thread::spawn(move || serve_port_echo(listener)));
 
+    if mode == SmokeMode::Numa {
+        wait_for(&log, "NUMA 物理记录：", Duration::from_secs(30))?;
+        wait_for(
+            &log,
+            "hk-server-memory: numa records ",
+            Duration::from_secs(30),
+        )?;
+        wait_for(&log, "NUMA 节点分配 ok", Duration::from_secs(30))?;
+    }
     if mode == SmokeMode::Input {
         // 等内核 Shell 打出提示符再注入；启动耗时随机器负载变化，固定等待会丢按键。
         wait_for(&log, "hk> ", Duration::from_secs(30))?;

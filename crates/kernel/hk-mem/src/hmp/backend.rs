@@ -39,8 +39,33 @@ pub trait PhysicalBackend: Send + Sync {
         kind: CapacityKind,
         len: u64,
         _align: u64,
+        _node: Option<u8>,
     ) -> Option<PhysRange> {
         self.allocate_owned(owner, kind, len)
+    }
+
+    /// 把父容量窗口内的空闲页按顺序转移给子容量，最多 `limit` 字节。
+    ///
+    /// 用于顶层 User 容量覆盖多个 NUMA 节点：返回子容量窗口的外接范围与实际
+    /// 转移字节数。后端不支持多窗口时返回 `None`。
+    fn split_free_to(
+        &self,
+        _parent: CapacityId,
+        _child: CapacityId,
+        _limit: u64,
+    ) -> Option<(PhysRange, u64)> {
+        None
+    }
+
+    /// 从父容量切出一段指定节点的窗口；后端不支持拓扑时返回 `None`。
+    fn split_owned_node(
+        &self,
+        _parent: CapacityId,
+        _child: CapacityId,
+        _len: u64,
+        _node: u8,
+    ) -> Option<PhysRange> {
+        None
     }
 
     /// 从指定容量名下归还一段物理区间。

@@ -195,6 +195,19 @@ extern "C" fn kmain() -> ! {
             ExitCode::Failure(3),
         ),
     }
+    let numa = bootstrap::apply_numa_topology();
+    announce(
+        &console,
+        screen.as_ref(),
+        &format!("NUMA 物理记录：{numa}\n"),
+    );
+    if let Some(phys) = hk_platform_x86_64::system::verify_numa_node() {
+        announce(
+            &console,
+            screen.as_ref(),
+            &format!("NUMA 节点分配 ok：节点 1 物理 {phys:#x}\n"),
+        );
+    }
     hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
 
     match smp::start() {

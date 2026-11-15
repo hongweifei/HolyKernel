@@ -272,6 +272,15 @@ impl Kernel {
         ))
     }
 
+    /// 返回 Capacity 绑定的 NUMA 节点。
+    pub fn capacity_node(&self, thread: TcbId, handle: Handle) -> Result<Option<u8>, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        let capacity = object.capacity().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })?;
+        Ok(capacity.lock().node())
+    }
+
     /// 返回 Capacity 当前持有的全部物理窗口。
     pub fn capacity_windows(
         &self,
@@ -293,6 +302,7 @@ impl Kernel {
         len: usize,
         kind: CapacityKind,
         page_size: usize,
+        node: Option<u8>,
     ) -> Result<Handle, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capacity)?;
         let capacity = object.capacity().ok_or(KernelError::WrongKind {
@@ -300,7 +310,7 @@ impl Kernel {
         })?;
         let child = capacity
             .lock()
-            .split_with_page_size(CapacityId::next(), len, kind, page_size)
+            .split_with_page_size_and_node(CapacityId::next(), len, kind, page_size, node)
             .map_err(KernelError::Hmp)?;
         self.create_capacity(
             thread,
@@ -341,12 +351,16 @@ impl Kernel {
         thread: TcbId,
         handle: Handle,
         len: usize,
+        node: Option<u8>,
     ) -> Result<Handle, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capacity)?;
         let capacity = object.capacity().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })?;
-        let frame = capacity.lock().allocate(len).map_err(KernelError::Hmp)?;
+        let frame = capacity
+            .lock()
+            .allocate_on(len, node)
+            .map_err(KernelError::Hmp)?;
         self.create_frame_owned(
             thread,
             frame,

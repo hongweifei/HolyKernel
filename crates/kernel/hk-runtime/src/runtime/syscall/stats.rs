@@ -85,10 +85,40 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 查询 NUMA 拓扑；`capacity == 0` 返回记录数。
+    pub(crate) fn numa_info(&mut self, frame: &mut C) -> Switch {
+        let out = frame.arg0();
+        let capacity = frame.arg1() as usize;
+        let index = frame.arg2() as usize;
+        let topology = self.platform.numa_topology();
+        if capacity == 0 {
+            frame.set_result(topology.len() as u64);
+            return Switch::Continue;
+        }
+        let Some((range, node)) = topology.get(index) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if out == 0 || capacity < hk_syscall::NUMA_NODE_BYTES {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut bytes = [0_u8; hk_syscall::NUMA_NODE_BYTES];
+        bytes[..4].copy_from_slice(&u32::from(*node).to_le_bytes());
+        bytes[8..16].copy_from_slice(&range.start().get().to_le_bytes());
+        bytes[16..24].copy_from_slice(&range.len().to_le_bytes());
+        frame.set_result(if self.platform.write_user(out, &bytes) {
+            hk_syscall::NUMA_NODE_BYTES as u64
+        } else {
+            u64::MAX
+        });
+        Switch::Continue
+    }
+
     pub(crate) fn frame_bank_stats(&mut self, frame: &mut C) -> Switch {
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;
-        let size = 32 + hk_syscall::CAPACITY_KIND_COUNT * 8;
+        let size = 32 + hk_syscall::CAPACITY_KIND_COUNT * 8 + hk_syscall::MAX_NUMA_NODES * 8;
         if out == 0 || capacity < size {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -97,13 +127,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let mut bytes = [0_u8; 32 + hk_syscall::CAPACITY_KIND_COUNT * 8];
+        let mut bytes =
+            [0_u8; 32 + hk_syscall::CAPACITY_KIND_COUNT * 8 + hk_syscall::MAX_NUMA_NODES * 8];
         bytes[..8].copy_from_slice(&stats.total.to_le_bytes());
         bytes[8..16].copy_from_slice(&stats.used.to_le_bytes());
         bytes[16..24].copy_from_slice(&stats.peak.to_le_bytes());
         bytes[24..32].copy_from_slice(&stats.free.to_le_bytes());
         for (index, value) in stats.by_capacity.iter().enumerate() {
             let start = 32 + index * 8;
+            bytes[start..start + 8].copy_from_slice(&value.to_le_bytes());
+        }
+        let base = 32 + hk_syscall::CAPACITY_KIND_COUNT * 8;
+        for (index, value) in stats.by_node.iter().enumerate() {
+            let start = base + index * 8;
             bytes[start..start + 8].copy_from_slice(&value.to_le_bytes());
         }
         frame.set_result(if self.platform.write_user(out, &bytes) {

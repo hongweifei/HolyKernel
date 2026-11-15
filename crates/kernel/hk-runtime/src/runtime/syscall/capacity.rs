@@ -32,11 +32,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if capacity < 64 {
+        if capacity < 72 {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        let mut bytes = [0_u8; 64];
+        let Ok(node) = self.kernel.capacity_node(self.tasks[index].tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let mut bytes = [0_u8; 72];
         bytes[..8].copy_from_slice(&range.start().get().to_le_bytes());
         bytes[8..16].copy_from_slice(&range.len().to_le_bytes());
         bytes[16..24].copy_from_slice(&(capacity_kind_code(kind) as u64).to_le_bytes());
@@ -44,9 +48,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         bytes[32..40].copy_from_slice(&limit.to_le_bytes());
         bytes[40..48].copy_from_slice(&used.to_le_bytes());
         bytes[48..56].copy_from_slice(&peak.to_le_bytes());
-        bytes[56..].copy_from_slice(&soft_limit.to_le_bytes());
+        bytes[56..64].copy_from_slice(&soft_limit.to_le_bytes());
+        let node = node.map_or(u32::MAX, u32::from);
+        bytes[64..68].copy_from_slice(&node.to_le_bytes());
         frame.set_result(if self.platform.write_user(out, &bytes) {
-            64
+            72
         } else {
             u64::MAX
         });
@@ -102,17 +108,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;
         let page_size = frame.arg3() as usize;
+        let node = ((frame.arg2() >> 8) & 0xFF) as u8;
         let Some(kind) = capacity_kind_from_code(frame.arg2() as u8) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
+        };
+        let kind = match kind {
+            CapacityKind::Numa(_) => CapacityKind::Numa(node),
+            other => other,
         };
         let Some(handle) = self.handle_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        let node = matches!(kind, CapacityKind::Numa(_)).then_some(node);
         let Ok(child) = self
             .kernel
-            .split_capacity(tcb, handle, length, kind, page_size)
+            .split_capacity(tcb, handle, length, kind, page_size, node)
         else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -154,7 +166,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(frame_handle) = self.kernel.allocate_frame(tcb, handle, length) else {
+        let hint = frame.arg2();
+        let node = (hint != 0).then(|| (hint - 1) as u8);
+        let Ok(frame_handle) = self.kernel.allocate_frame(tcb, handle, length, node) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

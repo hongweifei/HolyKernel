@@ -26,8 +26,10 @@ impl PhysicalBackend for FrameBank {
             let Some(range) = inner.carve_free(start, len) else {
                 continue;
             };
-            // 子区间作为独立空闲条目重新插入，与它的窗口对齐。
-            inner.insert_free(range);
+            // 子区间按节点边界重新插入，避免一个空闲条目跨节点。
+            for piece in inner.node_pieces(range) {
+                inner.insert_free(piece);
+            }
             if start == parent_start {
                 // 整个窗口都切成子窗口：父窗口不再保留零长度条目。
                 inner.owned.remove(&parent_start);
@@ -41,6 +43,164 @@ impl PhysicalBackend for FrameBank {
                     range,
                 },
             );
+            return Some(range);
+        }
+        None
+    }
+
+    fn split_free_to(
+        &self,
+        parent: CapacityId,
+        child: CapacityId,
+        limit: u64,
+    ) -> Option<(PhysRange, u64)> {
+        if limit == 0 {
+            return None;
+        }
+        let mut inner = self.inner.lock();
+        let windows: Vec<PhysRange> = inner
+            .owned
+            .values()
+            .filter(|window| window.capacity == parent)
+            .map(|window| window.range)
+            .collect();
+        if windows.is_empty() {
+            return None;
+        }
+        let mut candidates: Vec<PhysRange> = inner
+            .free_by_start
+            .values()
+            .filter_map(|free| {
+                windows.iter().find_map(|window| {
+                    let start = free.start().get().max(window.start().get());
+                    let end = free.end().get().min(window.end().get());
+                    (end > start).then(|| PhysRange::new(PhysAddr::new(start), end - start))
+                })
+            })
+            .collect();
+        candidates.sort_unstable_by_key(|range| range.start().get());
+        let mut taken: Vec<PhysRange> = Vec::new();
+        let mut remaining = limit;
+        for candidate in candidates {
+            if remaining == 0 {
+                break;
+            }
+            let length = candidate.len().min(remaining);
+            let length = length / PAGE_SIZE as u64 * PAGE_SIZE as u64;
+            if length == 0 {
+                continue;
+            }
+            taken.push(PhysRange::new(candidate.start(), length));
+            remaining -= length;
+        }
+        if taken.is_empty() {
+            return None;
+        }
+        let moved: u64 = taken.iter().map(|range| range.len()).sum();
+        let start = taken.first()?.start();
+        let end = taken.last()?.end();
+        for range in &taken {
+            let carved = inner.carve_free(range.start().get(), range.len())?;
+            for piece in inner.node_pieces(carved) {
+                inner.insert_free(piece);
+                inner.attach_window(child, piece);
+            }
+        }
+        // 父窗口按实际转出的区间切分，剩余部分仍归父容量。
+        inner.owned.retain(|_, window| window.capacity != parent);
+        for window in windows {
+            let mut segments = alloc::vec![window];
+            for range in &taken {
+                let mut next = Vec::new();
+                for segment in segments {
+                    if range.end().get() <= segment.start().get()
+                        || range.start().get() >= segment.end().get()
+                    {
+                        next.push(segment);
+                        continue;
+                    }
+                    let before = range.start().get().saturating_sub(segment.start().get());
+                    if before > 0 {
+                        next.push(PhysRange::new(segment.start(), before));
+                    }
+                    let after_start = range.end().get().max(segment.start().get());
+                    if after_start < segment.end().get() {
+                        next.push(PhysRange::new(
+                            PhysAddr::new(after_start),
+                            segment.end().get() - after_start,
+                        ));
+                    }
+                }
+                segments = next;
+            }
+            for segment in segments {
+                if !segment.is_empty() {
+                    inner.attach_window(parent, segment);
+                }
+            }
+        }
+        Some((PhysRange::new(start, end.get() - start.get()), moved))
+    }
+
+    fn split_owned_node(
+        &self,
+        parent: CapacityId,
+        child: CapacityId,
+        len: u64,
+        node: u8,
+    ) -> Option<PhysRange> {
+        let mut inner = self.inner.lock();
+        // 候选必须是父窗口内、指定节点、整段空闲且页对齐的区间。
+        let candidates: Vec<u64> = inner
+            .free_by_start
+            .values()
+            .filter(|range| range.len() >= len && inner.node_for(range.start().get()) == node)
+            .filter_map(|range| {
+                let start = range.start().get();
+                inner
+                    .owned
+                    .values()
+                    .any(|window| {
+                        window.capacity == parent
+                            && window.range.start().get() <= start
+                            && start + len <= window.range.end().get()
+                    })
+                    .then_some(start)
+            })
+            .collect();
+        for start in candidates {
+            let Some(range) = inner.carve_free(start, len) else {
+                continue;
+            };
+            // 父窗口可能被切成前后两段，按多窗口模型分别挂回父容量。
+            let parent_start = inner
+                .owned
+                .iter()
+                .find(|(_, window)| {
+                    window.capacity == parent
+                        && window.range.start().get() <= start
+                        && start + len <= window.range.end().get()
+                })
+                .map(|(&start, window)| (start, window.range))?;
+            inner.owned.remove(&parent_start.0);
+            if parent_start.1.start().get() < start {
+                inner.attach_window(
+                    parent,
+                    PhysRange::new(parent_start.1.start(), start - parent_start.1.start().get()),
+                );
+            }
+            // 子窗口内的区间仍按页空闲，只是归属子容量。
+            for piece in inner.node_pieces(range) {
+                inner.insert_free(piece);
+            }
+            let after = start + len;
+            if after < parent_start.1.end().get() {
+                inner.attach_window(
+                    parent,
+                    PhysRange::new(PhysAddr::new(after), parent_start.1.end().get() - after),
+                );
+            }
+            inner.attach_window(child, range);
             return Some(range);
         }
         None
@@ -107,6 +267,7 @@ impl PhysicalBackend for FrameBank {
             len as usize,
             Some(owner),
             PAGE_SIZE as u64,
+            None,
         )
     }
 
@@ -116,12 +277,14 @@ impl PhysicalBackend for FrameBank {
         kind: CapacityKind,
         len: u64,
         align: u64,
+        node: Option<u8>,
     ) -> Option<PhysRange> {
         self.allocate_contiguous_owned(
             FrameKind::from_capacity(kind),
             len as usize,
             Some(owner),
             align,
+            node,
         )
     }
 
@@ -154,6 +317,8 @@ impl PhysicalBackend for FrameBank {
         }
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_sub(range.len());
+        let node_slot = &mut inner.by_node[usize::from(allocation.node) % MAX_NODES];
+        *node_slot = node_slot.saturating_sub(range.len());
         // 分配记录已经移除，区间尚未进入空闲表，其他分配不可能拿到它；这时
         // 放锁清零，避免在 spin 锁内逐字节访问物理内存（与 free_for 一致）。
         drop(inner);

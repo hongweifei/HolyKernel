@@ -68,7 +68,7 @@ flowchart LR
 
 - **HMP 契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；对象定义位于 `hk-mem::hmp`，内核与用户态通过 `hk-syscall` ABI 与 `hk-server-api` 封装共享同一对象语义。
 - **Arena**：任务内存根；创建、Region 映射、增长、检查点、恢复与销毁；栈、堆与工作区归入 Arena。
-- **Capacity**：从完整 BootInfo 内存描述建立 System/User/Dma/Gpu/Numa 容量；拆分、配额、Frame 分配与归还；覆盖全部可用物理内存。
+- **Capacity**：从完整 BootInfo 内存描述建立 System/User/Dma/Gpu/Numa 容量；启动后按 ACPI SRAT 建立节点拓扑，空闲条目按节点切分，支持节点绑定容量与节点偏好分配；拆分、配额、Frame 分配与归还覆盖全部可用物理内存。
 - **Frame**：FrameId、所属 Capacity、共享引用、pin/unpin、export/import；最后一个引用归还 Capacity，归还前清零。
 - **Region**：Arena 内唯一映射视图；map/unmap/protect/fault/grow；COW、GUARD、PINNED、SEALED、DONT_FORK、GROW 标志。
 - **COW**：`RegionFlags::COW` 为唯一契约状态；匿名 COW 走内核快速路径，绑定 Provider 的能力交给 Provider。

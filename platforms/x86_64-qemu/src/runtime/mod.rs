@@ -172,6 +172,10 @@ impl UserPlatform for X86Platform {
         }
     }
 
+    fn numa_topology(&self) -> Vec<(hk_hal::PhysRange, u8)> {
+        hk_platform_x86_64::bootstrap::numa_topology()
+    }
+
     fn take_irqs(&self, pending: &mut [u64; 4]) {
         *pending = hk_platform_x86_64::irq::take_pending();
     }

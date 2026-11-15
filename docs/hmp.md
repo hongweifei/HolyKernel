@@ -141,7 +141,9 @@ Arena 让“任务内存”成为可枚举、可检查点、可记账的单一�
 
 Capacity 是物理容量的授予单位。
 
-- 声明用途：`System`、`User`、`Dma`、`Gpu`、`Numa`。
+- 声明用途：`System`、`User`、`Dma`、`Gpu`、`Numa(node)`。`Numa` 携带节点号；
+  启动期从 ACPI SRAT 的内存邻近域建立拓扑，FrameBank 的空闲条目按节点边界
+  切分，`SYS_CAPACITY_INFO` 报告绑定节点，`SYS_NUMA_INFO` 枚举物理邻近域。
 - 声明页大小与 order；4 KiB 为起始档位，16 KiB、64 KiB、2 MiB、1 GiB 由 Capacity 拓扑与 Frame order 表达。`SYS_CAPACITY_SPLIT` 的 `page_size` 参数在切分时指定页大小（0 继承父容量）；子容量窗口只保证 4 KiB 对齐，Frame 分配按声明的页大小对齐，不因窗口碎片静默降级。
 - 声明配额与可回收属性；物理用量由 Capacity/FrameBank 报告。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
@@ -157,7 +159,7 @@ Capacity 是物理容量的授予单位。
 - 容量树按代际归还：子容量切出的孙窗口仍由其孙容量持有时，`merge` 立即并回配额与子容量当前剩余窗口，孙窗口在孙容量析构（或并回）时沿父链补齐；父容量不会提前分配这些区间。
 - 服务镜像段与用户栈从顶层 User Capacity 分配，按页映射并登记 Region；页表页仍由 System 承载。装载页计入任务 Ledger，容量窗口与物理归因不再落到 System。
 - 对外报告分别称 Capacity 侧为 System quota，FrameBank/Ledger 侧为物理总量，避免把两者都叫 System limit。
-- `SYS_FRAME_BANK_STATS` 返回 FrameBank 物理 `total/used/peak/free` 与按 `CapacityKind` 的用量（System、User、Dma、Gpu、Numa）；`SYS_LEDGER_ENUM` 返回每个 Capacity 的明细。两者使用同一套分类，不再对外暴露 `FrameKind` 统计。
+- `SYS_FRAME_BANK_STATS` 返回 FrameBank 物理 `total/used/peak/free`、按 `CapacityKind` 的用量（System、User、Dma、Gpu、Numa）与按 NUMA 节点的用量；`SYS_LEDGER_ENUM` 返回每个 Capacity 的明细。两者使用同一套分类，不再对外暴露 `FrameKind` 统计。
 
 ---
 
