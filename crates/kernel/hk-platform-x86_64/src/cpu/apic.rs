@@ -18,6 +18,8 @@ pub fn init_ap(cpu: usize) {
     super::assembly::enable_no_execute();
     // CR0/CR4 也是每 CPU 的；没有 SSE 位 AP 上的 FXSAVE/FXRSTOR 会触发 #UD。
     super::assembly::enable_fpu();
+    // PAT 同样是每 CPU 的；AP 缺 WB 项时帧缓冲写入会退回 UC。
+    super::assembly::enable_pat();
     crate::paging::init_cpu();
     super::assembly::enable_hardening();
     init_gdt(cpu);

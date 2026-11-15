@@ -57,6 +57,27 @@ pub fn user_access_end() {
 const IA32_EFER: u32 = 0xC000_0080;
 /// EFER.NXE：允许页表项表达不可执行。
 const EFER_NXE: u64 = 1 << 11;
+/// PAT 寄存器 MSR 编号。
+const IA32_PAT: u32 = 0x277;
+/// 标准 PAT 表：0=WB、1=WT、2=UC-、3=UC，4..7 重复同一序列。
+const PAT_DEFAULT: u64 = 0x0007_0406_0007_0406;
+/// CPUID.01H:EDX 的 PAT 支持位。
+const CPUID_PAT: u32 = 1 << 16;
+
+/// 把 IA32_PAT 归一到标准表。
+///
+/// 帧缓冲用 PAT 索引 4（写回）标记设备页；PAT 是每 CPU 的 MSR，固件与虚拟机
+/// 监视器给的值不一定有 WB 项。不归一的话索引 4 可能落成 UC，整屏提交从
+/// 0.15 ms 退化到 300 ms。
+pub(super) fn enable_pat() {
+    if core::arch::x86_64::__cpuid(1).edx & CPUID_PAT == 0 {
+        return;
+    }
+    let mut pat = Msr::new(IA32_PAT);
+    // SAFETY: PAT 只写 CPUID 报告的寄存器；标准表是合法组合。
+    unsafe { pat.write(PAT_DEFAULT) };
+}
+
 /// CPUID 扩展功能叶。
 const CPUID_EXTENDED: u32 = 0x8000_0001;
 /// 扩展功能叶 EDX 的 NX 支持位。

@@ -28,6 +28,25 @@ impl Deref for UserSpace {
     }
 }
 
+impl UserSpace {
+    /// 把帧缓冲按可缓存属性映射到用户任务。
+    ///
+    /// 非缓存映射下每个 4 字节写都是独立的设备访问，整屏提交约 250 ms；可缓存
+    /// 映射把整屏当普通内存写，约 0.15 ms。用 4 KiB 页而不是 2 MiB 大页，才能把
+    /// `PAT` 位写进真正的页表项（大页的该位是页大小标志）。
+    pub fn map_framebuffer(&self, virt: u64, phys: u64, len: usize) -> bool {
+        PageTable::map_user_range(
+            self.0.backend(),
+            virt,
+            phys,
+            len,
+            crate::paging::PageFlags::USER_FRAMEBUFFER,
+            true,
+            false,
+        )
+    }
+}
+
 impl UserAddressSpace for UserSpace {
     fn activate(&self) {
         PageTable::activate(self.0.backend());

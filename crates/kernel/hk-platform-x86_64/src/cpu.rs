@@ -135,6 +135,7 @@ pub fn init() {
     );
     assembly::enable_no_execute();
     assembly::enable_fpu();
+    assembly::enable_pat();
     crate::paging::init_cpu();
     assembly::enable_hardening();
     gdt::init_gdt(0);

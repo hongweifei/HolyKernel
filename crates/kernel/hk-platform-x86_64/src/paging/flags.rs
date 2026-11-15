@@ -14,6 +14,8 @@ pub(crate) const WRITABLE: u64 = PTF::WRITABLE.bits();
 pub(crate) const USER: u64 = PTF::USER_ACCESSIBLE.bits();
 pub(crate) const PWT: u64 = PTF::WRITE_THROUGH.bits();
 pub(crate) const PCD: u64 = PTF::NO_CACHE.bits();
+/// 4 KiB 页表项第 7 位是 PAT 选择位，与 PCD/PWT 组成 PAT 索引。
+pub(crate) const PAT: u64 = 1 << 7;
 pub(crate) const HUGE: u64 = PTF::HUGE_PAGE.bits();
 pub(crate) const NX: u64 = PTF::NO_EXECUTE.bits();
 pub(crate) const FLAGS_MASK: u64 = 0xFFF | NX;
@@ -37,6 +39,13 @@ impl PageFlags {
     pub const MMIO: Self = Self(PRESENT | WRITABLE | PWT | PCD | NX);
     /// 用户可访问的设备 MMIO 页：不可执行。
     pub const USER_MMIO: Self = Self(PRESENT | WRITABLE | USER | PWT | PCD | NX);
+    /// 扫描输出帧缓冲：可写、不可执行，PAT 索引 4（默认写回）。
+    ///
+    /// 非缓存映射把每个 4 字节写都当成独立的设备访问，1280x800 整屏提交在 QEMU 中
+    /// 要 250 ms；可缓存映射把整屏写成普通内存，x86 的 DMA 读取与 CPU 缓存同域，
+    /// 扫描输出直接读到新像素。`PAT` 位是设备页标记：页表遍历与写时复制据此跳过
+    /// 帧缓冲，不会把它当私有数据页复制。
+    pub const USER_FRAMEBUFFER: Self = Self(PRESENT | WRITABLE | USER | PAT | NX);
 
     /// 按 Region 权利与标志构造用户页属性。
     ///

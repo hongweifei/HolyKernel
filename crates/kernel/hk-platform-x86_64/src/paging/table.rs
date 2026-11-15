@@ -10,7 +10,7 @@ use x86_64::registers::control::Cr4;
 use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
 use hk_mem::{FrameBank, FrameKind};
 
-use super::flags::{FLAGS_MASK, HUGE, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
+use super::flags::{FLAGS_MASK, HUGE, PAT, PCD, PRESENT, PWT, PageFlags, USER, WRITABLE};
 use super::{FRAME_BANK, read_cr3};
 
 #[cfg(not(test))]
@@ -249,7 +249,7 @@ impl PageTable {
                         if pte & PRESENT == 0 || pte & USER == 0 {
                             continue;
                         }
-                        if pte & (PWT | PCD) != 0 {
+                        if pte & (PWT | PCD | PAT) != 0 {
                             continue;
                         }
                         let virt = pd_virt | ((pt_index as u64) << 12);
@@ -291,7 +291,7 @@ impl PageTable {
                     for pt_index in 0..ENTRIES {
                         // SAFETY: PT 是已存在的页表帧，经 HHDM 映射。
                         let pte = unsafe { self.entry(pt, pt_index).read_volatile() };
-                        if pte & PRESENT == 0 || pte & (PWT | PCD) != 0 {
+                        if pte & PRESENT == 0 || pte & (PWT | PCD | PAT) != 0 {
                             continue;
                         }
                         frames.push(PhysAddr::new(pte & ADDRESS_MASK));
