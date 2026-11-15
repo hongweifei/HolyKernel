@@ -101,6 +101,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn capacity_split(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;
+        let page_size = frame.arg3() as usize;
         let Some(kind) = capacity_kind_from_code(frame.arg2() as u8) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -109,7 +110,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(child) = self.kernel.split_capacity(tcb, handle, length, kind) else {
+        let Ok(child) = self
+            .kernel
+            .split_capacity(tcb, handle, length, kind, page_size)
+        else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

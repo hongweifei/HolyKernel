@@ -3,6 +3,19 @@ use crate::hmp::{HmpError, PhysicalBackend};
 use hk_hal::RegionKind;
 
 #[test]
+fn aligns_large_page_allocations() {
+    let bank = FrameBank::from_range(0x40_1000, 0x80_1000);
+    let owner = CapacityId::next();
+    let window = bank.reserve_for(owner, 0x40_0000).expect("预留");
+    bank.register_ledger(owner, window.len());
+    let range = bank
+        .allocate_owned_aligned(owner, CapacityKind::User, 0x20_0000, 0x20_0000)
+        .expect("2 MiB 对齐分配");
+    assert_eq!(range.start().get() % 0x20_0000, 0);
+    assert_eq!(range.len(), 0x20_0000);
+}
+
+#[test]
 fn capacity_ledger_enforces_owner_quota() {
     let bank = FrameBank::from_range(0x10_0000, 0x10_4000);
     let owner = CapacityId::next();

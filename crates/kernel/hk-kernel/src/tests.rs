@@ -131,7 +131,7 @@ fn allocates_splits_and_frees_capacity_frames() {
     ));
 
     let child = kernel
-        .split_capacity(worker, capacity, 0x4000, CapacityKind::User)
+        .split_capacity(worker, capacity, 0x4000, CapacityKind::User, 0)
         .expect("分割 Capacity");
     let (child_range, kind, _, limit, used) = kernel
         .capacity_info(worker, child)

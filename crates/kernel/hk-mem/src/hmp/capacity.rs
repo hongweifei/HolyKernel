@@ -151,23 +151,33 @@ impl Pool {
         self.parent = Some(Arc::clone(parent));
     }
 
-    fn take(&mut self, length: u64) -> Option<PhysRange> {
-        if let Some(index) = self.free.iter().position(|range| range.len() >= length) {
-            let range = self.free.swap_remove(index);
-            let start = range.start().get();
-            if range.len() > length {
+    fn take(&mut self, length: u64, align: u64) -> Option<PhysRange> {
+        let align = align.max(1);
+        for index in 0..self.free.len() {
+            let range = self.free[index];
+            let start = align_up_u64(range.start().get(), align)?;
+            let end = start.checked_add(length)?;
+            if end > range.end().get() {
+                continue;
+            }
+            let slot = self.free.swap_remove(index);
+            if slot.start().get() < start {
                 self.free.push(PhysRange::new(
-                    PhysAddr::new(start + length),
-                    range.len() - length,
+                    slot.start(),
+                    start.saturating_sub(slot.start().get()),
                 ));
             }
-            return Some(PhysRange::new(range.start(), length));
+            if end < slot.end().get() {
+                self.free
+                    .push(PhysRange::new(PhysAddr::new(end), slot.end().get() - end));
+            }
+            return Some(PhysRange::new(PhysAddr::new(start), length));
         }
-        let end = self.next.checked_add(length)?;
+        let start = align_up_u64(self.next, align)?;
+        let end = start.checked_add(length)?;
         if end > self.end {
             return None;
         }
-        let start = self.next;
         self.next = end;
         Some(PhysRange::new(PhysAddr::new(start), length))
     }
@@ -274,7 +284,8 @@ impl Capacity {
         if page_size == 0 || !page_size.is_power_of_two() || range.is_empty() {
             return Err(HmpError::InvalidSize);
         }
-        if !range.start().get().is_multiple_of(page_size as u64) {
+        // 容量窗口只需按最小页对齐；更大的 page_size 由 Frame 分配时对齐。
+        if !range.start().get().is_multiple_of(hk_hal::PAGE_SIZE as u64) {
             return Err(HmpError::Unaligned);
         }
         if limit < page_size as u64 {
@@ -316,7 +327,9 @@ impl Capacity {
             if self.used().saturating_add(length) > self.limit() {
                 return Err(HmpError::OutOfCapacity);
             }
-            if let Some(range) = backend.allocate_owned(self.id, self.kind, length) {
+            if let Some(range) =
+                backend.allocate_owned_aligned(self.id, self.kind, length, self.page_size as u64)
+            {
                 return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
             }
             // 配额尚有余量但既有窗口里没有足够长的连续空闲段：从父容量再扩
@@ -325,7 +338,7 @@ impl Capacity {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
-                .allocate_owned(self.id, self.kind, length)
+                .allocate_owned_aligned(self.id, self.kind, length, self.page_size as u64)
                 .ok_or(HmpError::OutOfCapacity)?;
             return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
         }
@@ -334,7 +347,7 @@ impl Capacity {
             return Err(HmpError::OutOfCapacity);
         }
 
-        let Some(range) = self.pool.lock().take(length) else {
+        let Some(range) = self.pool.lock().take(length, self.page_size as u64) else {
             return Err(HmpError::OutOfCapacity);
         };
 
@@ -371,7 +384,29 @@ impl Capacity {
         len: usize,
         kind: CapacityKind,
     ) -> Result<Self, HmpError> {
-        let length = align_up(len, self.page_size).ok_or(HmpError::InvalidSize)?;
+        self.split_with_page_size(id, len, kind, 0)
+    }
+
+    /// 按指定页大小切出子容量；`0` 表示继承父容量。
+    ///
+    /// 子容量窗口只需按 4 KiB 对齐；更大的页由 Frame 分配时对齐，因此页大小
+    /// 不会因为窗口起点而悄悄降级。
+    pub fn split_with_page_size(
+        &mut self,
+        id: CapacityId,
+        len: usize,
+        kind: CapacityKind,
+        page_size: usize,
+    ) -> Result<Self, HmpError> {
+        let page_size = if page_size == 0 {
+            self.page_size
+        } else {
+            page_size
+        };
+        if page_size < hk_hal::PAGE_SIZE || !page_size.is_power_of_two() {
+            return Err(HmpError::InvalidSize);
+        }
+        let length = align_up(len, page_size).ok_or(HmpError::InvalidSize)?;
         if length == 0 {
             return Err(HmpError::InvalidSize);
         }
@@ -383,7 +418,7 @@ impl Capacity {
             let range = backend
                 .split_owned(self.id, id, length)
                 .ok_or(HmpError::OutOfCapacity)?;
-            let mut child = Self::new(id, range, self.page_size, kind, length)?;
+            let mut child = Self::new(id, range, page_size, kind, length)?;
             child.parent = Some(self.id);
             child.limit.link_to(&self.limit);
             self.set_limit(self.limit().saturating_sub(length));
@@ -396,9 +431,9 @@ impl Capacity {
         let range = self
             .pool
             .lock()
-            .take(length)
+            .take(length, page_size as u64)
             .ok_or(HmpError::OutOfCapacity)?;
-        let mut child = Self::new(id, range, self.page_size, kind, length)?;
+        let mut child = Self::new(id, range, page_size, kind, length)?;
         child.parent = Some(self.id);
         child.limit.link_to(&self.limit);
         child.pool.lock().link_to(&self.pool);
@@ -482,9 +517,6 @@ impl Capacity {
         }
         if child.released {
             return Err(HmpError::WrongCapability);
-        }
-        if child.page_size != self.page_size {
-            return Err(HmpError::InvalidSize);
         }
         if child.used() != 0 {
             return Err(HmpError::PermissionDenied);
@@ -620,6 +652,14 @@ fn align_up(value: usize, alignment: usize) -> Option<u64> {
     (aligned != 0).then_some(aligned)
 }
 
+/// 64 位数值按 `align` 向上取整。
+fn align_up_u64(value: u64, align: u64) -> Option<u64> {
+    let align = align.max(1);
+    value
+        .checked_add(align - 1)
+        .map(|value| value / align * align)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -657,6 +697,53 @@ mod tests {
         assert_eq!(capacity.used(), 8192);
         let reused = capacity.allocate(4096).expect("复用");
         assert_eq!(reused.phys(), PhysAddr::new(0x10_0000));
+    }
+
+    #[test]
+    fn allocates_large_pages_with_alignment() {
+        let mut capacity = Capacity::new(
+            CapacityId::new(9),
+            PhysRange::new(PhysAddr::new(0x20_1000), 0x40_0000),
+            0x20_0000,
+            CapacityKind::User,
+            0,
+        )
+        .expect("2 MiB Capacity");
+        let frame = capacity.allocate(0x20_0000).expect("2 MiB Frame");
+        assert_eq!(frame.page_size(), 0x20_0000);
+        assert_eq!(frame.order(), 21);
+        assert_eq!(frame.phys(), PhysAddr::new(0x40_0000), "必须对齐到 2 MiB");
+    }
+
+    #[test]
+    fn split_can_change_page_size() {
+        let mut parent = Capacity::new(
+            CapacityId::new(6),
+            PhysRange::new(PhysAddr::new(0x10_0000), 0x60_0000),
+            4096,
+            CapacityKind::User,
+            0,
+        )
+        .expect("父容量");
+        let mut child = parent
+            .split_with_page_size(CapacityId::new(7), 0x40_0000, CapacityKind::User, 0x20_0000)
+            .expect("大页子容量");
+        assert_eq!(child.page_size(), 0x20_0000);
+        let mut frame = Some(child.allocate(0x20_0000).expect("大页 Frame"));
+        assert_eq!(frame.as_ref().unwrap().phys().get() % 0x20_0000, 0);
+        child.free(&mut frame).expect("归还大页");
+        parent.merge(&mut child).expect("并回父容量");
+    }
+
+    #[test]
+    fn rejects_invalid_split_page_size() {
+        let mut parent = capacity();
+        assert_eq!(
+            parent
+                .split_with_page_size(CapacityId::new(8), 0x4000, CapacityKind::User, 0x3000)
+                .err(),
+            Some(HmpError::InvalidSize)
+        );
     }
 
     #[test]

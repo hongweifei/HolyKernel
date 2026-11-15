@@ -237,16 +237,16 @@ pub fn capacity_windows(capacity: u64, out: &mut [u8]) -> Option<usize> {
     (result != u64::MAX).then_some(result as usize)
 }
 
-/// 从 Capacity 尾部切出子 Capacity。
-pub fn capacity_split(capacity: u64, length: usize, kind: u8) -> Option<u64> {
-    // SAFETY: 内核校验 Capacity 与长度后切出子容量。
+/// 从 Capacity 尾部切出子 Capacity；`page_size` 为 0 时继承父容量。
+pub fn capacity_split(capacity: u64, length: usize, kind: u8, page_size: usize) -> Option<u64> {
+    // SAFETY: 内核校验 Capacity、长度、页大小后切出子容量。
     let child = unsafe {
         syscall_call(
             SYS_CAPACITY_SPLIT,
             capacity,
             length as u64,
             u64::from(kind),
-            0,
+            page_size as u64,
         )
         .value
     };

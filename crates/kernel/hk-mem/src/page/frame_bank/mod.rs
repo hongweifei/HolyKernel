@@ -154,7 +154,7 @@ impl Inner {
     /// 只看单个条目：这里把落在窗口内的空闲段收集起来、按起点排序并合并相邻
     /// 段，再找足够长的连续区间。相邻且属于同一容量的窗口先合并为一段，避免
     /// 同一容量自己的连续空闲空间被窗口边界切成不可用的碎块。
-    fn find_free_in_owned(&self, owner: CapacityId, length: u64) -> Option<u64> {
+    fn find_free_in_owned(&self, owner: CapacityId, length: u64, align: u64) -> Option<u64> {
         let mut windows: Vec<(u64, u64)> = self
             .owned
             .values()
@@ -188,8 +188,11 @@ impl Inner {
                     Some((run_start, run_end)) if run_end >= start => (run_start, run_end.max(end)),
                     _ => (start, end),
                 };
-                if run_end.saturating_sub(run_start) >= length {
-                    return Some(run_start);
+                if run_end.saturating_sub(run_start) >= length
+                    && let Some(aligned) = align_up_u64(run_start, align)
+                    && aligned.saturating_add(length) <= run_end
+                {
+                    return Some(aligned);
                 }
                 run = Some((run_start, run_end));
             }
@@ -258,7 +261,7 @@ impl Inner {
     ///
     /// 先把相邻空闲段合并成连续运行段，再跳过与已登记窗口相交的部分，避免
     /// 整块大区间因含有一小段归属区而被整体弃用。
-    fn find_free_unowned(&self, length: u64) -> Option<u64> {
+    fn find_free_unowned(&self, length: u64, align: u64) -> Option<u64> {
         let mut spans: Vec<(u64, u64)> = self
             .free_by_start
             .values()
@@ -273,8 +276,8 @@ impl Inner {
             }
         }
         for (start, end) in runs {
-            let mut cursor = start;
-            while cursor + length <= end {
+            let mut cursor = align_up_u64(start, align)?;
+            while cursor.saturating_add(length) <= end {
                 let blocked = self
                     .owned
                     .values()
@@ -285,7 +288,7 @@ impl Inner {
                     })
                     .max();
                 match blocked {
-                    Some(next) if next <= end => cursor = next,
+                    Some(next) if next <= end => cursor = align_up_u64(next, align)?,
                     Some(_) => break,
                     None => return Some(cursor),
                 }
@@ -455,7 +458,7 @@ impl FrameBank {
 
     /// 按用途分配一段连续物理内存，长度按页向上取整。
     pub fn allocate_contiguous_for(&self, kind: FrameKind, len: usize) -> Option<PhysRange> {
-        self.allocate_contiguous_owned(kind, len, None)
+        self.allocate_contiguous_owned(kind, len, None, PAGE_SIZE as u64)
     }
 
     /// 按用途与归属容量分配一段连续物理内存。
@@ -467,7 +470,9 @@ impl FrameBank {
         kind: FrameKind,
         len: usize,
         owner: Option<CapacityId>,
+        align: u64,
     ) -> Option<PhysRange> {
+        let align = align.max(PAGE_SIZE as u64);
         let length = (len as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
         if length == 0 {
             return None;
@@ -480,8 +485,8 @@ impl FrameBank {
             .and_then(|owner| inner.ledger_kinds.get(&owner).copied())
             .unwrap_or(CapacityKind::System);
         let start = match owner {
-            Some(owner) => inner.find_free_in_owned(owner, length)?,
-            None => inner.find_free_unowned(length)?,
+            Some(owner) => inner.find_free_in_owned(owner, length, align)?,
+            None => inner.find_free_unowned(length, align)?,
         };
         let charge = inner.ledger.charge(length).ok()?;
         let total = inner.total;
@@ -623,7 +628,7 @@ impl FrameBank {
         if inner.owned.values().any(|window| window.capacity == owner) {
             return None;
         }
-        let start = inner.find_free_unowned(length)?;
+        let start = inner.find_free_unowned(length, PAGE_SIZE as u64)?;
         let range = inner.take_free(start)?;
         let start = range.start();
         let remaining = range.len() - length;
@@ -909,3 +914,11 @@ mod backend;
 
 #[cfg(test)]
 mod tests;
+
+/// 64 位向上取整；`align` 为 0 时按 1 处理。
+fn align_up_u64(value: u64, align: u64) -> Option<u64> {
+    let align = align.max(1);
+    value
+        .checked_add(align - 1)
+        .map(|value| value / align * align)
+}

@@ -288,6 +288,10 @@ pub const SYS_ARENA_INFO: u64 = 0x90;
 pub const SYS_CAPACITY_INFO: u64 = 0x91;
 
 /// 从 Capacity 尾部切出子 Capacity。
+///
+/// 参数：`arg0` 父 Capacity 句柄、`arg1` 切出长度、`arg2` 用途编码、
+/// `arg3` 页大小（0 表示继承父容量）。切出的窗口只需按 4 KiB 对齐，
+/// 更大的页在 Frame 分配时对齐。
 pub const SYS_CAPACITY_SPLIT: u64 = 0x92;
 
 /// 从 Capacity 分配一个 Frame。

@@ -102,7 +102,27 @@ impl PhysicalBackend for FrameBank {
     }
 
     fn allocate_owned(&self, owner: CapacityId, kind: CapacityKind, len: u64) -> Option<PhysRange> {
-        self.allocate_contiguous_owned(FrameKind::from_capacity(kind), len as usize, Some(owner))
+        self.allocate_contiguous_owned(
+            FrameKind::from_capacity(kind),
+            len as usize,
+            Some(owner),
+            PAGE_SIZE as u64,
+        )
+    }
+
+    fn allocate_owned_aligned(
+        &self,
+        owner: CapacityId,
+        kind: CapacityKind,
+        len: u64,
+        align: u64,
+    ) -> Option<PhysRange> {
+        self.allocate_contiguous_owned(
+            FrameKind::from_capacity(kind),
+            len as usize,
+            Some(owner),
+            align,
+        )
     }
 
     fn mark_object_owned(&self, range: PhysRange) {

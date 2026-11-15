@@ -292,6 +292,7 @@ impl Kernel {
         handle: Handle,
         len: usize,
         kind: CapacityKind,
+        page_size: usize,
     ) -> Result<Handle, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capacity)?;
         let capacity = object.capacity().ok_or(KernelError::WrongKind {
@@ -299,7 +300,7 @@ impl Kernel {
         })?;
         let child = capacity
             .lock()
-            .split(CapacityId::next(), len, kind)
+            .split_with_page_size(CapacityId::next(), len, kind, page_size)
             .map_err(KernelError::Hmp)?;
         self.create_capacity(
             thread,

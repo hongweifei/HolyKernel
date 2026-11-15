@@ -32,6 +32,17 @@ pub trait PhysicalBackend: Send + Sync {
     /// 从指定容量的归属区间中分配连续物理页。
     fn allocate_owned(&self, owner: CapacityId, kind: CapacityKind, len: u64) -> Option<PhysRange>;
 
+    /// 按 `align` 对齐分配连续物理页；后端不支持时退回普通分配。
+    fn allocate_owned_aligned(
+        &self,
+        owner: CapacityId,
+        kind: CapacityKind,
+        len: u64,
+        _align: u64,
+    ) -> Option<PhysRange> {
+        self.allocate_owned(owner, kind, len)
+    }
+
     /// 从指定容量名下归还一段物理区间。
     fn release_owned(&self, owner: CapacityId, range: PhysRange) -> bool;
 

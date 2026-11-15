@@ -2830,7 +2830,8 @@ fn shared_user_capacity_grants_no_admin() {
                 tcb,
                 handle,
                 hk_hal::PAGE_SIZE,
-                hk_mem::hmp::CapacityKind::User
+                hk_mem::hmp::CapacityKind::User,
+                0
             )
             .is_err(),
         "缺少 ADMIN 的服务不能拆分共享 User Capacity"
