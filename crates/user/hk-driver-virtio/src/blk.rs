@@ -111,6 +111,9 @@ impl BlockDevice for Block {
     }
 
     fn write_blocks(&mut self, block: u64, data: &[u8]) -> Result<usize, BlockError> {
+        if self.read_only() {
+            return Err(BlockError::ReadOnly);
+        }
         self.activate();
         self.block
             .lock()
@@ -123,6 +126,11 @@ impl BlockDevice for Block {
         self.activate();
         self.block.lock().flush().map_err(map_error)
     }
+
+    fn read_only(&self) -> bool {
+        self.activate();
+        self.block.lock().readonly()
+    }
 }
 
 impl AsyncBlockDevice for Block {
@@ -133,6 +141,9 @@ impl AsyncBlockDevice for Block {
     }
 
     fn submit_write(&mut self, block: u64, data: &[u8]) -> Result<u64, BlockError> {
+        if self.read_only() {
+            return Err(BlockError::ReadOnly);
+        }
         let pointer = data.as_ptr().cast_mut();
         let length = data.len();
         self.submit(block, pointer, length, true)

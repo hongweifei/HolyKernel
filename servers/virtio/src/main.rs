@@ -209,7 +209,11 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -
     hk_server_api::format::Line::new()
         .text(b"hk-server-virtio: virtio-blk sectors=")
         .number(block.capacity_blocks())
-        .text(b"\n")
+        .text(if block.read_only() {
+            b" readonly\n".as_slice()
+        } else {
+            b"\n".as_slice()
+        })
         .finish();
 
     let notification = self_notification();

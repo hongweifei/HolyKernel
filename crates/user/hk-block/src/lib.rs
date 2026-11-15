@@ -64,6 +64,11 @@ pub trait BlockDevice {
     /// 刷写挂起写入。
     fn flush(&mut self) -> Result<(), BlockError>;
 
+    /// 设备是否只读；只读设备的写入应返回 [`BlockError::ReadOnly`]。
+    fn read_only(&self) -> bool {
+        false
+    }
+
     /// 返回设备容量，单位为字节。
     fn capacity_bytes(&self) -> u64 {
         self.capacity_blocks()

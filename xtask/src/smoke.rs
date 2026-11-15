@@ -118,6 +118,9 @@ pub enum SmokeMode {
     /// virtio-gpu 扫描输出与诊断图案
     #[value(name = "gpu")]
     Gpu,
+    /// 只读 virtio-blk 设备属性
+    #[value(name = "blkro")]
+    BlockReadOnly,
     /// virtio-console 驱动与宿主回显
     #[value(name = "vcon")]
     Vcon,
@@ -225,6 +228,7 @@ impl SmokeMode {
             Self::Console => Some(String::from("console-test")),
             Self::Rng => Some(String::from("rng-test")),
             Self::Gpu => Some(String::from("gpu-test")),
+            Self::BlockReadOnly => Some(String::from("rng-test")),
             Self::Vcon => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
             Self::GpuDisplay => Some(String::from(
@@ -444,6 +448,7 @@ impl SmokeMode {
                 "hk-server-virtio: gpu ready",
                 "hk-server-virtio: gpu 1280x800 ok",
             ],
+            Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],
             Self::Vcon => &[
                 "hk-server-virtio: console ready",
                 "hk-server-virtio: console echo ok",
@@ -639,6 +644,7 @@ impl SmokeMode {
             | Self::Console
             | Self::Rng
             | Self::Gpu
+            | Self::BlockReadOnly
             | Self::Vcon
             | Self::Display
             | Self::GpuDisplay
@@ -688,6 +694,7 @@ impl SmokeMode {
             Self::Console => "build/serial-console.log",
             Self::Rng => "build/serial-rng.log",
             Self::Gpu => "build/serial-gpu.log",
+            Self::BlockReadOnly => "build/serial-blkro.log",
             Self::Vcon => "build/serial-vcon.log",
             Self::Display => "build/serial-display.log",
             Self::GpuDisplay => "build/serial-gpudisplay.log",
@@ -877,10 +884,14 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .args(["-boot", "d", "-display", "none", "-no-reboot", "-serial"])
         .arg(format!("file:{}", log.display()))
         .arg("-drive")
-        .arg(format!(
-            "file={},if=none,id=disk,format=raw",
-            disk.display()
-        ))
+        .arg(if mode == SmokeMode::BlockReadOnly {
+            format!(
+                "file={},if=none,id=disk,format=raw,readonly=on",
+                disk.display()
+            )
+        } else {
+            format!("file={},if=none,id=disk,format=raw", disk.display())
+        })
         .args(["-device", "virtio-blk-pci,drive=disk"])
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"]);
     if mode == SmokeMode::Smp {
