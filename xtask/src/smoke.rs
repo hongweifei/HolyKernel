@@ -457,8 +457,7 @@ impl SmokeMode {
                 "hk-server-virtio: gpu 1280x800 ok",
             ],
             Self::Sound => &[
-                "hk-server-virtio: sound ready streams 1",
-                "hk-server-virtio: sound tone ok",
+                "hk-server-virtio-sound: ready streams 1",
                 "hk-server-sound-test: info streams 1",
                 "hk-server-sound-test: tone 880 ok",
                 "hk-server-sound-test: async accept",

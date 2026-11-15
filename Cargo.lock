@@ -1437,6 +1437,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-virtio-sound"
+version = "0.1.0"
+dependencies = [
+ "hk-device",
+ "hk-driver-virtio",
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-wakeup"
 version = "0.1.0"
 dependencies = [

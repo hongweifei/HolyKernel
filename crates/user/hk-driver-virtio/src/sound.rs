@@ -18,7 +18,7 @@ use crate::hal::{self, HalImpl};
 
 /// 自检音频率（Hz）。
 pub const TONE_HZ: u32 = 440;
-/// 自检音采样率。
+/// 自检音默认采样率；设备不支持时按 `RATES` 依次回退。
 pub const TONE_RATE: u32 = 48_000;
 /// 自检音时长（毫秒）。
 pub const TONE_MILLIS: u32 = 250;
@@ -34,17 +34,49 @@ pub const TONE_MAX_MILLIS: u32 = 2_000;
 const TONE_CHANNELS: u8 = 1;
 /// 一帧字节数：单声道 S16。
 const FRAME_BYTES: u32 = 2;
+/// 可协商的采样率，按优先级排列。
+const RATES: [(PcmRate, u32); 6] = [
+    (PcmRate::Rate48000, 48_000),
+    (PcmRate::Rate44100, 44_100),
+    (PcmRate::Rate32000, 32_000),
+    (PcmRate::Rate22050, 22_050),
+    (PcmRate::Rate16000, 16_000),
+    (PcmRate::Rate8000, 8_000),
+];
+
 /// 一个周期的字节数（10 ms）。
-const PERIOD_BYTES: u32 = TONE_RATE / 100 * FRAME_BYTES;
+fn period_bytes(rate: u32) -> u32 {
+    rate / 100 * FRAME_BYTES
+}
+
+/// 判断设备是否支持某个采样率编码。
+fn supports(rates: &PcmRates, code: PcmRate) -> bool {
+    match code {
+        PcmRate::Rate48000 => rates.contains(PcmRates::RATE_48000),
+        PcmRate::Rate44100 => rates.contains(PcmRates::RATE_44100),
+        PcmRate::Rate32000 => rates.contains(PcmRates::RATE_32000),
+        PcmRate::Rate22050 => rates.contains(PcmRates::RATE_22050),
+        PcmRate::Rate16000 => rates.contains(PcmRates::RATE_16000),
+        PcmRate::Rate8000 => rates.contains(PcmRates::RATE_8000),
+        _ => false,
+    }
+}
 /// 同时在途的周期数；设备队列足够深，留两拍避免首包等待。
 const IN_FLIGHT: usize = 2;
 
 /// 一次播放的排队状态。
 struct Playback {
     stream: u32,
-    data: Vec<u8>,
+    /// 周期字节数。
+    period: u32,
+    /// 总字节数，按周期对齐。
+    total: usize,
     /// 已提交到设备的字节数。
     sent: usize,
+    /// 振荡器递推状态。
+    previous: f32,
+    current: f32,
+    two_cos: f32,
     /// 在途令牌，按提交顺序完成。
     tokens: VecDeque<u16>,
     /// 请求播放的客户端端点，播放结束时收到 `SOUND_DONE`。
@@ -94,22 +126,6 @@ impl Sound {
             .map(|streams| streams.len())
     }
 
-    /// 播放默认自检音（440 Hz / 250 ms），阻塞到设备收完。
-    ///
-    /// 只用于启动自检；服务主循环用 [`Self::start_tone`] + [`Self::poll`]，
-    /// 不占用消息处理线程。
-    pub fn tone(&self) -> Option<(usize, u32)> {
-        let started = self.start_tone(TONE_HZ, TONE_MILLIS, 0)?;
-        for _ in 0..TONE_RATE * TONE_MAX_MILLIS {
-            if self.poll().is_some() {
-                return Some(started);
-            }
-            core::hint::spin_loop();
-        }
-        let _ = self.stop();
-        None
-    }
-
     /// 开始一段异步播放，返回 `(输出流数量, 采样率)`。
     ///
     /// 频率与时长的合法范围与设备能力都在这里校验；调用返回后数据由
@@ -125,43 +141,50 @@ impl Sound {
         let outputs: Vec<u32> = sound.output_streams().ok()?;
         let stream = *outputs.first()?;
         let rates = sound.rates_supported(stream).ok()?;
-        if !rates.contains(PcmRates::RATE_48000) {
-            return None;
-        }
         let formats: PcmFormats = sound.formats_supported(stream).ok()?;
         if !formats.contains(PcmFormats::S16) {
             return None;
         }
-        let mut frames = TONE_RATE * millis / 1000;
-        // 设备要求 buffer 是周期的整数倍，帧数向上对齐到 10 ms。
-        let period_frames = TONE_RATE / 100;
-        frames = frames.div_ceil(period_frames) * period_frames;
+        let (rate_code, rate) = RATES
+            .iter()
+            .find(|(code, _)| supports(&rates, *code))
+            .copied()?;
+        let period = period_bytes(rate);
+        let period_frames = rate / 100;
+        let frames = (rate * millis / 1000).div_ceil(period_frames) * period_frames;
         let bytes = frames * FRAME_BYTES;
         sound
             .pcm_set_params(
                 stream,
                 bytes,
-                PERIOD_BYTES,
+                period,
                 PcmFeatures::empty(),
                 TONE_CHANNELS,
                 PcmFormat::S16,
-                PcmRate::Rate48000,
+                rate_code,
             )
             .ok()?;
         sound.pcm_prepare(stream).ok()?;
         sound.pcm_start(stream).ok()?;
+        let w = core::f32::consts::TAU * hz as f32 / rate as f32;
+        let cos_w = 1.0 - w * w / 2.0 + w * w * w * w / 24.0;
+        let sin_w = w - w * w * w / 6.0;
         let mut playback = Playback {
             stream,
-            data: sine(bytes as usize, hz),
+            period,
+            total: bytes as usize,
             sent: 0,
+            previous: 0.0,
+            current: (i16::MAX / 4) as f32 * sin_w,
+            two_cos: 2.0 * cos_w,
             tokens: VecDeque::new(),
             owner,
             failed: false,
         };
-        pump(&mut sound, &mut playback);
+        pump(&mut sound, &mut playback, period);
         *self.last_failed.lock() = false;
         *self.playback.lock() = Some(playback);
-        Some((outputs.len(), TONE_RATE))
+        Some((outputs.len(), rate))
     }
 
     /// 推进播放：回收完成周期并补交新周期；播完返回 `(owner, 是否成功)`。
@@ -170,6 +193,7 @@ impl Sound {
         let mut playback = self.playback.lock();
         let state = playback.as_mut()?;
         let mut sound = self.sound.lock();
+        let period = state.period;
         while let Some(&token) = state.tokens.front() {
             match sound.pcm_xfer_ok(token) {
                 Ok(()) => {
@@ -184,9 +208,9 @@ impl Sound {
             }
         }
         if !state.failed {
-            pump(&mut sound, state);
+            pump(&mut sound, state, period);
         }
-        let finished = state.failed || (state.sent >= state.data.len() && state.tokens.is_empty());
+        let finished = state.failed || (state.sent >= state.total && state.tokens.is_empty());
         if !finished {
             return None;
         }
@@ -232,13 +256,20 @@ impl Sound {
 }
 
 /// 尽力把后续周期提交到设备，直到在途数达到上限或数据送完。
-fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback) {
-    while !state.failed && state.tokens.len() < IN_FLIGHT && state.sent < state.data.len() {
-        let end = (state.sent + PERIOD_BYTES as usize).min(state.data.len());
-        match sound.pcm_xfer_nb(state.stream, &state.data[state.sent..end]) {
+fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback, period: u32) {
+    let mut buffer = [0_u8; MAX_PERIOD];
+    while !state.failed && state.tokens.len() < IN_FLIGHT && state.sent < state.total {
+        let length = (state.total - state.sent).min(period as usize);
+        fill_period(
+            &mut buffer[..length],
+            &mut state.previous,
+            &mut state.current,
+            state.two_cos,
+        );
+        match sound.pcm_xfer_nb(state.stream, &buffer[..length]) {
             Ok(token) => {
                 state.tokens.push_back(token);
-                state.sent = end;
+                state.sent += length;
             }
             Err(virtio_drivers::Error::QueueFull) => break,
             Err(_) => {
@@ -249,28 +280,16 @@ fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback) {
     }
 }
 
-/// 生成一段 S16LE 正弦波，幅度为满量程的 1/4。
-///
-/// `no_std` 没有 `sin`，用二阶递推振荡器：`y[n] = 2cos(w)y[n-1] - y[n-2]`。
-/// `w = 2π·hz/48000`，`2cos(w)` 与 `sin(w)` 由频率现算，频率只需落在
-/// 100–8000 Hz 的可听区间，展开到二阶即可满足精度。
-fn sine(bytes: usize, hz: u32) -> Vec<u8> {
-    let w = core::f32::consts::TAU * hz as f32 / TONE_RATE as f32;
-    // 二阶泰勒展开在 w ≤ 1.05 rad 时误差 < 1e-3，足够 440/880 Hz 的自检。
-    let cos_w = 1.0 - w * w / 2.0 + w * w * w * w / 24.0;
-    let sin_w = w - w * w * w / 6.0;
-    let two_cos = 2.0 * cos_w;
-    let frames = bytes / FRAME_BYTES as usize;
-    let amplitude = (i16::MAX / 4) as f32;
-    let mut buffer = Vec::with_capacity(bytes);
-    let mut previous = 0.0_f32;
-    let mut current = amplitude * sin_w;
-    for _ in 0..frames {
-        let sample = current as i16;
-        buffer.extend_from_slice(&sample.to_le_bytes());
-        let next = two_cos * current - previous;
-        previous = current;
-        current = next;
+/// 单个周期缓冲上限：48 kHz / 10 ms / 单声道 S16。
+const MAX_PERIOD: usize = (48_000 / 100) * FRAME_BYTES as usize;
+
+/// 按递推振荡器填充一个周期的 S16LE 正弦，幅度为满量程的 1/4。
+fn fill_period(buffer: &mut [u8], previous: &mut f32, current: &mut f32, two_cos: f32) {
+    for frame in buffer.as_chunks_mut::<{ FRAME_BYTES as usize }>().0 {
+        let sample = *current as i16;
+        frame.copy_from_slice(&sample.to_le_bytes());
+        let next = two_cos * *current - *previous;
+        *previous = *current;
+        *current = next;
     }
-    buffer
 }

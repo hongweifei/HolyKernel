@@ -8,7 +8,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::sound::Client;
 #[cfg(target_os = "none")]
-use hk_server_api::{boot_cmdline, exit, format::Line, ticks, write, yield_now};
+use hk_server_api::{boot_cmdline, exit, format::Line, ticks, write};
 
 /// 自检音频率（Hz）。
 #[cfg(target_os = "none")]
@@ -59,22 +59,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             .finish();
         exit(4)
     }
-    // 用状态轮询驱动播放推进；服务每次处理消息时补交音频周期。
-    let mut polls = 0_u64;
-    loop {
-        match client.status() {
-            1 => polls = polls.saturating_add(1),
-            0 => break,
-            _ => {
-                write(b"hk-server-sound-test: playback failed\n");
-                exit(5)
-            }
-        }
-        if polls > 200_000 {
-            write(b"hk-server-sound-test: playback timeout\n");
-            exit(6)
-        }
-        let _ = yield_now();
+    // 服务在定时节拍上推进播放，客户端只等完成通知。
+    if !client.wait_done() {
+        write(b"hk-server-sound-test: playback failed\n");
+        exit(5)
     }
     let finished = ticks();
     Line::new()
@@ -85,9 +73,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     Line::new()
         .text(b"hk-server-sound-test: async accept ")
         .number(accepted.saturating_sub(started))
-        .text(b" ms polls ")
-        .number(polls)
-        .text(b" total ")
+        .text(b" ms total ")
         .number(finished.saturating_sub(started))
         .text(b" ms\n")
         .finish();

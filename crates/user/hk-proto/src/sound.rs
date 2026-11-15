@@ -28,7 +28,7 @@ pub const SOUND_STATUS_REPLY: u64 = VIRTIO + 0x59;
 pub const SOUND_SHUTDOWN: u64 = VIRTIO + 0x56;
 
 /// 提供音频设备的服务名。
-pub const SOUND_SERVICE: &str = "hk-server-virtio";
+pub const SOUND_SERVICE: &str = "hk-server-virtio-sound";
 
 /// 等待响应的最大轮次。
 const WAIT_ATTEMPTS: usize = 20_000;
@@ -103,18 +103,16 @@ impl Client {
         2
     }
 
-    /// 等待播放结束通知，最多等待 `millis` 毫秒；返回是否完整播完。
-    pub fn wait_done(&self, millis: u64) -> bool {
-        let attempts = (millis.saturating_mul(1_000)).max(20_000) as usize;
-        let mut buffer = [0_u8; 8];
-        for _ in 0..attempts {
-            let (label, word, sender, _length) = recv_data_try(self.endpoint, &mut buffer);
+    /// 阻塞等待播放结束通知；返回是否完整播完。
+    ///
+    /// 播放由音频服务在定时节拍上推进，客户端不需要轮询。
+    pub fn wait_done(&self) -> bool {
+        loop {
+            let (label, word, sender) = hk_server_api::recv(self.endpoint);
             if label == SOUND_DONE && sender == self.service {
                 return word == 1;
             }
-            let _ = yield_now();
         }
-        false
     }
 
     /// 握手；服务就绪时返回 `true`。

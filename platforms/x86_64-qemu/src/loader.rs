@@ -133,10 +133,10 @@ pub fn run(
             return matches!(name, "hk-server-device" | "hk-server-virtio");
         }
         if sound_test {
-            // 音频自检：设备管理器、virtio 驱动与自检客户端。
+            // 音频自检：设备管理器、音频服务与自检客户端。
             return matches!(
                 name,
-                "hk-server-device" | "hk-server-virtio" | "hk-server-sound-test"
+                "hk-server-device" | "hk-server-virtio-sound" | "hk-server-sound-test"
             );
         }
         if gpu_test {
