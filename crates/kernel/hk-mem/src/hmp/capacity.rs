@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use hk_hal::{PhysAddr, PhysRange};
+use spin::Mutex;
 
 use super::{Frame, HmpError};
 
@@ -84,6 +85,142 @@ impl CapacityKind {
     }
 }
 
+/// 配额计数单元：子容量析构时把剩余配额并回父容量。
+struct LimitCell {
+    value: AtomicU64,
+    parent: Mutex<Option<Arc<LimitCell>>>,
+}
+
+impl LimitCell {
+    fn new(value: u64) -> Self {
+        Self {
+            value: AtomicU64::new(value),
+            parent: Mutex::new(None),
+        }
+    }
+
+    fn get(&self) -> u64 {
+        self.value.load(Ordering::Acquire)
+    }
+
+    fn set(&self, value: u64) {
+        self.value.store(value, Ordering::Release);
+    }
+
+    fn add(&self, amount: u64) {
+        self.value.fetch_add(amount, Ordering::AcqRel);
+    }
+
+    /// 挂到父单元之下：析构时剩余配额沿链并回父容量。
+    fn link_to(&self, parent: &Arc<LimitCell>) {
+        *self.parent.lock() = Some(Arc::clone(parent));
+    }
+}
+
+impl Drop for LimitCell {
+    fn drop(&mut self) {
+        let value = self.value.load(Ordering::Acquire);
+        if value == 0 {
+            return;
+        }
+        if let Some(parent) = self.parent.lock().as_ref() {
+            parent.add(value);
+        }
+    }
+}
+
+/// 未注册后端时的窗口池：跨代共享，子池析构时把剩余窗口并回父池。
+struct Pool {
+    free: Vec<PhysRange>,
+    next: u64,
+    end: u64,
+    parent: Option<Arc<Mutex<Pool>>>,
+}
+
+impl Pool {
+    fn new(start: u64, length: u64) -> Self {
+        Self {
+            free: Vec::new(),
+            next: start,
+            end: start.saturating_add(length),
+            parent: None,
+        }
+    }
+
+    fn link_to(&mut self, parent: &Arc<Mutex<Pool>>) {
+        self.parent = Some(Arc::clone(parent));
+    }
+
+    fn take(&mut self, length: u64) -> Option<PhysRange> {
+        if let Some(index) = self.free.iter().position(|range| range.len() >= length) {
+            let range = self.free.swap_remove(index);
+            let start = range.start().get();
+            if range.len() > length {
+                self.free.push(PhysRange::new(
+                    PhysAddr::new(start + length),
+                    range.len() - length,
+                ));
+            }
+            return Some(PhysRange::new(range.start(), length));
+        }
+        let end = self.next.checked_add(length)?;
+        if end > self.end {
+            return None;
+        }
+        let start = self.next;
+        self.next = end;
+        Some(PhysRange::new(PhysAddr::new(start), length))
+    }
+
+    fn release(&mut self, range: PhysRange) {
+        if range.is_empty() {
+            return;
+        }
+        self.free.push(range);
+        self.coalesce();
+    }
+
+    fn coalesce(&mut self) {
+        self.free.sort_unstable_by_key(|range| range.start().get());
+        let mut merged: Vec<PhysRange> = Vec::with_capacity(self.free.len());
+        for range in self.free.drain(..) {
+            if let Some(last) = merged.last_mut()
+                && last.end().get() == range.start().get()
+            {
+                *last = PhysRange::new(last.start(), last.len().saturating_add(range.len()));
+                continue;
+            }
+            merged.push(range);
+        }
+        self.free = merged;
+    }
+
+    /// 取出本池拥有的全部窗口（空闲区间 + 未分配的尾部）。
+    fn drain_window(&mut self) -> Vec<PhysRange> {
+        let mut windows: Vec<PhysRange> = core::mem::take(&mut self.free);
+        if self.next < self.end {
+            windows.push(PhysRange::new(
+                PhysAddr::new(self.next),
+                self.end - self.next,
+            ));
+            self.next = self.end;
+        }
+        windows
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        let windows = self.drain_window();
+        if let Some(parent) = self.parent.as_ref() {
+            let mut parent = parent.lock();
+            for range in windows {
+                parent.release(range);
+            }
+        }
+    }
+}
+
 /// Root Server 授予的物理容量能力。
 pub struct Capacity {
     id: CapacityId,
@@ -92,16 +229,15 @@ pub struct Capacity {
     kind: CapacityKind,
     /// 由哪个容量 `split` 而来；根容量为 `None`。
     parent: Option<CapacityId>,
-    /// 父容量配额；子容量扩窗时与父共享同一份计数。
-    parent_limit: Option<Arc<AtomicU64>>,
-    limit: Arc<AtomicU64>,
+    /// 配额与可用窗口：父子共享同一条链，子容量析构时自动并回父容量。
+    limit: Arc<LimitCell>,
     soft_limit: u64,
     used: u64,
     peak: u64,
-    free: Vec<PhysRange>,
+    /// 未注册后端时的窗口池；注册后端时只承载回收链。
+    pool: Arc<Mutex<Pool>>,
     /// 未注册后端时已分配的区间；用于校验归还归属与阻止重复释放。
     allocated: Vec<PhysRange>,
-    next: u64,
     /// 已通过 `merge` 显式并回父容量；析构时不再重复归还。
     released: bool,
 }
@@ -150,14 +286,12 @@ impl Capacity {
             page_size,
             kind,
             parent: None,
-            parent_limit: None,
-            limit: Arc::new(AtomicU64::new(limit)),
+            limit: Arc::new(LimitCell::new(limit)),
             soft_limit: 0,
             used: 0,
             peak: 0,
-            free: Vec::new(),
+            pool: Arc::new(Mutex::new(Pool::new(range.start().get(), limit))),
             allocated: Vec::new(),
-            next: range.start().get(),
             released: false,
         };
         if let Some(backend) = super::backend::physical_backend() {
@@ -200,37 +334,12 @@ impl Capacity {
             return Err(HmpError::OutOfCapacity);
         }
 
-        let start = if let Some(index) = self.free.iter().position(|range| range.len() >= length) {
-            let range = self.free.swap_remove(index);
-            let start = range.start().get();
-            let remaining = range.len() - length;
-            if remaining > 0 {
-                self.free
-                    .push(PhysRange::new(PhysAddr::new(start + length), remaining));
-            }
-            start
-        } else {
-            let end = self
-                .next
-                .checked_add(length)
-                .ok_or(HmpError::OutOfCapacity)?;
-            let limit_end = self.range.start().get().saturating_add(self.limit());
-            if end > limit_end {
-                return Err(HmpError::OutOfCapacity);
-            }
-            let start = self.next;
-            self.next = end;
-            start
+        let Some(range) = self.pool.lock().take(length) else {
+            return Err(HmpError::OutOfCapacity);
         };
 
-        let frame = Frame::new(
-            PhysAddr::new(start),
-            length as usize,
-            self.page_size,
-            self.id,
-        )?;
-        self.allocated
-            .push(PhysRange::new(PhysAddr::new(start), length));
+        let frame = Frame::new(range.start(), length as usize, self.page_size, self.id)?;
+        self.allocated.push(range);
         self.used = self.used.saturating_add(length);
         self.peak = self.peak.max(self.used);
         Ok(frame)
@@ -245,9 +354,6 @@ impl Capacity {
         let Some(parent) = self.parent else {
             return false;
         };
-        if self.parent_limit.is_none() {
-            return false;
-        }
         let Some(backend) = super::backend::physical_backend() else {
             return false;
         };
@@ -279,7 +385,7 @@ impl Capacity {
                 .ok_or(HmpError::OutOfCapacity)?;
             let mut child = Self::new(id, range, self.page_size, kind, length)?;
             child.parent = Some(self.id);
-            child.parent_limit = Some(Arc::clone(&self.limit));
+            child.limit.link_to(&self.limit);
             self.set_limit(self.limit().saturating_sub(length));
             if self.kind != CapacityKind::System {
                 backend.set_ledger_limit(self.id, self.limit());
@@ -287,22 +393,15 @@ impl Capacity {
             return Ok(child);
         }
 
-        let start = self.next;
-        let end = start.checked_add(length).ok_or(HmpError::OutOfCapacity)?;
-        let limit_end = self.range.start().get().saturating_add(self.limit());
-        if end > limit_end {
-            return Err(HmpError::OutOfCapacity);
-        }
-        self.next = end;
-        let mut child = Self::new(
-            id,
-            PhysRange::new(PhysAddr::new(start), length),
-            self.page_size,
-            kind,
-            length,
-        )?;
+        let range = self
+            .pool
+            .lock()
+            .take(length)
+            .ok_or(HmpError::OutOfCapacity)?;
+        let mut child = Self::new(id, range, self.page_size, kind, length)?;
         child.parent = Some(self.id);
-        child.parent_limit = Some(Arc::clone(&self.limit));
+        child.limit.link_to(&self.limit);
+        child.pool.lock().link_to(&self.pool);
         self.set_limit(self.limit().saturating_sub(length));
         Ok(child)
     }
@@ -366,8 +465,7 @@ impl Capacity {
         scrub(phys, length as usize);
 
         self.used = self.used.saturating_sub(length);
-        self.free.push(PhysRange::new(phys, length));
-        self.coalesce();
+        self.pool.lock().release(PhysRange::new(phys, length));
         Ok(())
     }
 
@@ -383,55 +481,38 @@ impl Capacity {
             return Err(HmpError::WrongCapability);
         }
         if child.released {
-            // 已并回的容量再次 merge 会把配额重复加回父容量，fallback 路径还会
-            // 把同一区间二次插入空闲表。
             return Err(HmpError::WrongCapability);
         }
         if child.page_size != self.page_size {
             return Err(HmpError::InvalidSize);
         }
-        let range = child.range;
         if child.used() != 0 {
             return Err(HmpError::PermissionDenied);
         }
-
-        // 后端是窗口归属的权威，容量可能覆盖多个窗口，不能用单个区间做范围
-        // 检查；未注册后端时才按自带的窗口分配器校验。
-        if let Some(backend) = super::backend::physical_backend() {
-            backend.reclaim_capacity(child.id, Some(self.id), child.limit())?;
-            self.set_limit(self.limit().saturating_add(child.limit()));
-            child.released = true;
-            return Ok(());
-        }
-
-        // 子容量若已切出孙容量，其 `limit` 小于窗口长度；孙容量仍持有窗口内的
-        // 物理页，直接把整段并回父容量的空闲表会让同一区间被分配两次。
-        if child.limit() != range.len() {
-            return Err(HmpError::OutOfCapacity);
-        }
-        // 父容量的 limit 在 split 时已扣除子容量；校验区间时先把子容量
-        // 的配额加回来，再在成功并回后恢复父容量配额。
-        let limit_end = self
-            .range
-            .start()
-            .get()
-            .saturating_add(self.limit().saturating_add(child.limit()));
-        if range.start().get() < self.range.start().get() || range.end().get() > limit_end {
+        if child.range.start().get() < self.range.start().get() {
             return Err(HmpError::OutOfRange);
         }
-        if range.end().get() == self.next {
-            self.next = range.start().get();
+
+        // 后端路径把窗口归属与后端 Ledger 一起并回父容量。
+        if let Some(backend) = super::backend::physical_backend() {
+            backend.reclaim_capacity(child.id, Some(self.id), child.limit())?;
         } else {
-            // 防御：区间不得与既有空闲窗口重叠（重复并回会破坏唯一物理页）。
-            if self.free.iter().any(|free| {
-                free.start().get() < range.end().get() && range.start().get() < free.end().get()
-            }) {
-                return Err(HmpError::WrongCapability);
+            // 子池当前剩余窗口立即并回父池；孙容量仍持有的窗口在各自池析构
+            // 时沿父链归还，父容量不会提前分配这些区间。
+            let windows = child.pool.lock().drain_window();
+            {
+                let mut pool = self.pool.lock();
+                for window in windows {
+                    pool.release(window);
+                }
             }
-            self.free.push(range);
-            self.coalesce();
+            child.pool.lock().link_to(&self.pool);
         }
+        // 配额立即并回父容量；子单元清零后挂到父单元，孙容量析构时的配额
+        // 会沿链继续流回父容量。
         self.set_limit(self.limit().saturating_add(child.limit()));
+        child.limit.set(0);
+        child.limit.link_to(&self.limit);
         child.released = true;
         Ok(())
     }
@@ -469,11 +550,11 @@ impl Capacity {
 
     /// 返回配额字节数。
     pub fn limit(&self) -> u64 {
-        self.limit.load(Ordering::Acquire)
+        self.limit.get()
     }
 
     fn set_limit(&self, limit: u64) {
-        self.limit.store(limit, Ordering::Release);
+        self.limit.set(limit);
     }
 
     /// 设置软上限；0 表示未设置。软上限只用于报告，不拒绝分配。
@@ -517,21 +598,6 @@ impl Capacity {
         }
         self.used
     }
-
-    fn coalesce(&mut self) {
-        self.free.sort_unstable_by_key(|range| range.start().get());
-        let mut merged: Vec<PhysRange> = Vec::with_capacity(self.free.len());
-        for range in self.free.drain(..) {
-            if let Some(last) = merged.last_mut()
-                && last.end().get() == range.start().get()
-            {
-                *last = PhysRange::new(last.start(), last.len().saturating_add(range.len()));
-                continue;
-            }
-            merged.push(range);
-        }
-        self.free = merged;
-    }
 }
 
 impl Drop for Capacity {
@@ -539,15 +605,10 @@ impl Drop for Capacity {
         if self.released {
             return;
         }
-        let limit = self.limit();
-        let released = match super::backend::physical_backend() {
-            Some(backend) => backend
-                .reclaim_capacity(self.id, self.parent, limit)
-                .is_ok(),
-            None => true,
-        };
-        if released && let Some(parent_limit) = self.parent_limit.take() {
-            parent_limit.fetch_add(limit, Ordering::AcqRel);
+        // 后端路径归还窗口归属；配额与 fallback 窗口由 LimitCell/Pool 的
+        // Drop 沿父子链自动并回，不在这里重复处理。
+        if let Some(backend) = super::backend::physical_backend() {
+            let _ = backend.reclaim_capacity(self.id, self.parent, self.limit());
         }
     }
 }
@@ -832,20 +893,31 @@ mod tests {
     }
 
     #[test]
-    fn merge_rejects_child_with_grandchild_windows() {
+    fn merge_defers_grandchild_windows_until_they_drop() {
         let mut parent = capacity();
+        let original = parent.limit();
         let mut child = parent
             .split(CapacityId::new(2), 0x8000, CapacityKind::User)
             .expect("子 Capacity");
         let mut grandchild = child
             .split(CapacityId::new(3), 0x4000, CapacityKind::User)
             .expect("孙 Capacity");
-        assert_eq!(
-            parent.merge(&mut child).err(),
-            Some(HmpError::OutOfCapacity),
-            "孙容量仍持有窗口时不能并回"
-        );
+
+        // 孙窗口仍在：配额立即并回，但窗口要等孙容量析构才归还。
+        let child_range = child.range();
+        parent.merge(&mut child).expect("孙窗口存在时仍可并回");
+        drop(child);
+        let reserved = parent.allocate(0x4000).expect("父分配剩余窗口");
+        assert!(reserved.phys().get() >= child_range.start().get());
+
         let frame = grandchild.allocate(4096).expect("孙容量仍可分配");
-        assert!(frame.phys().get() >= child.range().start().get());
+        assert!(frame.phys().get() >= child_range.start().get());
+        let mut frame = Some(frame);
+        grandchild.free(&mut frame).expect("归还孙页");
+
+        drop(grandchild);
+        assert_eq!(parent.limit(), original, "孙容量析构后配额必须回到父容量");
+        let reclaimed = parent.allocate(0x4000).expect("孙窗口归还后可分配");
+        assert!(reclaimed.phys().get() >= child_range.start().get());
     }
 }
