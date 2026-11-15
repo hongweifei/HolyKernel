@@ -209,6 +209,74 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 把用户缓冲写入 Frame 的常驻内容。
+    pub(crate) fn frame_write(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        self.frame_content(index, tcb, frame, true)
+    }
+
+    /// 把 Frame 的常驻内容读入用户缓冲。
+    pub(crate) fn frame_read(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        self.frame_content(index, tcb, frame, false)
+    }
+
+    fn frame_content(&mut self, index: usize, tcb: TcbId, frame: &mut C, write: bool) -> Switch {
+        let number = frame.arg0() as usize;
+        let offset = frame.arg1();
+        let address = frame.arg2();
+        let length = frame.arg3() as usize;
+        let Some(handle) = self.handle_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(rights) = self
+            .kernel
+            .handle_rights(tcb, handle, hk_handle::ObjectKind::Frame)
+        else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let required = if write { Rights::WRITE } else { Rights::READ };
+        if !rights.contains(required) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(end) = offset.checked_add(length as u64) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if end > range.len() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut done = 0;
+        let mut buffer = [0_u8; 4096];
+        while done < length {
+            let chunk = (length - done).min(buffer.len());
+            let phys = hk_hal::PhysAddr::new(range.start().get() + offset + done as u64);
+            let copied = if write {
+                self.platform
+                    .read_user(address + done as u64, &mut buffer[..chunk])
+                    && self.platform.write_phys(phys, &buffer[..chunk])
+            } else {
+                self.platform.read_phys(phys, &mut buffer[..chunk])
+                    && self
+                        .platform
+                        .write_user(address + done as u64, &buffer[..chunk])
+            };
+            if !copied {
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+            done += chunk;
+        }
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     pub(crate) fn frame_pin(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let pinned = frame.arg1() != 0;

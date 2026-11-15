@@ -302,6 +302,12 @@ pub const SYS_FRAME_PIN: u64 = 0x96;
 /// 把 Frame 映射进当前任务地址空间。
 pub const SYS_FRAME_MAP: u64 = 0x9A;
 
+/// 把用户缓冲写入 Frame 的常驻内容；Provider 用它填充非零页。
+pub const SYS_FRAME_WRITE: u64 = 0x97;
+
+/// 把 Frame 的常驻内容读入用户缓冲。
+pub const SYS_FRAME_READ: u64 = 0x98;
+
 /// 把 Frame 或类型化能力绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP: u64 = 0x9B;
 
@@ -758,6 +764,8 @@ mod tests {
             SYS_FRAME_INFO,
             SYS_FRAME_PIN,
             SYS_FRAME_MAP,
+            SYS_FRAME_WRITE,
+            SYS_FRAME_READ,
             SYS_DMA_MAP,
             SYS_FRAME_BANK_STATS,
             SYS_CAPACITY_MERGE,

@@ -271,6 +271,32 @@ impl UserPlatform for X86Platform {
         hk_platform_x86_64::cpu::user_access_end();
     }
 
+    fn write_phys(&self, phys: hk_hal::PhysAddr, data: &[u8]) -> bool {
+        let base = hk_platform_x86_64::paging::direct_map_base();
+        if base == 0 {
+            return false;
+        }
+        let destination = base.saturating_add(phys.get()) as *mut u8;
+        // SAFETY: 调用方持有该 Frame 的写权限；物理页经 direct map 可写。
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr(), destination, data.len());
+        }
+        true
+    }
+
+    fn read_phys(&self, phys: hk_hal::PhysAddr, buffer: &mut [u8]) -> bool {
+        let base = hk_platform_x86_64::paging::direct_map_base();
+        if base == 0 {
+            return false;
+        }
+        let source = base.saturating_add(phys.get()) as *const u8;
+        // SAFETY: 调用方持有该 Frame 的读权限；物理页经 direct map 可读。
+        unsafe {
+            core::ptr::copy_nonoverlapping(source, buffer.as_mut_ptr(), buffer.len());
+        }
+        true
+    }
+
     fn user_mapped(&self, address: u64) -> bool {
         user_range(address, 1) && hk_platform_x86_64::paging::is_user_mapped(address)
     }
@@ -381,13 +407,12 @@ impl UserPlatform for X86Platform {
         {
             return None;
         }
+        let bytes = usize::try_from(length).ok()?;
         USER_ADDRESS_SPACES
-            .map_mmio(
-                slot,
-                virt,
-                framebuffer.phys.get(),
-                usize::try_from(length).ok()?,
-            )
+            .with(slot, |space| {
+                space.map_framebuffer(virt, framebuffer.phys.get(), bytes)
+            })
+            .unwrap_or(false)
             .then_some(length)
     }
 

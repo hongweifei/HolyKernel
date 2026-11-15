@@ -196,6 +196,14 @@ pub trait UserPlatform {
     fn write_user(&self, _address: u64, _data: &[u8]) -> bool {
         false
     }
+    /// 把字节写入一段常驻物理内存；平台无法访问时返回 `false`。
+    fn write_phys(&self, _phys: hk_hal::PhysAddr, _data: &[u8]) -> bool {
+        false
+    }
+    /// 从一段常驻物理内存读入字节；平台无法访问时返回 `false`。
+    fn read_phys(&self, _phys: hk_hal::PhysAddr, _buffer: &mut [u8]) -> bool {
+        false
+    }
     /// 返回任务槽位的 Arena 基址与大小。
     fn arena_layout(&self, slot: usize) -> (u64, u64);
     /// 返回任务槽位的内存配额字节数；无限制时返回 `u64::MAX`。

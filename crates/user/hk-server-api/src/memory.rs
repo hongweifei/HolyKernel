@@ -6,9 +6,10 @@ use hk_syscall::{
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
-    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_OBJECT_ENUM,
-    SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT,
-    SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_LEDGER_ENUM,
+    SYS_LEDGER_INFO, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
+    SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES};
@@ -313,6 +314,36 @@ pub fn frame_info(frame: u64) -> Option<FrameInfo> {
 pub fn frame_pin(frame: u64, pinned: bool) -> u64 {
     // SAFETY: 内核校验 Frame 与驻留状态。
     unsafe { syscall_call(SYS_FRAME_PIN, frame, u64::from(pinned), 0, 0).value }
+}
+
+/// 把用户缓冲写入 Frame 的常驻内容；返回 0 或 `u64::MAX`。
+pub fn frame_write(frame: u64, offset: u64, data: &[u8]) -> u64 {
+    // SAFETY: 内核校验 Frame 句柄的 WRITE 权限与范围后复制缓冲。
+    unsafe {
+        syscall_call(
+            SYS_FRAME_WRITE,
+            frame,
+            offset,
+            data.as_ptr() as u64,
+            data.len() as u64,
+        )
+        .value
+    }
+}
+
+/// 把 Frame 的常驻内容读入用户缓冲；返回 0 或 `u64::MAX`。
+pub fn frame_read(frame: u64, offset: u64, data: &mut [u8]) -> u64 {
+    // SAFETY: 内核校验 Frame 句柄的 READ 权限与范围后复制缓冲。
+    unsafe {
+        syscall_call(
+            SYS_FRAME_READ,
+            frame,
+            offset,
+            data.as_mut_ptr() as u64,
+            data.len() as u64,
+        )
+        .value
+    }
 }
 
 /// 单条对象记录的编码长度。

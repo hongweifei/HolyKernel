@@ -137,6 +137,10 @@ struct MockPlatform {
     iommu: Option<RecordingIommu>,
     /// `map_user` 的返回值；用于构造页表重映射失败。
     map_ok: Arc<AtomicBool>,
+    /// 供 `read_user` 读取的用户缓冲。
+    input: Arc<spin::Mutex<Vec<u8>>>,
+    /// 常驻物理内存内容，键为物理地址。
+    phys: Arc<spin::Mutex<alloc::collections::BTreeMap<u64, u8>>>,
 }
 
 /// 只记录映射权限的软件 IOMMU，用于验证 DMA 映射从句柄派生 Rights。
@@ -200,6 +204,8 @@ impl MockPlatform {
             last_cow: Arc::new(spin::Mutex::new(Vec::new())),
             iommu: None,
             map_ok: Arc::new(AtomicBool::new(true)),
+            input: Arc::new(spin::Mutex::new(Vec::new())),
+            phys: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
         }
     }
 }
@@ -322,6 +328,38 @@ impl UserPlatform for MockPlatform {
 
     fn write_user(&self, _address: u64, data: &[u8]) -> bool {
         *self.written.lock() = data.to_vec();
+        true
+    }
+
+    fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
+        let input = self.input.lock();
+        let start = address as usize;
+        let Some(end) = start.checked_add(buffer.len()) else {
+            return false;
+        };
+        if end > input.len() {
+            return false;
+        }
+        buffer.copy_from_slice(&input[start..end]);
+        true
+    }
+
+    fn write_phys(&self, phys: hk_hal::PhysAddr, data: &[u8]) -> bool {
+        let mut memory = self.phys.lock();
+        for (index, byte) in data.iter().enumerate() {
+            memory.insert(phys.get() + index as u64, *byte);
+        }
+        true
+    }
+
+    fn read_phys(&self, phys: hk_hal::PhysAddr, buffer: &mut [u8]) -> bool {
+        let memory = self.phys.lock();
+        for (index, slot) in buffer.iter_mut().enumerate() {
+            let Some(byte) = memory.get(&(phys.get() + index as u64)) else {
+                return false;
+            };
+            *slot = *byte;
+        }
         true
     }
 
@@ -2008,6 +2046,68 @@ fn transports_byte_payloads() {
         u64::from_le_bytes(data[0x420..0x428].try_into().expect("system")),
         0x100
     );
+}
+
+#[test]
+fn frame_content_roundtrips_through_user_buffers() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(98),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x60_0000), 0x1_0000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(handle));
+    let capacity_number = 0x5002;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    assert_ne!(frame, u64::MAX);
+
+    let content = b"revision-page";
+    runtime.platform.input.lock().extend_from_slice(content);
+    context.rax = hk_syscall::SYS_FRAME_WRITE;
+    context.rdi = frame;
+    context.rsi = 0;
+    context.rdx = 0;
+    context.r10 = content.len() as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "Provider 必须能写入 Frame 内容");
+    assert_eq!(
+        runtime.platform.phys.lock().len(),
+        content.len(),
+        "物理页必须收到写入内容"
+    );
+
+    runtime.platform.written.lock().clear();
+    context.rax = hk_syscall::SYS_FRAME_READ;
+    context.rdi = frame;
+    context.rsi = 0;
+    context.rdx = 0;
+    context.r10 = content.len() as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    assert_eq!(runtime.platform.written.lock().as_slice(), content);
 }
 
 #[test]
