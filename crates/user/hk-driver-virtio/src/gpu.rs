@@ -44,10 +44,22 @@ impl Gpu {
         hal::bind(self.grant, self.descriptor);
     }
 
-    /// 返回设备声明的扫描输出分辨率。
-    pub fn resolution(&self) -> Option<(u32, u32)> {
+    /// 返回 EDID 首选分辨率；设备未协商 EDID 特性时返回 `None`。
+    pub fn edid_resolution(&self) -> Option<(u32, u32)> {
         self.activate();
-        self.gpu.lock().resolution().ok()
+        self.gpu
+            .lock()
+            .edid_preferred_resolution()
+            .ok()
+            .filter(|(width, height)| *width > 0 && *height > 0)
+    }
+
+    /// 返回扫描输出分辨率：优先 EDID 首选模式，退化到显示信息。
+    pub fn resolution(&self) -> Option<(u32, u32)> {
+        self.edid_resolution().or_else(|| {
+            self.activate();
+            self.gpu.lock().resolution().ok()
+        })
     }
 
     /// 建立扫描输出并绘制诊断图案，返回分辨率；用于启动自检。

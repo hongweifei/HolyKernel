@@ -446,6 +446,7 @@ impl SmokeMode {
             ],
             Self::Gpu => &[
                 "hk-server-virtio: gpu ready",
+                "hk-server-virtio: gpu edid 1280x800",
                 "hk-server-virtio: gpu 1280x800 ok",
             ],
             Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],

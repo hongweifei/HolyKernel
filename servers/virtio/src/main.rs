@@ -121,6 +121,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if let Some(handle) = grants.gpu {
         if let Some(Device::Gpu(device)) = probe_grant(handle) {
             write(b"hk-server-virtio: gpu ready\n");
+            if let Some((width, height)) = device.edid_resolution() {
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-virtio: gpu edid ")
+                    .number(u64::from(width))
+                    .text(b"x")
+                    .number(u64::from(height))
+                    .text(b"\n")
+                    .finish();
+            }
             match device.pattern() {
                 Some((width, height)) => {
                     hk_server_api::format::Line::new()
