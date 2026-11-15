@@ -68,7 +68,7 @@ HolyKernel/
 - 构建配置：`opt-level="s"`、`lto="thin"`、`overflow-checks=true`、`panic="abort"`。
 - 换行符与编码：统一 UTF-8 + LF，由 `.gitattributes`（`* text=auto eol=lf`）与 `.editorconfig` 固化；即使本机 `core.autocrlf=true`，检出与提交也保持 LF，二进制资源（`*.ttf`）不做转换。
 - Windows 检出：路径含 Windows 保留设备名（本仓库为 `servers/virtio/src/aux`）时 `git` 无法打开文件，`git status` 会误报为已修改；在该克隆执行 `git config core.protectNTFS false` 即可。
-- Windows 冒烟：`qemu-system-x86_64` 需在 `PATH` 中（xtask 直接按名字启动），例如把 `C:\Program Files\qemu` 加入用户 PATH；否则报 `启动 qemu-system-x86_64 失败：program not found`。
+- Windows 冒烟：QEMU 按 `HK_QEMU` 环境变量 → `%ProgramFiles%\qemu\qemu-system-x86_64.exe`（及 `ProgramFiles(x86)`）→ `PATH` 的顺序查找；三者皆无时报 `启动 qemu-system-x86_64 失败：program not found`。
 
 ### xtask
 

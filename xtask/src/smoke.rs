@@ -833,7 +833,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         None
     };
 
-    let mut command = Command::new("qemu-system-x86_64");
+    let mut command = Command::new(crate::qemu::program());
     crate::qemu::accelerate(&mut command);
     command
         .args(["-M", "q35", "-m", "256M", "-cdrom"])
@@ -887,7 +887,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
+        .map_err(|error| crate::qemu::launch_failure(&error))?;
     let mut session = QemuSession::new(child);
 
     let vcon_peer = vcon.map(|(listener, _)| thread::spawn(move || serve_vcon_echo(listener)));

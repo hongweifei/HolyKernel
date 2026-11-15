@@ -1,6 +1,6 @@
 //! 在 QEMU 中运行镜像。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Args;
@@ -94,6 +94,40 @@ fn parse_cpus(value: &str) -> std::result::Result<u32, String> {
     Ok(cpus)
 }
 
+/// QEMU 可执行文件位置。
+///
+/// Windows 的 QEMU 安装包默认不写 `PATH`，只写注册表与开始菜单，所以先看
+/// `HK_QEMU`，再看 `%ProgramFiles%\qemu`，最后才交给 `PATH` 解析。
+pub(crate) fn program() -> PathBuf {
+    if let Some(path) = std::env::var_os("HK_QEMU") {
+        return PathBuf::from(path);
+    }
+    #[cfg(windows)]
+    if let Some(path) = windows_install() {
+        return path;
+    }
+    PathBuf::from("qemu-system-x86_64")
+}
+
+/// `%ProgramW6432%\qemu\qemu-system-x86_64.exe` 等默认安装位置中存在的第一个。
+#[cfg(windows)]
+fn windows_install() -> Option<PathBuf> {
+    ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|root| Path::new(&root).join("qemu").join("qemu-system-x86_64.exe"))
+        .find(|candidate| candidate.is_file())
+}
+
+/// 启动失败时补上安装提示：默认错误只有 `program not found`，看不出缺什么。
+pub(crate) fn launch_failure(error: &std::io::Error) -> Failure {
+    Failure::new(format!(
+        "启动 qemu-system-x86_64 失败：{error}；\
+         安装 QEMU 后用 HK_QEMU 指定可执行文件（如 HK_QEMU=C:\\Program Files\\qemu\\qemu-system-x86_64.exe），\
+         或把安装目录加入 PATH"
+    ))
+}
+
 /// 判断 KVM 是否可用：`/dev/kvm` 存在不代表当前进程能打开它（常见于 CI）。
 fn kvm_available() -> bool {
     std::fs::OpenOptions::new()
@@ -127,7 +161,7 @@ pub fn run_with(
     machine: &Machine,
     gdb: Option<u16>,
 ) -> Result<()> {
-    let mut command = Command::new("qemu-system-x86_64");
+    let mut command = Command::new(program());
     command
         .args(["-M", "q35"])
         .arg("-m")
@@ -160,7 +194,7 @@ pub fn run_with(
     let status = command
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"])
         .status()
-        .map_err(|error| Failure::new(format!("启动 qemu-system-x86_64 失败：{error}")))?;
+        .map_err(|error| launch_failure(&error))?;
 
     match status.code() {
         Some(QEMU_SUCCESS) => Ok(()),
