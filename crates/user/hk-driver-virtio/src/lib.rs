@@ -43,7 +43,7 @@ pub use msi::Msi;
 pub use msix::Msix;
 pub use net::Network;
 pub use rng::Rng;
-pub use sound::{Sound, TONE_HZ, TONE_RATE};
+pub use sound::{Sound, TONE_HZ, TONE_MILLIS, TONE_RATE};
 pub use virtio_drivers::transport::DeviceType as VirtioDeviceType;
 
 /// virtio 驱动服务名；熵源与控制台协议共用同一服务端点。

@@ -1,0 +1,21 @@
+[package]
+name = "hk-server-sound-test"
+description = "HolyKernel virtio 音频服务自检客户端"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hk-server-sound-test"
+path = "src/main.rs"
+
+[dependencies]
+hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
+hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+
+[build-dependencies]
+hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+
+[lints]
+workspace = true

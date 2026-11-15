@@ -93,6 +93,7 @@ services![
     ("hk-server-netsock", true, 9, LATENCY),
     ("hk-server-console", true, 8, REALTIME),
     ("hk-server-console-test", true, 9, THROUGHPUT),
+    ("hk-server-sound-test", true, 9, THROUGHPUT),
     ("hk-server-shell", true, 9, LATENCY),
     ("hk-server-tempo", true, 8, TEMPO_POOL),
     ("hk-server-surface-provider", true, 0, LATENCY_HIGH),

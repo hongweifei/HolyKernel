@@ -4,14 +4,13 @@
 //! virtio 段派生，由本 crate 的单测锁定。
 
 pub mod entropy;
-pub mod sound;
 pub mod vconsole;
 
 #[cfg(test)]
 mod tests {
     use hk_proto::labels::{VIRTIO, base_of};
 
-    use super::{entropy, sound, vconsole};
+    use super::{entropy, vconsole};
 
     #[test]
     fn protocol_labels_stay_in_the_virtio_block() {
@@ -28,13 +27,6 @@ mod tests {
             vconsole::VCONSOLE_PING,
             vconsole::VCONSOLE_PONG,
             vconsole::VCONSOLE_SHUTDOWN,
-            sound::SOUND_INFO,
-            sound::SOUND_INFO_REPLY,
-            sound::SOUND_TONE,
-            sound::SOUND_TONE_ACK,
-            sound::SOUND_PING,
-            sound::SOUND_PONG,
-            sound::SOUND_SHUTDOWN,
         ];
         for label in labels {
             assert_eq!(base_of(label), VIRTIO, "标签越出 virtio 段：{label:#x}");

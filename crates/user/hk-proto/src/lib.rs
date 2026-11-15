@@ -18,6 +18,7 @@ pub mod net;
 pub mod pointer;
 pub mod scanout;
 pub mod socket;
+pub mod sound;
 pub mod status;
 pub mod tempo;
 pub mod vfs;

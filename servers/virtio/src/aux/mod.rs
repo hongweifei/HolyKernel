@@ -33,7 +33,7 @@ impl Aux {
             gpu::handle(device, label, sender);
         }
         if let Some(device) = &self.sound {
-            sound::handle(device, label, sender);
+            sound::handle(device, label, word, sender);
         }
     }
 }

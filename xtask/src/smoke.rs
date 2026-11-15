@@ -459,6 +459,8 @@ impl SmokeMode {
             Self::Sound => &[
                 "hk-server-virtio: sound ready streams 1",
                 "hk-server-virtio: sound tone ok",
+                "hk-server-sound-test: info streams 1",
+                "hk-server-sound-test: tone 880 ok",
             ],
             Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],
             Self::Vcon => &[
@@ -1247,18 +1249,45 @@ fn verify_tone(path: &Path) -> Result<()> {
         .map(|sample| sample.unsigned_abs())
         .max()
         .unwrap_or(0);
-    let crossings = samples
-        .windows(2)
-        .filter(|window| window[0] < 0 && window[1] >= 0)
-        .count();
-    let seconds = samples.len() as f64 / f64::from(rate);
-    let frequency = crossings as f64 / seconds;
     if peak < 1_000 {
         return Err(Failure::new(format!("自检音幅度过低：峰值 {peak}")));
     }
-    if !(380.0..=500.0).contains(&frequency) {
+    // 服务自检播 440 Hz，客户端再点 880 Hz；按 50 ms 窗口做音高检测，
+    // 跳过静音窗口，统计落在两个目标附近的有效窗口数。
+    let window = (rate as usize / 20).max(64);
+    let step = window / 2;
+    let mut low = 0;
+    let mut high = 0;
+    let mut start = 0;
+    while start + window <= samples.len() {
+        let segment = &samples[start..start + window];
+        let segment_peak = segment
+            .iter()
+            .map(|sample| sample.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        if segment_peak >= 1_000 {
+            let crossings = segment
+                .windows(2)
+                .filter(|pair| pair[0] < 0 && pair[1] >= 0)
+                .count();
+            let frequency = crossings as f64 * f64::from(rate) / window as f64;
+            if (410.0..=470.0).contains(&frequency) {
+                low += 1;
+            } else if (840.0..=920.0).contains(&frequency) {
+                high += 1;
+            }
+        }
+        start += step;
+    }
+    if low < 3 {
         return Err(Failure::new(format!(
-            "自检音频率不符：{frequency:.1} Hz（期望约 440 Hz）"
+            "WAV 中未检出 440 Hz 自检音（命中 {low} 个窗口）"
+        )));
+    }
+    if high < 3 {
+        return Err(Failure::new(format!(
+            "WAV 中未检出 880 Hz 客户端音（命中 {high} 个窗口）"
         )));
     }
     Ok(())
