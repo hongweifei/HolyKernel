@@ -93,7 +93,7 @@ flowchart LR
 
 下列缺口来自 2026-11-10 的 HMP 内存面审计（M1–M18 与 C1–C14 已完成），不参与 M6 退出标准判定，转入后续里程碑：
 
-- **Provider 服务端**：按设计由各自服务承担——Revision 是 RevisionStore/VFS，Surface 是 Display/GPU，TaskImage 是 Image Loader/Root Server，DeviceAllocation 是 GPU/驱动，Anonymous 是 Memory Server。当前只有 Memory Server 实现了 Anonymous 的懒加载与故障服务；VFS/Display 尚未暴露可映射的 Revision/Surface 能力并绑定自身端点，内核侧契约与类型化校验已就绪。
+- **Provider 服务端**：按设计由各自服务承担——Revision 是 RevisionStore/VFS，Surface 是 Display/GPU，TaskImage 是 Image Loader/Root Server，DeviceAllocation 是 GPU/驱动，Anonymous 是 Memory Server。Revision 已完成：VFS 以 `OP_MAP_REVISION` 暴露只读懒能力、绑定自身端点，按 8 字 Fault 读取修订页并 `Provide`，`Release` 清理元数据。Surface 仍未暴露可映射能力；TaskImage/DeviceAllocation 目前由装载器与驱动以常驻方式创建。
 - **Capability 操作收敛**：`SYS_CAPABILITY_*` 仍无 `Swap` 入口（`CapabilityOp::Swap` 只对 Anonymous 定义，swap 策略属于 AnonymousProvider）。`Map` 对所有类型成立是契约本身：Region 是任何类型化能力的唯一映射视图，类型收敛由 `execute`/`grow`/`commit`/`scanout` 等操作与句柄 Rights/W^X 校验完成。
 - **System Arena 覆盖面**：已完成。用户地址空间的页表页（含检查点恢复建立的根与中间页表）在分配时经 direct map 登记、地址空间释放时移除；Hosted 模拟器不运行用户地址空间页表，`SYS_SYSTEM_ARENA_*` 在该模拟器上没有数据源。
 - **客户端类型层**：已完成。`hk-server-api::handle` 提供 `Handle<Revision>`/`Handle<Surface>`/`Handle<Anonymous>`/`Handle<Capability>` 等 `repr(transparent)` 包装与类型化创建/操作；Memory Server 的惰性匿名能力已改用类型化路径，ABI 仍是单一 `u64`。
