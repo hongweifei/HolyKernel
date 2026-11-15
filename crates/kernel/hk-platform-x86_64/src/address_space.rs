@@ -32,16 +32,18 @@ impl Deref for UserSpace {
 impl UserSpace {
     /// 把设备区间映射到用户任务，缓存属性由调用方按映射种类给出。
     ///
-    /// 一律用 4 KiB 页：PAT 选择位在 4 KiB 页表项里是第 7 位，大页那里是页大小
-    /// 标志，写不进去。
+    /// 只有用到 PAT 的策略才强制 4 KiB 页：PAT 选择位在 4 KiB 页表项里是第 7 位，
+    /// 大页那里是页大小标志。`Uncached` 靠 `PWT|PCD` 表达，大页同样有效，寄存器
+    /// 窗口因此不必为一个 BAR 铺上千个页表项。
     pub fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
+        let force_4k = !matches!(policy, CachePolicy::Uncached);
         PageTable::map_user_range(
             self.0.backend(),
             virt,
             phys,
             len,
             crate::paging::PageFlags::device(policy),
-            true,
+            force_4k,
             false,
         )
     }
