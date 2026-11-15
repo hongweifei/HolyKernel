@@ -455,6 +455,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         self.tasks[index].reply = received.reply;
+        self.tasks[index].last_words = received.message.words;
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);
         frame.set_sender(self.endpoint_of(received.sender));
@@ -483,6 +484,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         self.tasks[index].reply = received.reply;
+        self.tasks[index].last_words = received.message.words;
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);
         frame.set_sender(self.endpoint_of(received.sender));

@@ -311,6 +311,9 @@ pub const SYS_FRAME_READ: u64 = 0x98;
 /// 查询句柄对应的对象标识。
 pub const SYS_HANDLE_ID: u64 = 0x99;
 
+/// 读取最近一次接收消息的 8 个字；Provider 用它解析 Fault 描述。
+pub const SYS_MESSAGE_WORDS: u64 = 0xA5;
+
 /// 把 Frame 或类型化能力绑定到 DeviceGrant 的 IOMMU 域。
 pub const SYS_DMA_MAP: u64 = 0x9B;
 
@@ -770,6 +773,7 @@ mod tests {
             SYS_FRAME_WRITE,
             SYS_FRAME_READ,
             SYS_HANDLE_ID,
+            SYS_MESSAGE_WORDS,
             SYS_DMA_MAP,
             SYS_FRAME_BANK_STATS,
             SYS_CAPACITY_MERGE,

@@ -2111,6 +2111,28 @@ fn frame_content_roundtrips_through_user_buffers() {
 }
 
 #[test]
+fn message_words_are_queryable() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let words = [1_u64, 2, 3, 4, 5, 6, 7, 8];
+    runtime.tasks[index].last_words = words;
+
+    context.rax = hk_syscall::SYS_MESSAGE_WORDS;
+    context.rdi = 0x100;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 64);
+    let written = runtime.platform.written.lock();
+    for (slot, word) in words.iter().enumerate() {
+        assert_eq!(
+            u64::from_le_bytes(written[slot * 8..slot * 8 + 8].try_into().expect("word")),
+            *word
+        );
+    }
+}
+
+#[test]
 fn handle_id_is_queryable() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

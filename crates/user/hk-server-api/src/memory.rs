@@ -7,8 +7,8 @@ use hk_syscall::{
     SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE,
     SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO,
     SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
-    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
+    SYS_LEDGER_INFO, SYS_MESSAGE_WORDS, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW,
+    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
     SYS_SYSTEM_ARENA_REGIONS,
 };
 
@@ -351,6 +351,22 @@ pub fn handle_id(handle: u64) -> Option<u64> {
     // SAFETY: 内核只读取调用者句柄表。
     let id = unsafe { syscall_call(SYS_HANDLE_ID, handle, 0, 0, 0).value };
     (id != u64::MAX).then_some(id)
+}
+
+/// 最近一次接收消息的 8 个字；Provider 用它解析 `Fault` 描述。
+pub fn message_words() -> Option<[u64; 8]> {
+    let mut bytes = [0_u8; 64];
+    // SAFETY: 缓冲区属于本进程；内核复制最近一条消息的 8 个字。
+    let result =
+        unsafe { syscall_call(SYS_MESSAGE_WORDS, bytes.as_mut_ptr() as u64, 0, 0, 0).value };
+    if result != 64 {
+        return None;
+    }
+    let mut words = [0_u64; 8];
+    for (slot, word) in words.iter_mut().enumerate() {
+        *word = u64::from_le_bytes(bytes[slot * 8..slot * 8 + 8].try_into().ok()?);
+    }
+    Some(words)
 }
 
 /// 单条对象记录的编码长度。
