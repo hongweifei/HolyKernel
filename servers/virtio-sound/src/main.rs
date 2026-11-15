@@ -112,22 +112,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     // 启动自检：播 440 Hz 一段，结果计入 WAV。
     let mut queue = Queue::new();
-    let mut active_owner = sound
-        .start_tone(TONE_HZ, TONE_MILLIS, 0)
-        .is_some()
-        .then_some(0);
+    let _ = sound.start_tone(TONE_HZ, TONE_MILLIS, 0);
 
     let mut buffer = [0_u8; 256];
     loop {
-        let playing = sound.status() == 1;
-        if playing {
+        if sound.playing() > 0 {
             // 播放中：消息不阻塞处理，1 tick 后继续泵。
             while let Some(message) = try_message(endpoint, &mut buffer) {
-                handle(&sound, &mut queue, &mut active_owner, message, &buffer);
+                handle(&sound, &mut queue, message, &buffer);
             }
-            if let Some((owner, ok)) = sound.poll() {
-                finish(&sound, &mut queue, &mut active_owner, owner, ok);
-            }
+            complete(&sound, &mut queue, &mut buffer, endpoint);
             let _ = sleep_ticks(1);
         } else {
             let (label, word, sender, length, received) =
@@ -136,10 +130,40 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let _ = close_handle(received);
             }
             let message = (label, word, sender, length.min(buffer.len()));
-            handle(&sound, &mut queue, &mut active_owner, message, &buffer);
-            if let Some((owner, ok)) = sound.poll() {
-                finish(&sound, &mut queue, &mut active_owner, owner, ok);
+            handle(&sound, &mut queue, message, &buffer);
+            complete(&sound, &mut queue, &mut buffer, endpoint);
+        }
+    }
+}
+
+/// 回收已完成的流：通知发起者，并把队列中的请求补到空闲流上。
+#[cfg(target_os = "none")]
+fn complete(sound: &hk_driver_virtio::Sound, queue: &mut Queue, buffer: &mut [u8], endpoint: u64) {
+    while let Some((_stream, owner, ok)) = sound.poll() {
+        if owner != 0 {
+            let _ = send(owner, SOUND_DONE, u64::from(ok));
+        }
+        while let Some(request) = queue.pop() {
+            if let Some((stream, rate)) =
+                sound.start_tone(request.hz, request.millis, request.owner)
+            {
+                Line::new()
+                    .text(b"hk-server-virtio-sound: start queued ")
+                    .number(u64::from(request.hz))
+                    .text(b" Hz stream ")
+                    .number(u64::from(stream))
+                    .text(b" rate ")
+                    .number(u64::from(rate))
+                    .text(b"\n")
+                    .finish();
+                break;
             }
+            if request.owner != 0 {
+                let _ = send(request.owner, SOUND_DONE, 0);
+            }
+        }
+        while let Some(message) = try_message(endpoint, buffer) {
+            handle(sound, queue, message, buffer);
         }
     }
 }
@@ -154,39 +178,11 @@ fn try_message(endpoint: u64, buffer: &mut [u8]) -> Option<(u64, u64, u64, usize
     (label != 0).then_some((label, word, sender, length.min(buffer.len())))
 }
 
-/// 一段播放结束：通知发起者，并启动队列中的下一段。
-#[cfg(target_os = "none")]
-fn finish(
-    sound: &hk_driver_virtio::Sound,
-    queue: &mut Queue,
-    active_owner: &mut Option<u64>,
-    owner: u64,
-    ok: bool,
-) {
-    if owner != 0 {
-        let _ = send(owner, SOUND_DONE, u64::from(ok));
-    }
-    *active_owner = None;
-    while let Some(request) = queue.pop() {
-        if sound
-            .start_tone(request.hz, request.millis, request.owner)
-            .is_some()
-        {
-            *active_owner = Some(request.owner);
-            return;
-        }
-        if request.owner != 0 {
-            let _ = send(request.owner, SOUND_DONE, 0);
-        }
-    }
-}
-
 /// 处理一条协议消息。
 #[cfg(target_os = "none")]
 fn handle(
     sound: &hk_driver_virtio::Sound,
     queue: &mut Queue,
-    active_owner: &mut Option<u64>,
     message: (u64, u64, u64, usize),
     buffer: &[u8],
 ) {
@@ -200,7 +196,7 @@ fn handle(
             let mut payload = [0_u8; 16];
             payload[0..4].copy_from_slice(&(streams as u32).to_le_bytes());
             payload[4..8].copy_from_slice(&TONE_RATE.to_le_bytes());
-            payload[8..12].copy_from_slice(&1_u32.to_le_bytes());
+            payload[8..12].copy_from_slice(&2_u32.to_le_bytes());
             payload[12..16].copy_from_slice(&sound.jacks().to_le_bytes());
             let _ = send_data(sender, SOUND_INFO_REPLY, &payload);
         }
@@ -218,24 +214,29 @@ fn handle(
             };
             let hz = if hz == 0 { TONE_HZ } else { hz };
             let millis = if millis == 0 { TONE_MILLIS } else { millis };
-            if active_owner.is_some() {
-                // 设备正忙：排队，受理仍然成功；队列满时明确拒绝。
-                let queued = queue.push(Request {
+            // 有空闲流就直接开始；全部占用时排队，队列满才拒绝。
+            let started = sound.start_tone(hz, millis, sender);
+            if let Some((stream, rate)) = started {
+                Line::new()
+                    .text(b"hk-server-virtio-sound: start ")
+                    .number(u64::from(hz))
+                    .text(b" Hz stream ")
+                    .number(u64::from(stream))
+                    .text(b" rate ")
+                    .number(u64::from(rate))
+                    .text(b"\n")
+                    .finish();
+            }
+            let accepted = started.is_some()
+                || queue.push(Request {
                     owner: sender,
                     hz,
                     millis,
                 });
-                let _ = send(sender, SOUND_TONE_ACK, u64::from(queued));
-            } else {
-                let accepted = sound.start_tone(hz, millis, sender).is_some();
-                if accepted {
-                    *active_owner = Some(sender);
-                }
-                let _ = send(sender, SOUND_TONE_ACK, u64::from(accepted));
-            }
+            let _ = send(sender, SOUND_TONE_ACK, u64::from(accepted));
         }
         SOUND_STATUS => {
-            let _ = send(sender, SOUND_STATUS_REPLY, u64::from(sound.status()));
+            let _ = send(sender, SOUND_STATUS_REPLY, sound.playing() as u64);
         }
         SOUND_PING => {
             let _ = send(sender, SOUND_PONG, 0);

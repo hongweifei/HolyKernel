@@ -22,7 +22,7 @@ pub const SOUND_PONG: u64 = VIRTIO + 0x55;
 pub const SOUND_DONE: u64 = VIRTIO + 0x57;
 /// 查询播放状态；响应消息字 1=播放中、0=空闲/已播完、2=失败。
 pub const SOUND_STATUS: u64 = VIRTIO + 0x58;
-/// 状态响应。
+/// 状态响应：消息字为正在播放的流数量。
 pub const SOUND_STATUS_REPLY: u64 = VIRTIO + 0x59;
 /// 请求驱动服务退出。
 pub const SOUND_SHUTDOWN: u64 = VIRTIO + 0x56;
@@ -87,7 +87,7 @@ impl Client {
         false
     }
 
-    /// 查询播放状态：1=播放中，0=空闲/已播完，2=失败。
+    /// 查询正在播放的流数量。
     pub fn status(&self) -> u32 {
         let _ = send(self.service, SOUND_STATUS, 0);
         let mut buffer = [0_u8; 8];

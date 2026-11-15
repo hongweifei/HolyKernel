@@ -457,9 +457,9 @@ impl SmokeMode {
                 "hk-server-virtio: gpu 1280x800 ok",
             ],
             Self::Sound => &[
-                "hk-server-virtio-sound: ready streams 1",
-                "hk-server-sound-test: info streams 1",
-                "hk-server-sound-test: tone 880 ok",
+                "hk-server-virtio-sound: ready streams 2",
+                "hk-server-sound-test: info streams 2",
+                "hk-server-sound-test: concurrent 660+880 ok",
                 "hk-server-sound-test: async accept",
             ],
             Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],
@@ -966,7 +966,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         command
             .arg("-audiodev")
             .arg(format!("wav,id=snd0,path={}", tone.display()))
-            .args(["-device", "virtio-sound-pci,audiodev=snd0"]);
+            .args(["-device", "virtio-sound-pci,audiodev=snd0,streams=4"]);
     }
     if mode == SmokeMode::GpuDisplay {
         // 没有 VGA：Display 只能从 virtio-gpu 接管扫描输出。
@@ -1252,45 +1252,33 @@ fn verify_tone(path: &Path) -> Result<()> {
     if peak < 1_000 {
         return Err(Failure::new(format!("自检音幅度过低：峰值 {peak}")));
     }
-    // 服务自检播 440 Hz，客户端再点 880 Hz；按 50 ms 窗口做音高检测，
-    // 跳过静音窗口，统计落在两个目标附近的有效窗口数。
-    let window = (rate as usize / 20).max(64);
-    let step = window / 2;
-    let mut low = 0;
-    let mut high = 0;
-    let mut start = 0;
-    while start + window <= samples.len() {
-        let segment = &samples[start..start + window];
-        let segment_peak = segment
-            .iter()
-            .map(|sample| sample.unsigned_abs())
-            .max()
-            .unwrap_or(0);
-        if segment_peak >= 1_000 {
-            let crossings = segment
-                .windows(2)
-                .filter(|pair| pair[0] < 0 && pair[1] >= 0)
-                .count();
-            let frequency = crossings as f64 * f64::from(rate) / window as f64;
-            if (410.0..=470.0).contains(&frequency) {
-                low += 1;
-            } else if (840.0..=920.0).contains(&frequency) {
-                high += 1;
-            }
+    // 服务自检播 440 Hz；客户端在两条流上并发点播 660 Hz 与 880 Hz。
+    // 并发叠加后过零率不再等于单音频率，改用 Goertzel 分别测各频率能量，
+    // 并以未播放的 550 Hz 作为噪声基准。
+    let power = |hz: f64| goertzel(&samples, f64::from(rate), hz);
+    let noise = power(550.0).max(1.0);
+    for (hz, minimum) in [(440.0, 2), (660.0, 5), (880.0, 8)] {
+        let tone = power(hz);
+        if tone < noise * 10.0 || tone < minimum as f64 * 1_000.0 {
+            return Err(Failure::new(format!(
+                "WAV 中 {hz} Hz 能量不足：{tone:.0}（噪声基准 {noise:.0}）"
+            )));
         }
-        start += step;
-    }
-    if low < 3 {
-        return Err(Failure::new(format!(
-            "WAV 中未检出 440 Hz 自检音（命中 {low} 个窗口）"
-        )));
-    }
-    if high < 10 {
-        return Err(Failure::new(format!(
-            "WAV 中未检出 880 Hz 客户端音（命中 {high} 个窗口）"
-        )));
     }
     Ok(())
+}
+
+/// 单频能量（均方幅度平方），按整段数据归一化。
+fn goertzel(samples: &[i16], rate: f64, hz: f64) -> f64 {
+    let coefficient = 2.0 * (core::f64::consts::TAU * hz / rate).cos();
+    let (mut first, mut second) = (0.0_f64, 0.0_f64);
+    for &sample in samples {
+        let value = f64::from(sample) + coefficient * first - second;
+        second = first;
+        first = value;
+    }
+    let magnitude = first * first + second * second - coefficient * first * second;
+    magnitude / samples.len() as f64
 }
 
 /// 把收到的字节原样回送，直到看到 `vcon p1\n`；用于多端口回显。

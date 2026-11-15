@@ -31,9 +31,9 @@ pub const TONE_MIN_MILLIS: u32 = 50;
 /// 允许请求的时长上限（毫秒）。
 pub const TONE_MAX_MILLIS: u32 = 2_000;
 /// 单声道。
-const TONE_CHANNELS: u8 = 1;
+const TONE_CHANNELS: u8 = 2;
 /// 一帧字节数：单声道 S16。
-const FRAME_BYTES: u32 = 2;
+const FRAME_BYTES: u32 = 4;
 /// 可协商的采样率，按优先级排列。
 const RATES: [(PcmRate, u32); 6] = [
     (PcmRate::Rate48000, 48_000),
@@ -78,7 +78,6 @@ struct Playback {
     current: f32,
     two_cos: f32,
     /// 在途令牌，按提交顺序完成。
-    tokens: VecDeque<u16>,
     /// 请求播放的客户端端点，播放结束时收到 `SOUND_DONE`。
     owner: u64,
     failed: bool,
@@ -87,9 +86,10 @@ struct Playback {
 /// virtio 音频设备。
 pub struct Sound {
     sound: Mutex<VirtIOSound<HalImpl, PciTransport>>,
-    playback: Mutex<Option<Playback>>,
-    /// 最近一次播放是否失败；0=空闲/成功，2=失败。
-    last_failed: Mutex<bool>,
+    /// 每个正在播放的输出流各占一条。
+    playbacks: Mutex<Vec<Playback>>,
+    /// 全部流的在途令牌，按提交顺序排列；设备完成顺序与之相同。
+    inflight: Mutex<VecDeque<(u16, u32)>>,
     grant: u64,
     descriptor: DeviceGrant,
 }
@@ -98,8 +98,8 @@ impl Sound {
     pub(crate) fn new(sound: VirtIOSound<HalImpl, PciTransport>) -> Self {
         Self {
             sound: Mutex::new(sound),
-            playback: Mutex::new(None),
-            last_failed: Mutex::new(false),
+            playbacks: Mutex::new(Vec::new()),
+            inflight: Mutex::new(VecDeque::new()),
             grant: hal::grant_handle(),
             descriptor: hal::grant_descriptor().expect("probe 未绑定设备授权"),
         }
@@ -126,20 +126,29 @@ impl Sound {
             .map(|streams| streams.len())
     }
 
-    /// 开始一段异步播放，返回 `(输出流数量, 采样率)`。
+    /// 在空闲流上开始一段异步播放，返回 `(流号, 协商采样率)`。
     ///
     /// 频率与时长的合法范围与设备能力都在这里校验；调用返回后数据由
     /// [`Self::poll`] 逐周期推进，播放完成后向 `owner` 发 `SOUND_DONE`。
-    pub fn start_tone(&self, hz: u32, millis: u32, owner: u64) -> Option<(usize, u32)> {
+    pub fn start_tone(&self, hz: u32, millis: u32, owner: u64) -> Option<(u32, u32)> {
         if !(TONE_MIN_HZ..=TONE_MAX_HZ).contains(&hz)
             || !(TONE_MIN_MILLIS..=TONE_MAX_MILLIS).contains(&millis)
         {
             return None;
         }
         self.activate();
+        let outputs: Vec<u32> = {
+            let mut sound = self.sound.lock();
+            sound.output_streams().ok()?
+        };
+        let used: Vec<u32> = self
+            .playbacks
+            .lock()
+            .iter()
+            .map(|playback| playback.stream)
+            .collect();
+        let stream = *outputs.iter().find(|stream| !used.contains(stream))?;
         let mut sound = self.sound.lock();
-        let outputs: Vec<u32> = sound.output_streams().ok()?;
-        let stream = *outputs.first()?;
         let rates = sound.rates_supported(stream).ok()?;
         let formats: PcmFormats = sound.formats_supported(stream).ok()?;
         if !formats.contains(PcmFormats::S16) {
@@ -177,74 +186,94 @@ impl Sound {
             previous: 0.0,
             current: (i16::MAX / 4) as f32 * sin_w,
             two_cos: 2.0 * cos_w,
-            tokens: VecDeque::new(),
             owner,
             failed: false,
         };
-        pump(&mut sound, &mut playback, period);
-        *self.last_failed.lock() = false;
-        *self.playback.lock() = Some(playback);
-        Some((outputs.len(), rate))
+        pump(&mut sound, &mut playback, period, &mut self.inflight.lock());
+        self.playbacks.lock().push(playback);
+        Some((stream, rate))
     }
 
-    /// 推进播放：回收完成周期并补交新周期；播完返回 `(owner, 是否成功)`。
-    pub fn poll(&self) -> Option<(u64, bool)> {
-        self.activate();
-        let mut playback = self.playback.lock();
-        let state = playback.as_mut()?;
-        let mut sound = self.sound.lock();
-        let period = state.period;
-        while let Some(&token) = state.tokens.front() {
-            match sound.pcm_xfer_ok(token) {
-                Ok(()) => {
-                    state.tokens.pop_front();
-                }
-                Err(virtio_drivers::Error::NotReady) => break,
-                Err(_) => {
-                    state.failed = true;
-                    state.tokens.clear();
-                    break;
-                }
-            }
-        }
-        if !state.failed {
-            pump(&mut sound, state, period);
-        }
-        let finished = state.failed || (state.sent >= state.total && state.tokens.is_empty());
-        if !finished {
+    /// 推进所有播放：回收完成周期并补交新周期。
+    ///
+    /// 每完成一条返回 `(stream, owner, 是否成功)`；调用方循环直到返回 `None`。
+    pub fn poll(&self) -> Option<(u32, u64, bool)> {
+        if self.playbacks.lock().is_empty() {
             return None;
         }
-        let owner = state.owner;
-        let ok = !state.failed;
-        *self.last_failed.lock() = state.failed;
-        let stream = state.stream;
-        let _ = sound.pcm_stop(stream);
-        let _ = sound.pcm_release(stream);
-        *playback = None;
-        Some((owner, ok))
+        self.activate();
+        let mut sound = self.sound.lock();
+        let mut playbacks = self.playbacks.lock();
+        let mut inflight = self.inflight.lock();
+        // 所有流共用一个发送队列，但设备按流分别处理，完成顺序与提交顺序无关：
+        // `pcm_xfer_ok` 只接受队列头的令牌，因此对在途令牌逐个探测，命中即回收。
+        loop {
+            let mut completed = None;
+            let mut fatal = None;
+            for (index, (token, stream)) in inflight.iter().enumerate() {
+                match sound.pcm_xfer_ok(*token) {
+                    Ok(()) => {
+                        completed = Some(index);
+                        break;
+                    }
+                    Err(virtio_drivers::Error::NotReady) => break,
+                    Err(virtio_drivers::Error::WrongToken) => continue,
+                    Err(_) => {
+                        fatal = Some((index, *stream));
+                        break;
+                    }
+                }
+            }
+            if let Some(index) = completed {
+                inflight.remove(index);
+                continue;
+            }
+            if let Some((index, _stream)) = fatal {
+                // 设备报错后无法再保证令牌对应关系：中止全部播放。
+                inflight.remove(index);
+                playbacks.iter_mut().for_each(|state| state.failed = true);
+                inflight.clear();
+                break;
+            }
+            break;
+        }
+        for state in playbacks.iter_mut() {
+            let period = state.period;
+            if !state.failed {
+                pump(&mut sound, state, period, &mut inflight);
+            }
+        }
+        if let Some(index) = playbacks.iter().position(|state| {
+            state.failed
+                || (state.sent >= state.total
+                    && !inflight.iter().any(|(_, stream)| *stream == state.stream))
+        }) {
+            let state = playbacks.remove(index);
+            let _ = sound.pcm_stop(state.stream);
+            let _ = sound.pcm_release(state.stream);
+            return Some((state.stream, state.owner, !state.failed));
+        }
+        None
     }
 
-    /// 播放状态：1=播放中，0=空闲/已播完，2=失败。
-    pub fn status(&self) -> u32 {
-        if self.playback.lock().is_some() {
-            1
-        } else if *self.last_failed.lock() {
-            2
-        } else {
-            0
-        }
+    /// 正在播放的流数量。
+    pub fn playing(&self) -> usize {
+        self.playbacks.lock().len()
     }
 
     /// 中止当前播放并释放流。
     pub fn stop(&self) -> bool {
         self.activate();
-        let mut playback = self.playback.lock();
-        let Some(state) = playback.take() else {
+        let mut playbacks = self.playbacks.lock();
+        if playbacks.is_empty() {
             return false;
-        };
+        }
         let mut sound = self.sound.lock();
-        let _ = sound.pcm_stop(state.stream);
-        let _ = sound.pcm_release(state.stream);
+        self.inflight.lock().clear();
+        for state in playbacks.drain(..) {
+            let _ = sound.pcm_stop(state.stream);
+            let _ = sound.pcm_release(state.stream);
+        }
         true
     }
 
@@ -256,9 +285,18 @@ impl Sound {
 }
 
 /// 尽力把后续周期提交到设备，直到在途数达到上限或数据送完。
-fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback, period: u32) {
+fn pump(
+    sound: &mut VirtIOSound<HalImpl, PciTransport>,
+    state: &mut Playback,
+    period: u32,
+    inflight: &mut VecDeque<(u16, u32)>,
+) {
     let mut buffer = [0_u8; MAX_PERIOD];
-    while !state.failed && state.tokens.len() < IN_FLIGHT && state.sent < state.total {
+    let mut pending = inflight
+        .iter()
+        .filter(|(_, stream)| *stream == state.stream)
+        .count();
+    while !state.failed && pending < IN_FLIGHT && state.sent < state.total {
         let length = (state.total - state.sent).min(period as usize);
         fill_period(
             &mut buffer[..length],
@@ -268,7 +306,8 @@ fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback, pe
         );
         match sound.pcm_xfer_nb(state.stream, &buffer[..length]) {
             Ok(token) => {
-                state.tokens.push_back(token);
+                inflight.push_back((token, state.stream));
+                pending += 1;
                 state.sent += length;
             }
             Err(virtio_drivers::Error::QueueFull) => break,
@@ -286,8 +325,8 @@ const MAX_PERIOD: usize = (48_000 / 100) * FRAME_BYTES as usize;
 /// 按递推振荡器填充一个周期的 S16LE 正弦，幅度为满量程的 1/4。
 fn fill_period(buffer: &mut [u8], previous: &mut f32, current: &mut f32, two_cos: f32) {
     for frame in buffer.as_chunks_mut::<{ FRAME_BYTES as usize }>().0 {
-        let sample = *current as i16;
-        frame.copy_from_slice(&sample.to_le_bytes());
+        let sample = (*current as i16).to_le_bytes();
+        frame.copy_from_slice(&[sample[0], sample[1], sample[0], sample[1]]);
         let next = two_cos * *current - *previous;
         *previous = *current;
         *current = next;

@@ -1,6 +1,7 @@
 //! sound-test：virtio 音频服务自检客户端。
 //!
-//! 查询音频能力，再请求一段 880 Hz 正弦音；音高由冒烟在 WAV 后端上校验。
+//! 查询音频能力，同时点播两声部（660 Hz 与 880 Hz）验证多流并发；音高由冒烟在
+//! WAV 后端上按频率能量校验。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -10,12 +11,9 @@ use hk_proto::sound::Client;
 #[cfg(target_os = "none")]
 use hk_server_api::{boot_cmdline, exit, format::Line, ticks, write};
 
-/// 自检音频率（Hz）。
+/// 并发点播的两个声部：(频率 Hz, 时长 ms)。
 #[cfg(target_os = "none")]
-const TEST_TONE_HZ: u32 = 880;
-/// 自检音时长（毫秒）：足够长，用来验证播放期间服务仍可响应请求。
-#[cfg(target_os = "none")]
-const TEST_TONE_MILLIS: u32 = 1_000;
+const TONES: [(u32, u32); 2] = [(660, 700), (880, 1_000)];
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -45,11 +43,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         .text(b"\n")
         .finish();
     let started = ticks();
-    if !client.play(TEST_TONE_HZ, TEST_TONE_MILLIS) {
-        write(b"hk-server-sound-test: tone failed\n");
-        exit(3)
+    for (hz, millis) in TONES {
+        if !client.play(hz, millis) {
+            write(b"hk-server-sound-test: tone failed\n");
+            exit(3)
+        }
     }
-    // 受理应当是异步的：1 秒音频不能让请求本身阻塞。
+    // 受理应当是异步的：两条点播都立即返回，而不是等前一条播完。
     let accepted = ticks();
     if accepted.saturating_sub(started) > 100 {
         Line::new()
@@ -59,15 +59,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             .finish();
         exit(4)
     }
-    // 服务在定时节拍上推进播放，客户端只等完成通知。
-    if !client.wait_done() {
-        write(b"hk-server-sound-test: playback failed\n");
-        exit(5)
+    // 服务在定时节拍上推进每条流，客户端只等两个完成通知。
+    for _ in TONES {
+        if !client.wait_done() {
+            write(b"hk-server-sound-test: playback failed\n");
+            exit(5)
+        }
     }
     let finished = ticks();
     Line::new()
-        .text(b"hk-server-sound-test: tone ")
-        .number(u64::from(TEST_TONE_HZ))
+        .text(b"hk-server-sound-test: concurrent ")
+        .number(u64::from(TONES[0].0))
+        .text(b"+")
+        .number(u64::from(TONES[TONES.len() - 1].0))
         .text(b" ok\n")
         .finish();
     Line::new()
