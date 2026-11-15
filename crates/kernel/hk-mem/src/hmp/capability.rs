@@ -21,14 +21,9 @@ trait CapabilityKindExt {
 
 impl CapabilityKindExt for CapabilityKind {
     fn cache_policy(self) -> CachePolicy {
-        match self {
-            // 设备分配默认是寄存器或 BAR 窗口：逐次访问必须直达设备。
-            Self::DeviceAllocation => CachePolicy::Uncached,
-            // 其余能力承载 RAM 支撑的页：普通可缓存内存。
-            Self::Anonymous | Self::Frame | Self::Revision | Self::Surface | Self::TaskImage => {
-                CachePolicy::WriteBack
-            }
-        }
+        // 全部能力都由 RAM 支撑：DMA 缓冲、显存后备与普通页一样写回即可。
+        // MMIO 寄存器窗口不在这里取值——设备映射路径显式传 `Uncached`。
+        CachePolicy::WriteBack
     }
 
     fn supports(self, operation: CapabilityOp) -> bool {
