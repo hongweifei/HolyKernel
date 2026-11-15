@@ -104,6 +104,7 @@ pub fn run(
         hk_boot::limine::cmdline().is_some_and(|line| line.contains("checkpoint-srv-test"));
     let rng_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("rng-test"));
     let vcon_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("vcon-test"));
+    let gpu_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu-test"));
     let desktop = hk_boot::limine::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
@@ -126,6 +127,10 @@ pub fn run(
         }
         if vcon_test {
             // 控制台自检只需要设备管理器与 virtio 驱动服务。
+            return matches!(name, "hk-server-device" | "hk-server-virtio");
+        }
+        if gpu_test {
+            // 扫描输出自检只需要设备管理器与 virtio 驱动服务。
             return matches!(name, "hk-server-device" | "hk-server-virtio");
         }
         if console_test {

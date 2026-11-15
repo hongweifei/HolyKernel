@@ -20,3 +20,5 @@ pub const DEVICE_CLASS_AHCI: u64 = 6;
 pub const DEVICE_CLASS_NVME: u64 = 7;
 /// USB 主机控制器。
 pub const DEVICE_CLASS_USB: u64 = 8;
+/// 扫描输出（virtio-gpu）。
+pub const DEVICE_CLASS_GPU: u64 = 9;

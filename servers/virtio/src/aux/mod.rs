@@ -1,9 +1,10 @@
 //! 同一 virtio 驱动服务中的非块设备。
 
 pub mod console;
+pub mod gpu;
 pub mod rng;
 
-use hk_driver_virtio::{Console, Rng};
+use hk_driver_virtio::{Console, Gpu, Rng};
 
 /// 非块 virtio 设备集合。
 #[derive(Default)]
@@ -12,6 +13,8 @@ pub struct Aux {
     pub rng: Option<Rng>,
     /// 控制台设备。
     pub console: Option<Console>,
+    /// 扫描输出设备。
+    pub gpu: Option<Gpu>,
 }
 
 impl Aux {
@@ -22,6 +25,9 @@ impl Aux {
         }
         if let Some(device) = &self.console {
             console::handle(device, label, word, sender, data);
+        }
+        if let Some(device) = &self.gpu {
+            gpu::handle(device, label, sender);
         }
     }
 }

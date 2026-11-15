@@ -27,8 +27,8 @@ use hk_driver_virtio::{Block, Device, probe};
 use hk_proto::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
-    DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_RNG, DEVICE_GRANT, DEVICE_NONE,
-    DEVICE_REQUEST,
+    DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_GPU, DEVICE_CLASS_RNG, DEVICE_GRANT,
+    DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -60,6 +60,7 @@ struct Grants {
     block: Option<u64>,
     rng: Option<u64>,
     console: Option<u64>,
+    gpu: Option<u64>,
 }
 
 /// 服务入口。
@@ -117,9 +118,30 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
+    if let Some(handle) = grants.gpu {
+        if let Some(Device::Gpu(device)) = probe_grant(handle) {
+            write(b"hk-server-virtio: gpu ready\n");
+            match device.pattern() {
+                Some((width, height)) => {
+                    hk_server_api::format::Line::new()
+                        .text(b"hk-server-virtio: gpu ")
+                        .number(u64::from(width))
+                        .text(b"x")
+                        .number(u64::from(height))
+                        .text(b" ok\n")
+                        .finish();
+                }
+                None => write(b"hk-server-virtio: gpu pattern failed\n"),
+            }
+            devices.gpu = Some(*device);
+        } else {
+            write("hk-server-virtio: 扫描输出初始化失败\n".as_bytes());
+        }
+    }
+
     if let Some((handle, device)) = block {
         serve_block(endpoint, handle, device, devices)
-    } else if devices.rng.is_some() || devices.console.is_some() {
+    } else if devices.rng.is_some() || devices.console.is_some() || devices.gpu.is_some() {
         serve_aux(endpoint, devices)
     } else {
         write("hk-server-virtio: 没有可服务的设备\n".as_bytes());
@@ -134,6 +156,7 @@ fn collect_grants(endpoint: u64, manager: u64) -> Grants {
         block: request_grant(endpoint, manager, DEVICE_CLASS_BLOCK),
         rng: request_grant(endpoint, manager, DEVICE_CLASS_RNG),
         console: request_grant(endpoint, manager, DEVICE_CLASS_CONSOLE),
+        gpu: request_grant(endpoint, manager, DEVICE_CLASS_GPU),
     }
 }
 

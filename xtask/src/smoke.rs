@@ -115,6 +115,9 @@ pub enum SmokeMode {
     /// virtio-rng 熵源驱动
     #[value(name = "rng")]
     Rng,
+    /// virtio-gpu 扫描输出与诊断图案
+    #[value(name = "gpu")]
+    Gpu,
     /// virtio-console 驱动与宿主回显
     #[value(name = "vcon")]
     Vcon,
@@ -218,6 +221,7 @@ impl SmokeMode {
             )),
             Self::Console => Some(String::from("console-test")),
             Self::Rng => Some(String::from("rng-test")),
+            Self::Gpu => Some(String::from("gpu-test")),
             Self::Vcon => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
             Self::Terminal => Some(String::from("terminal-test")),
@@ -430,6 +434,10 @@ impl SmokeMode {
                 "hk-server-virtio: entropy ok",
                 "hk-server-virtio: rng ready",
             ],
+            Self::Gpu => &[
+                "hk-server-virtio: gpu ready",
+                "hk-server-virtio: gpu 1280x800 ok",
+            ],
             Self::Vcon => &[
                 "hk-server-virtio: console ready",
                 "hk-server-virtio: console echo ok",
@@ -616,6 +624,7 @@ impl SmokeMode {
             | Self::NetSocket
             | Self::Console
             | Self::Rng
+            | Self::Gpu
             | Self::Vcon
             | Self::Display
             | Self::Terminal
@@ -663,6 +672,7 @@ impl SmokeMode {
             Self::NetSocket => "build/serial-netsocket.log",
             Self::Console => "build/serial-console.log",
             Self::Rng => "build/serial-rng.log",
+            Self::Gpu => "build/serial-gpu.log",
             Self::Vcon => "build/serial-vcon.log",
             Self::Display => "build/serial-display.log",
             Self::Terminal => "build/serial-terminal.log",
@@ -872,6 +882,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
             command.args(["-object", "rng-random,id=rng0,filename=/dev/urandom"]);
         }
         command.args(["-device", "virtio-rng-pci,rng=rng0"]);
+    }
+    if mode == SmokeMode::Gpu {
+        // 保留默认 VGA 供 Limine 建立帧缓冲，另加一块 virtio-gpu 供驱动自检。
+        command.args(["-device", "virtio-gpu-pci"]);
     }
     if let Some((_, port)) = &vcon {
         command

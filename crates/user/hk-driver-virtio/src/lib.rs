@@ -14,6 +14,7 @@ extern crate alloc;
 
 mod blk;
 mod console;
+mod gpu;
 mod hal;
 mod input;
 pub mod msi;
@@ -34,6 +35,7 @@ use virtio_drivers::transport::pci::virtio_device_type;
 
 pub use blk::Block;
 pub use console::Console;
+pub use gpu::Gpu;
 pub use hal::{grant_descriptor, register_mapping};
 pub use input::Input;
 pub use msi::Msi;
@@ -57,6 +59,8 @@ pub enum Device {
     Rng(alloc::boxed::Box<Rng>),
     /// 控制台设备。
     Console(alloc::boxed::Box<Console>),
+    /// 扫描输出设备。
+    Gpu(alloc::boxed::Box<Gpu>),
     /// `virtio-drivers` 支持、当前驱动服务尚未接入的设备类别。
     Unsupported(VirtioDeviceType),
 }
@@ -132,6 +136,11 @@ pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> 
             Ok(Device::Console(alloc::boxed::Box::new(Console::new(
                 console,
             ))))
+        }
+        DeviceType::GPU => {
+            let gpu = virtio_drivers::device::gpu::VirtIOGpu::new(transport)
+                .map_err(|_| ProbeError::Device)?;
+            Ok(Device::Gpu(alloc::boxed::Box::new(Gpu::new(gpu))))
         }
         other => Ok(Device::Unsupported(other)),
     }
