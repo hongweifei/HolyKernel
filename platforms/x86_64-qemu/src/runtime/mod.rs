@@ -421,7 +421,7 @@ impl UserPlatform for X86Platform {
             paging::release_user(&old);
         }
         let template = paging::kernel_table();
-        let Ok(table) = template.create_user_with(paging::take_restore_page) else {
+        let Ok(table) = template.create_user_with(paging::take_restore_page_table) else {
             return false;
         };
         for page in pages {
@@ -442,7 +442,7 @@ impl UserPlatform for X86Platform {
                     hk_hal::VirtAddr::new(page.virt),
                     frame,
                     flags,
-                    paging::take_restore_page,
+                    paging::take_restore_page_table,
                 )
                 .is_err()
             {

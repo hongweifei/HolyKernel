@@ -113,6 +113,13 @@ pub fn take_restore_page() -> Option<PhysAddr> {
     PageAllocator::new(&FRAME_BANK).restore()
 }
 
+/// 取出一个用于页表的检查点恢复帧，并登记进 System Arena。
+pub fn take_restore_page_table() -> Option<PhysAddr> {
+    let frame = PageAllocator::new(&FRAME_BANK).restore()?;
+    crate::system_arena::register_kernel_page(frame, direct_map_base());
+    Some(frame)
+}
+
 /// 归还一个检查点恢复帧。
 pub fn give_restore_page(frame: PhysAddr) {
     PageAllocator::new(&FRAME_BANK).free_restore(frame);
@@ -168,6 +175,12 @@ pub fn release_user(table: &PageTable) {
         };
         match kind {
             FrameKind::PageTable => {
+                crate::system_arena::unregister_kernel_page(frame, table.direct_map);
+                FRAME_BANK.free_for(kind, PhysRange::new(frame, PAGE_SIZE as u64));
+            }
+            // 恢复路径建立的根与中间页表来自 Restore 池，但没有被
+            // `user_pages` 记为数据映射；它们同样已登记进 System Arena。
+            FrameKind::Restore if !tracked.contains(&frame) => {
                 crate::system_arena::unregister_kernel_page(frame, table.direct_map);
                 FRAME_BANK.free_for(kind, PhysRange::new(frame, PAGE_SIZE as u64));
             }

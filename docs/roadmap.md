@@ -95,7 +95,7 @@ flowchart LR
 
 - **Provider 服务端**：Memory Server 只实现 Anonymous 的懒加载与故障服务（`servers/memory/src/main.rs` 仅对 `CapabilityKind::Anonymous` 建懒能力）；Revision/Surface 的 fault/writeback/evict 服务端尚未实现，内核侧契约与类型化校验已就绪。
 - **Capability 操作收敛**：`SYS_CAPABILITY_*` 仍无 `Swap` 入口（`CapabilityOp::Swap` 只对 Anonymous 定义）；`CapabilityOp::Map` 对所有能力恒真，未按类型收敛。
-- **System Arena 覆盖面**：用户地址空间的页表页（Image/Cow/Restore 用途）属于任务地址空间，未登记 System Arena；Hosted 平台没有物理页表，`SYS_SYSTEM_ARENA_*` 查询返回失败。
+- **System Arena 覆盖面**：已完成。用户地址空间的页表页（含检查点恢复建立的根与中间页表）在分配时经 direct map 登记、地址空间释放时移除；Hosted 模拟器不运行用户地址空间页表，`SYS_SYSTEM_ARENA_*` 在该模拟器上没有数据源。
 - **客户端类型层**：`Handle<Revision>` 一类零成本句柄包装尚未在客户端库实现（[ADR-0016](adr/0016-hmp-native-contract.md) 第 6 节）。
 - **COW 记账**：私有页仍按能力行与 `page_charges` 记账，未统一为单一 Frame 引用模型。
 

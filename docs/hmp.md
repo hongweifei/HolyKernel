@@ -130,7 +130,7 @@ Arena 是任务内存的根对象。
 - 任务退出时销毁 Arena，解除全部 Region 并归还 Frame；pinned Frame 先解除 pin。
 - Arena 属于单个任务；跨任务共享使用 `Capacity`、`Frame` 或 `Capability`，接收方在自己的 Arena 中创建 Region。
 - `SYS_ARENA_INFO` 报告任务 Arena 的地址窗口：`base` 是基址，`size` 是窗口长度，`used` 是已登记 Region 的字节数，`regions` 是 Region 数。`SYS_ALLOC` 的可分配窗口与游标由 `TaskInfo.arena_size`/`arena_used` 报告；Arena 窗口包含镜像、栈与动态窗口映射，两套口径分别用于对象视图与分配配额。
-- 内核自身持有 System Arena；内核镜像、direct map、内核堆、per-CPU 栈、MMIO 窗口、页表页与 IOMMU 表都以 Region 登记。System Arena 覆盖内核高半区，物理页仍由 System Capacity/FrameBank 承载；`SYS_SYSTEM_ARENA_INFO` 报告窗口与 Region 统计，`SYS_SYSTEM_ARENA_REGIONS` 按索引枚举 Region（虚拟地址、长度、权利、标志）。
+- 内核自身持有 System Arena；内核镜像、direct map、内核堆、per-CPU 栈、MMIO 窗口、页表页与 IOMMU 表都以 Region 登记。用户地址空间的页表页（含检查点恢复建立的根与中间页表）也在分配时经 direct map 登记、地址空间释放时移除，因此枚举覆盖全部内核自用物理页。System Arena 覆盖内核高半区，物理页仍由 System Capacity/FrameBank 承载；`SYS_SYSTEM_ARENA_INFO` 报告窗口与 Region 统计，`SYS_SYSTEM_ARENA_REGIONS` 按索引枚举 Region（虚拟地址、长度、权利、标志）。
 - 内核高半区的登记以页表实际权利为准：可执行段登记为 `TaskImage` + `READ|EXECUTE|SEALED|PINNED`，数据段、`.bss`、启动栈、per-CPU 栈与 direct map 数据视图登记为 `Anonymous` + `READ|WRITE|PINNED`；先登记的窗口优先，重叠的后续登记跳过。
 
 Arena 让“任务内存”成为可枚举、可检查点、可记账的单一对象；地址空间只是 Arena 的一个属性。

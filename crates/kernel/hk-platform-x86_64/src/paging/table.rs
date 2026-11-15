@@ -152,12 +152,13 @@ impl PageTable {
         self.create_user_with(|| allocator.allocate_for(FrameKind::PageTable))
     }
 
-    /// 分配一页内核高半区页表并登记进 System Arena；用户页表不登记。
-    fn kernel_page_table(&self, virt: u64) -> Option<PhysAddr> {
+    /// 分配一页页表并登记进 System Arena。
+    ///
+    /// 页表帧无论服务于内核高半区还是用户低半区，都属于内核自用物理内存；
+    /// 登记后 `SYS_SYSTEM_ARENA_*` 能看到它们，归还时由 `release_user` 移除。
+    fn kernel_page_table(&self, _virt: u64) -> Option<PhysAddr> {
         let frame = FRAME_BANK.allocate_for(FrameKind::PageTable)?;
-        if virt >= crate::system_arena::KERNEL_HALF_BASE {
-            crate::system_arena::register_kernel_page(frame, self.direct_map);
-        }
+        crate::system_arena::register_kernel_page(frame, self.direct_map);
         Some(frame)
     }
 
@@ -168,6 +169,8 @@ impl PageTable {
     {
         let root = allocate().ok_or(PagingError::OutOfFrames)?;
         self.zero_page(root);
+        // 用户页表根同样由内核分配并维护，登记进 System Arena。
+        crate::system_arena::register_kernel_page(root, self.direct_map);
 
         for index in KERNEL_PML4_START..ENTRIES {
             // SAFETY: 两侧 PML4 均经 HHDM 映射，索引在 0..512 范围内。
