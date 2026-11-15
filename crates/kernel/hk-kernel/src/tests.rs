@@ -6,10 +6,13 @@ use hk_handle::{HandleTable, Rights};
 use hk_ipc::Message;
 use hk_mem::hmp::{
     Capability, CapabilityKind, Capacity, CapacityId, CapacityKind, FrameBacking, FrameLease,
-    Region, RegionFlags,
+    ProviderKind, Region, RegionFlags,
 };
 
-use crate::{Kernel, TcbId, ThreadState, TraceCategory};
+/// Provider 释放通知标签（与 ABI 一致）。
+const PROVIDER_RELEASE: u64 = 0x1205;
+
+use crate::{Kernel, TcbId, ThreadState, TraceCategory, take_provider_releases};
 use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, DEFAULT_SPEC, millis};
 
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -304,6 +307,47 @@ fn reports_capability_resident_bytes() {
         kernel.capability_resident(worker, handle),
         Ok(PAGE_SIZE as u64)
     );
+}
+
+#[test]
+fn capability_release_notifies_provider() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let endpoint = kernel
+        .create_endpoint(worker, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(worker, endpoint).expect("端点标识");
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    let capability_id = kernel.handle_id(worker, handle).expect("能力标识");
+    kernel
+        .bind_capability_provider(worker, handle, endpoint, ProviderKind::Anonymous)
+        .expect("绑定 Provider");
+    kernel.close_handle(worker, handle).expect("关闭能力");
+
+    let releases = take_provider_releases();
+    assert!(releases.contains(&(capability_id, endpoint_id)));
+
+    kernel
+        .post_to_endpoint(
+            endpoint_id,
+            Message::new(PROVIDER_RELEASE).with_words([capability_id.get(), 0, 0, 0, 0, 0, 0, 0]),
+        )
+        .expect("投递释放通知");
+    let received = kernel
+        .recv_from(worker, endpoint, None)
+        .expect("接收")
+        .expect("通知消息");
+    assert_eq!(received.message.label, PROVIDER_RELEASE);
+    assert_eq!(received.message.words[0], capability_id.get());
 }
 
 #[test]

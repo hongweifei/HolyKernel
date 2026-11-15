@@ -23,7 +23,7 @@
 - `Frame`：连续物理页对象；带 `FrameId`、所属 Capacity、引用与 pin。
 - `Region`：类型化能力在 Arena 中的唯一映射视图；承载 offset、len、rights、flags。
 - `Capability`：Revision、Surface、TaskImage、DeviceAllocation、Anonymous、Frame 的类型化能力。
-- `Provider`：按能力种类提供 fault、writeback、evict、commit、scanout、pin、export、swap。
+- `Provider`：按能力种类提供 fault、writeback、evict、release、commit、scanout、pin、export、swap；`release` 在能力对象析构后由内核通知。
 - `Ledger`：容量、常驻、提交、峰值、配额与压力的显式记账。
 - `Mappable`：Region 可引用的统一能力接口。
 

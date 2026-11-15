@@ -250,6 +250,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 - `Fault`（`0x1200`）：请求页。8 个字为 `[offset, page, address, access, capability, rights, flags, reserved]`；`access` 为 0 读、1 写，`capability` 是能力对象标识，`rights`/`flags` 来自 Region。
 - `Provide`（`0x1201`）：返回 Frame；必须携带句柄并以该标签回包。`Error`（`0x1204`）或其它标签按缺页故障处理，缺页任务终止而不是永久阻塞。
 - `Evict`（`0x1202`）/ `Writeback`（`0x1203`）：预留的驱逐与回写通知标签；当前内核回收匿名零页时不发送通知，Provider 可保留确认分支。
+- `Release`（`0x1205`）：内核在能力对象析构后通知绑定 Provider；`words[0]` 为能力对象标识，不需要回包。Provider 用它在最后一个句柄关闭或任务退出时回收按能力记录的元数据；与页驱逐语义分开。
 - `GUARD` 页在 Provider 分派前判定：命中即故障，不装零页，也不转发 Provider。
 - 批量、预读、fault token 与异步回写属于契约细节。
 - `RevisionProvider`：fault、readahead、writeback、commit、snapshot、gc。

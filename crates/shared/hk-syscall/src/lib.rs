@@ -526,6 +526,9 @@ pub const PROVIDER_WRITEBACK: u64 = 0x1203;
 /// Provider 拒绝请求或报告失败的标签。
 pub const PROVIDER_ERROR: u64 = 0x1204;
 
+/// 内核通知 Provider：能力对象已释放；words[0] 为能力对象标识。
+pub const PROVIDER_RELEASE: u64 = 0x1205;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 

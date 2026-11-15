@@ -88,6 +88,19 @@ pub struct KernelObject {
     payload: ObjectPayload,
 }
 
+/// 内核对象析构时记录的能力释放通知；由运行时投递给 Provider。
+static PROVIDER_RELEASES: spin::Mutex<alloc::vec::Vec<(ObjectId, ObjectId)>> =
+    spin::Mutex::new(alloc::vec::Vec::new());
+
+fn provider_releases() -> &'static spin::Mutex<alloc::vec::Vec<(ObjectId, ObjectId)>> {
+    &PROVIDER_RELEASES
+}
+
+/// 取出待投递的能力释放通知。
+pub fn take_provider_releases() -> alloc::vec::Vec<(ObjectId, ObjectId)> {
+    core::mem::take(&mut *provider_releases().lock())
+}
+
 impl KernelObject {
     /// 以负载创建对象并分配对象头。
     pub fn new(payload: ObjectPayload) -> Self {
@@ -414,6 +427,13 @@ impl Object for KernelObject {
 
 impl Drop for KernelObject {
     fn drop(&mut self) {
+        if let ObjectPayload::Capability { provider, .. } = &self.payload
+            && let Some(provider) = *provider.lock()
+        {
+            provider_releases()
+                .lock()
+                .push((self.header.id(), provider));
+        }
         let ObjectPayload::Frame {
             frame, capacity, ..
         } = &self.payload

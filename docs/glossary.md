@@ -57,7 +57,7 @@
 | **Mappable** | 内核可见的统一能力接口；类型化能力实现它，由 Region 引用 |
 | **铸造链** | Root Server → Capacity → Frame → Capability → Region → PTE；每一步只收窄 Rights |
 | **授予面** | Root Server 服务清单决定的初始 Capacity/Frame/Capability；ABI 面对所有持权服务统一开放 |
-| **Provider 契约** | 每类能力对应的 fault/commit/scanout/pin/export/swap 协议 |
+| **Provider 契约** | 每类能力对应的 fault/commit/scanout/pin/export/swap/release 协议 |
 | **TaskImage** | Native Task 镜像中的代码/数据区域；通常 sealed |
 | **DeviceAllocation** | 显存/DMA 内存分配；MMIO 寄存器由 DeviceGrant 映射 |
 | **Anonymous** | 由 Memory Server 提供后备、页面初始为零的匿名内存；Arena 承载任务栈、堆与工作区 |

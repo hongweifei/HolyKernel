@@ -59,6 +59,44 @@ impl Kernel {
         Ok(())
     }
 
+    /// 向端点对象投递内核消息；发送者记为内核标识 0。
+    pub fn post_to_endpoint(
+        &self,
+        endpoint_id: ObjectId,
+        message: Message,
+    ) -> Result<(), KernelError> {
+        let object = self
+            .objects
+            .lock()
+            .get(&endpoint_id)
+            .and_then(alloc::sync::Weak::upgrade)
+            .ok_or(KernelError::StaleObject(endpoint_id))?;
+        let endpoint = object.endpoint().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Endpoint,
+        })?;
+        match endpoint.send(Waiter::new(0), message) {
+            SendOutcome::Delivered {
+                receiver, message, ..
+            } => {
+                let receiver = TcbId::new(receiver.get());
+                let mut threads = self.threads.lock();
+                let target = threads
+                    .get_mut(&receiver)
+                    .ok_or(KernelError::UnknownThread(receiver))?;
+                target.push_delivery(PendingDelivery {
+                    sender: TcbId::new(0),
+                    message,
+                    reply: None,
+                });
+                drop(threads);
+                self.wake(receiver);
+                Ok(())
+            }
+            SendOutcome::Queued => Ok(()),
+            SendOutcome::Full => Err(KernelError::QueueFull),
+        }
+    }
+
     /// 接收消息；没有消息时接收方阻塞并返回 `None`。
     pub fn recv(
         &self,

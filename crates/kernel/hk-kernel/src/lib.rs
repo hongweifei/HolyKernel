@@ -23,7 +23,7 @@ mod trace;
 pub use allocator::{BumpHeap, FreeHeap, KernelHeap};
 pub use error::KernelError;
 pub use kernel::{Kernel, Received, TRACE_CAPACITY};
-pub use object::{KernelObject, ObjectPayload};
+pub use object::{KernelObject, ObjectPayload, take_provider_releases};
 pub use sched::Scheduler;
 pub use task::{Task, TaskId, TaskMetrics, TaskState};
 pub use tcb::{BlockReason, PendingCall, PendingDelivery, ReplyToken, Tcb, TcbId, ThreadState};

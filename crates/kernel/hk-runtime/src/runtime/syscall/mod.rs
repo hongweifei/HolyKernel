@@ -27,6 +27,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let tcb = self.tasks[index].tcb;
+        for (capability, provider) in hk_kernel::take_provider_releases() {
+            let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
+            words[0] = capability.get();
+            let _ = self.kernel.post_to_endpoint(
+                provider,
+                Message::new(hk_syscall::PROVIDER_RELEASE).with_words(words),
+            );
+        }
 
         match frame.number() {
             SYS_SEND => self.send(index, tcb, frame, false),
