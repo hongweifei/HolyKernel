@@ -3,7 +3,7 @@
 //! 硬件位来自 `page_table_entry` 的 x86_64 `PTF`，权限到位的转换使用其
 //! `MappingFlags`；COW 共享状态由 `hk-paging::FrameRefs` 维护。
 
-use hk_hal::MapFlags;
+use hk_hal::{CachePolicy, MapFlags};
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
 use page_table_entry::MappingFlags;
@@ -41,15 +41,20 @@ impl PageFlags {
     pub const KERNEL_STACK: Self = Self(PRESENT | WRITABLE | NX);
     /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
     pub const MMIO: Self = Self(PRESENT | WRITABLE | PWT | PCD | NX);
-    /// 用户可访问的设备 MMIO 页：不可执行。
-    pub const USER_MMIO: Self = Self(PRESENT | WRITABLE | USER | PWT | PCD | NX);
-    /// 扫描输出帧缓冲：可写、不可执行，PAT 索引 4（默认写回）。
+    /// 用户设备页，缓存属性按 [`CachePolicy`] 选 PAT 索引。
     ///
-    /// 非缓存映射把每个 4 字节写都当成独立的设备访问，1280x800 整屏提交在 QEMU 中
-    /// 要 250 ms；可缓存映射把整屏写成普通内存，x86 的 DMA 读取与 CPU 缓存同域，
-    /// 扫描输出直接读到新像素。`PAT` 位是设备页标记：页表遍历与写时复制据此跳过
-    /// 帧缓冲，不会把它当私有数据页复制。
-    pub const USER_FRAMEBUFFER: Self = Self(PRESENT | WRITABLE | USER | PAT | NX);
+    /// 三个索引都由 `cpu::assembly::enable_pat` 固定：3=UC、4=WB、6=WC，并且
+    /// 命中 `DEVICE` 位，页表遍历与写时复制据此跳过这类页。扫描输出用
+    /// [`CachePolicy::WriteBack`]：非缓存映射下每个 4 字节写都是独立设备访问，
+    /// 1280×800 整屏提交在 QEMU 中要 250 ms，写回只要 0.15 ms。
+    pub const fn device(policy: CachePolicy) -> Self {
+        let bits = match policy {
+            CachePolicy::Uncached => PWT | PCD,
+            CachePolicy::WriteBack => PAT,
+            CachePolicy::WriteCombining => PAT | PCD,
+        };
+        Self(PRESENT | WRITABLE | USER | bits | NX)
+    }
 
     /// 按 Region 权利与标志构造用户页属性。
     ///
@@ -152,7 +157,28 @@ mod tests {
     #[test]
     fn device_pages_are_not_executable() {
         assert_eq!(PageFlags::MMIO.raw() & NX, NX);
-        assert_eq!(PageFlags::USER_MMIO.raw() & NX, NX);
+        for policy in [
+            CachePolicy::WriteBack,
+            CachePolicy::WriteCombining,
+            CachePolicy::Uncached,
+        ] {
+            assert_eq!(PageFlags::device(policy).raw() & NX, NX);
+        }
+    }
+
+    #[test]
+    fn cache_policy_selects_device_pat_index() {
+        // 索引 3=UC、4=WB、6=WC 由 `enable_pat` 固定；位组合错就是缓存属性错。
+        let uncached = PageFlags::device(CachePolicy::Uncached).raw();
+        assert_eq!(uncached & DEVICE, PWT | PCD);
+        let write_back = PageFlags::device(CachePolicy::WriteBack).raw();
+        assert_eq!(write_back & DEVICE, PAT);
+        let combining = PageFlags::device(CachePolicy::WriteCombining).raw();
+        assert_eq!(combining & DEVICE, PAT | PCD);
+        assert_eq!(
+            write_back & (PRESENT | WRITABLE | USER),
+            PRESENT | WRITABLE | USER
+        );
     }
 
     #[test]

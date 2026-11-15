@@ -410,7 +410,12 @@ impl UserPlatform for X86Platform {
         let bytes = usize::try_from(length).ok()?;
         USER_ADDRESS_SPACES
             .with(slot, |space| {
-                space.map_framebuffer(virt, framebuffer.phys.get(), bytes)
+                space.map_device(
+                    virt,
+                    framebuffer.phys.get(),
+                    bytes,
+                    hk_hal::CachePolicy::WriteBack,
+                )
             })
             .unwrap_or(false)
             .then_some(length)

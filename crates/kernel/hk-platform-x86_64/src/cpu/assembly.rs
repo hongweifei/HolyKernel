@@ -59,23 +59,26 @@ const IA32_EFER: u32 = 0xC000_0080;
 const EFER_NXE: u64 = 1 << 11;
 /// PAT 寄存器 MSR 编号。
 const IA32_PAT: u32 = 0x277;
-/// 标准 PAT 表：0=WB、1=WT、2=UC-、3=UC，4..7 重复同一序列。
-const PAT_DEFAULT: u64 = 0x0007_0406_0007_0406;
+/// PAT 表：0=WB、1=WT、2=UC-、3=UC，4=WB、5=WT、6=WC、7=UC。
+///
+/// 4 给系统内存扫描输出（写回），6 留给显存扫描输出（写合并），3 是寄存器窗
+/// 口的默认。索引由 `PageFlags::device` 与 `CachePolicy` 对应。
+const PAT_TABLE: u64 = 0x0001_0406_0007_0406;
 /// CPUID.01H:EDX 的 PAT 支持位。
 const CPUID_PAT: u32 = 1 << 16;
 
-/// 把 IA32_PAT 归一到标准表。
+/// 把 IA32_PAT 归一到本内核使用的表。
 ///
-/// 帧缓冲用 PAT 索引 4（写回）标记设备页；PAT 是每 CPU 的 MSR，固件与虚拟机
-/// 监视器给的值不一定有 WB 项。不归一的话索引 4 可能落成 UC，整屏提交从
-/// 0.15 ms 退化到 300 ms。
+/// PAT 是每 CPU 的 MSR，固件与虚拟机监视器给的值不一定把索引 4 放成 WB：WHPX
+/// 下实测不是，帧缓冲写回会退化成 UC（整屏提交 1.4 ms → 300 ms）。归一后
+/// 三个设备索引的行为由内核自己决定。
 pub(super) fn enable_pat() {
     if core::arch::x86_64::__cpuid(1).edx & CPUID_PAT == 0 {
         return;
     }
     let mut pat = Msr::new(IA32_PAT);
-    // SAFETY: PAT 只写 CPUID 报告的寄存器；标准表是合法组合。
-    unsafe { pat.write(PAT_DEFAULT) };
+    // SAFETY: PAT 只写 CPUID 报告的寄存器；表内都是合法内存类型。
+    unsafe { pat.write(PAT_TABLE) };
 }
 
 /// CPUID 扩展功能叶。

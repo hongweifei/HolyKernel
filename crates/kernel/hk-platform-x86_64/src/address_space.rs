@@ -2,6 +2,7 @@
 
 use alloc::sync::Arc;
 use core::ops::Deref;
+use hk_hal::CachePolicy;
 use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
 
@@ -29,18 +30,17 @@ impl Deref for UserSpace {
 }
 
 impl UserSpace {
-    /// 把帧缓冲按可缓存属性映射到用户任务。
+    /// 把设备区间映射到用户任务，缓存属性由调用方按映射种类给出。
     ///
-    /// 非缓存映射下每个 4 字节写都是独立的设备访问，整屏提交约 250 ms；可缓存
-    /// 映射把整屏当普通内存写，约 0.15 ms。用 4 KiB 页而不是 2 MiB 大页，才能把
-    /// `PAT` 位写进真正的页表项（大页的该位是页大小标志）。
-    pub fn map_framebuffer(&self, virt: u64, phys: u64, len: usize) -> bool {
+    /// 一律用 4 KiB 页：PAT 选择位在 4 KiB 页表项里是第 7 位，大页那里是页大小
+    /// 标志，写不进去。
+    pub fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
         PageTable::map_user_range(
             self.0.backend(),
             virt,
             phys,
             len,
-            crate::paging::PageFlags::USER_FRAMEBUFFER,
+            crate::paging::PageFlags::device(policy),
             true,
             false,
         )
@@ -89,15 +89,7 @@ impl UserAddressSpace for UserSpace {
     }
 
     fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
-        PageTable::map_user_range(
-            self.0.backend(),
-            virt,
-            phys,
-            len,
-            crate::paging::PageFlags::USER_MMIO,
-            false,
-            false,
-        )
+        self.map_device(virt, phys, len, CachePolicy::Uncached)
     }
 
     fn unmap_user(&self, virt: u64, len: usize) -> bool {

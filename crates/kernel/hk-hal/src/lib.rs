@@ -40,7 +40,7 @@ pub use hk_base::{addr, arch, boot};
 pub use io::Io;
 pub use iommu::{IdentityIommu, Iommu, IommuDomain, IommuError, IommuFlags, Iova, NoIommu};
 pub use irq::{InterruptController, Ipi, Irq, IrqBitmap, IrqError, NotificationId};
-pub use mapping::MapFlags;
+pub use mapping::{CachePolicy, MapFlags};
 pub use physical::{PhysicalAccess, PhysicalError};
 pub use platform::{CpuTopology, Platform, PlatformError};
 pub use power::Power;

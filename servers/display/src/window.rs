@@ -278,8 +278,8 @@ impl Screen {
 
     /// 把累积的 damage 一次性提交到帧缓冲。
     ///
-    /// 帧缓冲映射为可缓存（见 `PageFlags::USER_FRAMEBUFFER`）：x86 的 DMA 读取
-    /// 与 CPU 缓存同域，QEMU 直接读同一段物理内存即可看到新像素，无需 `clflush`。
+    /// 帧缓冲映射为可缓存（`CachePolicy::WriteBack`）：x86 的 DMA 读取与 CPU
+    /// 缓存同域，QEMU 直接读同一段物理内存即可看到新像素，无需 `clflush`。
     pub(crate) fn present(&self) {
         let Some((left, top, right, bottom)) = self.damage.take() else {
             return;
