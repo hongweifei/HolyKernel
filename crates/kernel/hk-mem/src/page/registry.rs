@@ -3,6 +3,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use hk_hal::CachePolicy;
 use hk_handle::Rights;
 use spin::Mutex;
 
@@ -44,6 +45,15 @@ pub trait UserAddressSpace: Sized {
     /// 在地址空间中映射一段设备 MMIO；不支持时返回 `false`。
     fn map_mmio(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
         false
+    }
+
+    /// 把设备区间映射进地址空间，缓存属性按策略选择；不支持时返回 `false`。
+    ///
+    /// 缓存属性是映射种类的内部属性（ADR-0016 §7），由平台在建立设备映射时
+    /// 给出，不出现在用户可请求的 `MapFlags` 里。默认实现只能满足 `Uncached`：
+    /// 只实现了 [`Self::map_mmio`] 的地址空间不识写回与写合并。
+    fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
+        matches!(policy, CachePolicy::Uncached) && self.map_mmio(virt, phys, len)
     }
 
     /// 解除一段用户映射；不支持时返回 `false`。
@@ -151,6 +161,22 @@ impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
             .get(slot)
             .and_then(Option::as_ref)
             .is_some_and(|table| table.map_mmio(virt, phys, len))
+    }
+
+    /// 把设备区间按缓存策略映射到任务地址空间。
+    pub fn map_device(
+        &self,
+        slot: usize,
+        virt: u64,
+        phys: u64,
+        len: usize,
+        policy: CachePolicy,
+    ) -> bool {
+        self.tables
+            .lock()
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_some_and(|table| table.map_device(virt, phys, len, policy))
     }
 
     /// 按 Region 权利与标志把一段物理区间映射到任务地址空间。
@@ -274,6 +300,39 @@ mod tests {
         fn share_user(&self) -> Option<Self> {
             Some(Self(self.0))
         }
+    }
+
+    /// 只支持非缓存设备映射的地址空间：用来验证默认 `map_device`。
+    struct MmioOnly;
+
+    impl UserAddressSpace for MmioOnly {
+        fn activate(&self) {}
+
+        fn root(&self) -> u64 {
+            0x2000
+        }
+
+        fn fork_user(
+            &self,
+            _cow_ranges: &[(u64, u64)],
+            _capacity: Option<&Arc<Mutex<Capacity>>>,
+        ) -> Option<(Self, u64)> {
+            None
+        }
+
+        fn map_mmio(&self, _virt: u64, _phys: u64, _len: usize) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn default_device_mapping_supports_only_uncached() {
+        let registry = AddressSpaceRegistry::new();
+        registry.install(0, MmioOnly);
+        assert!(registry.map_device(0, 0x1000, 0x2000, 0x1000, CachePolicy::Uncached));
+        assert!(!registry.map_device(0, 0x1000, 0x2000, 0x1000, CachePolicy::WriteBack));
+        assert!(!registry.map_device(0, 0x1000, 0x2000, 0x1000, CachePolicy::WriteCombining));
+        assert!(!registry.map_device(1, 0x1000, 0x2000, 0x1000, CachePolicy::Uncached));
     }
 
     #[test]

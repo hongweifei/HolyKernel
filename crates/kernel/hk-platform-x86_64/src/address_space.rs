@@ -29,26 +29,6 @@ impl Deref for UserSpace {
     }
 }
 
-impl UserSpace {
-    /// 把设备区间映射到用户任务，缓存属性由调用方按映射种类给出。
-    ///
-    /// 只有用到 PAT 的策略才强制 4 KiB 页：PAT 选择位在 4 KiB 页表项里是第 7 位，
-    /// 大页那里是页大小标志。`Uncached` 靠 `PWT|PCD` 表达，大页同样有效，寄存器
-    /// 窗口因此不必为一个 BAR 铺上千个页表项。
-    pub fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
-        let force_4k = !matches!(policy, CachePolicy::Uncached);
-        PageTable::map_user_range(
-            self.0.backend(),
-            virt,
-            phys,
-            len,
-            crate::paging::PageFlags::device(policy),
-            force_4k,
-            false,
-        )
-    }
-}
-
 impl UserAddressSpace for UserSpace {
     fn activate(&self) {
         PageTable::activate(self.0.backend());
@@ -87,6 +67,23 @@ impl UserAddressSpace for UserSpace {
             crate::paging::PageFlags::user(rights, flags),
             flags.contains(RegionFlags::COW),
             true,
+        )
+    }
+
+    /// 设备区间映射：缓存属性来自策略，PAT 位要求 4 KiB 页表项。
+    ///
+    /// `Uncached` 靠 `PWT|PCD` 表达，大页同样有效，寄存器窗口因此不必为一个
+    /// BAR 铺上千个页表项；写回与写合并靠 PAT 索引，必须落成 4 KiB。
+    fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
+        let force_4k = !matches!(policy, CachePolicy::Uncached);
+        PageTable::map_user_range(
+            self.0.backend(),
+            virt,
+            phys,
+            len,
+            crate::paging::PageFlags::device(policy),
+            force_4k,
+            false,
         )
     }
 
