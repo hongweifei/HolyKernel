@@ -112,10 +112,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     // 启动自检：播 440 Hz 一段，结果计入 WAV。
     let mut queue = Queue::new();
-    let mut active_owner = match sound.start_tone(TONE_HZ, TONE_MILLIS, 0) {
-        Some(_) => Some(0),
-        None => None,
-    };
+    let mut active_owner = sound
+        .start_tone(TONE_HZ, TONE_MILLIS, 0)
+        .is_some()
+        .then_some(0);
 
     let mut buffer = [0_u8; 256];
     loop {

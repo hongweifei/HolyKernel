@@ -230,7 +230,7 @@ fn probe_grant(handle: u64) -> Option<Device> {
 
 /// 块设备主循环；辅助设备消息由 `devices` 分派。
 #[cfg(target_os = "none")]
-fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, mut devices: Aux) -> ! {
+fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -> ! {
     hk_server_api::format::Line::new()
         .text(b"hk-server-virtio: virtio-blk sectors=")
         .number(block.capacity_blocks())
