@@ -1594,14 +1594,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             }
                             stored
                         };
+                        let cache = self
+                            .kernel
+                            .capability(owner_tcb, capability)
+                            .map(|(capability, _)| capability.cache())
+                            .unwrap_or(hk_hal::CachePolicy::WriteBack);
                         let mapped = stored
-                            && self.platform.map_user(
+                            && self.platform.map_region(
                                 index,
-                                page,
-                                range.start().get(),
-                                range.len() as usize,
-                                rights,
-                                flags,
+                                &hk_mem::RegionMapping {
+                                    virt: page,
+                                    phys: range.start().get(),
+                                    len: range.len() as usize,
+                                    rights,
+                                    flags,
+                                    policy: cache,
+                                },
                             );
                         if !mapped {
                             return self.fail_provider(cpu, index, pending);

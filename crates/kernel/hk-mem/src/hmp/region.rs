@@ -2,7 +2,7 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use hk_hal::VirtAddr;
+use hk_hal::{CachePolicy, VirtAddr};
 use hk_handle::{ObjectId, Rights};
 
 use super::capability::Mappable;
@@ -53,6 +53,8 @@ pub struct Region {
     len: usize,
     rights: Rights,
     flags: RegionFlags,
+    /// 映射使用的缓存属性，随能力确定。
+    cache: CachePolicy,
     virt: Option<VirtAddr>,
     peak: u64,
 }
@@ -95,6 +97,7 @@ impl Region {
             len,
             rights,
             flags,
+            cache: capability.cache(),
             virt: None,
             peak: 0,
         })
@@ -127,6 +130,7 @@ impl Region {
             len: self.len,
             rights: self.rights,
             flags,
+            cache: self.cache,
             virt: None,
             peak: 0,
         };
@@ -205,6 +209,11 @@ impl Region {
     /// 返回能力。
     pub const fn capability(&self) -> &Capability {
         &self.capability
+    }
+
+    /// 返回映射该 Region 时使用的缓存属性。
+    pub const fn cache(&self) -> CachePolicy {
+        self.cache
     }
 
     /// 返回能力标识。

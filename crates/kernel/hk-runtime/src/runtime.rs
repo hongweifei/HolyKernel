@@ -117,6 +117,8 @@ pub(crate) struct RegionMap {
     pub offset: u64,
     pub rights: Rights,
     pub flags: hk_mem::hmp::RegionFlags,
+    /// 映射这段 Region 时使用的缓存属性，随能力确定。
+    pub cache: hk_hal::CachePolicy,
     /// 已常驻物理页的整段记账；惰性映射为 `None`。
     pub charge: Option<Charge>,
     /// 逐页装入产生的记账，键为能力内页索引。

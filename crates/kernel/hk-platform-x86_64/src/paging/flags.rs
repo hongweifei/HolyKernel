@@ -24,6 +24,40 @@ pub(crate) const HUGE: u64 = PTF::HUGE_PAGE.bits();
 pub(crate) const NX: u64 = PTF::NO_EXECUTE.bits();
 pub(crate) const FLAGS_MASK: u64 = 0xFFF | NX;
 
+/// 缓存策略在 PAT 表中的索引：`(PAT << 2) | (PCD << 1) | PWT`。
+///
+/// 3=UC、4=WB、6=WC；`cpu::assembly::enable_pat` 用同一函数建表，索引与表项
+/// 不会各写一份。
+pub(crate) const fn cache_index(policy: CachePolicy) -> u32 {
+    match policy {
+        CachePolicy::Uncached => 3,
+        CachePolicy::WriteBack => 4,
+        CachePolicy::WriteCombining => 6,
+    }
+}
+
+/// PAT 索引到 4 KiB 页表项的控制位。
+pub(crate) const fn index_bits(index: u32) -> u64 {
+    let mut bits = 0;
+    if index & 0b100 != 0 {
+        bits |= PAT;
+    }
+    if index & 0b010 != 0 {
+        bits |= PCD;
+    }
+    if index & 0b001 != 0 {
+        bits |= PWT;
+    }
+    bits
+}
+
+/// 每种策略的页表位，下标即 [`CachePolicy`] 的判别值。
+const PAT_BITS: [u64; 3] = [
+    index_bits(cache_index(CachePolicy::WriteBack)),
+    index_bits(cache_index(CachePolicy::WriteCombining)),
+    index_bits(cache_index(CachePolicy::Uncached)),
+];
+
 fn encode(flags: MappingFlags) -> u64 {
     PTF::from(flags).bits()
 }
@@ -39,21 +73,16 @@ impl PageFlags {
     pub const USER_RW: Self = Self(PRESENT | WRITABLE | USER);
     /// 内核栈页：可写、不可执行、禁止用户访问。
     pub const KERNEL_STACK: Self = Self(PRESENT | WRITABLE | NX);
-    /// 设备 MMIO 页：可写、写直达、禁止缓存、不可执行。
-    pub const MMIO: Self = Self(PRESENT | WRITABLE | PWT | PCD | NX);
+    /// 设备 MMIO 页：可写、非缓存、不可执行。
+    pub const MMIO: Self = Self(PRESENT | WRITABLE | NX | PAT_BITS[CachePolicy::Uncached as usize]);
     /// 用户设备页，缓存属性按 [`CachePolicy`] 选 PAT 索引。
     ///
-    /// 三个索引都由 `cpu::assembly::enable_pat` 固定：3=UC、4=WB、6=WC，并且
-    /// 命中 `DEVICE` 位，页表遍历与写时复制据此跳过这类页。扫描输出用
+    /// 索引由 [`cache_index`] 与 `cpu::assembly::enable_pat` 共用，位组合由
+    /// [`index_bits`] 从索引推出，两边不会各写一份。扫描输出用
     /// [`CachePolicy::WriteBack`]：非缓存映射下每个 4 字节写都是独立设备访问，
     /// 1280×800 整屏提交在 QEMU 中要 250 ms，写回只要 0.15 ms。
     pub const fn device(policy: CachePolicy) -> Self {
-        let bits = match policy {
-            CachePolicy::Uncached => PWT | PCD,
-            CachePolicy::WriteBack => PAT,
-            CachePolicy::WriteCombining => PAT | PCD,
-        };
-        Self(PRESENT | WRITABLE | USER | bits | NX)
+        Self(PRESENT | WRITABLE | USER | NX | PAT_BITS[policy as usize])
     }
 
     /// 按 Region 权利与标志构造用户页属性。
@@ -74,7 +103,8 @@ impl PageFlags {
 
     /// 按 HAL 映射属性构造用户页属性。
     ///
-    /// 始终设置 `USER` 与 `PRESENT`；`DEVICE` 映射为写直达、禁止缓存且不可执行。
+    /// 始终设置 `USER` 与 `PRESENT`；`DEVICE` 表示非缓存设备页，位组合来自
+    /// [`CachePolicy::Uncached`]，与设备映射共用同一份索引逻辑。
     pub fn from_map(flags: MapFlags) -> Self {
         let mut bits = PRESENT | USER;
         if flags.contains(MapFlags::WRITE) {
@@ -84,7 +114,7 @@ impl PageFlags {
             bits |= NX;
         }
         if flags.contains(MapFlags::DEVICE) {
-            bits |= PWT | PCD | NX;
+            bits |= PAT_BITS[CachePolicy::Uncached as usize] | NX;
         }
         Self(bits)
     }

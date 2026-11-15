@@ -124,6 +124,7 @@ fn rejects_invalid_framebuffer_stride() {
         height: 480,
         stride: 1280,
         format: PixelFormat::Rgb32,
+        cache: crate::CachePolicy::WriteBack,
     });
     assert_eq!(boot.validate(), Err(BootInfoError::InvalidFramebuffer));
 }
@@ -187,6 +188,7 @@ fn rejects_framebuffer_outside_memory() {
         height: 10,
         stride: 64,
         format: PixelFormat::Rgb32,
+        cache: crate::CachePolicy::WriteBack,
     });
     assert_eq!(
         boot.validate(),
@@ -205,6 +207,7 @@ fn accepts_framebuffer_inside_direct_map() {
         height: 10,
         stride: 64,
         format: PixelFormat::Rgb32,
+        cache: crate::CachePolicy::WriteBack,
     });
     assert_eq!(boot.validate(), Ok(()));
 }

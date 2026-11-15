@@ -88,15 +88,29 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        if !self
-            .platform
-            .map_mmio(index, virt, range.base, aligned as usize)
-        {
+        if !self.platform.map_region(
+            index,
+            &hk_mem::RegionMapping {
+                virt,
+                phys: range.base,
+                len: aligned as usize,
+                rights: hk_handle::Rights::READ | hk_handle::Rights::WRITE,
+                flags: hk_mem::hmp::RegionFlags::empty(),
+                policy: hk_hal::CachePolicy::Uncached,
+            },
+        ) {
             self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        if !self.install_device_mapping(index, tcb, range.base, aligned as usize, virt) {
+        if !self.install_device_mapping(
+            index,
+            tcb,
+            range.base,
+            aligned as usize,
+            virt,
+            hk_hal::CachePolicy::Uncached,
+        ) {
             let _ = self.platform.unmap_user(index, virt, aligned as usize);
             self.process_mut(index).user_window.release(virt);
             frame.set_result(u64::MAX);

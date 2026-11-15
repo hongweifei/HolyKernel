@@ -10,6 +10,7 @@ pub mod addr;
 pub mod arch;
 pub mod boot;
 pub mod irq;
+pub mod mapping;
 pub mod time;
 pub mod user;
 
@@ -20,4 +21,5 @@ pub use boot::{
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
 pub use irq::{ACPI_POWER_IRQ, ACPI_SCI_IRQ, ACPI_SLEEP_IRQ, IRQ_VECTOR_BASE};
+pub use mapping::CachePolicy;
 pub use time::{CivilClock, CivilTime, Duration, Moment};

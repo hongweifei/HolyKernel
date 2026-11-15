@@ -19,6 +19,7 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 use hk_mem::{FrameBank, FrameKind, PageAllocator};
 use hk_paging::FrameRefs;
 
+pub(crate) use flags::cache_index;
 pub use flags::{PageFlags, restore_flags};
 pub use table::{PageTable, PagingError, has_1g_pages, init_cpu};
 

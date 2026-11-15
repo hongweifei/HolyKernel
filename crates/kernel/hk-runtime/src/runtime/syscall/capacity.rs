@@ -388,10 +388,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             cleanup(self);
             return u64::MAX;
         };
-        if !self
-            .platform
-            .map_user(index, virt, range.start().get(), length, rights, flags)
-        {
+        if !self.platform.map_region(
+            index,
+            &hk_mem::RegionMapping {
+                virt,
+                phys: range.start().get(),
+                len: length,
+                rights,
+                flags,
+                policy: region.cache(),
+            },
+        ) {
             self.process_mut(index).user_window.release(virt);
             cleanup(self);
             return u64::MAX;

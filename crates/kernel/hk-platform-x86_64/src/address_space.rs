@@ -3,10 +3,9 @@
 use alloc::sync::Arc;
 use core::ops::Deref;
 use hk_hal::CachePolicy;
-use hk_mem::Rights;
 use hk_mem::hmp::RegionFlags;
 
-use hk_mem::{AddressSpaceRegistry, UserAddressSpace};
+use hk_mem::{AddressSpaceRegistry, RegionMapping, UserAddressSpace};
 use hk_paging::UserSpace as PagingUserSpace;
 
 use crate::paging::PageTable;
@@ -51,44 +50,29 @@ impl UserAddressSpace for UserSpace {
         Some(UserSpace::new(PageTable::share(self.0.backend())))
     }
 
-    fn map_user(
-        &self,
-        virt: u64,
-        phys: u64,
-        len: usize,
-        rights: Rights,
-        flags: RegionFlags,
-    ) -> bool {
-        PageTable::map_user_range(
-            self.0.backend(),
-            virt,
-            phys,
-            len,
-            crate::paging::PageFlags::user(rights, flags),
-            flags.contains(RegionFlags::COW),
-            true,
-        )
-    }
-
-    /// 设备区间映射：缓存属性来自策略，PAT 位要求 4 KiB 页表项。
+    /// 映射一段物理区间：写回走普通用户页，其余策略走设备页并选 PAT 索引。
     ///
-    /// `Uncached` 靠 `PWT|PCD` 表达，大页同样有效，寄存器窗口因此不必为一个
-    /// BAR 铺上千个页表项；写回与写合并靠 PAT 索引，必须落成 4 KiB。
-    fn map_device(&self, virt: u64, phys: u64, len: usize, policy: CachePolicy) -> bool {
-        let force_4k = !matches!(policy, CachePolicy::Uncached);
+    /// 设备页的 PAT 选择位在 4 KiB 页表项第 7 位，因此写回与写合并强制 4 KiB；
+    /// `Uncached` 靠 `PWT|PCD` 表达，大页同样有效，寄存器窗口不必为一个 BAR
+    /// 铺上千个页表项。RAM 映射参与物理页记账，设备映射不参与。
+    fn map_region(&self, mapping: &RegionMapping) -> bool {
+        let (page_flags, force_4k, track) = match mapping.policy {
+            CachePolicy::WriteBack => (
+                crate::paging::PageFlags::user(mapping.rights, mapping.flags),
+                mapping.flags.contains(RegionFlags::COW),
+                true,
+            ),
+            device => (crate::paging::PageFlags::device(device), true, false),
+        };
         PageTable::map_user_range(
             self.0.backend(),
-            virt,
-            phys,
-            len,
-            crate::paging::PageFlags::device(policy),
+            mapping.virt,
+            mapping.phys,
+            mapping.len,
+            page_flags,
             force_4k,
-            false,
+            track,
         )
-    }
-
-    fn map_mmio(&self, virt: u64, phys: u64, len: usize) -> bool {
-        self.map_device(virt, phys, len, CachePolicy::Uncached)
     }
 
     fn unmap_user(&self, virt: u64, len: usize) -> bool {

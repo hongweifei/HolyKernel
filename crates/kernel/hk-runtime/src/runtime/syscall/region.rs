@@ -104,10 +104,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         if let Some(backing) = backing {
             let phys = backing.start().get().saturating_add(offset);
-            if !self
-                .platform
-                .map_user(index, virt, phys, length, rights, flags)
-            {
+            if !self.platform.map_region(
+                index,
+                &hk_mem::RegionMapping {
+                    virt,
+                    phys,
+                    len: length,
+                    rights,
+                    flags,
+                    policy: region.cache(),
+                },
+            ) {
                 self.process_mut(index).user_window.release(virt);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
@@ -184,9 +191,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         // 权限只能收窄或被映射能力句柄覆盖：protect 不能把只读能力提升为可写。
-        let Some((owner, capability)) = self.process(index).regions[slot]
+        let Some((owner, capability, cache)) = self.process(index).regions[slot]
             .as_ref()
-            .map(|region| (region.owner, region.capability))
+            .map(|region| (region.owner, region.capability, region.cache))
         else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -282,10 +289,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             && !has_overrides
         {
             let phys = backing.start().get().saturating_add(offset);
-            if !self
-                .platform
-                .map_user(index, virt, phys, length, rights, flags)
-            {
+            if !self.platform.map_region(
+                index,
+                &hk_mem::RegionMapping {
+                    virt,
+                    phys,
+                    len: length,
+                    rights,
+                    flags,
+                    policy: cache,
+                },
+            ) {
                 if was_pinned != flags.contains(RegionFlags::PINNED) {
                     let _ = self.kernel.pin_capability(owner, capability, was_pinned);
                 }
@@ -327,13 +341,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             })
                     });
                 if let Some(range) = page_range
-                    && !self.platform.map_user(
+                    && !self.platform.map_region(
                         index,
-                        virt + relative,
-                        range.start().get(),
-                        page as usize,
-                        rights,
-                        flags,
+                        &hk_mem::RegionMapping {
+                            virt: virt + relative,
+                            phys: range.start().get(),
+                            len: page as usize,
+                            rights,
+                            flags,
+                            policy: cache,
+                        },
                     )
                 {
                     if was_pinned != flags.contains(RegionFlags::PINNED) {
@@ -436,10 +453,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .get()
                 .saturating_add(offset)
                 .saturating_add(length as u64);
-            if !self
-                .platform
-                .map_user(index, virt + length as u64, phys, delta, rights, flags)
-            {
+            if !self.platform.map_region(
+                index,
+                &hk_mem::RegionMapping {
+                    virt: virt + length as u64,
+                    phys,
+                    len: delta,
+                    rights,
+                    flags,
+                    policy: capability_info.cache(),
+                },
+            ) {
                 let _ = self.process_mut(index).hmp_arena.resize(region_id, length);
                 let _ = self
                     .process_mut(index)
@@ -492,6 +516,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 为已映射的设备物理区间建立 DeviceAllocation 能力与 Region。
+    ///
+    /// 缓存属性在这里确定并记入能力与 Region，与建立 PTE 的平台调用使用同
+    /// 一个策略值，两者不会分叉。
     pub(crate) fn install_device_mapping(
         &mut self,
         index: usize,
@@ -499,15 +526,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         phys: u64,
         len: usize,
         virt: u64,
+        policy: hk_hal::CachePolicy,
     ) -> bool {
         // 设备映射按实际窗口计入任务配额；解除映射时归还。
         let Ok(charge) = self.process_mut(index).ledger.charge(len as u64) else {
             return false;
         };
-        let Ok(capability) = Capability::new(
+        let Ok(capability) = Capability::with_cache(
             CapabilityKind::DeviceAllocation,
             len as u64,
             hk_hal::PAGE_SIZE,
+            policy,
         ) else {
             let _ = self.process_mut(index).ledger.release(charge);
             return false;
@@ -885,13 +914,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         });
         if let Some(range) = overridden {
             if !self.platform.user_mapped(page_address) {
-                let _ = self.platform.map_user(
+                let _ = self.platform.map_region(
                     index,
-                    page_address,
-                    range.start().get(),
-                    page as usize,
-                    region.rights,
-                    region.flags,
+                    &hk_mem::RegionMapping {
+                        virt: page_address,
+                        phys: range.start().get(),
+                        len: page as usize,
+                        rights: region.rights,
+                        flags: region.flags,
+                        policy: capability.cache(),
+                    },
                 );
             }
             return self.platform.user_mapped(page_address);
@@ -903,13 +935,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .flatten()
         {
             if !self.platform.user_mapped(page_address) {
-                let _ = self.platform.map_user(
+                let _ = self.platform.map_region(
                     index,
-                    page_address,
-                    range.start().get(),
-                    page as usize,
-                    region.rights,
-                    region.flags,
+                    &hk_mem::RegionMapping {
+                        virt: page_address,
+                        phys: range.start().get(),
+                        len: page as usize,
+                        rights: region.rights,
+                        flags: region.flags,
+                        policy: capability.cache(),
+                    },
                 );
             }
             return self.platform.user_mapped(page_address);
@@ -921,13 +956,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return false;
         };
         let range = backing.range();
-        if !self.platform.map_user(
+        if !self.platform.map_region(
             index,
-            page_address,
-            range.start().get(),
-            page as usize,
-            region.rights,
-            region.flags,
+            &hk_mem::RegionMapping {
+                virt: page_address,
+                phys: range.start().get(),
+                len: page as usize,
+                rights: region.rights,
+                flags: region.flags,
+                policy: capability.cache(),
+            },
         ) {
             let _ = self.process_mut(index).ledger.release(charge);
             return false;

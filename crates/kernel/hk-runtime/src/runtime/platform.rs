@@ -77,23 +77,11 @@ pub trait UserPlatform {
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。
     fn pci_write(&self, _bus: u8, _device: u8, _function: u8, _offset: u8, _value: u32) {}
-    /// 把设备 MMIO 映射到任务地址空间。
-    fn map_mmio(&self, _slot: usize, _virt: u64, _phys: u64, _len: usize) -> bool {
-        false
-    }
-    /// 按 Region 权利与标志把一段物理区间映射到任务地址空间。
+    /// 把一次映射请求落到任务地址空间。
     ///
-    /// 只读 Region 映射为不可写页，不可执行 Region 映射为 NX 页；`COW` 标志
-    /// 映射为只读并置位 COW 标记。
-    fn map_user(
-        &self,
-        _slot: usize,
-        _virt: u64,
-        _phys: u64,
-        _len: usize,
-        _rights: hk_handle::Rights,
-        _flags: hk_mem::hmp::RegionFlags,
-    ) -> bool {
+    /// 权限来自 Region 权利：只读映射为不可写页，不可执行映射为 NX 页，`COW`
+    /// 映射为只读并置 COW 标记。缓存属性来自能力与 Region（ADR-0016 §7）。
+    fn map_region(&self, _slot: usize, _mapping: &hk_mem::RegionMapping) -> bool {
         false
     }
 

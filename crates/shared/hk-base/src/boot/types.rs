@@ -2,6 +2,7 @@
 
 use crate::addr::{PhysAddr, VirtAddr};
 use crate::arch::Arch;
+use crate::mapping::CachePolicy;
 
 /// 物理内存区域类别。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +132,8 @@ pub struct FramebufferInfo {
     pub stride: u32,
     /// 像素格式。
     pub format: PixelFormat,
+    /// 扫描输出缓冲的缓存策略：系统内存给写回，显存给写合并。
+    pub cache: CachePolicy,
 }
 
 /// 内核 direct map 信息。

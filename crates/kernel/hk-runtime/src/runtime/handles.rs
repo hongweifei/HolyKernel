@@ -348,6 +348,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             offset,
             rights,
             flags,
+            cache: self
+                .kernel
+                .capability(self.tasks[index].tcb, capability)
+                .map(|(capability, _)| capability.cache())
+                .unwrap_or(hk_hal::CachePolicy::WriteBack),
             charge,
             page_charges: Vec::new(),
         };

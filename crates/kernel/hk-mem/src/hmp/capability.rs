@@ -2,6 +2,7 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use hk_hal::CachePolicy;
 use hk_handle::ObjectId;
 
 use super::HmpError;
@@ -13,9 +14,23 @@ static NEXT_CAPABILITY_ID: AtomicU64 = AtomicU64::new(1);
 /// 能力类型对类型化操作的判定；编码与名称来自 ABI。
 trait CapabilityKindExt {
     fn supports(self, operation: CapabilityOp) -> bool;
+
+    /// 该类能力的默认缓存属性。
+    fn cache_policy(self) -> CachePolicy;
 }
 
 impl CapabilityKindExt for CapabilityKind {
+    fn cache_policy(self) -> CachePolicy {
+        match self {
+            // 设备分配默认是寄存器或 BAR 窗口：逐次访问必须直达设备。
+            Self::DeviceAllocation => CachePolicy::Uncached,
+            // 其余能力承载 RAM 支撑的页：普通可缓存内存。
+            Self::Anonymous | Self::Frame | Self::Revision | Self::Surface | Self::TaskImage => {
+                CachePolicy::WriteBack
+            }
+        }
+    }
+
     fn supports(self, operation: CapabilityOp) -> bool {
         match operation {
             CapabilityOp::Map => true,
@@ -75,25 +90,52 @@ pub struct Capability {
     kind: CapabilityKind,
     size: u64,
     page_size: usize,
+    /// 映射这段物理内存时使用的缓存属性；随能力创建一次性确定。
+    cache: CachePolicy,
 }
 
 impl Capability {
-    /// 创建一份类型化能力。
+    /// 创建一份类型化能力，缓存属性取该类能力的默认值。
     pub fn new(kind: CapabilityKind, size: u64, page_size: usize) -> Result<Self, HmpError> {
-        Self::with_id(
+        Self::with_cache(kind, size, page_size, kind.cache_policy())
+    }
+
+    /// 以指定缓存属性创建能力，供知道物理内存种类的创建者使用。
+    ///
+    /// 例如系统内存扫描输出用 [`CachePolicy::WriteBack`]、显存扫描输出用
+    /// [`CachePolicy::WriteCombining`]、设备寄存器窗口用
+    /// [`CachePolicy::Uncached`]。
+    pub fn with_cache(
+        kind: CapabilityKind,
+        size: u64,
+        page_size: usize,
+        cache: CachePolicy,
+    ) -> Result<Self, HmpError> {
+        Self::with_id_cache(
             ObjectId::new(NEXT_CAPABILITY_ID.fetch_add(1, Ordering::Relaxed)),
             kind,
             size,
             page_size,
+            cache,
         )
     }
 
-    /// 以指定标识创建能力，供确定性测试使用。
+    /// 以指定标识创建能力，供确定性测试使用；缓存属性取类型默认值。
     pub fn with_id(
         id: ObjectId,
         kind: CapabilityKind,
         size: u64,
         page_size: usize,
+    ) -> Result<Self, HmpError> {
+        Self::with_id_cache(id, kind, size, page_size, kind.cache_policy())
+    }
+
+    fn with_id_cache(
+        id: ObjectId,
+        kind: CapabilityKind,
+        size: u64,
+        page_size: usize,
+        cache: CachePolicy,
     ) -> Result<Self, HmpError> {
         if size == 0
             || page_size == 0
@@ -107,6 +149,7 @@ impl Capability {
             kind,
             size,
             page_size,
+            cache,
         })
     }
 
@@ -128,6 +171,11 @@ impl Capability {
     /// 返回页大小。
     pub const fn page_size(&self) -> usize {
         self.page_size
+    }
+
+    /// 返回映射该能力时使用的缓存属性。
+    pub const fn cache(&self) -> CachePolicy {
+        self.cache
     }
 
     /// 判断是否支持一项类型化操作。

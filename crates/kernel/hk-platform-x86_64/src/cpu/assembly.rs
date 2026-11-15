@@ -59,13 +59,44 @@ const IA32_EFER: u32 = 0xC000_0080;
 const EFER_NXE: u64 = 1 << 11;
 /// PAT 寄存器 MSR 编号。
 const IA32_PAT: u32 = 0x277;
-/// PAT 表：0=WB、1=WT、2=UC-、3=UC，4=WB、5=WT、6=WC、7=UC。
-///
-/// 4 给系统内存扫描输出（写回），6 留给显存扫描输出（写合并），3 是寄存器窗
-/// 口的默认。索引由 `PageFlags::device` 与 `CachePolicy` 对应。
-const PAT_TABLE: u64 = 0x0001_0406_0007_0406;
 /// CPUID.01H:EDX 的 PAT 支持位。
 const CPUID_PAT: u32 = 1 << 16;
+/// 内存类型编码：写回。
+const MEMTYPE_WRITE_BACK: u8 = 0x06;
+/// 内存类型编码：写合并。
+const MEMTYPE_WRITE_COMBINING: u8 = 0x01;
+/// 内存类型编码：非缓存。
+const MEMTYPE_UNCACHED: u8 = 0x00;
+
+/// 覆盖 PAT 表的一项。
+const fn set_memory_type(table: u64, index: u32, kind: u8) -> u64 {
+    let shift = index * 8;
+    (table & !(0xFF << shift)) | ((kind as u64) << shift)
+}
+
+/// 本内核使用的 PAT 表。
+///
+/// 起点是架构默认表（0=WB、1=WT、2=UC-、3=UC、4=WB、5=WT、6=UC-、7=UC），
+/// 再用 [`crate::paging::cache_index`] 把设备策略的三项钉死；索引只在一处定义，
+/// 表项与 `PageFlags::device` 不会漂移。
+const PAT_TABLE: u64 = {
+    let table = 0x0007_0406_0007_0406_u64;
+    let table = set_memory_type(
+        table,
+        crate::paging::cache_index(hk_hal::CachePolicy::WriteBack),
+        MEMTYPE_WRITE_BACK,
+    );
+    let table = set_memory_type(
+        table,
+        crate::paging::cache_index(hk_hal::CachePolicy::WriteCombining),
+        MEMTYPE_WRITE_COMBINING,
+    );
+    set_memory_type(
+        table,
+        crate::paging::cache_index(hk_hal::CachePolicy::Uncached),
+        MEMTYPE_UNCACHED,
+    )
+};
 
 /// 把 IA32_PAT 归一到本内核使用的表。
 ///

@@ -259,6 +259,7 @@ mod tests {
             height: 800,
             stride: 5120,
             format: PixelFormat::Bgr32,
+            cache: hk_hal::CachePolicy::WriteBack,
         };
         FramebufferConsole::new(&info, 0)
     }

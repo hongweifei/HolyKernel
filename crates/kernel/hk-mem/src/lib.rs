@@ -13,7 +13,7 @@ pub mod platform;
 
 pub use page::{
     AddressSpaceRegistry, FrameBank, FrameBankStats, FrameKind, LedgerStats, PageAllocator,
-    UserAddressSpace,
+    RegionMapping, UserAddressSpace,
 };
 pub use platform::{DmaAllocator, SoftwareIommu};
 

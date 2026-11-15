@@ -225,6 +225,9 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 操作：map、pin、export/import、residency。
 - Provider：GPU / 设备驱动；负责 residency、eviction、pin/unpin、IOMMU。
 - MMIO 寄存器由 DeviceGrant 的设备映射路径处理；CPU 侧映射以 Region 为视图。
+- 缓存属性（`hk_hal::CachePolicy`）在创建能力时按物理内存种类确定并记入能力与
+  Region，映射时直接取用：寄存器窗口 `Uncached`、系统内存扫描输出 `WriteBack`、
+  显存扫描输出 `WriteCombining`；用户可请求的映射标志里没有缓存位。
 
 ### Anonymous
 

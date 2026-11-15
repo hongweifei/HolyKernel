@@ -31,19 +31,4 @@ impl MapFlags {
     }
 }
 
-/// 设备映射的缓存策略。
-///
-/// 缓属性属于映射种类而不是调用者请求：谁把物理区间交给任务，谁就知道它是
-/// 寄存器窗口、系统内存扫描输出还是显存（ADR-0016 §115）。因此它不出现在
-/// [`MapFlags`] 里，由平台在建立设备映射时选择。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CachePolicy {
-    /// 写回：与普通内存同域。适配 CPU 与设备共享缓存一致性的系统内存，
-    /// 例如 QEMU 的线性帧缓冲；写者不需要 `clflush`。
-    WriteBack,
-    /// 写合并：顺序写由 CPU 攒成整行突发，适合逐行写入的扫描输出缓冲。
-    /// 读回代价高，不确定时不要选。
-    WriteCombining,
-    /// 非缓存：每次访问直达设备，适合寄存器窗口与必须逐次可见的控制面。
-    Uncached,
-}
+pub use hk_base::CachePolicy;

@@ -6,4 +6,4 @@ pub mod registry;
 
 pub use frame_bank::{FrameBank, FrameBankStats, FrameKind, LedgerStats};
 pub use pool::PageAllocator;
-pub use registry::{AddressSpaceRegistry, UserAddressSpace};
+pub use registry::{AddressSpaceRegistry, RegionMapping, UserAddressSpace};

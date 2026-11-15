@@ -33,6 +33,7 @@ static FRAMEBUFFER_WIDTH: AtomicU32 = AtomicU32::new(0);
 static FRAMEBUFFER_HEIGHT: AtomicU32 = AtomicU32::new(0);
 static FRAMEBUFFER_STRIDE: AtomicU32 = AtomicU32::new(0);
 static FRAMEBUFFER_FORMAT: AtomicU32 = AtomicU32::new(0);
+static FRAMEBUFFER_CACHE: AtomicU32 = AtomicU32::new(0);
 
 /// 记录启动阶段的帧缓冲描述；无法提供帧缓冲时传入 `None`。
 pub fn set_framebuffer(info: Option<hk_hal::FramebufferInfo>) {
@@ -43,6 +44,7 @@ pub fn set_framebuffer(info: Option<hk_hal::FramebufferInfo>) {
             FRAMEBUFFER_HEIGHT.store(framebuffer.height, Ordering::Release);
             FRAMEBUFFER_STRIDE.store(framebuffer.stride, Ordering::Release);
             FRAMEBUFFER_FORMAT.store(framebuffer.format.code(), Ordering::Release);
+            FRAMEBUFFER_CACHE.store(framebuffer.cache.code(), Ordering::Release);
             FRAMEBUFFER_PRESENT.store(true, Ordering::Release);
         }
         None => FRAMEBUFFER_PRESENT.store(false, Ordering::Release),
@@ -59,6 +61,7 @@ fn framebuffer_info() -> Option<hk_hal::FramebufferInfo> {
         height: FRAMEBUFFER_HEIGHT.load(Ordering::Acquire),
         stride: FRAMEBUFFER_STRIDE.load(Ordering::Acquire),
         format: hk_hal::PixelFormat::from_code(FRAMEBUFFER_FORMAT.load(Ordering::Acquire))?,
+        cache: hk_hal::CachePolicy::from_code(FRAMEBUFFER_CACHE.load(Ordering::Acquire))?,
     })
 }
 
@@ -128,20 +131,8 @@ impl UserPlatform for X86Platform {
         }
     }
 
-    fn map_mmio(&self, slot: usize, virt: u64, phys: u64, len: usize) -> bool {
-        USER_ADDRESS_SPACES.map_mmio(slot, virt, phys, len)
-    }
-
-    fn map_user(
-        &self,
-        slot: usize,
-        virt: u64,
-        phys: u64,
-        len: usize,
-        rights: hk_mem::Rights,
-        flags: hk_mem::hmp::RegionFlags,
-    ) -> bool {
-        USER_ADDRESS_SPACES.map_user(slot, virt, phys, len, rights, flags)
+    fn map_region(&self, slot: usize, mapping: &hk_mem::RegionMapping) -> bool {
+        USER_ADDRESS_SPACES.map_region(slot, mapping)
     }
 
     fn unmap_user(&self, slot: usize, virt: u64, len: usize) -> bool {
@@ -409,12 +400,16 @@ impl UserPlatform for X86Platform {
         }
         let bytes = usize::try_from(length).ok()?;
         USER_ADDRESS_SPACES
-            .map_device(
+            .map_region(
                 slot,
-                virt,
-                framebuffer.phys.get(),
-                bytes,
-                hk_hal::CachePolicy::WriteBack,
+                &hk_mem::RegionMapping {
+                    virt,
+                    phys: framebuffer.phys.get(),
+                    len: bytes,
+                    rights: hk_mem::Rights::READ | hk_mem::Rights::WRITE,
+                    flags: hk_mem::hmp::RegionFlags::empty(),
+                    policy: framebuffer.cache,
+                },
             )
             .then_some(length)
     }

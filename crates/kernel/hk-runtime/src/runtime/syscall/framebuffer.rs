@@ -73,6 +73,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             framebuffer.phys.get(),
             aligned as usize,
             virt,
+            framebuffer.cache,
         ) {
             let _ = self.platform.unmap_user(index, virt, aligned as usize);
             self.process_mut(index).user_window.release(virt);

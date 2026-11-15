@@ -253,17 +253,11 @@ impl UserPlatform for MockPlatform {
         Some(Arc::clone(&self.user))
     }
 
-    fn map_user(
-        &self,
-        _slot: usize,
-        _virt: u64,
-        _phys: u64,
-        _len: usize,
-        rights: hk_handle::Rights,
-        flags: hk_mem::hmp::RegionFlags,
-    ) -> bool {
+    fn map_region(&self, _slot: usize, mapping: &hk_mem::RegionMapping) -> bool {
         self.last_map.store(
-            rights.bits() as u64 | ((flags.bits() as u64) << 32),
+            mapping.rights.bits() as u64
+                | ((mapping.flags.bits() as u64) << 32)
+                | ((mapping.policy.code() as u64) << 48),
             Ordering::Release,
         );
         self.map_ok.load(Ordering::Acquire)
@@ -370,6 +364,7 @@ impl UserPlatform for MockPlatform {
             height: 2,
             stride: 8,
             format: hk_hal::PixelFormat::Rgb32,
+            cache: hk_hal::CachePolicy::WriteBack,
         })
     }
 
@@ -4691,15 +4686,7 @@ impl UserPlatform for ShortPlatform {
         ))
     }
 
-    fn map_user(
-        &self,
-        _slot: usize,
-        _virt: u64,
-        _phys: u64,
-        _len: usize,
-        _rights: hk_handle::Rights,
-        _flags: hk_mem::hmp::RegionFlags,
-    ) -> bool {
+    fn map_region(&self, _slot: usize, _mapping: &hk_mem::RegionMapping) -> bool {
         true
     }
 

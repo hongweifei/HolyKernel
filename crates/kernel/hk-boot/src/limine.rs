@@ -161,6 +161,10 @@ pub fn boot_info() -> Result<BootInfo, BootError> {
             } else {
                 PixelFormat::Rgb32
             },
+            // Limine 交出的是扫描输出缓冲；本内核从线性帧缓冲启动，它位于系统
+            // 内存，与 CPU 缓存同域，写回即可见。显存扫描输出（virtio-gpu 等）
+            // 由各自驱动按 WriteCombining 创建能力。
+            cache: hk_base::CachePolicy::WriteBack,
         })
     });
 
