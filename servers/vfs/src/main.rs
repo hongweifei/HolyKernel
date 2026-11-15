@@ -80,10 +80,13 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 insert_remote(&mut drives, letter, backend);
             }
         }
-        if drives.is_empty() {}
+        if drives.is_empty() {
+            write(b"hk-server-vfs: no drives\n");
+        }
     } else if let Some(backend) = remote(endpoint, b'E', "hk-server-ext4") {
         insert_remote(&mut drives, b'E', backend);
     } else {
+        write(b"hk-server-vfs: no ext4 service\n");
     }
     register_local(&mut drives, b'T', PathObject::new(Tmpfs::new()));
     register_local(&mut drives, b'D', PathObject::new(Devfs::new()));
