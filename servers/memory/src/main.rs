@@ -11,8 +11,8 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
-    capability_create, capacity_alloc, exit, handle::Anonymous, handle::Endpoint, handle::Handle,
-    recv_data, reply, reply_handle, send, send_handle, write,
+    capability_create, capacity_alloc, exit, frame_write, handle::Anonymous, handle::Endpoint,
+    handle::Handle, recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE};
@@ -120,6 +120,14 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             let _ = reply(0, u64::MAX);
             continue;
         };
+        // 匿名能力承诺零填充；回收页会被清零，但启动期新页不保证，Provider
+        // 必须在交付前自己清零，不能把历史内容映射给用户。
+        let zeros = [0_u8; PAGE];
+        if frame_write(frame, 0, &zeros) != 0 {
+            let _ = hk_server_api::close_handle(frame);
+            let _ = reply(0, u64::MAX);
+            continue;
+        }
         if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
             exit(2);
         }
