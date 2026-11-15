@@ -32,6 +32,8 @@ impl CapabilityKindExt for CapabilityKind {
             }
             CapabilityOp::Export => matches!(self, Self::DeviceAllocation | Self::Frame),
             CapabilityOp::Swap => matches!(self, Self::Anonymous),
+            // 修订是唯一有回写语义的能力：不可变内容由 Provider 持久化。
+            CapabilityOp::Writeback => matches!(self, Self::Revision),
             CapabilityOp::Phys => matches!(
                 self,
                 Self::Surface | Self::DeviceAllocation | Self::Anonymous | Self::Frame
@@ -58,6 +60,8 @@ pub enum CapabilityOp {
     Export,
     /// 压缩/交换匿名页。
     Swap,
+    /// 请求 Provider 回写常驻页。
+    Writeback,
     /// 查询物理区间。
     Phys,
     /// 增长/截断。
@@ -178,6 +182,8 @@ mod tests {
         assert!(CapabilityKind::Frame.supports(CapabilityOp::Pin));
         assert!(!CapabilityKind::Revision.supports(CapabilityOp::Pin));
         assert!(CapabilityKind::Anonymous.supports(CapabilityOp::Swap));
+        assert!(CapabilityKind::Revision.supports(CapabilityOp::Writeback));
+        assert!(!CapabilityKind::Anonymous.supports(CapabilityOp::Writeback));
         assert!(CapabilityKind::Frame.supports(CapabilityOp::Phys));
         assert!(CapabilityKind::Surface.supports(CapabilityOp::Phys));
         assert!(CapabilityKind::DeviceAllocation.supports(CapabilityOp::Phys));

@@ -199,7 +199,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 ### Revision
 
 - 身份：`(DocId, RevisionId)`；路径与目录是 VFS 的命名视图。
-- 操作：只读 map、commit、snapshot、writeback。
+- 操作：只读 map、commit、snapshot、writeback（`SYS_CAPABILITY_WRITEBACK` 转发给 Provider）。
 - 内容由 Extent 组成；Revision 不可变；写入产生新 Revision。
 - `sealed` 修订只读、可共享；既有 Region 继续指向既有修订。
 - Provider：RevisionStore / VFS；页缓存按修订组织。
@@ -249,7 +249,8 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 
 - `Fault`（`0x1200`）：请求页。8 个字为 `[offset, page, address, access, capability, rights, flags, reserved]`；`access` 为 0 读、1 写，`capability` 是能力对象标识，`rights`/`flags` 来自 Region。
 - `Provide`（`0x1201`）：返回 Frame；必须携带句柄并以该标签回包。`Error`（`0x1204`）或其它标签按缺页故障处理，缺页任务终止而不是永久阻塞。
-- `Evict`（`0x1202`）/ `Writeback`（`0x1203`）：预留的驱逐与回写通知标签；当前内核回收匿名零页时不发送通知，Provider 可保留确认分支。
+- `Evict`（`0x1202`）：内核回收 Provider 绑定的匿名零页后向 Provider 发送驱逐通知；8 个字为 `[capability, offset, page, 0…]`，一次性通知，不需要回包。Provider 必须对被驱逐页再次提供零填充内容。
+- `Writeback`（`0x1203`）：`SYS_CAPABILITY_WRITEBACK` 把回写请求转发给能力绑定的 Provider；8 个字为 `[capability, 0…]`。只有 Revision 接受该操作（`CapabilityOp::Writeback`）；写回策略与持久化由 Provider 负责，内核不等待回包。
 - `Release`（`0x1205`）：内核在能力对象析构后通知绑定 Provider；`words[0]` 为能力对象标识，不需要回包。Provider 用它在最后一个句柄关闭或任务退出时回收按能力记录的元数据；与页驱逐语义分开。
 - `GUARD` 页在 Provider 分派前判定：命中即故障，不装零页，也不转发 Provider。
 - 批量、预读、fault token 与异步回写属于契约细节。

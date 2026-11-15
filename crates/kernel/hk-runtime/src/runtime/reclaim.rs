@@ -63,6 +63,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             if pinned.contains(&object) {
                 continue;
             }
+            let provider = self.kernel.capability_provider(tcb, handle).ok().flatten();
             let pages = (capability.size() / page) as usize;
             for page_index in 0..pages {
                 if released >= budget {
@@ -86,6 +87,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     continue;
                 };
                 drop(lease);
+                if let Some(provider) = provider {
+                    let mut words = [0_u64; 8];
+                    words[0] = object.get();
+                    words[1] = page_index as u64 * page;
+                    words[2] = page;
+                    let _ = self.kernel.post_to_endpoint(
+                        provider,
+                        hk_ipc::Message::new(hk_syscall::PROVIDER_EVICT).with_words(words),
+                    );
+                }
                 self.release_page_charges(index, object, page_index);
                 released = released.saturating_add(page);
             }

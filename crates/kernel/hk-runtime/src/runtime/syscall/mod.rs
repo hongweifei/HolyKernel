@@ -1,7 +1,9 @@
 //! 系统调用分派与 IPC 操作。
 
 use super::*;
-use hk_syscall::{SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_MESSAGE_WORDS};
+use hk_syscall::{
+    SYS_CAPABILITY_WRITEBACK, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_MESSAGE_WORDS,
+};
 
 mod arena;
 mod cadence;
@@ -377,6 +379,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPABILITY_SCANOUT => self.capability_scanout(index, tcb, frame),
             SYS_CAPABILITY_COMMIT => self.capability_commit(index, tcb, frame),
             SYS_CAPABILITY_EXPORT => self.capability_export(index, tcb, frame),
+            SYS_CAPABILITY_WRITEBACK => self.capability_writeback(index, tcb, frame),
             SYS_CAPABILITY_BIND_PROVIDER => self.capability_bind_provider(index, tcb, frame),
             SYS_LEDGER_INFO => self.ledger_info(index, frame),
             SYS_OBJECT_LEDGER => self.object_ledger(index, frame),

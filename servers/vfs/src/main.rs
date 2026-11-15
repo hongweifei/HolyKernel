@@ -29,10 +29,10 @@ use hk_proto_client::HolyClient;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    CapabilityKind, PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_KIND_REVISION, PROVIDER_PROVIDE,
-    PROVIDER_RELEASE, capability_bind_provider, capability_create_lazy, capacity_alloc,
-    close_handle, frame_write, handle_id, message_words, recv_data_handle, reply_handle, send_data,
-    send_handle, write, yield_now,
+    CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_REVISION,
+    PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, capability_bind_provider,
+    capability_create_lazy, capacity_alloc, close_handle, frame_write, handle_id, message_words,
+    recv_data_handle, reply_handle, send_data, send_handle, write, yield_now,
 };
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
@@ -109,6 +109,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         }
         if label == PROVIDER_FAULT {
             serve_fault(&mut drives, &revisions, capacity);
+            continue;
+        }
+        if label == PROVIDER_EVICT || label == PROVIDER_WRITEBACK {
+            // 修订页只读且由 Backend 持有，没有可回写内容。
             continue;
         }
         if label != HOLY_REQUEST || frame_handle != 0 {

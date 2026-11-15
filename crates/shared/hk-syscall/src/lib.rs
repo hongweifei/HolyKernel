@@ -241,6 +241,9 @@ pub const SYS_CAPABILITY_PHYS: u64 = 0x45;
 /// 修改已映射 Region 的权利与标志。
 pub const SYS_REGION_PROTECT: u64 = 0x46;
 
+/// 请求 Provider 回写能力的常驻页。
+pub const SYS_CAPABILITY_WRITEBACK: u64 = 0x47;
+
 /// 同步 DMA 缓冲缓存。
 pub const SYS_DMA_SYNC: u64 = 0x48;
 
@@ -731,6 +734,7 @@ mod tests {
             SYS_REGION_UNMAP,
             SYS_CAPABILITY_PHYS,
             SYS_REGION_PROTECT,
+            SYS_CAPABILITY_WRITEBACK,
             SYS_DMA_SYNC,
             SYS_CAPABILITY_PIN,
             SYS_CAPABILITY_SCANOUT,

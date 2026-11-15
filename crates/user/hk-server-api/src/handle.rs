@@ -207,6 +207,11 @@ impl Handle<Revision> {
     pub fn commit(self) -> Option<u64> {
         capability_commit(self.raw())
     }
+
+    /// 请求 Provider 回写常驻页。
+    pub fn writeback(self) -> u64 {
+        crate::memory::capability_writeback(self.raw())
+    }
 }
 
 impl Handle<DeviceAllocation> {

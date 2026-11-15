@@ -129,6 +129,47 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 请求 Provider 回写能力的常驻页。
+    pub(crate) fn capability_writeback(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        let number = frame.arg0() as usize;
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capability.require(CapabilityOp::Writeback).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Ok(Some(provider)) = self.kernel.capability_provider(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Ok(id) = self.kernel.handle_id(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
+        words[0] = id.get();
+        if self
+            .kernel
+            .post_to_endpoint(
+                provider,
+                Message::new(hk_syscall::PROVIDER_WRITEBACK).with_words(words),
+            )
+            .is_err()
+        {
+            frame.set_result(u64::MAX);
+        } else {
+            frame.set_result(0);
+        }
+        Switch::Continue
+    }
+
     pub(crate) fn capability_export(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let Some((handle, capability, _)) = self.capability_at(index, number) else {
