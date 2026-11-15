@@ -12,12 +12,18 @@ pub const SOUND_INFO: u64 = VIRTIO + 0x50;
 pub const SOUND_INFO_REPLY: u64 = VIRTIO + 0x51;
 /// 播放正弦音；消息字为频率（Hz），0 表示自检频率 440。
 pub const SOUND_TONE: u64 = VIRTIO + 0x52;
-/// 播放结果；消息字为 1 表示成功。
+/// 请求受理；消息字为 1 表示已开始播放。
 pub const SOUND_TONE_ACK: u64 = VIRTIO + 0x53;
 /// 握手请求。
 pub const SOUND_PING: u64 = VIRTIO + 0x54;
 /// 握手响应。
 pub const SOUND_PONG: u64 = VIRTIO + 0x55;
+/// 播放结束；消息字为 1 表示完整播完，0 表示中止或失败。
+pub const SOUND_DONE: u64 = VIRTIO + 0x57;
+/// 查询播放状态；响应消息字 1=播放中、0=空闲/已播完、2=失败。
+pub const SOUND_STATUS: u64 = VIRTIO + 0x58;
+/// 状态响应。
+pub const SOUND_STATUS_REPLY: u64 = VIRTIO + 0x59;
 /// 请求驱动服务退出。
 pub const SOUND_SHUTDOWN: u64 = VIRTIO + 0x56;
 
@@ -62,14 +68,12 @@ impl Client {
         None
     }
 
-    /// 播放自检音（440 Hz）。
-    pub fn tone(&self) -> bool {
-        self.tone_at(0)
-    }
-
-    /// 播放指定频率的正弦音；`hz = 0` 表示自检频率。
-    pub fn tone_at(&self, hz: u32) -> bool {
-        let _ = send(self.service, SOUND_TONE, u64::from(hz));
+    /// 开始一段指定频率与时长的播放，返回是否被受理（不等待播完）。
+    pub fn play(&self, hz: u32, millis: u32) -> bool {
+        let mut payload = [0_u8; 8];
+        payload[0..4].copy_from_slice(&hz.to_le_bytes());
+        payload[4..8].copy_from_slice(&millis.to_le_bytes());
+        let _ = hk_server_api::send_data(self.service, SOUND_TONE, &payload);
         let mut buffer = [0_u8; 8];
         for _ in 0..WAIT_ATTEMPTS {
             let (label, word, sender, _length) = recv_data_try(self.endpoint, &mut buffer);
@@ -79,6 +83,36 @@ impl Client {
             if label == 0 {
                 let _ = yield_now();
             }
+        }
+        false
+    }
+
+    /// 查询播放状态：1=播放中，0=空闲/已播完，2=失败。
+    pub fn status(&self) -> u32 {
+        let _ = send(self.service, SOUND_STATUS, 0);
+        let mut buffer = [0_u8; 8];
+        for _ in 0..WAIT_ATTEMPTS {
+            let (label, word, sender, _length) = recv_data_try(self.endpoint, &mut buffer);
+            if label == SOUND_STATUS_REPLY && sender == self.service {
+                return word as u32;
+            }
+            if label == 0 {
+                let _ = yield_now();
+            }
+        }
+        2
+    }
+
+    /// 等待播放结束通知，最多等待 `millis` 毫秒；返回是否完整播完。
+    pub fn wait_done(&self, millis: u64) -> bool {
+        let attempts = (millis.saturating_mul(1_000)).max(20_000) as usize;
+        let mut buffer = [0_u8; 8];
+        for _ in 0..attempts {
+            let (label, word, sender, _length) = recv_data_try(self.endpoint, &mut buffer);
+            if label == SOUND_DONE && sender == self.service {
+                return word == 1;
+            }
+            let _ = yield_now();
         }
         false
     }

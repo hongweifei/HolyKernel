@@ -6,6 +6,7 @@ pub mod rng;
 pub mod sound;
 
 use hk_driver_virtio::{Console, Gpu, Rng, Sound};
+use hk_proto::sound::SOUND_DONE;
 
 /// 非块 virtio 设备集合。
 #[derive(Default)]
@@ -33,7 +34,17 @@ impl Aux {
             gpu::handle(device, label, sender);
         }
         if let Some(device) = &self.sound {
-            sound::handle(device, label, word, sender);
+            sound::handle(device, label, word, sender, data);
+        }
+    }
+
+    /// 推进异步播放；播完时向发起者投递 `SOUND_DONE`。
+    pub fn poll(&mut self) {
+        let Some(device) = &self.sound else {
+            return;
+        };
+        if let Some((owner, ok)) = device.poll() {
+            let _ = hk_server_api::send(owner, SOUND_DONE, u64::from(ok));
         }
     }
 }

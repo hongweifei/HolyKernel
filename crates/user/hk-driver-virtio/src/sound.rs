@@ -4,6 +4,7 @@
 //! 送一段正弦波，最后停止并释放。采样参数与格式都先查设备支持位，不支持就
 //! 直接失败，不猜设备能力。
 
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
 use hk_device::DeviceGrant;
@@ -33,10 +34,30 @@ pub const TONE_MAX_MILLIS: u32 = 2_000;
 const TONE_CHANNELS: u8 = 1;
 /// 一帧字节数：单声道 S16。
 const FRAME_BYTES: u32 = 2;
+/// 一个周期的字节数（10 ms）。
+const PERIOD_BYTES: u32 = TONE_RATE / 100 * FRAME_BYTES;
+/// 同时在途的周期数；设备队列足够深，留两拍避免首包等待。
+const IN_FLIGHT: usize = 2;
+
+/// 一次播放的排队状态。
+struct Playback {
+    stream: u32,
+    data: Vec<u8>,
+    /// 已提交到设备的字节数。
+    sent: usize,
+    /// 在途令牌，按提交顺序完成。
+    tokens: VecDeque<u16>,
+    /// 请求播放的客户端端点，播放结束时收到 `SOUND_DONE`。
+    owner: u64,
+    failed: bool,
+}
 
 /// virtio 音频设备。
 pub struct Sound {
     sound: Mutex<VirtIOSound<HalImpl, PciTransport>>,
+    playback: Mutex<Option<Playback>>,
+    /// 最近一次播放是否失败；0=空闲/成功，2=失败。
+    last_failed: Mutex<bool>,
     grant: u64,
     descriptor: DeviceGrant,
 }
@@ -45,6 +66,8 @@ impl Sound {
     pub(crate) fn new(sound: VirtIOSound<HalImpl, PciTransport>) -> Self {
         Self {
             sound: Mutex::new(sound),
+            playback: Mutex::new(None),
+            last_failed: Mutex::new(false),
             grant: hal::grant_handle(),
             descriptor: hal::grant_descriptor().expect("probe 未绑定设备授权"),
         }
@@ -71,16 +94,27 @@ impl Sound {
             .map(|streams| streams.len())
     }
 
-    /// 播放默认自检音（440 Hz / 250 ms）。
+    /// 播放默认自检音（440 Hz / 250 ms），阻塞到设备收完。
+    ///
+    /// 只用于启动自检；服务主循环用 [`Self::start_tone`] + [`Self::poll`]，
+    /// 不占用消息处理线程。
     pub fn tone(&self) -> Option<(usize, u32)> {
-        self.tone_at(TONE_HZ, TONE_MILLIS)
+        let started = self.start_tone(TONE_HZ, TONE_MILLIS, 0)?;
+        for _ in 0..TONE_RATE * TONE_MAX_MILLIS {
+            if self.poll().is_some() {
+                return Some(started);
+            }
+            core::hint::spin_loop();
+        }
+        let _ = self.stop();
+        None
     }
 
-    /// 播放指定频率与时长的正弦波，返回 `(输出流数量, 采样率)`。
+    /// 开始一段异步播放，返回 `(输出流数量, 采样率)`。
     ///
-    /// 频率与会话长度都先夹到设备自检允许的区间，避免调用方给出零长度或
-    /// 超出听域的请求。
-    pub fn tone_at(&self, hz: u32, millis: u32) -> Option<(usize, u32)> {
+    /// 频率与时长的合法范围与设备能力都在这里校验；调用返回后数据由
+    /// [`Self::poll`] 逐周期推进，播放完成后向 `owner` 发 `SOUND_DONE`。
+    pub fn start_tone(&self, hz: u32, millis: u32, owner: u64) -> Option<(usize, u32)> {
         if !(TONE_MIN_HZ..=TONE_MAX_HZ).contains(&hz)
             || !(TONE_MIN_MILLIS..=TONE_MAX_MILLIS).contains(&millis)
         {
@@ -98,15 +132,16 @@ impl Sound {
         if !formats.contains(PcmFormats::S16) {
             return None;
         }
-        let frames = TONE_RATE * millis / 1000;
+        let mut frames = TONE_RATE * millis / 1000;
+        // 设备要求 buffer 是周期的整数倍，帧数向上对齐到 10 ms。
+        let period_frames = TONE_RATE / 100;
+        frames = frames.div_ceil(period_frames) * period_frames;
         let bytes = frames * FRAME_BYTES;
-        // 周期与缓冲都按 10 ms 对齐，给设备留出整周期的缓冲区。
-        let period = TONE_RATE / 100 * FRAME_BYTES;
         sound
             .pcm_set_params(
                 stream,
                 bytes,
-                period,
+                PERIOD_BYTES,
                 PcmFeatures::empty(),
                 TONE_CHANNELS,
                 PcmFormat::S16,
@@ -115,17 +150,102 @@ impl Sound {
             .ok()?;
         sound.pcm_prepare(stream).ok()?;
         sound.pcm_start(stream).ok()?;
-        let samples = sine(bytes as usize, hz);
-        let played = sound.pcm_xfer(stream, &samples).is_ok();
+        let mut playback = Playback {
+            stream,
+            data: sine(bytes as usize, hz),
+            sent: 0,
+            tokens: VecDeque::new(),
+            owner,
+            failed: false,
+        };
+        pump(&mut sound, &mut playback);
+        *self.last_failed.lock() = false;
+        *self.playback.lock() = Some(playback);
+        Some((outputs.len(), TONE_RATE))
+    }
+
+    /// 推进播放：回收完成周期并补交新周期；播完返回 `(owner, 是否成功)`。
+    pub fn poll(&self) -> Option<(u64, bool)> {
+        self.activate();
+        let mut playback = self.playback.lock();
+        let state = playback.as_mut()?;
+        let mut sound = self.sound.lock();
+        while let Some(&token) = state.tokens.front() {
+            match sound.pcm_xfer_ok(token) {
+                Ok(()) => {
+                    state.tokens.pop_front();
+                }
+                Err(virtio_drivers::Error::NotReady) => break,
+                Err(_) => {
+                    state.failed = true;
+                    state.tokens.clear();
+                    break;
+                }
+            }
+        }
+        if !state.failed {
+            pump(&mut sound, state);
+        }
+        let finished = state.failed || (state.sent >= state.data.len() && state.tokens.is_empty());
+        if !finished {
+            return None;
+        }
+        let owner = state.owner;
+        let ok = !state.failed;
+        *self.last_failed.lock() = state.failed;
+        let stream = state.stream;
         let _ = sound.pcm_stop(stream);
         let _ = sound.pcm_release(stream);
-        played.then_some((outputs.len(), TONE_RATE))
+        *playback = None;
+        Some((owner, ok))
+    }
+
+    /// 播放状态：1=播放中，0=空闲/已播完，2=失败。
+    pub fn status(&self) -> u32 {
+        if self.playback.lock().is_some() {
+            1
+        } else if *self.last_failed.lock() {
+            2
+        } else {
+            0
+        }
+    }
+
+    /// 中止当前播放并释放流。
+    pub fn stop(&self) -> bool {
+        self.activate();
+        let mut playback = self.playback.lock();
+        let Some(state) = playback.take() else {
+            return false;
+        };
+        let mut sound = self.sound.lock();
+        let _ = sound.pcm_stop(state.stream);
+        let _ = sound.pcm_release(state.stream);
+        true
     }
 
     /// 确认设备中断。
     pub fn ack_interrupt(&self) {
         self.activate();
         let _ = self.sound.lock().ack_interrupt();
+    }
+}
+
+/// 尽力把后续周期提交到设备，直到在途数达到上限或数据送完。
+fn pump(sound: &mut VirtIOSound<HalImpl, PciTransport>, state: &mut Playback) {
+    while !state.failed && state.tokens.len() < IN_FLIGHT && state.sent < state.data.len() {
+        let end = (state.sent + PERIOD_BYTES as usize).min(state.data.len());
+        match sound.pcm_xfer_nb(state.stream, &state.data[state.sent..end]) {
+            Ok(token) => {
+                state.tokens.push_back(token);
+                state.sent = end;
+            }
+            Err(virtio_drivers::Error::QueueFull) => break,
+            Err(_) => {
+                state.failed = true;
+                break;
+            }
+        }
     }
 }
 

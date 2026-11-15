@@ -289,6 +289,8 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, mut devices: Au
         b"hk-server-virtio: block irq polling\n"
     });
 
+    // 两个闭包都要推进音频播放，共享同一个 `Aux`。
+    let devices = core::cell::RefCell::new(devices);
     hk_block_ipc::serve_with_wait_and(
         endpoint,
         block.as_mut(),
@@ -308,7 +310,8 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, mut devices: Au
             if received != 0 {
                 let _ = close_handle(received);
             }
-            devices.handle(label, word, sender, data);
+            devices.borrow_mut().poll();
+            devices.borrow_mut().handle(label, word, sender, data);
         },
     );
     // 显式关闭视为需要重载的失败，供重启自检与热恢复使用。
@@ -325,6 +328,9 @@ fn serve_aux(endpoint: u64, mut devices: Aux) -> ! {
             let _ = close_handle(received);
         }
         let length = length.min(buffer.len());
+        // 播放由消息驱动推进：客户端用 `SOUND_STATUS` 轮询，服务每次处理
+        // 消息时补交音频周期。
+        devices.poll();
         devices.handle(label, word, sender, &buffer[..length]);
     }
 }

@@ -130,7 +130,7 @@ flowchart LR
 ### 交付
 
 - Device Manager：PCI/DTB 枚举、DeviceGrant、DeviceAllocation、驱动启动与重启。
-- virtio 驱动：blk、net、input、rng、console（多端口）、gpu（2D 扫描输出）、sound（播放，任意频率自检音 + 客户端协议）；MMIO、DMA、IRQ 走 HMP 与 DeviceGrant。
+- virtio 驱动：blk、net、input、rng、console（多端口）、gpu（2D 扫描输出）、sound（异步播放：任意频率/时长，状态轮询推进）；MMIO、DMA、IRQ 走 HMP 与 DeviceGrant。
 - DMA/IOMMU：Dma Capacity、Frame pin、IOMMU 域与缓存维护。
 - VFS：挂载表、DocId/集合/修订、FileHandle、页缓存、路径与 fd 兼容服务。
 - HolyFS：文档、修订、集合、标签、快照、COW、checksum、压缩。

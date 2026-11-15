@@ -461,6 +461,7 @@ impl SmokeMode {
                 "hk-server-virtio: sound tone ok",
                 "hk-server-sound-test: info streams 1",
                 "hk-server-sound-test: tone 880 ok",
+                "hk-server-sound-test: async accept",
             ],
             Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],
             Self::Vcon => &[
@@ -1285,7 +1286,7 @@ fn verify_tone(path: &Path) -> Result<()> {
             "WAV 中未检出 440 Hz 自检音（命中 {low} 个窗口）"
         )));
     }
-    if high < 3 {
+    if high < 10 {
         return Err(Failure::new(format!(
             "WAV 中未检出 880 Hz 客户端音（命中 {high} 个窗口）"
         )));
