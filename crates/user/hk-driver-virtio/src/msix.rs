@@ -71,12 +71,9 @@ pub fn enable(grant: u64) -> Option<Msix> {
 ///
 /// 队列未绑定表项时设备不会发中断；这里填的是表项索引，不是 CPU 向量。
 fn route_queues(grant: u64, config: &Config, descriptor: &hk_device::DeviceGrant) {
-    let Some(offset) = config.find(0x09) else {
+    let Some(offset) = find_common(config) else {
         return;
     };
-    if ((config.read(offset) >> 24) & 0xFF) != 1 {
-        return;
-    }
     let bar = u64::from(config.read(offset + 4) & 0xFF);
     if descriptor
         .mmio
@@ -101,6 +98,25 @@ fn route_queues(grant: u64, config: &Config, descriptor: &hk_device::DeviceGrant
             common.write_u16(26, 0);
         }
     }
+}
+
+/// 找到 virtio 公共配置（cap ID 0x09 且 cfg_type 1）。
+///
+/// capability 链里 0x09 有多个（common/notify/isr/device/pci），第一个不一定是
+/// common；必须按 cfg_type 挑选。
+fn find_common(config: &Config) -> Option<u8> {
+    let mut offset = (config.read(0x34) & 0xFC) as u8;
+    for _ in 0..48 {
+        if offset == 0 {
+            break;
+        }
+        let header = config.read(offset);
+        if (header & 0xFF) as u8 == 0x09 && (header >> 24) as u8 == 1 {
+            return Some(offset);
+        }
+        offset = ((header >> 8) & 0xFC) as u8;
+    }
+    None
 }
 
 fn write_control(table: &Mmio, entry: u64, value: u32) {

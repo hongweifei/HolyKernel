@@ -34,7 +34,7 @@ use hk_server_api::device::{
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, device_info, dma_map, exit, irq_bind, recv_data_handle, recv_handle,
+    close_handle, device_info, dma_map, exit, irq_bind, msi_bind, recv_data_handle, recv_handle,
     self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
@@ -242,12 +242,18 @@ fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -
         .finish();
 
     let notification = self_notification();
-    // MSI-X 绑定的通知当前不会触发，块设备先用 INTx；修复后再切回。
-    let bound = irq_bind(grant, notification, BLOCK_NOTIFY_IRQ) == 0;
+    let msi = hk_driver_virtio::msix::enable(grant);
+    let bound = if msi.is_some() {
+        msi_bind(grant, notification, BLOCK_NOTIFY_IRQ) == 0
+    } else {
+        irq_bind(grant, notification, BLOCK_NOTIFY_IRQ) == 0
+    };
     if bound {
         block.enable_interrupts();
     }
-    write(if bound {
+    write(if bound && msi.is_some() {
+        b"hk-server-virtio: block msi-x bound\n"
+    } else if bound {
         b"hk-server-virtio: block irq bound\n"
     } else {
         b"hk-server-virtio: block irq polling\n"
