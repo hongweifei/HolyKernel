@@ -535,7 +535,10 @@ impl SmokeMode {
                 "hk-server-display: close 1",
                 "hk-server-pointer-test: closed 1",
             ],
-            Self::Revmap => &["hk-server-holydoc: revision ok"],
+            Self::Revmap => &[
+                "hk-server-vfs: revision shared",
+                "hk-server-holydoc: revision ok",
+            ],
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
                 "hk-server-holyfs: drive H:",
@@ -555,6 +558,7 @@ impl SmokeMode {
                 "hk-server-holydoc: retention ok",
                 "hk-server-holydoc: quota ok",
                 "hk-server-holydoc: stream ok",
+                "hk-server-vfs: revision shared",
                 "hk-server-holydoc: revision ok",
                 "hk-server-holydoc: click H:/System",
                 "hk-server-holydoc: open H:/System",

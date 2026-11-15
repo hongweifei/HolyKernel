@@ -30,9 +30,10 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_REVISION,
-    PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, capability_bind_provider,
-    capability_create_lazy, capacity_alloc, close_handle, frame_write, handle_id, message_words,
-    recv_data_handle, reply_handle, send_data, send_handle, write, yield_now,
+    PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, RIGHT_READ, RIGHT_TRANSFER,
+    capability_bind_provider, capability_create_lazy, capacity_alloc, close_handle, frame_write,
+    grant_capability, handle_id, message_words, recv_data_handle, reply_handle, send_data,
+    send_handle, write, yield_now,
 };
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
@@ -236,6 +237,24 @@ fn map_revision(
     if size == 0 {
         reply(sender, hk_proto::vfs::STATUS_INVALID, &[], response);
         return;
+    }
+    // 同一修订只保留一个能力对象：后续映射者拿到同一对象的只读句柄，缺页装入的
+    // 页由所有映射共享。对象最后一位持有者关闭后内核发 PROVIDER_RELEASE，记录
+    // 随之移除，不需要 VFS 自己持有句柄。
+    if let Some(index) = revisions.iter().position(|record| {
+        record.drive == request.drive && record.document == document && record.revision == revision
+    }) {
+        let capability = revisions[index].capability;
+        if let Some(handle) = grant_capability(capability, RIGHT_READ | RIGHT_TRANSFER) {
+            write(b"hk-server-vfs: revision shared\n");
+            if send_handle(sender, HOLY_RESPONSE, size, handle) != 0 {
+                let _ = close_handle(handle);
+                reply(sender, hk_proto::vfs::STATUS_ERROR, &[], response);
+            }
+            return;
+        }
+        // 对象已经析构但释放通知还没被消费：清掉陈旧记录，重新建立。
+        revisions.remove(index);
     }
     let Some(capability) = capability_create_lazy(CapabilityKind::Revision, size as usize) else {
         reply(sender, hk_proto::vfs::STATUS_ERROR, &[], response);

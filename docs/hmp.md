@@ -268,7 +268,8 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 
 内核快速路径：
 
-1. 已常驻页：查页表并返回，零 IPC。
+1. 已常驻页：查能力页表并直接建立当前 Region 的 PTE，零 IPC。同一能力被多个
+   Region/任务映射时共享同一物理页，只按当前任务记账。
 2. 默认 Provider 为空的 Anonymous：安装零页；匿名 COW 由内核复制 Frame。
 3. 已绑定 Provider 的能力：缺页一律转发 Provider；Provider 失败按缺页故障处理。
 
@@ -320,6 +321,11 @@ HMP 的文件页缓存以修订为中心。
 - 身份：`(DocId, RevisionId, Extent range)`；路径与目录是 VFS 视图。
 - 不可变 Revision 的页只读、可共享、可跨进程映射。
 - 读路径与映射共享同一份常驻 Frame；同一修订只有一份常驻页。
+- 实现上，VFS 对每个 `(DocId, RevisionId)` 只保留一个 Revision 能力对象；后续
+  映射通过 `SYS_CAPABILITY_GRANT` 取得同一对象的只读句柄（该调用只对绑定该
+  能力的 Provider 任务开放），因此所有 Region 共享同一份能力页。最后一个句柄
+  关闭后对象析构，`PROVIDER_RELEASE` 通知 VFS 移除元数据；VFS 不额外持有会
+  阻止释放的句柄。
 - 写入产生新 Revision / COW 页；`commit` 切换 head。
 - 既有 Revision 的 Region 仍可被既有视图持有；达到回收条件后释放。
 - RevisionStore 负责 readahead、writeback、脏页与既有修订回收。

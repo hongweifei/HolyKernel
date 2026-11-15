@@ -61,7 +61,35 @@ pub(crate) fn verify_revision_map(endpoint: u64) -> bool {
     };
     // SAFETY: Region 已按只读映射到本任务，长度覆盖修订内容。
     let mapped = unsafe { core::slice::from_raw_parts(virt as *const u8, content.len()) };
-    let matched = mapped == content;
+    if mapped != content {
+        let _ = region_unmap(region);
+        let _ = close_handle(capability);
+        return false;
+    }
+    // 同一修订再次映射必须复用同一能力（VFS 共享），第二份映射读到的仍是同一内容。
+    let Ok(second) = vfs.map_revision(document, RevisionId::new(view.id), view.size) else {
+        let _ = region_unmap(region);
+        let _ = close_handle(capability);
+        return false;
+    };
+    let Some(second_region) = region_map(second, 0, length, RIGHT_READ, 0) else {
+        let _ = close_handle(second);
+        let _ = region_unmap(region);
+        let _ = close_handle(capability);
+        return false;
+    };
+    let Some((second_virt, _)) = region_info(second_region) else {
+        let _ = region_unmap(second_region);
+        let _ = close_handle(second);
+        let _ = region_unmap(region);
+        let _ = close_handle(capability);
+        return false;
+    };
+    // SAFETY: 第二个 Region 已按只读映射，长度覆盖修订内容。
+    let shared = unsafe { core::slice::from_raw_parts(second_virt as *const u8, content.len()) };
+    let matched = shared == content;
+    let _ = region_unmap(second_region);
+    let _ = close_handle(second);
     let _ = region_unmap(region);
     let _ = close_handle(capability);
     matched
