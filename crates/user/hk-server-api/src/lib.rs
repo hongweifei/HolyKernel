@@ -9,10 +9,13 @@
 pub mod device;
 pub mod format;
 pub mod framebuffer;
+pub mod handle;
 pub mod heap;
 pub mod memory;
 pub mod memory_manager;
 pub mod runtime;
+
+pub use handle::Handle;
 
 pub use hk_syscall::{
     CapabilityKind, DISPLAY_SERVICE, FAULT_EVENT, RIGHT_ADMIN, RIGHT_EXECUTE, RIGHT_READ,

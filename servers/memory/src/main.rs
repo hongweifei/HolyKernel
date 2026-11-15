@@ -11,7 +11,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
-    capability_bind_provider, capability_create, capability_create_lazy, capacity_alloc, exit,
+    capability_create, capacity_alloc, exit, handle::Anonymous, handle::Endpoint, handle::Handle,
     recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
@@ -77,9 +77,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 .zip((size > 0).then_some(size))
                 .and_then(|(kind, size)| {
                     if lazy && kind == CapabilityKind::Anonymous {
-                        let memory = capability_create_lazy(kind, size)?;
-                        let _ = capability_bind_provider(memory, endpoint, PROVIDER_KIND_ANONYMOUS);
-                        Some(memory)
+                        let memory = Handle::<Anonymous>::create_lazy(size)?;
+                        let _ = memory.bind_provider(
+                            Handle::<Endpoint>::from_raw(endpoint),
+                            PROVIDER_KIND_ANONYMOUS,
+                        );
+                        Some(memory.raw())
                     } else {
                         capability_create(kind, size)
                     }
