@@ -6,6 +6,9 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 
+#[cfg(target_os = "none")]
+extern crate alloc;
+
 #[cfg(any(target_os = "none", test))]
 mod pointer;
 #[cfg(any(target_os = "none", test))]
@@ -14,6 +17,14 @@ mod resize;
 mod seat;
 #[cfg(any(target_os = "none", test))]
 mod surface;
+
+/// 服务堆大小：只用于接管期缓存客户端消息。
+#[cfg(target_os = "none")]
+const HEAP_SIZE: usize = 16 * 1024;
+
+#[cfg(target_os = "none")]
+#[global_allocator]
+static ALLOCATOR: hk_server_api::heap::FreeHeap = hk_server_api::heap::FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 mod actions;
@@ -28,6 +39,8 @@ mod theme;
 #[cfg(target_os = "none")]
 mod window;
 
+#[cfg(target_os = "none")]
+use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use compositor::{Compositor, draw_desktop};
 #[cfg(target_os = "none")]
@@ -45,6 +58,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let mut command = [0_u8; 128];
     let command_line = hk_server_api::boot_cmdline(&mut command).unwrap_or("");
     let gpu_requested = command_line.contains("gpu.scanout");
+    let mut pending: Vec<scanout::Pending> = Vec::new();
     let (width, height, stride, framebuffer_virt, scanout) = match framebuffer::query() {
         Some(framebuffer) if !gpu_requested => {
             if framebuffer.width == 0
@@ -67,7 +81,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             )
         }
         kernel => {
-            let Some(scanout) = scanout::Scanout::adopt(endpoint) else {
+            let Some(scanout) = scanout::Scanout::adopt(endpoint, &mut pending) else {
                 if kernel.is_none() {
                     write(b"hk-server-display: no framebuffer\n");
                 } else {
@@ -161,7 +175,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         exit(0)
     }
 
-    Compositor::new(endpoint, screen, font, display_test, scanout).run()
+    Compositor::new(endpoint, screen, font, display_test, scanout, pending).run()
 }
 
 /// 向 Surface Provider 申请懒加载后备表面；服务不可用时返回 `None`。

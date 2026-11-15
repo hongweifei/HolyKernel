@@ -46,6 +46,8 @@ pub(crate) struct Compositor {
     display_test: bool,
     /// GPU 扫描输出接管；存在时每帧提交后让驱动 flush。
     scanout: Option<crate::scanout::Scanout>,
+    /// 接管扫描输出期间缓存的客户端消息，启动后按序重放。
+    pending: alloc::vec::Vec<crate::scanout::Pending>,
     benchmarked: bool,
     benchmark_at: u64,
     resize_retry_at: u64,
@@ -62,6 +64,7 @@ impl Compositor {
         font: &'static Font,
         display_test: bool,
         scanout: Option<crate::scanout::Scanout>,
+        pending: alloc::vec::Vec<crate::scanout::Pending>,
     ) -> Self {
         let compositor = Self {
             endpoint,
@@ -78,6 +81,7 @@ impl Compositor {
             driver_input: false,
             display_test,
             scanout,
+            pending,
             benchmarked: false,
             benchmark_at: tsc().saturating_add(tsc_frequency().saturating_mul(2)),
             resize_retry_at: 0,
@@ -94,6 +98,17 @@ impl Compositor {
 
     /// 主循环：提交帧、处理控制台输入并分派服务消息。
     pub(crate) fn run(&mut self) -> ! {
+        while !self.pending.is_empty() {
+            let message = self.pending.remove(0);
+            self.handle_message(
+                message.label,
+                message.word,
+                message.sender,
+                message.length,
+                message.handle,
+                &message.payload[..message.length],
+            );
+        }
         loop {
             let presented = self.screen.present();
             if presented && let Some(scanout) = &self.scanout {
@@ -110,6 +125,7 @@ impl Compositor {
             let mut payload = [0_u8; 8 + TITLE_MAX];
             let (label, word, sender, length, handle) =
                 recv_data_handle_try(self.endpoint, &mut payload, 0);
+
             if label == 0 {
                 let _ = sleep_ticks(1);
                 continue;

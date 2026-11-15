@@ -62,7 +62,17 @@ impl Client {
     /// 等待 virtio 驱动服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
         let service = hk_server_api::runtime::wait_service(SCANOUT_SERVICE)?;
-        Some(Self { endpoint, service })
+        Some(Self::at(endpoint, service))
+    }
+
+    /// 以已知服务端点构造客户端。
+    pub const fn at(endpoint: u64, service: u64) -> Self {
+        Self { endpoint, service }
+    }
+
+    /// 返回服务端点。
+    pub const fn service(&self) -> u64 {
+        self.service
     }
 
     /// 查询分辨率；设备没有扫描输出时返回 `None`。

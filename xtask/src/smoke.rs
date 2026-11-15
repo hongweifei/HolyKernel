@@ -227,7 +227,9 @@ impl SmokeMode {
             Self::Gpu => Some(String::from("gpu-test")),
             Self::Vcon => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
-            Self::GpuDisplay => Some(String::from("gpu.scanout scanout-test")),
+            Self::GpuDisplay => Some(String::from(
+                "theme=light ui.scale=2 display-test gpu.scanout",
+            )),
             Self::Terminal => Some(String::from("terminal-test")),
             Self::InputDriver => Some(String::from("input-test input-driver terminal-test")),
             Self::Pointer => Some(String::from("pointer-test input-driver")),
@@ -468,7 +470,10 @@ impl SmokeMode {
             Self::GpuDisplay => &[
                 "hk-server-display: scanout gpu 1280x800",
                 "hk-server-display: ready 1280x800",
-                "hk-server-display: scanout test ok",
+                "hk-server-display: composite ok",
+                "hk-server-display-test: clipboard holy",
+                "hk-server-display-test: ready",
+                "hk-server-display-test: done",
             ],
             Self::Terminal => &[
                 "hk-server-console: window",
@@ -948,7 +953,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         )?;
         inject(&socket, "hello\n")?;
     }
-    if mode == SmokeMode::Display {
+    if matches!(mode, SmokeMode::Display | SmokeMode::GpuDisplay) {
         wait_for(
             &log,
             "hk-server-display-test: ready",
