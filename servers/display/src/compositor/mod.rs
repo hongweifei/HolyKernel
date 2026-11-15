@@ -44,6 +44,8 @@ pub(crate) struct Compositor {
     resize: Option<Resize>,
     driver_input: bool,
     display_test: bool,
+    /// GPU 扫描输出接管；存在时每帧提交后让驱动 flush。
+    scanout: Option<crate::scanout::Scanout>,
     benchmarked: bool,
     benchmark_at: u64,
     resize_retry_at: u64,
@@ -59,6 +61,7 @@ impl Compositor {
         screen: Screen,
         font: &'static Font,
         display_test: bool,
+        scanout: Option<crate::scanout::Scanout>,
     ) -> Self {
         let compositor = Self {
             endpoint,
@@ -74,6 +77,7 @@ impl Compositor {
             resize: None,
             driver_input: false,
             display_test,
+            scanout,
             benchmarked: false,
             benchmark_at: tsc().saturating_add(tsc_frequency().saturating_mul(2)),
             resize_retry_at: 0,
@@ -91,7 +95,10 @@ impl Compositor {
     /// 主循环：提交帧、处理控制台输入并分派服务消息。
     pub(crate) fn run(&mut self) -> ! {
         loop {
-            self.screen.present();
+            let presented = self.screen.present();
+            if presented && let Some(scanout) = &self.scanout {
+                scanout.flush();
+            }
             self.benchmark();
             self.retry_window_resizes();
             // 输入驱动接入后不再读内核控制台，避免两路输入重复。

@@ -20,6 +20,8 @@ mod actions;
 #[cfg(target_os = "none")]
 mod compositor;
 #[cfg(target_os = "none")]
+mod scanout;
+#[cfg(target_os = "none")]
 mod selftest;
 #[cfg(target_os = "none")]
 mod theme;
@@ -40,25 +42,57 @@ use window::Screen;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
-    let Some(framebuffer) = framebuffer::query() else {
-        write(b"hk-server-display: no framebuffer\n");
-        exit(1)
+    let mut command = [0_u8; 128];
+    let command_line = hk_server_api::boot_cmdline(&mut command).unwrap_or("");
+    let gpu_requested = command_line.contains("gpu.scanout");
+    let (width, height, stride, framebuffer_virt, scanout) = match framebuffer::query() {
+        Some(framebuffer) if !gpu_requested => {
+            if framebuffer.width == 0
+                || framebuffer.height == 0
+                || framebuffer.stride < framebuffer.width * 4
+            {
+                write(b"hk-server-display: invalid framebuffer\n");
+                exit(1)
+            }
+            let Some((_mapped, virt)) = framebuffer::map() else {
+                write(b"hk-server-display: map failed\n");
+                exit(2)
+            };
+            (
+                framebuffer.width as usize,
+                framebuffer.height as usize,
+                framebuffer.stride as usize / 4,
+                virt,
+                None,
+            )
+        }
+        kernel => {
+            let Some(scanout) = scanout::Scanout::adopt(endpoint) else {
+                if kernel.is_none() {
+                    write(b"hk-server-display: no framebuffer\n");
+                } else {
+                    write(b"hk-server-display: gpu scanout unavailable\n");
+                }
+                exit(1)
+            };
+            Line::new()
+                .text(b"hk-server-display: scanout gpu ")
+                .number(scanout.width as u64)
+                .text(b"x")
+                .number(scanout.height as u64)
+                .text(b"\n")
+                .finish();
+            let fb = scanout.fb as u64;
+            (
+                scanout.width,
+                scanout.height,
+                scanout.stride,
+                fb,
+                Some(scanout),
+            )
+        }
     };
-    if framebuffer.width == 0
-        || framebuffer.height == 0
-        || framebuffer.stride < framebuffer.width * 4
-    {
-        write(b"hk-server-display: invalid framebuffer\n");
-        exit(1)
-    }
 
-    let Some((_mapped, framebuffer_virt)) = framebuffer::map() else {
-        write(b"hk-server-display: map failed\n");
-        exit(2)
-    };
-
-    let width = framebuffer.width as usize;
-    let height = framebuffer.height as usize;
     let bytes = width * height * 4;
     let _ = capacity;
     let mut back = provider_surface(endpoint, bytes);
@@ -79,7 +113,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         framebuffer_virt as *mut u32,
         width,
         height,
-        framebuffer.stride as usize / 4,
+        stride,
     );
 
     let mut theme_buffer = [0_u8; 128];
@@ -111,13 +145,23 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     draw_desktop(&screen);
     Line::new()
         .text(b"hk-server-display: ready ")
-        .number(u64::from(framebuffer.width))
+        .number(width as u64)
         .text(b"x")
-        .number(u64::from(framebuffer.height))
+        .number(height as u64)
         .text(b"\n")
         .finish();
 
-    Compositor::new(endpoint, screen, font, display_test).run()
+    if scanout.is_some() && command_line.contains("scanout-test") {
+        if let Some(scanout) = &scanout {
+            scanout.flush();
+        }
+        Line::new()
+            .text(b"hk-server-display: scanout test ok\n")
+            .finish();
+        exit(0)
+    }
+
+    Compositor::new(endpoint, screen, font, display_test, scanout).run()
 }
 
 /// 向 Surface Provider 申请懒加载后备表面；服务不可用时返回 `None`。

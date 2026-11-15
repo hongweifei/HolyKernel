@@ -36,7 +36,7 @@ use virtio_drivers::transport::pci::virtio_device_type;
 pub use blk::Block;
 pub use console::Console;
 pub use gpu::Gpu;
-pub use hal::{grant_descriptor, register_mapping};
+pub use hal::{allocation_capability, grant_descriptor, register_mapping};
 pub use input::Input;
 pub use msi::Msi;
 pub use msix::Msix;

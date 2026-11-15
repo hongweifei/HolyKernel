@@ -280,9 +280,10 @@ impl Screen {
     ///
     /// 帧缓冲映射为可缓存（`CachePolicy::WriteBack`）：x86 的 DMA 读取与 CPU
     /// 缓存同域，QEMU 直接读同一段物理内存即可看到新像素，无需 `clflush`。
-    pub(crate) fn present(&self) {
+    /// 返回本次是否真的有像素提交，供扫描输出决定是否刷新。
+    pub(crate) fn present(&self) -> bool {
         let Some((left, top, right, bottom)) = self.damage.take() else {
-            return;
+            return false;
         };
         let count = right - left;
         for row in top..bottom {
@@ -295,6 +296,7 @@ impl Screen {
                 );
             }
         }
+        true
     }
 
     pub(crate) fn put(&self, x: usize, y: usize, color: u32) {

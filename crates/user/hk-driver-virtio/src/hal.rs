@@ -53,10 +53,23 @@ pub fn register_mapping(virt: u64, phys: u64, len: usize) {
     }
 }
 
+/// 返回覆盖 `[virt, virt + len)` 的 DMA 分配所对应的能力句柄。
+///
+/// 能力由本任务持有；调用方要交给别的进程时先 `handle_duplicate`，不要移动
+/// 驱动自己的句柄（释放路径还要用它关闭分配）。
+pub fn allocation_capability(virt: u64, len: usize) -> Option<u64> {
+    let allocations = ALLOCATIONS.lock();
+    allocations
+        .iter()
+        .find(|entry| virt >= entry.virt && (virt - entry.virt) + len as u64 <= entry.len as u64)
+        .map(|entry| entry.capability)
+}
+
 struct Allocation {
     phys: u64,
     dma: u64,
     virt: u64,
+    len: usize,
     capability: u64,
     region: u64,
 }
@@ -102,6 +115,7 @@ impl HalImpl {
             phys,
             dma,
             virt,
+            len,
             capability,
             region,
         });

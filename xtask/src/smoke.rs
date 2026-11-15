@@ -124,6 +124,9 @@ pub enum SmokeMode {
     /// Display 服务帧缓冲映射与测试图案
     #[value(name = "display")]
     Display,
+    /// Display 接管 virtio-gpu 扫描输出
+    #[value(name = "gpudisplay")]
+    GpuDisplay,
     /// Console 服务的图形终端窗口
     #[value(name = "terminal")]
     Terminal,
@@ -224,6 +227,7 @@ impl SmokeMode {
             Self::Gpu => Some(String::from("gpu-test")),
             Self::Vcon => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
+            Self::GpuDisplay => Some(String::from("gpu.scanout scanout-test")),
             Self::Terminal => Some(String::from("terminal-test")),
             Self::InputDriver => Some(String::from("input-test input-driver terminal-test")),
             Self::Pointer => Some(String::from("pointer-test input-driver")),
@@ -461,6 +465,11 @@ impl SmokeMode {
                 "hk-server-display: scanout 1 on",
                 "hk-server-display: scanout 2 on",
             ],
+            Self::GpuDisplay => &[
+                "hk-server-display: scanout gpu 1280x800",
+                "hk-server-display: ready 1280x800",
+                "hk-server-display: scanout test ok",
+            ],
             Self::Terminal => &[
                 "hk-server-console: window",
                 "hk-server-console: utf8 ok",
@@ -627,6 +636,7 @@ impl SmokeMode {
             | Self::Gpu
             | Self::Vcon
             | Self::Display
+            | Self::GpuDisplay
             | Self::Terminal
             | Self::InputDriver
             | Self::Pointer
@@ -675,6 +685,7 @@ impl SmokeMode {
             Self::Gpu => "build/serial-gpu.log",
             Self::Vcon => "build/serial-vcon.log",
             Self::Display => "build/serial-display.log",
+            Self::GpuDisplay => "build/serial-gpudisplay.log",
             Self::Terminal => "build/serial-terminal.log",
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
@@ -709,6 +720,7 @@ impl SmokeMode {
             Self::Input
                 | Self::Console
                 | Self::Display
+                | Self::GpuDisplay
                 | Self::Terminal
                 | Self::InputDriver
                 | Self::Pointer
@@ -886,6 +898,10 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::Gpu {
         // 保留默认 VGA 供 Limine 建立帧缓冲，另加一块 virtio-gpu 供驱动自检。
         command.args(["-device", "virtio-gpu-pci"]);
+    }
+    if mode == SmokeMode::GpuDisplay {
+        // 没有 VGA：Display 只能从 virtio-gpu 接管扫描输出。
+        command.args(["-vga", "none", "-device", "virtio-gpu-pci"]);
     }
     if let Some((_, port)) = &vcon {
         command

@@ -105,6 +105,8 @@ pub fn run(
     let rng_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("rng-test"));
     let vcon_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("vcon-test"));
     let gpu_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu-test"));
+    let gpu_scanout = hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu.scanout"));
+    let scanout_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("scanout-test"));
     let desktop = hk_boot::limine::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
     // “找不到 Network Server”的噪声与额外任务。
@@ -137,8 +139,31 @@ pub fn run(
             // 控制台自检使用最小服务集，避免其他常驻服务让空闲判定永不成立。
             return matches!(name, "hk-server-console" | "hk-server-console-test");
         }
+        if scanout_test {
+            // 扫描输出自检只要 Display、帧库、Surface Provider、设备管理器与 virtio 驱动。
+            return matches!(
+                name,
+                "hk-server-display"
+                    | "hk-server-surface-provider"
+                    | "hk-server-memory"
+                    | "hk-server-device"
+                    | "hk-server-virtio"
+            );
+        }
         if display_test {
-            // 显示自检需要 Display、Surface Provider 与帧库。
+            // 显示自检需要 Display、Surface Provider 与帧库；GPU 扫描输出还要
+            // 设备管理器与 virtio 驱动。
+            if gpu_scanout {
+                return matches!(
+                    name,
+                    "hk-server-display"
+                        | "hk-server-display-test"
+                        | "hk-server-surface-provider"
+                        | "hk-server-memory"
+                        | "hk-server-device"
+                        | "hk-server-virtio"
+                );
+            }
             return matches!(
                 name,
                 "hk-server-display"

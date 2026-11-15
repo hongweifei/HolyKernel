@@ -12,11 +12,21 @@ use virtio_drivers::transport::pci::PciTransport;
 
 use crate::hal::{self, HalImpl};
 
+/// 扫描输出区域：能力内的虚拟地址、长度与几何。
+#[derive(Clone, Copy)]
+struct Scanout {
+    virt: u64,
+    len: usize,
+    width: u32,
+    height: u32,
+}
+
 /// virtio-gpu 设备。
 pub struct Gpu {
     gpu: Mutex<VirtIOGpu<HalImpl, PciTransport>>,
     grant: u64,
     descriptor: DeviceGrant,
+    scanout: Mutex<Option<Scanout>>,
 }
 
 impl Gpu {
@@ -25,6 +35,7 @@ impl Gpu {
             gpu: Mutex::new(gpu),
             grant: hal::grant_handle(),
             descriptor: hal::grant_descriptor().expect("probe 未绑定设备授权"),
+            scanout: Mutex::new(None),
         }
     }
 
@@ -45,9 +56,26 @@ impl Gpu {
         let mut gpu = self.gpu.lock();
         let (width, height) = gpu.resolution().ok()?;
         let buffer = gpu.change_resolution(width, height).ok()?;
+        let len = buffer.len();
+        let virt = buffer.as_mut_ptr() as u64;
         paint(buffer, width, height);
         gpu.flush().ok()?;
+        *self.scanout.lock() = Some(Scanout {
+            virt,
+            len,
+            width,
+            height,
+        });
         Some((width, height))
+    }
+
+    /// 返回扫描输出区域：能力句柄（本任务持有）与几何。
+    ///
+    /// 句柄交给别的进程前应由调用方 `handle_duplicate`；几何的 stride 按像素。
+    pub fn scanout(&self) -> Option<(u64, u32, u32, u32)> {
+        let scanout = (*self.scanout.lock())?;
+        let capability = hal::allocation_capability(scanout.virt, scanout.len)?;
+        Some((capability, scanout.width, scanout.height, scanout.width))
     }
 
     /// 把当前帧缓冲提交给宿主。
