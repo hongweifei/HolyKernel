@@ -203,6 +203,12 @@ pub const SURFACE_SET_CURSOR: u64 = crate::labels::DISPLAY + 0x20;
 
 /// 创建表面；`word` 打包宽高，随消息转移表面 Frame 句柄。
 pub const SURFACE_CREATE: u64 = crate::labels::DISPLAY + 0x10;
+
+/// 请求 Provider 创建懒加载表面；`word` 为字节数。
+pub const SURFACE_ALLOC: u64 = crate::labels::DISPLAY + 0x30;
+
+/// Provider 回包：`word` 为字节数，句柄为 Surface 能力。
+pub const SURFACE_ALLOCATED: u64 = crate::labels::DISPLAY + 0x31;
 /// 表面已创建；`word` 为表面编号。
 pub const SURFACE_CREATED: u64 = crate::labels::DISPLAY + 0x11;
 /// 标记表面 damage；`word` 为表面编号，载荷为 [`SURFACE_RECT_BYTES`] 字节矩形。

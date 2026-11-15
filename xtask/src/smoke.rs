@@ -441,6 +441,7 @@ impl SmokeMode {
                 "hk-server-display: ready",
                 "hk-server-display: title ok",
                 "hk-server-display: composite ok",
+                "hk-server-display: back provider ok",
                 "hk-server-display: surface ",
                 "hk-server-display: clipboard set",
                 "hk-server-display: clipboard get",

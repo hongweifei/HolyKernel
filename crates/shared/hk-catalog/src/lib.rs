@@ -95,6 +95,7 @@ services![
     ("hk-server-console-test", true, 9, THROUGHPUT),
     ("hk-server-shell", true, 9, LATENCY),
     ("hk-server-tempo", true, 8, TEMPO_POOL),
+    ("hk-server-surface-provider", true, 0, LATENCY_HIGH),
     ("hk-server-display", true, 0, REALTIME),
     ("hk-server-display-test", true, 9, THROUGHPUT),
     ("hk-server-terminal-test", true, 9, THROUGHPUT),

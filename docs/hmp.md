@@ -210,7 +210,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 操作：map、damage、resize、scanout。
 - 窗口是合成器对象，引用一个或多个 Surface。
 - scanout 开启即 pinned；关闭时解除。
-- Provider：Display / GPU。
+- Provider：Display / GPU。当前由 `hk-server-surface-provider` 承担：`SURFACE_ALLOC` 创建懒 Surface 能力并绑定自身端点，缺页提供零页；Display 的后备缓冲通过该服务映射。
 
 ### TaskImage
 

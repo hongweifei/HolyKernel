@@ -133,10 +133,13 @@ pub fn run(
             return matches!(name, "hk-server-console" | "hk-server-console-test");
         }
         if display_test {
-            // 显示自检只需要 Display 服务与客户端。
+            // 显示自检需要 Display、Surface Provider 与帧库。
             return matches!(
                 name,
-                "hk-server-display" | "hk-server-display-test" | "hk-server-memory"
+                "hk-server-display"
+                    | "hk-server-display-test"
+                    | "hk-server-surface-provider"
+                    | "hk-server-memory"
             );
         }
         if holydoc_resize_test {

@@ -29,14 +29,17 @@ mod window;
 #[cfg(target_os = "none")]
 use compositor::{Compositor, draw_desktop};
 #[cfg(target_os = "none")]
-use hk_server_api::{CapabilityKind, MemoryClient, exit, format::Line, framebuffer, write};
+use hk_server_api::{
+    CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_WRITE, exit, format::Line, framebuffer,
+    recv_data_handle, region_info, region_map, send, service_endpoint, write, yield_now,
+};
 #[cfg(target_os = "none")]
 use window::Screen;
 
 /// 服务入口：建立帧缓冲与后备缓冲，随后交给合成器主循环。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(endpoint: u64) -> ! {
+pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let Some(framebuffer) = framebuffer::query() else {
         write(b"hk-server-display: no framebuffer\n");
         exit(1)
@@ -57,9 +60,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let width = framebuffer.width as usize;
     let height = framebuffer.height as usize;
     let bytes = width * height * 4;
-    let Some((_back_handle, _back_region, back_virt)) =
-        MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
-    else {
+    let _ = capacity;
+    let mut back = provider_surface(endpoint, bytes);
+    if back.is_some() {
+        write(b"hk-server-display: back provider ok\n");
+    }
+    if back.is_none() {
+        back = MemoryClient::new(endpoint)
+            .map(CapabilityKind::Surface, bytes)
+            .map(|(_, _, virt)| virt);
+    }
+    let Some(back_virt) = back else {
         write(b"hk-server-display: back buffer failed\n");
         exit(2)
     };
@@ -107,6 +118,28 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         .finish();
 
     Compositor::new(endpoint, screen, font, display_test).run()
+}
+
+/// 向 Surface Provider 申请懒加载后备表面；服务不可用时返回 `None`。
+#[cfg(target_os = "none")]
+fn provider_surface(endpoint: u64, bytes: usize) -> Option<u64> {
+    let mut attempts = 0;
+    while service_endpoint("hk-server-surface-provider") == 0 && attempts < 512 {
+        attempts += 1;
+        let _ = yield_now();
+    }
+    let provider = service_endpoint("hk-server-surface-provider");
+    if provider == 0 || send(provider, hk_proto::display::SURFACE_ALLOC, bytes as u64) == u64::MAX {
+        return None;
+    }
+    let mut empty = [0_u8; 0];
+    let (label, size, _sender, _length, handle) = recv_data_handle(endpoint, &mut empty, provider);
+    if label != hk_proto::display::SURFACE_ALLOCATED || handle == 0 || size as usize != bytes {
+        return None;
+    }
+    let region = region_map(handle, 0, bytes, RIGHT_READ | RIGHT_WRITE, 0)?;
+    let (virt, _) = region_info(region)?;
+    Some(virt)
 }
 
 hk_server_api::server_boilerplate!();
