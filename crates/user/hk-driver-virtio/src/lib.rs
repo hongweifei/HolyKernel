@@ -23,6 +23,7 @@ mod net;
 mod pci_config;
 pub mod protocol;
 mod rng;
+mod sound;
 
 use core::fmt;
 
@@ -42,6 +43,7 @@ pub use msi::Msi;
 pub use msix::Msix;
 pub use net::Network;
 pub use rng::Rng;
+pub use sound::{Sound, TONE_HZ, TONE_RATE};
 pub use virtio_drivers::transport::DeviceType as VirtioDeviceType;
 
 /// virtio 驱动服务名；熵源与控制台协议共用同一服务端点。
@@ -61,6 +63,8 @@ pub enum Device {
     Console(alloc::boxed::Box<Console>),
     /// 扫描输出设备。
     Gpu(alloc::boxed::Box<Gpu>),
+    /// 音频设备。
+    Sound(alloc::boxed::Box<Sound>),
     /// `virtio-drivers` 支持、当前驱动服务尚未接入的设备类别。
     Unsupported(VirtioDeviceType),
 }
@@ -133,6 +137,11 @@ pub fn probe(grant: u64, descriptor: DeviceGrant) -> Result<Device, ProbeError> 
         DeviceType::Console => {
             let console = Console::new(transport).map_err(|_| ProbeError::Device)?;
             Ok(Device::Console(alloc::boxed::Box::new(console)))
+        }
+        DeviceType::Sound => {
+            let sound = virtio_drivers::device::sound::VirtIOSound::new(transport)
+                .map_err(|_| ProbeError::Device)?;
+            Ok(Device::Sound(alloc::boxed::Box::new(Sound::new(sound))))
         }
         DeviceType::GPU => {
             let gpu = virtio_drivers::device::gpu::VirtIOGpu::new(transport)

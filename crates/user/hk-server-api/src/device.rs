@@ -22,3 +22,5 @@ pub const DEVICE_CLASS_NVME: u64 = 7;
 pub const DEVICE_CLASS_USB: u64 = 8;
 /// 扫描输出（virtio-gpu）。
 pub const DEVICE_CLASS_GPU: u64 = 9;
+/// 音频播放（virtio-sound）。
+pub const DEVICE_CLASS_SOUND: u64 = 10;

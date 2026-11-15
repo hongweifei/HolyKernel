@@ -306,9 +306,7 @@ impl Console {
                     }
                 }
             }
-            CONSOLE_PORT | PORT_NAME
-                if !self.opened.get(id as usize).copied().unwrap_or(true) =>
-            {
+            CONSOLE_PORT | PORT_NAME if !self.opened.get(id as usize).copied().unwrap_or(true) => {
                 self.control_event(id, PORT_OPEN, 1);
                 if let Some(opened) = self.opened.get_mut(id as usize) {
                     *opened = true;

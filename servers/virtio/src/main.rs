@@ -27,8 +27,8 @@ use hk_driver_virtio::{Block, Device, probe};
 use hk_proto::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
 use hk_server_api::device::{
-    DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_GPU, DEVICE_CLASS_RNG, DEVICE_GRANT,
-    DEVICE_NONE, DEVICE_REQUEST,
+    DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_GPU, DEVICE_CLASS_RNG,
+    DEVICE_CLASS_SOUND, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -61,6 +61,7 @@ struct Grants {
     rng: Option<u64>,
     console: Option<u64>,
     gpu: Option<u64>,
+    sound: Option<u64>,
 }
 
 /// 服务入口。
@@ -134,6 +135,29 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
+    if let Some(handle) = grants.sound {
+        if let Some(Device::Sound(device)) = probe_grant(handle) {
+            match device.output_streams() {
+                Some(streams) => {
+                    hk_server_api::format::Line::new()
+                        .text(b"hk-server-virtio: sound ready streams ")
+                        .number(streams as u64)
+                        .text(b"\n")
+                        .finish();
+                    if aux::sound::self_test(&device) {
+                        write(b"hk-server-virtio: sound tone ok\n");
+                    } else {
+                        write(b"hk-server-virtio: sound tone failed\n");
+                    }
+                }
+                None => write(b"hk-server-virtio: sound no output stream\n"),
+            }
+            devices.sound = Some(*device);
+        } else {
+            write("hk-server-virtio: 音频初始化失败\n".as_bytes());
+        }
+    }
+
     if let Some(handle) = grants.gpu {
         if let Some(Device::Gpu(device)) = probe_grant(handle) {
             write(b"hk-server-virtio: gpu ready\n");
@@ -166,7 +190,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     if let Some((handle, device)) = block {
         serve_block(endpoint, handle, device, devices)
-    } else if devices.rng.is_some() || devices.console.is_some() || devices.gpu.is_some() {
+    } else if devices.rng.is_some()
+        || devices.console.is_some()
+        || devices.gpu.is_some()
+        || devices.sound.is_some()
+    {
         serve_aux(endpoint, devices)
     } else {
         write("hk-server-virtio: 没有可服务的设备\n".as_bytes());
@@ -182,6 +210,7 @@ fn collect_grants(endpoint: u64, manager: u64) -> Grants {
         rng: request_grant(endpoint, manager, DEVICE_CLASS_RNG),
         console: request_grant(endpoint, manager, DEVICE_CLASS_CONSOLE),
         gpu: request_grant(endpoint, manager, DEVICE_CLASS_GPU),
+        sound: request_grant(endpoint, manager, DEVICE_CLASS_SOUND),
     }
 }
 

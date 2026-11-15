@@ -3,8 +3,9 @@
 pub mod console;
 pub mod gpu;
 pub mod rng;
+pub mod sound;
 
-use hk_driver_virtio::{Console, Gpu, Rng};
+use hk_driver_virtio::{Console, Gpu, Rng, Sound};
 
 /// 非块 virtio 设备集合。
 #[derive(Default)]
@@ -15,6 +16,8 @@ pub struct Aux {
     pub console: Option<Console>,
     /// 扫描输出设备。
     pub gpu: Option<Gpu>,
+    /// 音频设备。
+    pub sound: Option<Sound>,
 }
 
 impl Aux {
@@ -28,6 +31,9 @@ impl Aux {
         }
         if let Some(device) = &self.gpu {
             gpu::handle(device, label, sender);
+        }
+        if let Some(device) = &self.sound {
+            sound::handle(device, label, sender);
         }
     }
 }

@@ -118,6 +118,9 @@ pub enum SmokeMode {
     /// virtio-gpu 扫描输出与诊断图案
     #[value(name = "gpu")]
     Gpu,
+    /// virtio-sound 播放自检音（WAV 后端）
+    #[value(name = "sound")]
+    Sound,
     /// 只读 virtio-blk 设备属性
     #[value(name = "blkro")]
     BlockReadOnly,
@@ -231,6 +234,7 @@ impl SmokeMode {
             Self::Console => Some(String::from("console-test")),
             Self::Rng => Some(String::from("rng-test")),
             Self::Gpu => Some(String::from("gpu-test")),
+            Self::Sound => Some(String::from("sound-test")),
             Self::BlockReadOnly => Some(String::from("rng-test")),
             Self::Vcon | Self::VconMulti => Some(String::from("vcon-test")),
             Self::Display => Some(String::from("theme=light ui.scale=2 display-test")),
@@ -452,6 +456,10 @@ impl SmokeMode {
                 "hk-server-virtio: gpu edid 1280x800",
                 "hk-server-virtio: gpu 1280x800 ok",
             ],
+            Self::Sound => &[
+                "hk-server-virtio: sound ready streams 1",
+                "hk-server-virtio: sound tone ok",
+            ],
             Self::BlockReadOnly => &["hk-server-virtio: virtio-blk sectors=", " readonly"],
             Self::Vcon => &[
                 "hk-server-virtio: console ready",
@@ -656,6 +664,7 @@ impl SmokeMode {
             | Self::BlockReadOnly
             | Self::Vcon
             | Self::VconMulti
+            | Self::Sound
             | Self::Display
             | Self::GpuDisplay
             | Self::Terminal
@@ -704,6 +713,7 @@ impl SmokeMode {
             Self::Console => "build/serial-console.log",
             Self::Rng => "build/serial-rng.log",
             Self::Gpu => "build/serial-gpu.log",
+            Self::Sound => "build/serial-sound.log",
             Self::BlockReadOnly => "build/serial-blkro.log",
             Self::Vcon => "build/serial-vcon.log",
             Self::VconMulti => "build/serial-vconmulti.log",
@@ -902,6 +912,14 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         None
     };
 
+    let tone = workspace::root().join("build/smoke/sound/tone.wav");
+    if mode == SmokeMode::Sound {
+        if let Some(parent) = tone.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::remove_file(&tone);
+    }
+
     let mut command = Command::new(crate::qemu::program());
     crate::qemu::accelerate(&mut command);
     command
@@ -940,6 +958,13 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     if mode == SmokeMode::Gpu {
         // 保留默认 VGA 供 Limine 建立帧缓冲，另加一块 virtio-gpu 供驱动自检。
         command.args(["-device", "virtio-gpu-pci"]);
+    }
+    if mode == SmokeMode::Sound {
+        // WAV 后端把播放结果落盘，冒烟结束后解析音高。
+        command
+            .arg("-audiodev")
+            .arg(format!("wav,id=snd0,path={}", tone.display()))
+            .args(["-device", "virtio-sound-pci,audiodev=snd0"]);
     }
     if mode == SmokeMode::GpuDisplay {
         // 没有 VGA：Display 只能从 virtio-gpu 接管扫描输出。
@@ -1149,6 +1174,9 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
         }
     }
 
+    if mode == SmokeMode::Sound {
+        verify_tone(&tone)?;
+    }
     if mode == SmokeMode::HolyFs {
         verify_holyfs(&disk)?;
     } else if matches!(
@@ -1161,6 +1189,81 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
 }
 
 /// 接受 QEMU 的 virtio-console 连接，等待测试行并回显确认。
+/// 解析 WAV 后端录到的自检音，校验音高与幅度。
+fn verify_tone(path: &Path) -> Result<()> {
+    let bytes = fs::read(path)
+        .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", path.display())))?;
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err(Failure::new("音频输出不是 WAV"));
+    }
+    let mut position = 12;
+    let mut format = None;
+    let mut data: &[u8] = &[];
+    while position + 8 <= bytes.len() {
+        let id = &bytes[position..position + 4];
+        let size =
+            u32::from_le_bytes(bytes[position + 4..position + 8].try_into().unwrap()) as usize;
+        let body = position + 8;
+        if body + size > bytes.len() {
+            break;
+        }
+        match id {
+            b"fmt " => format = Some(&bytes[body..body + size]),
+            b"data" => {
+                // QEMU 的 wav 后端以流式方式写入：data 长度可能先留 0，
+                // PCM 从 data 头之后一直延续到文件末尾。
+                data = if size == 0 {
+                    &bytes[body..]
+                } else {
+                    &bytes[body..body + size]
+                };
+            }
+            _ => {}
+        }
+        position = body + size + (size & 1);
+    }
+    let Some(format) = format else {
+        return Err(Failure::new("WAV 缺少 fmt 块"));
+    };
+    if format.len() < 16 {
+        return Err(Failure::new("WAV fmt 块过短"));
+    }
+    let channels = u16::from_le_bytes(format[2..4].try_into().unwrap());
+    let rate = u32::from_le_bytes(format[4..8].try_into().unwrap());
+    let bits = u16::from_le_bytes(format[14..16].try_into().unwrap());
+    if bits != 16 || channels == 0 {
+        return Err(Failure::new(format!(
+            "自检音格式不符：{channels} 声道 / {bits} 位"
+        )));
+    }
+    // 输出后端可能把单声道上混成立体声：按声道跨度取第一个声道。
+    let stride = usize::from(channels) * 2;
+    let samples: Vec<i16> = data
+        .chunks_exact(stride)
+        .map(|frame| i16::from_le_bytes([frame[0], frame[1]]))
+        .collect();
+    let peak = samples
+        .iter()
+        .map(|sample| sample.unsigned_abs())
+        .max()
+        .unwrap_or(0);
+    let crossings = samples
+        .windows(2)
+        .filter(|window| window[0] < 0 && window[1] >= 0)
+        .count();
+    let seconds = samples.len() as f64 / f64::from(rate);
+    let frequency = crossings as f64 / seconds;
+    if peak < 1_000 {
+        return Err(Failure::new(format!("自检音幅度过低：峰值 {peak}")));
+    }
+    if !(380.0..=500.0).contains(&frequency) {
+        return Err(Failure::new(format!(
+            "自检音频率不符：{frequency:.1} Hz（期望约 440 Hz）"
+        )));
+    }
+    Ok(())
+}
+
 /// 把收到的字节原样回送，直到看到 `vcon p1\n`；用于多端口回显。
 fn serve_port_echo(listener: TcpListener) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(30);

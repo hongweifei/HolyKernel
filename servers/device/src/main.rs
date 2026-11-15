@@ -19,7 +19,8 @@ hk_image::declare_service_role!(SERVICE_ROLE, hk_image::ServiceRole::device());
 use hk_server_api::device::{
     DEVICE_CLASS_AHCI, DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE,
     DEVICE_CLASS_GPU, DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_CLASS_NVME,
-    DEVICE_CLASS_RNG, DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST,
+    DEVICE_CLASS_RNG, DEVICE_CLASS_SOUND, DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE,
+    DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
 use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
@@ -121,6 +122,7 @@ fn class_matches(device: Device, requested: u64) -> bool {
         DEVICE_CLASS_RNG => virtio_device(device, 0x1005, 0x1044),
         DEVICE_CLASS_CONSOLE => virtio_device(device, 0x1003, 0x1043),
         DEVICE_CLASS_GPU => virtio_device(device, 0x1010, 0x1050),
+        DEVICE_CLASS_SOUND => virtio_device(device, 0x1059, 0x1059),
         _ => false,
     }
 }

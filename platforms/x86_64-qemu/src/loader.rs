@@ -106,6 +106,7 @@ pub fn run(
     let vcon_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("vcon-test"));
     let gpu_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu-test"));
     let gpu_scanout = hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu.scanout"));
+    let sound_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("sound-test"));
     let scanout_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("scanout-test"));
     let desktop = hk_boot::limine::cmdline().is_some_and(|line| line.contains("desktop"));
     // `netstat` 只按需启动（`net` 命令），不在启动时装载，避免非网络模式出现
@@ -129,6 +130,10 @@ pub fn run(
         }
         if vcon_test {
             // 控制台自检只需要设备管理器与 virtio 驱动服务。
+            return matches!(name, "hk-server-device" | "hk-server-virtio");
+        }
+        if sound_test {
+            // 音频自检只需要设备管理器与 virtio 驱动服务。
             return matches!(name, "hk-server-device" | "hk-server-virtio");
         }
         if gpu_test {
