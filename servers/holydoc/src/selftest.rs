@@ -4,17 +4,68 @@ use alloc::vec::Vec;
 
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
 use hk_proto::holy::{
-    DocumentKind, QuotaView, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE, TOKEN_RIGHT_ADMIN,
-    TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_doc_ids, decode_drives, decode_snapshots,
-    decode_tags,
+    DocumentKind, QuotaView, RevisionId, STATUS_NOT_FOUND, STATUS_PERMISSION, STATUS_STALE,
+    TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_doc_ids, decode_drives,
+    decode_revisions, decode_snapshots, decode_tags,
 };
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
-use hk_server_api::{exit, send, write, write_u64};
+use hk_server_api::{
+    RIGHT_READ, close_handle, exit, region_info, region_map, region_unmap, send, write, write_u64,
+};
 
 use crate::document::{DocSet, DocView, TAGS};
 use crate::drive;
 use crate::window::apply;
+
+/// 验证修订能力映射：缺页由 VFS Provider 按修订内容提供。
+pub(crate) fn verify_revision_map(endpoint: u64) -> bool {
+    const PAGE: usize = 4096;
+    let mut client = HolyClient::new(endpoint);
+    let Ok(root) = client.root() else {
+        return false;
+    };
+    let Ok(document) = client.create(root, "RevisionProbe", DocumentKind::Content) else {
+        return false;
+    };
+    let content = b"revision-map";
+    if client.write_id(document, 0, content).is_err() {
+        return false;
+    }
+    let Ok(bytes) = client.revisions_id(document) else {
+        return false;
+    };
+    let Some(view) = decode_revisions(bytes)
+        .filter(|view| view.size == content.len() as u64)
+        .last()
+    else {
+        return false;
+    };
+    if view.size != content.len() as u64 {
+        return false;
+    }
+    let mut vfs = HolyClient::new_with_service(endpoint, "hk-server-vfs");
+    vfs.set_drive(b'H');
+    let Ok(capability) = vfs.map_revision(document, RevisionId::new(view.id), view.size) else {
+        return false;
+    };
+    let length = (view.size as usize).div_ceil(PAGE) * PAGE;
+    let Some(region) = region_map(capability, 0, length, RIGHT_READ, 0) else {
+        let _ = close_handle(capability);
+        return false;
+    };
+    let Some((virt, _)) = region_info(region) else {
+        let _ = region_unmap(region);
+        let _ = close_handle(capability);
+        return false;
+    };
+    // SAFETY: Region 已按只读映射到本任务，长度覆盖修订内容。
+    let mapped = unsafe { core::slice::from_raw_parts(virt as *const u8, content.len()) };
+    let matched = mapped == content;
+    let _ = region_unmap(region);
+    let _ = close_handle(capability);
+    matched
+}
 
 /// 验证盘符注册、卷身份隔离与切盘读写。
 pub(crate) fn verify_drives(endpoint: u64) -> bool {
@@ -380,6 +431,11 @@ pub(crate) fn run(
         write(b"hk-server-holydoc: stream ok\n");
     } else {
         write(b"hk-server-holydoc: stream failed\n");
+    }
+    if verify_revision_map(endpoint) {
+        write(b"hk-server-holydoc: revision ok\n");
+    } else {
+        write(b"hk-server-holydoc: revision failed\n");
     }
     if let Some((x, y, target)) = view.first_link() {
         write(b"hk-server-holydoc: click ");

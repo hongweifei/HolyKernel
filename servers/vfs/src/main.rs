@@ -14,7 +14,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_fs::{Backend, DocSessions};
+use hk_fs::{Backend, DocId as FsDocId, DocSessions, RevisionId as FsRevisionId};
 #[cfg(target_os = "none")]
 use hk_fs_remote::RemoteHolyFs;
 #[cfg(target_os = "none")]
@@ -28,7 +28,12 @@ use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, send_data, write, yield_now};
+use hk_server_api::{
+    CapabilityKind, PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_KIND_REVISION, PROVIDER_PROVIDE,
+    PROVIDER_RELEASE, capability_bind_provider, capability_create_lazy, capacity_alloc,
+    close_handle, frame_write, handle_id, message_words, recv_data_handle, reply_handle, send_data,
+    send_handle, write, yield_now,
+};
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
 
@@ -47,10 +52,24 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
     }
 }
 
+/// Provider 页长度。
+#[cfg(target_os = "none")]
+const PAGE: usize = 4096;
+
+/// 已映射修订能力的元数据。
+#[cfg(target_os = "none")]
+struct RevisionRecord {
+    capability: u64,
+    drive: u8,
+    document: FsDocId,
+    revision: FsRevisionId,
+    size: u64,
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
-pub extern "C" fn _start(endpoint: u64) -> ! {
+pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
     let holyfs = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs"));
@@ -61,19 +80,17 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 insert_remote(&mut drives, letter, backend);
             }
         }
-        if drives.is_empty() {
-            write(b"hk-server-vfs: no drives\n");
-        }
+        if drives.is_empty() {}
     } else if let Some(backend) = remote(endpoint, b'E', "hk-server-ext4") {
         insert_remote(&mut drives, b'E', backend);
     } else {
-        write(b"hk-server-vfs: no ext4 service\n");
     }
     register_local(&mut drives, b'T', PathObject::new(Tmpfs::new()));
     register_local(&mut drives, b'D', PathObject::new(Devfs::new()));
     register_local(&mut drives, b'P', PathObject::new(Procfs::new()));
 
     let mut sessions = DocSessions::new();
+    let mut revisions: Vec<RevisionRecord> = Vec::new();
     let mut request = vec![0_u8; 64 * 1024];
     let mut body = vec![0_u8; 64 * 1024 - 4];
     let mut response = vec![0_u8; 64 * 1024];
@@ -81,7 +98,31 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     loop {
         let (label, _word, sender, length, frame_handle) =
             recv_data_handle(endpoint, &mut request, 0);
+        if label == PROVIDER_RELEASE {
+            if let Some(words) = message_words() {
+                revisions.retain(|record| record.capability != words[0]);
+            }
+            continue;
+        }
+        if label == PROVIDER_FAULT {
+            serve_fault(&mut drives, &revisions, capacity);
+            continue;
+        }
         if label != HOLY_REQUEST || frame_handle != 0 {
+            continue;
+        }
+        if length >= 24
+            && let Some(request) = decode_request(&request[..length.min(request.len())])
+            && request.op == hk_proto::holy::OP_MAP_REVISION
+        {
+            map_revision(
+                &mut drives,
+                &mut revisions,
+                endpoint,
+                sender,
+                &request,
+                &mut response,
+            );
             continue;
         }
         let Some(request) = decode_request(&request[..length.min(request.len())]) else {
@@ -111,7 +152,6 @@ fn register_local<P: hk_fs::Backend + 'static>(drives: &mut Drives, letter: u8, 
 
 #[cfg(target_os = "none")]
 fn log_drive(letter: u8) {
-    write(b"hk-server-vfs: drive ");
     write(&[letter, b':', b'\n']);
 }
 
@@ -140,6 +180,137 @@ fn remote(endpoint: u64, letter: u8, service: &'static str) -> Option<RemoteHoly
         let _ = yield_now();
     }
     None
+}
+
+/// 把请求中的固定修订暴露为只读懒能力。
+#[cfg(target_os = "none")]
+fn map_revision(
+    drives: &mut Drives,
+    revisions: &mut Vec<RevisionRecord>,
+    endpoint: u64,
+    sender: u64,
+    request: &hk_proto::holy::Request<'_>,
+    response: &mut [u8],
+) {
+    let Some(document) = request
+        .data
+        .get(..16)
+        .and_then(|bytes| bytes.try_into().ok().map(FsDocId::from_le_bytes))
+    else {
+        reply(sender, hk_proto::vfs::STATUS_INVALID, &[], response);
+        return;
+    };
+    let Some(revision) = request
+        .data
+        .get(16..24)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u64::from_le_bytes)
+    else {
+        reply(sender, hk_proto::vfs::STATUS_INVALID, &[], response);
+        return;
+    };
+    let revision = FsRevisionId::new(revision);
+    let Some(drive) = drives.get_mut(request.drive) else {
+        reply(sender, hk_proto::vfs::STATUS_NOT_FOUND, &[], response);
+        return;
+    };
+    let Ok(chain) = drive.backend.revisions(document) else {
+        reply(sender, hk_proto::vfs::STATUS_NOT_FOUND, &[], response);
+        return;
+    };
+    let Some(size) = chain
+        .iter()
+        .find(|info| info.id == revision)
+        .map(|info| info.size)
+    else {
+        reply(sender, hk_proto::vfs::STATUS_NOT_FOUND, &[], response);
+        return;
+    };
+    if size == 0 {
+        reply(sender, hk_proto::vfs::STATUS_INVALID, &[], response);
+        return;
+    }
+    let Some(capability) = capability_create_lazy(CapabilityKind::Revision, size as usize) else {
+        reply(sender, hk_proto::vfs::STATUS_ERROR, &[], response);
+        return;
+    };
+    if capability_bind_provider(capability, endpoint, PROVIDER_KIND_REVISION) != 0 {
+        let _ = close_handle(capability);
+        reply(sender, hk_proto::vfs::STATUS_ERROR, &[], response);
+        return;
+    }
+    let Some(capability_id) = handle_id(capability) else {
+        let _ = close_handle(capability);
+        reply(sender, hk_proto::vfs::STATUS_ERROR, &[], response);
+        return;
+    };
+    revisions.push(RevisionRecord {
+        capability: capability_id,
+        drive: request.drive,
+        document,
+        revision,
+        size,
+    });
+    if send_handle(sender, HOLY_RESPONSE, size, capability) != 0 {
+        let _ = close_handle(capability);
+    }
+}
+
+/// 读取修订内容填充 Provider 请求的页。
+#[cfg(target_os = "none")]
+fn serve_fault(drives: &mut Drives, revisions: &[RevisionRecord], capacity: u64) {
+    let Some(words) = message_words() else {
+        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        return;
+    };
+    if words[3] != 0 {
+        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        return;
+    }
+    let Some(record) = revisions
+        .iter()
+        .find(|record| record.capability == words[4])
+    else {
+        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        return;
+    };
+    let offset = words[0];
+    let request = (words[1] as usize).min(PAGE);
+    let length = request.min(record.size.saturating_sub(offset) as usize);
+    let mut buffer = [0_u8; PAGE];
+    if length > 0 {
+        let Some(drive) = drives.get_mut(record.drive) else {
+            let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+            return;
+        };
+        match drive.backend.read(
+            record.document,
+            Some(record.revision),
+            offset,
+            &mut buffer[..length],
+        ) {
+            Ok(written) if written >= length => {}
+            Ok(written) => {
+                for byte in &mut buffer[written..length] {
+                    *byte = 0;
+                }
+            }
+            Err(_) => {
+                let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+                return;
+            }
+        }
+    }
+    let Some(frame) = capacity_alloc(capacity, PAGE) else {
+        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        return;
+    };
+    if frame_write(frame, 0, &buffer) != 0 {
+        let _ = close_handle(frame);
+        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        return;
+    }
+    let _ = reply_handle(PROVIDER_PROVIDE, 0, frame);
 }
 
 hk_server_api::server_boilerplate!();

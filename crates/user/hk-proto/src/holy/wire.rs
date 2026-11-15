@@ -113,6 +113,8 @@ pub const OP_WRITE_STAGING: u8 = 54;
 pub const OP_COMMIT_STAGING: u8 = 55;
 /// 放弃 staging。
 pub const OP_ABORT_STAGING: u8 = 56;
+/// 把固定修订映射为只读能力。
+pub const OP_MAP_REVISION: u8 = 57;
 
 /// 内容文档。
 pub const KIND_CONTENT: u8 = 0;

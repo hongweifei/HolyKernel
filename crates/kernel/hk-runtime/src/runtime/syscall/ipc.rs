@@ -64,7 +64,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 };
-                self.tasks[index].reply = received.reply;
+                if received.reply.is_some() {
+                    self.tasks[index].reply = received.reply;
+                }
                 frame.set_result(received.message.label);
                 frame.set_word(received.message.words[0]);
                 frame.set_sender(sender);
@@ -454,7 +456,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        self.tasks[index].reply = received.reply;
+        if received.reply.is_some() {
+            self.tasks[index].reply = received.reply;
+        }
         self.tasks[index].last_words = received.message.words;
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);
@@ -483,7 +487,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
 
-        self.tasks[index].reply = received.reply;
+        if received.reply.is_some() {
+            self.tasks[index].reply = received.reply;
+        }
         self.tasks[index].last_words = received.message.words;
         frame.set_result(received.message.label);
         frame.set_word(received.message.words[0]);

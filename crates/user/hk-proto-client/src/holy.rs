@@ -7,15 +7,15 @@ use hk_proto::holy::{
     MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK,
     OP_COMMIT_STAGING, OP_CREATE, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT_ID,
     OP_DOCUMENT_TOKEN, OP_DRIVES, OP_DROP_TAG, OP_ENUMERATE_ID, OP_FORGET, OP_GRANT,
-    OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID, OP_READ_REVISION,
-    OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE, OP_RESTORE,
-    OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL, OP_SET_QUOTA,
-    OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF,
-    OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME, OP_WRITE_ID,
-    OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, REQUEST_BUFFER, REQUEST_HEADER, RESPONSE_BUFFER,
-    RevisionId, VolumeView, decode_doc_id, decode_document, decode_maintenance, decode_quota,
-    decode_revision_id, decode_token, decode_u32, decode_u64, decode_volume, encode_quota,
-    encode_request, kind_code,
+    OP_GRANT_VOLUME, OP_MAP_REVISION, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_READ_ID,
+    OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESOLVE,
+    OP_RESTORE, OP_REVISIONS_ID, OP_REVOKE, OP_REVOKE_VOLUME, OP_ROOT, OP_SCRUB, OP_SEAL,
+    OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_SYNC, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND, OP_UNTAG, OP_VOLUME,
+    OP_WRITE_ID, OP_WRITE_STAGING, OP_WRITE_TOKEN, QuotaView, REQUEST_BUFFER, REQUEST_HEADER,
+    RESPONSE_BUFFER, RevisionId, VolumeView, decode_doc_id, decode_document, decode_maintenance,
+    decode_quota, decode_revision_id, decode_token, decode_u32, decode_u64, decode_volume,
+    encode_quota, encode_request, kind_code,
 };
 use hk_proto::status::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
 use hk_server_api::{recv_data_from, send_data, service_endpoint};
@@ -203,6 +203,29 @@ impl HolyClient {
     pub fn revisions_id(&mut self, document: DocId) -> Result<&[u8], u8> {
         let length = self.exchange(OP_REVISIONS_ID, "", 0, 0, &document.to_le_bytes())?;
         Ok(&self.response[3..3 + length])
+    }
+
+    /// 把固定修订映射为只读能力，返回能力句柄。
+    pub fn map_revision(
+        &mut self,
+        document: DocId,
+        revision: RevisionId,
+        size: u64,
+    ) -> Result<u64, u8> {
+        self.ensure_buffers();
+        let header = REQUEST_HEADER;
+        let end = header + DOC_LEN + 8;
+        if end > self.request.len() {
+            return Err(STATUS_INVALID);
+        }
+        self.request[0] = OP_MAP_REVISION;
+        self.request[1] = self.drive;
+        self.request[2..4].copy_from_slice(&0_u16.to_le_bytes());
+        self.request[4..12].copy_from_slice(&size.to_le_bytes());
+        self.request[12..20].copy_from_slice(&0_u64.to_le_bytes());
+        self.request[header..header + DOC_LEN].copy_from_slice(&document.to_le_bytes());
+        self.request[header + DOC_LEN..end].copy_from_slice(&revision.to_le_bytes());
+        self.submit_handle(end)
     }
 
     /// 提交卷写入。
@@ -509,6 +532,31 @@ impl HolyClient {
             .copy_from_slice(&document.to_le_bytes());
         self.request[REQUEST_HEADER + DOC_LEN..end].copy_from_slice(payload);
         self.submit(end)
+    }
+
+    fn submit_handle(&mut self, length: usize) -> Result<u64, u8> {
+        let endpoint = service_endpoint(self.service);
+        if endpoint == 0 {
+            return Err(STATUS_IO);
+        }
+        self.endpoint = endpoint;
+        if send_data(self.endpoint, HOLY_REQUEST, &self.request[..length]) == u64::MAX {
+            return Err(STATUS_IO);
+        }
+        let mut empty = [0_u8; 0];
+        let (label, _word, _sender, length, handle) =
+            hk_server_api::recv_data_handle(self.own_endpoint, &mut empty, self.endpoint);
+        if label != HOLY_RESPONSE {
+            return Err(STATUS_IO);
+        }
+        if handle != 0 {
+            return Ok(handle);
+        }
+        if length < 3 {
+            return Err(STATUS_ERROR);
+        }
+        let response = decode_response(&self.response[..length]).ok_or(STATUS_INVALID)?;
+        Err(response.status)
     }
 
     fn submit(&mut self, length: usize) -> Result<usize, u8> {

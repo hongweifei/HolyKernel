@@ -133,6 +133,9 @@ pub enum SmokeMode {
     /// HolyDoc 文档窗口
     #[value(name = "holydoc")]
     Holydoc,
+    /// 修订能力映射与 VFS Provider
+    #[value(name = "revmap")]
+    Revmap,
     /// HolyDoc 窗口最大化缩放与重排
     #[value(name = "holydocresize")]
     HolyDocResize,
@@ -221,6 +224,7 @@ impl SmokeMode {
             Self::InputDriver => Some(String::from("input-test input-driver terminal-test")),
             Self::Pointer => Some(String::from("pointer-test input-driver")),
             Self::Holydoc => Some(String::from("vfs.fs=holyfs holydoc-test")),
+            Self::Revmap => Some(String::from("vfs.fs=holyfs holydoc-test revmap-test")),
             Self::HolyDocResize => Some(String::from(
                 "vfs.fs=holyfs holydoc-resize-test input-driver",
             )),
@@ -484,6 +488,7 @@ impl SmokeMode {
                 "hk-server-display: close 1",
                 "hk-server-pointer-test: closed 1",
             ],
+            Self::Revmap => &["hk-server-holydoc: revision ok"],
             Self::Holydoc => &[
                 "hk-server-display: composite ok",
                 "hk-server-holyfs: drive H:",
@@ -503,6 +508,7 @@ impl SmokeMode {
                 "hk-server-holydoc: retention ok",
                 "hk-server-holydoc: quota ok",
                 "hk-server-holydoc: stream ok",
+                "hk-server-holydoc: revision ok",
                 "hk-server-holydoc: click H:/System",
                 "hk-server-holydoc: open H:/System",
                 "hk-server-holydoc: open H:/System/Overview",
@@ -615,6 +621,7 @@ impl SmokeMode {
             | Self::InputDriver
             | Self::Pointer
             | Self::Holydoc
+            | Self::Revmap
             | Self::HolyDocResize
             | Self::Workbench
             | Self::Debug
@@ -661,6 +668,7 @@ impl SmokeMode {
             Self::InputDriver => "build/serial-inputdriver.log",
             Self::Pointer => "build/serial-pointer.log",
             Self::Holydoc => "build/serial-holydoc.log",
+            Self::Revmap => "build/serial-revmap.log",
             Self::HolyDocResize => "build/serial-holydocresize.log",
             Self::Workbench => "build/serial-workbench.log",
             Self::Debug => "build/serial-debug.log",

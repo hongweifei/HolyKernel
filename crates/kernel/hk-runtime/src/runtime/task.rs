@@ -1433,7 +1433,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         let sender = self.endpoint_of(received.sender);
                         match self.install_handle(index, &received.message) {
                             Some(handle) => {
-                                self.tasks[index].reply = received.reply;
+                                if received.reply.is_some() {
+                                    self.tasks[index].reply = received.reply;
+                                }
                                 let context = &mut self.tasks[index].context;
                                 context.set_result(received.message.label);
                                 context.set_word(received.message.words[0]);

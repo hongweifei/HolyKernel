@@ -111,6 +111,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut cmdline_buffer = [0_u8; 128];
+    let revmap_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+        .is_some_and(|line| line.contains("revmap-test"));
+    if revmap_test {
+        let ok = selftest::verify_revision_map(endpoint);
+        write(if ok {
+            b"hk-server-holydoc: revision ok\n".as_slice()
+        } else {
+            b"hk-server-holydoc: revision failed\n".as_slice()
+        });
+        let _ = hk_server_api::send(window.display(), DISPLAY_SHUTDOWN, 0);
+        hk_server_api::exit(u64::from(!ok));
+    }
     let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("holydoc-test"));
     let resize_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
