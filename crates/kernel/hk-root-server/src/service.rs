@@ -14,26 +14,7 @@ use hk_runtime::{UserPlatform, UserRegionSpec};
 
 use crate::{RuntimeHost, ServiceTable};
 
-/// 服务退出后的重启策略。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RestartPolicy {
-    /// 不自动重启。
-    Never,
-    /// 非零退出码时重启。
-    OnFailure,
-    /// 退出即重启。
-    Always,
-}
-
-/// 返回服务的默认重启策略。
-pub fn restart_policy(name: &str) -> RestartPolicy {
-    match name {
-        "hk-server-device" | "hk-server-virtio-net" => RestartPolicy::Always,
-        "hk-server-virtio" | "hk-server-ext4" => RestartPolicy::OnFailure,
-        "hk-server-display" => RestartPolicy::OnFailure,
-        _ => RestartPolicy::Never,
-    }
-}
+pub use hk_catalog::{RestartPolicy, restart_policy};
 
 /// 服务镜像装载器。
 pub trait ServiceLoader<C> {

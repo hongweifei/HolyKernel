@@ -13,7 +13,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
 | L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
-| L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单、桌面排序与默认 Cadence 的单一清单；依赖 `hk-cadence` |
+| L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单、桌面排序、重启策略、测试模式与默认 Cadence 的单一清单；依赖 `hk-cadence` |
 | L0 | 共享契约 | `hk-cadence` | Cadence/Meter 类型、调度类别、虚拟时间数学、亲和性、借贷与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
 | L0 | 共享契约 | `hk-status` | 服务状态枚举：协议、文件系统与 VFS 共用的状态词表；零依赖 |
@@ -117,13 +117,13 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 内核符号表与异常现场 | `crates/kernel/hk-root-server/src/debug/{symbols,fault}.rs`；文本符号解析与符号化在 `hk-symbols` |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
 | 检查点快照格式与共享页标记 | `crates/shared/hk-checkpoint/src/lib.rs`（`PAGE_FLAG_SHARED` 不是硬件 PTE 位） |
-| 镜像服务清单、启动白名单与桌面排序 | `crates/shared/hk-catalog/src/lib.rs` |
+| 镜像服务清单、启动白名单、桌面排序、重启策略与测试模式 | `crates/shared/hk-catalog/src/lib.rs`（`SERVICES` 与 `BOOT_MODES`） |
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
-| 默认启动服务白名单读取 | `crates/kernel/hk-root-server/src/loader.rs` 读取 `hk-catalog` |
+| 默认启动与 opt-in 服务选择 | `crates/kernel/hk-root-server/src/loader.rs` 与各平台 loader 读取 `hk-catalog` |
 | 设备类与 DeviceGrant 协议 | `crates/user/hk-server-api/src/device.rs` 与 `crates/shared/hk-device/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
-新增服务时只需要改 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES` 与平台模式过滤，不再维护多份并行清单。
+新增服务时只需要改 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`；测试模式在 `BOOT_MODES` 登记，不再维护多份并行清单。
 
 ---
 
@@ -136,8 +136,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
    - 实现 `_start(endpoint)`；
    - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
    - 服务发现使用 `hk_server_api::runtime::wait_service`。
-4. 加入 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`；`boot` 决定默认启动，`desktop_order` 决定桌面顺序。
-5. 平台 loader 的模式过滤直接读取同一目录的名称，不再维护独立启动白名单。
+4. 加入 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`：`boot` 决定默认启动，`desktop_order` 决定桌面顺序，`restart` 决定监督重启，`opt_in` 决定测试标记触发装载。
+5. 测试/桌面模式在 `BOOT_MODES` 里登记 token 与服务集合；平台 loader 只读目录，不再维护独立启动白名单。
 6. 服务线协议与标签放入 `hk-proto`，并在 `src/labels.rs` 的区间表里占一段；内核与用户态共用的编号与 ABI 编码放入 `hk-syscall`，不放入 `hk-shell`。
 7. 为可自动验证的行为新增 `xtask smoke` 模式。
 
