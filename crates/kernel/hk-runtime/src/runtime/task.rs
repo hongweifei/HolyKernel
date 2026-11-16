@@ -1190,7 +1190,62 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.exit_threads(index);
         }
         self.platform.release_pages(index);
+        self.recover_dead_provider();
         true
+    }
+
+    /// 端点服务退出后，处理等待该 Provider 的阻塞任务。
+    fn recover_dead_provider(&mut self) {
+        let mut faults = alloc::vec::Vec::new();
+        let mut reclaims = alloc::vec::Vec::new();
+        for slot in 0..self.tasks.len() {
+            if self.tasks[slot].exited || self.tasks[slot].leader != slot {
+                continue;
+            }
+            let tcb = self.tasks[slot].tcb;
+            match self.tasks[slot].pending {
+                Pending::ProviderFault { capability, .. } => {
+                    let dead =
+                        self.kernel
+                            .capability_provider(tcb, capability)
+                            .map_or(true, |provider| {
+                                provider
+                                    .is_none_or(|endpoint| !self.kernel.endpoint_served(endpoint))
+                            });
+                    if dead {
+                        faults.push(slot);
+                    }
+                }
+                Pending::ProviderReclaim {
+                    capability, index, ..
+                } => {
+                    let dead =
+                        self.kernel
+                            .capability_provider(tcb, capability)
+                            .map_or(true, |provider| {
+                                provider
+                                    .is_none_or(|endpoint| !self.kernel.endpoint_served(endpoint))
+                            });
+                    if dead {
+                        reclaims.push((slot, capability, index));
+                    }
+                }
+                _ => {}
+            }
+        }
+        for slot in faults {
+            let name = self.tasks[slot].name.clone();
+            let _ = self.terminate(&name, PROVIDER_FAULT_EXIT);
+        }
+        for (slot, capability, page_index) in reclaims {
+            let tcb = self.tasks[slot].tcb;
+            let _ = self.kernel.cancel_call(tcb);
+            self.kernel
+                .end_capability_reclaim(tcb, capability, page_index);
+            self.tasks[slot].context.set_result(u64::MAX);
+            self.tasks[slot].pending = Pending::None;
+            self.kernel.wake_thread(tcb);
+        }
     }
 
     /// 标记当前任务因用户态异常退出；成功返回 `true`。
@@ -1219,6 +1274,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.exit_threads(index);
         }
         self.platform.release_pages(index);
+        self.recover_dead_provider();
         true
     }
 

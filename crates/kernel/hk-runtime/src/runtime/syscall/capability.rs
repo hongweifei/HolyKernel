@@ -117,6 +117,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !self.kernel.endpoint_served(provider) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         if !matches!(
             self.kernel
                 .begin_capability_reclaim(tcb, handle, page_index),
@@ -246,6 +250,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !self.kernel.endpoint_served(provider) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Ok(id) = self.kernel.handle_id(tcb, handle) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;

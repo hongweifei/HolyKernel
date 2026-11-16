@@ -11,6 +11,24 @@ impl Kernel {
         Ok(handle)
     }
 
+    /// 登记端点由指定线程所属任务服务。
+    pub fn set_endpoint_server(
+        &self,
+        endpoint: ObjectId,
+        thread: TcbId,
+    ) -> Result<(), KernelError> {
+        let task = self
+            .task_of(thread)
+            .unwrap_or_else(|| TaskId::new(thread.get()));
+        self.endpoint_servers.lock().insert(endpoint, task);
+        Ok(())
+    }
+
+    /// 判断端点对象仍有服务任务。
+    pub fn endpoint_served(&self, endpoint: ObjectId) -> bool {
+        self.endpoint_servers.lock().contains_key(&endpoint)
+    }
+
     /// 在指定线程的句柄表中创建设备授权工厂。
     pub fn create_device_grant_factory(
         &self,

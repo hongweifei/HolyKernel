@@ -674,6 +674,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             flags: region.flags.bits(),
         }
         .encode();
+        if !self.kernel.endpoint_served(provider) {
+            return false;
+        }
         let message = Message::new(PROVIDER_FAULT).with_words(words);
         if self
             .kernel

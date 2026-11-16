@@ -173,6 +173,7 @@ impl RootServer {
                 endpoint_id,
                 Rights::READ | Rights::WRITE | Rights::TRANSFER,
             )?;
+            kernel.set_endpoint_server(endpoint_id, tcb)?;
             services.push(Service {
                 name: spec.name,
                 tcb,
