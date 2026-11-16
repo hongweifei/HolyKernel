@@ -86,6 +86,8 @@ pub enum Pending {
         index: usize,
         /// 能力对象标识。
         object: ObjectId,
+        /// 等待 Provider 确认的 deadline（契约微秒）。
+        deadline: u64,
     },
     /// 休眠到指定契约时刻（微秒）。
     Sleep {

@@ -123,6 +123,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .with_words(words)
                         .with_data(data);
                     if self.kernel.call_object(tcb, provider, message).is_ok() {
+                        let deadline = self.contract_now().saturating_add(1_000_000);
                         let mut context = *frame;
                         context.set_result(0);
                         self.tasks[index].context = context;
@@ -130,7 +131,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             capability: handle,
                             index: page_index,
                             object,
+                            deadline,
                         };
+                        self.timeouts.entry(deadline).or_default().push(index);
                         return Switch::Block;
                     }
                 }
