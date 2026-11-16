@@ -21,21 +21,21 @@ use hk_server_api::{exit, recv_data_from, send, write, write_u64};
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let net = wait_net();
     if net == 0 {
-        write(b"hk-server-netstat: network server not found\n");
+        write(b"hk-client-netstat: network server not found\n");
         exit(1)
     }
     if send(net, NET_STATUS_REQUEST, 0) != 0 {
-        write(b"hk-server-netstat: status request failed\n");
+        write(b"hk-client-netstat: status request failed\n");
         exit(2)
     }
     let mut buffer = [0_u8; NET_STATUS_BYTES];
     let (label, _word, sender, length) = recv_data_from(endpoint, net, &mut buffer);
     if label != NET_STATUS_RESPONSE || sender != net || length < NET_STATUS_BYTES {
-        write(b"hk-server-netstat: bad response\n");
+        write(b"hk-client-netstat: bad response\n");
         exit(3)
     }
     let Some(status) = NetStatus::decode(&buffer[..length]) else {
-        write(b"hk-server-netstat: decode failed\n");
+        write(b"hk-client-netstat: decode failed\n");
         exit(3)
     };
     print_status(&status);
@@ -49,20 +49,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 #[cfg(target_os = "none")]
 fn print_config(endpoint: u64, net: u64) {
     if send(net, NET_CONFIG_REQUEST, 0) != 0 {
-        write(b"hk-server-netstat: config request failed\n");
+        write(b"hk-client-netstat: config request failed\n");
         return;
     }
     let mut buffer = [0_u8; NET_CONFIG_BYTES];
     let (label, _word, sender, length) = recv_data_from(endpoint, net, &mut buffer);
     if label != NET_CONFIG_RESPONSE || sender != net {
-        write(b"hk-server-netstat: config bad response\n");
+        write(b"hk-client-netstat: config bad response\n");
         return;
     }
     let Some(config) = NetConfig::decode(&buffer[..length]) else {
-        write(b"hk-server-netstat: config decode failed\n");
+        write(b"hk-client-netstat: config decode failed\n");
         return;
     };
-    write(b"hk-server-netstat: config dhcp=");
+    write(b"hk-client-netstat: config dhcp=");
     write(if config.dhcp { &b"on"[..] } else { &b"off"[..] });
     write(b" ipv4=");
     if config.has_ipv4 {
@@ -82,10 +82,10 @@ fn print_config(endpoint: u64, net: u64) {
     write_u64(u64::from(config.mtu));
     write(b"\n");
     if config.dns_count == 0 {
-        write(b"hk-server-netstat: config dns=none\n");
+        write(b"hk-client-netstat: config dns=none\n");
     } else {
         for server in &config.dns[..usize::from(config.dns_count)] {
-            write(b"hk-server-netstat: config dns=");
+            write(b"hk-client-netstat: config dns=");
             write_ipv4(server);
             write(b"\n");
         }
@@ -96,14 +96,14 @@ fn print_config(endpoint: u64, net: u64) {
 #[cfg(target_os = "none")]
 fn print_routes(status: &NetStatus) {
     if status.has_ipv4 {
-        write(b"hk-server-netstat: route=");
+        write(b"hk-client-netstat: route=");
         write_ipv4(&status.ipv4);
         write(b"/");
         write_u64(u64::from(status.prefix));
         write(b" dev=eth0\n");
     }
     if status.has_gateway {
-        write(b"hk-server-netstat: route=0.0.0.0/0 via=");
+        write(b"hk-client-netstat: route=0.0.0.0/0 via=");
         write_ipv4(&status.gateway);
         write(b"\n");
     }
@@ -113,25 +113,25 @@ fn print_routes(status: &NetStatus) {
 #[cfg(target_os = "none")]
 fn print_arp(endpoint: u64, net: u64) {
     if send(net, NET_ARP_REQUEST, 0) != 0 {
-        write(b"hk-server-netstat: arp request failed\n");
+        write(b"hk-client-netstat: arp request failed\n");
         return;
     }
     let mut buffer = [0_u8; NET_ARP_BYTES];
     let (label, _word, sender, length) = recv_data_from(endpoint, net, &mut buffer);
     if label != NET_ARP_RESPONSE || sender != net {
-        write(b"hk-server-netstat: arp bad response\n");
+        write(b"hk-client-netstat: arp bad response\n");
         return;
     }
     let Some(table) = ArpTable::decode(&buffer[..length]) else {
-        write(b"hk-server-netstat: arp decode failed\n");
+        write(b"hk-client-netstat: arp decode failed\n");
         return;
     };
     if table.count == 0 {
-        write(b"hk-server-netstat: arp=none\n");
+        write(b"hk-client-netstat: arp=none\n");
         return;
     }
     for entry in &table.entries[..usize::from(table.count)] {
-        write(b"hk-server-netstat: arp=");
+        write(b"hk-client-netstat: arp=");
         write_ipv4(&entry.ip);
         write(b" mac=");
         for (index, byte) in entry.mac.iter().enumerate() {
@@ -146,7 +146,7 @@ fn print_arp(endpoint: u64, net: u64) {
 
 #[cfg(target_os = "none")]
 fn print_status(status: &NetStatus) {
-    write(b"hk-server-netstat: mac=");
+    write(b"hk-client-netstat: mac=");
     for (index, byte) in status.mac.iter().enumerate() {
         if index != 0 {
             write(b":");
@@ -171,7 +171,7 @@ fn print_status(status: &NetStatus) {
     write_u64(u64::from(status.sockets));
     write(b"\n");
 
-    write(b"hk-server-netstat: rx_frames=");
+    write(b"hk-client-netstat: rx_frames=");
     write_u64(status.rx_frames);
     write(b" tx_frames=");
     write_u64(status.tx_frames);

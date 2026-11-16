@@ -1,7 +1,7 @@
 //! hk-dbg：打印任务/服务/trace/统计与最近一次异常回溯。
 //!
 //! 作为独立用户态服务运行，只通过 Root Server 控制协议读取视图；结果输出到
-//! 串口，便于无图形环境观察。模块名为 `hk-server-dbg`。
+//! 串口，便于无图形环境观察。模块名为 `hk-client-dbg`。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -33,14 +33,14 @@ const BUFFER: usize = 32 * 1024;
 /// 输出一个视图。
 #[cfg(target_os = "none")]
 fn print(title: &str, op: u64) {
-    write(b"hk-server-dbg: ");
+    write(b"hk-client-dbg: ");
     write(title.as_bytes());
     write(b"\n");
     let mut buffer = [0_u8; BUFFER];
     match call(op, "", &mut buffer) {
         Ok(length) => write(&buffer[..length.min(buffer.len())]),
         Err(code) => {
-            write(b"hk-server-dbg: control failed ");
+            write(b"hk-client-dbg: control failed ");
             hk_server_api::write_u64(code);
             write(b"\n");
         }
@@ -52,7 +52,7 @@ fn print(title: &str, op: u64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = hk_server_api::fault_subscribe(endpoint);
-    write(b"hk-server-dbg: ready\n");
+    write(b"hk-client-dbg: ready\n");
     let mut events = [0_u8; 2048];
     for _ in 0..64 {
         let (label, _word, _sender, length) = hk_server_api::recv_data_try(endpoint, &mut events);
@@ -66,9 +66,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     print("services", ROOT_OP_SERVICES);
     print("trace", ROOT_OP_TRACE);
     print("stats", ROOT_OP_STATS);
-    write(b"hk-server-dbg: fault\n");
+    write(b"hk-client-dbg: fault\n");
     write(hk_debug::fault_text().as_bytes());
-    write(b"hk-server-dbg: done\n");
+    write(b"hk-client-dbg: done\n");
     exit(0)
 }
 

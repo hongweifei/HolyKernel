@@ -34,7 +34,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 fn fail(message: &[u8]) -> ! {
-    write(b"hk-server-swap-test: fail ");
+    write(b"hk-client-swap-test: fail ");
     write(message);
     write(b"\n");
     exit(1)
@@ -98,7 +98,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     }
     if let Some((free, total, threshold)) = memory_pressure() {
         hk_server_api::format::Line::new()
-            .text(b"hk-server-swap-test: pressure ")
+            .text(b"hk-client-swap-test: pressure ")
             .number(free.saturating_mul(100) / total.max(1))
             .text(b"% threshold ")
             .number(threshold)
@@ -128,7 +128,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         let value = unsafe { core::ptr::read_volatile(*virt as *const u8) };
         if value != *pattern {
             hk_server_api::format::Line::new()
-                .text(b"hk-server-swap-test: mismatch ")
+                .text(b"hk-client-swap-test: mismatch ")
                 .number(index as u64)
                 .text(b" expected ")
                 .number(u64::from(*pattern))
@@ -142,18 +142,18 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     }
 
     hk_server_api::format::Line::new()
-        .text(b"hk-server-swap-test: pages ")
+        .text(b"hk-client-swap-test: pages ")
         .number(pages.len() as u64)
         .text(b" swapped ")
         .number(swapped)
         .text(b"\n")
         .finish();
     hk_server_api::format::Line::new()
-        .text(b"hk-server-swap-test: verified ")
+        .text(b"hk-client-swap-test: verified ")
         .number(verified as u64)
         .text(b"\n")
         .finish();
-    write(b"hk-server-swap-test: ok\n");
+    write(b"hk-client-swap-test: ok\n");
     exit(0)
 }
 

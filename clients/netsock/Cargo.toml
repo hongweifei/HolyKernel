@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-netsock"
+name = "hk-client-netsock"
 description = "HolyKernel 原生 Socket 客户端自检服务"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-netsock"
+name = "hk-client-netsock"
 path = "src/main.rs"
 
 [dependencies]

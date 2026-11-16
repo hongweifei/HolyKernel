@@ -17,13 +17,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(0)
     }
     let Some(client) = Client::discover(endpoint) else {
-        write(b"hk-server-console-test: console not found\n");
+        write(b"hk-client-console-test: console not found\n");
         exit(1)
     };
-    client.write(b"hk-server-console-test: type a line\n");
+    client.write(b"hk-client-console-test: type a line\n");
     let mut line = [0_u8; 64];
     let length = client.read_line(&mut line);
-    write(b"hk-server-console-test: got ");
+    write(b"hk-client-console-test: got ");
     write(&line[..length]);
     write(b"\n");
     client.shutdown();

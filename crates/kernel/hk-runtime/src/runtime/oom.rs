@@ -186,6 +186,6 @@ mod tests {
         assert_eq!(policy.action, 1);
         assert!(OomState::exempt("root"));
         assert!(OomState::exempt("hk-server-memory"));
-        assert!(!OomState::exempt("hk-server-console-test"));
+        assert!(!OomState::exempt("hk-client-console-test"));
     }
 }

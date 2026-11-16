@@ -17,12 +17,12 @@ use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, sleep_
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let console = wait_for("hk-server-console");
     if console == 0 {
-        write(b"hk-server-terminal-test: console not found\n");
+        write(b"hk-client-terminal-test: console not found\n");
         exit(1)
     }
     let display = wait_for(DISPLAY_SERVICE);
     if display == 0 {
-        write(b"hk-server-terminal-test: display not found\n");
+        write(b"hk-client-terminal-test: display not found\n");
         exit(1)
     }
 
@@ -46,7 +46,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
     if !acknowledged {
-        write(b"hk-server-terminal-test: no ack\n");
+        write(b"hk-client-terminal-test: no ack\n");
         exit(2)
     }
 
@@ -60,11 +60,11 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             break received;
         }
     };
-    write(b"hk-server-terminal-test: line ");
+    write(b"hk-client-terminal-test: line ");
     write(&line[..length.min(line.len())]);
     write(b"\n");
 
-    write(b"hk-server-terminal-test: done\n");
+    write(b"hk-client-terminal-test: done\n");
     let _ = send(console, CONSOLE_SHUTDOWN, 0);
     let _ = send(display, DISPLAY_SHUTDOWN, 0);
     exit(0)

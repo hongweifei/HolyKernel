@@ -23,10 +23,10 @@ const RESTART_TICKS: u64 = 1_000;
 pub extern "C" fn _start(_endpoint: u64) -> ! {
     let display = hk_server_api::runtime::wait_service(DISPLAY_SERVICE).unwrap_or(0);
     if display == 0 {
-        write(b"hk-server-display-restart-test: no display\n");
+        write(b"hk-client-display-restart-test: no display\n");
         exit(1)
     }
-    write(b"hk-server-display-restart-test: ready ");
+    write(b"hk-client-display-restart-test: ready ");
     write_u64(display);
     write(b"\n");
 
@@ -40,7 +40,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
         if current == 0 {
             gone = true;
         } else if gone || current != display {
-            write(b"hk-server-display-restart-test: restarted ");
+            write(b"hk-client-display-restart-test: restarted ");
             write_u64(current);
             write(b"\n");
             sleep_ticks(SETTLE_TICKS);
@@ -48,7 +48,7 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
             exit(0)
         }
         if ticks() >= deadline {
-            write(b"hk-server-display-restart-test: timeout\n");
+            write(b"hk-client-display-restart-test: timeout\n");
             exit(2)
         }
         sleep_ticks(1);

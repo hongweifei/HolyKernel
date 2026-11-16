@@ -14,12 +14,12 @@ const PAGE: usize = 4096;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     if numa_node_count().unwrap_or(0) < 2 {
-        write(b"hk-server-numa-test: need two nodes\n");
+        write(b"hk-client-numa-test: need two nodes\n");
         exit(1)
     }
     let client = MemoryClient::new(endpoint);
     let Some((capability, _region, virt)) = client.map_lazy(PAGE) else {
-        write(b"hk-server-numa-test: map failed\n");
+        write(b"hk-client-numa-test: map failed\n");
         exit(2)
     };
     // SAFETY: Region 已映射；先读触发零页装入，再写入 pattern。
@@ -31,21 +31,21 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     }
     let migrated = numa_migrate(capability, 0, PAGE, 1);
     if migrated != PAGE as u64 {
-        write(b"hk-server-numa-test: migrate failed\n");
+        write(b"hk-client-numa-test: migrate failed\n");
         exit(3)
     }
     // SAFETY: 迁移已解除旧 PTE；读取触发按新 Frame 重建映射。
     let restored = unsafe { core::ptr::read_volatile(virt as *const u8) };
     if restored != pattern {
-        write(b"hk-server-numa-test: content mismatch\n");
+        write(b"hk-client-numa-test: content mismatch\n");
         exit(4)
     }
     hk_server_api::format::Line::new()
-        .text(b"hk-server-numa-test: migrated ")
+        .text(b"hk-client-numa-test: migrated ")
         .number(migrated)
         .text(b" verified\n")
         .finish();
-    write(b"hk-server-numa-test: ok\n");
+    write(b"hk-client-numa-test: ok\n");
     exit(0)
 }
 

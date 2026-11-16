@@ -52,24 +52,24 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     let (tcp_port, udp_port) = test_ports(cmdline);
     let Some(client) = Client::discover(endpoint) else {
-        write("hk-server-netsock: network server not found\n".as_bytes());
+        write("hk-client-netsock: network server not found\n".as_bytes());
         exit(1)
     };
     if !tcp_test(&client, tcp_port) {
-        write("hk-server-netsock: tcp failed\n".as_bytes());
+        write("hk-client-netsock: tcp failed\n".as_bytes());
         exit(2)
     }
-    write("hk-server-netsock: tcp ok\n".as_bytes());
+    write("hk-client-netsock: tcp ok\n".as_bytes());
     if !udp_test(&client, udp_port) {
-        write("hk-server-netsock: udp failed\n".as_bytes());
+        write("hk-client-netsock: udp failed\n".as_bytes());
         exit(3)
     }
-    write("hk-server-netsock: udp ok\n".as_bytes());
+    write("hk-client-netsock: udp ok\n".as_bytes());
     if !dns_test(&client) {
-        write("hk-server-netsock: dns failed\n".as_bytes());
+        write("hk-client-netsock: dns failed\n".as_bytes());
         exit(4)
     }
-    write("hk-server-netsock: dns ok\n".as_bytes());
+    write("hk-client-netsock: dns ok\n".as_bytes());
     exit(0)
 }
 

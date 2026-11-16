@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-gpu-test"
+name = "hk-client-gpu-test"
 description = "HolyKernel Gpu DeviceAllocation 与 Provider 驻留测试"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-gpu-test"
+name = "hk-client-gpu-test"
 path = "src/main.rs"
 
 [dependencies]

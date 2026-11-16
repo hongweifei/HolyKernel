@@ -30,7 +30,7 @@ const HEIGHT: u32 = 300;
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let display = wait_display();
     if display == 0 {
-        write(b"hk-server-pointer-test: display not found\n");
+        write(b"hk-client-pointer-test: display not found\n");
         exit(1)
     }
 
@@ -40,19 +40,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let Some((handle, mut surface_region, surface_virt)) =
         MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
     else {
-        write(b"hk-server-pointer-test: frame alloc failed\n");
+        write(b"hk-client-pointer-test: frame alloc failed\n");
         exit(2)
     };
     let mut pixels = surface_virt as *mut u32;
     paint(pixels, width, height);
 
     if send_handle(display, SURFACE_CREATE, pack_size(width, height), handle) == u64::MAX {
-        write(b"hk-server-pointer-test: create failed\n");
+        write(b"hk-client-pointer-test: create failed\n");
         exit(3)
     }
     let (label, surface, _sender) = recv(endpoint);
     if label != SURFACE_CREATED || surface == 0 {
-        write(b"hk-server-pointer-test: surface rejected\n");
+        write(b"hk-client-pointer-test: surface rejected\n");
         exit(4)
     }
     let _ = send(
@@ -63,18 +63,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
     if label != WINDOW_CREATED || window == 0 {
-        write(b"hk-server-pointer-test: window rejected\n");
+        write(b"hk-client-pointer-test: window rejected\n");
         exit(4)
     }
     set_title(display, window, "Pointer");
     let _ = send(display, SURFACE_COMMIT, surface);
     let (label, word, _sender) = recv(endpoint);
     if label != SURFACE_FRAME_DONE || word != surface {
-        write(b"hk-server-pointer-test: no frame\n");
+        write(b"hk-client-pointer-test: no frame\n");
         exit(5)
     }
 
-    write(b"hk-server-pointer-test: ready\n");
+    write(b"hk-client-pointer-test: ready\n");
     loop {
         let (label, word, _sender) = recv(endpoint);
         match label {
@@ -85,7 +85,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     let Some((handle, region, virt)) =
                         MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
                     else {
-                        write(b"hk-server-pointer-test: resize frame failed\n");
+                        write(b"hk-client-pointer-test: resize frame failed\n");
                         exit(7)
                     };
                     if send_handle(
@@ -95,7 +95,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         handle,
                     ) == u64::MAX
                     {
-                        write(b"hk-server-pointer-test: resize rejected\n");
+                        write(b"hk-client-pointer-test: resize rejected\n");
                         exit(7)
                     }
                     let old_region = surface_region;
@@ -106,7 +106,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     let _ = region_unmap(old_region);
                     paint(pixels, width, height);
                     let _ = send(display, SURFACE_COMMIT, surface);
-                    write(b"hk-server-pointer-test: resize ");
+                    write(b"hk-client-pointer-test: resize ");
                     write_u64(u64::from(width));
                     write(b"x");
                     write_u64(u64::from(height));
@@ -116,7 +116,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             DISPLAY_POINTER => {
                 let (id, x, y) = unpack_click_at(word);
                 if id == window {
-                    write(b"hk-server-pointer-test: pointer ");
+                    write(b"hk-client-pointer-test: pointer ");
                     write_u64(id);
                     write(b" ");
                     write_u64(u64::from(x));
@@ -127,13 +127,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             DISPLAY_CLICK if word == window => break,
             DISPLAY_CLOSE => {
-                write(b"hk-server-pointer-test: no click\n");
+                write(b"hk-client-pointer-test: no click\n");
                 exit(6)
             }
             _ => {}
         }
     }
-    write(b"hk-server-pointer-test: clicked ");
+    write(b"hk-client-pointer-test: clicked ");
     write_u64(window);
     write(b"\n");
     loop {
@@ -142,7 +142,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             break;
         }
     }
-    write(b"hk-server-pointer-test: closed ");
+    write(b"hk-client-pointer-test: closed ");
     write_u64(window);
     write(b"\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);

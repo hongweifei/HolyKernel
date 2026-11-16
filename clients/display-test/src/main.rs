@@ -24,7 +24,7 @@ use hk_server_api::{
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let display = wait_display();
     if display == 0 {
-        write(b"hk-server-display-test: display not found\n");
+        write(b"hk-client-display-test: display not found\n");
         exit(1)
     }
 
@@ -52,20 +52,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(7)
     }
 
-    write(b"hk-server-display-test: ready\n");
+    write(b"hk-client-display-test: ready\n");
     let (label, word, _sender) = recv(endpoint);
     if label != DISPLAY_KEY {
-        write(b"hk-server-display-test: no key\n");
+        write(b"hk-client-display-test: no key\n");
         exit(8)
     }
     let (window, byte) = unpack_key(word);
-    write(b"hk-server-display-test: key ");
+    write(b"hk-client-display-test: key ");
     write_u64(u64::from(byte));
     write(b" win ");
     write_u64(window);
     write(b"\n");
 
-    write(b"hk-server-display-test: done\n");
+    write(b"hk-client-display-test: done\n");
     let _ = send(display, DISPLAY_SHUTDOWN, 0);
     exit(0)
 }
@@ -84,7 +84,7 @@ fn create_surface(
     let Some((handle, _region, virt)) =
         MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)
     else {
-        write(b"hk-server-display-test: frame alloc failed\n");
+        write(b"hk-client-display-test: frame alloc failed\n");
         exit(2)
     };
 
@@ -108,16 +108,16 @@ fn create_surface(
     }
 
     if send_handle(display, SURFACE_CREATE, pack_size(width, height), handle) == u64::MAX {
-        write(b"hk-server-display-test: create failed\n");
+        write(b"hk-client-display-test: create failed\n");
         exit(3)
     }
 
     let (label, surface, _sender) = recv(endpoint);
     if label != SURFACE_CREATED || surface == 0 {
-        write(b"hk-server-display-test: surface rejected\n");
+        write(b"hk-client-display-test: surface rejected\n");
         exit(4)
     }
-    write(b"hk-server-display-test: surface ");
+    write(b"hk-client-display-test: surface ");
     write_u64(surface);
     write(b"\n");
     surface
@@ -129,10 +129,10 @@ fn create_window(display: u64, endpoint: u64, surface: u64) -> u64 {
     let _ = send(display, WINDOW_CREATE, surface);
     let (label, window, _sender) = recv(endpoint);
     if label != WINDOW_CREATED || window == 0 {
-        write(b"hk-server-display-test: window rejected\n");
+        write(b"hk-client-display-test: window rejected\n");
         exit(5)
     }
-    write(b"hk-server-display-test: window ");
+    write(b"hk-client-display-test: window ");
     write_u64(window);
     write(b"\n");
     window
@@ -143,7 +143,7 @@ fn create_window(display: u64, endpoint: u64, surface: u64) -> u64 {
 fn wait_frame(endpoint: u64, expected: u64, surface: u64, code: u64) {
     let (label, word, _sender) = recv(endpoint);
     if label != expected || word != surface {
-        write(b"hk-server-display-test: no frame\n");
+        write(b"hk-client-display-test: no frame\n");
         exit(code)
     }
 }
@@ -161,14 +161,14 @@ fn clipboard_round_trip(display: u64, endpoint: u64) -> bool {
             continue;
         }
         if length == TEXT.len() && buffer[..length] == *TEXT {
-            write(b"hk-server-display-test: clipboard ");
+            write(b"hk-client-display-test: clipboard ");
             write(TEXT);
             write(b"\n");
             return true;
         }
         return false;
     }
-    write(b"hk-server-display-test: clipboard timeout\n");
+    write(b"hk-client-display-test: clipboard timeout\n");
     false
 }
 

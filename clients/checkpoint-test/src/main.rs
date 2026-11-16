@@ -17,45 +17,45 @@ const TARGET: &str = "hk-server-path";
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let Some(service) = wait_service(CHECKPOINT_SERVICE) else {
-        write(b"hk-server-checkpoint-test: service unavailable\n");
+        write(b"hk-client-checkpoint-test: service unavailable\n");
         exit(1)
     };
     let Some(_target) = wait_service(TARGET) else {
-        write(b"hk-server-checkpoint-test: target unavailable\n");
+        write(b"hk-client-checkpoint-test: target unavailable\n");
         exit(2)
     };
     let mut buffer = [0_u8; 512];
     match save(service, endpoint, TARGET, &mut buffer) {
         Ok(length) => {
-            write(b"hk-server-checkpoint-test: saved ");
+            write(b"hk-client-checkpoint-test: saved ");
             write(&buffer[..length.min(buffer.len())]);
         }
         Err(_) => {
-            write(b"hk-server-checkpoint-test: save failed\n");
+            write(b"hk-client-checkpoint-test: save failed\n");
             exit(3)
         }
     }
     match restore(service, endpoint, TARGET, &mut buffer) {
         Ok(length) => {
-            write(b"hk-server-checkpoint-test: restored ");
+            write(b"hk-client-checkpoint-test: restored ");
             write(&buffer[..length.min(buffer.len())]);
         }
         Err(_) => {
-            write(b"hk-server-checkpoint-test: restore failed\n");
+            write(b"hk-client-checkpoint-test: restore failed\n");
             exit(4)
         }
     }
     match list(service, endpoint, &mut buffer) {
         Ok(length) => {
-            write(b"hk-server-checkpoint-test: listed ");
+            write(b"hk-client-checkpoint-test: listed ");
             write(&buffer[..length.min(buffer.len())]);
         }
         Err(_) => {
-            write(b"hk-server-checkpoint-test: list failed\n");
+            write(b"hk-client-checkpoint-test: list failed\n");
             exit(5)
         }
     }
-    write(b"hk-server-checkpoint-test: done\n");
+    write(b"hk-client-checkpoint-test: done\n");
     exit(0)
 }
 

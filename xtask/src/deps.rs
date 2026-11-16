@@ -79,7 +79,7 @@ const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server",
 
 /// 服务线协议层禁止依赖的类别：只允许内核面与 ABI 常量。
 ///
-/// 服务二进制不是库 crate，无法被依赖，因此这里不列 `hk-server-*`。
+/// 服务二进制不是库 crate，无法被依赖，因此这里不列 `hk-server-*` 与 `hk-client-*`。
 const PROTO_FORBIDDEN: &[&str] = &[
     "hk-block",
     "hk-canvas",

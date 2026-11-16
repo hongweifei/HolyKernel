@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-netstat"
+name = "hk-client-netstat"
 description = "HolyKernel 网络状态客户端服务"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-netstat"
+name = "hk-client-netstat"
 path = "src/main.rs"
 
 [dependencies]

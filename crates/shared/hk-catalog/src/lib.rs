@@ -112,9 +112,9 @@ services![
     ("hk-server-block", true, 9, LATENCY_HIGH, NEVER, None),
     ("hk-server-virtio-net", true, 9, LATENCY_HIGH, ALWAYS, None),
     ("hk-server-net", true, 9, LATENCY, NEVER, None),
-    ("hk-server-netstat", false, 9, THROUGHPUT, NEVER, None),
+    ("hk-client-netstat", false, 9, THROUGHPUT, NEVER, None),
     (
-        "hk-server-netsock",
+        "hk-client-netsock",
         false,
         9,
         LATENCY,
@@ -123,7 +123,7 @@ services![
     ),
     ("hk-server-console", true, 8, REALTIME, NEVER, None),
     (
-        "hk-server-console-test",
+        "hk-client-console-test",
         false,
         9,
         THROUGHPUT,
@@ -131,7 +131,7 @@ services![
         Some("console-test")
     ),
     (
-        "hk-server-sound-test",
+        "hk-client-sound-test",
         false,
         9,
         THROUGHPUT,
@@ -150,7 +150,7 @@ services![
     ),
     ("hk-server-display", true, 0, REALTIME, ON_FAILURE, None),
     (
-        "hk-server-display-test",
+        "hk-client-display-test",
         false,
         9,
         THROUGHPUT,
@@ -158,7 +158,7 @@ services![
         Some("display-test")
     ),
     (
-        "hk-server-terminal-test",
+        "hk-client-terminal-test",
         false,
         9,
         THROUGHPUT,
@@ -168,7 +168,7 @@ services![
     ("hk-server-input", true, 2, REALTIME, NEVER, None),
     ("hk-server-usb", true, 2, LATENCY_HIGH, NEVER, None),
     (
-        "hk-server-pointer-test",
+        "hk-client-pointer-test",
         false,
         9,
         THROUGHPUT,
@@ -180,7 +180,7 @@ services![
     ("hk-server-debug", true, 9, LATENCY, NEVER, None),
     ("hk-server-taskman", true, 7, LATENCY, NEVER, None),
     (
-        "hk-server-dbg",
+        "hk-client-dbg",
         false,
         9,
         THROUGHPUT,
@@ -188,7 +188,7 @@ services![
         Some("dbg-test")
     ),
     (
-        "hk-server-display-restart-test",
+        "hk-client-display-restart-test",
         false,
         9,
         THROUGHPUT,
@@ -197,7 +197,7 @@ services![
     ),
     ("hk-server-checkpoint", true, 9, LATENCY, NEVER, None),
     (
-        "hk-server-checkpoint-test",
+        "hk-client-checkpoint-test",
         false,
         9,
         THROUGHPUT,
@@ -213,7 +213,7 @@ services![
         Some("memory-test")
     ),
     (
-        "hk-server-swap-test",
+        "hk-client-swap-test",
         false,
         9,
         THROUGHPUT,
@@ -221,7 +221,7 @@ services![
         Some("swap-test")
     ),
     (
-        "hk-server-oom-test",
+        "hk-client-oom-test",
         false,
         9,
         THROUGHPUT,
@@ -229,7 +229,7 @@ services![
         Some("oom-test")
     ),
     (
-        "hk-server-oom-observer",
+        "hk-client-oom-observer",
         false,
         9,
         THROUGHPUT,
@@ -237,7 +237,7 @@ services![
         Some("oom-test")
     ),
     (
-        "hk-server-numa-test",
+        "hk-client-numa-test",
         false,
         9,
         THROUGHPUT,
@@ -253,7 +253,7 @@ services![
         Some("gpu-alloc-test")
     ),
     (
-        "hk-server-gpu-test",
+        "hk-client-gpu-test",
         false,
         9,
         THROUGHPUT,
@@ -325,25 +325,25 @@ pub fn policy_authority(name: &str) -> bool {
 pub fn oom_exempt(name: &str) -> bool {
     name == "root"
         || name.starts_with("hk-server-memory")
-        || name == "hk-server-oom-observer"
+        || name == "hk-client-oom-observer"
         || name.starts_with("hk-server-debug")
         || name.starts_with("hk-server-checkpoint")
         || name.starts_with("hk-server-taskman")
 }
 
 /// 需要独立 Gpu Capacity 的服务。
-pub const GPU_CAPACITY_SERVICES: &[&str] = &["hk-server-gpu-provider", "hk-server-gpu-test"];
+pub const GPU_CAPACITY_SERVICES: &[&str] = &["hk-server-gpu-provider", "hk-client-gpu-test"];
 
 /// 每个 Gpu 服务取得的 Capacity 字节数。
 pub const GPU_CAPACITY_BYTES: usize = 1024 * 1024;
 
 /// 判断服务能否在自检标记下修改 OOM 策略。
 pub fn oom_policy_authority(name: &str, cmdline: &str) -> bool {
-    name == "hk-server-oom-test" && cmdline.contains("oom-test")
+    name == "hk-client-oom-test" && cmdline.contains("oom-test")
 }
 
 /// 内核态 shell 的 `net` 命令查询的状态客户端。
-pub const NETSTAT_CLIENT: &str = "hk-server-netstat";
+pub const NETSTAT_CLIENT: &str = "hk-client-netstat";
 
 /// 启动模式：cmdline 命中全部 token 时，只装载 `services` 中的镜像。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -366,7 +366,7 @@ pub const BOOT_MODES: &[BootMode] = &[
     },
     BootMode {
         tokens: &["dbg-test"],
-        services: &["hk-server-dbg"],
+        services: &["hk-client-dbg"],
     },
     BootMode {
         tokens: &["rng-test"],
@@ -381,7 +381,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         services: &[
             "hk-server-device",
             "hk-server-virtio-sound",
-            "hk-server-sound-test",
+            "hk-client-sound-test",
         ],
     },
     BootMode {
@@ -390,7 +390,7 @@ pub const BOOT_MODES: &[BootMode] = &[
     },
     BootMode {
         tokens: &["console-test"],
-        services: &["hk-server-console", "hk-server-console-test"],
+        services: &["hk-server-console", "hk-client-console-test"],
     },
     BootMode {
         tokens: &["scanout-test"],
@@ -406,7 +406,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         tokens: &["display-test", "gpu.scanout"],
         services: &[
             "hk-server-display",
-            "hk-server-display-test",
+            "hk-client-display-test",
             "hk-server-surface-provider",
             "hk-server-memory",
             "hk-server-device",
@@ -417,7 +417,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         tokens: &["display-test"],
         services: &[
             "hk-server-display",
-            "hk-server-display-test",
+            "hk-client-display-test",
             "hk-server-surface-provider",
             "hk-server-memory",
         ],
@@ -479,7 +479,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         services: &[
             "hk-server-display",
             "hk-server-console",
-            "hk-server-display-restart-test",
+            "hk-client-display-restart-test",
             "hk-server-memory",
         ],
     },
@@ -497,19 +497,19 @@ pub const BOOT_MODES: &[BootMode] = &[
     },
     BootMode {
         tokens: &["swap-test"],
-        services: &["hk-server-memory", "hk-server-swap-test"],
+        services: &["hk-server-memory", "hk-client-swap-test"],
     },
     BootMode {
         tokens: &["oom-test"],
-        services: &["hk-server-oom-test", "hk-server-oom-observer"],
+        services: &["hk-client-oom-test", "hk-client-oom-observer"],
     },
     BootMode {
         tokens: &["gpu-alloc-test"],
-        services: &["hk-server-gpu-provider", "hk-server-gpu-test"],
+        services: &["hk-server-gpu-provider", "hk-client-gpu-test"],
     },
     BootMode {
         tokens: &["numa-test"],
-        services: &["hk-server-memory", "hk-server-numa-test"],
+        services: &["hk-server-memory", "hk-client-numa-test"],
     },
     BootMode {
         tokens: &["checkpoint-srv-test"],
@@ -517,7 +517,7 @@ pub const BOOT_MODES: &[BootMode] = &[
             "hk-server-echo",
             "hk-server-path",
             "hk-server-checkpoint",
-            "hk-server-checkpoint-test",
+            "hk-client-checkpoint-test",
             "hk-server-device",
             "hk-server-virtio",
             "hk-server-block",
@@ -551,7 +551,7 @@ pub const BOOT_MODES: &[BootMode] = &[
             "hk-server-display",
             "hk-server-device",
             "hk-server-input",
-            "hk-server-pointer-test",
+            "hk-client-pointer-test",
             "hk-server-memory",
         ],
     },
@@ -561,7 +561,7 @@ pub const BOOT_MODES: &[BootMode] = &[
             "hk-server-display",
             "hk-server-device",
             "hk-server-console",
-            "hk-server-terminal-test",
+            "hk-client-terminal-test",
             "hk-server-input",
             "hk-server-memory",
         ],
@@ -571,7 +571,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         services: &[
             "hk-server-display",
             "hk-server-console",
-            "hk-server-terminal-test",
+            "hk-client-terminal-test",
             "hk-server-memory",
         ],
     },
@@ -581,27 +581,27 @@ pub const BOOT_MODES: &[BootMode] = &[
 ///
 /// `netstat` 只由 `net` 命令启动；其余由桌面或测试模式装载。
 pub const DEFAULT_HIDDEN: &[&str] = &[
-    "hk-server-netstat",
+    "hk-client-netstat",
     "hk-server-holydoc",
     "hk-server-workbench",
     "hk-server-debug",
     "hk-server-taskman",
     "hk-server-shell",
-    "hk-server-display-restart-test",
+    "hk-client-display-restart-test",
     "hk-server-checkpoint",
-    "hk-server-checkpoint-test",
+    "hk-client-checkpoint-test",
     "hk-server-console",
-    "hk-server-console-test",
+    "hk-client-console-test",
     "hk-server-display",
-    "hk-server-display-test",
-    "hk-server-terminal-test",
+    "hk-client-display-test",
+    "hk-client-terminal-test",
     "hk-server-input",
-    "hk-server-pointer-test",
+    "hk-client-pointer-test",
 ];
 
 /// 仅在网络测试模式下装载的服务。
 pub const NETWORK_SERVICES: &[&str] =
-    &["hk-server-virtio-net", "hk-server-net", "hk-server-netsock"];
+    &["hk-server-virtio-net", "hk-server-net", "hk-client-netsock"];
 
 /// 返回 cmdline 命中的启动模式；首个 token 全部出现的条目生效。
 pub fn boot_mode(cmdline: &str) -> Option<&'static BootMode> {
@@ -733,13 +733,13 @@ mod tests {
             assert!(service(name).is_some(), "GPU 容量服务未登记：{name}");
         }
         assert!(service(NETSTAT_CLIENT).is_some());
-        assert!(service("hk-server-oom-test").is_some());
+        assert!(service("hk-client-oom-test").is_some());
         assert!(oom_exempt("root"));
         assert!(oom_exempt("hk-server-memory"));
-        assert!(oom_exempt("hk-server-oom-observer"));
-        assert!(!oom_exempt("hk-server-console-test"));
-        assert!(oom_policy_authority("hk-server-oom-test", "oom-test"));
-        assert!(!oom_policy_authority("hk-server-oom-test", "swap-test"));
+        assert!(oom_exempt("hk-client-oom-observer"));
+        assert!(!oom_exempt("hk-client-console-test"));
+        assert!(oom_policy_authority("hk-client-oom-test", "oom-test"));
+        assert!(!oom_policy_authority("hk-client-oom-test", "swap-test"));
     }
 
     #[test]

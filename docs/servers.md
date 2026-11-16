@@ -196,8 +196,8 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 - 向 POSIX Server 提供 socket 后端：`socket`、`bind`、`connect`、`send`、`recv`、`poll`。
 - 网络驱动通过 Net Endpoint 提供收发队列；数据使用共享 Frame。
 - 共享 Frame 收发环：驱动分配并登记 DMA 帧，RX 直接 DMA 到共享帧、TX 由协议栈写入后零拷贝提交；`net.zerocopy` 启用。
-- 原生 Socket Handle：`hk-proto::socket` 客户端提供 open/connect/send/recv/close、UDP 收发与 DNS 解析；Network Server 处理请求；`hk-server-netsock` 用户态自检。
-- 状态查询：`hk-server-netstat` 是独立用户态客户端，向 Network Server 发送 `NET_STATUS_REQUEST`/`NET_ARP_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数、收发计数、路由视图、ARP 邻居与原生配置（DHCP/地址/网关/DNS/MTU）；`net` 命令由内核态 shell 提供。
+- 原生 Socket Handle：`hk-proto::socket` 客户端提供 open/connect/send/recv/close、UDP 收发与 DNS 解析；Network Server 处理请求；`hk-client-netsock` 用户态自检。
+- 状态查询：`hk-client-netstat` 是独立用户态客户端，向 Network Server 发送 `NET_STATUS_REQUEST`/`NET_ARP_REQUEST`，打印 MAC、IPv4/前缀、网关、Socket 数、收发计数、路由视图、ARP 邻居与原生配置（DHCP/地址/网关/DNS/MTU）；`net` 命令由内核态 shell 提供。
 - TLS/Wi-Fi/USB 网卡属于后续版本；详见 [网络](network.md)。
 
 ---
@@ -223,8 +223,8 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 - **Compatibility Server**：按应用选择 POSIX/Linux/Harmony personality，管理 rootfs、命名空间与配额。
 - **Wayland Server / XWayland**：Linux Wayland/X11 客户端适配到 surface/seat。
 - **Harmony Server**：OpenHarmony standard-system 用户态 + KAL/HDI 适配。
-- **Checkpoint Server**：`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议，委托 Root 控制保存与恢复 Native Task；`hk-server-checkpoint-test` 自检客户端验证保存、恢复与列表。
-- **Debug Server**：分页 Task/资源/trace 视图、System Capacity 快照与最近异常回溯；内核只保存内核符号，异常现场作为 `FAULT_EVENT` 投递给订阅端点（不在内核保存），服务符号经 Root 按地址按需查询，符号化与回溯过滤在用户态（`hk-debug`）完成；`hk-server-dbg` 客户端输出同样的视图。
+- **Checkpoint Server**：`hk-server-checkpoint` 提供 SAVE/RESTORE/LIST 协议，委托 Root 控制保存与恢复 Native Task；`hk-client-checkpoint-test` 自检客户端验证保存、恢复与列表。
+- **Debug Server**：分页 Task/资源/trace 视图、System Capacity 快照与最近异常回溯；内核只保存内核符号，异常现场作为 `FAULT_EVENT` 投递给订阅端点（不在内核保存），服务符号经 Root 按地址按需查询，符号化与回溯过滤在用户态（`hk-debug`）完成；`hk-client-dbg` 客户端输出同样的视图。
 - **HolyShell**：默认命令行；Holy 命令、结构化管道、脚本。
 - **Console Service**：纯终端数据面，只做行编辑、回显、UTF-8/宽字符与按行交付；不解析命令。用户态 Shell 未启动时保留输入行，收到读行请求后再交付。
 - **Shell 分层**：`hk-shell` 只提供命令解析、格式化与 `ShellHost`/`ShellIo` 契约，保持零依赖。内核态 shell 直接使用平台 runtime/loader，负责文本模式与恢复；用户态 `hk-server-shell` 通过 `ShellIo` 访问 Console，通过 Root Server 控制 ABI（`SYS_ROOT_CONTROL`/`SYS_ROOT_RESULT`）执行 `tasks`、`services`、`start`、`restart` 与脚本读取，`mounts` 作为用户态宿主扩展通过 VFS 只读查询挂载表，不进入 `hk-shell` 核心命令表，也不链接 `hk-runtime`/`hk-root-server`。两类 Shell 共享解析/格式化，但能力与权限边界独立；Console 不承担第三套命令。

@@ -64,7 +64,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`。`hk-vfs` 的核心使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。部署上 ext4 与 HolyFS 是对等的独立服务：`hk-server-ext4` 与 `hk-server-holyfs` 各自挂载块设备，共用 `hk-holy-service` 的盘符注册与请求分派；VFS 只做盘符聚合，Path 通过 `hk-fs-remote` 把远程 Holy 后端当作普通 `hk-fs::Backend`，因此不再保留把 `HolyFs` 本地适配为 `Backend` 的中间 crate（无消费者）。tmpfs/devfs/procfs 仍由 VFS 进程内建。
 
-目录约定：共享契约、内核侧与用户态库分别放 `crates/shared/`、`crates/kernel/`、`crates/user/`；常驻服务放 `servers/`，只通过协议访问服务的自检/状态客户端放 `clients/`，内核能力演示与冒烟服务放 `demos/`；包名仍以 `hk-server-*` 命名，便于镜像与白名单按名称引用。`hk-server-api` 只承载内核提供的用户态服务面：HMP 能力与 Region、设备授权、帧缓冲、堆、共享输出格式化与运行时样板；系统调用薄封装与 Root 控制在 `hk-syscall-client`，并由 `hk-server-api` 重新导出给服务。服务线协议与帧编解码在 `hk-proto` 的各服务模块（公共帧在 `wire.rs`，状态码在 `status.rs`，标签区间在 `labels.rs`）；需要堆缓冲的 Holy/VFS 客户端在 `hk-proto-client`，收发缓冲按需分配，`hk-proto` 本身保持零分配。各层都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
+目录约定：共享契约、内核侧与用户态库分别放 `crates/shared/`、`crates/kernel/`、`crates/user/`；常驻服务放 `servers/`，演示与冒烟服务放 `demos/`，两者包名沿用 `hk-server-*`（镜像与白名单按名称引用）；只通过协议访问服务的自检/状态客户端放 `clients/`，包名为 `hk-client-*`，且默认不启动，由测试标记 opt-in。`hk-server-api` 只承载内核提供的用户态服务面：HMP 能力与 Region、设备授权、帧缓冲、堆、共享输出格式化与运行时样板；系统调用薄封装与 Root 控制在 `hk-syscall-client`，并由 `hk-server-api` 重新导出给服务。服务线协议与帧编解码在 `hk-proto` 的各服务模块（公共帧在 `wire.rs`，状态码在 `status.rs`，标签区间在 `labels.rs`）；需要堆缓冲的 Holy/VFS 客户端在 `hk-proto-client`，收发缓冲按需分配，`hk-proto` 本身保持零分配。各层都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 

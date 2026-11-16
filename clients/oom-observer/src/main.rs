@@ -18,15 +18,15 @@ pub extern "C" fn _start(_endpoint: u64, _capacity: u64) -> ! {
             let killed = u64::from_le_bytes(buffer[16..24].try_into().unwrap_or([0; 8]));
             if killed != 0 {
                 let name_end = length.min(buffer.len());
-                write(b"hk-server-oom-observer: victim ");
+                write(b"hk-client-oom-observer: victim ");
                 write(&buffer[40..name_end]);
                 write(b"\n");
                 hk_server_api::format::Line::new()
-                    .text(b"hk-server-oom-observer: events ")
+                    .text(b"hk-client-oom-observer: events ")
                     .number(memory_event_count() as u64)
                     .text(b"\n")
                     .finish();
-                write(b"hk-server-oom-observer: ok\n");
+                write(b"hk-client-oom-observer: ok\n");
                 exit(0)
             }
         }

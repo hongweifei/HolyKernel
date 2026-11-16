@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-display-restart-test"
+name = "hk-client-display-restart-test"
 description = "Display 热重启与 Console 重连自检"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-display-restart-test"
+name = "hk-client-display-restart-test"
 path = "src/main.rs"
 
 [dependencies]

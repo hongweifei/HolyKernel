@@ -11,13 +11,13 @@ use hk_server_api::{capacity_alloc, exit, set_oom_policy, write};
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64, capacity: u64) -> ! {
     if set_oom_policy(99, 1) != 0 {
-        write(b"hk-server-oom-test: policy failed\n");
+        write(b"hk-client-oom-test: policy failed\n");
         exit(1)
     }
-    write(b"hk-server-oom-test: triggering\n");
+    write(b"hk-client-oom-test: triggering\n");
     // 超过顶层 User Capacity 配额，触发 OOM guard；victim 选择应终止本任务。
     let _ = capacity_alloc(capacity, 1024 * 1024 * 1024);
-    write(b"hk-server-oom-test: not killed\n");
+    write(b"hk-client-oom-test: not killed\n");
     exit(2)
 }
 

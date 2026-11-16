@@ -611,6 +611,138 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-client-checkpoint-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-console-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-dbg"
+version = "0.1.0"
+dependencies = [
+ "hk-debug",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-display-restart-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-display-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-gpu-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
+name = "hk-client-netsock"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-netstat"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-numa-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-oom-observer"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-oom-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-pointer-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-sound-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-client-swap-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
+name = "hk-client-terminal-test"
+version = "0.1.0"
+dependencies = [
+ "hk-proto",
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-coroutine"
 version = "0.1.0"
 
@@ -1004,39 +1136,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-server-checkpoint-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
 name = "hk-server-console"
 version = "0.1.0"
 dependencies = [
  "hk-canvas",
  "hk-font",
  "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-console-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-dbg"
-version = "0.1.0"
-dependencies = [
- "hk-debug",
  "hk-server-api",
  "hk-server-build",
 ]
@@ -1089,24 +1194,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-server-display-restart-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-display-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
 name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [
@@ -1149,15 +1236,6 @@ dependencies = [
 
 [[package]]
 name = "hk-server-gpu-provider"
-version = "0.1.0"
-dependencies = [
- "hk-server-api",
- "hk-server-build",
- "hk-syscall",
-]
-
-[[package]]
-name = "hk-server-gpu-test"
 version = "0.1.0"
 dependencies = [
  "hk-server-api",
@@ -1243,32 +1321,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-server-netsock"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-netstat"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-numa-test"
-version = "0.1.0"
-dependencies = [
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
 name = "hk-server-nvme"
 version = "0.1.0"
 dependencies = [
@@ -1282,22 +1334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-server-oom-observer"
-version = "0.1.0"
-dependencies = [
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-oom-test"
-version = "0.1.0"
-dependencies = [
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
 name = "hk-server-path"
 version = "0.1.0"
 dependencies = [
@@ -1308,15 +1344,6 @@ dependencies = [
  "hk-server-api",
  "hk-server-build",
  "hk-vfs",
-]
-
-[[package]]
-name = "hk-server-pointer-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
 ]
 
 [[package]]
@@ -1343,15 +1370,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-server-sound-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
 name = "hk-server-spin"
 version = "0.1.0"
 dependencies = [
@@ -1366,15 +1384,6 @@ dependencies = [
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-swap-test"
-version = "0.1.0"
-dependencies = [
- "hk-server-api",
- "hk-server-build",
- "hk-syscall",
 ]
 
 [[package]]
@@ -1405,15 +1414,6 @@ version = "0.1.0"
 dependencies = [
  "hk-cadence",
  "hk-proto-client",
- "hk-server-api",
- "hk-server-build",
-]
-
-[[package]]
-name = "hk-server-terminal-test"
-version = "0.1.0"
-dependencies = [
- "hk-proto",
  "hk-server-api",
  "hk-server-build",
 ]

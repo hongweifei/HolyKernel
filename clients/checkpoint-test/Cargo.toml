@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-checkpoint-test"
+name = "hk-client-checkpoint-test"
 description = "HolyKernel Checkpoint Server 自检客户端"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-checkpoint-test"
+name = "hk-client-checkpoint-test"
 path = "src/main.rs"
 
 [dependencies]

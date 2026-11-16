@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-swap-test"
+name = "hk-client-swap-test"
 description = "HolyKernel Provider 自动 swap 冒烟客户端"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-server-swap-test"
+name = "hk-client-swap-test"
 path = "src/main.rs"
 
 [dependencies]
