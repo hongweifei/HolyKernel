@@ -1,7 +1,8 @@
 //! 演示服务：向 echo 服务发送请求，等待回复后验证并退出。
 //!
 //! 本 crate 只在 `x86_64-unknown-none` 目标上构建；宿主构建保留占位入口，便于
-//! `cargo clippy --workspace --all-targets` 与工作区测试。
+//! `cargo clippy --workspace --all-targets` 与工作区测试。各类自检拆在
+//! `fs`、`concurrency` 与 `memory` 模块里。
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
@@ -21,56 +22,17 @@ const HEAP_SIZE: usize = 256 * 1024;
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-#[cfg(target_os = "none")]
-use hk_async::{NotificationWait, SleepTicks, block_on, join2};
-#[cfg(target_os = "none")]
-use hk_coroutine::{Coroutine, State, suspend};
-#[cfg(target_os = "none")]
-use hk_proto::block::BLOCK_SHUTDOWN;
-#[cfg(target_os = "none")]
-use hk_proto::echo::{WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
-#[cfg(target_os = "none")]
-use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE};
-#[cfg(target_os = "none")]
-use hk_proto_client::VfsClient;
-#[cfg(target_os = "none")]
-use hk_sync::{Condvar, Mutex, RwLock};
-
-#[cfg(target_os = "none")]
 use hk_server_api::{
-    MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, boot_cmdline, call, capability_swap,
-    close_handle, exit, frame_info, frame_map, futex_wait, futex_wake, ledger_info, notify, recv,
-    recv_data_try, region_info, region_unmap, self_notification, send, send_handle,
-    service_endpoint, service_restarts, thread_create, thread_join, tsc, tsc_frequency,
-    wait_notify, write, write_u64, yield_now,
+    boot_cmdline, call, exit, recv, send, send_handle, service_endpoint, wait_notify, write,
+    write_u64,
 };
 
-/// 异步自检使用的通知位。
 #[cfg(target_os = "none")]
-const ASYNC_BIT: u64 = 1 << 40;
-
-/// 协程共享的执行轨迹。
+mod concurrency;
 #[cfg(target_os = "none")]
-static COROUTINE_TRACE: AtomicU32 = AtomicU32::new(0);
-
-/// 线程共享的累加计数。
+mod fs;
 #[cfg(target_os = "none")]
-static THREAD_COUNT: AtomicU64 = AtomicU64::new(0);
-
-/// 线程共享的唤醒字。
-#[cfg(target_os = "none")]
-static THREAD_WORD: AtomicU32 = AtomicU32::new(0);
-
-/// 同步自检：互斥计数、条件变量与读写锁。
-#[cfg(target_os = "none")]
-static SYNC_COUNTER: Mutex<u64> = Mutex::new(0);
-#[cfg(target_os = "none")]
-static SYNC_VALUE: Mutex<u32> = Mutex::new(0);
-#[cfg(target_os = "none")]
-static SYNC_CONDVAR: Condvar = Condvar::new();
-#[cfg(target_os = "none")]
-static SYNC_RW: RwLock<u64> = RwLock::new(0);
+mod memory;
 
 /// 请求标签。
 #[cfg(target_os = "none")]
@@ -102,43 +64,43 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     if label == REPLY && word == 42 {
         write("hk-server-demo 收到回复 42\n".as_bytes());
-        if verify_arena() {
+        if memory::verify_arena() {
             write(b"hk-server-demo arena ok\n");
         } else {
             write("hk-server-demo arena 失败\n".as_bytes());
             exit(1)
         }
-        if verify_threads() {
+        if concurrency::verify_threads() {
             write(b"hk-server-demo thread ok\n");
         } else {
             write(b"hk-server-demo thread fail\n");
             exit(1)
         }
-        if verify_coroutines() {
+        if concurrency::verify_coroutines() {
             write(b"hk-server-demo coroutine ok\n");
         } else {
             write(b"hk-server-demo coroutine fail\n");
             exit(1)
         }
-        if verify_async() {
+        if concurrency::verify_async() {
             write(b"hk-server-demo async ok\n");
         } else {
             write(b"hk-server-demo async fail\n");
             exit(1)
         }
-        if verify_sync() {
+        if concurrency::verify_sync() {
             write(b"hk-server-demo sync ok\n");
         } else {
             write(b"hk-server-demo sync fail\n");
             exit(1)
         }
-        if verify_worker(endpoint) {
+        if concurrency::verify_worker(endpoint) {
             write(b"hk-server-demo worker ok\n");
         } else {
             write(b"hk-server-demo worker fail\n");
             exit(1)
         }
-        if verify_memory(endpoint) {
+        if memory::verify_memory(endpoint) {
             write(b"hk-server-demo hmp ok\n");
         } else {
             write(b"hk-server-demo hmp fail\n");
@@ -159,13 +121,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             exit(1)
         }
         write("hk-server-demo 句柄转移 ok\n".as_bytes());
-        if verify_vfs(endpoint) {
+        if fs::verify_vfs(endpoint) {
             write("VFS 读写 ok\n".as_bytes());
         } else {
             write("VFS 读写失败\n".as_bytes());
             exit(1)
         }
-        if verify_ext4(endpoint) {
+        if fs::verify_ext4(endpoint) {
             write("hk-server-demo fs ok\n".as_bytes());
         } else {
             write("hk-server-demo fs 失败\n".as_bytes());
@@ -175,7 +137,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let mut cmdline_buffer = [0_u8; 128];
         let cmdline = boot_cmdline(&mut cmdline_buffer).unwrap_or("");
         if cmdline.contains("restart-test") {
-            if verify_driver_restart(endpoint) {
+            if fs::verify_driver_restart(endpoint) {
                 write("hk-server-demo 驱动重启 ok\n".as_bytes());
             } else {
                 write("hk-server-demo 驱动重启失败\n".as_bytes());
@@ -184,7 +146,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
         // 没有块设备时不跑 ext4 顺序读基准，避免 tmpfs 上长时间阻塞启动。
         if service_endpoint("hk-server-virtio") != 0
-            && let Some(tenths) = benchmark_ext4(endpoint)
+            && let Some(tenths) = fs::benchmark_ext4(endpoint)
         {
             write("fs 1 MiB 读：".as_bytes());
             write_u64(tenths / 10);
@@ -197,545 +159,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     write("hk-server-demo 回复异常\n".as_bytes());
     exit(1)
-}
-
-#[cfg(target_os = "none")]
-fn verify_vfs(endpoint: u64) -> bool {
-    let mut client = VfsClient::new("hk-server-path", endpoint);
-    let Ok(handle) = client.open("/tmp/hello", OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
-        return false;
-    };
-    if client.write(handle, 0, b"vfs").is_err() {
-        return false;
-    }
-    let mut buffer = [0_u8; 16];
-    let Ok(length) = client.read(handle, 0, &mut buffer) else {
-        return false;
-    };
-    if length < 3 || &buffer[..3] != b"vfs" {
-        return false;
-    }
-    if client.close(handle).is_err() {
-        return false;
-    }
-    if client.stat("/tmp/hello").ok() != Some((1, 3)) {
-        return false;
-    }
-    if client.truncate("/tmp/hello", 1).is_err() {
-        return false;
-    }
-    if client.stat("/tmp/hello").ok() != Some((1, 1)) {
-        return false;
-    }
-    if client.unlink("/tmp/hello").is_err() {
-        return false;
-    }
-    if client.stat("/tmp/hello").is_ok() {
-        return false;
-    }
-
-    let Ok(handle) = client.open("/proc/version", OPEN_READ) else {
-        return false;
-    };
-    let mut version = [0_u8; 32];
-    let Ok(length) = client.read(handle, 0, &mut version) else {
-        return false;
-    };
-    if !version[..length].starts_with(b"HolyKernel") {
-        return false;
-    }
-    let _ = client.close(handle);
-
-    let Ok(handle) = client.open("/dev/null", OPEN_WRITE) else {
-        return false;
-    };
-    if client.write(handle, 0, b"drop") != Ok(4) {
-        return false;
-    }
-    let _ = client.close(handle);
-    if client.stat("/dev/null").ok() != Some((1, 0)) {
-        return false;
-    }
-
-    let Ok(handle) = client.open("/dev/zero", OPEN_READ) else {
-        return false;
-    };
-    let mut zeros = [0xFF_u8; 4];
-    let read = client.read(handle, 0, &mut zeros);
-    if read != Ok(4) {
-        return false;
-    }
-    if zeros != [0; 4] {
-        return false;
-    }
-    let _ = client.close(handle);
-
-    let mut mounts = [0_u8; 128];
-    let Ok(length) = client.mounts(&mut mounts) else {
-        return false;
-    };
-    let mounts = &mounts[..length];
-    ["/tmp", "/dev", "/proc"].iter().all(|target| {
-        mounts
-            .split(|byte| *byte == b'\n')
-            .any(|line| line == target.as_bytes())
-    })
-}
-/// 返回 ext4 标记与基准路径：数据盘挂载用 `/disk`，主根挂载用 `/`。
-#[cfg(target_os = "none")]
-fn ext4_paths(client: &mut VfsClient) -> (&'static str, &'static str) {
-    if client.stat("/disk").is_ok() {
-        ("/disk/hello", "/disk/bench")
-    } else {
-        ("/hello", "/bench")
-    }
-}
-
-/// 经 VFS 写入并读回 ext4 标记文件。
-#[cfg(target_os = "none")]
-fn verify_ext4(endpoint: u64) -> bool {
-    const CONTENT: &[u8] = b"HolyKernel ext4 ok\n";
-    let mut client = VfsClient::new("hk-server-path", endpoint);
-    let (marker, _) = ext4_paths(&mut client);
-    let Ok(handle) = client.open(marker, OPEN_READ | OPEN_WRITE | OPEN_CREATE) else {
-        return false;
-    };
-    if client.write(handle, 0, CONTENT).is_err() {
-        return false;
-    }
-    let _ = client.close(handle);
-    if client.sync().is_err() {
-        return false;
-    }
-
-    let Ok(handle) = client.open(marker, OPEN_READ) else {
-        return false;
-    };
-    let mut buffer = [0_u8; 32];
-    let Ok(length) = client.read(handle, 0, &mut buffer) else {
-        return false;
-    };
-    let _ = client.close(handle);
-    length == CONTENT.len() && buffer[..length] == *CONTENT
-}
-
-/// 请求块驱动退出并确认监督重启后 ext4 仍可读。
-#[cfg(target_os = "none")]
-fn verify_driver_restart(endpoint: u64) -> bool {
-    let old = service_endpoint("hk-server-virtio");
-    if old == 0 {
-        return false;
-    }
-    let before = service_restarts("hk-server-virtio");
-    send(old, BLOCK_SHUTDOWN, 0);
-    let mut restarted = false;
-    // 重启复用同一任务槽位，端点编号不变；用累计重启次数判定。
-    for _ in 0..100_000 {
-        if service_restarts("hk-server-virtio") > before {
-            restarted = true;
-            break;
-        }
-        let _ = yield_now();
-    }
-    if !restarted {
-        return false;
-    }
-
-    let mut client = VfsClient::new("hk-server-path", endpoint);
-    let (marker, _) = ext4_paths(&mut client);
-    for _ in 0..1_000 {
-        if let Ok(handle) = client.open(marker, OPEN_READ) {
-            let mut buffer = [0_u8; 32];
-            if let Ok(length) = client.read(handle, 0, &mut buffer) {
-                let _ = client.close(handle);
-                if buffer[..length] == *b"HolyKernel ext4 ok\n" {
-                    write("fs 重连 ok\n".as_bytes());
-                    return true;
-                }
-            }
-        }
-        let _ = yield_now();
-    }
-    false
-}
-
-/// 写入并顺序读取 1 MiB，返回 0.1 MiB/s 单位。
-#[cfg(target_os = "none")]
-fn benchmark_ext4(endpoint: u64) -> Option<u64> {
-    const CHUNK: usize = 60 * 1024;
-    const CHUNKS: usize = 17;
-    let mut client = VfsClient::new("hk-server-path", endpoint);
-    let (_, path) = ext4_paths(&mut client);
-    let handle = client
-        .open(path, OPEN_READ | OPEN_WRITE | OPEN_CREATE)
-        .ok()?;
-    let chunk = [0x5A_u8; CHUNK];
-    for index in 0..CHUNKS {
-        client
-            .write_buffer(handle, (index * CHUNK) as u64, &chunk)
-            .ok()?;
-    }
-    let _ = client.close(handle);
-    client.sync().ok()?;
-
-    let handle = client.open(path, OPEN_READ).ok()?;
-    let frequency = tsc_frequency();
-    if frequency == 0 {
-        return None;
-    }
-    let start = tsc();
-    let mut total = 0;
-    loop {
-        let length = client.read_buffer(handle, total as u64, CHUNK).ok()?;
-        if length == 0 {
-            break;
-        }
-        total += length;
-    }
-    let elapsed = tsc().saturating_sub(start);
-    let _ = client.close(handle);
-    if total != CHUNK * CHUNKS || elapsed == 0 {
-        return None;
-    }
-    let bytes = total as u128 * u128::from(frequency) / u128::from(elapsed);
-    Some((bytes * 10 / (1024 * 1024)) as u64)
-}
-
-#[cfg(target_os = "none")]
-fn verify_arena() -> bool {
-    let pointer = alloc(4096, 16);
-    if pointer.is_null() {
-        return false;
-    }
-
-    // SAFETY: 内核在任务 Arena 内分配了 4096 字节，地址有效且可写。
-    let buffer = unsafe { core::slice::from_raw_parts_mut(pointer, 4096) };
-    buffer.fill(0xA5);
-    buffer.iter().all(|&byte| byte == 0xA5)
-}
-
-/// 线程入口：校验 TLS、累加共享计数并唤醒等待者。
-#[cfg(target_os = "none")]
-extern "C" fn thread_worker(argument: u64) -> ! {
-    let tls: u64;
-    // SAFETY: 运行库在切到本线程前把 FS 基址设为 `argument`。
-    unsafe {
-        core::arch::asm!("mov {}, fs:[0]", out(reg) tls, options(nostack, preserves_flags));
-    }
-    if tls != argument {
-        write(b"hk-server-demo thread tls fail\n");
-        exit(1)
-    }
-    for _ in 0..1000 {
-        THREAD_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
-    THREAD_WORD.store(1, Ordering::Release);
-    futex_wake(core::ptr::addr_of!(THREAD_WORD) as u64, 1);
-    exit(0)
-}
-
-/// 验证同地址空间线程、TLS 与共享内存等待。
-#[cfg(target_os = "none")]
-fn verify_threads() -> bool {
-    const STACK: usize = 64 * 1024;
-    let stack = alloc(STACK, 16);
-    let tls = alloc(16, 8);
-    if stack.is_null() || tls.is_null() {
-        return false;
-    }
-    // SAFETY: `tls` 是 Arena 内已清零的 8 字节对齐区间。
-    unsafe { (tls as *mut u64).write(tls as u64) };
-    THREAD_COUNT.store(0, Ordering::Relaxed);
-    THREAD_WORD.store(0, Ordering::Relaxed);
-    let thread = thread_create(
-        thread_worker as *const () as u64,
-        stack as u64 + STACK as u64 - 8,
-        tls as u64,
-        tls as u64,
-    );
-    if thread == u64::MAX {
-        return false;
-    }
-    let word = core::ptr::addr_of!(THREAD_WORD) as u64;
-    let _ = futex_wait(word, 0);
-    if thread_join(thread) != 0 {
-        return false;
-    }
-    THREAD_COUNT.load(Ordering::Relaxed) == 1000 && THREAD_WORD.load(Ordering::Relaxed) == 1
-}
-
-/// 验证两个协程在同一线程内交替执行。
-#[cfg(target_os = "none")]
-fn verify_coroutines() -> bool {
-    COROUTINE_TRACE.store(0, Ordering::Relaxed);
-    let Some(mut first) = Coroutine::new(16 * 1024, || {
-        COROUTINE_TRACE.fetch_add(1, Ordering::Relaxed);
-        suspend();
-        COROUTINE_TRACE.fetch_add(100, Ordering::Relaxed);
-    }) else {
-        return false;
-    };
-    let Some(mut second) = Coroutine::new(16 * 1024, || {
-        COROUTINE_TRACE.fetch_add(10, Ordering::Relaxed);
-        suspend();
-        COROUTINE_TRACE.fetch_add(1000, Ordering::Relaxed);
-    }) else {
-        return false;
-    };
-
-    if first.resume() != State::Suspended || second.resume() != State::Suspended {
-        return false;
-    }
-    if COROUTINE_TRACE.load(Ordering::Relaxed) != 11 {
-        return false;
-    }
-    if first.resume() != State::Finished || second.resume() != State::Finished {
-        return false;
-    }
-    COROUTINE_TRACE.load(Ordering::Relaxed) == 1111
-}
-
-/// 线程入口：置位父线程的通知。
-#[cfg(target_os = "none")]
-extern "C" fn async_worker(notification: u64) -> ! {
-    notify(notification, ASYNC_BIT);
-    exit(0)
-}
-
-/// 验证执行器同时等待通知位与 tick。
-#[cfg(target_os = "none")]
-fn verify_async() -> bool {
-    const STACK: usize = 64 * 1024;
-    let stack = alloc(STACK, 16);
-    if stack.is_null() {
-        return false;
-    }
-    let parent = self_notification();
-    let thread = thread_create(
-        async_worker as *const () as u64,
-        stack as u64 + STACK as u64 - 8,
-        parent,
-        0,
-    );
-    if thread == u64::MAX {
-        return false;
-    }
-    let (bits, ()) = block_on(join2(
-        NotificationWait::new(parent, ASYNC_BIT),
-        SleepTicks::new(1),
-    ));
-    let joined = thread_join(thread) == 0;
-    joined && bits & ASYNC_BIT != 0
-}
-
-/// 互斥计数线程入口。
-#[cfg(target_os = "none")]
-extern "C" fn mutex_worker(_: u64) -> ! {
-    for _ in 0..250 {
-        *SYNC_COUNTER.lock() += 1;
-    }
-    exit(0)
-}
-
-/// 条件变量等待线程入口。
-#[cfg(target_os = "none")]
-extern "C" fn condvar_worker(_: u64) -> ! {
-    let mut value = SYNC_VALUE.lock();
-    while *value == 0 {
-        value = SYNC_CONDVAR.wait(value);
-    }
-    *value += 1;
-    drop(value);
-    exit(0)
-}
-
-/// 写锁线程入口。
-#[cfg(target_os = "none")]
-extern "C" fn rw_writer(_: u64) -> ! {
-    *SYNC_RW.write() += 1;
-    exit(0)
-}
-
-/// 读锁线程入口。
-#[cfg(target_os = "none")]
-extern "C" fn rw_reader(_: u64) -> ! {
-    let _ = *SYNC_RW.read();
-    exit(0)
-}
-
-/// 验证互斥锁、条件变量与读写锁。
-#[cfg(target_os = "none")]
-fn verify_sync() -> bool {
-    const STACK: usize = 32 * 1024;
-
-    *SYNC_COUNTER.lock() = 0;
-    for _ in 0..4 {
-        let Some(handle) = hk_thread::spawn_raw(mutex_worker, 0, STACK) else {
-            return false;
-        };
-        if handle.join() != 0 {
-            return false;
-        }
-    }
-    if *SYNC_COUNTER.lock() != 1000 {
-        return false;
-    }
-
-    *SYNC_VALUE.lock() = 0;
-    let Some(waiter) = hk_thread::spawn_raw(condvar_worker, 0, STACK) else {
-        return false;
-    };
-    {
-        let mut value = SYNC_VALUE.lock();
-        *value = 1;
-        SYNC_CONDVAR.notify_one();
-    }
-    if waiter.join() != 0 || *SYNC_VALUE.lock() != 2 {
-        return false;
-    }
-
-    *SYNC_RW.write() = 0;
-    let Some(writer) = hk_thread::spawn_raw(rw_writer, 0, STACK) else {
-        return false;
-    };
-    let Some(reader) = hk_thread::spawn_raw(rw_reader, 0, STACK) else {
-        return false;
-    };
-    if writer.join() != 0 || reader.join() != 0 {
-        return false;
-    }
-    *SYNC_RW.read() == 1
-}
-
-/// HMP 自检：经 Memory Server 申请匿名能力，缺页取零页写入后释放。
-#[cfg(target_os = "none")]
-fn verify_memory(endpoint: u64) -> bool {
-    const PAGE: usize = 4096;
-    let client = MemoryClient::new(endpoint);
-    if !client.available() {
-        return false;
-    }
-    let Some(before) = ledger_info() else {
-        return false;
-    };
-    let Some((capability, region, virt)) = client.map_lazy(PAGE) else {
-        return false;
-    };
-    let Some(arena) = arena_info() else {
-        return false;
-    };
-    if arena.size == 0 || arena.regions == 0 || arena.used < PAGE as u64 {
-        return false;
-    }
-    // SAFETY: 区域已按一页映射进本任务；首次读取触发 Provider 缺页。
-    let zero = unsafe { core::ptr::read_volatile(virt as *const u8) };
-    // SAFETY: 上一条读取已装入该页，写入的是本任务私有页。
-    unsafe { core::ptr::write_volatile(virt as *mut u8, 0xAB) };
-    // SAFETY: 读回刚写入的字节校验映射与内容。
-    let written = unsafe { core::ptr::read_volatile(virt as *const u8) };
-    // Provider 回收这一页；随后再次读取必须换入同一内容。
-    let swapped = capability_swap(capability, 0, PAGE) == PAGE as u64;
-    // SAFETY: 页已换出，读取触发 Provider 换入。
-    let restored = unsafe { core::ptr::read_volatile(virt as *const u8) };
-    let _ = region_unmap(region);
-    let _ = close_handle(capability);
-    let Some(after) = ledger_info() else {
-        return false;
-    };
-    let Some(frame) = client.frame(PAGE) else {
-        return false;
-    };
-    let Some(frame_info) = frame_info(frame) else {
-        return false;
-    };
-    if frame_info.len != PAGE as u64 || frame_info.refs != 1 {
-        return false;
-    }
-    let Some(frame_region) = frame_map(frame, RIGHT_READ | RIGHT_WRITE, 0) else {
-        return false;
-    };
-    let Some((frame_virt, _)) = region_info(frame_region) else {
-        return false;
-    };
-    // SAFETY: Frame 已映射进本任务，按一页读写校验。
-    unsafe {
-        core::ptr::write_volatile(frame_virt as *mut u8, 0xCD);
-        if core::ptr::read_volatile(frame_virt as *const u8) != 0xCD {
-            return false;
-        }
-    }
-    let _ = region_unmap(frame_region);
-    zero == 0 && written == 0xAB && swapped && restored == 0xAB && after.charged == before.charged
-}
-
-/// 验证服务端工作线程池：并发提交、乱序完成与并发峰值。
-#[cfg(target_os = "none")]
-fn verify_worker(endpoint: u64) -> bool {
-    const COUNT: u64 = 4;
-    let echo = service_endpoint("hk-server-echo");
-    let mut buffer = [0_u8; 8];
-    for word in 1..=COUNT {
-        let mut sent = false;
-        for _ in 0..64 {
-            if send(echo, WORK_REQUEST, word) == 0 {
-                sent = true;
-                break;
-            }
-            yield_now();
-        }
-        if !sent {
-            return false;
-        }
-    }
-
-    let mut seen = [false; COUNT as usize + 1];
-    let mut received = 0;
-    while received < COUNT {
-        let (label, word, _sender, _length) = recv_data_try(endpoint, &mut buffer);
-        if label == 0 {
-            yield_now();
-            continue;
-        }
-        if label != WORK_RESPONSE {
-            continue;
-        }
-        if !word.is_multiple_of(2) {
-            return false;
-        }
-        let index = (word / 2) as usize;
-        if index == 0 || index > COUNT as usize || seen[index] {
-            return false;
-        }
-        seen[index] = true;
-        received += 1;
-    }
-
-    let mut sent = false;
-    for _ in 0..64 {
-        if send(echo, WORK_STATS, 0) == 0 {
-            sent = true;
-            break;
-        }
-        yield_now();
-    }
-    if !sent {
-        return false;
-    }
-    let peak = loop {
-        let (label, word, _sender, _length) = recv_data_try(endpoint, &mut buffer);
-        if label == WORK_STATS_RESPONSE {
-            break word;
-        }
-        if label == 0 {
-            yield_now();
-        }
-    };
-
-    write(b"hk-server-demo worker peak ");
-    write_u64(peak);
-    write(b"\n");
-    // Task 级唯一 Grant 下，同一 Task 的线程串行共享 Grant，峰值并发为 1。
-    peak >= 1
 }
 
 hk_server_api::server_boilerplate!();
