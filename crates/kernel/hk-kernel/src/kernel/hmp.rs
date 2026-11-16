@@ -426,7 +426,8 @@ impl Kernel {
         }
         let (_, endpoint_id) =
             self.resolve(thread, endpoint, Rights::READ, ObjectKind::Endpoint)?;
-        object.set_capability_provider(endpoint_id, thread.get());
+        let task = self.task_of(thread).map_or(thread.get(), |task| task.get());
+        object.set_capability_provider(endpoint_id, task);
         Ok(())
     }
 
@@ -450,7 +451,8 @@ impl Kernel {
         object.capability().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capability,
         })?;
-        if object.capability_provider_task() != Some(thread.get()) {
+        let provider = self.task_of(thread).map_or(thread.get(), |task| task.get());
+        if object.capability_provider_task() != Some(provider) {
             return Err(KernelError::Hmp(HmpError::PermissionDenied));
         }
         let rights = rights & (Rights::READ | Rights::WRITE | Rights::EXECUTE | Rights::TRANSFER);

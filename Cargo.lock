@@ -1223,6 +1223,8 @@ dependencies = [
  "hk-server-api",
  "hk-server-build",
  "hk-syscall",
+ "hk-thread",
+ "spin",
 ]
 
 [[package]]

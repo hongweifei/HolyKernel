@@ -2267,6 +2267,14 @@ fn provider_grants_capability_by_id() {
         .bind_capability_provider(owner, capability, endpoint, ProviderKind::Anonymous)
         .expect("绑定 Provider");
     let id = kernel.handle_id(owner, capability).expect("对象标识");
+    let task = kernel.task_of(owner).expect("Provider Task");
+    let sibling = kernel.spawn_thread(task).expect("同 Task 线程");
+    assert!(
+        kernel
+            .grant_capability(sibling, id, Rights::READ | Rights::WRITE)
+            .is_ok(),
+        "同一 Task 的回收线程应能代 Provider 取句柄"
+    );
 
     assert!(
         kernel.grant_capability(other, id, Rights::READ).is_err(),

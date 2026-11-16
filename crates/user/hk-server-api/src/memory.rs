@@ -8,9 +8,9 @@ use hk_syscall::{
     SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT,
     SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP,
     SYS_FRAME_PIN, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MESSAGE_WORDS, SYS_NUMA_INFO, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER,
-    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
-    SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_LEDGER_INFO, SYS_MEMORY_PRESSURE, SYS_MESSAGE_WORDS, SYS_NUMA_INFO, SYS_OBJECT_ENUM,
+    SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT,
+    SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES, MAX_NUMA_NODES, NUMA_NODE_BYTES};
@@ -503,6 +503,33 @@ pub fn arena_info() -> Option<ArenaInfo> {
         used: u64::from_le_bytes(bytes[16..24].try_into().ok()?),
         regions: u64::from_le_bytes(bytes[24..].try_into().ok()?),
     })
+}
+
+/// 查询全局内存压力；返回 `(free, total, oom_threshold_percent)`。
+///
+/// 这是 `SYS_MEMORY_PRESSURE` 的前 3 个 u64；节点明细与审计计数由完整
+/// 快照接口读取。
+pub fn memory_pressure() -> Option<(u64, u64, u64)> {
+    let mut bytes = [0_u8; 9 * 8];
+    // SAFETY: 缓冲区属于本进程；内核写入 9 个统计字。
+    let result = unsafe {
+        syscall_call(
+            SYS_MEMORY_PRESSURE,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+            0,
+            0,
+        )
+        .value
+    };
+    if result < 24 {
+        return None;
+    }
+    Some((
+        u64::from_le_bytes(bytes[0..8].try_into().ok()?),
+        u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        u64::from_le_bytes(bytes[16..24].try_into().ok()?),
+    ))
 }
 
 /// 扩展当前任务的 Arena 分配窗口；返回新窗口大小，失败返回 `u64::MAX`。

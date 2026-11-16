@@ -16,14 +16,18 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
-    capability_create, capacity_alloc, exit, frame_write, handle::Anonymous, handle::Endpoint,
-    handle::Handle, message_words, recv_data, reply, reply_handle, send, send_handle, write,
+    RIGHT_READ, RIGHT_WRITE, capability_create, capability_swap, capacity_alloc, close_handle,
+    exit, frame_write, grant_capability, handle::Anonymous, handle::Endpoint, handle::Handle,
+    handle_id, memory_pressure, message_words, notify, recv_data, reply, reply_handle,
+    self_notification, send, send_handle, wait_notify, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{
     PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
     PROVIDER_RECLAIMED, PROVIDER_RELEASE,
 };
+#[cfg(target_os = "none")]
+use spin::Mutex;
 
 #[cfg(target_os = "none")]
 mod selftest;
@@ -54,6 +58,42 @@ enum Stored {
     Raw(Vec<u8>),
 }
 
+/// Provider 创建过的匿名能力：对象标识与长度，供压力回收线程使用。
+#[cfg(target_os = "none")]
+static TRACKED: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
+
+/// 压力回收线程：低于阈值时按对象标识重新取句柄并逐页请求换出。
+///
+/// 压缩/存储仍由主 Provider 循环完成；这里只决定“何时换出哪些页”。
+#[cfg(target_os = "none")]
+extern "C" fn reclaim_worker(notification: u64) -> ! {
+    loop {
+        let _ = wait_notify(notification, 1);
+        if let Some((free, total, threshold)) = memory_pressure()
+            && total > 0
+            && free.saturating_mul(100) / total <= threshold
+        {
+            let tracked = TRACKED.lock().clone();
+            for (id, size) in tracked {
+                let Some(handle) = grant_capability(id, RIGHT_READ | RIGHT_WRITE) else {
+                    continue;
+                };
+                let pages = size.div_ceil(PAGE);
+                for page in 0..pages {
+                    let _ = capability_swap(handle, (page * PAGE) as u64, PAGE);
+                    if let Some((free, total, threshold)) = memory_pressure()
+                        && total > 0
+                        && free.saturating_mul(100) / total > threshold
+                    {
+                        break;
+                    }
+                }
+                let _ = close_handle(handle);
+            }
+        }
+    }
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -72,10 +112,19 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         .text(b"\n")
         .finish();
     let mut swapped: BTreeMap<(u64, u64), Stored> = BTreeMap::new();
+    // 回收线程只发 swap 请求；主循环负责实际压缩与存储。
+    let notification = self_notification();
+    let _ = hk_thread::spawn_raw(reclaim_worker, notification, 64 * 1024);
     loop {
         // 回收请求可能携带整页内容；其它请求只使用前 10 字节。
         let mut request = [0_u8; PAGE];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
+        if let Some((free, total, threshold)) = memory_pressure()
+            && total > 0
+            && free.saturating_mul(100) / total <= threshold
+        {
+            let _ = notify(notification, 1);
+        }
         if label == MEMORY_FRAME {
             let size = if length >= 8 {
                 u64::from_le_bytes(request[..8].try_into().unwrap_or([0; 8])) as usize
@@ -110,6 +159,9 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                             Handle::<Endpoint>::from_raw(endpoint),
                             PROVIDER_KIND_ANONYMOUS,
                         );
+                        if let Some(id) = handle_id(memory.raw()) {
+                            TRACKED.lock().push((id, size));
+                        }
                         Some(memory.raw())
                     } else {
                         capability_create(kind, size)
@@ -132,6 +184,9 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         if label == PROVIDER_RELEASE {
             if let Some(words) = message_words() {
                 swapped.retain(|(capability, _), _| *capability != words[0]);
+                TRACKED
+                    .lock()
+                    .retain(|(capability, _)| *capability != words[0]);
             }
             continue;
         }
