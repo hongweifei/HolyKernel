@@ -50,11 +50,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .platform
                 .boot_cmdline()
                 .is_some_and(|line| line.contains("swap-test"));
-        let test_oom = self.tasks[index].name == "hk-server-oom-test"
-            && self
-                .platform
-                .boot_cmdline()
-                .is_some_and(|line| line.contains("oom-test"));
+        let test_oom = self
+            .platform
+            .boot_cmdline()
+            .is_some_and(|line| hk_catalog::oom_policy_authority(&self.tasks[index].name, line));
         if self.tasks[index].name != "root" && !test_provider && !test_oom {
             frame.set_result(u64::MAX);
             return Switch::Continue;

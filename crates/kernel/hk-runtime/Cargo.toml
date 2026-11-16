@@ -10,6 +10,7 @@ repository.workspace = true
 hk-device.workspace = true
 hk-base.workspace = true
 hk-cadence.workspace = true
+hk-catalog.workspace = true
 hk-checkpoint.workspace = true
 hk-handle.workspace = true
 hk-hal.workspace = true

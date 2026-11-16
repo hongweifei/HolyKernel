@@ -113,7 +113,7 @@ where
 
     fn extension(&mut self, name: &str, args: &str) -> Option<String> {
         match name {
-            "net" => Some(self.client_status("hk-server-netstat")),
+            "net" => Some(self.client_status(hk_catalog::NETSTAT_CLIENT)),
             "replace" => Some(self.replace(args)),
             "checkpoint" => Some(self.checkpoint(args)),
             "restore-checkpoint" => Some(self.restore_checkpoint(args)),

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 hk-hal.workspace = true
+hk-catalog.workspace = true
 hk-root-server.workspace = true
 hk-shell.workspace = true
 

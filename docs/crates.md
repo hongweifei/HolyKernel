@@ -119,6 +119,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
 | 共享页软件标记（`PAGE_FLAG_SHARED`） | `crates/shared/hk-base/src/mapping.rs`；不是硬件 PTE 位，快照格式与平台页表编码共用，平台不依赖快照 crate |
 | 镜像服务清单、启动白名单、桌面排序、重启策略与测试模式 | `crates/shared/hk-catalog/src/lib.rs`（`SERVICES` 与 `BOOT_MODES`） |
+| 服务级策略：OOM 豁免、GPU 容量、OOM 自检权限与 netstat 绑定 | `crates/shared/hk-catalog/src/lib.rs`（`oom_exempt`、`GPU_CAPACITY_*`、`oom_policy_authority`、`NETSTAT_CLIENT`） |
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 依赖版本与路径 | 根 `Cargo.toml` 的 `[workspace.dependencies]`；成员用 `workspace = true` 继承，`hk-font` 的特性开关在 `hk-canvas` |
 | 默认启动与 opt-in 服务选择 | `crates/kernel/hk-root-server/src/loader.rs` 与各平台 loader 读取 `hk-catalog` |

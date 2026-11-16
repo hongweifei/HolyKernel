@@ -831,6 +831,7 @@ dependencies = [
 name = "hk-kernel-shell"
 version = "0.1.0"
 dependencies = [
+ "hk-catalog",
  "hk-hal",
  "hk-root-server",
  "hk-shell",
@@ -939,6 +940,7 @@ version = "0.1.0"
 dependencies = [
  "hk-base",
  "hk-cadence",
+ "hk-catalog",
  "hk-checkpoint",
  "hk-device",
  "hk-hal",

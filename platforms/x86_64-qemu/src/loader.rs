@@ -89,8 +89,11 @@ pub fn run(
                 ServiceSpec::new(name)
             };
             let mut spec = spec.with_cadence(hk_catalog::default_cadence(name));
-            if matches!(*name, "hk-server-gpu-provider" | "hk-server-gpu-test") {
-                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Gpu, 1024 * 1024);
+            if hk_catalog::GPU_CAPACITY_SERVICES.contains(name) {
+                spec = spec.with_capacity(
+                    hk_mem::hmp::CapacityKind::Gpu,
+                    hk_catalog::GPU_CAPACITY_BYTES,
+                );
             }
             if hk_catalog::policy_authority(name) {
                 spec = spec.with_policy_authority();

@@ -158,12 +158,7 @@ impl OomState {
 
     /// 判断任务是否豁免 OOM。
     pub fn exempt(name: &str) -> bool {
-        name == "root"
-            || name.starts_with("hk-server-memory")
-            || name == "hk-server-oom-observer"
-            || name.starts_with("hk-server-debug")
-            || name.starts_with("hk-server-checkpoint")
-            || name.starts_with("hk-server-taskman")
+        hk_catalog::oom_exempt(name)
     }
 }
 

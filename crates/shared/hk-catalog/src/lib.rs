@@ -321,6 +321,30 @@ pub fn policy_authority(name: &str) -> bool {
     name == "hk-server-tempo"
 }
 
+/// OOM 选择时豁免的服务：内存、调试、检查点、任务管理器与观察端。
+pub fn oom_exempt(name: &str) -> bool {
+    name == "root"
+        || name.starts_with("hk-server-memory")
+        || name == "hk-server-oom-observer"
+        || name.starts_with("hk-server-debug")
+        || name.starts_with("hk-server-checkpoint")
+        || name.starts_with("hk-server-taskman")
+}
+
+/// 需要独立 Gpu Capacity 的服务。
+pub const GPU_CAPACITY_SERVICES: &[&str] = &["hk-server-gpu-provider", "hk-server-gpu-test"];
+
+/// 每个 Gpu 服务取得的 Capacity 字节数。
+pub const GPU_CAPACITY_BYTES: usize = 1024 * 1024;
+
+/// 判断服务能否在自检标记下修改 OOM 策略。
+pub fn oom_policy_authority(name: &str, cmdline: &str) -> bool {
+    name == "hk-server-oom-test" && cmdline.contains("oom-test")
+}
+
+/// 内核态 shell 的 `net` 命令查询的状态客户端。
+pub const NETSTAT_CLIENT: &str = "hk-server-netstat";
+
 /// 启动模式：cmdline 命中全部 token 时，只装载 `services` 中的镜像。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BootMode {
@@ -701,6 +725,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn policy_lists_reference_registered_services() {
+        for name in GPU_CAPACITY_SERVICES {
+            assert!(service(name).is_some(), "GPU 容量服务未登记：{name}");
+        }
+        assert!(service(NETSTAT_CLIENT).is_some());
+        assert!(service("hk-server-oom-test").is_some());
+        assert!(oom_exempt("root"));
+        assert!(oom_exempt("hk-server-memory"));
+        assert!(oom_exempt("hk-server-oom-observer"));
+        assert!(!oom_exempt("hk-server-console-test"));
+        assert!(oom_policy_authority("hk-server-oom-test", "oom-test"));
+        assert!(!oom_policy_authority("hk-server-oom-test", "swap-test"));
     }
 
     #[test]
