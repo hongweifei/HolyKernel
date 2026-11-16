@@ -2245,6 +2245,12 @@ fn numa_migrate_moves_resident_page() {
     let mut readback = [0_u8; hk_hal::PAGE_SIZE];
     assert!(runtime.platform.read_phys(new.start(), &mut readback));
     assert_eq!(readback, page);
+    assert!(
+        runtime
+            .oom
+            .events()
+            .any(|event| event.kind == crate::runtime::oom::MEMORY_EVENT_MIGRATE)
+    );
     let _ = runtime.finish(0, index);
 }
 

@@ -117,6 +117,8 @@ services![
     ("hk-server-oom-test", false, 9, THROUGHPUT),
     ("hk-server-oom-observer", false, 9, THROUGHPUT),
     ("hk-server-numa-test", false, 9, THROUGHPUT),
+    ("hk-server-gpu-provider", false, 9, THROUGHPUT),
+    ("hk-server-gpu-test", false, 10, THROUGHPUT),
     ("hk-server-tempo-test", false, 9, THROUGHPUT),
     ("hk-server-realtime", false, 9, THROUGHPUT),
     ("hk-server-wakeup", false, 9, THROUGHPUT),

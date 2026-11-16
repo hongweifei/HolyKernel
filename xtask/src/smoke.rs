@@ -199,6 +199,9 @@ pub enum SmokeMode {
     /// 页从节点 0 迁移到节点 1
     #[value(name = "numa-migrate")]
     NumaMigrate,
+    /// Gpu DeviceAllocation 与 Provider 驻留
+    #[value(name = "gpualloc")]
+    GpuAlloc,
 }
 
 impl SmokeMode {
@@ -283,6 +286,7 @@ impl SmokeMode {
             Self::Oom => Some(String::from("oom-test")),
             Self::Numa => None,
             Self::NumaMigrate => Some(String::from("numa-test")),
+            Self::GpuAlloc => Some(String::from("gpu-alloc-test")),
         }
     }
 
@@ -672,10 +676,17 @@ impl SmokeMode {
             Self::Oom => &[
                 "hk-server-oom-test: triggering",
                 "hk-server-oom-observer: victim ",
+                "hk-server-oom-observer: events ",
                 "hk-server-oom-observer: ok",
             ],
             Self::Numa => Self::Boot.expected(),
             Self::NumaMigrate => &["hk-server-numa-test: migrated ", "hk-server-numa-test: ok"],
+            Self::GpuAlloc => &[
+                "hk-server-gpu-provider: ready",
+                "hk-server-gpu-test: provider page ok",
+                "hk-server-gpu-test: gpu bytes ",
+                "hk-server-gpu-test: ok",
+            ],
         }
     }
 
@@ -724,6 +735,7 @@ impl SmokeMode {
             | Self::DisplayRestart
             | Self::Numa
             | Self::NumaMigrate
+            | Self::GpuAlloc
             | Self::Swap
             | Self::Heap
             | Self::Oom => QEMU_SUCCESS,
@@ -785,6 +797,7 @@ impl SmokeMode {
             Self::Oom => "build/serial-oom.log",
             Self::Numa => "build/serial-numa.log",
             Self::NumaMigrate => "build/serial-numa-migrate.log",
+            Self::GpuAlloc => "build/serial-gpualloc.log",
         }
     }
 

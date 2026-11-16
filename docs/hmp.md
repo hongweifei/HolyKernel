@@ -147,12 +147,12 @@ Capacity 是物理容量的授予单位。
   SLIT 提供节点距离矩阵：未显式指定节点时按当前 CPU 邻近域本地优先，失败按
   距离回退；`SYS_NUMA_MIGRATE` 可把能力的一段常驻页显式迁移到目标节点，迁移
   保留 Task Ledger，并解除全部进程的旧 PTE，下一次缺页按新 Frame 重建。
-- `Gpu` 是 Capacity 用途；显存后备由 `DeviceAllocation` 承载，`SYS_CAPABILITY_CREATE` 使用系统内存后备，GPU Provider 负责驻留策略。
+- `Gpu` 是 Capacity 用途；`DeviceAllocation` 从服务的分配 Capacity 取得后备，Gpu 服务由 Root 授予独立的 Gpu 子容量。懒 `DeviceAllocation` 由 Provider 在缺页时提供驻留 Frame，Provider 决定驻留、驱逐与 pin。
 - 声明页大小与 order；4 KiB 为起始档位，16 KiB、64 KiB、2 MiB、1 GiB 由 Capacity 拓扑与 Frame order 表达。`SYS_CAPACITY_SPLIT` 的 `page_size` 参数在切分时指定页大小（0 继承父容量）；子容量窗口只保证 4 KiB 对齐，Frame 分配按声明的页大小对齐；窗口碎片导致的连续段不足按容量失败处理。
 - 声明配额与可回收属性；物理用量由 Capacity/FrameBank 报告。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Task Ledger 是任务配额的唯一硬账；Capacity/FrameBank 是物理边界；Arena/Region/Capability/Frame 的 Ledger 快照只报告利用率。
-- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，驱动取得 Dma/Gpu Capacity，内核持有 System Capacity。
+- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，Gpu 服务取得从顶层 Gpu Capacity 切出的子容量，内核持有 System Capacity。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
 报告口径：
@@ -234,8 +234,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 缓存属性（`hk_hal::CachePolicy`）在创建能力时按物理内存种类确定并记入能力与
   Region，映射时直接取用：寄存器窗口 `Uncached`、系统内存扫描输出 `WriteBack`、
   显存扫描输出 `WriteCombining`；用户可请求的映射标志里没有缓存位。
-- `SYS_CAPABILITY_CREATE` 建的 DeviceAllocation 是系统内存后备（DMA 缓冲、显存
-  后备），默认 `WriteBack`；MMIO 寄存器窗口只经设备映射路径建立，显式 `Uncached`。
+- `SYS_CAPABILITY_CREATE` 建的 DeviceAllocation 从服务的分配 Capacity 取得内存，默认 `WriteBack`；MMIO 寄存器窗口只经设备映射路径建立，显式 `Uncached`。
   显存与 DMA 共用 `DeviceAllocation`，由 `CapacityKind::Gpu` 与 Provider residency 区分。
 
 ### Anonymous
@@ -410,6 +409,7 @@ flowchart LR
   - `SYS_MEMORY_PRESSURE`：free/total/阈值、OOM 次数、终止次数、回收/换出/迁移字节与各节点空闲；
   - `SYS_OOM_POLICY`：Root 设置阈值与动作（0 只回收、1 允许终止）；
   - `SYS_OOM_EVENT`：最近一次 victim、回收量与终止结果；
+  - `SYS_MEMORY_EVENTS`：64 条环形事件，覆盖回收、Provider 换出、OOM 与 NUMA 迁移；每条 56 字节，按序号、类别、对象、偏移、长度、任务槽位、附加值排列；
   - `SYS_RECLAIM`：主动回收当前任务可证明为零的匿名页；
   - 同一 Task 的 Provider 回收线程可在压力下按对象标识取回句柄并调用 `SYS_CAPABILITY_SWAP`。
 

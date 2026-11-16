@@ -75,7 +75,7 @@ pub struct UserTask<C> {
     pub pending: Pending,
     /// 最近一次收到的调用令牌。
     pub reply: Option<ReplyToken>,
-    /// 最近一次接收消息的 8 个字；Provider 通过 [`crate::runtime::SYS_MESSAGE_WORDS`] 读取。
+    /// 最近一次接收消息的 8 个字；Provider 通过 `hk_syscall::SYS_MESSAGE_WORDS` 读取。
     pub last_words: [u64; hk_ipc::MAX_MESSAGE_WORDS],
     /// 是否已退出。
     pub exited: bool,

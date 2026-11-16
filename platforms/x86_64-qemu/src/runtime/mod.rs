@@ -228,8 +228,18 @@ impl UserPlatform for X86Platform {
         len: usize,
         kind: hk_mem::hmp::CapacityKind,
     ) -> Option<hk_mem::hmp::Capacity> {
-        // 授予用容量从覆盖全部可用内存的 System Capacity 切出；DMA 池只是它
-        // 旁边一个已预留的窗口，不再作为其它容量的来源。
+        // Gpu 授予来自启动期预留的 Gpu Capacity；其余授予从 System 切出。
+        if kind == hk_mem::hmp::CapacityKind::Gpu {
+            let gpu = hk_platform_x86_64::system::gpu_capacity()?;
+            let limit = len as u64 / hk_hal::PAGE_SIZE as u64 * hk_hal::PAGE_SIZE as u64;
+            if limit == 0 {
+                return None;
+            }
+            return gpu
+                .lock()
+                .split_free(hk_mem::hmp::CapacityId::next(), kind, limit)
+                .ok();
+        }
         hk_platform_x86_64::system::split_capacity(len, kind)
     }
 

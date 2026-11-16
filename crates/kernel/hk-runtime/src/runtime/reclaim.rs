@@ -98,6 +98,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     );
                 }
                 self.release_page_charges(index, object, page_index);
+                self.oom.record_event(
+                    super::oom::MEMORY_EVENT_RECLAIM,
+                    object.get(),
+                    page_index as u64 * page,
+                    page,
+                    owner as u64,
+                    0,
+                );
                 released = released.saturating_add(page);
             }
         }
@@ -143,6 +151,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         drop(lease);
         self.release_page_charges(index, object, page_index);
+        self.oom.record_event(
+            super::oom::MEMORY_EVENT_SWAP,
+            object.get(),
+            page_index as u64 * PAGE_SIZE as u64,
+            PAGE_SIZE as u64,
+            index as u64,
+            0,
+        );
         self.oom.swapped = self.oom.swapped.saturating_add(PAGE_SIZE as u64);
         PAGE_SIZE as u64
     }

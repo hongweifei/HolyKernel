@@ -8,10 +8,10 @@ use hk_syscall::{
     SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT,
     SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP,
     SYS_FRAME_PIN, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MEMORY_PRESSURE, SYS_MESSAGE_WORDS, SYS_NUMA_INFO, SYS_NUMA_MIGRATE,
-    SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_OOM_EVENT, SYS_OOM_POLICY, SYS_REGION_GROW,
-    SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
-    SYS_SYSTEM_ARENA_REGIONS,
+    SYS_LEDGER_INFO, SYS_MEMORY_EVENTS, SYS_MEMORY_PRESSURE, SYS_MESSAGE_WORDS, SYS_NUMA_INFO,
+    SYS_NUMA_MIGRATE, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_OOM_EVENT, SYS_OOM_POLICY,
+    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
+    SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES, MAX_NUMA_NODES, NUMA_NODE_BYTES};
@@ -287,6 +287,27 @@ pub fn capacity_alloc_on(capacity: u64, length: usize, node: Option<u8>) -> Opti
     // SAFETY: 内核校验 Capacity、长度与节点后分配 Frame。
     let frame = unsafe { syscall_call(SYS_CAPACITY_ALLOC, capacity, length as u64, hint, 0).value };
     (frame != u64::MAX).then_some(frame)
+}
+
+/// 返回内存审计事件数。
+pub fn memory_event_count() -> usize {
+    // SAFETY: 长度为 0 只查询计数。
+    unsafe { syscall_call(SYS_MEMORY_EVENTS, 0, 0, 0, 0).value as usize }
+}
+
+/// 读取内存审计事件；返回写入字节数。
+pub fn memory_events(buffer: &mut [u8]) -> usize {
+    // SAFETY: 缓冲区可写；内核按长度写入。
+    unsafe {
+        syscall_call(
+            SYS_MEMORY_EVENTS,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+            0,
+        )
+        .value as usize
+    }
 }
 
 /// 把能力的一段常驻页迁移到目标 NUMA 节点；返回迁移字节数。

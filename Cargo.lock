@@ -1169,6 +1169,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-gpu-provider"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
+name = "hk-server-gpu-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
 name = "hk-server-holydoc"
 version = "0.1.0"
 dependencies = [

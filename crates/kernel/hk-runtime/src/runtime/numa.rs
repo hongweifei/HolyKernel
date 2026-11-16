@@ -112,6 +112,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             }
             drop(backing);
+            self.oom.record_event(
+                super::oom::MEMORY_EVENT_MIGRATE,
+                object.get(),
+                page_index as u64 * page,
+                page,
+                index as u64,
+                u64::from(node),
+            );
             migrated = migrated.saturating_add(page);
             page_index += 1;
         }

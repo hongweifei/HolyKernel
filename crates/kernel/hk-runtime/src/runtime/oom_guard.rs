@@ -75,6 +75,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             reclaimed,
             killed,
         });
+        self.oom
+            .record_event(oom::MEMORY_EVENT_OOM, 0, 0, reclaimed, slot as u64, after);
         // 当前任务被终止后不能再重试；其他 victim 终止后允许一次重试。
         killed && slot != index
     }

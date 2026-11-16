@@ -77,6 +77,19 @@ pub fn run(
             }
         }
     }
+    let gpu_alloc_test =
+        hk_boot::limine::cmdline().is_some_and(|line| line.contains("gpu-alloc-test"));
+    if gpu_alloc_test {
+        for name in ["hk-server-gpu-provider", "hk-server-gpu-test"] {
+            if let Some(module) = info
+                .server_modules
+                .iter()
+                .find(|module| loader::service_name(module.name) == name)
+            {
+                modules.push(module);
+            }
+        }
+    }
     let numa_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("numa-test"));
     if numa_test
         && let Some(module) = info
@@ -298,6 +311,9 @@ pub fn run(
         if oom_test {
             return matches!(name, "hk-server-oom-test" | "hk-server-oom-observer");
         }
+        if gpu_alloc_test {
+            return matches!(name, "hk-server-gpu-provider" | "hk-server-gpu-test");
+        }
         if numa_test {
             return matches!(name, "hk-server-memory" | "hk-server-numa-test");
         }
@@ -427,6 +443,9 @@ pub fn run(
                 ServiceSpec::new(name)
             };
             let mut spec = spec.with_cadence(hk_catalog::default_cadence(name));
+            if matches!(*name, "hk-server-gpu-provider" | "hk-server-gpu-test") {
+                spec = spec.with_capacity(hk_mem::hmp::CapacityKind::Gpu, 1024 * 1024);
+            }
             if hk_catalog::policy_authority(name) {
                 spec = spec.with_policy_authority();
             }

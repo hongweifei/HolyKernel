@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, oom_event, sleep_ticks, write};
+use hk_server_api::{exit, memory_event_count, oom_event, sleep_ticks, write};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -21,6 +21,11 @@ pub extern "C" fn _start(_endpoint: u64, _capacity: u64) -> ! {
                 write(b"hk-server-oom-observer: victim ");
                 write(&buffer[40..name_end]);
                 write(b"\n");
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-oom-observer: events ")
+                    .number(memory_event_count() as u64)
+                    .text(b"\n")
+                    .finish();
                 write(b"hk-server-oom-observer: ok\n");
                 exit(0)
             }

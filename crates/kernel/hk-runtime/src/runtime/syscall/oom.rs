@@ -104,6 +104,39 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn memory_events_query(&mut self, frame: &mut C) -> Switch {
+        let out = frame.arg0();
+        let capacity = frame.arg1() as usize;
+        let count = self.oom.memory_event_count;
+        if capacity == 0 {
+            frame.set_result(count as u64);
+            return Switch::Continue;
+        }
+        let records = (capacity / hk_syscall::MEMORY_EVENT_BYTES).min(count);
+        let mut bytes = alloc::vec![0_u8; records * hk_syscall::MEMORY_EVENT_BYTES];
+        for (index, event) in self.oom.events().take(records).enumerate() {
+            let values = [
+                event.sequence,
+                u64::from(event.kind),
+                event.object,
+                event.offset,
+                event.length,
+                event.task,
+                event.value,
+            ];
+            for (position, value) in values.iter().enumerate() {
+                let start = index * hk_syscall::MEMORY_EVENT_BYTES + position * 8;
+                bytes[start..start + 8].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        frame.set_result(if self.platform.write_user(out, &bytes) {
+            bytes.len() as u64
+        } else {
+            u64::MAX
+        });
+        Switch::Continue
+    }
+
     pub(crate) fn reclaim(&mut self, index: usize, frame: &mut C) -> Switch {
         let budget = frame.arg0().max(hk_hal::PAGE_SIZE as u64);
         let released = self.reclaim_current(index, budget);

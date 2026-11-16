@@ -298,6 +298,13 @@ pub const SYS_CAPABILITY_SWAP: u64 = 0xAC;
 pub const SYS_NUMA_MIGRATE: u64 = 0xAD;
 /// 扩展当前任务 Arena 的地址窗口；`arg0` 为新增页对齐字节数。
 pub const SYS_ARENA_GROW: u64 = 0xAE;
+/// 读取内存审计事件环。
+///
+/// `arg0` 输出缓冲、`arg1` 长度；`arg1 == 0` 时返回事件数。每条记录 56 字节：
+/// 序号、类别、对象、偏移、长度、任务槽位、附加值，均为小端 `u64`。
+pub const SYS_MEMORY_EVENTS: u64 = 0xAF;
+/// `SYS_MEMORY_EVENTS` 单条记录长度。
+pub const MEMORY_EVENT_BYTES: usize = 56;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -573,7 +580,7 @@ pub const PROVIDER_WRITEBACK: u64 = 0x1203;
 /// Provider 拒绝请求或报告失败的标签。
 pub const PROVIDER_ERROR: u64 = 0x1204;
 
-/// 内核通知 Provider：能力对象已释放；words[0] 为能力对象标识。
+/// 内核通知 Provider：能力对象已释放；`words[0]` 为能力对象标识。
 pub const PROVIDER_RELEASE: u64 = 0x1205;
 
 /// 内核把一页内容交给 Provider 保存/压缩，等待回收确认。
@@ -814,6 +821,7 @@ mod tests {
             SYS_CAPABILITY_SWAP,
             SYS_NUMA_MIGRATE,
             SYS_ARENA_GROW,
+            SYS_MEMORY_EVENTS,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

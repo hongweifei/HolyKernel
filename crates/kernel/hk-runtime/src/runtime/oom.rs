@@ -37,8 +37,39 @@ pub struct OomEvent {
     pub killed: bool,
 }
 
+/// 事件类别：回收。
+pub const MEMORY_EVENT_RECLAIM: u8 = 0;
+/// 事件类别：Provider 换出。
+pub const MEMORY_EVENT_SWAP: u8 = 1;
+/// 事件类别：OOM。
+pub const MEMORY_EVENT_OOM: u8 = 2;
+/// 事件类别：NUMA 迁移。
+pub const MEMORY_EVENT_MIGRATE: u8 = 3;
+
+/// 事件环容量。
+pub const MEMORY_EVENT_CAPACITY: usize = 64;
+
+/// 一条内存审计事件。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MemoryEvent {
+    /// 全局递增序号。
+    pub sequence: u64,
+    /// `MEMORY_EVENT_*`。
+    pub kind: u8,
+    /// 能力对象标识。
+    pub object: u64,
+    /// 页在能力内的字节偏移。
+    pub offset: u64,
+    /// 事件字节数。
+    pub length: u64,
+    /// 任务槽位。
+    pub task: u64,
+    /// 目标节点、空闲百分比或结果。
+    pub value: u64,
+}
+
 /// OOM 状态。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct OomState {
     /// 当前策略。
     pub policy: OomPolicy,
@@ -56,6 +87,20 @@ pub struct OomState {
     pub swapped: u64,
     /// 累计跨节点迁移字节数。
     pub migrated: u64,
+    /// 事件环。
+    pub memory_events: [MemoryEvent; MEMORY_EVENT_CAPACITY],
+    /// 下一个写入位置。
+    pub memory_event_next: usize,
+    /// 下一个事件序号。
+    pub memory_event_sequence: u64,
+    /// 已记录事件数。
+    pub memory_event_count: usize,
+}
+
+impl Default for OomState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OomState {
@@ -70,7 +115,45 @@ impl OomState {
             reclaims: 0,
             swapped: 0,
             migrated: 0,
+            memory_events: [MemoryEvent::default(); MEMORY_EVENT_CAPACITY],
+            memory_event_next: 0,
+            memory_event_sequence: 1,
+            memory_event_count: 0,
         }
+    }
+
+    /// 记录一条内存审计事件；环形覆盖最旧记录。
+    pub fn record_event(
+        &mut self,
+        kind: u8,
+        object: u64,
+        offset: u64,
+        length: u64,
+        task: u64,
+        value: u64,
+    ) {
+        let sequence = self.memory_event_sequence.max(1);
+        self.memory_event_sequence = sequence.saturating_add(1);
+        self.memory_events[self.memory_event_next] = MemoryEvent {
+            sequence,
+            kind,
+            object,
+            offset,
+            length,
+            task,
+            value,
+        };
+        self.memory_event_next = (self.memory_event_next + 1) % MEMORY_EVENT_CAPACITY;
+        self.memory_event_count = (self.memory_event_count + 1).min(MEMORY_EVENT_CAPACITY);
+    }
+
+    /// 按时间顺序返回事件，最旧的在前。
+    pub fn events(&self) -> impl Iterator<Item = &MemoryEvent> {
+        let start = self.memory_event_next;
+        (0..MEMORY_EVENT_CAPACITY).filter_map(move |offset| {
+            let event = &self.memory_events[(start + offset) % MEMORY_EVENT_CAPACITY];
+            (event.sequence != 0).then_some(event)
+        })
     }
 
     /// 判断任务是否豁免 OOM。
@@ -87,6 +170,19 @@ impl OomState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_event_ring_keeps_newest_in_order() {
+        let mut state = OomState::new();
+        for index in 0..(MEMORY_EVENT_CAPACITY + 4) {
+            state.record_event(MEMORY_EVENT_RECLAIM, index as u64, 0, 4096, 1, 0);
+        }
+        assert_eq!(state.memory_event_count, MEMORY_EVENT_CAPACITY);
+        let sequences: alloc::vec::Vec<_> = state.events().map(|event| event.sequence).collect();
+        assert_eq!(sequences.len(), MEMORY_EVENT_CAPACITY);
+        assert_eq!(sequences.first(), Some(&5));
+        assert_eq!(sequences.last(), Some(&(MEMORY_EVENT_CAPACITY as u64 + 4)));
+    }
 
     #[test]
     fn default_policy_is_conservative_but_enforcing() {

@@ -77,8 +77,8 @@ impl PageFlags {
     pub const MMIO: Self = Self(PRESENT | WRITABLE | NX | PAT_BITS[CachePolicy::Uncached as usize]);
     /// 用户设备页，缓存属性按 [`CachePolicy`] 选 PAT 索引。
     ///
-    /// 索引由 [`cache_index`] 与 `cpu::assembly::enable_pat` 共用，位组合由
-    /// [`index_bits`] 从索引推出，两边不会各写一份。扫描输出用
+    /// 索引由 `cache_index` 与 `cpu::assembly::enable_pat` 共用，位组合由
+    /// `index_bits` 从索引推出，两边不会各写一份。扫描输出用
     /// [`CachePolicy::WriteBack`]：非缓存映射下每个 4 字节写都是独立设备访问，
     /// 1280×800 整屏提交在 QEMU 中要 250 ms，写回只要 0.15 ms。
     pub const fn device(policy: CachePolicy) -> Self {
