@@ -349,7 +349,10 @@ mod tests {
     }
 
     /// 宿主测试并行运行；首个测试建立 Arena，其余复用。
+    static ESTABLISH_LOCK: Mutex<()> = Mutex::new(());
+
     fn ensure_established() {
+        let _guard = ESTABLISH_LOCK.lock();
         if !is_established() {
             assert!(establish());
         }
