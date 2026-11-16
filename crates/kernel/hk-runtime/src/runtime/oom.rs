@@ -77,6 +77,7 @@ impl OomState {
     pub fn exempt(name: &str) -> bool {
         name == "root"
             || name.starts_with("hk-server-memory")
+            || name == "hk-server-oom-observer"
             || name.starts_with("hk-server-debug")
             || name.starts_with("hk-server-checkpoint")
             || name.starts_with("hk-server-taskman")

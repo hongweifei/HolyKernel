@@ -187,6 +187,12 @@ pub enum SmokeMode {
     /// Provider 压力自动换出/换入
     #[value(name = "swap")]
     Swap,
+    /// 内核堆超过启动期 16 MiB 后按需增长
+    #[value(name = "heap")]
+    Heap,
+    /// OOM 阈值、victim 选择与审计
+    #[value(name = "oom")]
+    Oom,
     /// 多 NUMA 节点拓扑与节点容量分配
     #[value(name = "numa")]
     Numa,
@@ -270,6 +276,8 @@ impl SmokeMode {
             Self::CheckpointServer => Some(String::from("vfs.fs=holyfs checkpoint-srv-test")),
             Self::Memory => Some(String::from("memory-test")),
             Self::Swap => Some(String::from("swap-test")),
+            Self::Heap => Some(String::from("shell-test heap-test")),
+            Self::Oom => Some(String::from("oom-test")),
             Self::Numa => None,
         }
     }
@@ -656,6 +664,12 @@ impl SmokeMode {
                 "hk-server-swap-test: verified ",
                 "hk-server-swap-test: ok",
             ],
+            Self::Heap => &["内核堆测试：24 MiB ok"],
+            Self::Oom => &[
+                "hk-server-oom-test: triggering",
+                "hk-server-oom-observer: victim ",
+                "hk-server-oom-observer: ok",
+            ],
             Self::Numa => Self::Boot.expected(),
         }
     }
@@ -704,7 +718,9 @@ impl SmokeMode {
             | Self::CheckpointServer
             | Self::DisplayRestart
             | Self::Numa
-            | Self::Swap => QEMU_SUCCESS,
+            | Self::Swap
+            | Self::Heap
+            | Self::Oom => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Memory => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -759,6 +775,8 @@ impl SmokeMode {
             Self::CheckpointServer => "build/serial-checkpointsrv.log",
             Self::Memory => "build/serial-memory.log",
             Self::Swap => "build/serial-swap.log",
+            Self::Heap => "build/serial-heap.log",
+            Self::Oom => "build/serial-oom.log",
             Self::Numa => "build/serial-numa.log",
         }
     }

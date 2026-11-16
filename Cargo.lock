@@ -1277,6 +1277,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-server-oom-observer"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
+name = "hk-server-oom-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+]
+
+[[package]]
 name = "hk-server-path"
 version = "0.1.0"
 dependencies = [

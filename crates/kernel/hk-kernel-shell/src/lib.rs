@@ -120,13 +120,14 @@ where
             "cadence" => Some(self.runtime.cadence_text(args.trim())),
             "meter" => Some(self.runtime.meter_text(args.trim())),
             "tempo" => Some(self.runtime.tempo_text()),
+            "heap-test" => Some(Self::heap_test()),
             _ => None,
         }
     }
 
     fn help_extra(&self) -> String {
         String::from(
-            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、cadence <任务>、meter <任务>、tempo\n",
+            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、cadence <任务>、meter <任务>、tempo、heap-test\n",
         )
     }
 
@@ -156,6 +157,21 @@ where
     L: ServiceLoader<C> + ScriptSource,
     S: Scheduling,
 {
+    /// 分配超过启动期 16 MiB 主堆的缓冲区，验证 chunk 增长与归还。
+    fn heap_test() -> String {
+        const BYTES: usize = 24 * 1024 * 1024;
+        let mut buffer = alloc::vec![0_u8; BYTES];
+        buffer[0] = 0x5A;
+        buffer[BYTES - 1] = 0xA5;
+        let ok = buffer[0] == 0x5A && buffer[BYTES - 1] == 0xA5;
+        drop(buffer);
+        if ok {
+            String::from("内核堆测试：24 MiB ok\n")
+        } else {
+            String::from("内核堆测试：内容校验失败\n")
+        }
+    }
+
     /// 用另一镜像热替换服务。
     fn replace(&mut self, arguments: &str) -> String {
         let mut parts = arguments.split_whitespace();
