@@ -15,8 +15,8 @@ HolyKernel/
 ├── crates/
 │   ├── shared/            共享契约
 │   │   ├── hk-base（地址、架构、启动信息、时间、用户布局）
-│   │   ├── hk-catalog（服务清单、启动白名单、桌面排序）
-│   │   ├── hk-cadence（规划：Cadence/Meter、调度类别、虚拟时间数学）
+│   │   ├── hk-catalog（服务清单、启动白名单、桌面排序、重启策略与测试模式）
+│   │   ├── hk-cadence（Cadence/Meter、调度类别、虚拟时间数学）
 │   │   ├── hk-syscall hk-status hk-device hk-mmio hk-image hk-checkpoint
 │   │   ├── hk-fw（ACPI/DTB/IOMMU 固件描述）
 │   │   └── hk-shell（零依赖） hk-font（位图给内核、可缩放给用户态） hk-symbols

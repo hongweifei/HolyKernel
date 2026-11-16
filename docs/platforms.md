@@ -22,9 +22,9 @@
 - **固件描述**：共享层 `hk-fw` 把 ACPI 与 DTB 收敛为同一套固件/设备描述；外部固件库只在此 crate 内出现。
 - **通用分页**：`hk-paging` 承载用户页表、内核高半区继承与帧引用计数 COW；平台只选择页表后端。
 - **BootInfo**：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务器载荷。
-- **引导后端**：`hk-boot` 定义契约，`hk-boot-limine` 与 `hk-boot-uefi` 是实现后端。
-- **platform crate**：`hk-platform-hosted`、`hk-platform-x86_64`、`hk-platform-aarch64`、`hk-platform-riscv64`。
-- **启动目录**：`platforms/{x86_64,aarch64,riscv64}-qemu` 与 `platforms/hosted`。
+- **引导后端**：`hk-boot` 定义 `BootBackend` 契约，Limine 与 DTB 适配在 crate 内实现；UEFI 后端为设计中。
+- **platform crate**：已实现 `hk-platform-hosted`、`hk-platform-x86_64`；`hk-platform-aarch64`、`hk-platform-riscv64` 为设计中。
+- **启动目录**：`platforms/hosted` 与 `platforms/x86_64-qemu`；`aarch64-qemu` 构建目标当前只编译内核库，启动入口按 P4/P7 实施。
 - **Hosted 模拟**：虚拟时钟、虚拟 CPU、模拟设备、故障注入、回放。
 
 ---
