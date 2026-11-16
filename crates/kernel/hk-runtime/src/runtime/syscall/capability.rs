@@ -117,11 +117,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !matches!(
+            self.kernel
+                .begin_capability_reclaim(tcb, handle, page_index),
+            Ok(true)
+        ) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
         // 常驻，下一次缺页会按常驻页快速路径重新映射。
         self.unmap_capability_page(index, object, page_index);
         let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
         if !self.platform.read_phys(range.start(), &mut data) {
+            self.kernel.end_capability_reclaim(tcb, handle, page_index);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -152,6 +161,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.timeouts.entry(deadline).or_default().push(index);
             return Switch::Block;
         }
+        self.kernel.end_capability_reclaim(tcb, handle, page_index);
         frame.set_result(u64::MAX);
         Switch::Continue
     }

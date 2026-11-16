@@ -1,6 +1,6 @@
 //! 内核对象：对象头与负载。
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -50,6 +50,8 @@ pub enum ObjectPayload {
         provider_task: Mutex<Option<u64>>,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
+        /// 正在等待 Provider 确认的页，防止并发重复换出。
+        reclaiming: Mutex<BTreeSet<usize>>,
         /// 常驻字节数的历史峰值；只用于报告。
         resident_peak: AtomicU64,
         /// 是否固定驻留。
@@ -264,6 +266,27 @@ impl KernelObject {
         match &self.payload {
             ObjectPayload::Capability { pages, .. } => pages.lock().remove(&index),
             _ => None,
+        }
+    }
+
+    /// 认领一页的回收；页必须常驻且当前没有在途回收。
+    pub fn begin_capability_reclaim(&self, index: usize) -> bool {
+        if let ObjectPayload::Capability {
+            pages, reclaiming, ..
+        } = &self.payload
+        {
+            if !pages.lock().contains_key(&index) {
+                return false;
+            }
+            return reclaiming.lock().insert(index);
+        }
+        false
+    }
+
+    /// 释放一页的在途回收标记；成功、失败与超时路径都必须调用。
+    pub fn end_capability_reclaim(&self, index: usize) {
+        if let ObjectPayload::Capability { reclaiming, .. } = &self.payload {
+            reclaiming.lock().remove(&index);
         }
     }
 

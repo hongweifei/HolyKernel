@@ -128,8 +128,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return 0;
         };
         if id != object {
+            self.kernel
+                .end_capability_reclaim(tcb, capability, page_index);
             return 0;
         }
+        self.kernel
+            .end_capability_reclaim(tcb, capability, page_index);
         // SYS_CAPABILITY_SWAP 在发送前已解除全部 PTE，这里只归还物理页。
         let Ok(Some(lease)) = self
             .kernel

@@ -1327,9 +1327,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     } => {
                         self.timeouts.entry(at).or_default().push(index);
                     }
-                    Pending::ProviderReclaim { deadline, .. } if deadline <= now => {
+                    Pending::ProviderReclaim {
+                        capability,
+                        index: page_index,
+                        deadline,
+                        ..
+                    } if deadline <= now => {
                         // 回复已到达时不丢弃：交给 prepare 消费结果。
                         if self.kernel.cancel_call(tcb) {
+                            self.kernel
+                                .end_capability_reclaim(tcb, capability, page_index);
                             self.tasks[index].context.set_result(u64::MAX);
                             self.tasks[index].pending = Pending::None;
                         }
@@ -1553,12 +1560,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         {
                             self.finish_provider_reclaim(index, capability, object, page_index)
                         } else {
+                            self.kernel
+                                .end_capability_reclaim(caller, capability, page_index);
                             0
                         };
                         self.tasks[index].context.set_result(released);
                     }
                     None if deadline <= self.contract_now() => {
                         let _ = self.kernel.cancel_call(caller);
+                        self.kernel
+                            .end_capability_reclaim(caller, capability, page_index);
                         self.tasks[index].context.set_result(u64::MAX);
                     }
                     None => blocked_again = true,

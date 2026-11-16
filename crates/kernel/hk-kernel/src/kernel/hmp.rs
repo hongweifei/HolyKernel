@@ -2,6 +2,8 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU64};
 
+use alloc::collections::BTreeSet;
+
 use super::*;
 use hk_hal::{PhysRange, VirtAddr};
 use hk_mem::hmp::{
@@ -386,6 +388,7 @@ impl Kernel {
                 provider: Mutex::new(None),
                 provider_task: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
+                reclaiming: Mutex::new(BTreeSet::new()),
                 resident_peak: AtomicU64::new(resident),
                 pinned: AtomicBool::new(false),
                 scanout: AtomicBool::new(false),
@@ -490,6 +493,27 @@ impl Kernel {
         let (object, _) =
             self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
         Ok(object.take_capability_page(index))
+    }
+
+    /// 认领一页的在途回收；重复认领返回 `false`。
+    pub fn begin_capability_reclaim(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+    ) -> Result<bool, KernelError> {
+        let (object, _) =
+            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
+        Ok(object.begin_capability_reclaim(index))
+    }
+
+    /// 释放在途回收标记。
+    pub fn end_capability_reclaim(&self, thread: TcbId, capability: Handle, index: usize) {
+        if let Ok((object, _)) =
+            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)
+        {
+            object.end_capability_reclaim(index);
+        }
     }
 
     /// 判断能力是否固定驻留。
