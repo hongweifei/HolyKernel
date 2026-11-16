@@ -113,10 +113,31 @@ services![
     ("hk-server-virtio-net", true, 9, LATENCY_HIGH, ALWAYS, None),
     ("hk-server-net", true, 9, LATENCY, NEVER, None),
     ("hk-server-netstat", false, 9, THROUGHPUT, NEVER, None),
-    ("hk-server-netsock", true, 9, LATENCY, NEVER, None),
+    (
+        "hk-server-netsock",
+        false,
+        9,
+        LATENCY,
+        NEVER,
+        Some("net-test")
+    ),
     ("hk-server-console", true, 8, REALTIME, NEVER, None),
-    ("hk-server-console-test", true, 9, THROUGHPUT, NEVER, None),
-    ("hk-server-sound-test", true, 9, THROUGHPUT, NEVER, None),
+    (
+        "hk-server-console-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("console-test")
+    ),
+    (
+        "hk-server-sound-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("sound-test")
+    ),
     ("hk-server-shell", true, 9, LATENCY, NEVER, None),
     ("hk-server-tempo", true, 8, TEMPO_POOL, NEVER, None),
     (
@@ -128,11 +149,32 @@ services![
         None
     ),
     ("hk-server-display", true, 0, REALTIME, ON_FAILURE, None),
-    ("hk-server-display-test", true, 9, THROUGHPUT, NEVER, None),
-    ("hk-server-terminal-test", true, 9, THROUGHPUT, NEVER, None),
+    (
+        "hk-server-display-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("display-test")
+    ),
+    (
+        "hk-server-terminal-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("terminal-test")
+    ),
     ("hk-server-input", true, 2, REALTIME, NEVER, None),
     ("hk-server-usb", true, 2, LATENCY_HIGH, NEVER, None),
-    ("hk-server-pointer-test", true, 9, THROUGHPUT, NEVER, None),
+    (
+        "hk-server-pointer-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("pointer-test")
+    ),
     ("hk-server-holydoc", true, 7, LATENCY, NEVER, None),
     ("hk-server-workbench", true, 7, LATENCY, NEVER, None),
     ("hk-server-debug", true, 9, LATENCY, NEVER, None),
@@ -147,20 +189,20 @@ services![
     ),
     (
         "hk-server-display-restart-test",
-        true,
+        false,
         9,
         THROUGHPUT,
         NEVER,
-        None
+        Some("display-restart-test")
     ),
     ("hk-server-checkpoint", true, 9, LATENCY, NEVER, None),
     (
         "hk-server-checkpoint-test",
-        true,
+        false,
         9,
         THROUGHPUT,
         NEVER,
-        None
+        Some("checkpoint")
     ),
     (
         "hk-server-memory-test",
@@ -490,7 +532,7 @@ pub const BOOT_MODES: &[BootMode] = &[
         ],
     },
     BootMode {
-        tokens: &["input-test"],
+        tokens: &["input-test", "terminal-test"],
         services: &[
             "hk-server-display",
             "hk-server-device",
@@ -642,6 +684,22 @@ mod tests {
                 selected.services, mode.services,
                 "cmdline {cmdline} 命中了错误的模式"
             );
+        }
+    }
+
+    #[test]
+    fn mode_services_with_opt_in_are_activated() {
+        for mode in BOOT_MODES {
+            let cmdline = mode.tokens.join(" ");
+            for name in mode.services {
+                let entry = service(name).expect("模式服务必须已登记");
+                if entry.opt_in.is_some() {
+                    assert!(
+                        activated(entry, &cmdline),
+                        "模式 {mode:?} 的 cmdline 无法装载 {name}"
+                    );
+                }
+            }
         }
     }
 
