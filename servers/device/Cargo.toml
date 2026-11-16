@@ -1,6 +1,6 @@
 [package]
 name = "hk-server-device"
-description = "HolyKernel Device Manager stub：枚举 PCI 设备"
+description = "HolyKernel 设备管理器：PCI 枚举与设备授权分发"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

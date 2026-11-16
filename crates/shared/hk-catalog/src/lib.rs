@@ -255,7 +255,7 @@ services![
     (
         "hk-server-gpu-test",
         false,
-        10,
+        9,
         THROUGHPUT,
         NEVER,
         Some("gpu-alloc-test")
