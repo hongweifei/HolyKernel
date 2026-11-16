@@ -48,7 +48,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | 用户态 | 用户态、共享契约 | 内核侧 |
 | 宿主工具（`xtask`） | 任意（构建期） | — |
 
-侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。依赖版本与路径集中在根 `Cargo.toml` 的 `[workspace.dependencies]`，成员只写 `workspace = true`，需要额外特性时只加 `features`。`hk-font` 在目录里固定 `default-features = false`，用户侧由 `hk-canvas` 启用 `scalable`，保持内核位图字形与服务可缩放字体的分离。`hk-shell`、`hk-syscall` 与 `hk-block` 另外要求零依赖；块服务的线协议运行时在 `hk-block-ipc` 的 `client` 与 `server` 模块，客户端与服务端可分别测试；直写缓冲区登记属于各客户端自身状态，容量可配置，满时返回错误而不是静默丢弃。
+侧别由目录决定：`crates/shared`、`crates/kernel`、`crates/user`。直接放在 `crates/` 下或未放入这三个目录的 crate 会让 `cargo xtask deps` 失败。依赖版本与路径集中在根 `Cargo.toml` 的 `[workspace.dependencies]`，成员只写 `workspace = true`，需要额外特性时只加 `features`。所有 workspace 成员标记 `publish = false`，仓库不作为 crates.io 包发布。`hk-font` 在目录里固定 `default-features = false`，用户侧由 `hk-canvas` 启用 `scalable`，保持内核位图字形与服务可缩放字体的分离。`hk-shell`、`hk-syscall` 与 `hk-block` 另外要求零依赖；块服务的线协议运行时在 `hk-block-ipc` 的 `client` 与 `server` 模块，客户端与服务端可分别测试；直写缓冲区登记属于各客户端自身状态，容量可配置，满时返回错误而不是静默丢弃。
 
 协议标签统一按 `0x100` 分段：服务协议标签在零依赖的 `hk-syscall` 定义，`hk-proto/src/labels.rs` 登记基址与分组，`LABEL_GROUPS` 登记全部服务协议标签（virtio 标签由驱动 crate 按 `labels::VIRTIO` 派生并自检）并由测试检查分段与全局唯一；Memory Server 与 Provider 缺页协议分别占 `0x1100`、`0x1200` 段。句柄权利使用 `RIGHT_*`，Holy 文档/卷令牌权利使用 `TOKEN_RIGHT_*`，两套按域命名。
 

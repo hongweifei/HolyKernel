@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 smoltcp = { workspace = true, features = ["alloc", "medium-ethernet", "proto-ipv4", "proto-ipv6", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "auto-icmp-echo-reply"] }
