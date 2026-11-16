@@ -608,6 +608,86 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .find_map(|region| fault_region(region, address))
     }
 
+    /// 把压缩交换块解压回能力页并建立映射；未换出时返回 `false`。
+    fn swapped_fault_region(
+        &mut self,
+        index: usize,
+        region: FaultRegion,
+        address: u64,
+        capability: &Capability,
+        access: hk_mem::hmp::provider::ProviderAccess,
+    ) -> bool {
+        let page = hk_hal::PAGE_SIZE as u64;
+        let offset = region.capability_offset(address, page);
+        if offset >= capability.size() {
+            return false;
+        }
+        let page_index = (offset / page) as usize;
+        let Ok(Some(bytes)) =
+            self.kernel
+                .take_capability_swapped(region.tcb, region.capability, page_index)
+        else {
+            return false;
+        };
+        let Some(backing) = self.allocate_owned(index, page) else {
+            let _ = self.kernel.set_capability_swapped(
+                region.tcb,
+                region.capability,
+                page_index,
+                bytes,
+            );
+            return false;
+        };
+        let range = backing.range();
+        let mut data = [0_u8; hk_hal::PAGE_SIZE];
+        if super::swap::decompress(&bytes, &mut data).is_none()
+            || !self.platform.write_phys(range.start(), &data)
+        {
+            let _ = self.kernel.set_capability_swapped(
+                region.tcb,
+                region.capability,
+                page_index,
+                bytes,
+            );
+            return false;
+        }
+        if !matches!(
+            self.kernel
+                .set_capability_page(region.tcb, region.capability, page_index, backing),
+            Ok(true)
+        ) {
+            return false;
+        }
+        let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
+            let _ = self
+                .kernel
+                .take_capability_page(region.tcb, region.capability, page_index);
+            return false;
+        };
+        self.record_page_charge_for_capability(index, region.capability, page_index, charge);
+        let mapped = self.platform.map_region(
+            index,
+            &hk_mem::RegionMapping {
+                virt: region.page_address(offset),
+                phys: range.start().get(),
+                len: range.len() as usize,
+                rights: region.rights,
+                flags: region.flags,
+                policy: capability.cache(),
+            },
+        );
+        if !mapped {
+            let _ = self
+                .kernel
+                .take_capability_page(region.tcb, region.capability, page_index);
+            let _ = self.process_mut(index).ledger.release(charge);
+            return false;
+        }
+        // 写操作在 COW 映射上仍需走原有 COW 解析；这里只负责重新装入。
+        let _ = access;
+        true
+    }
+
     /// 把缺页请求转给绑定 Provider；成功时任务已阻塞。
     pub fn provider_fault(
         &mut self,
@@ -730,6 +810,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Some(false) => return FaultOutcome::Unhandled,
                 None => {}
             }
+        }
+        // 内核压缩交换的页优先于 Provider：内容已经在本地，不需要 IPC。
+        if self.swapped_fault_region(index, region, address, &capability, access) {
+            return FaultOutcome::Resumed;
         }
         let provider = self
             .kernel

@@ -4,8 +4,8 @@ use hk_syscall::{
     CapabilityKind, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_INFO, SYS_CAPABILITY_BIND_PROVIDER,
     SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE, SYS_CAPABILITY_CREATE_LAZY,
     SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT,
-    SYS_CAPABILITY_WRITEBACK, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_INFO,
-    SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP,
+    SYS_CAPABILITY_SWAP, SYS_CAPABILITY_WRITEBACK, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE,
+    SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP,
     SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_READ,
     SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_MESSAGE_WORDS,
     SYS_NUMA_INFO, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_REGION_GROW, SYS_REGION_INFO,
@@ -148,6 +148,12 @@ pub fn capability_pin(capability: u64, pinned: bool) -> u64 {
 pub fn capability_scanout(capability: u64, enabled: bool) -> u64 {
     // SAFETY: 内核校验 Surface 类型与驻留状态。
     unsafe { syscall_call(SYS_CAPABILITY_SCANOUT, capability, u64::from(enabled), 0, 0).value }
+}
+
+/// 显式压缩换出一个匿名能力范围；Provider 绑定时由 Provider 保存内容。
+pub fn capability_swap(capability: u64, offset: u64, length: usize) -> u64 {
+    // SAFETY: 内核校验 Anonymous 类型、范围与 Provider 确认。
+    unsafe { syscall_call(SYS_CAPABILITY_SWAP, capability, offset, length as u64, 0).value }
 }
 
 /// 请求 Provider 回写能力的常驻页；返回 0 或 `u64::MAX`。

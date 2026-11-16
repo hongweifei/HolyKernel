@@ -7,21 +7,31 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+use alloc::collections::BTreeMap;
+#[cfg(target_os = "none")]
+use alloc::vec::Vec;
+
+#[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     capability_create, capacity_alloc, exit, frame_write, handle::Anonymous, handle::Endpoint,
-    handle::Handle, recv_data, reply, reply_handle, send, send_handle, write,
+    handle::Handle, message_words, recv_data, reply, reply_handle, send, send_handle, write,
 };
 #[cfg(target_os = "none")]
-use hk_syscall::{PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE};
+use hk_syscall::{
+    PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
+    PROVIDER_RECLAIMED, PROVIDER_RELEASE,
+};
 
 #[cfg(target_os = "none")]
 mod selftest;
+#[cfg(target_os = "none")]
+mod swap;
 
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
+const HEAP_SIZE: usize = 1024 * 1024;
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
 /// 请求载荷：能力类型（1 字节）+ 标志（1 字节）+ 长度（8 字节小端）。
@@ -34,6 +44,15 @@ const FLAG_LAZY: u8 = 1 << 0;
 #[cfg(target_os = "none")]
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+
+/// Provider 保存的一页内容。
+#[cfg(target_os = "none")]
+enum Stored {
+    /// 压缩块。
+    Compressed(Vec<u8>),
+    /// 不可压缩的原始页。
+    Raw(Vec<u8>),
+}
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -52,8 +71,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         .number(records as u64)
         .text(b"\n")
         .finish();
+    let mut swapped: BTreeMap<(u64, u64), Stored> = BTreeMap::new();
     loop {
-        let mut request = [0_u8; REQUEST_BYTES];
+        // 回收请求可能携带整页内容；其它请求只使用前 10 字节。
+        let mut request = [0_u8; PAGE];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
         if label == MEMORY_FRAME {
             let size = if length >= 8 {
@@ -78,7 +99,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 .then(|| CapabilityKind::from_u8(request[0]))
                 .flatten();
             let lazy = request[1] & FLAG_LAZY != 0;
-            let size = u64::from_le_bytes(request[2..].try_into().unwrap_or([0; 8])) as usize;
+            let size =
+                u64::from_le_bytes(request[2..REQUEST_BYTES].try_into().unwrap_or([0; 8])) as usize;
             let allocated = kind
                 .zip((size > 0).then_some(size))
                 .and_then(|(kind, size)| {
@@ -107,6 +129,57 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
             continue;
         }
+        if label == PROVIDER_RELEASE {
+            if let Some(words) = message_words() {
+                swapped.retain(|(capability, _), _| *capability != words[0]);
+            }
+            continue;
+        }
+        if label == PROVIDER_RECLAIM {
+            let Some(words) = message_words() else {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            };
+            if length != PAGE {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
+            let source = &request[..PAGE];
+            if swapped.len() >= 256 && !swapped.contains_key(&(words[0], words[1])) {
+                // 服务堆有界：满了就让内核保留页面，而不是 panic。
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
+            let raw = || {
+                let mut raw = Vec::new();
+                raw.try_reserve_exact(PAGE).ok()?;
+                raw.extend_from_slice(source);
+                Some(Stored::Raw(raw))
+            };
+            let stored = match swap::compress(source) {
+                Some(compressed) => {
+                    let mut check = [0_u8; PAGE];
+                    if swap::decompress(&compressed, &mut check).is_some() {
+                        Stored::Compressed(compressed)
+                    } else if let Some(raw) = raw() {
+                        raw
+                    } else {
+                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                        continue;
+                    }
+                }
+                None => {
+                    let Some(raw) = raw() else {
+                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                        continue;
+                    };
+                    raw
+                }
+            };
+            swapped.insert((words[0], words[1]), stored);
+            let _ = reply(PROVIDER_RECLAIMED, 0);
+            continue;
+        }
         if matches!(
             label,
             hk_syscall::PROVIDER_EVICT
@@ -122,14 +195,35 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             continue;
         }
         write(b"hk-server-memory: fault\n");
+        let Some(words) = message_words() else {
+            let _ = reply(0, u64::MAX);
+            continue;
+        };
+        let page_index = words[0] / PAGE as u64;
+        let mut buffer = [0_u8; PAGE];
+        let stored = swapped.get(&(words[4], page_index));
+        if let Some(stored) = stored {
+            match stored {
+                Stored::Compressed(compressed) => {
+                    if swap::decompress(compressed, &mut buffer).is_none() {
+                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                        continue;
+                    }
+                }
+                Stored::Raw(raw) => {
+                    if raw.len() != PAGE {
+                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                        continue;
+                    }
+                    buffer.copy_from_slice(raw);
+                }
+            }
+        }
         let Some(frame) = capacity_alloc(capacity, PAGE) else {
             let _ = reply(0, u64::MAX);
             continue;
         };
-        // 匿名能力承诺零填充；回收页会被清零，但启动期新页不保证，Provider
-        // 必须在交付前自己清零，不能把历史内容映射给用户。
-        let zeros = [0_u8; PAGE];
-        if frame_write(frame, 0, &zeros) != 0 {
+        if frame_write(frame, 0, &buffer) != 0 {
             let _ = hk_server_api::close_handle(frame);
             let _ = reply(0, u64::MAX);
             continue;
@@ -137,6 +231,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
             exit(2);
         }
+        // 页已重新驻留；Provider 不再保留副本，下一次回收会重新写入。
+        swapped.remove(&(words[4], page_index));
     }
 }
 

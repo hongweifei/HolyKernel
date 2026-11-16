@@ -78,6 +78,15 @@ pub enum Pending {
         /// 是否为写时复制的私有页；Provider 回包安装到进程覆盖而不是能力。
         private: bool,
     },
+    /// Provider 回收请求已发出，等待内容保存确认。
+    ProviderReclaim {
+        /// 目标能力句柄。
+        capability: Handle,
+        /// 目标能力内的页下标。
+        index: usize,
+        /// 能力对象标识。
+        object: ObjectId,
+    },
     /// 休眠到指定契约时刻（微秒）。
     Sleep {
         /// 唤醒时刻（契约 tick）。

@@ -65,6 +65,10 @@ struct RevisionRecord {
     document: FsDocId,
     revision: FsRevisionId,
     size: u64,
+    /// 最近一次顺序读取的窗口；用于 readahead。
+    cache: Vec<u8>,
+    /// 缓存窗口在修订中的起始偏移。
+    cache_offset: u64,
 }
 
 /// 服务入口。
@@ -109,7 +113,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             continue;
         }
         if label == PROVIDER_FAULT {
-            serve_fault(&mut drives, &revisions, capacity);
+            serve_fault(&mut drives, &mut revisions, capacity);
             continue;
         }
         if label == PROVIDER_EVICT || label == PROVIDER_WRITEBACK {
@@ -276,6 +280,8 @@ fn map_revision(
         document,
         revision,
         size,
+        cache: Vec::new(),
+        cache_offset: 0,
     });
     if send_handle(sender, HOLY_RESPONSE, size, capability) != 0 {
         let _ = close_handle(capability);
@@ -283,8 +289,12 @@ fn map_revision(
 }
 
 /// 读取修订内容填充 Provider 请求的页。
+/// 单次 readahead 的页数。
 #[cfg(target_os = "none")]
-fn serve_fault(drives: &mut Drives, revisions: &[RevisionRecord], capacity: u64) {
+const READAHEAD_PAGES: u64 = 4;
+
+#[cfg(target_os = "none")]
+fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: u64) {
     let Some(words) = message_words() else {
         let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
         return;
@@ -293,38 +303,56 @@ fn serve_fault(drives: &mut Drives, revisions: &[RevisionRecord], capacity: u64)
         let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
         return;
     }
-    let Some(record) = revisions
+    let Some(index) = revisions
         .iter()
-        .find(|record| record.capability == words[4])
+        .position(|record| record.capability == words[4])
     else {
         let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
         return;
     };
     let offset = words[0];
     let request = (words[1] as usize).min(PAGE);
-    let length = request.min(record.size.saturating_sub(offset) as usize);
+    let (drive, document, revision, size) = {
+        let record = &revisions[index];
+        (record.drive, record.document, record.revision, record.size)
+    };
+    let length = request.min(size.saturating_sub(offset) as usize);
     let mut buffer = [0_u8; PAGE];
     if length > 0 {
-        let Some(drive) = drives.get_mut(record.drive) else {
-            let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
-            return;
-        };
-        match drive.backend.read(
-            record.document,
-            Some(record.revision),
-            offset,
-            &mut buffer[..length],
-        ) {
-            Ok(written) if written >= length => {}
-            Ok(written) => {
-                for byte in &mut buffer[written..length] {
-                    *byte = 0;
-                }
-            }
-            Err(_) => {
+        let window = PAGE as u64 * READAHEAD_PAGES;
+        let window_start = offset / window * window;
+        let cache_end = revisions[index].cache_offset + revisions[index].cache.len() as u64;
+        if offset < revisions[index].cache_offset || offset + length as u64 > cache_end {
+            let read_len = size.saturating_sub(window_start).min(window) as usize;
+            let mut cache = vec![0_u8; read_len];
+            let Some(drive) = drives.get_mut(drive) else {
                 let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
                 return;
+            };
+            match drive
+                .backend
+                .read(document, Some(revision), window_start, &mut cache)
+            {
+                Ok(written) => {
+                    let written = written.min(cache.len());
+                    for byte in &mut cache[written..] {
+                        *byte = 0;
+                    }
+                }
+                Err(_) => {
+                    let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+                    return;
+                }
             }
+            revisions[index].cache = cache;
+            revisions[index].cache_offset = window_start;
+        }
+        let start = (offset - revisions[index].cache_offset) as usize;
+        let available = revisions[index].cache.len().saturating_sub(start);
+        let copied = length.min(available);
+        buffer[..copied].copy_from_slice(&revisions[index].cache[start..start + copied]);
+        for byte in &mut buffer[copied..length] {
+            *byte = 0;
         }
     }
     let Some(frame) = capacity_alloc(capacity, PAGE) else {

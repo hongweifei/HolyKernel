@@ -159,7 +159,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
-    pub(crate) fn capacity_alloc(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+    pub(crate) fn capacity_alloc(
+        &mut self,
+        cpu: usize,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
         let number = frame.arg0() as usize;
         let length = frame.arg1() as usize;
         let Some(handle) = self.handle_at(index, number) else {
@@ -167,8 +173,38 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let hint = frame.arg2();
-        let node = (hint != 0).then(|| (hint - 1) as u8);
-        let Ok(frame_handle) = self.kernel.allocate_frame(tcb, handle, length, node) else {
+        let explicit = (hint != 0).then(|| (hint - 1) as u8);
+        // 未显式指定节点时按当前 CPU 的 SRAT 邻近域优先，再按 SLIT 距离回退，
+        // 而不是把 None 直接交给后端按物理地址任意挑选。
+        let preferred = explicit.or_else(|| {
+            self.platform
+                .cpu_topology(cpu as u32)
+                .map(|topology| topology.proximity.min(u8::MAX as u32) as u8)
+        });
+        let mut allocated = None;
+        if let Some(preferred) = preferred {
+            let count = self.platform.numa_node_count().max(1);
+            let mut nodes: alloc::vec::Vec<(u8, u8)> = (0..count)
+                .map(|node| (self.platform.numa_distance(preferred, node), node))
+                .collect();
+            nodes.sort_unstable();
+            for (_, node) in nodes {
+                if let Ok(handle) = self.kernel.allocate_frame(tcb, handle, length, Some(node)) {
+                    allocated = Some(handle);
+                    break;
+                }
+            }
+        } else if let Ok(handle) = self.kernel.allocate_frame(tcb, handle, length, None) {
+            allocated = Some(handle);
+        }
+        if allocated.is_none() && self.oom_guard(cpu, index, length as u64) {
+            // 物理/配额失败可能与全局压力有关：回收当前任务或按策略终止
+            // victim 后重试一次；仍失败则走正常错误返回。
+            if let Ok(handle) = self.kernel.allocate_frame(tcb, handle, length, preferred) {
+                allocated = Some(handle);
+            }
+        }
+        let Some(frame_handle) = allocated else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

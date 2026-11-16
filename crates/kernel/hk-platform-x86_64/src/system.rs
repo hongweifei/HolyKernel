@@ -14,9 +14,12 @@ use spin::Mutex;
 
 static SYSTEM: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 static USER: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
+static GPU: Mutex<Option<Arc<Mutex<Capacity>>>> = Mutex::new(None);
 
 /// 顶层 User Capacity 切出后留给内核堆与页表的物理余量。
 const USER_RESERVE_BYTES: u64 = 32 * 1024 * 1024;
+/// GPU 后备容量的目标大小；没有显存 BAR 时由系统 RAM 承担。
+const GPU_RESERVE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// 建立 System Capacity 并接管内核自用分配的归因。
 ///
@@ -55,8 +58,25 @@ pub fn establish(bank: &FrameBank, heap: PhysRange, reserved: u64) -> Option<()>
     let user = capacity
         .split_free(user_id, CapacityKind::User, user_limit)
         .ok()?;
+    // GPU 后备容量从 System 剩余窗口切出；显存 BAR 驱动可在启动后用同一
+    // 容量类型替换窗口，但归因始终是 Gpu。
+    let gpu_limit = GPU_RESERVE_BYTES.min(capacity.limit() / 8);
+    let gpu = (gpu_limit >= PAGE_SIZE as u64)
+        .then(|| {
+            capacity
+                .split_free(
+                    CapacityId::next(),
+                    CapacityKind::Gpu,
+                    gpu_limit / PAGE_SIZE as u64 * PAGE_SIZE as u64,
+                )
+                .ok()
+        })
+        .flatten();
     *SYSTEM.lock() = Some(Arc::new(Mutex::new(capacity)));
     *USER.lock() = Some(Arc::new(Mutex::new(user)));
+    if let Some(gpu) = gpu {
+        *GPU.lock() = Some(Arc::new(Mutex::new(gpu)));
+    }
     Some(())
 }
 
@@ -68,6 +88,11 @@ pub fn capacity() -> Option<Arc<Mutex<Capacity>>> {
 /// 返回 Root 建立、供 Memory Server 共享的顶层 User Capacity。
 pub fn user_capacity() -> Option<Arc<Mutex<Capacity>>> {
     USER.lock().clone()
+}
+
+/// 返回 Gpu 后备容量；未建立时返回 `None`。
+pub fn gpu_capacity() -> Option<Arc<Mutex<Capacity>>> {
+    GPU.lock().clone()
 }
 
 /// 从 System Capacity 尾部切出一段独立容量。

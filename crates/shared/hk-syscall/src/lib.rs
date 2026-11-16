@@ -201,6 +201,8 @@ pub enum CapabilityKind {
     Anonymous = 4,
     /// 物理页。
     Frame = 5,
+    /// 显存后备分配。
+    GpuAllocation = 6,
 }
 
 impl CapabilityKind {
@@ -213,6 +215,7 @@ impl CapabilityKind {
             3 => Self::DeviceAllocation,
             4 => Self::Anonymous,
             5 => Self::Frame,
+            6 => Self::GpuAllocation,
             _ => return None,
         })
     }
@@ -277,9 +280,25 @@ pub const SYS_CAPABILITY_GRANT: u64 = 0xA6;
 /// `arg0` 输出缓冲、`arg1` 缓冲长度、`arg2` 节点索引；`arg1 == 0` 时返回节点数。
 /// 每个节点记录 24 字节：`node u32`、保留 `u32`、`start u64`、`len u64`。
 pub const SYS_NUMA_INFO: u64 = 0xA7;
-
 /// `SYS_NUMA_INFO` 单条记录长度。
 pub const NUMA_NODE_BYTES: usize = 24;
+
+/// 查询全局内存压力与 OOM 统计。
+///
+/// `arg0` 输出缓冲、`arg1` 长度。前 9 个 u64 为：free、total、阈值、
+/// OOM 次数、终止次数、回收字节、回收调用、换出字节、迁移字节；随后是
+/// 每个 NUMA 节点的空闲字节。
+pub const SYS_MEMORY_PRESSURE: u64 = 0xA8;
+/// 设置全局 OOM 阈值与动作；仅 Root 可调用。
+pub const SYS_OOM_POLICY: u64 = 0xA9;
+/// 主动回收当前任务的匿名页，返回释放字节数。
+pub const SYS_RECLAIM: u64 = 0xAA;
+/// 读取最近一次 OOM 审计记录。
+pub const SYS_OOM_EVENT: u64 = 0xAB;
+/// 显式压缩换出一个匿名能力范围，返回释放字节数。
+pub const SYS_CAPABILITY_SWAP: u64 = 0xAC;
+/// 把能力的一段常驻页迁移到指定 NUMA 节点。
+pub const SYS_NUMA_MIGRATE: u64 = 0xAD;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -558,6 +577,15 @@ pub const PROVIDER_ERROR: u64 = 0x1204;
 /// 内核通知 Provider：能力对象已释放；words[0] 为能力对象标识。
 pub const PROVIDER_RELEASE: u64 = 0x1205;
 
+/// 内核把一页内容交给 Provider 保存/压缩，等待回收确认。
+///
+/// `words = [capability, page_index, offset, len, flags, token, 0, 0]`，
+/// 字节载荷为原始页内容。Provider 用 [`PROVIDER_RECLAIMED`] 回复。
+pub const PROVIDER_RECLAIM: u64 = 0x1206;
+
+/// Provider 确认回收请求；`words[3]` 为 0 表示内容已安全保存。
+pub const PROVIDER_RECLAIMED: u64 = 0x1207;
+
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;
 
@@ -700,12 +728,13 @@ mod tests {
             CapabilityKind::DeviceAllocation,
             CapabilityKind::Anonymous,
             CapabilityKind::Frame,
+            CapabilityKind::GpuAllocation,
         ];
         for (index, kind) in kinds.iter().enumerate() {
             assert_eq!(kind.as_u8() as usize, index);
             assert_eq!(CapabilityKind::from_u8(index as u8), Some(*kind));
         }
-        assert_eq!(CapabilityKind::from_u8(6), None);
+        assert_eq!(CapabilityKind::from_u8(7), None);
     }
 
     #[test]
@@ -780,6 +809,12 @@ mod tests {
             SYS_ACPI_EVENTS,
             SYS_THERMAL,
             SYS_CPU_TOPOLOGY,
+            SYS_MEMORY_PRESSURE,
+            SYS_OOM_POLICY,
+            SYS_RECLAIM,
+            SYS_OOM_EVENT,
+            SYS_CAPABILITY_SWAP,
+            SYS_NUMA_MIGRATE,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

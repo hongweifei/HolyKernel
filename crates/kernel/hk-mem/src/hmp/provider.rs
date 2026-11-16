@@ -49,7 +49,10 @@ impl ProviderKind {
             Self::Revision => matches!(capability, CapabilityKind::Revision),
             Self::Surface => matches!(capability, CapabilityKind::Surface),
             Self::Image => matches!(capability, CapabilityKind::TaskImage),
-            Self::Device => matches!(capability, CapabilityKind::DeviceAllocation),
+            Self::Device => matches!(
+                capability,
+                CapabilityKind::DeviceAllocation | CapabilityKind::GpuAllocation
+            ),
             Self::Anonymous => matches!(capability, CapabilityKind::Anonymous),
         }
     }

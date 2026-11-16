@@ -115,6 +115,14 @@ impl UserPlatform for X86Platform {
         self.0.cpu_topology(hk_hal::CpuId::new(cpu))
     }
 
+    fn numa_distance(&self, from: u8, to: u8) -> u8 {
+        hk_platform_x86_64::bootstrap::numa_distance(from, to)
+    }
+
+    fn numa_node_count(&self) -> u8 {
+        hk_platform_x86_64::bootstrap::numa_node_count()
+    }
+
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
         let Some(pci) = self.0.pci() else {
             return u32::MAX;
@@ -227,6 +235,19 @@ impl UserPlatform for X86Platform {
 
     fn user_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
         hk_platform_x86_64::system::user_capacity()
+    }
+
+    fn gpu_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        hk_platform_x86_64::system::gpu_capacity()
+    }
+
+    fn numa_free(&self, node: u8) -> Option<u64> {
+        Some(hk_platform_x86_64::paging::FRAME_BANK.free_in_node(node))
+    }
+
+    fn page_node(&self, phys: hk_hal::PhysAddr) -> Option<u8> {
+        hk_platform_x86_64::paging::FRAME_BANK
+            .node_of(hk_hal::PhysRange::new(phys, hk_hal::PAGE_SIZE as u64))
     }
 
     fn frame_bank_stats(&self) -> Option<hk_mem::FrameBankStats> {

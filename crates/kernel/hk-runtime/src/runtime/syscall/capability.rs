@@ -19,7 +19,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let frame = match allocated {
             Ok(frame) => frame,
             Err(_) => {
-                if self.reclaim_zero_pages(index, len) == 0 {
+                if self.reclaim_anonymous_pages(index, len) == 0 {
                     return None;
                 }
                 capacity.lock().allocate(len as usize).ok()?
@@ -43,7 +43,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(backing) = self.allocate_owned(index, aligned) else {
+        let backing = if kind == CapabilityKind::GpuAllocation {
+            self.platform.gpu_capacity().and_then(|capacity| {
+                let frame = capacity.lock().allocate(aligned as usize).ok()?;
+                Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
+            })
+        } else {
+            self.allocate_owned(index, aligned)
+        };
+        let Some(backing) = backing else {
             let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -66,6 +74,77 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
         };
         frame.set_result(self.install_capability(index, handle, Some(charge)));
+        Switch::Continue
+    }
+
+    pub(crate) fn numa_migrate(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let offset = frame.arg1();
+        let len = frame.arg2();
+        let node = frame.arg3() as u8;
+        let Some((handle, _, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let migrated = self.migrate_capability(index, tcb, handle, offset, len, node);
+        frame.set_result(migrated);
+        Switch::Continue
+    }
+
+    pub(crate) fn capability_swap(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        let offset = frame.arg1();
+        let len = frame.arg2();
+        let Some((handle, capability, _)) = self.capability_at(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if capability.require(CapabilityOp::Swap).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        // Provider 绑定时把原始页交给它保存/压缩，并阻塞等待确认；没有
+        // Provider 或发送失败时才退回内核压缩交换。
+        if let Ok(Some(provider)) = self.kernel.capability_provider(tcb, handle) {
+            let page = hk_hal::PAGE_SIZE as u64;
+            let page_index = (offset / page) as usize;
+            if let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index)
+                && !self.platform.page_shared(range.start())
+                && !matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
+            {
+                let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
+                if self.platform.read_phys(range.start(), &mut data)
+                    && let Ok(object) = self.kernel.capability_id(tcb, handle)
+                {
+                    let words = [
+                        object.get(),
+                        page_index as u64,
+                        page_index as u64 * page,
+                        page,
+                        0,
+                        self.oom.events,
+                        0,
+                        0,
+                    ];
+                    let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
+                        .with_words(words)
+                        .with_data(data);
+                    if self.kernel.call_object(tcb, provider, message).is_ok() {
+                        let mut context = *frame;
+                        context.set_result(0);
+                        self.tasks[index].context = context;
+                        self.tasks[index].pending = Pending::ProviderReclaim {
+                            capability: handle,
+                            index: page_index,
+                            object,
+                        };
+                        return Switch::Block;
+                    }
+                }
+            }
+        }
+        let released = self.swap_capability_pages(index, tcb, handle, offset, len);
+        frame.set_result(released);
         Switch::Continue
     }
 

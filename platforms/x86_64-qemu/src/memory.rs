@@ -72,6 +72,7 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
     }
     hk_platform_x86_64::system::establish(bank, heap, dma_bytes)
         .ok_or_else(|| String::from("无法从可用内存建立 System Capacity"))?;
+    crate::allocator::register_grower();
     if !hk_platform_x86_64::system_arena::establish() {
         return Err(String::from("无法建立 System Arena"));
     }

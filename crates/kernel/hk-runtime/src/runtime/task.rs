@@ -1528,6 +1528,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     None => blocked_again = true,
                 }
             }
+            Pending::ProviderReclaim {
+                capability,
+                index: page_index,
+                object,
+            } => {
+                let caller = self.tasks[index].tcb;
+                match self.kernel.take_reply(caller) {
+                    Some(message) => {
+                        let released = if message.label == hk_syscall::PROVIDER_RECLAIMED
+                            && message.words[3] == 0
+                        {
+                            self.finish_provider_reclaim(index, capability, object, page_index)
+                        } else {
+                            0
+                        };
+                        self.tasks[index].context.set_result(released);
+                    }
+                    None => blocked_again = true,
+                }
+            }
             Pending::ProviderFault {
                 capability,
                 index: page_index,

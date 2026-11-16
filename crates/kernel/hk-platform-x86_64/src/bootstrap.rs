@@ -275,6 +275,33 @@ pub fn numa_topology() -> Vec<(hk_hal::PhysRange, u8)> {
     NUMA.lock().clone()
 }
 
+/// 返回两个节点之间的 SLIT 距离；没有 SLIT 时本地 10、远端 20。
+pub fn numa_distance(from: u8, to: u8) -> u8 {
+    FIRMWARE
+        .lock()
+        .as_ref()
+        .and_then(|tables| tables.slit.as_ref())
+        .and_then(|slit| slit.distance(from, to))
+        .unwrap_or(if from == to { 10 } else { 20 })
+}
+
+/// 返回 SRAT 内存邻近域覆盖的节点数。
+pub fn numa_node_count() -> u8 {
+    FIRMWARE
+        .lock()
+        .as_ref()
+        .and_then(|tables| tables.srat.as_ref())
+        .map(|srat| {
+            srat.memory
+                .iter()
+                .filter(|entry| entry.enabled && entry.proximity <= u8::MAX as u32)
+                .map(|entry| entry.proximity as u8)
+                .max()
+                .map_or(1, |node| node.saturating_add(1))
+        })
+        .unwrap_or(1)
+}
+
 /// 解析 MADT，映射 IOAPIC 并把键盘 GSI 路由到键盘向量。
 pub fn init_ioapic(
     info: &BootInfo,

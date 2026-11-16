@@ -14,6 +14,7 @@ mod dma;
 mod framebuffer;
 mod handle;
 mod ipc;
+mod oom;
 mod region;
 mod stats;
 mod task;
@@ -352,12 +353,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_SYSTEM_ARENA_INFO => self.system_arena_info(index, frame),
             SYS_OBJECT_ENUM => self.object_enum(index, frame),
             SYS_SYSTEM_ARENA_REGIONS => self.system_arena_regions(index, frame),
+            SYS_CAPABILITY_SWAP => self.capability_swap(index, tcb, frame),
+            SYS_NUMA_MIGRATE => self.numa_migrate(index, tcb, frame),
             SYS_CAPACITY_INFO => self.capacity_info(index, frame),
             SYS_CAPACITY_SPLIT => self.capacity_split(index, tcb, frame),
-            SYS_CAPACITY_ALLOC => self.capacity_alloc(index, tcb, frame),
+            SYS_CAPACITY_ALLOC => self.capacity_alloc(cpu, index, tcb, frame),
             SYS_CAPACITY_FREE => self.capacity_free(index, tcb, frame),
             SYS_CAPACITY_MERGE => self.capacity_merge(index, tcb, frame),
             SYS_CAPACITY_WINDOWS => self.capacity_windows(index, frame),
+            SYS_MEMORY_PRESSURE => self.memory_pressure_query(frame),
+            SYS_OOM_POLICY => self.oom_policy(index, frame),
+            SYS_RECLAIM => self.reclaim(index, frame),
+            SYS_OOM_EVENT => self.oom_event_query(frame),
             SYS_FRAME_INFO => self.frame_info(index, frame),
             SYS_FRAME_PIN => self.frame_pin(index, tcb, frame),
             SYS_FRAME_MAP => self.frame_map(index, tcb, frame),

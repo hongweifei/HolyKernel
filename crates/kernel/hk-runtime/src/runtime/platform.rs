@@ -73,6 +73,16 @@ pub trait UserPlatform {
     fn cpu_topology(&self, _cpu: u32) -> Option<hk_hal::CpuTopology> {
         None
     }
+
+    /// 返回两个 NUMA 节点之间的距离；未知时按本地 10、远端 20。
+    fn numa_distance(&self, from: u8, to: u8) -> u8 {
+        if from == to { 10 } else { 20 }
+    }
+
+    /// 返回平台报告的 NUMA 节点数；未知时为 1。
+    fn numa_node_count(&self) -> u8 {
+        1
+    }
     /// 读取 PCI 配置空间中的一个 32 位字。
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32;
     /// 写入 PCI 配置空间中的一个 32 位字。
@@ -124,6 +134,21 @@ pub trait UserPlatform {
 
     /// 返回启动期建立的顶层 User Capacity。
     fn user_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        None
+    }
+
+    /// 返回 Gpu 后备 Capacity。
+    fn gpu_capacity(&self) -> Option<Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
+        None
+    }
+
+    /// 返回指定 NUMA 节点的空闲字节数。
+    fn numa_free(&self, _node: u8) -> Option<u64> {
+        None
+    }
+
+    /// 返回物理页所属 NUMA 节点。
+    fn page_node(&self, _phys: hk_hal::PhysAddr) -> Option<u8> {
         None
     }
 

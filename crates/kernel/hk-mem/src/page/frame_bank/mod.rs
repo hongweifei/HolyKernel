@@ -1067,6 +1067,24 @@ impl FrameBank {
             by_node: inner.by_node,
         }
     }
+
+    /// 返回指定节点当前空闲字节数；未配置拓扑时节点 0 覆盖全部空闲页。
+    pub fn free_in_node(&self, node: u8) -> u64 {
+        let inner = self.inner.lock();
+        inner
+            .free_by_start
+            .values()
+            .filter(|range| inner.node_for(range.start().get()) == node)
+            .map(|range| range.len())
+            .fold(0, u64::saturating_add)
+    }
+
+    /// 返回一段已分配物理区间所属的 NUMA 节点。
+    pub fn node_of(&self, range: PhysRange) -> Option<u8> {
+        let inner = self.inner.lock();
+        let allocation = inner.allocations.get(&range.start().get())?;
+        (allocation.range == range).then_some(allocation.node)
+    }
 }
 
 mod backend;

@@ -39,11 +39,11 @@ use hk_sync::{Condvar, Mutex, RwLock};
 
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, boot_cmdline, call, close_handle,
-    exit, frame_info, frame_map, futex_wait, futex_wake, ledger_info, notify, recv, recv_data_try,
-    region_info, region_unmap, self_notification, send, send_handle, service_endpoint,
-    service_restarts, thread_create, thread_join, tsc, tsc_frequency, wait_notify, write,
-    write_u64, yield_now,
+    MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, boot_cmdline, call, capability_swap,
+    close_handle, exit, frame_info, frame_map, futex_wait, futex_wake, ledger_info, notify, recv,
+    recv_data_try, region_info, region_unmap, self_notification, send, send_handle,
+    service_endpoint, service_restarts, thread_create, thread_join, tsc, tsc_frequency,
+    wait_notify, write, write_u64, yield_now,
 };
 
 /// 异步自检使用的通知位。
@@ -633,6 +633,10 @@ fn verify_memory(endpoint: u64) -> bool {
     unsafe { core::ptr::write_volatile(virt as *mut u8, 0xAB) };
     // SAFETY: 读回刚写入的字节校验映射与内容。
     let written = unsafe { core::ptr::read_volatile(virt as *const u8) };
+    // Provider 回收这一页；随后再次读取必须换入同一内容。
+    let swapped = capability_swap(capability, 0, PAGE) == PAGE as u64;
+    // SAFETY: 页已换出，读取触发 Provider 换入。
+    let restored = unsafe { core::ptr::read_volatile(virt as *const u8) };
     let _ = region_unmap(region);
     let _ = close_handle(capability);
     let Some(after) = ledger_info() else {
@@ -661,7 +665,7 @@ fn verify_memory(endpoint: u64) -> bool {
         }
     }
     let _ = region_unmap(frame_region);
-    zero == 0 && written == 0xAB && after.charged == before.charged
+    zero == 0 && written == 0xAB && swapped && restored == 0xAB && after.charged == before.charged
 }
 
 /// 验证服务端工作线程池：并发提交、乱序完成与并发峰值。

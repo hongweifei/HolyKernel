@@ -9,6 +9,7 @@ const HEADER: usize = 36;
 const SIGNATURE_FADT: &[u8; 4] = b"FACP";
 const SIGNATURE_MCFG: &[u8; 4] = b"MCFG";
 const SIGNATURE_SRAT: &[u8; 4] = b"SRAT";
+const SIGNATURE_SLIT: &[u8; 4] = b"SLIT";
 const SIGNATURE_PPTT: &[u8; 4] = b"PPTT";
 const SIGNATURE_DMAR: &[u8; 4] = b"DMAR";
 const SIGNATURE_IVRS: &[u8; 4] = b"IVRS";
@@ -56,6 +57,7 @@ pub mod iommu;
 pub mod mcfg;
 /// PPTT 处理器拓扑。
 pub mod pptt;
+pub mod slit;
 /// SRAT CPU/内存邻近域。
 pub mod srat;
 
@@ -66,6 +68,7 @@ pub use hpet::{Hpet, parse_hpet};
 pub use iommu::{AmdMemory, AmdUnit, Dmar, Drhd, Ivrs, Rmrr, parse_dmar, parse_ivrs};
 pub use mcfg::{Mcfg, McfgEntry, parse_mcfg};
 pub use pptt::{Pptt, ProcessorTopology, parse_pptt};
+pub use slit::{Slit, parse_slit};
 pub use srat::{CpuAffinity, MemoryAffinity, Srat, parse_srat};
 
 /// 查找指定签名的全部 ACPI 表。
@@ -159,6 +162,8 @@ pub struct Tables {
     pub mcfg: Option<Mcfg>,
     /// SRAT。
     pub srat: Option<Srat>,
+    /// SLIT 局部性距离。
+    pub slit: Option<Slit>,
     /// PPTT。
     pub pptt: Option<Pptt>,
     /// 平台中性的 IOMMU 描述。
@@ -187,6 +192,7 @@ where
     let fadt = find(SIGNATURE_FADT, &mut read).and_then(|bytes| parse_fadt(&bytes));
     let mcfg = find(SIGNATURE_MCFG, &mut read).and_then(|bytes| parse_mcfg(&bytes));
     let srat = find(SIGNATURE_SRAT, &mut read).and_then(|bytes| parse_srat(&bytes));
+    let slit = find(SIGNATURE_SLIT, &mut read).and_then(|bytes| parse_slit(&bytes));
     let pptt = find(SIGNATURE_PPTT, &mut read).and_then(|bytes| parse_pptt(&bytes));
     let dmar = find(SIGNATURE_DMAR, &mut read).and_then(|bytes| parse_dmar(&bytes));
     let ivrs = find(SIGNATURE_IVRS, &mut read).and_then(|bytes| parse_ivrs(&bytes));
@@ -197,6 +203,7 @@ where
         fadt,
         mcfg,
         srat,
+        slit,
         pptt,
         iommu,
         hpet,
@@ -208,7 +215,7 @@ where
 mod tests {
     use super::*;
 
-    fn table(signature: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    pub(super) fn table(signature: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut bytes = alloc::vec![0_u8; HEADER];
         bytes[0..4].copy_from_slice(signature);
         bytes.extend_from_slice(body);

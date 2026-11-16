@@ -52,6 +52,11 @@ impl OwnedFrame {
     pub fn range(&self) -> PhysRange {
         PhysRange::new(self.phys(), self.len() as u64)
     }
+
+    /// 返回帧所属 Capacity，供迁移到其他节点时从同一容量分配。
+    pub fn capacity(&self) -> &Arc<Mutex<Capacity>> {
+        &self.capacity
+    }
 }
 
 impl Drop for OwnedFrame {
@@ -82,6 +87,14 @@ impl FrameBacking {
         match self {
             Self::Owned(frame) => frame.phys(),
             Self::Imported(lease) => lease.phys(),
+        }
+    }
+
+    /// 返回来源 Capacity；导入区间没有容量。
+    pub fn capacity(&self) -> Option<&Arc<Mutex<Capacity>>> {
+        match self {
+            Self::Owned(frame) => Some(frame.capacity()),
+            Self::Imported(_) => None,
         }
     }
 
