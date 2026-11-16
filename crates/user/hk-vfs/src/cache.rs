@@ -15,6 +15,8 @@ type Page = Box<[u8; PAGE_SIZE]>;
 
 /// 默认缓存容量（页）。
 pub const DEFAULT_CAPACITY: usize = 64;
+/// 顺序读未命中时最多预读的页数。
+pub const READAHEAD_PAGES: u64 = 4;
 
 struct Entry {
     page: Page,
@@ -66,6 +68,24 @@ impl PageCache {
         self.pages.is_empty()
     }
 
+    /// 按 LRU 淘汰到最多 `max_pages` 页；缓存页都是写穿透后的干净页。
+    pub fn trim(&mut self, max_pages: usize) -> usize {
+        let mut evicted = 0;
+        while self.pages.len() > max_pages {
+            let Some(oldest) = self
+                .pages
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| *key)
+            else {
+                break;
+            };
+            self.pages.remove(&oldest);
+            evicted += 1;
+        }
+        evicted
+    }
+
     /// 从文档读取，未命中时从后端加载整页。
     #[allow(clippy::too_many_arguments)]
     pub fn read<B: Backend + ?Sized>(
@@ -102,8 +122,27 @@ impl PageCache {
             let length = (PAGE_SIZE - within).min(limit - done);
             buffer[done..done + length].copy_from_slice(&page[within..within + length]);
             done += length;
+            // 当前页复制完成后再预读，避免同时持有 `page` 与 `self` 的可变借用。
+            self.prefetch(backend, instance, document, revision, size, index);
         }
         Ok(done)
+    }
+
+    fn prefetch<B: Backend + ?Sized>(
+        &mut self,
+        backend: &B,
+        instance: usize,
+        document: DocId,
+        revision: RevisionId,
+        size: u64,
+        index: u64,
+    ) {
+        for next in (index + 1)..(index + 1 + READAHEAD_PAGES) {
+            if next.saturating_mul(PAGE_SIZE as u64) >= size {
+                break;
+            }
+            let _ = self.load(backend, instance, document, revision, next);
+        }
     }
 
     /// 写入文档；写穿透后端并使该文档的缓存失效。
@@ -314,5 +353,51 @@ mod tests {
             .expect("再读第一页");
         assert_eq!(cache.len(), 1);
         assert_eq!(&buffer, &[1; 4]);
+    }
+}
+
+#[cfg(test)]
+mod readahead_tests {
+    use super::*;
+    use crate::PathObject;
+    use crate::Tmpfs;
+    use hk_fs::DocumentKind;
+
+    fn four_pages() -> (PathObject<Tmpfs>, DocId) {
+        let mut fs = PathObject::new(Tmpfs::new());
+        let root = fs.root();
+        let document = fs
+            .create(root, "file", DocumentKind::Content)
+            .expect("创建");
+        let data = [0x5A_u8; PAGE_SIZE * 4];
+        fs.write(document, 0, &data).expect("写入");
+        (fs, document)
+    }
+
+    #[test]
+    fn sequential_read_prefetches_following_pages() {
+        let (fs, document) = four_pages();
+        let info = fs.document(document).expect("视图");
+        let mut cache = PageCache::new();
+        let mut buffer = [0_u8; 1];
+        cache
+            .read(&fs, 0, document, info.head, info.size, 0, &mut buffer)
+            .expect("读第一页");
+        assert_eq!(cache.len(), READAHEAD_PAGES as usize);
+    }
+
+    #[test]
+    fn trim_evicts_clean_pages_to_budget() {
+        let (fs, document) = four_pages();
+        let info = fs.document(document).expect("视图");
+        let mut cache = PageCache::new();
+        let mut buffer = [0_u8; 1];
+        cache
+            .read(&fs, 0, document, info.head, info.size, 0, &mut buffer)
+            .expect("读第一页");
+        assert!(cache.len() > 2);
+        let before = cache.len();
+        assert_eq!(cache.trim(2), before - 2);
+        assert_eq!(cache.len(), 2);
     }
 }

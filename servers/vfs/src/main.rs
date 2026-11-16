@@ -292,6 +292,9 @@ fn map_revision(
 /// 单次 readahead 的页数。
 #[cfg(target_os = "none")]
 const READAHEAD_PAGES: u64 = 4;
+/// 全部修订窗口缓存上限；超出时清掉其他修订的窗口（不可变内容可重读）。
+#[cfg(target_os = "none")]
+const CACHE_BUDGET: usize = 1024 * 1024;
 
 #[cfg(target_os = "none")]
 fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: u64) {
@@ -342,6 +345,20 @@ fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: 
                 Err(_) => {
                     let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
                     return;
+                }
+            }
+            let total: usize = revisions
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .map(|(_, record)| record.cache.len())
+                .sum();
+            if total.saturating_add(cache.len()) > CACHE_BUDGET {
+                for (other, record) in revisions.iter_mut().enumerate() {
+                    if other != index {
+                        record.cache.clear();
+                        record.cache_offset = 0;
+                    }
                 }
             }
             revisions[index].cache = cache;
