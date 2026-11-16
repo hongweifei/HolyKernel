@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(arena.size(), 0x5000);
         assert_eq!(arena.grow(1), Err(HmpError::InvalidSize));
         assert_eq!(arena.grow(0), Err(HmpError::InvalidSize));
-        assert_eq!(arena.insert(&region(0x40_4000)).is_ok(), true);
+        assert!(arena.insert(&region(0x40_4000)).is_ok());
     }
 
     #[test]

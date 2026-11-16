@@ -10,16 +10,16 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
 use alloc::vec::Vec;
-
+#[cfg(target_os = "none")]
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
-    RIGHT_READ, RIGHT_WRITE, capability_create, capability_swap, capacity_alloc, close_handle,
-    exit, frame_write, grant_capability, handle::Anonymous, handle::Endpoint, handle::Handle,
-    handle_id, memory_pressure, message_words, notify, recv_data, reply, reply_handle,
-    self_notification, send, send_handle, wait_notify, write,
+    RIGHT_READ, RIGHT_WRITE, boot_cmdline, capability_create, capability_swap, capacity_alloc,
+    close_handle, exit, frame_write, grant_capability, handle::Anonymous, handle::Endpoint,
+    handle::Handle, handle_id, memory_pressure, message_words, notify, recv_data, reply,
+    reply_handle, self_notification, send, send_handle, set_oom_policy, wait_notify, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::{
@@ -74,7 +74,13 @@ extern "C" fn reclaim_worker(notification: u64) -> ! {
             && free.saturating_mul(100) / total <= threshold
         {
             let tracked = TRACKED.lock().clone();
-            for (id, size) in tracked {
+            'tracked: for (id, size) in tracked {
+                if let Some((free, total, threshold)) = memory_pressure()
+                    && total > 0
+                    && free.saturating_mul(100) / total > threshold
+                {
+                    break 'tracked;
+                }
                 let Some(handle) = grant_capability(id, RIGHT_READ | RIGHT_WRITE) else {
                     continue;
                 };
@@ -85,7 +91,7 @@ extern "C" fn reclaim_worker(notification: u64) -> ! {
                         && total > 0
                         && free.saturating_mul(100) / total > threshold
                     {
-                        break;
+                        break 'tracked;
                     }
                 }
                 let _ = close_handle(handle);
@@ -111,6 +117,16 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         .number(records as u64)
         .text(b"\n")
         .finish();
+    let mut cmdline = [0_u8; 128];
+    if boot_cmdline(&mut cmdline).is_some_and(|line| line.contains("swap-test")) {
+        // 测试模式提高阈值、只回收不终止，便于在有限内存下触发自动换出。
+        let result = set_oom_policy(90, 0);
+        hk_server_api::format::Line::new()
+            .text(b"hk-server-memory: swap policy ")
+            .number(result)
+            .text(b"\n")
+            .finish();
+    }
     let mut swapped: BTreeMap<(u64, u64), Stored> = BTreeMap::new();
     // 回收线程只发 swap 请求；主循环负责实际压缩与存储。
     let notification = self_notification();

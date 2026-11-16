@@ -184,6 +184,9 @@ pub enum SmokeMode {
     /// HMP 内存对象面 conformance
     #[value(name = "memory")]
     Memory,
+    /// Provider 压力自动换出/换入
+    #[value(name = "swap")]
+    Swap,
     /// 多 NUMA 节点拓扑与节点容量分配
     #[value(name = "numa")]
     Numa,
@@ -266,6 +269,7 @@ impl SmokeMode {
             )),
             Self::CheckpointServer => Some(String::from("vfs.fs=holyfs checkpoint-srv-test")),
             Self::Memory => Some(String::from("memory-test")),
+            Self::Swap => Some(String::from("swap-test")),
             Self::Numa => None,
         }
     }
@@ -646,6 +650,12 @@ impl SmokeMode {
                 "hk-server-checkpoint-test: done",
             ],
             Self::Memory => &["hk-server-memory-test: ok"],
+            Self::Swap => &[
+                "hk-server-swap-test: pages ",
+                " swapped ",
+                "hk-server-swap-test: verified ",
+                "hk-server-swap-test: ok",
+            ],
             Self::Numa => Self::Boot.expected(),
         }
     }
@@ -693,7 +703,8 @@ impl SmokeMode {
             | Self::Checkpoint
             | Self::CheckpointServer
             | Self::DisplayRestart
-            | Self::Numa => QEMU_SUCCESS,
+            | Self::Numa
+            | Self::Swap => QEMU_SUCCESS,
             Self::Smp => QEMU_SUCCESS,
             Self::Memory => QEMU_SUCCESS,
             Self::Ud2 | Self::Page => QEMU_EXCEPTION,
@@ -747,6 +758,7 @@ impl SmokeMode {
             Self::Checkpoint => "build/serial-checkpoint.log",
             Self::CheckpointServer => "build/serial-checkpointsrv.log",
             Self::Memory => "build/serial-memory.log",
+            Self::Swap => "build/serial-swap.log",
             Self::Numa => "build/serial-numa.log",
         }
     }

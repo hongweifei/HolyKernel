@@ -86,7 +86,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn capability_swap(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let offset = frame.arg1();
-        let len = frame.arg2();
+        let _len = frame.arg2();
         let Some((handle, capability, _)) = self.capability_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -95,51 +95,63 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        // 压缩/swap 策略属于 Provider；没有 Provider 时不能保存页内容。
-        if let Ok(Some(provider)) = self.kernel.capability_provider(tcb, handle) {
-            let page = hk_hal::PAGE_SIZE as u64;
-            let page_index = (offset / page) as usize;
-            if let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index)
-                && !self.platform.page_shared(range.start())
-                && !matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
-                && let Ok(object) = self.kernel.capability_id(tcb, handle)
-            {
-                // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
-                // 常驻，下一次缺页会按常驻页快速路径重新映射。
-                self.unmap_capability_page(index, object, page_index);
-                let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
-                if self.platform.read_phys(range.start(), &mut data) {
-                    let words = [
-                        object.get(),
-                        page_index as u64,
-                        page_index as u64 * page,
-                        page,
-                        0,
-                        self.oom.events,
-                        0,
-                        0,
-                    ];
-                    let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
-                        .with_words(words)
-                        .with_data(data);
-                    if self.kernel.call_object(tcb, provider, message).is_ok() {
-                        let deadline = self.contract_now().saturating_add(1_000_000);
-                        let mut context = *frame;
-                        context.set_result(0);
-                        self.tasks[index].context = context;
-                        self.tasks[index].pending = Pending::ProviderReclaim {
-                            capability: handle,
-                            index: page_index,
-                            object,
-                            deadline,
-                        };
-                        self.timeouts.entry(deadline).or_default().push(index);
-                        return Switch::Block;
-                    }
-                }
-            }
+        let Ok(Some(provider)) = self.kernel.capability_provider(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let page = hk_hal::PAGE_SIZE as u64;
+        let page_index = (offset / page) as usize;
+        let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        if self.platform.page_shared(range.start()) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
         }
-        let _ = len;
+        if matches!(self.kernel.capability_pinned(tcb, handle), Ok(true)) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Ok(object) = self.kernel.capability_id(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
+        // 常驻，下一次缺页会按常驻页快速路径重新映射。
+        self.unmap_capability_page(index, object, page_index);
+        let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
+        if !self.platform.read_phys(range.start(), &mut data) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let words = [
+            object.get(),
+            page_index as u64,
+            page_index as u64 * page,
+            page,
+            0,
+            self.oom.events,
+            0,
+            0,
+        ];
+        let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
+            .with_words(words)
+            .with_data(data);
+        if self.kernel.call_object(tcb, provider, message).is_ok() {
+            let deadline = self.contract_now().saturating_add(1_000_000);
+            let mut context = *frame;
+            context.set_result(0);
+            self.tasks[index].context = context;
+            self.tasks[index].pending = Pending::ProviderReclaim {
+                capability: handle,
+                index: page_index,
+                object,
+                deadline,
+            };
+            self.timeouts.entry(deadline).or_default().push(index);
+            return Switch::Block;
+        }
         frame.set_result(u64::MAX);
         Switch::Continue
     }

@@ -147,68 +147,73 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ///
     /// 同一个能力可能被多个 Region 映射，页只在建立映射的那一段里记过账；
     /// 回收解除了该能力的所有别名，记账也要从所有 Region 中一并移除。
-    fn release_page_charges(&mut self, index: usize, object: ObjectId, page_index: usize) {
-        let slots: Vec<usize> = self
-            .process(index)
-            .regions
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, map)| {
-                let map = map.as_ref()?;
-                let id = self.kernel.capability_id(map.owner, map.capability).ok()?;
-                (id == object && map.page_charges.iter().any(|(page, _)| *page == page_index))
-                    .then_some(slot)
-            })
-            .collect();
-        for slot in slots {
+    fn release_page_charges(&mut self, _index: usize, object: ObjectId, page_index: usize) {
+        let mut regions: Vec<(usize, usize)> = Vec::new();
+        for slot in 0..self.tasks.len() {
+            if self.tasks[slot].leader != slot || self.tasks[slot].exited {
+                continue;
+            }
+            for (region, map) in self.process(slot).regions.iter().enumerate() {
+                let Some(map) = map.as_ref() else {
+                    continue;
+                };
+                let Ok(id) = self.kernel.capability_id(map.owner, map.capability) else {
+                    continue;
+                };
+                if id == object && map.page_charges.iter().any(|(page, _)| *page == page_index) {
+                    regions.push((slot, region));
+                }
+            }
+        }
+        for (slot, region) in regions {
             loop {
-                let position = self
-                    .process(index)
-                    .regions
-                    .get(slot)
-                    .and_then(|map| map.as_ref())
-                    .and_then(|map| {
-                        map.page_charges
-                            .iter()
-                            .position(|(page, _)| *page == page_index)
-                    });
+                let position = self.process(slot).regions[region].as_ref().and_then(|map| {
+                    map.page_charges
+                        .iter()
+                        .position(|(page, _)| *page == page_index)
+                });
                 let Some(position) = position else {
                     break;
                 };
-                let Some(map) = self.process_mut(index).regions[slot].as_mut() else {
+                let Some(map) = self.process_mut(slot).regions[region].as_mut() else {
                     break;
                 };
                 let (_, charge) = map.page_charges.swap_remove(position);
-                let _ = self.process_mut(index).ledger.release(charge);
+                let _ = self.process_mut(slot).ledger.release(charge);
             }
         }
     }
 
-    /// 解除映射该能力第 `page_index` 页的所有映射。
+    /// 解除该能力第 `page_index` 页在全部进程中的映射。
     pub(crate) fn unmap_capability_page(
         &self,
-        index: usize,
+        _index: usize,
         object: ObjectId,
         page_index: usize,
     ) -> bool {
         let page = PAGE_SIZE as u64;
         let capability_offset = page_index as u64 * page;
         let mut unmapped = false;
-        for region in self.process(index).regions.iter().flatten() {
-            let Ok(id) = self.kernel.capability_id(region.owner, region.capability) else {
-                continue;
-            };
-            if id != object {
+        for slot in 0..self.tasks.len() {
+            if self.tasks[slot].leader != slot || self.tasks[slot].exited {
                 continue;
             }
-            let start = region.offset;
-            let end = start.saturating_add(region.len as u64);
-            if capability_offset < start || capability_offset + page > end {
-                continue;
-            }
-            let virt = region.virt + (capability_offset - start);
-            if self.platform.unmap_user(index, virt, page as usize) {
-                unmapped = true;
+            for region in self.process(slot).regions.iter().flatten() {
+                let Ok(id) = self.kernel.capability_id(region.owner, region.capability) else {
+                    continue;
+                };
+                if id != object {
+                    continue;
+                }
+                let start = region.offset;
+                let end = start.saturating_add(region.len as u64);
+                if capability_offset < start || capability_offset + page > end {
+                    continue;
+                }
+                let virt = region.virt + (capability_offset - start);
+                if self.platform.unmap_user(slot, virt, page as usize) {
+                    unmapped = true;
+                }
             }
         }
         unmapped

@@ -45,7 +45,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn oom_policy(&mut self, index: usize, frame: &mut C) -> Switch {
-        if self.tasks[index].name != "root" {
+        let test_provider = self.tasks[index].name == hk_syscall::MEMORY_SERVICE
+            && self
+                .platform
+                .boot_cmdline()
+                .is_some_and(|line| line.contains("swap-test"));
+        if self.tasks[index].name != "root" && !test_provider {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
