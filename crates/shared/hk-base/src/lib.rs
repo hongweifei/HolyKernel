@@ -21,5 +21,5 @@ pub use boot::{
     FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
 };
 pub use irq::{ACPI_POWER_IRQ, ACPI_SCI_IRQ, ACPI_SLEEP_IRQ, IRQ_VECTOR_BASE};
-pub use mapping::CachePolicy;
+pub use mapping::{CachePolicy, PAGE_FLAG_SHARED};
 pub use time::{CivilClock, CivilTime, Duration, Moment};

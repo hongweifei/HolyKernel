@@ -463,7 +463,7 @@ impl UserPlatform for X86Platform {
                     data.clear();
                 }
                 let flags = if table.is_shared_frame(hk_hal::PhysAddr::new(phys)) {
-                    flags | hk_checkpoint::PAGE_FLAG_SHARED
+                    flags | hk_base::PAGE_FLAG_SHARED
                 } else {
                     flags
                 };

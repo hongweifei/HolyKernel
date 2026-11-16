@@ -12,7 +12,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 
 | 层 | 侧别 | crate | 职责 |
 | --- | --- | --- | --- |
-| L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间与用户地址布局；零依赖 |
+| L0 | 共享契约 | `hk-base` | 地址、架构标识、启动信息、时间、用户地址布局与映射属性；零依赖 |
 | L0 | 共享契约 | `hk-catalog` | 服务名称、启动白名单、桌面排序、重启策略、测试模式与默认 Cadence 的单一清单；依赖 `hk-cadence` |
 | L0 | 共享契约 | `hk-cadence` | Cadence/Meter 类型、调度类别、虚拟时间数学、亲和性、借贷与快照格式；依赖 `hk-base` |
 | L0 | 共享契约 | `hk-syscall` | 系统调用编号与跨边界 ABI 编码；零依赖 |
@@ -116,7 +116,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 服务协议标签与服务名常量 | `crates/user/hk-proto/src/*`；服务名清单在 `hk-catalog`，内存授权只按 Handle/Rights |
 | 内核符号表与异常现场 | `crates/kernel/hk-root-server/src/debug/{symbols,fault}.rs`；文本符号解析与符号化在 `hk-symbols` |
 | 用户态符号查询与回溯格式化 | `crates/user/hk-debug/src/lib.rs` |
-| 检查点快照格式与共享页标记 | `crates/shared/hk-checkpoint/src/lib.rs`（`PAGE_FLAG_SHARED` 不是硬件 PTE 位） |
+| 检查点快照格式 | `crates/shared/hk-checkpoint/src/lib.rs` |
+| 共享页软件标记（`PAGE_FLAG_SHARED`） | `crates/shared/hk-base/src/mapping.rs`；不是硬件 PTE 位，快照格式与平台页表编码共用，平台不依赖快照 crate |
 | 镜像服务清单、启动白名单、桌面排序、重启策略与测试模式 | `crates/shared/hk-catalog/src/lib.rs`（`SERVICES` 与 `BOOT_MODES`） |
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 默认启动与 opt-in 服务选择 | `crates/kernel/hk-root-server/src/loader.rs` 与各平台 loader 读取 `hk-catalog` |

@@ -885,7 +885,6 @@ version = "0.1.0"
 dependencies = [
  "amd-iommu",
  "hk-base",
- "hk-checkpoint",
  "hk-device",
  "hk-drivers",
  "hk-framebuffer",

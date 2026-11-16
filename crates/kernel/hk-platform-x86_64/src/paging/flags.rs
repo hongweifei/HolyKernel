@@ -136,9 +136,9 @@ impl PageFlags {
 
 /// 把快照属性转换为恢复用属性：清除共享标记与大页位，共享页恢复为可写私有页。
 pub const fn restore_flags(bits: u64) -> PageFlags {
-    let shared = bits & hk_checkpoint::PAGE_FLAG_SHARED != 0;
+    let shared = bits & hk_base::PAGE_FLAG_SHARED != 0;
     let writable = if shared { WRITABLE } else { bits & WRITABLE };
-    PageFlags((bits & !HUGE & !hk_checkpoint::PAGE_FLAG_SHARED) | writable | USER)
+    PageFlags((bits & !HUGE & !hk_base::PAGE_FLAG_SHARED) | writable | USER)
 }
 
 #[cfg(test)]
@@ -213,9 +213,9 @@ mod tests {
 
     #[test]
     fn restore_makes_shared_pages_writable_and_clears_markers() {
-        let restored = restore_flags(PRESENT | hk_checkpoint::PAGE_FLAG_SHARED | HUGE | USER);
+        let restored = restore_flags(PRESENT | hk_base::PAGE_FLAG_SHARED | HUGE | USER);
         assert_eq!(restored.raw() & WRITABLE, WRITABLE);
-        assert_eq!(restored.raw() & hk_checkpoint::PAGE_FLAG_SHARED, 0);
+        assert_eq!(restored.raw() & hk_base::PAGE_FLAG_SHARED, 0);
         assert_eq!(restored.raw() & HUGE, 0);
         assert_eq!(restored.raw() & USER, USER);
     }
