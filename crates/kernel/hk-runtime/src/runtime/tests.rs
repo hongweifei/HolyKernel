@@ -1684,6 +1684,15 @@ fn fork_cow_ranges_follow_regions() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_ne!(context.rax, u64::MAX);
     assert_eq!(*last_cow.lock(), alloc::vec![(virt, 0x1000)]);
+    assert!(
+        runtime
+            .process(index)
+            .regions
+            .iter()
+            .flatten()
+            .any(|region| { region.flags.contains(hk_mem::hmp::RegionFlags::COW) }),
+        "fork 后父 Region 标记 COW"
+    );
     let _ = runtime.finish(0, index);
 }
 

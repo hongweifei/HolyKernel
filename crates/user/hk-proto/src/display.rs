@@ -6,9 +6,12 @@
 pub use hk_syscall::DISPLAY_SERVICE;
 
 use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, recv_data_from, region_unmap, send,
-    send_handle,
+    CapabilityKind, MemoryClient, close_handle, exit, handle_duplicate, recv_data_from,
+    region_unmap, send, send_handle,
 };
+
+/// 交给 Display 的权利：映射绘制与句柄转移。
+const DISPLAY_RIGHTS: u32 = 0x1 | 0x2 | 0x8;
 
 /// 客户端窗口：表面缓冲、窗口编号与提交。
 pub struct Window {
@@ -28,13 +31,22 @@ impl Window {
         let bytes = width.checked_mul(height)?.checked_mul(4)?;
         let (handle, region, virt) =
             MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)?;
+        // Region 仍引用本地句柄；交给 Display 的是独立副本，转移不会让
+        // fork/COW 或 Region 清理失去能力查找。
+        let transferred = handle_duplicate(handle, DISPLAY_RIGHTS);
+        if transferred == 0 || transferred == u64::MAX {
+            let _ = close_handle(handle);
+            let _ = region_unmap(region);
+            return None;
+        }
         if send_handle(
             display,
             SURFACE_CREATE,
             pack_size(width as u32, height as u32),
-            handle,
+            transferred,
         ) == u64::MAX
         {
+            let _ = close_handle(transferred);
             let _ = close_handle(handle);
             let _ = region_unmap(region);
             return None;
@@ -86,13 +98,20 @@ impl Window {
         else {
             return false;
         };
+        let transferred = handle_duplicate(handle, DISPLAY_RIGHTS);
+        if transferred == 0 || transferred == u64::MAX {
+            let _ = close_handle(handle);
+            let _ = region_unmap(region);
+            return false;
+        }
         if send_handle(
             self.display,
             WINDOW_RESIZE,
             pack_window_size(self.window, width as u32, height as u32),
-            handle,
+            transferred,
         ) == u64::MAX
         {
+            let _ = close_handle(transferred);
             let _ = close_handle(handle);
             let _ = region_unmap(region);
             return false;

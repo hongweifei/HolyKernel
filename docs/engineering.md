@@ -116,7 +116,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 - **符号表**：`native.rs` 按 `nm` → `llvm-nm` → rustup 工具链自带的 `llvm-nm.exe` 回退，Windows 上不需要另装 binutils。
 - **冒烟**：QMP 走环回 TCP，输入类模式与 Linux 同一套代码；WHPX 的 virtio-blk 吞吐低一个量级，慢速宿主机用 `HK_SMOKE_TIMEOUT` 放宽预算（检查点用例约 68 s）。
 
-Windows + WHPX 下 39 个冒烟模式通过 38 个。已知失败：`debugfault` —— `hk-server-debug` 写 `AUTO_WINDOW_BASE`（`0x2000_0000`）时缺页被 `handle_fault` 判为 `Unhandled`，任务终止后无人发送 `DISPLAY_SHUTDOWN`，整机进入 idle，待查。
+Windows + WHPX 下 39 个冒烟模式通过；`debugfault` 的 fork 写时复制路径已修复，异常回溯可正常符号化并关闭 Display。
 
 ---
 

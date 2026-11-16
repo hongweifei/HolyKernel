@@ -790,6 +790,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let child_index = self.tasks.len();
+        // PTE 在 fork 时统一降为只读；父任务 Region 必须同步标记 COW，
+        // 否则写缺页会被当成保护错误，无法按私有副本解析。
+        for region in self.process_mut(index).regions.iter_mut().flatten() {
+            if region.rights.contains(hk_handle::Rights::WRITE)
+                && !region.flags.contains(hk_mem::hmp::RegionFlags::DONT_FORK)
+            {
+                region.flags.insert(hk_mem::hmp::RegionFlags::COW);
+            }
+        }
         let cow_ranges: Vec<(u64, u64)> = self
             .process(index)
             .regions
