@@ -6,8 +6,8 @@ mod cadence;
 mod hmp;
 mod ipc;
 mod lending;
-mod object;
-mod sched;
+mod object_ops;
+mod sched_ops;
 mod state;
 mod tracing;
 

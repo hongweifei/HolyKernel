@@ -12,7 +12,7 @@ pub mod framebuffer;
 pub mod handle;
 pub mod heap;
 pub mod memory;
-pub mod memory_manager;
+pub mod memory_client;
 pub mod runtime;
 
 pub use handle::Handle;
@@ -81,4 +81,4 @@ pub(crate) use hk_syscall_client::call as syscall_call;
 pub use hk_syscall_client::syscall::*;
 pub use hk_syscall_client::{root, syscall};
 pub use memory::*;
-pub use memory_manager::*;
+pub use memory_client::*;
