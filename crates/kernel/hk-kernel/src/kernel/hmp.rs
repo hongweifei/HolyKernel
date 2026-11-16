@@ -386,7 +386,6 @@ impl Kernel {
                 provider: Mutex::new(None),
                 provider_task: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
-                swapped: Mutex::new(BTreeMap::new()),
                 resident_peak: AtomicU64::new(resident),
                 pinned: AtomicBool::new(false),
                 scanout: AtomicBool::new(false),
@@ -489,31 +488,6 @@ impl Kernel {
         let (object, _) =
             self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
         Ok(object.take_capability_page(index))
-    }
-
-    /// 取出能力内已换出页的压缩块。
-    pub fn take_capability_swapped(
-        &self,
-        thread: TcbId,
-        capability: Handle,
-        index: usize,
-    ) -> Result<Option<Vec<u8>>, KernelError> {
-        let (object, _) =
-            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
-        Ok(object.take_capability_swapped(index))
-    }
-
-    /// 保存一页的压缩块。
-    pub fn set_capability_swapped(
-        &self,
-        thread: TcbId,
-        capability: Handle,
-        index: usize,
-        bytes: Vec<u8>,
-    ) -> Result<bool, KernelError> {
-        let (object, _) =
-            self.resolve(thread, capability, Rights::WRITE, ObjectKind::Capability)?;
-        Ok(object.set_capability_swapped(index, bytes))
     }
 
     /// 判断能力是否固定驻留。

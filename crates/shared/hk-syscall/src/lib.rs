@@ -201,8 +201,6 @@ pub enum CapabilityKind {
     Anonymous = 4,
     /// 物理页。
     Frame = 5,
-    /// 显存后备分配。
-    GpuAllocation = 6,
 }
 
 impl CapabilityKind {
@@ -215,7 +213,6 @@ impl CapabilityKind {
             3 => Self::DeviceAllocation,
             4 => Self::Anonymous,
             5 => Self::Frame,
-            6 => Self::GpuAllocation,
             _ => return None,
         })
     }
@@ -291,11 +288,11 @@ pub const NUMA_NODE_BYTES: usize = 24;
 pub const SYS_MEMORY_PRESSURE: u64 = 0xA8;
 /// 设置全局 OOM 阈值与动作；仅 Root 可调用。
 pub const SYS_OOM_POLICY: u64 = 0xA9;
-/// 主动回收当前任务的匿名页，返回释放字节数。
+/// 主动回收当前任务可证明为零的匿名页；非零页由 Provider 负责压缩/swap。
 pub const SYS_RECLAIM: u64 = 0xAA;
 /// 读取最近一次 OOM 审计记录。
 pub const SYS_OOM_EVENT: u64 = 0xAB;
-/// 显式压缩换出一个匿名能力范围，返回释放字节数。
+/// 请求绑定 Provider 保存/压缩一个匿名页；无 Provider 时返回 `u64::MAX`。
 pub const SYS_CAPABILITY_SWAP: u64 = 0xAC;
 /// 把能力的一段常驻页迁移到指定 NUMA 节点。
 pub const SYS_NUMA_MIGRATE: u64 = 0xAD;
@@ -730,13 +727,12 @@ mod tests {
             CapabilityKind::DeviceAllocation,
             CapabilityKind::Anonymous,
             CapabilityKind::Frame,
-            CapabilityKind::GpuAllocation,
         ];
         for (index, kind) in kinds.iter().enumerate() {
             assert_eq!(kind.as_u8() as usize, index);
             assert_eq!(CapabilityKind::from_u8(index as u8), Some(*kind));
         }
-        assert_eq!(CapabilityKind::from_u8(7), None);
+        assert_eq!(CapabilityKind::from_u8(6), None);
     }
 
     #[test]

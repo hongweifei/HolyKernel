@@ -37,27 +37,16 @@ impl CapabilityKindExt for CapabilityKind {
             CapabilityOp::Pin => {
                 matches!(
                     self,
-                    Self::Surface
-                        | Self::DeviceAllocation
-                        | Self::GpuAllocation
-                        | Self::Anonymous
-                        | Self::Frame
+                    Self::Surface | Self::DeviceAllocation | Self::Anonymous | Self::Frame
                 )
             }
-            CapabilityOp::Export => matches!(
-                self,
-                Self::DeviceAllocation | Self::GpuAllocation | Self::Frame
-            ),
+            CapabilityOp::Export => matches!(self, Self::DeviceAllocation | Self::Frame),
             CapabilityOp::Swap => matches!(self, Self::Anonymous),
             // 修订是唯一有回写语义的能力：不可变内容由 Provider 持久化。
             CapabilityOp::Writeback => matches!(self, Self::Revision),
             CapabilityOp::Phys => matches!(
                 self,
-                Self::Surface
-                    | Self::DeviceAllocation
-                    | Self::GpuAllocation
-                    | Self::Anonymous
-                    | Self::Frame
+                Self::Surface | Self::DeviceAllocation | Self::Anonymous | Self::Frame
             ),
             CapabilityOp::Grow => matches!(self, Self::Anonymous),
         }

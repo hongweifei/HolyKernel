@@ -70,8 +70,6 @@ define_kinds! {
     TaskImage => "task-image",
     /// 设备分配。
     DeviceAllocation => "device-allocation",
-    /// 显存后备分配。
-    GpuAllocation => "gpu-allocation",
     /// 匿名内存。
     Anonymous => "anonymous",
 }
@@ -90,10 +88,6 @@ impl CapabilityTag for TaskImage {
 
 impl CapabilityTag for DeviceAllocation {
     const KIND: CapabilityKind = CapabilityKind::DeviceAllocation;
-}
-
-impl CapabilityTag for GpuAllocation {
-    const KIND: CapabilityKind = CapabilityKind::GpuAllocation;
 }
 
 impl CapabilityTag for Anonymous {

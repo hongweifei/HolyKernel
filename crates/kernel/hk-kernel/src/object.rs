@@ -2,7 +2,6 @@
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
@@ -51,8 +50,6 @@ pub enum ObjectPayload {
         provider_task: Mutex<Option<u64>>,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
-        /// 已换出的匿名页；值为压缩后的字节块。
-        swapped: Mutex<BTreeMap<usize, Vec<u8>>>,
         /// 常驻字节数的历史峰值；只用于报告。
         resident_peak: AtomicU64,
         /// 是否固定驻留。
@@ -267,54 +264,6 @@ impl KernelObject {
         match &self.payload {
             ObjectPayload::Capability { pages, .. } => pages.lock().remove(&index),
             _ => None,
-        }
-    }
-
-    /// 取出能力内已换出页的压缩块。
-    pub fn take_capability_swapped(&self, index: usize) -> Option<Vec<u8>> {
-        match &self.payload {
-            ObjectPayload::Capability { swapped, .. } => swapped.lock().remove(&index),
-            _ => None,
-        }
-    }
-
-    /// 保存一页的压缩块；能力已有常驻页或索引越界时拒绝。
-    pub fn set_capability_swapped(&self, index: usize, bytes: Vec<u8>) -> bool {
-        if let ObjectPayload::Capability {
-            capability,
-            backing,
-            pages,
-            swapped,
-            ..
-        } = &self.payload
-        {
-            if backing.is_some() || pages.lock().contains_key(&index) {
-                return false;
-            }
-            let count = (capability.size() / capability.page_size() as u64) as usize;
-            if index >= count {
-                return false;
-            }
-            swapped.lock().insert(index, bytes);
-            return true;
-        }
-        false
-    }
-
-    /// 返回能力内已换出页的数量与压缩块总字节数。
-    pub fn capability_swapped_stats(&self) -> (u64, u64) {
-        match &self.payload {
-            ObjectPayload::Capability { swapped, .. } => {
-                let swapped = swapped.lock();
-                (
-                    swapped.len() as u64,
-                    swapped
-                        .values()
-                        .map(|bytes| bytes.len() as u64)
-                        .fold(0, u64::saturating_add),
-                )
-            }
-            _ => (0, 0),
         }
     }
 

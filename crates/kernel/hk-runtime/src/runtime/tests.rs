@@ -2192,82 +2192,6 @@ fn reclaim_notifies_provider_before_evicting_page() {
 }
 
 #[test]
-fn compressed_reclaim_swaps_out_and_back_in() {
-    let mut runtime = runtime();
-    let Step::Resume { index, mut context } = runtime.step(0) else {
-        panic!("任务应可运行");
-    };
-    let tcb = runtime.tasks[index].tcb;
-
-    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
-    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
-    context.rsi = 0x1000;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    let capability = context.rax;
-    assert_ne!(capability, u64::MAX);
-    context.rax = hk_syscall::SYS_REGION_MAP;
-    context.rdi = capability;
-    context.rsi = 0;
-    context.rdx = 0x1000;
-    context.r10 = 0b11;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    let region = context.rax;
-    assert_ne!(region, u64::MAX);
-    let (_, _, virt, _) = runtime.region_at(index, region as usize).expect("Region");
-    assert!(runtime.anonymous_fault(0, virt));
-
-    let (handle, _, _) = runtime
-        .capability_at(index, capability as usize)
-        .expect("能力");
-    let range = runtime
-        .kernel
-        .capability_page(tcb, handle, 0)
-        .expect("查询")
-        .expect("已装入页");
-    let mut page = [0_u8; hk_hal::PAGE_SIZE];
-    page[..32].copy_from_slice(b"holy-kernel compressed swap test");
-    assert!(runtime.platform.write_phys(range.start(), &page));
-    runtime.platform.zero = false;
-
-    context.rax = hk_syscall::SYS_CAPABILITY_SWAP;
-    context.rdi = capability;
-    context.rsi = 0;
-    context.rdx = hk_hal::PAGE_SIZE as u64;
-    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, hk_hal::PAGE_SIZE as u64);
-    assert!(
-        runtime
-            .kernel
-            .capability_page(tcb, handle, 0)
-            .expect("查询")
-            .is_none(),
-        "换出后不应保留常驻页"
-    );
-
-    runtime.current[0] = Some(index);
-    runtime.platform.mapped.store(false, Ordering::Release);
-    assert_eq!(
-        runtime.handle_fault(
-            0,
-            virt,
-            hk_mem::hmp::provider::ProviderAccess::Read,
-            context,
-        ),
-        FaultOutcome::Resumed
-    );
-    runtime.platform.mapped.store(true, Ordering::Release);
-    let restored = runtime
-        .kernel
-        .capability_page(tcb, handle, 0)
-        .expect("查询")
-        .expect("换入页");
-    let mut readback = [0_u8; hk_hal::PAGE_SIZE];
-    assert!(runtime.platform.read_phys(restored.start(), &mut readback));
-    assert_eq!(readback, page);
-    let _ = runtime.finish(0, index);
-}
-
-#[test]
 fn numa_migrate_moves_resident_page() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {
@@ -5356,5 +5280,47 @@ fn arena_grow_extends_alloc_window() {
     // 原先会超出窗口的分配，在增长后应成功。
     let size = (initial as usize).saturating_add(hk_hal::PAGE_SIZE);
     assert!(runtime.process_mut(index).allocate_arena(size, 8).is_some());
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn swap_without_provider_keeps_page() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    context.rax = hk_syscall::SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    context.rax = hk_syscall::SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let region = context.rax;
+    let (_, _, virt, _) = runtime.region_at(index, region as usize).expect("Region");
+    assert!(runtime.anonymous_fault(0, virt));
+
+    context.rax = hk_syscall::SYS_CAPABILITY_SWAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    let (handle, _, _) = runtime
+        .capability_at(index, capability as usize)
+        .expect("能力");
+    assert!(
+        runtime
+            .kernel
+            .capability_page(tcb, handle, 0)
+            .expect("查询")
+            .is_some(),
+        "没有 Provider 时不得由内核保存页"
+    );
     let _ = runtime.finish(0, index);
 }

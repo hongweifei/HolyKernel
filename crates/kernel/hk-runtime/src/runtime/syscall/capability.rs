@@ -43,15 +43,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let backing = if kind == CapabilityKind::GpuAllocation {
-            self.platform.gpu_capacity().and_then(|capacity| {
-                let frame = capacity.lock().allocate(aligned as usize).ok()?;
-                Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
-            })
-        } else {
-            self.allocate_owned(index, aligned)
-        };
-        let Some(backing) = backing else {
+        let Some(backing) = self.allocate_owned(index, aligned) else {
             let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -103,19 +95,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        // Provider 绑定时把原始页交给它保存/压缩，并阻塞等待确认；没有
-        // Provider 或发送失败时才退回内核压缩交换。
+        // 压缩/swap 策略属于 Provider；没有 Provider 时不能保存页内容。
         if let Ok(Some(provider)) = self.kernel.capability_provider(tcb, handle) {
             let page = hk_hal::PAGE_SIZE as u64;
             let page_index = (offset / page) as usize;
             if let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index)
                 && !self.platform.page_shared(range.start())
                 && !matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
+                && let Ok(object) = self.kernel.capability_id(tcb, handle)
             {
+                // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
+                // 常驻，下一次缺页会按常驻页快速路径重新映射。
+                self.unmap_capability_page(index, object, page_index);
                 let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
-                if self.platform.read_phys(range.start(), &mut data)
-                    && let Ok(object) = self.kernel.capability_id(tcb, handle)
-                {
+                if self.platform.read_phys(range.start(), &mut data) {
                     let words = [
                         object.get(),
                         page_index as u64,
@@ -143,8 +136,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 }
             }
         }
-        let released = self.swap_capability_pages(index, tcb, handle, offset, len);
-        frame.set_result(released);
+        let _ = len;
+        frame.set_result(u64::MAX);
         Switch::Continue
     }
 

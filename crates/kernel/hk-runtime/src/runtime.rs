@@ -54,7 +54,6 @@ mod oom_guard;
 mod platform;
 mod reclaim;
 mod state;
-mod swap;
 mod syscall;
 mod task;
 mod user_task;

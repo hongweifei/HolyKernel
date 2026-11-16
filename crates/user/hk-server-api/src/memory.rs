@@ -150,7 +150,9 @@ pub fn capability_scanout(capability: u64, enabled: bool) -> u64 {
     unsafe { syscall_call(SYS_CAPABILITY_SCANOUT, capability, u64::from(enabled), 0, 0).value }
 }
 
-/// 显式压缩换出一个匿名能力范围；Provider 绑定时由 Provider 保存内容。
+/// 请求绑定 Provider 保存/压缩指定页；未绑定 Provider 时返回 `u64::MAX`。
+///
+/// 当前实现一次处理 `offset` 所在的一页，`length` 暂未使用。
 pub fn capability_swap(capability: u64, offset: u64, length: usize) -> u64 {
     // SAFETY: 内核校验 Anonymous 类型、范围与 Provider 确认。
     unsafe { syscall_call(SYS_CAPABILITY_SWAP, capability, offset, length as u64, 0).value }
