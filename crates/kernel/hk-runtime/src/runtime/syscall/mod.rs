@@ -350,6 +350,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 Switch::Continue
             }
             SYS_ARENA_INFO => self.arena_info(index, frame),
+            SYS_ARENA_GROW => self.arena_grow(index, frame),
             SYS_SYSTEM_ARENA_INFO => self.system_arena_info(index, frame),
             SYS_OBJECT_ENUM => self.object_enum(index, frame),
             SYS_SYSTEM_ARENA_REGIONS => self.system_arena_regions(index, frame),

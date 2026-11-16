@@ -91,6 +91,21 @@ impl Arena {
         )
     }
 
+    /// 扩展 Arena 地址窗口；`additional` 必须页对齐。
+    ///
+    /// 增长只改变 Arena 的可用地址范围，不分配物理页；Region 仍按需映射。
+    pub fn grow(&mut self, additional: u64) -> Result<u64, HmpError> {
+        if additional == 0 || !additional.is_multiple_of(PAGE_SIZE as u64) {
+            return Err(HmpError::InvalidSize);
+        }
+        let size = self
+            .size
+            .checked_add(additional)
+            .ok_or(HmpError::OutOfRange)?;
+        self.size = size;
+        Ok(size)
+    }
+
     /// 把已映射的 Region 登记到 Arena。
     pub fn insert(&mut self, region: &Region) -> Result<RegionId, HmpError> {
         let virt = region.virt().ok_or(HmpError::NotMapped)?;
@@ -298,6 +313,16 @@ mod tests {
         )
         .expect("Region");
         assert_eq!(arena().insert(&region).err(), Some(HmpError::NotMapped));
+    }
+
+    #[test]
+    fn grows_address_window_by_aligned_bytes() {
+        let mut arena = arena();
+        assert_eq!(arena.grow(PAGE_SIZE as u64), Ok(0x5000));
+        assert_eq!(arena.size(), 0x5000);
+        assert_eq!(arena.grow(1), Err(HmpError::InvalidSize));
+        assert_eq!(arena.grow(0), Err(HmpError::InvalidSize));
+        assert_eq!(arena.insert(&region(0x40_4000)).is_ok(), true);
     }
 
     #[test]

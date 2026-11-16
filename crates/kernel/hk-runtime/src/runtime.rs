@@ -18,9 +18,9 @@ use hk_ipc::Message;
 use hk_mem::hmp::{Arena as HmpArena, Charge, RegionFlags, SharedLedger};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
-    FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_INFO,
-    SYS_BOOT_CMDLINE, SYS_CADENCE_INFO, SYS_CADENCE_NAMED, SYS_CADENCE_REVOKE, SYS_CADENCE_SELF,
-    SYS_CADENCE_SPLIT, SYS_CADENCE_UPDATE, SYS_CALL, SYS_CALL_TIMEOUT,
+    FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_GROW,
+    SYS_ARENA_INFO, SYS_BOOT_CMDLINE, SYS_CADENCE_INFO, SYS_CADENCE_NAMED, SYS_CADENCE_REVOKE,
+    SYS_CADENCE_SELF, SYS_CADENCE_SPLIT, SYS_CADENCE_UPDATE, SYS_CALL, SYS_CALL_TIMEOUT,
     SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
     SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_GRANT, SYS_CAPABILITY_PHYS,
     SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_CAPABILITY_SWAP, SYS_CAPACITY_ALLOC,
@@ -190,6 +190,24 @@ impl Process {
         }
         self.arena_next = end;
         Some((start, len as usize))
+    }
+
+    /// 扩展 `SYS_ALLOC` 使用的 Arena 地址窗口。
+    ///
+    /// 不改变 HMP Arena 的地址上界，只推进本任务可线性分配的窗口；新增长度
+    /// 必须页对齐，且不能越过自动映射窗口起点。
+    pub(crate) fn grow_arena(&mut self, additional: u64) -> Option<u64> {
+        let page = hk_hal::PAGE_SIZE as u64;
+        if additional == 0 || !additional.is_multiple_of(page) {
+            return None;
+        }
+        let limit = hk_base::user::AUTO_WINDOW_LIMIT.saturating_sub(self.arena_base);
+        let size = self.arena_size.checked_add(additional)?;
+        if size > limit {
+            return None;
+        }
+        self.arena_size = size;
+        Some(size)
     }
 
     /// 返回 Arena 已分配的虚拟字节数。

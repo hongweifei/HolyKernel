@@ -5333,3 +5333,28 @@ fn resident_capability_page_maps_without_provider() {
     assert!(runtime.platform.user_mapped(virt));
     let _ = runtime.finish(0, index);
 }
+
+#[test]
+fn arena_grow_extends_alloc_window() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let initial = runtime.process(index).arena_size;
+    assert!(initial >= hk_hal::PAGE_SIZE as u64);
+
+    context.rax = hk_syscall::SYS_ARENA_GROW;
+    context.rdi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, initial + hk_hal::PAGE_SIZE as u64);
+
+    context.rax = hk_syscall::SYS_ARENA_GROW;
+    context.rdi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, initial + hk_hal::PAGE_SIZE as u64);
+
+    // 原先会超出窗口的分配，在增长后应成功。
+    let size = (initial as usize).saturating_add(hk_hal::PAGE_SIZE);
+    assert!(runtime.process_mut(index).allocate_arena(size, 8).is_some());
+    let _ = runtime.finish(0, index);
+}

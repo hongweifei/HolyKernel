@@ -29,6 +29,20 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    /// 扩展当前任务的 Arena 分配窗口；`arg0 == 0` 时只查询当前大小。
+    pub(crate) fn arena_grow(&mut self, index: usize, frame: &mut C) -> Switch {
+        let additional = frame.arg0();
+        if additional == 0 {
+            frame.set_result(self.process(index).arena_size);
+            return Switch::Continue;
+        }
+        match self.process_mut(index).grow_arena(additional) {
+            Some(size) => frame.set_result(size),
+            None => frame.set_result(u64::MAX),
+        }
+        Switch::Continue
+    }
+
     /// 判断当前任务是否有权枚举内核映射。
     ///
     /// System Arena 暴露内核高半区的虚拟地址与权限，只授予 Debug/Checkpoint

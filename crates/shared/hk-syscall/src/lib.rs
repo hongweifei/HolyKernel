@@ -299,6 +299,8 @@ pub const SYS_OOM_EVENT: u64 = 0xAB;
 pub const SYS_CAPABILITY_SWAP: u64 = 0xAC;
 /// 把能力的一段常驻页迁移到指定 NUMA 节点。
 pub const SYS_NUMA_MIGRATE: u64 = 0xAD;
+/// 扩展当前任务 Arena 的地址窗口；`arg0` 为新增页对齐字节数。
+pub const SYS_ARENA_GROW: u64 = 0xAE;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -815,6 +817,7 @@ mod tests {
             SYS_OOM_EVENT,
             SYS_CAPABILITY_SWAP,
             SYS_NUMA_MIGRATE,
+            SYS_ARENA_GROW,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,
