@@ -11,17 +11,17 @@ name = "hk-server-ext4"
 path = "src/main.rs"
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../../crates/shared/hk-base" }
-hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
-hk-fs = { version = "0.1.0", path = "../../crates/user/hk-fs" }
-hk-fs-ext4 = { version = "0.1.0", path = "../../crates/user/hk-fs-ext4" }
-hk-holy-service = { version = "0.1.0", path = "../../crates/user/hk-holy-service" }
-hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
-hk-vfs = { version = "0.1.0", path = "../../crates/user/hk-vfs" }
+hk-base.workspace = true
+hk-block-ipc.workspace = true
+hk-fs.workspace = true
+hk-fs-ext4.workspace = true
+hk-holy-service.workspace = true
+hk-proto.workspace = true
+hk-server-api.workspace = true
+hk-vfs.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

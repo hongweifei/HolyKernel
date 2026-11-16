@@ -11,16 +11,16 @@ name = "hk-hosted"
 path = "src/main.rs"
 
 [dependencies]
-hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
-clap = { version = "4.5", features = ["derive"] }
-hk-hal = { version = "0.1.0", path = "../../crates/kernel/hk-hal" }
-hk-handle = { version = "0.1.0", path = "../../crates/kernel/hk-handle" }
-hk-ipc = { version = "0.1.0", path = "../../crates/kernel/hk-ipc" }
-hk-kernel = { version = "0.1.0", path = "../../crates/kernel/hk-kernel" }
-hk-mem = { version = "0.1.0", path = "../../crates/kernel/hk-mem" }
-hk-platform-hosted = { version = "0.1.0", path = "../../crates/kernel/hk-platform-hosted" }
-hk-root-server = { version = "0.1.0", path = "../../crates/kernel/hk-root-server" }
-hk-sim = { version = "0.1.0", path = "../../crates/kernel/hk-sim" }
+hk-cadence.workspace = true
+clap = { workspace = true, features = ["derive"] }
+hk-hal.workspace = true
+hk-handle.workspace = true
+hk-ipc.workspace = true
+hk-kernel.workspace = true
+hk-mem.workspace = true
+hk-platform-hosted.workspace = true
+hk-root-server.workspace = true
+hk-sim.workspace = true
 
 [lints]
 workspace = true

@@ -7,10 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-acpi = { version = "7.0.0-pre1", default-features = false }
-hermit-dtb = "0.1.1"
-amd-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
-intel-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
+acpi.workspace = true
+hermit-dtb.workspace = true
+amd-iommu.workspace = true
+intel-iommu.workspace = true
 
 [lints]
 workspace = true

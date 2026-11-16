@@ -7,22 +7,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
-hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-drivers = { version = "0.1.0", path = "../hk-drivers" }
-hk-framebuffer = { version = "0.1.0", path = "../hk-framebuffer" }
-hk-fw = { version = "0.1.0", path = "../../shared/hk-fw" }
-hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-mem = { version = "0.1.0", path = "../hk-mem" }
-hk-paging = { version = "0.1.0", path = "../hk-paging" }
-hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
-hk-smp = { version = "0.1.0", path = "../hk-smp" }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
-amd-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
-intel-iommu = { version = "0.1.0", git = "https://github.com/sergeyvolkovich/iommu-rs", rev = "721606e9f6b66a550b49d07e88fa582ed036c114", default-features = false }
-page_table_entry = "0.6.2"
-spin = "0.9"
-x86_64 = { version = "0.15.4", default-features = false, features = ["instructions"] }
+hk-device.workspace = true
+hk-base.workspace = true
+hk-drivers.workspace = true
+hk-framebuffer.workspace = true
+hk-fw.workspace = true
+hk-hal.workspace = true
+hk-mem.workspace = true
+hk-paging.workspace = true
+hk-mmio.workspace = true
+hk-smp.workspace = true
+hk-syscall.workspace = true
+amd-iommu.workspace = true
+intel-iommu.workspace = true
+page_table_entry.workspace = true
+spin.workspace = true
+x86_64 = { workspace = true, features = ["instructions"] }
 
 [lints]
 workspace = true

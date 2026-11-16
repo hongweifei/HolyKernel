@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../hk-base" }
+hk-base.workspace = true
 
 [lints]
 workspace = true

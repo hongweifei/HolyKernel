@@ -11,21 +11,21 @@ name = "hk-x86_64"
 path = "src/main.rs"
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../../crates/shared/hk-base" }
-hk-boot = { version = "0.1.0", path = "../../crates/kernel/hk-boot" }
-hk-catalog = { version = "0.1.0", path = "../../crates/shared/hk-catalog" }
-hk-checkpoint = { version = "0.1.0", path = "../../crates/shared/hk-checkpoint" }
-hk-device = { version = "0.1.0", path = "../../crates/shared/hk-device" }
-hk-hal = { version = "0.1.0", path = "../../crates/kernel/hk-hal" }
-hk-kernel = { version = "0.1.0", path = "../../crates/kernel/hk-kernel" }
-hk-mem = { version = "0.1.0", path = "../../crates/kernel/hk-mem" }
-hk-kernel-shell = { version = "0.1.0", path = "../../crates/kernel/hk-kernel-shell" }
-hk-platform-x86_64 = { version = "0.1.0", path = "../../crates/kernel/hk-platform-x86_64" }
-hk-root-server = { version = "0.1.0", path = "../../crates/kernel/hk-root-server" }
-hk-shell = { version = "0.1.0", path = "../../crates/shared/hk-shell" }
-hk-syscall = { version = "0.1.0", path = "../../crates/shared/hk-syscall" }
-hk-smp = { version = "0.1.0", path = "../../crates/kernel/hk-smp" }
-spin = "0.9"
+hk-base.workspace = true
+hk-boot.workspace = true
+hk-catalog.workspace = true
+hk-checkpoint.workspace = true
+hk-device.workspace = true
+hk-hal.workspace = true
+hk-kernel.workspace = true
+hk-mem.workspace = true
+hk-kernel-shell.workspace = true
+hk-platform-x86_64.workspace = true
+hk-root-server.workspace = true
+hk-shell.workspace = true
+hk-syscall.workspace = true
+hk-smp.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true

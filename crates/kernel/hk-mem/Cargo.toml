@@ -7,14 +7,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bitflags = { version = "2.6", default-features = false }
-hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-handle = { version = "0.1.0", path = "../hk-handle" }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
-spin = "0.9"
+bitflags.workspace = true
+hk-hal.workspace = true
+hk-handle.workspace = true
+hk-syscall.workspace = true
+spin.workspace = true
 
 [dev-dependencies]
-hk-platform-hosted = { version = "0.1.0", path = "../hk-platform-hosted" }
+hk-platform-hosted.workspace = true
 
 [lints]
 workspace = true

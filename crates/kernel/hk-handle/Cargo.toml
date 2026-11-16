@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bitflags = { version = "2.6", default-features = false }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+bitflags.workspace = true
+hk-syscall.workspace = true
 
 [lints]
 workspace = true

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-status = { version = "0.1.0", path = "../../shared/hk-status" }
+hk-status.workspace = true
 
 [lints]
 workspace = true

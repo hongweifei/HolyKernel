@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-font = { version = "0.1.0", path = "../../shared/hk-font" }
+hk-font = { workspace = true, features = ["scalable"] }
 
 [lints]
 workspace = true

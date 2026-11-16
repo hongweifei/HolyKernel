@@ -11,10 +11,10 @@ name = "hk-server-oom-test"
 path = "src/main.rs"
 
 [dependencies]
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-server-api.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

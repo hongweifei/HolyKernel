@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-root-server = { version = "0.1.0", path = "../hk-root-server" }
-hk-shell = { version = "0.1.0", path = "../../shared/hk-shell" }
+hk-hal.workspace = true
+hk-root-server.workspace = true
+hk-shell.workspace = true
 
 [lints]
 workspace = true

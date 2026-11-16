@@ -7,12 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
+hk-kernel.workspace = true
 
 [dev-dependencies]
-hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
-hk-handle = { version = "0.1.0", path = "../hk-handle" }
-hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
+hk-cadence.workspace = true
+hk-handle.workspace = true
+hk-ipc.workspace = true
 
 [lints]
 workspace = true

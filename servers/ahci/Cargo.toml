@@ -11,15 +11,15 @@ name = "hk-server-ahci"
 path = "src/main.rs"
 
 [dependencies]
-ahci-driver = "0.2"
-hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
-hk-device = { version = "0.1.0", path = "../../crates/shared/hk-device" }
-hk-driver-host = { version = "0.1.0", path = "../../crates/user/hk-driver-host" }
-hk-driver-rdif = { version = "0.1.0", path = "../../crates/user/hk-driver-rdif" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+ahci-driver.workspace = true
+hk-block-ipc.workspace = true
+hk-device.workspace = true
+hk-driver-host.workspace = true
+hk-driver-rdif.workspace = true
+hk-server-api.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-handle = { version = "0.1.0", path = "../hk-handle" }
-spin = "0.9"
+hk-handle.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true

@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-fs = { version = "0.1.0", path = "../hk-fs" }
-hk-proto = { version = "0.1.0", path = "../hk-proto" }
+hk-fs.workspace = true
+hk-proto.workspace = true
 
 [lints]
 workspace = true

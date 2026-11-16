@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../hk-base" }
-hk-mmio = { version = "0.1.0", path = "../hk-mmio" }
+hk-base.workspace = true
+hk-mmio.workspace = true
 
 [dev-dependencies]
-spin = "0.9"
+spin.workspace = true
 
 [lints]
 workspace = true

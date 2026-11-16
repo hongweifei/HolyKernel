@@ -7,10 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ax-crate-interface = "0.5"
-ax-sync = "0.6"
-crab-usb = "0.12"
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+ax-crate-interface.workspace = true
+ax-sync.workspace = true
+crab-usb.workspace = true
+hk-server-api.workspace = true
 
 [lints]
 workspace = true

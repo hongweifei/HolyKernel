@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
+hk-base.workspace = true
+hk-syscall.workspace = true
 
 [lints]
 workspace = true

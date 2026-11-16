@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bitflags = { version = "2.6", default-features = false }
-hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
+bitflags.workspace = true
+hk-base.workspace = true
+hk-device.workspace = true
 
 [lints]
 workspace = true

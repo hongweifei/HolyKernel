@@ -7,16 +7,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-catalog = { version = "0.1.0", path = "../../shared/hk-catalog" }
-hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
-hk-checkpoint = { version = "0.1.0", path = "../../shared/hk-checkpoint" }
-hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-image = { version = "0.1.0", path = "../../shared/hk-image" }
-hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
-hk-runtime = { version = "0.1.0", path = "../hk-runtime" }
-hk-symbols = { version = "0.1.0", path = "../../shared/hk-symbols" }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
-spin = "0.9"
+hk-catalog.workspace = true
+hk-cadence.workspace = true
+hk-checkpoint.workspace = true
+hk-hal.workspace = true
+hk-image.workspace = true
+hk-kernel.workspace = true
+hk-runtime.workspace = true
+hk-symbols.workspace = true
+hk-syscall.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true

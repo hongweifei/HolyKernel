@@ -11,15 +11,15 @@ name = "hk-server-nvme"
 path = "src/main.rs"
 
 [dependencies]
-hk-block-ipc = { version = "0.1.0", path = "../../crates/user/hk-block-ipc" }
-hk-device = { version = "0.1.0", path = "../../crates/shared/hk-device" }
-hk-driver-host = { version = "0.1.0", path = "../../crates/user/hk-driver-host" }
-hk-driver-rdif = { version = "0.1.0", path = "../../crates/user/hk-driver-rdif" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
-nvme-driver = "0.8"
+hk-block-ipc.workspace = true
+hk-device.workspace = true
+hk-driver-host.workspace = true
+hk-driver-rdif.workspace = true
+hk-server-api.workspace = true
+nvme-driver.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

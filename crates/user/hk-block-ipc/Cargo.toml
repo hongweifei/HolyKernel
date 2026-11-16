@@ -7,10 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-async = { version = "0.1.0", path = "../hk-async" }
-hk-block = { version = "0.1.0", path = "../hk-block" }
-hk-proto = { version = "0.1.0", path = "../hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
+hk-async.workspace = true
+hk-block.workspace = true
+hk-proto.workspace = true
+hk-server-api.workspace = true
 
 [lints]
 workspace = true

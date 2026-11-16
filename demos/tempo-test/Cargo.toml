@@ -11,12 +11,12 @@ name = "hk-server-tempo-test"
 path = "src/main.rs"
 
 [dependencies]
-hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
-hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-cadence.workspace = true
+hk-proto-client.workspace = true
+hk-server-api.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

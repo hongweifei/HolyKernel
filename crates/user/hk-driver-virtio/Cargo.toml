@@ -7,15 +7,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bitflags = { version = "2.6", default-features = false }
-hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
-hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-block = { version = "0.1.0", path = "../hk-block" }
-hk-mmio = { version = "0.1.0", path = "../../shared/hk-mmio" }
-hk-proto = { version = "0.1.0", path = "../hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
-spin = "0.9"
-virtio-drivers = { version = "0.13", default-features = false, features = ["alloc"] }
+bitflags.workspace = true
+hk-device.workspace = true
+hk-base.workspace = true
+hk-block.workspace = true
+hk-mmio.workspace = true
+hk-proto.workspace = true
+hk-server-api.workspace = true
+spin.workspace = true
+virtio-drivers = { workspace = true, features = ["alloc"] }
 
 [lints]
 workspace = true

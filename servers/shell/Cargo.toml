@@ -11,15 +11,15 @@ name = "hk-server-shell"
 path = "src/main.rs"
 
 [dependencies]
-hk-cadence = { version = "0.1.0", path = "../../crates/shared/hk-cadence" }
-hk-debug = { version = "0.1.0", path = "../../crates/user/hk-debug" }
-hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
-hk-proto-client = { version = "0.1.0", path = "../../crates/user/hk-proto-client" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
-hk-shell = { version = "0.1.0", path = "../../crates/shared/hk-shell" }
+hk-cadence.workspace = true
+hk-debug.workspace = true
+hk-proto.workspace = true
+hk-proto-client.workspace = true
+hk-server-api.workspace = true
+hk-shell.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

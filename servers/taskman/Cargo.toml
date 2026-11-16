@@ -11,13 +11,13 @@ name = "hk-server-taskman"
 path = "src/main.rs"
 
 [dependencies]
-hk-canvas = { version = "0.1.0", path = "../../crates/user/hk-canvas" }
-hk-font = { version = "0.1.0", path = "../../crates/shared/hk-font" }
-hk-proto = { version = "0.1.0", path = "../../crates/user/hk-proto" }
-hk-server-api = { version = "0.1.0", path = "../../crates/user/hk-server-api" }
+hk-canvas.workspace = true
+hk-font.workspace = true
+hk-proto.workspace = true
+hk-server-api.workspace = true
 
 [build-dependencies]
-hk-server-build = { version = "0.1.0", path = "../../crates/user/hk-server-build" }
+hk-server-build.workspace = true
 
 [lints]
 workspace = true

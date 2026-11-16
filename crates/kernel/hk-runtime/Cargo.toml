@@ -7,17 +7,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hk-device = { version = "0.1.0", path = "../../shared/hk-device" }
-hk-base = { version = "0.1.0", path = "../../shared/hk-base" }
-hk-cadence = { version = "0.1.0", path = "../../shared/hk-cadence" }
-hk-checkpoint = { version = "0.1.0", path = "../../shared/hk-checkpoint" }
-hk-handle = { version = "0.1.0", path = "../hk-handle" }
-hk-hal = { version = "0.1.0", path = "../hk-hal" }
-hk-ipc = { version = "0.1.0", path = "../hk-ipc" }
-hk-kernel = { version = "0.1.0", path = "../hk-kernel" }
-hk-mem = { version = "0.1.0", path = "../hk-mem" }
-hk-syscall = { version = "0.1.0", path = "../../shared/hk-syscall" }
-spin = "0.9"
+hk-device.workspace = true
+hk-base.workspace = true
+hk-cadence.workspace = true
+hk-checkpoint.workspace = true
+hk-handle.workspace = true
+hk-hal.workspace = true
+hk-ipc.workspace = true
+hk-kernel.workspace = true
+hk-mem.workspace = true
+hk-syscall.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true

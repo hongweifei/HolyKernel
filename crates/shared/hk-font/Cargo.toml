@@ -11,10 +11,10 @@ default = ["scalable"]
 scalable = ["dep:ttf-parser"]
 
 [dependencies]
-libm = "0.2"
-lovyangfx-fonts = { version = "0.2", default-features = false, features = ["efont-cn-16"] }
-spin = "0.9"
-ttf-parser = { version = "0.25", default-features = false, features = ["no-std-float"], optional = true }
+libm.workspace = true
+lovyangfx-fonts = { workspace = true, features = ["efont-cn-16"] }
+spin.workspace = true
+ttf-parser = { workspace = true, features = ["no-std-float"], optional = true }
 
 [lints]
 workspace = true

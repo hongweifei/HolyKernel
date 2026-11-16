@@ -11,18 +11,18 @@ name = "xtask"
 path = "src/main.rs"
 
 [dependencies]
-hk-base = { version = "0.1.0", path = "../crates/shared/hk-base" }
-hk-catalog = { version = "0.1.0", path = "../crates/shared/hk-catalog" }
-clap = { version = "4.5", features = ["derive"] }
-hk-block = { version = "0.1.0", path = "../crates/user/hk-block" }
-hk-fs-ext4 = { version = "0.1.0", path = "../crates/user/hk-fs-ext4" }
-hk-fs-holyfs = { version = "0.1.0", path = "../crates/user/hk-fs-holyfs" }
-hk-fw = { version = "0.1.0", path = "../crates/shared/hk-fw" }
-hk-image = { version = "0.1.0", path = "../crates/shared/hk-image" }
-hk-server-build = { version = "0.1.0", path = "../crates/user/hk-server-build" }
-hk-vfs = { version = "0.1.0", path = "../crates/user/hk-vfs" }
-toml = "0.8"
-xmas-elf = "0.10"
+hk-base.workspace = true
+hk-catalog.workspace = true
+clap = { workspace = true, features = ["derive"] }
+hk-block.workspace = true
+hk-fs-ext4.workspace = true
+hk-fs-holyfs.workspace = true
+hk-fw.workspace = true
+hk-image.workspace = true
+hk-server-build.workspace = true
+hk-vfs.workspace = true
+toml.workspace = true
+xmas-elf.workspace = true
 
 [lints]
 workspace = true

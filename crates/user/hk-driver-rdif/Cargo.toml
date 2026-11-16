@@ -7,10 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dma-api = "0.10"
-hk-block = { version = "0.1.0", path = "../hk-block" }
-rdif-block = "0.13"
-spin = "0.9"
+dma-api.workspace = true
+hk-block.workspace = true
+rdif-block.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true
