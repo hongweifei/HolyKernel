@@ -25,6 +25,17 @@ mod tests {
                 let text = fs::read_to_string(&path).expect("读取 Cargo.toml");
                 let manifest: toml::Value = text.parse().expect("解析 Cargo.toml");
                 let name = manifest["package"]["name"].as_str().expect("package.name");
+                if directory == "clients" {
+                    assert!(
+                        name.starts_with("hk-client-"),
+                        "clients/ 下的包必须以 hk-client- 开头：{name}"
+                    );
+                } else {
+                    assert!(
+                        name.starts_with("hk-server-"),
+                        "{directory}/ 下的包必须以 hk-server- 开头：{name}"
+                    );
+                }
                 packages.push(name.to_string());
             }
         }
