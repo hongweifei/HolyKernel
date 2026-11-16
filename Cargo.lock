@@ -659,7 +659,6 @@ version = "0.1.0"
 dependencies = [
  "dma-api",
  "hk-block",
- "hk-server-api",
  "rdif-block",
  "spin",
 ]

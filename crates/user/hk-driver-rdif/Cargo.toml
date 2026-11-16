@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 dma-api = "0.10"
 hk-block = { version = "0.1.0", path = "../hk-block" }
-hk-server-api = { version = "0.1.0", path = "../hk-server-api" }
 rdif-block = "0.13"
 spin = "0.9"
 

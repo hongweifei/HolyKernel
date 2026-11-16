@@ -25,6 +25,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     // SAFETY: Region 已映射；先读触发零页装入，再写入 pattern。
     let _zero = unsafe { core::ptr::read_volatile(virt as *const u8) };
     let pattern = 0xA7_u8;
+    // SAFETY: 上一行读取已触发零页装入；此处写同一 Region 内已映射的 1 字节。
     unsafe {
         core::ptr::write_volatile(virt as *mut u8, pattern);
     }

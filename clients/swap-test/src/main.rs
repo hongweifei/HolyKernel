@@ -90,6 +90,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         let pattern = (index as u8).wrapping_mul(37).wrapping_add(11);
         // SAFETY: Region 已映射；读取触发零页缺页，写不能先于读。
         let _zero = unsafe { core::ptr::read_volatile(virt as *const u8) };
+        // SAFETY: 上一行读取已装入该页；写同一 Region 内已映射的 1 字节。
         unsafe {
             core::ptr::write_volatile(virt as *mut u8, pattern);
         }
