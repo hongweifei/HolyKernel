@@ -12,15 +12,15 @@ pub fn run() -> Result<()> {
     format.args(["fmt", "--all", "--check"]);
     cargo::run(format)?;
 
+    // 服务二进制只在 `x86_64-unknown-none` 上包含实现；host 构建退化为空壳，
+    // Cargo 会把它们的依赖全部报成 unused。host 轮只覆盖库与宿主工具，服务
+    // 二进制由下面的目标轮检查。
     let mut clippy = cargo::locked();
-    clippy.args([
-        "clippy",
-        "--workspace",
-        "--all-targets",
-        "--",
-        "-D",
-        "warnings",
-    ]);
+    clippy.args(["clippy", "--workspace", "--all-targets"]);
+    for service in hk_catalog::SERVERS.iter().copied().chain(["hk-x86_64"]) {
+        clippy.args(["--exclude", service]);
+    }
+    clippy.args(["--", "-D", "warnings"]);
     cargo::run(clippy)?;
 
     let target = Target::X86_64Qemu;
