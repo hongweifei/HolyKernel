@@ -63,7 +63,7 @@ const CONTRACT_FORBIDDEN: &[&str] = &[
     "hk-server-",
 ];
 
-/// HolyFS 原生实现禁止依赖的类别：不得依赖 VFS 或其适配器。
+/// HolyFS 原生实现禁止依赖的类别：不得依赖 VFS。
 const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
@@ -72,7 +72,6 @@ const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
     "hk-x86_64",
     "hk-hosted",
     "hk-vfs",
-    "hk-fs-holyfs-vfs",
 ];
 
 /// 服务禁止依赖的类别。
@@ -490,8 +489,9 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-proto" => PROTO_FORBIDDEN,
         "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc"
-        | "hk-holy-proto" | "hk-proto-client" | "hk-fs-ext4" | "hk-fs-holyfs-vfs" | "hk-debug"
-        | "hk-canvas" => USERSPACE_LIB_FORBIDDEN,
+        | "hk-holy-proto" | "hk-proto-client" | "hk-fs-ext4" | "hk-debug" | "hk-canvas" => {
+            USERSPACE_LIB_FORBIDDEN
+        }
         "hk-paging" => USERSPACE_LIB_FORBIDDEN,
         "hk-framebuffer" | "hk-fw" | "hk-boot" | "hk-smp" | "hk-drivers" => LIB_FORBIDDEN,
         service if service.starts_with("hk-server-") => SERVER_FORBIDDEN,

@@ -509,9 +509,6 @@ crates/user/hk-fs-holyfs/src/
 │   └── persist.rs  元数据树与超级块提交
 ├── handle.rs       原生卷句柄（DocPath、整文档、修订链）
 └── tests.rs        单元、子集合、持久化测试
-
-crates/user/hk-fs-holyfs-vfs/src/lib.rs
-                     VFS Backend 适配：NodeId ↔ DocId、错误与类型映射
 ```
 
 ---

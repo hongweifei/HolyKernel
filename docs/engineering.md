@@ -31,13 +31,13 @@ HolyKernel/
 │       ├── hk-server-api hk-syscall-client hk-proto hk-proto-client hk-block hk-block-ipc
 │       ├── hk-holy-proto hk-holy-service hk-fs-remote
 │       ├── hk-net hk-fs hk-vfs
-│       ├── hk-fs-ext4 hk-fs-holyfs hk-fs-holyfs-vfs
+│       ├── hk-fs-ext4 hk-fs-holyfs
 │       └── hk-driver-virtio hk-canvas hk-worker hk-thread hk-sync
 │           hk-async hk-coroutine hk-debug hk-server-build
 ├── platforms/             x86_64-qemu、hosted
-├── servers/               常驻用户态服务（含规划中的 tempo）
+├── servers/               常驻用户态服务
 ├── clients/               网络状态与 `*-test` 自检客户端
-├── demos/                 demo/echo/fault/fork/latency/spin 演示服务
+├── demos/                 demo/echo/fault/fork/latency/memory-test/realtime/spin/tempo-test/wakeup 演示与冒烟服务
 ├── scripts/               随镜像打包的 HolyShell 脚本
 └── docs/
 ```

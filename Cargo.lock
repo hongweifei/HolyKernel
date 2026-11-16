@@ -633,16 +633,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hk-driver-ahci"
-version = "0.1.0"
-dependencies = [
- "hk-block",
- "hk-device",
- "hk-server-api",
- "spin",
-]
-
-[[package]]
 name = "hk-driver-host"
 version = "0.1.0"
 dependencies = [
@@ -738,15 +728,6 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-fs",
-]
-
-[[package]]
-name = "hk-fs-holyfs-vfs"
-version = "0.1.0"
-dependencies = [
- "hk-block",
- "hk-fs",
- "hk-fs-holyfs",
 ]
 
 [[package]]
