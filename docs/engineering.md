@@ -23,7 +23,7 @@ HolyKernel/
 │   ├── kernel/            内核侧
 │   │   ├── hk-hal hk-handle hk-ipc hk-mem hk-kernel
 │   │   ├── hk-paging（UserSpace、FrameRefs、COW）
-│   │   ├── hk-boot hk-framebuffer hk-smp hk-test hk-drivers
+│   │   ├── hk-boot hk-framebuffer hk-smp hk-drivers
 │   │   ├── hk-runtime（用户任务、syscall 分派、RootServer 原语）
 │   │   ├── hk-root-server hk-platform-x86_64 hk-platform-hosted
 │   │   └── hk-kernel-shell hk-sim

@@ -380,5 +380,5 @@ pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
         frame.r12, frame.r13, frame.r14, frame.r15
     );
 
-    hk_test::exit(hk_test::ExitCode::Failure(70))
+    hk_hal::exit(hk_hal::ExitCode::Failure(70))
 }

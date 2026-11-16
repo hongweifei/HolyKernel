@@ -13,6 +13,7 @@ pub mod console;
 pub mod dma;
 pub mod entropy;
 pub mod execution;
+pub mod exit;
 pub mod io;
 pub mod iommu;
 pub mod irq;
@@ -31,6 +32,7 @@ pub use console::Console;
 pub use dma::{DmaBuffer, DmaError, DmaOps};
 pub use entropy::Entropy;
 pub use execution::{SyscallFrame, UserContext};
+pub use exit::{ExitCode, exit};
 pub use hk_base::{
     Arch, BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, CpuId,
     DirectMapInfo, FramebufferInfo, MemoryRegion, PAGE_SHIFT, PAGE_SIZE, PhysAddr, PhysRange,

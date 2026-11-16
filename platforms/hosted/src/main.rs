@@ -13,9 +13,9 @@ mod demo;
 use std::fmt::Write;
 
 use clap::Parser;
+use hk_hal::ExitCode;
 use hk_hal::{BootInfo, Platform};
 use hk_platform_hosted::{HostedConfig, HostedPlatform};
-use hk_test::ExitCode;
 
 /// Hosted 模拟器启动参数。
 #[derive(Debug, Parser)]
@@ -48,13 +48,13 @@ fn main() {
             match demo::run(config.seed) {
                 Ok(report) => {
                     platform.console().write_str(&demo::describe(&report));
-                    hk_test::exit(ExitCode::Success);
+                    hk_hal::exit(ExitCode::Success);
                 }
                 Err(error) => {
                     let mut report = String::new();
                     writeln!(report, "内核演示失败：{error}").expect("格式化失败报告");
                     platform.console().write_str(&report);
-                    hk_test::exit(ExitCode::Failure(2));
+                    hk_hal::exit(ExitCode::Failure(2));
                 }
             }
         }
@@ -62,7 +62,7 @@ fn main() {
             let mut report = String::new();
             writeln!(report, "启动失败：{error}").expect("格式化启动失败报告");
             platform.console().write_str(&report);
-            hk_test::exit(ExitCode::Failure(1));
+            hk_hal::exit(ExitCode::Failure(1));
         }
     }
 }

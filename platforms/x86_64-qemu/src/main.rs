@@ -35,6 +35,8 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
+use hk_hal::ExitCode;
+#[cfg(target_os = "none")]
 use hk_hal::{Console, Platform};
 #[cfg(target_os = "none")]
 use hk_platform_x86_64::bootstrap;
@@ -42,8 +44,6 @@ use hk_platform_x86_64::bootstrap;
 use hk_platform_x86_64::{COM1, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_root_server::ServiceTable;
-#[cfg(target_os = "none")]
-use hk_test::ExitCode;
 
 /// 内核启动栈字节数。
 ///
@@ -95,7 +95,7 @@ extern "C" fn kmain() -> ! {
         Ok(info) => info,
         Err(error) => {
             announce(&console, None, &format!("启动失败：{error}\n"));
-            hk_test::exit(ExitCode::Failure(1));
+            hk_hal::exit(ExitCode::Failure(1));
         }
     };
 
@@ -118,7 +118,7 @@ extern "C" fn kmain() -> ! {
 
     if let Err(error) = hk_platform_x86_64::platform::PLATFORM.init(&info) {
         announce(&console, screen.as_ref(), &format!("{error}\n"));
-        hk_test::exit(ExitCode::Failure(2));
+        hk_hal::exit(ExitCode::Failure(2));
     }
 
     announce(&console, screen.as_ref(), "启动信息校验通过\n");
@@ -359,7 +359,7 @@ extern "C" fn kmain() -> ! {
         }
     }
 
-    hk_test::exit(ExitCode::Success);
+    hk_hal::exit(ExitCode::Success);
 }
 
 #[cfg(target_os = "none")]
@@ -392,7 +392,7 @@ fn fail(
     code: ExitCode,
 ) -> ! {
     announce(console, screen, message);
-    hk_test::exit(code)
+    hk_hal::exit(code)
 }
 
 #[cfg(target_os = "none")]
@@ -414,7 +414,7 @@ fn run_timer_test(console: &Serial) -> ! {
     let _ = writeln!(report, "定时器中断 {ticks} 次");
     console.write_str(&report);
 
-    hk_test::exit(ExitCode::Success)
+    hk_hal::exit(ExitCode::Success)
 }
 
 #[cfg(target_os = "none")]
@@ -433,7 +433,7 @@ impl core::fmt::Write for SerialWriter {
 fn panic(info: &PanicInfo) -> ! {
     let mut console = SerialWriter(Serial::new(COM1));
     let _ = writeln!(console, "\n内核 panic：{info}");
-    hk_test::exit(ExitCode::Failure(70))
+    hk_hal::exit(ExitCode::Failure(70))
 }
 
 #[cfg(not(target_os = "none"))]

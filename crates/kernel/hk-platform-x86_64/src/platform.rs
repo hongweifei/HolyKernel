@@ -6,10 +6,9 @@
 
 use hk_base::Moment;
 use hk_hal::{
-    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, InterruptController, MAX_CPUS, PhysAddr,
-    PhysicalAccess, PhysicalError, Platform, PlatformError, Timer,
+    Arch, BootInfo, Console, CpuId, DmaOps, Entropy, ExitCode, InterruptController, MAX_CPUS,
+    PhysAddr, PhysicalAccess, PhysicalError, Platform, PlatformError, Timer, exit,
 };
-use hk_test::{ExitCode, exit};
 
 use crate::port::{inb, outb};
 use crate::serial::{COM1, Serial};

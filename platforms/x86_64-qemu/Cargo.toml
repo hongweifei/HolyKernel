@@ -25,7 +25,6 @@ hk-root-server = { version = "0.1.0", path = "../../crates/kernel/hk-root-server
 hk-shell = { version = "0.1.0", path = "../../crates/shared/hk-shell" }
 hk-syscall = { version = "0.1.0", path = "../../crates/shared/hk-syscall" }
 hk-smp = { version = "0.1.0", path = "../../crates/kernel/hk-smp" }
-hk-test = { version = "0.1.0", path = "../../crates/kernel/hk-test" }
 spin = "0.9"
 
 [lints]

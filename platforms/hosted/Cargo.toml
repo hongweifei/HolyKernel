@@ -21,7 +21,6 @@ hk-mem = { version = "0.1.0", path = "../../crates/kernel/hk-mem" }
 hk-platform-hosted = { version = "0.1.0", path = "../../crates/kernel/hk-platform-hosted" }
 hk-root-server = { version = "0.1.0", path = "../../crates/kernel/hk-root-server" }
 hk-sim = { version = "0.1.0", path = "../../crates/kernel/hk-sim" }
-hk-test = { version = "0.1.0", path = "../../crates/kernel/hk-test" }
 
 [lints]
 workspace = true
