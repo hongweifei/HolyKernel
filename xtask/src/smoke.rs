@@ -196,6 +196,9 @@ pub enum SmokeMode {
     /// 多 NUMA 节点拓扑与节点容量分配
     #[value(name = "numa")]
     Numa,
+    /// 页从节点 0 迁移到节点 1
+    #[value(name = "numa-migrate")]
+    NumaMigrate,
 }
 
 impl SmokeMode {
@@ -279,6 +282,7 @@ impl SmokeMode {
             Self::Heap => Some(String::from("shell-test heap-test")),
             Self::Oom => Some(String::from("oom-test")),
             Self::Numa => None,
+            Self::NumaMigrate => Some(String::from("numa-test")),
         }
     }
 
@@ -671,6 +675,7 @@ impl SmokeMode {
                 "hk-server-oom-observer: ok",
             ],
             Self::Numa => Self::Boot.expected(),
+            Self::NumaMigrate => &["hk-server-numa-test: migrated ", "hk-server-numa-test: ok"],
         }
     }
 
@@ -718,6 +723,7 @@ impl SmokeMode {
             | Self::CheckpointServer
             | Self::DisplayRestart
             | Self::Numa
+            | Self::NumaMigrate
             | Self::Swap
             | Self::Heap
             | Self::Oom => QEMU_SUCCESS,
@@ -778,6 +784,7 @@ impl SmokeMode {
             Self::Heap => "build/serial-heap.log",
             Self::Oom => "build/serial-oom.log",
             Self::Numa => "build/serial-numa.log",
+            Self::NumaMigrate => "build/serial-numa-migrate.log",
         }
     }
 
@@ -966,7 +973,7 @@ pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {
     let mut command = Command::new(crate::qemu::program());
     crate::qemu::accelerate(&mut command);
     command.args(["-M", "q35"]);
-    if mode == SmokeMode::Numa {
+    if matches!(mode, SmokeMode::Numa | SmokeMode::NumaMigrate) {
         command.args([
             "-m",
             "256M",

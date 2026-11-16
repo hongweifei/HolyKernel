@@ -77,6 +77,15 @@ pub fn run(
             }
         }
     }
+    let numa_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("numa-test"));
+    if numa_test
+        && let Some(module) = info
+            .server_modules
+            .iter()
+            .find(|module| loader::service_name(module.name) == "hk-server-numa-test")
+    {
+        modules.push(module);
+    }
     let tempo_test = hk_boot::limine::cmdline().is_some_and(|line| line.contains("tempo-test"));
     if tempo_test
         && let Some(module) = info
@@ -288,6 +297,9 @@ pub fn run(
         }
         if oom_test {
             return matches!(name, "hk-server-oom-test" | "hk-server-oom-observer");
+        }
+        if numa_test {
+            return matches!(name, "hk-server-memory" | "hk-server-numa-test");
         }
         if checkpoint_srv_test {
             // Checkpoint Server 自检：服务、目标任务、客户端与 HolyFS 落盘链路。
