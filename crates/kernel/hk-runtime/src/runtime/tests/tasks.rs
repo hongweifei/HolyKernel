@@ -49,6 +49,7 @@ fn attach_registers_loader_regions() {
         len: 0x2000,
         writable: false,
         executable: true,
+        source: None,
     };
     runtime
         .attach_with_regions(index, context, &[spec])

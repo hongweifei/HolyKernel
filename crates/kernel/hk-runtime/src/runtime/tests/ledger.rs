@@ -158,6 +158,7 @@ fn object_ledger_reports_loader_region_charge() {
         len: hk_hal::PAGE_SIZE,
         writable: false,
         executable: true,
+        source: None,
     };
     let charge = runtime
         .process_mut(index)

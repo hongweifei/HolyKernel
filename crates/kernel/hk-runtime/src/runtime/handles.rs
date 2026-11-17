@@ -647,6 +647,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 在任务退出时拆除该进程的全部 Region。
     pub(crate) fn teardown_process(&mut self, index: usize) {
+        // 懒镜像来源按能力对象标识登记；进程退出后不再有缺页请求。
+        let tcb = self.tasks[index].tcb;
+        let image_ids: Vec<u64> = self
+            .process(index)
+            .regions
+            .iter()
+            .flatten()
+            .filter_map(|region| self.kernel.handle_id(tcb, region.capability).ok())
+            .map(|id| id.get())
+            .collect();
+        self.image_sources.retain(|(id, _)| !image_ids.contains(id));
         let slots: Vec<usize> = (0..self.process(index).regions.len()).collect();
         for slot in slots {
             if self

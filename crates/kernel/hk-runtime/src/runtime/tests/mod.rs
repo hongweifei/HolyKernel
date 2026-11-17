@@ -11,6 +11,7 @@ mod capacity;
 mod device;
 mod frame_map;
 mod frames;
+mod image;
 mod ipc;
 mod ledger;
 mod lifecycle;
