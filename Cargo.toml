@@ -15,6 +15,11 @@ unsafe_op_in_unsafe_fn = "deny"
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
 
+# 服务与客户端二进制几乎全部依赖位于 `cfg(target_os = "none")` 分支，
+# 宿主编译时这些依赖必然“未使用”；裸机目标下另有真实检查。
+[workspace.lints.cargo]
+unused_dependencies = "allow"
+
 [workspace.dependencies]
 acpi = { version = "7.0.0-pre1", default-features = false }
 ahci-driver = "0.2"
