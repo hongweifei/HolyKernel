@@ -316,6 +316,11 @@ pub const SYS_CAPACITY_SOFT_LIMIT: u64 = 0xB2;
 /// `words = [object_id, module_index, file_offset, segment_len, 0, 0, 0, 0]`。
 pub const IMAGE_REGISTER: u64 = 0x1300;
 
+/// 注册服务重启/启动通知；`arg0` 名称、`arg1` 长度、`arg2` Notification 句柄。
+pub const SYS_SERVICE_WATCH: u64 = 0xB7;
+/// Image Server 测试退出标签。
+pub const IMAGE_RESTART: u64 = 0x1301;
+
 /// 查询启动模块数量；仅 Image Server 可调用。
 pub const SYS_MODULE_COUNT: u64 = 0xB4;
 /// 查询启动模块信息；仅 Image Server 可调用。
@@ -857,6 +862,7 @@ mod tests {
             SYS_CAPABILITY_CREATE_ON,
             SYS_CAPACITY_SOFT_LIMIT,
             SYS_MEMORY_EVENT_SUBSCRIBE,
+            SYS_SERVICE_WATCH,
             SYS_MODULE_COUNT,
             SYS_MODULE_INFO,
             SYS_MODULE_READ,

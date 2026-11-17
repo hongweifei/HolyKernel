@@ -342,6 +342,8 @@ pub struct UserRuntime<C, P> {
     modules: Vec<ModuleRecord>,
     /// 用户态 Image Server 段注册。
     image_registrations: Vec<ImageRegistration>,
+    /// 服务启动/重启通知：(服务名, Notification 对象)。
+    service_watchers: Vec<(alloc::string::String, hk_handle::ObjectId)>,
     platform: P,
 }
 
@@ -390,6 +392,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             image_sources: Vec::new(),
             modules: Vec::new(),
             image_registrations: Vec::new(),
+            service_watchers: Vec::new(),
             platform,
         }
     }
@@ -531,6 +534,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 登记启动模块，供受限的模块读取系统调用使用。
     pub fn register_modules(&mut self, modules: Vec<ModuleRecord>) {
         self.modules = modules;
+    }
+
+    /// 通知订阅了该服务启动/重启的任务。
+    fn notify_service_started(&self, name: &str) {
+        for (_, notification) in self
+            .service_watchers
+            .iter()
+            .filter(|(watched, _)| watched == name)
+        {
+            let _ = self.kernel.signal_id(*notification, 1);
+        }
     }
 
     /// 服务重启后重新绑定能力并重放 Image Server 段注册。

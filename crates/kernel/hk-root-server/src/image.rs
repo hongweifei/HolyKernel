@@ -270,9 +270,15 @@ mod tests {
             &[],
         );
         let mut memory = TestMemory::default();
-        let (_, regions) =
-            load_into_with_regions_from(&image, &mut memory, Some(PhysAddr::new(0x1000)), true)
-                .expect("装载镜像");
+        let (_, regions) = load_into_with_regions_from(
+            &image,
+            &mut memory,
+            Some(PhysAddr::new(0x1000)),
+            true,
+            None,
+            0,
+        )
+        .expect("装载镜像");
         assert!(memory.pages.is_empty(), "可执行段不应在装载期映射");
         assert_eq!(regions.len(), 1);
         assert!(regions[0].executable);

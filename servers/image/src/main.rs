@@ -15,11 +15,11 @@ use alloc::vec::Vec;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, capacity_alloc, frame_write, message_words,
-    module_read, recv_data_handle, reply, reply_handle, write,
+    PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, capacity_alloc, exit, frame_write,
+    message_words, module_read, recv_data_handle, reply, reply_handle, write,
 };
 #[cfg(target_os = "none")]
-use hk_syscall::IMAGE_REGISTER;
+use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART};
 
 /// 服务堆大小。
 #[cfg(target_os = "none")]
@@ -69,6 +69,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
         } else if label == PROVIDER_FAULT {
             serve_fault(capacity, &segments);
+        } else if label == IMAGE_RESTART {
+            exit(1);
         }
     }
 }

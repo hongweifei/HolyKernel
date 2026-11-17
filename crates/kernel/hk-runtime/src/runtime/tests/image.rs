@@ -20,7 +20,6 @@ fn register_image(
     file: &[u8],
     source_phys: u64,
 ) {
-    let tcb = runtime.tasks[index].tcb;
     let spec = UserRegionSpec {
         virt: 0x40_0000,
         len,
@@ -192,7 +191,7 @@ fn provider_restart_rebinds_capability() {
         hk_hal::PAGE_SIZE,
     )
     .expect("能力");
-    let handle = runtime
+    runtime
         .kernel
         .create_capability(
             tcb,

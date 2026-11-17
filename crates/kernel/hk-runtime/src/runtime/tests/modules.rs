@@ -23,9 +23,10 @@ fn image_runtime() -> UserRuntime<MockContext, MockPlatform> {
 #[test]
 fn image_server_reads_module() {
     let mut runtime = image_runtime();
-    let mut context = MockContext::default();
-
-    context.rax = SYS_MODULE_COUNT;
+    let mut context = MockContext {
+        rax: SYS_MODULE_COUNT,
+        ..Default::default()
+    };
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, 1);
 
@@ -63,8 +64,10 @@ fn module_read_is_limited_to_image_server() {
         range: hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x7200_0000), 1),
     }]);
     runtime.current[0] = Some(0);
-    let mut context = MockContext::default();
-    context.rax = SYS_MODULE_COUNT;
+    let mut context = MockContext {
+        rax: SYS_MODULE_COUNT,
+        ..Default::default()
+    };
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_eq!(context.rax, u64::MAX);
 

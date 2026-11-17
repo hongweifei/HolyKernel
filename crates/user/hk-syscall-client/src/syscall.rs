@@ -25,6 +25,21 @@ pub fn acpi_listen(notification: u64) -> u64 {
     unsafe { syscall_call(SYS_ACPI_LISTEN, notification, 0, 0, 0).value }
 }
 
+/// 订阅服务启动/重启通知；`notification` 是 Notification 句柄编号。
+pub fn service_watch(name: &str, notification: u64) -> u64 {
+    // SAFETY: 内核读取本进程只读名称并校验通知句柄。
+    unsafe {
+        syscall_call(
+            SYS_SERVICE_WATCH,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            notification,
+            0,
+        )
+        .value
+    }
+}
+
 /// 查询启动模块数量；仅 Image Server 可用。
 pub fn module_count() -> u64 {
     // SAFETY: 只读取内核登记的模块表长度。

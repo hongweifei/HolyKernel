@@ -218,7 +218,7 @@ services![
         9,
         THROUGHPUT,
         ON_FAILURE,
-        Some("task-image-user")
+        Some("task-image")
     ),
     (
         "hk-client-image-test",
@@ -581,6 +581,10 @@ pub const BOOT_MODES: &[BootMode] = &[
     BootMode {
         tokens: &["task-image-user"],
         services: &["hk-server-image", "hk-client-image-test", "hk-server-echo"],
+    },
+    BootMode {
+        tokens: &["task-image-restart"],
+        services: &["hk-server-image", "hk-client-image-test"],
     },
     BootMode {
         tokens: &["task-image"],

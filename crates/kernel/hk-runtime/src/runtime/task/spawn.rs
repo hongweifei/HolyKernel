@@ -158,6 +158,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if reuse {
             self.replay_image_provider(index);
         }
+        self.notify_service_started(name);
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }

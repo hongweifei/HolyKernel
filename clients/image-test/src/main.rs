@@ -4,7 +4,10 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, write};
+use hk_server_api::{
+    boot_cmdline, exit, self_notification, send, service_endpoint, service_watch, wait_notify,
+    write,
+};
 
 /// 足够大的只执行函数，用于覆盖多个懒加载代码页。
 #[inline(never)]
@@ -526,11 +529,293 @@ pub extern "C" fn page_probe(mut value: u64) -> u64 {
 }
 
 /// 入口。
+
+/// 第二个大函数，供重启恢复测试触发新代码页。
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub extern "C" fn page_probe2(mut value: u64) -> u64 {
+    value = core::hint::black_box(value ^ 0x0001_1eef);
+    value = core::hint::black_box(value ^ 0x0002_3dde);
+    value = core::hint::black_box(value ^ 0x0003_5ccd);
+    value = core::hint::black_box(value ^ 0x0004_7bbc);
+    value = core::hint::black_box(value ^ 0x0005_9aab);
+    value = core::hint::black_box(value ^ 0x0006_b99a);
+    value = core::hint::black_box(value ^ 0x0007_d889);
+    value = core::hint::black_box(value ^ 0x0008_f778);
+    value = core::hint::black_box(value ^ 0x0009_1667);
+    value = core::hint::black_box(value ^ 0x000a_3556);
+    value = core::hint::black_box(value ^ 0x000b_5445);
+    value = core::hint::black_box(value ^ 0x000c_7334);
+    value = core::hint::black_box(value ^ 0x000d_9223);
+    value = core::hint::black_box(value ^ 0x000e_b112);
+    value = core::hint::black_box(value ^ 0x000f_d001);
+    value = core::hint::black_box(value ^ 0x0010_eef0);
+    value = core::hint::black_box(value ^ 0x0011_0ddf);
+    value = core::hint::black_box(value ^ 0x0012_2cce);
+    value = core::hint::black_box(value ^ 0x0013_4bbd);
+    value = core::hint::black_box(value ^ 0x0014_6aac);
+    value = core::hint::black_box(value ^ 0x0015_899b);
+    value = core::hint::black_box(value ^ 0x0016_a88a);
+    value = core::hint::black_box(value ^ 0x0017_c779);
+    value = core::hint::black_box(value ^ 0x0018_e668);
+    value = core::hint::black_box(value ^ 0x0019_0557);
+    value = core::hint::black_box(value ^ 0x001a_2446);
+    value = core::hint::black_box(value ^ 0x001b_4335);
+    value = core::hint::black_box(value ^ 0x001c_6224);
+    value = core::hint::black_box(value ^ 0x001d_8113);
+    value = core::hint::black_box(value ^ 0x001e_a002);
+    value = core::hint::black_box(value ^ 0x001f_bef1);
+    value = core::hint::black_box(value ^ 0x0020_dde0);
+    value = core::hint::black_box(value ^ 0x0021_fccf);
+    value = core::hint::black_box(value ^ 0x0022_1bbe);
+    value = core::hint::black_box(value ^ 0x0023_3aad);
+    value = core::hint::black_box(value ^ 0x0024_599c);
+    value = core::hint::black_box(value ^ 0x0025_788b);
+    value = core::hint::black_box(value ^ 0x0026_977a);
+    value = core::hint::black_box(value ^ 0x0027_b669);
+    value = core::hint::black_box(value ^ 0x0028_d558);
+    value = core::hint::black_box(value ^ 0x0029_f447);
+    value = core::hint::black_box(value ^ 0x002a_1336);
+    value = core::hint::black_box(value ^ 0x002b_3225);
+    value = core::hint::black_box(value ^ 0x002c_5114);
+    value = core::hint::black_box(value ^ 0x002d_7003);
+    value = core::hint::black_box(value ^ 0x002e_8ef2);
+    value = core::hint::black_box(value ^ 0x002f_ade1);
+    value = core::hint::black_box(value ^ 0x0030_ccd0);
+    value = core::hint::black_box(value ^ 0x0031_ebbf);
+    value = core::hint::black_box(value ^ 0x0032_0aae);
+    value = core::hint::black_box(value ^ 0x0033_299d);
+    value = core::hint::black_box(value ^ 0x0034_488c);
+    value = core::hint::black_box(value ^ 0x0035_677b);
+    value = core::hint::black_box(value ^ 0x0036_866a);
+    value = core::hint::black_box(value ^ 0x0037_a559);
+    value = core::hint::black_box(value ^ 0x0038_c448);
+    value = core::hint::black_box(value ^ 0x0039_e337);
+    value = core::hint::black_box(value ^ 0x003a_0226);
+    value = core::hint::black_box(value ^ 0x003b_2115);
+    value = core::hint::black_box(value ^ 0x003c_4004);
+    value = core::hint::black_box(value ^ 0x003d_5ef3);
+    value = core::hint::black_box(value ^ 0x003e_7de2);
+    value = core::hint::black_box(value ^ 0x003f_9cd1);
+    value = core::hint::black_box(value ^ 0x0040_bbc0);
+    value = core::hint::black_box(value ^ 0x0041_daaf);
+    value = core::hint::black_box(value ^ 0x0042_f99e);
+    value = core::hint::black_box(value ^ 0x0043_188d);
+    value = core::hint::black_box(value ^ 0x0044_377c);
+    value = core::hint::black_box(value ^ 0x0045_566b);
+    value = core::hint::black_box(value ^ 0x0046_755a);
+    value = core::hint::black_box(value ^ 0x0047_9449);
+    value = core::hint::black_box(value ^ 0x0048_b338);
+    value = core::hint::black_box(value ^ 0x0049_d227);
+    value = core::hint::black_box(value ^ 0x004a_f116);
+    value = core::hint::black_box(value ^ 0x004b_1005);
+    value = core::hint::black_box(value ^ 0x004c_2ef4);
+    value = core::hint::black_box(value ^ 0x004d_4de3);
+    value = core::hint::black_box(value ^ 0x004e_6cd2);
+    value = core::hint::black_box(value ^ 0x004f_8bc1);
+    value = core::hint::black_box(value ^ 0x0050_aab0);
+    value = core::hint::black_box(value ^ 0x0051_c99f);
+    value = core::hint::black_box(value ^ 0x0052_e88e);
+    value = core::hint::black_box(value ^ 0x0053_077d);
+    value = core::hint::black_box(value ^ 0x0054_266c);
+    value = core::hint::black_box(value ^ 0x0055_455b);
+    value = core::hint::black_box(value ^ 0x0056_644a);
+    value = core::hint::black_box(value ^ 0x0057_8339);
+    value = core::hint::black_box(value ^ 0x0058_a228);
+    value = core::hint::black_box(value ^ 0x0059_c117);
+    value = core::hint::black_box(value ^ 0x005a_e006);
+    value = core::hint::black_box(value ^ 0x005b_fef5);
+    value = core::hint::black_box(value ^ 0x005c_1de4);
+    value = core::hint::black_box(value ^ 0x005d_3cd3);
+    value = core::hint::black_box(value ^ 0x005e_5bc2);
+    value = core::hint::black_box(value ^ 0x005f_7ab1);
+    value = core::hint::black_box(value ^ 0x0060_99a0);
+    value = core::hint::black_box(value ^ 0x0061_b88f);
+    value = core::hint::black_box(value ^ 0x0062_d77e);
+    value = core::hint::black_box(value ^ 0x0063_f66d);
+    value = core::hint::black_box(value ^ 0x0064_155c);
+    value = core::hint::black_box(value ^ 0x0065_344b);
+    value = core::hint::black_box(value ^ 0x0066_533a);
+    value = core::hint::black_box(value ^ 0x0067_7229);
+    value = core::hint::black_box(value ^ 0x0068_9118);
+    value = core::hint::black_box(value ^ 0x0069_b007);
+    value = core::hint::black_box(value ^ 0x006a_cef6);
+    value = core::hint::black_box(value ^ 0x006b_ede5);
+    value = core::hint::black_box(value ^ 0x006c_0cd4);
+    value = core::hint::black_box(value ^ 0x006d_2bc3);
+    value = core::hint::black_box(value ^ 0x006e_4ab2);
+    value = core::hint::black_box(value ^ 0x006f_69a1);
+    value = core::hint::black_box(value ^ 0x0070_8890);
+    value = core::hint::black_box(value ^ 0x0071_a77f);
+    value = core::hint::black_box(value ^ 0x0072_c66e);
+    value = core::hint::black_box(value ^ 0x0073_e55d);
+    value = core::hint::black_box(value ^ 0x0074_044c);
+    value = core::hint::black_box(value ^ 0x0075_233b);
+    value = core::hint::black_box(value ^ 0x0076_422a);
+    value = core::hint::black_box(value ^ 0x0077_6119);
+    value = core::hint::black_box(value ^ 0x0078_8008);
+    value = core::hint::black_box(value ^ 0x0079_9ef7);
+    value = core::hint::black_box(value ^ 0x007a_bde6);
+    value = core::hint::black_box(value ^ 0x007b_dcd5);
+    value = core::hint::black_box(value ^ 0x007c_fbc4);
+    value = core::hint::black_box(value ^ 0x007d_1ab3);
+    value = core::hint::black_box(value ^ 0x007e_39a2);
+    value = core::hint::black_box(value ^ 0x007f_5891);
+    value = core::hint::black_box(value ^ 0x0080_7780);
+    value = core::hint::black_box(value ^ 0x0081_966f);
+    value = core::hint::black_box(value ^ 0x0082_b55e);
+    value = core::hint::black_box(value ^ 0x0083_d44d);
+    value = core::hint::black_box(value ^ 0x0084_f33c);
+    value = core::hint::black_box(value ^ 0x0085_122b);
+    value = core::hint::black_box(value ^ 0x0086_311a);
+    value = core::hint::black_box(value ^ 0x0087_5009);
+    value = core::hint::black_box(value ^ 0x0088_6ef8);
+    value = core::hint::black_box(value ^ 0x0089_8de7);
+    value = core::hint::black_box(value ^ 0x008a_acd6);
+    value = core::hint::black_box(value ^ 0x008b_cbc5);
+    value = core::hint::black_box(value ^ 0x008c_eab4);
+    value = core::hint::black_box(value ^ 0x008d_09a3);
+    value = core::hint::black_box(value ^ 0x008e_2892);
+    value = core::hint::black_box(value ^ 0x008f_4781);
+    value = core::hint::black_box(value ^ 0x0090_6670);
+    value = core::hint::black_box(value ^ 0x0091_855f);
+    value = core::hint::black_box(value ^ 0x0092_a44e);
+    value = core::hint::black_box(value ^ 0x0093_c33d);
+    value = core::hint::black_box(value ^ 0x0094_e22c);
+    value = core::hint::black_box(value ^ 0x0095_011b);
+    value = core::hint::black_box(value ^ 0x0096_200a);
+    value = core::hint::black_box(value ^ 0x0097_3ef9);
+    value = core::hint::black_box(value ^ 0x0098_5de8);
+    value = core::hint::black_box(value ^ 0x0099_7cd7);
+    value = core::hint::black_box(value ^ 0x009a_9bc6);
+    value = core::hint::black_box(value ^ 0x009b_bab5);
+    value = core::hint::black_box(value ^ 0x009c_d9a4);
+    value = core::hint::black_box(value ^ 0x009d_f893);
+    value = core::hint::black_box(value ^ 0x009e_1782);
+    value = core::hint::black_box(value ^ 0x009f_3671);
+    value = core::hint::black_box(value ^ 0x00a0_5560);
+    value = core::hint::black_box(value ^ 0x00a1_744f);
+    value = core::hint::black_box(value ^ 0x00a2_933e);
+    value = core::hint::black_box(value ^ 0x00a3_b22d);
+    value = core::hint::black_box(value ^ 0x00a4_d11c);
+    value = core::hint::black_box(value ^ 0x00a5_f00b);
+    value = core::hint::black_box(value ^ 0x00a6_0efa);
+    value = core::hint::black_box(value ^ 0x00a7_2de9);
+    value = core::hint::black_box(value ^ 0x00a8_4cd8);
+    value = core::hint::black_box(value ^ 0x00a9_6bc7);
+    value = core::hint::black_box(value ^ 0x00aa_8ab6);
+    value = core::hint::black_box(value ^ 0x00ab_a9a5);
+    value = core::hint::black_box(value ^ 0x00ac_c894);
+    value = core::hint::black_box(value ^ 0x00ad_e783);
+    value = core::hint::black_box(value ^ 0x00ae_0672);
+    value = core::hint::black_box(value ^ 0x00af_2561);
+    value = core::hint::black_box(value ^ 0x00b0_4450);
+    value = core::hint::black_box(value ^ 0x00b1_633f);
+    value = core::hint::black_box(value ^ 0x00b2_822e);
+    value = core::hint::black_box(value ^ 0x00b3_a11d);
+    value = core::hint::black_box(value ^ 0x00b4_c00c);
+    value = core::hint::black_box(value ^ 0x00b5_defb);
+    value = core::hint::black_box(value ^ 0x00b6_fdea);
+    value = core::hint::black_box(value ^ 0x00b7_1cd9);
+    value = core::hint::black_box(value ^ 0x00b8_3bc8);
+    value = core::hint::black_box(value ^ 0x00b9_5ab7);
+    value = core::hint::black_box(value ^ 0x00ba_79a6);
+    value = core::hint::black_box(value ^ 0x00bb_9895);
+    value = core::hint::black_box(value ^ 0x00bc_b784);
+    value = core::hint::black_box(value ^ 0x00bd_d673);
+    value = core::hint::black_box(value ^ 0x00be_f562);
+    value = core::hint::black_box(value ^ 0x00bf_1451);
+    value = core::hint::black_box(value ^ 0x00c0_3340);
+    value = core::hint::black_box(value ^ 0x00c1_522f);
+    value = core::hint::black_box(value ^ 0x00c2_711e);
+    value = core::hint::black_box(value ^ 0x00c3_900d);
+    value = core::hint::black_box(value ^ 0x00c4_aefc);
+    value = core::hint::black_box(value ^ 0x00c5_cdeb);
+    value = core::hint::black_box(value ^ 0x00c6_ecda);
+    value = core::hint::black_box(value ^ 0x00c7_0bc9);
+    value = core::hint::black_box(value ^ 0x00c8_2ab8);
+    value = core::hint::black_box(value ^ 0x00c9_49a7);
+    value = core::hint::black_box(value ^ 0x00ca_6896);
+    value = core::hint::black_box(value ^ 0x00cb_8785);
+    value = core::hint::black_box(value ^ 0x00cc_a674);
+    value = core::hint::black_box(value ^ 0x00cd_c563);
+    value = core::hint::black_box(value ^ 0x00ce_e452);
+    value = core::hint::black_box(value ^ 0x00cf_0341);
+    value = core::hint::black_box(value ^ 0x00d0_2230);
+    value = core::hint::black_box(value ^ 0x00d1_411f);
+    value = core::hint::black_box(value ^ 0x00d2_600e);
+    value = core::hint::black_box(value ^ 0x00d3_7efd);
+    value = core::hint::black_box(value ^ 0x00d4_9dec);
+    value = core::hint::black_box(value ^ 0x00d5_bcdb);
+    value = core::hint::black_box(value ^ 0x00d6_dbca);
+    value = core::hint::black_box(value ^ 0x00d7_fab9);
+    value = core::hint::black_box(value ^ 0x00d8_19a8);
+    value = core::hint::black_box(value ^ 0x00d9_3897);
+    value = core::hint::black_box(value ^ 0x00da_5786);
+    value = core::hint::black_box(value ^ 0x00db_7675);
+    value = core::hint::black_box(value ^ 0x00dc_9564);
+    value = core::hint::black_box(value ^ 0x00dd_b453);
+    value = core::hint::black_box(value ^ 0x00de_d342);
+    value = core::hint::black_box(value ^ 0x00df_f231);
+    value = core::hint::black_box(value ^ 0x00e0_1120);
+    value = core::hint::black_box(value ^ 0x00e1_300f);
+    value = core::hint::black_box(value ^ 0x00e2_4efe);
+    value = core::hint::black_box(value ^ 0x00e3_6ded);
+    value = core::hint::black_box(value ^ 0x00e4_8cdc);
+    value = core::hint::black_box(value ^ 0x00e5_abcb);
+    value = core::hint::black_box(value ^ 0x00e6_caba);
+    value = core::hint::black_box(value ^ 0x00e7_e9a9);
+    value = core::hint::black_box(value ^ 0x00e8_0898);
+    value = core::hint::black_box(value ^ 0x00e9_2787);
+    value = core::hint::black_box(value ^ 0x00ea_4676);
+    value = core::hint::black_box(value ^ 0x00eb_6565);
+    value = core::hint::black_box(value ^ 0x00ec_8454);
+    value = core::hint::black_box(value ^ 0x00ed_a343);
+    value = core::hint::black_box(value ^ 0x00ee_c232);
+    value = core::hint::black_box(value ^ 0x00ef_e121);
+    value = core::hint::black_box(value ^ 0x00f0_0010);
+    value = core::hint::black_box(value ^ 0x00f1_1eff);
+    value = core::hint::black_box(value ^ 0x00f2_3dee);
+    value = core::hint::black_box(value ^ 0x00f3_5cdd);
+    value = core::hint::black_box(value ^ 0x00f4_7bcc);
+    value = core::hint::black_box(value ^ 0x00f5_9abb);
+    value = core::hint::black_box(value ^ 0x00f6_b9aa);
+    value = core::hint::black_box(value ^ 0x00f7_d899);
+    value = core::hint::black_box(value ^ 0x00f8_f788);
+    value = core::hint::black_box(value ^ 0x00f9_1677);
+    value = core::hint::black_box(value ^ 0x00fa_3566);
+    value = core::hint::black_box(value ^ 0x00fb_5455);
+    value = core::hint::black_box(value ^ 0x00fc_7344);
+    value = core::hint::black_box(value ^ 0x00fd_9233);
+    value = core::hint::black_box(value ^ 0x00fe_b122);
+    value = core::hint::black_box(value ^ 0x00ff_d011);
+    value = core::hint::black_box(value ^ 0x0100_ef00);
+    value
+}
+
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
     let _ = page_probe(0x1234_5678_9abc_def0);
     write(b"hk-client-image-test: lazy-ok\n");
+    let mut line = [0_u8; 128];
+    if let Some(cmdline) = boot_cmdline(&mut line)
+        && cmdline.contains("image.restart-test")
+    {
+        let notification = self_notification();
+        if service_watch("hk-server-image", notification) != 0 {
+            exit(1)
+        }
+        let provider = service_endpoint("hk-server-image");
+        if provider != 0 {
+            let _ = send(provider, hk_syscall::IMAGE_RESTART, 0);
+        }
+        if wait_notify(notification, 1) & 1 == 0 {
+            exit(1)
+        }
+        let _ = page_probe2(0x0f0e_0d0c_0b0a_0908);
+        write(b"hk-client-image-test: restart-ok\n");
+    }
     exit(0)
 }
 

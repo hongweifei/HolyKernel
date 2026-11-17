@@ -7,6 +7,37 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].name == "hk-server-image"
     }
 
+    pub(crate) fn service_watch(&mut self, index: usize, frame: &mut C) -> Switch {
+        let address = frame.arg0();
+        let length = frame.arg1() as usize;
+        let number = frame.arg2() as usize;
+        if length == 0 || length > 64 {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let mut name = alloc::vec![0_u8; length];
+        if !self.platform.read_user(address, &mut name) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Ok(name) = alloc::string::String::from_utf8(name) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let Some(handle) = self.notification_handle(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let tcb = self.tasks[index].tcb;
+        let Ok(id) = self.kernel.handle_id(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        self.service_watchers.push((name, id));
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     pub(crate) fn module_count(&self, index: usize, frame: &mut C) -> Switch {
         frame.set_result(if self.module_reader(index) {
             self.modules.len() as u64
