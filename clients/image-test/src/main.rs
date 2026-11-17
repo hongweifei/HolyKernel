@@ -528,8 +528,6 @@ pub extern "C" fn page_probe(mut value: u64) -> u64 {
     value
 }
 
-/// 入口。
-
 /// 第二个大函数，供重启恢复测试触发新代码页。
 #[inline(never)]
 #[unsafe(no_mangle)]
