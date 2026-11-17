@@ -404,6 +404,40 @@ pub fn user_image_service(name: &str) -> bool {
     USER_IMAGE_SERVICES.contains(&name)
 }
 
+/// 返回服务启动阶段；数值越小越早。
+///
+/// 阶段只表达依赖方向，不替代同一阶段内的 catalog 顺序。Image Server 必须
+/// 先于所有用户态 Provider 客户端；设备管理先于驱动；块服务先于文件系统。
+pub fn boot_phase(name: &str) -> u8 {
+    match name {
+        "hk-server-image" => 0,
+        "hk-server-memory" | "hk-server-device" => 1,
+        "hk-server-virtio"
+        | "hk-server-virtio-sound"
+        | "hk-server-virtio-net"
+        | "hk-server-ahci"
+        | "hk-server-nvme"
+        | "hk-server-usb"
+        | "hk-server-net" => 2,
+        "hk-server-block" => 3,
+        "hk-server-ext4" | "hk-server-holyfs" => 4,
+        "hk-server-vfs" => 5,
+        "hk-server-path" => 6,
+        "hk-server-console"
+        | "hk-server-display"
+        | "hk-server-input"
+        | "hk-server-taskman"
+        | "hk-server-shell"
+        | "hk-server-tempo"
+        | "hk-server-holydoc"
+        | "hk-server-workbench"
+        | "hk-server-debug"
+        | "hk-server-checkpoint" => 7,
+        _ if name.starts_with("hk-client-") => 9,
+        _ => 8,
+    }
+}
+
 /// 返回桌面模式排序键；未登记服务排在最后。
 pub fn desktop_order(name: &str) -> u8 {
     service(name).map_or(9, |service| service.desktop_order)
@@ -754,6 +788,18 @@ mod tests {
         for name in LAZY_TASK_IMAGES {
             assert!(service(name).is_some(), "懒镜像未登记：{name}");
         }
+    }
+
+    #[test]
+    fn boot_phases_follow_service_dependencies() {
+        assert!(boot_phase("hk-server-image") < boot_phase("hk-server-device"));
+        assert!(boot_phase("hk-server-device") < boot_phase("hk-server-virtio"));
+        assert!(boot_phase("hk-server-virtio") < boot_phase("hk-server-block"));
+        assert!(boot_phase("hk-server-block") < boot_phase("hk-server-ext4"));
+        assert!(boot_phase("hk-server-ext4") < boot_phase("hk-server-vfs"));
+        assert!(boot_phase("hk-server-vfs") < boot_phase("hk-server-path"));
+        assert!(boot_phase("hk-server-path") < boot_phase("hk-client-image-test"));
+        assert!(boot_phase("hk-server-memory") < boot_phase("hk-server-display"));
     }
 
     #[test]

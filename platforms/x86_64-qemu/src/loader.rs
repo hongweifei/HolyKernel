@@ -65,10 +65,18 @@ pub fn run(
         });
     }
 
-    if desktop {
-        // 桌面启动顺序：Display/输入先就绪，Console 最后创建以获得初始焦点。
-        modules.sort_by_key(|module| hk_catalog::desktop_order(loader::service_name(module.name)));
-    }
+    // 阶段排序是硬依赖：Image Server → 设备/内存 → 驱动 → 块/文件系统 →
+    // VFS/path → UI/策略 → 客户端。同一阶段稳定保留 catalog 顺序；桌面模式
+    // 再按 desktop_order 排列 UI，以获得初始焦点。
+    modules.sort_by_key(|module| {
+        let name = loader::service_name(module.name);
+        let ui = if desktop {
+            hk_catalog::desktop_order(name)
+        } else {
+            0
+        };
+        (hk_catalog::boot_phase(name), ui)
+    });
     if modules.is_empty() {
         return Err(String::from("没有服务模块"));
     }
