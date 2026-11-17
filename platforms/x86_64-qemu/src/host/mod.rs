@@ -698,8 +698,27 @@ pub fn process_controls(loader: &mut crate::shell::Loader<'_>, table: &mut Servi
     control::process(loader, table);
 }
 
+/// 记录即将交给重启策略处理的非正常退出，便于定位异常重启。
+fn log_supervised_exits() {
+    let console = Serial::new(COM1);
+    for task in tasks() {
+        if task.state != "exited" {
+            continue;
+        }
+        let policy = hk_root_server::service::restart_policy(&task.name);
+        if policy == hk_root_server::service::RestartPolicy::Never {
+            continue;
+        }
+        console.write_str(&format!(
+            "supervise: {} exited code {:?} policy {:?}\n",
+            task.name, task.exit_code, policy
+        ));
+    }
+}
+
 /// 按重启策略监督服务；返回重启数量。
 pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) -> usize {
+    log_supervised_exits();
     with_tick(|| {
         hk_root_server::service::supervise(
             &RUNTIME,
