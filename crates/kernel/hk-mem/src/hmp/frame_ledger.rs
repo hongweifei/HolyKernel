@@ -6,6 +6,7 @@
 //! `range`。
 
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use hk_hal::PhysRange;
 use spin::Mutex;
@@ -18,32 +19,39 @@ static FRAME_LEDGER: Mutex<FrameLedger> = Mutex::new(FrameLedger::new());
 /// 增加一次物理页映射引用。
 pub fn mapping_acquire(phys: u64) -> bool {
     let mut ledger = FRAME_LEDGER.lock();
-    ledger
-        .refs
-        .entry(phys)
-        .and_modify(|count| *count += 1)
-        .or_insert(1);
+    if let Some(ids) = ledger.by_page.get(&phys).cloned() {
+        for id in ids {
+            if let Some(account) = ledger.accounts.get_mut(&id) {
+                account.refs = account.refs.saturating_add(1);
+            }
+        }
+    } else {
+        ledger
+            .refs
+            .entry(phys)
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
+    }
     true
 }
 
 /// 释放一次物理页映射引用；返回剩余引用数。
 pub fn mapping_release(phys: u64) -> u32 {
-    let mut ledger = FRAME_LEDGER.lock();
-    let Some(count) = ledger.refs.get_mut(&phys) else {
-        return 0;
-    };
-    *count = count.saturating_sub(1);
-    if *count == 0 {
-        ledger.refs.remove(&phys);
-        0
-    } else {
-        *count
-    }
+    FRAME_LEDGER.lock().release_mapping(phys)
 }
 
 /// 返回物理页映射引用数。
 pub fn mapping_count(phys: u64) -> u32 {
-    FRAME_LEDGER.lock().refs.get(&phys).copied().unwrap_or(0)
+    let ledger = FRAME_LEDGER.lock();
+    if let Some(ids) = ledger.by_page.get(&phys) {
+        return ids
+            .iter()
+            .filter_map(|id| ledger.accounts.get(id))
+            .map(|account| account.refs)
+            .max()
+            .unwrap_or(0);
+    }
+    ledger.refs.get(&phys).copied().unwrap_or(0)
 }
 
 /// 清空全局映射引用；仅测试使用。
@@ -124,6 +132,10 @@ struct FrameAccount {
     ledger: SharedLedger,
     charge: Charge,
     range: Option<PhysRange>,
+    /// 物理页地址；`None` 表示无名记账区间。
+    pages: Vec<u64>,
+    /// 是否与平台映射引用共用 `refs`。
+    mapped: bool,
 }
 
 /// 进程运行时的统一 Frame 账本。
@@ -132,7 +144,8 @@ pub struct FrameLedger {
     next_scope: u64,
     accounts: BTreeMap<u64, FrameAccount>,
     by_range: BTreeMap<(u64, u64, u64), u64>,
-    /// 物理页映射引用数；与记账同属一个账本，但生命周期独立。
+    by_page: BTreeMap<u64, Vec<u64>>,
+    /// 尚未绑定记账的物理页映射引用数；已绑定后由 account.refs 承接。
     refs: BTreeMap<u64, u32>,
 }
 
@@ -144,6 +157,7 @@ impl FrameLedger {
             next_scope: 1,
             accounts: BTreeMap::new(),
             by_range: BTreeMap::new(),
+            by_page: BTreeMap::new(),
             refs: BTreeMap::new(),
         }
     }
@@ -156,7 +170,16 @@ impl FrameLedger {
         amount: u64,
     ) -> Result<FrameRef, HmpError> {
         let charge = ledger.charge(amount)?;
-        let id = self.insert(scope, amount, ledger.clone(), charge, None);
+        let id = self.insert(
+            scope,
+            amount,
+            ledger.clone(),
+            charge,
+            None,
+            Vec::new(),
+            false,
+            1,
+        );
         Ok(FrameRef::new(id))
     }
 
@@ -172,22 +195,52 @@ impl FrameLedger {
             .get(&(scope, range.start().get(), range.len()))
             .copied()
         {
-            self.retain(FrameRef::new(id));
             return Ok(FrameRef::new(id));
         }
+        let page = hk_hal::PAGE_SIZE as u64;
+        let pages: Vec<u64> = (range.start().get()..range.end().get())
+            .step_by(page as usize)
+            .collect();
+        let mapped = pages
+            .iter()
+            .map(|phys| self.refs.remove(phys).unwrap_or(0))
+            .max()
+            .unwrap_or(0);
         let charge = ledger.charge(range.len())?;
-        let id = self.insert(scope, range.len(), ledger.clone(), charge, Some(range));
+        let id = self.insert(
+            scope,
+            range.len(),
+            ledger.clone(),
+            charge,
+            Some(range),
+            pages.clone(),
+            true,
+            mapped,
+        );
         self.by_range
             .insert((scope, range.start().get(), range.len()), id);
+        for phys in pages {
+            self.by_page.entry(phys).or_default().push(id);
+        }
         Ok(FrameRef::new(id))
     }
 
     /// 接管一笔已经由内核/调用方扣过的记账。
     pub fn adopt(&mut self, scope: u64, ledger: SharedLedger, charge: Charge) -> FrameRef {
-        let id = self.insert(scope, charge.amount(), ledger, charge, None);
+        let id = self.insert(
+            scope,
+            charge.amount(),
+            ledger,
+            charge,
+            None,
+            Vec::new(),
+            false,
+            1,
+        );
         FrameRef::new(id)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert(
         &mut self,
         scope: u64,
@@ -195,6 +248,9 @@ impl FrameLedger {
         ledger: SharedLedger,
         charge: Charge,
         range: Option<PhysRange>,
+        pages: Vec<u64>,
+        mapped: bool,
+        refs: u32,
     ) -> u64 {
         let id = self.next;
         self.next = self.next.saturating_add(1);
@@ -203,40 +259,91 @@ impl FrameLedger {
             FrameAccount {
                 scope,
                 amount,
-                refs: 1,
+                refs,
                 ledger,
                 charge,
                 range,
+                pages,
+                mapped,
             },
         );
         id
     }
 
+    /// 释放一次物理映射引用。
+    pub fn release_mapping(&mut self, phys: u64) -> u32 {
+        if let Some(ids) = self.by_page.get(&phys).cloned() {
+            let mut remaining = 0;
+            let mut release = Vec::new();
+            for id in ids {
+                let Some(account) = self.accounts.get_mut(&id) else {
+                    continue;
+                };
+                account.refs = account.refs.saturating_sub(1);
+                remaining = remaining.max(account.refs);
+                if account.refs == 0 {
+                    release.push(id);
+                }
+            }
+            for id in release {
+                self.release_account(id);
+            }
+            return remaining;
+        }
+        let Some(count) = self.refs.get_mut(&phys) else {
+            return 0;
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            self.refs.remove(&phys);
+            0
+        } else {
+            *count
+        }
+    }
+
     /// 增加一次引用。
     pub fn retain(&mut self, frame: FrameRef) {
-        if let Some(account) = self.accounts.get_mut(&frame.id) {
+        if let Some(account) = self.accounts.get_mut(&frame.id)
+            && !account.mapped
+        {
             account.refs = account.refs.saturating_add(1);
         }
     }
 
-    /// 释放一次引用；最后一个引用释放时归还 Task Ledger。
+    /// 释放一次引用；映射模式由平台映射引用驱动。
     pub fn release(&mut self, frame: FrameRef) {
         let Some(account) = self.accounts.get_mut(&frame.id) else {
             return;
         };
-        account.refs = account.refs.saturating_sub(1);
-        if account.refs != 0 {
+        if account.mapped {
+            if account.refs == 0 {
+                self.release_account(frame.id);
+            }
             return;
         }
-        let account = self
-            .accounts
-            .remove(&frame.id)
-            .expect("account checked above");
+        account.refs = account.refs.saturating_sub(1);
+        if account.refs == 0 {
+            self.release_account(frame.id);
+        }
+    }
+
+    fn release_account(&mut self, id: u64) -> Option<FrameAccount> {
+        let account = self.accounts.remove(&id)?;
         if let Some(range) = account.range {
             self.by_range
                 .remove(&(account.scope, range.start().get(), range.len()));
         }
+        for phys in &account.pages {
+            if let Some(ids) = self.by_page.get_mut(phys) {
+                ids.retain(|candidate| *candidate != id);
+                if ids.is_empty() {
+                    self.by_page.remove(phys);
+                }
+            }
+        }
         let _ = account.ledger.release(account.charge);
+        Some(account)
     }
 
     /// 返回引用记账字节数。
@@ -268,13 +375,14 @@ mod tests {
         let ledger = SharedLedger::create(0x2000);
         let mut frames = FrameLedger::new();
         let range = PhysRange::new(PhysAddr::new(0x1000), 0x1000);
+        frames.refs.insert(range.start().get(), 2);
         let first = frames.charge_range(1, &ledger, range).expect("first");
         let second = frames.charge_range(1, &ledger, range).expect("alias");
         assert_eq!(first, second);
         assert_eq!(ledger.charged(), 0x1000);
-        frames.release(first);
+        frames.release_mapping(range.start().get());
         assert_eq!(ledger.charged(), 0x1000);
-        frames.release(second);
+        frames.release_mapping(range.start().get());
         assert_eq!(ledger.charged(), 0);
         assert_eq!(frames.tracked(), 0);
     }

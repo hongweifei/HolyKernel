@@ -336,7 +336,8 @@ sequenceDiagram
 - **统一 Frame 记账**：全局 `FrameLedger` 管理常驻区间与物理映射引用；每个运行时
   使用独立 scope，首次装入生成 `FrameRef` 并从 Task Ledger 扣账，同一 scope 内的
   物理区间在 fork/多 Region 间共享时只增加引用，不重复计费；最后一个引用释放时
-  归还。`hk-paging::FrameRefs` 只是该全局账本的 facade，不再维护第二套计数。
+  归还。已绑定记账的物理页直接使用映射引用，不再维护第二套计数；最后一个映射
+  释放时自动归还 `FrameRef`。`hk-paging::FrameRefs` 只是该全局账本的 facade。
   Region 的 `charge`/`page_charges`、COW 私有页、句柄与 Grant 记账都保存同一类
   `FrameRef`。
 - **匿名 COW**：默认 Provider 为空的 Anonymous 由内核快速路径复制 Frame；复制页从任务 Capacity 分配，并计入 Task Ledger；进程私有页登记在 Arena 的覆盖表中，解除映射或退出时归还。
