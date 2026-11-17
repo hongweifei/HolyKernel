@@ -263,7 +263,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 - `Evict`（`0x1202`）：内核回收 Provider 绑定的匿名零页后向 Provider 发送驱逐通知；8 个字为 `[capability, offset, page, 0…]`，一次性通知，不需要回包。Provider 必须对被驱逐页再次提供零填充内容。
 - `Writeback`（`0x1203`）：`SYS_CAPABILITY_WRITEBACK` 把回写请求转发给能力绑定的 Provider；8 个字为 `[capability, 0…]`。只有 Revision 接受该操作（`CapabilityOp::Writeback`）；写回策略与持久化由 Provider 负责；该通知单向发送，内核立即返回。
 - `Release`（`0x1205`）：内核在能力对象析构后通知绑定 Provider；`words[0]` 为能力对象标识，不需要回包。Provider 用它在最后一个句柄关闭或任务退出时回收按能力记录的元数据；与页驱逐语义分开。
-- `Reclaim`（`0x1206`）：`SYS_CAPABILITY_SWAP` 请求绑定 Provider 保存/压缩一页；8 个字为 `[capability, page_index, offset, len, flags, token, 0, 0]`，字节载荷为原始 4 KiB 页。内核在发送前解除该能力页在全部进程中的 PTE，并认领在途回收；同一页重复请求直接失败。
+- `Reclaim`（`0x1206`）：`SYS_CAPABILITY_SWAP` 按 `arg2` 范围逐页请求绑定 Provider 保存/压缩；8 个字为 `[capability, page_index, offset, len, flags, token, 0, 0]`，字节载荷为原始 4 KiB 页。内核在发送前解除该能力页在全部进程中的 PTE，并认领在途回收；同一页重复请求直接失败。
 - `Reclaimed`（`0x1207`）：Provider 以该标签回包；`words[3] == 0` 表示内容已安全保存。内核收到确认后取走 Frame、归还 Capacity、释放 Task Ledger；失败或 1 秒超时则保留页，任务恢复并返回错误。Provider 负责压缩、swap 存储与换入内容。
 - Provider 退出时，绑定端点的在途缺页与换出按失败处理：缺页任务以 `PROVIDER_FAULT_EXIT` 退出，换出保留页并返回 `u64::MAX`；新请求在发送前检测端点无服务并立即失败。
 - `GUARD` 页在 Provider 分派前判定：命中即故障，不装零页，也不转发 Provider。

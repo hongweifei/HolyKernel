@@ -292,7 +292,7 @@ pub const SYS_OOM_POLICY: u64 = 0xA9;
 pub const SYS_RECLAIM: u64 = 0xAA;
 /// 读取最近一次 OOM 审计记录。
 pub const SYS_OOM_EVENT: u64 = 0xAB;
-/// 请求绑定 Provider 保存/压缩一个匿名页；无 Provider 时返回 `u64::MAX`。
+/// 请求绑定 Provider 保存/压缩一段匿名页；`arg2` 为字节长度，逐页发送；无 Provider 或失败返回 `u64::MAX`。
 pub const SYS_CAPABILITY_SWAP: u64 = 0xAC;
 /// 把能力的一段常驻页迁移到指定 NUMA 节点。
 pub const SYS_NUMA_MIGRATE: u64 = 0xAD;

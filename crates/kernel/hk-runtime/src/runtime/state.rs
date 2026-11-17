@@ -88,6 +88,12 @@ pub enum Pending {
         object: ObjectId,
         /// 等待 Provider 确认的 deadline（契约微秒）。
         deadline: u64,
+        /// Provider 端点对象。
+        provider: ObjectId,
+        /// 本批次的结束页下标（不含）。
+        end: usize,
+        /// 本批次已释放字节数。
+        released: u64,
     },
     /// 休眠到指定契约时刻（微秒）。
     Sleep {

@@ -86,7 +86,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn capability_swap(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let offset = frame.arg1();
-        let _len = frame.arg2();
+        let length = frame.arg2().max(hk_hal::PAGE_SIZE as u64);
         let Some((handle, capability, _)) = self.capability_at(index, number) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -100,16 +100,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let page = hk_hal::PAGE_SIZE as u64;
-        let page_index = (offset / page) as usize;
-        let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        };
-        if self.platform.page_shared(range.start()) {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
-        if matches!(self.kernel.capability_pinned(tcb, handle), Ok(true)) {
+        let start = (offset / page) as usize;
+        let end = (offset
+            .saturating_add(length)
+            .min(capability.size())
+            .div_ceil(page)) as usize;
+        if start >= end {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -121,53 +117,100 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        if !matches!(
-            self.kernel
-                .begin_capability_reclaim(tcb, handle, page_index),
-            Ok(true)
-        ) {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+        match self.continue_provider_reclaim(index, tcb, handle, object, provider, start, end, 0) {
+            Some(released) => {
+                frame.set_result(if end - start == 1 && released == 0 {
+                    u64::MAX
+                } else {
+                    released
+                });
+                Switch::Continue
+            }
+            None => {
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                Switch::Block
+            }
         }
-        // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
-        // 常驻，下一次缺页会按常驻页快速路径重新映射。
-        self.unmap_capability_page(index, object, page_index);
-        let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
-        if !self.platform.read_phys(range.start(), &mut data) {
-            self.kernel.end_capability_reclaim(tcb, handle, page_index);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+    }
+
+    /// 逐页把能力区间交给 Provider；返回 `None` 表示已发送请求并阻塞。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn continue_provider_reclaim(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        handle: Handle,
+        object: ObjectId,
+        provider: ObjectId,
+        mut page_index: usize,
+        end: usize,
+        released: u64,
+    ) -> Option<u64> {
+        if !self.kernel.endpoint_served(provider) {
+            return Some(u64::MAX);
         }
-        let words = [
-            object.get(),
-            page_index as u64,
-            page_index as u64 * page,
-            page,
-            0,
-            self.oom.events,
-            0,
-            0,
-        ];
-        let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
-            .with_words(words)
-            .with_data(data);
-        if self.kernel.call_object(tcb, provider, message).is_ok() {
-            let deadline = self.contract_now().saturating_add(1_000_000);
-            let mut context = *frame;
-            context.set_result(0);
-            self.tasks[index].context = context;
-            self.tasks[index].pending = Pending::ProviderReclaim {
-                capability: handle,
-                index: page_index,
-                object,
-                deadline,
+        let page = hk_hal::PAGE_SIZE as u64;
+        while page_index < end {
+            let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
+                page_index += 1;
+                continue;
             };
-            self.timeouts.entry(deadline).or_default().push(index);
-            return Switch::Block;
+            if self.platform.page_shared(range.start())
+                || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
+            {
+                page_index += 1;
+                continue;
+            }
+            if !matches!(
+                self.kernel
+                    .begin_capability_reclaim(tcb, handle, page_index),
+                Ok(true)
+            ) {
+                page_index += 1;
+                continue;
+            }
+            // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
+            // 常驻，下一次缺页会按常驻页快速路径重新映射。
+            self.unmap_capability_page(index, object, page_index);
+            let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
+            if !self.platform.read_phys(range.start(), &mut data) {
+                self.kernel.end_capability_reclaim(tcb, handle, page_index);
+                page_index += 1;
+                continue;
+            }
+            let words = [
+                object.get(),
+                page_index as u64,
+                page_index as u64 * page,
+                page,
+                0,
+                self.oom.events,
+                0,
+                0,
+            ];
+            let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
+                .with_words(words)
+                .with_data(data);
+            if self.kernel.call_object(tcb, provider, message).is_ok() {
+                let deadline = self.contract_now().saturating_add(1_000_000);
+                self.tasks[index].pending = Pending::ProviderReclaim {
+                    capability: handle,
+                    index: page_index,
+                    object,
+                    deadline,
+                    provider,
+                    end,
+                    released,
+                };
+                self.timeouts.entry(deadline).or_default().push(index);
+                return None;
+            }
+            self.kernel.end_capability_reclaim(tcb, handle, page_index);
+            page_index += 1;
         }
-        self.kernel.end_capability_reclaim(tcb, handle, page_index);
-        frame.set_result(u64::MAX);
-        Switch::Continue
+        Some(released)
     }
 
     pub(crate) fn capability_pin(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {

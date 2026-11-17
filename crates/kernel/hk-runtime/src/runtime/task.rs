@@ -845,20 +845,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 index: page_index,
                 object,
                 deadline,
+                provider,
+                end,
+                released,
             } => {
                 let caller = self.tasks[index].tcb;
                 match self.kernel.take_reply(caller) {
                     Some(message) => {
-                        let released = if message.label == hk_syscall::PROVIDER_RECLAIMED
-                            && message.words[3] == 0
+                        if message.label == hk_syscall::PROVIDER_RECLAIMED && message.words[3] == 0
                         {
-                            self.finish_provider_reclaim(index, capability, object, page_index)
+                            let released = released.saturating_add(
+                                self.finish_provider_reclaim(index, capability, object, page_index),
+                            );
+                            match self.continue_provider_reclaim(
+                                index,
+                                caller,
+                                capability,
+                                object,
+                                provider,
+                                page_index + 1,
+                                end,
+                                released,
+                            ) {
+                                Some(total) => self.tasks[index].context.set_result(total),
+                                None => blocked_again = true,
+                            }
                         } else {
                             self.kernel
                                 .end_capability_reclaim(caller, capability, page_index);
-                            u64::MAX
-                        };
-                        self.tasks[index].context.set_result(released);
+                            self.tasks[index].context.set_result(u64::MAX);
+                        }
                     }
                     None if deadline <= self.contract_now() => {
                         let _ = self.kernel.cancel_call(caller);
