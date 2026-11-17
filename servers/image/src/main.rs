@@ -8,6 +8,8 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 use alloc::vec;
+#[cfg(target_os = "none")]
+use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
@@ -25,10 +27,6 @@ const HEAP_SIZE: usize = 64 * 1024;
 /// 页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
-/// 可注册段数量。
-#[cfg(target_os = "none")]
-const SEGMENTS: usize = 32;
-
 /// 一个段来源。
 #[cfg(target_os = "none")]
 #[derive(Clone, Copy, Default)]
@@ -47,21 +45,27 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
-    let mut segments = [Segment::default(); SEGMENTS];
+    let mut segments: Vec<Segment> = Vec::new();
     let mut buffer = [0_u8; 8];
     write(b"hk-server-image: ready\n");
     loop {
-        let (label, _word, _sender, _length, _handle) = recv_data_handle(endpoint, &mut buffer, 0);
-        if label == IMAGE_REGISTER {
-            if let Some(words) = message_words()
-                && let Some(slot) = segments.iter_mut().find(|slot| slot.object == 0)
-            {
-                *slot = Segment {
+        let (label, _word, sender, _length, _handle) = recv_data_handle(endpoint, &mut buffer, 0);
+        if label == IMAGE_REGISTER && sender == 0 {
+            if let Some(words) = message_words() {
+                let segment = Segment {
                     object: words[0],
                     module: words[1],
                     file_offset: words[2],
                     file_len: words[3],
                 };
+                if let Some(slot) = segments
+                    .iter_mut()
+                    .find(|slot| slot.object == segment.object)
+                {
+                    *slot = segment;
+                } else {
+                    segments.push(segment);
+                }
             }
         } else if label == PROVIDER_FAULT {
             serve_fault(capacity, &segments);

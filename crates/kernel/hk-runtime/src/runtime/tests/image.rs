@@ -222,6 +222,7 @@ fn provider_restart_rebinds_capability() {
     runtime
         .register_region(index, spec, Some(charge))
         .expect("登记 Region");
+    assert_eq!(runtime.image_registrations.len(), 1);
     let handle = runtime.process(index).regions[0]
         .as_ref()
         .expect("Region")

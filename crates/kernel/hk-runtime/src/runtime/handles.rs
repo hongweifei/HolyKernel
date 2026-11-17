@@ -695,6 +695,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .map(|id| id.get())
             .collect();
         self.image_sources.retain(|(id, _)| !image_ids.contains(id));
+        self.image_registrations
+            .retain(|registration| !image_ids.contains(&registration.object));
         let slots: Vec<usize> = (0..self.process(index).regions.len()).collect();
         for slot in slots {
             if self
