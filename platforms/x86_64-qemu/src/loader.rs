@@ -108,18 +108,16 @@ pub fn run(
         .iter()
         .position(|module| loader::service_name(module.name) == "hk-server-image");
 
+    let load_context = LoadContext {
+        info,
+        direct_map_base,
+        allocator,
+        paging,
+        image_provider,
+    };
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
-        let (context, regions) = load(
-            info,
-            module,
-            index,
-            endpoint,
-            direct_map_base,
-            allocator,
-            paging,
-            image_provider,
-        )?;
+        let (context, regions) = load(&load_context, module, index, endpoint)?;
         services.register_with_authority(names[index], specs[index].device_authority);
         host::attach_with_regions(index, context, &regions)?;
     }
@@ -165,17 +163,23 @@ pub fn run(
     Ok(())
 }
 
+/// 装载一个模块所需的平台上下文。
+struct LoadContext<'a> {
+    info: &'a BootInfo,
+    direct_map_base: u64,
+    allocator: &'a FrameBank,
+    paging: &'a PageTable,
+    image_provider: Option<usize>,
+}
+
 fn load(
-    info: &BootInfo,
+    context: &LoadContext<'_>,
     module: &BootModule,
     index: usize,
     endpoint: u64,
-    direct_map_base: u64,
-    allocator: &FrameBank,
-    paging: &PageTable,
-    image_provider: Option<usize>,
 ) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
-    let bytes = info
+    let bytes = context
+        .info
         .module_bytes(module)
         .ok_or_else(|| format!("模块不在 direct map 内：{}", module.name))?;
 
@@ -183,9 +187,11 @@ fn load(
     let (arena_base, arena_size) = host::arena(index);
     let name = loader::service_name(module.name);
     let lazy_image = hk_catalog::lazy_task_image(name);
-    let provider_endpoint = image_provider
+    let provider_endpoint = context
+        .image_provider
         .filter(|_| !hk_catalog::resident_service(name) && hk_catalog::user_image_service(name));
-    let module_phys = lazy_image.then(|| PhysAddr::new(bytes.as_ptr() as u64 - direct_map_base));
+    let module_phys =
+        lazy_image.then(|| PhysAddr::new(bytes.as_ptr() as u64 - context.direct_map_base));
     let spec = ImageSpec {
         bytes,
         endpoint,
@@ -199,13 +205,14 @@ fn load(
         module_index: index,
     };
 
-    let table = paging
-        .create_user(allocator)
+    let table = context
+        .paging
+        .create_user(context.allocator)
         .map_err(|error| format!("创建地址空间失败：{error:?}"))?;
     let capacity = hk_platform_x86_64::system::user_capacity()
         .ok_or_else(|| String::from("User Capacity 尚未建立"))?;
     let mut memory = UserPages {
-        direct_map_base,
+        direct_map_base: context.direct_map_base,
         paging: &table,
         capacity,
     };
@@ -288,14 +295,12 @@ pub fn load_module(
         .iter()
         .find(|module| !loader::is_script(module.name) && loader::service_name(module.name) == name)
         .ok_or_else(|| format!("未知镜像：{name}"))?;
-    load(
+    let context = LoadContext {
         info,
-        module,
-        slot,
-        0,
         direct_map_base,
         allocator,
         paging,
-        None,
-    )
+        image_provider: None,
+    };
+    load(&context, module, slot, 0)
 }
