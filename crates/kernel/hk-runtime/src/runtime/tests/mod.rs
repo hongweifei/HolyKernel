@@ -161,6 +161,8 @@ struct MockPlatform {
     phys: Arc<spin::Mutex<alloc::collections::BTreeMap<u64, u8>>>,
     /// 用户页是否已映射；默认 true 以保持既有测试语义。
     mapped: Arc<AtomicBool>,
+    /// 物理页写入是否成功。
+    write_phys_ok: Arc<AtomicBool>,
     /// 物理页报告的 NUMA 节点。
     node: u8,
 }
@@ -229,6 +231,7 @@ impl MockPlatform {
             input: Arc::new(spin::Mutex::new(Vec::new())),
             phys: Arc::new(spin::Mutex::new(alloc::collections::BTreeMap::new())),
             mapped: Arc::new(AtomicBool::new(true)),
+            write_phys_ok: Arc::new(AtomicBool::new(true)),
             node: 0,
         }
     }
@@ -367,6 +370,9 @@ impl UserPlatform for MockPlatform {
     }
 
     fn write_phys(&self, phys: hk_hal::PhysAddr, data: &[u8]) -> bool {
+        if !self.write_phys_ok.load(Ordering::Acquire) {
+            return false;
+        }
         let mut memory = self.phys.lock();
         for (index, byte) in data.iter().enumerate() {
             memory.insert(phys.get() + index as u64, *byte);

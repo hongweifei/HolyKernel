@@ -156,3 +156,38 @@ fn teardown_removes_image_sources() {
     runtime.teardown_process(index);
     assert!(runtime.image_sources.is_empty());
 }
+
+#[test]
+fn image_fault_read_failure_releases_page() {
+    let (mut runtime, index) = image_runtime();
+    register_image(&mut runtime, index, hk_hal::PAGE_SIZE, &[0xaa], 0x7100_3000);
+    runtime.platform.phys.lock().remove(&0x7100_3000);
+    let before = runtime.process(index).ledger.charged();
+    let outcome = runtime.handle_fault(
+        0,
+        0x40_0000,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    );
+    assert_eq!(outcome, FaultOutcome::Unhandled);
+    assert_eq!(runtime.process(index).ledger.charged(), before);
+}
+
+#[test]
+fn image_fault_write_failure_releases_page() {
+    let (mut runtime, index) = image_runtime();
+    register_image(&mut runtime, index, hk_hal::PAGE_SIZE, &[0xaa], 0x7100_4000);
+    runtime
+        .platform
+        .write_phys_ok
+        .store(false, Ordering::Release);
+    let before = runtime.process(index).ledger.charged();
+    let outcome = runtime.handle_fault(
+        0,
+        0x40_0000,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    );
+    assert_eq!(outcome, FaultOutcome::Unhandled);
+    assert_eq!(runtime.process(index).ledger.charged(), before);
+}
