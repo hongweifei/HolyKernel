@@ -8,8 +8,96 @@
 use alloc::collections::BTreeMap;
 
 use hk_hal::PhysRange;
+use spin::Mutex;
 
 use super::{Charge, HmpError, SharedLedger};
+
+/// 全局物理帧账本：映射引用与任务记账共用同一对象。
+static FRAME_LEDGER: Mutex<FrameLedger> = Mutex::new(FrameLedger::new());
+
+/// 增加一次物理页映射引用。
+pub fn mapping_acquire(phys: u64) -> bool {
+    let mut ledger = FRAME_LEDGER.lock();
+    ledger
+        .refs
+        .entry(phys)
+        .and_modify(|count| *count += 1)
+        .or_insert(1);
+    true
+}
+
+/// 释放一次物理页映射引用；返回剩余引用数。
+pub fn mapping_release(phys: u64) -> u32 {
+    let mut ledger = FRAME_LEDGER.lock();
+    let Some(count) = ledger.refs.get_mut(&phys) else {
+        return 0;
+    };
+    *count = count.saturating_sub(1);
+    if *count == 0 {
+        ledger.refs.remove(&phys);
+        0
+    } else {
+        *count
+    }
+}
+
+/// 返回物理页映射引用数。
+pub fn mapping_count(phys: u64) -> u32 {
+    FRAME_LEDGER.lock().refs.get(&phys).copied().unwrap_or(0)
+}
+
+/// 清空全局映射引用；仅测试使用。
+pub fn mapping_clear() {
+    FRAME_LEDGER.lock().refs.clear();
+}
+
+/// 返回当前跟踪的物理页数。
+pub fn mapping_tracked() -> usize {
+    FRAME_LEDGER.lock().refs.len()
+}
+
+/// 分配一个记账作用域；每个运行时一个，避免不同运行时共享同一能力时
+/// 把彼此的 Task Ledger 合并。
+pub fn scope() -> u64 {
+    let mut ledger = FRAME_LEDGER.lock();
+    let scope = ledger.next_scope;
+    ledger.next_scope = ledger.next_scope.saturating_add(1);
+    scope
+}
+
+/// 记入一段常驻区间。
+pub fn charge(scope: u64, ledger: &SharedLedger, amount: u64) -> Result<FrameRef, HmpError> {
+    FRAME_LEDGER.lock().charge(scope, ledger, amount)
+}
+
+/// 记入一段物理区间。
+pub fn charge_range(
+    scope: u64,
+    ledger: &SharedLedger,
+    range: PhysRange,
+) -> Result<FrameRef, HmpError> {
+    FRAME_LEDGER.lock().charge_range(scope, ledger, range)
+}
+
+/// 接管一笔已经扣过的记账。
+pub fn adopt(scope: u64, ledger: SharedLedger, charge: Charge) -> FrameRef {
+    FRAME_LEDGER.lock().adopt(scope, ledger, charge)
+}
+
+/// 增加一次记账引用。
+pub fn retain(frame: FrameRef) {
+    FRAME_LEDGER.lock().retain(frame);
+}
+
+/// 释放一次记账引用。
+pub fn release(frame: FrameRef) {
+    FRAME_LEDGER.lock().release(frame);
+}
+
+/// 返回记账字节数。
+pub fn amount(frame: FrameRef) -> u64 {
+    FRAME_LEDGER.lock().amount(frame)
+}
 
 /// 常驻区间引用。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -30,6 +118,7 @@ impl FrameRef {
 }
 
 struct FrameAccount {
+    scope: u64,
     amount: u64,
     refs: u32,
     ledger: SharedLedger,
@@ -40,8 +129,11 @@ struct FrameAccount {
 /// 进程运行时的统一 Frame 账本。
 pub struct FrameLedger {
     next: u64,
+    next_scope: u64,
     accounts: BTreeMap<u64, FrameAccount>,
-    by_range: BTreeMap<(u64, u64), u64>,
+    by_range: BTreeMap<(u64, u64, u64), u64>,
+    /// 物理页映射引用数；与记账同属一个账本，但生命周期独立。
+    refs: BTreeMap<u64, u32>,
 }
 
 impl FrameLedger {
@@ -49,46 +141,56 @@ impl FrameLedger {
     pub const fn new() -> Self {
         Self {
             next: 1,
+            next_scope: 1,
             accounts: BTreeMap::new(),
             by_range: BTreeMap::new(),
+            refs: BTreeMap::new(),
         }
     }
 
     /// 记入一段无名常驻区间。
-    pub fn charge(&mut self, ledger: &SharedLedger, amount: u64) -> Result<FrameRef, HmpError> {
+    pub fn charge(
+        &mut self,
+        scope: u64,
+        ledger: &SharedLedger,
+        amount: u64,
+    ) -> Result<FrameRef, HmpError> {
         let charge = ledger.charge(amount)?;
-        let id = self.insert(amount, ledger.clone(), charge, None);
+        let id = self.insert(scope, amount, ledger.clone(), charge, None);
         Ok(FrameRef::new(id))
     }
 
-    /// 记入一段物理区间；同一区间已存在时只增加引用。
+    /// 记入一段物理区间；同一作用域内已存在时只增加引用。
     pub fn charge_range(
         &mut self,
+        scope: u64,
         ledger: &SharedLedger,
         range: PhysRange,
     ) -> Result<FrameRef, HmpError> {
         if let Some(id) = self
             .by_range
-            .get(&(range.start().get(), range.len()))
+            .get(&(scope, range.start().get(), range.len()))
             .copied()
         {
             self.retain(FrameRef::new(id));
             return Ok(FrameRef::new(id));
         }
         let charge = ledger.charge(range.len())?;
-        let id = self.insert(range.len(), ledger.clone(), charge, Some(range));
-        self.by_range.insert((range.start().get(), range.len()), id);
+        let id = self.insert(scope, range.len(), ledger.clone(), charge, Some(range));
+        self.by_range
+            .insert((scope, range.start().get(), range.len()), id);
         Ok(FrameRef::new(id))
     }
 
     /// 接管一笔已经由内核/调用方扣过的记账。
-    pub fn adopt(&mut self, ledger: SharedLedger, charge: Charge) -> FrameRef {
-        let id = self.insert(charge.amount(), ledger, charge, None);
+    pub fn adopt(&mut self, scope: u64, ledger: SharedLedger, charge: Charge) -> FrameRef {
+        let id = self.insert(scope, charge.amount(), ledger, charge, None);
         FrameRef::new(id)
     }
 
     fn insert(
         &mut self,
+        scope: u64,
         amount: u64,
         ledger: SharedLedger,
         charge: Charge,
@@ -99,6 +201,7 @@ impl FrameLedger {
         self.accounts.insert(
             id,
             FrameAccount {
+                scope,
                 amount,
                 refs: 1,
                 ledger,
@@ -130,7 +233,8 @@ impl FrameLedger {
             .remove(&frame.id)
             .expect("account checked above");
         if let Some(range) = account.range {
-            self.by_range.remove(&(range.start().get(), range.len()));
+            self.by_range
+                .remove(&(account.scope, range.start().get(), range.len()));
         }
         let _ = account.ledger.release(account.charge);
     }
@@ -164,8 +268,8 @@ mod tests {
         let ledger = SharedLedger::create(0x2000);
         let mut frames = FrameLedger::new();
         let range = PhysRange::new(PhysAddr::new(0x1000), 0x1000);
-        let first = frames.charge_range(&ledger, range).expect("first");
-        let second = frames.charge_range(&ledger, range).expect("alias");
+        let first = frames.charge_range(1, &ledger, range).expect("first");
+        let second = frames.charge_range(1, &ledger, range).expect("alias");
         assert_eq!(first, second);
         assert_eq!(ledger.charged(), 0x1000);
         frames.release(first);
@@ -180,7 +284,7 @@ mod tests {
         let ledger = SharedLedger::create(0x2000);
         let charge = ledger.charge(0x1000).expect("charge");
         let mut frames = FrameLedger::new();
-        let frame = frames.adopt(ledger.clone(), charge);
+        let frame = frames.adopt(1, ledger.clone(), charge);
         assert_eq!(ledger.charged(), 0x1000);
         frames.release(frame);
         assert_eq!(ledger.charged(), 0);

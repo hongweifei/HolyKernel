@@ -64,11 +64,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .flatten()
                 .find(|mapping| mapping.capability == handle)
         {
-            let mut resident = mapping
-                .charge
-                .map_or(0, |charge| self.frames.amount(charge));
+            let mut resident = mapping.charge.map_or(0, hk_mem::hmp::frame_ledger::amount);
             for (_, charge) in &mapping.page_charges {
-                resident = resident.saturating_add(self.frames.amount(*charge));
+                resident = resident.saturating_add(hk_mem::hmp::frame_ledger::amount(*charge));
             }
             snapshot.resident = resident;
         }

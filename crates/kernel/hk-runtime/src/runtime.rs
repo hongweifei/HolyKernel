@@ -15,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Arena as HmpArena, Charge, FrameLedger, FrameRef, RegionFlags, SharedLedger};
+use hk_mem::hmp::{Arena as HmpArena, Charge, FrameRef, RegionFlags, SharedLedger};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_GROW,
@@ -344,8 +344,8 @@ pub struct UserRuntime<C, P> {
     image_registrations: Vec<ImageRegistration>,
     /// 服务启动/重启通知：(服务名, Notification 对象)。
     service_watchers: Vec<(alloc::string::String, hk_handle::ObjectId)>,
-    /// 统一 Frame 引用账本；共享物理区间只计费一次。
-    frames: FrameLedger,
+    /// 全局 Frame 账本中的运行时作用域。
+    frame_scope: u64,
     platform: P,
 }
 
@@ -395,7 +395,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             modules: Vec::new(),
             image_registrations: Vec::new(),
             service_watchers: Vec::new(),
-            frames: FrameLedger::new(),
+            frame_scope: hk_mem::hmp::frame_ledger::scope(),
             platform,
         }
     }
@@ -425,7 +425,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         amount: u64,
     ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
         let ledger = self.process(index).ledger.clone();
-        self.frames.charge(&ledger, amount)
+        hk_mem::hmp::frame_ledger::charge(self.frame_scope, &ledger, amount)
     }
 
     /// 记入一段具体物理区间；同一区间在多个进程间共享时只计费一次。
@@ -435,18 +435,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         range: hk_hal::PhysRange,
     ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
         let ledger = self.process(index).ledger.clone();
-        self.frames.charge_range(&ledger, range)
+        hk_mem::hmp::frame_ledger::charge_range(self.frame_scope, &ledger, range)
     }
 
     /// 接管一笔内核已经扣过的记账。
     pub(crate) fn adopt_frame(&mut self, index: usize, charge: Charge) -> FrameRef {
         let ledger = self.process(index).ledger.clone();
-        self.frames.adopt(ledger, charge)
+        hk_mem::hmp::frame_ledger::adopt(self.frame_scope, ledger, charge)
     }
 
     /// 释放一次 Frame 引用。
     pub(crate) fn release_frame(&mut self, frame: FrameRef) {
-        self.frames.release(frame);
+        hk_mem::hmp::frame_ledger::release(frame);
     }
 
     /// 判断是否有等待调度的线程。

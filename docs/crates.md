@@ -52,7 +52,10 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 
 协议标签统一按 `0x100` 分段：服务协议标签在零依赖的 `hk-syscall` 定义，`hk-proto/src/labels.rs` 登记基址与分组，`LABEL_GROUPS` 登记全部服务协议标签（virtio 标签由驱动 crate 按 `labels::VIRTIO` 派生并自检）并由测试检查分段与全局唯一；Memory Server 与 Provider 缺页协议分别占 `0x1100`、`0x1200` 段。句柄权利使用 `RIGHT_*`，Holy 文档/卷令牌权利使用 `TOKEN_RIGHT_*`，两套按域命名。
 
-内核侧 `hk-paging` 提供通用 `UserSpace` 包装与 `FrameRefs`：COW 共享状态不再依赖 x86 软件 PTE 位；x86 平台保留页表编码、TLB、PCID 与大页机制。`cargo xtask deps` 要求 `hk-paging` 不得依赖用户态 crate。
+内核侧 `hk-paging` 提供通用 `UserSpace` 包装；`FrameRefs` 是 `hk-mem` 全局
+`FrameLedger` 的无状态 facade，映射引用与 COW 共享状态不再依赖 x86 软件 PTE 位，
+也不再维护第二套计数。x86 平台保留页表编码、TLB、PCID 与大页机制。`cargo xtask deps`
+要求 `hk-paging` 不得依赖用户态 crate。
 
 在侧别规则之上还有几条窄约束，由同一命令检查：`hk-base` 与 `hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能依赖 `hk-base` 与固件库；`hk-paging` 不得依赖用户态 crate；`hk-syscall-client` 只依赖 `hk-base` 与 `hk-syscall`，并发库（`hk-sync`、`hk-thread`、`hk-async`、`hk-worker`、`hk-debug`）只依赖它而不是完整 `hk-server-api`；`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；服务端 Holy 分派 `hk-holy-service` 与远程后端适配 `hk-fs-remote` 都不依赖服务二进制；`hk-proto` 只依赖内核面与 ABI，不引入会要求全局分配器的 `hk-fs`（无堆服务同样链接 `hk-proto`），原生文档的共享响应层放在 `hk-holy-proto`。
 

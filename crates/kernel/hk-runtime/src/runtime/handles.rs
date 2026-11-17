@@ -308,10 +308,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             );
             if let Some((charge, page_charges)) = inherited {
                 if let Some(charge) = charge {
-                    self.frames.retain(charge);
+                    hk_mem::hmp::frame_ledger::retain(charge);
                 }
                 for (_, charge) in &page_charges {
-                    self.frames.retain(*charge);
+                    hk_mem::hmp::frame_ledger::retain(*charge);
                 }
                 if let Some(mapping) = self
                     .process_mut(child)

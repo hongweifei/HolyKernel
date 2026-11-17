@@ -1009,6 +1009,7 @@ name = "hk-paging"
 version = "0.1.0"
 dependencies = [
  "hk-hal",
+ "hk-mem",
 ]
 
 [[package]]

@@ -333,10 +333,12 @@ sequenceDiagram
 ```
 
 - **COW 契约**：`RegionFlags::COW` 是唯一状态；页表只表达只读/可写权限与 Frame 安装。
-- **统一 Frame 记账**：运行时用 `FrameLedger` 管理所有常驻区间；首次装入生成
-  `FrameRef` 并从 Task Ledger 扣账，同一物理区间在 fork/多 Region 间共享时只增加
-  引用，不重复计费；最后一个引用释放时归还。Region 的 `charge`/`page_charges`、
-  COW 私有页、句柄与 Grant 记账都保存同一类 `FrameRef`。
+- **统一 Frame 记账**：全局 `FrameLedger` 管理常驻区间与物理映射引用；每个运行时
+  使用独立 scope，首次装入生成 `FrameRef` 并从 Task Ledger 扣账，同一 scope 内的
+  物理区间在 fork/多 Region 间共享时只增加引用，不重复计费；最后一个引用释放时
+  归还。`hk-paging::FrameRefs` 只是该全局账本的 facade，不再维护第二套计数。
+  Region 的 `charge`/`page_charges`、COW 私有页、句柄与 Grant 记账都保存同一类
+  `FrameRef`。
 - **匿名 COW**：默认 Provider 为空的 Anonymous 由内核快速路径复制 Frame；复制页从任务 Capacity 分配，并计入 Task Ledger；进程私有页登记在 Arena 的覆盖表中，解除映射或退出时归还。
 - **文件/设备 COW**：绑定 Provider 的能力在写缺页时把 `Fault { offset, page, address, access }` 转发 Provider，由 Provider 决定复制、共享或拒绝；Provider 回包作为当前进程的私有覆盖安装，不修改共享能力页。
 - **fork**：可写 Region 标 `COW` 并共享 Frame；为子任务复制私有页（范围外的可写页）产生的字节计入子任务 Task Ledger。绑定 Provider 的懒 Region 不在 fork 前预装入，子任务首次访问时再由 Provider 提供。

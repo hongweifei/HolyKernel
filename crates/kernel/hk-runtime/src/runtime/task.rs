@@ -135,9 +135,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             })
             .collect();
         for range in &forked.pages {
-            let Ok(charge) = self.frames.charge_range(&process.ledger, *range) else {
+            let Ok(charge) =
+                hk_mem::hmp::frame_ledger::charge_range(self.frame_scope, &process.ledger, *range)
+            else {
                 for charge in process.cow_charges.drain(..) {
-                    self.frames.release(charge);
+                    hk_mem::hmp::frame_ledger::release(charge);
                 }
                 frame.set_result(u64::MAX);
                 return Switch::Continue;

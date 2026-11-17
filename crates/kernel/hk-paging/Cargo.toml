@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 hk-hal.workspace = true
+hk-mem.workspace = true
 
 [lints]
 workspace = true
