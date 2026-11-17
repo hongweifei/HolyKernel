@@ -597,6 +597,8 @@ pub const PROVIDER_RECLAIM: u64 = 0x1206;
 
 /// Provider 确认回收请求；`words[3]` 为 0 表示内容已安全保存。
 pub const PROVIDER_RECLAIMED: u64 = 0x1207;
+/// 批量回收：`words[1]` 起始页、`words[4]` 页数，载荷为连续页内容。
+pub const PROVIDER_RECLAIM_BATCH: u64 = 0x1208;
 
 /// 帧缓冲描述符编码长度。
 pub const FRAMEBUFFER_DESCRIPTOR_BYTES: usize = 40;

@@ -24,7 +24,7 @@ use hk_server_api::{
 #[cfg(target_os = "none")]
 use hk_syscall::{
     PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
-    PROVIDER_RECLAIMED, PROVIDER_RELEASE,
+    PROVIDER_RECLAIM_BATCH, PROVIDER_RECLAIMED, PROVIDER_RELEASE,
 };
 #[cfg(target_os = "none")]
 use spin::Mutex;
@@ -56,6 +56,28 @@ enum Stored {
     Compressed(Vec<u8>),
     /// 不可压缩的原始页。
     Raw(Vec<u8>),
+}
+
+/// 压缩并保存一页；堆不足时返回 `None`。
+#[cfg(target_os = "none")]
+fn store_page(source: &[u8]) -> Option<Stored> {
+    let raw = || {
+        let mut raw = Vec::new();
+        raw.try_reserve_exact(PAGE).ok()?;
+        raw.extend_from_slice(source);
+        Some(Stored::Raw(raw))
+    };
+    match swap::compress(source) {
+        Some(compressed) => {
+            let mut check = [0_u8; PAGE];
+            if swap::decompress(&compressed, &mut check).is_some() {
+                Some(Stored::Compressed(compressed))
+            } else {
+                raw()
+            }
+        }
+        None => raw(),
+    }
 }
 
 /// Provider 创建过的匿名能力：对象标识与长度，供压力回收线程使用。
@@ -132,8 +154,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let notification = self_notification();
     let _ = hk_thread::spawn_raw(reclaim_worker, notification, 64 * 1024);
     loop {
-        // 回收请求可能携带整页内容；其它请求只使用前 10 字节。
-        let mut request = [0_u8; PAGE];
+        // 批量回收最多携带 16 页；其它请求只使用前 10 字节。
+        let mut request = alloc::vec![0_u8; PAGE * 16];
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
         if let Some((free, total, threshold)) = memory_pressure()
             && total > 0
@@ -206,6 +228,41 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
             continue;
         }
+        if label == PROVIDER_RECLAIM_BATCH {
+            let Some(words) = message_words() else {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            };
+            let first = words[1] as usize;
+            let count = words[4] as usize;
+            if count == 0 || count > 16 || length != count * PAGE {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
+            if swapped.len() + count > 256 {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
+            let mut stored = Vec::with_capacity(count);
+            let mut failed = false;
+            for index in 0..count {
+                let source = &request[index * PAGE..(index + 1) * PAGE];
+                let Some(page) = store_page(source) else {
+                    failed = true;
+                    break;
+                };
+                stored.push((first + index, page));
+            }
+            if failed {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
+            for (page, content) in stored {
+                swapped.insert((words[0], page as u64), content);
+            }
+            let _ = reply(PROVIDER_RECLAIMED, 0);
+            continue;
+        }
         if label == PROVIDER_RECLAIM {
             let Some(words) = message_words() else {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
@@ -217,35 +274,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
             let source = &request[..PAGE];
             if swapped.len() >= 256 && !swapped.contains_key(&(words[0], words[1])) {
-                // 服务堆有界：满了就让内核保留页面，而不是 panic。
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
-            let raw = || {
-                let mut raw = Vec::new();
-                raw.try_reserve_exact(PAGE).ok()?;
-                raw.extend_from_slice(source);
-                Some(Stored::Raw(raw))
-            };
-            let stored = match swap::compress(source) {
-                Some(compressed) => {
-                    let mut check = [0_u8; PAGE];
-                    if swap::decompress(&compressed, &mut check).is_some() {
-                        Stored::Compressed(compressed)
-                    } else if let Some(raw) = raw() {
-                        raw
-                    } else {
-                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
-                        continue;
-                    }
-                }
-                None => {
-                    let Some(raw) = raw() else {
-                        let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
-                        continue;
-                    };
-                    raw
-                }
+            let Some(stored) = store_page(source) else {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
             };
             swapped.insert((words[0], words[1]), stored);
             let _ = reply(PROVIDER_RECLAIMED, 0);

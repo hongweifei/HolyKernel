@@ -94,6 +94,8 @@ pub enum Pending {
         end: usize,
         /// 本批次已释放字节数。
         released: u64,
+        /// 本批次页数。
+        count: usize,
     },
     /// 休眠到指定契约时刻（微秒）。
     Sleep {

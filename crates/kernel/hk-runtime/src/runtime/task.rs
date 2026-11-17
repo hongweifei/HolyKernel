@@ -454,7 +454,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     }
                 }
                 Pending::ProviderReclaim {
-                    capability, index, ..
+                    capability,
+                    index,
+                    count,
+                    ..
                 } => {
                     let dead =
                         self.kernel
@@ -464,7 +467,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                     .is_none_or(|endpoint| !self.kernel.endpoint_served(endpoint))
                             });
                     if dead {
-                        reclaims.push((slot, capability, index));
+                        reclaims.push((slot, capability, index, count));
                     }
                 }
                 _ => {}
@@ -474,11 +477,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let name = self.tasks[slot].name.clone();
             let _ = self.terminate(&name, PROVIDER_FAULT_EXIT);
         }
-        for (slot, capability, page_index) in reclaims {
+        for (slot, capability, page_index, count) in reclaims {
             let tcb = self.tasks[slot].tcb;
             let _ = self.kernel.cancel_call(tcb);
-            self.kernel
-                .end_capability_reclaim(tcb, capability, page_index);
+            for page in page_index..page_index + count {
+                self.kernel.end_capability_reclaim(tcb, capability, page);
+            }
             self.tasks[slot].context.set_result(u64::MAX);
             self.tasks[slot].pending = Pending::None;
             self.kernel.wake_thread(tcb);
@@ -624,12 +628,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         capability,
                         index: page_index,
                         deadline,
+                        count,
                         ..
                     } if deadline <= now => {
                         // 回复已到达时不丢弃：交给 prepare 消费结果。
                         if self.kernel.cancel_call(tcb) {
-                            self.kernel
-                                .end_capability_reclaim(tcb, capability, page_index);
+                            for page in page_index..page_index + count {
+                                self.kernel.end_capability_reclaim(tcb, capability, page);
+                            }
                             self.tasks[index].context.set_result(u64::MAX);
                             self.tasks[index].pending = Pending::None;
                         }
@@ -847,22 +853,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 provider,
                 end,
                 released,
+                count,
             } => {
                 let caller = self.tasks[index].tcb;
                 match self.kernel.take_reply(caller) {
                     Some(message) => {
                         if message.label == hk_syscall::PROVIDER_RECLAIMED && message.words[3] == 0
                         {
-                            let released = released.saturating_add(
-                                self.finish_provider_reclaim(index, capability, object, page_index),
-                            );
+                            let mut released = released;
+                            for page in page_index..page_index + count {
+                                released = released.saturating_add(
+                                    self.finish_provider_reclaim(index, capability, object, page),
+                                );
+                            }
                             match self.continue_provider_reclaim(
                                 index,
                                 caller,
                                 capability,
                                 object,
                                 provider,
-                                page_index + 1,
+                                page_index + count,
                                 end,
                                 released,
                             ) {
@@ -870,15 +880,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 None => blocked_again = true,
                             }
                         } else {
-                            self.kernel
-                                .end_capability_reclaim(caller, capability, page_index);
+                            for page in page_index..page_index + count {
+                                self.kernel.end_capability_reclaim(caller, capability, page);
+                            }
                             self.tasks[index].context.set_result(u64::MAX);
                         }
                     }
                     None if deadline <= self.contract_now() => {
                         let _ = self.kernel.cancel_call(caller);
-                        self.kernel
-                            .end_capability_reclaim(caller, capability, page_index);
+                        for page in page_index..page_index + count {
+                            self.kernel.end_capability_reclaim(caller, capability, page);
+                        }
                         self.tasks[index].context.set_result(u64::MAX);
                     }
                     None => blocked_again = true,

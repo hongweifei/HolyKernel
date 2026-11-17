@@ -163,7 +163,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
-    /// 逐页把能力区间交给 Provider；返回 `None` 表示已发送请求并阻塞。
+    /// 把能力区间按连续页批量交给 Provider；返回 `None` 表示已发送请求并阻塞。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn continue_provider_reclaim(
         &mut self,
@@ -176,67 +176,98 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         end: usize,
         released: u64,
     ) -> Option<u64> {
+        const BATCH_PAGES: usize = 16;
         if !self.kernel.endpoint_served(provider) {
             return Some(u64::MAX);
         }
         let page = hk_hal::PAGE_SIZE as u64;
         while page_index < end {
-            let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
-                page_index += 1;
-                continue;
-            };
-            if self.platform.page_shared(range.start())
-                || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
-            {
-                page_index += 1;
-                continue;
+            // 找到本批第一页。
+            loop {
+                if page_index >= end {
+                    return Some(released);
+                }
+                let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
+                    page_index += 1;
+                    continue;
+                };
+                if self.platform.page_shared(range.start())
+                    || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
+                {
+                    page_index += 1;
+                    continue;
+                }
+                break;
             }
-            if !matches!(
-                self.kernel
-                    .begin_capability_reclaim(tcb, handle, page_index),
-                Ok(true)
-            ) {
+            let first = page_index;
+            let mut count = 0;
+            let mut data = alloc::vec::Vec::with_capacity(hk_hal::PAGE_SIZE * BATCH_PAGES);
+            while page_index < end && count < BATCH_PAGES {
+                let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
+                    break;
+                };
+                if self.platform.page_shared(range.start())
+                    || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
+                {
+                    break;
+                }
+                if !matches!(
+                    self.kernel
+                        .begin_capability_reclaim(tcb, handle, page_index),
+                    Ok(true)
+                ) {
+                    break;
+                }
+                // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
+                // 常驻，下一次缺页会按常驻页快速路径重新映射。
+                self.unmap_capability_page(index, object, page_index);
+                let mut buffer = [0_u8; hk_hal::PAGE_SIZE];
+                if !self.platform.read_phys(range.start(), &mut buffer) {
+                    self.kernel.end_capability_reclaim(tcb, handle, page_index);
+                    break;
+                }
+                data.extend_from_slice(&buffer);
+                count += 1;
                 page_index += 1;
-                continue;
             }
-            // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
-            // 常驻，下一次缺页会按常驻页快速路径重新映射。
-            self.unmap_capability_page(index, object, page_index);
-            let mut data = alloc::vec![0_u8; hk_hal::PAGE_SIZE];
-            if !self.platform.read_phys(range.start(), &mut data) {
-                self.kernel.end_capability_reclaim(tcb, handle, page_index);
+            if count == 0 {
                 page_index += 1;
                 continue;
             }
             let words = [
                 object.get(),
-                page_index as u64,
-                page_index as u64 * page,
+                first as u64,
+                first as u64 * page,
                 page,
-                0,
+                if count == 1 { 0 } else { count as u64 },
                 self.oom.events,
                 0,
                 0,
             ];
-            let message = Message::new(hk_syscall::PROVIDER_RECLAIM)
-                .with_words(words)
-                .with_data(data);
+            let label = if count == 1 {
+                hk_syscall::PROVIDER_RECLAIM
+            } else {
+                hk_syscall::PROVIDER_RECLAIM_BATCH
+            };
+            let message = Message::new(label).with_words(words).with_data(data);
             if self.kernel.call_object(tcb, provider, message).is_ok() {
                 let deadline = self.contract_now().saturating_add(1_000_000);
                 self.tasks[index].pending = Pending::ProviderReclaim {
                     capability: handle,
-                    index: page_index,
+                    index: first,
                     object,
                     deadline,
                     provider,
                     end,
                     released,
+                    count,
                 };
                 self.timeouts.entry(deadline).or_default().push(index);
                 return None;
             }
-            self.kernel.end_capability_reclaim(tcb, handle, page_index);
-            page_index += 1;
+            for page in first..first + count {
+                self.kernel.end_capability_reclaim(tcb, handle, page);
+            }
         }
         Some(released)
     }
