@@ -706,7 +706,12 @@ fn log_supervised_exits() {
             continue;
         }
         let policy = hk_root_server::service::restart_policy(&task.name);
-        if policy == hk_root_server::service::RestartPolicy::Never {
+        let restarts = match policy {
+            hk_root_server::service::RestartPolicy::Never => false,
+            hk_root_server::service::RestartPolicy::OnFailure => task.exit_code != Some(0),
+            hk_root_server::service::RestartPolicy::Always => true,
+        };
+        if !restarts {
             continue;
         }
         console.write_str(&format!(
