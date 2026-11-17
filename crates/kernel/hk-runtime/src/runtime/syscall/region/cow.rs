@@ -55,9 +55,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     (id.get(), page_index),
                     crate::runtime::CowPage {
                         range,
-                        charge: Some(charge),
                         backing: None,
                     },
+                );
+                self.record_page_charge_for_capability(
+                    index,
+                    region.capability,
+                    page_index,
+                    charge,
                 );
                 true
             }

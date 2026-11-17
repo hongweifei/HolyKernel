@@ -753,26 +753,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .copied()
                 .collect();
             for key in removed {
-                if let Some(page) = self.process_mut(index).cow_pages.remove(&key)
-                    && let Some(charge) = page.charge
-                {
-                    let _ = self.process_mut(index).ledger.release(charge);
-                }
+                self.process_mut(index).cow_pages.remove(&key);
             }
         }
     }
 
     /// 归还全部 COW 私有页记账。
     fn release_cow_charges(&mut self, index: usize) {
-        let charges: Vec<Option<Charge>> = self
-            .process_mut(index)
-            .cow_pages
-            .values()
-            .map(|page| page.charge)
-            .collect();
-        for charge in charges.into_iter().flatten() {
-            let _ = self.process_mut(index).ledger.release(charge);
-        }
         if let Some(charge) = self.process_mut(index).cow_charge.take() {
             let _ = self.process_mut(index).ledger.release(charge);
         }

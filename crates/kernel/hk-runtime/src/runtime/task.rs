@@ -129,7 +129,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     *key,
                     crate::runtime::CowPage {
                         range: page.range,
-                        charge: None,
                         backing: None,
                     },
                 )
@@ -927,7 +926,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 (id.get(), page_index),
                                 crate::runtime::CowPage {
                                     range,
-                                    charge: Some(charge),
                                     backing: Some(backing),
                                 },
                             );

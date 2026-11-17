@@ -93,13 +93,11 @@ pub struct UserRegionSpec {
     pub executable: bool,
 }
 
-/// 进程私有 COW 页；`charge` 只属于拥有该页的进程，fork 复制出的子进程
-/// 条目不带记账。
+/// 进程私有 COW 页；记账统一由映射该页的 Region `page_charges` 持有，
+/// fork 复制出的子进程条目不带记账。
 pub struct CowPage {
     /// 私有物理页区间。
     pub range: hk_hal::PhysRange,
-    /// 该页占用的进程记账。
-    pub charge: Option<Charge>,
     /// Provider 提供的私有页；内核 COW 页由页表持有，这里为 `None`。
     pub backing: Option<hk_mem::hmp::FrameBacking>,
 }
@@ -127,7 +125,7 @@ pub(crate) struct RegionMap {
     pub cache: hk_hal::CachePolicy,
     /// 已常驻物理页的整段记账；惰性映射为 `None`。
     pub charge: Option<Charge>,
-    /// 逐页装入产生的记账，键为能力内页索引。
+    /// 逐页装入与 COW 私有页产生的记账，键为能力内页索引。
     pub page_charges: Vec<(usize, Charge)>,
 }
 
@@ -144,7 +142,7 @@ pub(crate) struct Process {
     pub arena_next: u64,
     /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页与记账。
     pub cow_pages: BTreeMap<(u64, usize), CowPage>,
-    /// fork 时为子任务复制私有页产生的记账；任务退出时归还。
+    /// fork 时为子任务整段复制私有页产生的记账；任务退出时归还。
     pub cow_charge: Option<Charge>,
     /// 进程能力分配使用的 Capacity 句柄；关闭句柄即撤销分配权。
     pub allocation_capacity: Handle,

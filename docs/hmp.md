@@ -315,6 +315,7 @@ sequenceDiagram
 ```
 
 - **COW 契约**：`RegionFlags::COW` 是唯一状态；页表只表达只读/可写权限与 Frame 安装。
+- COW 私有页与普通常驻页统一由 Region 的 `page_charges` 记账，按能力页索引释放。
 - **匿名 COW**：默认 Provider 为空的 Anonymous 由内核快速路径复制 Frame；复制页从任务 Capacity 分配，并计入 Task Ledger；进程私有页登记在 Arena 的覆盖表中，解除映射或退出时归还。
 - **文件/设备 COW**：绑定 Provider 的能力在写缺页时把 `Fault { offset, page, address, access }` 转发 Provider，由 Provider 决定复制、共享或拒绝；Provider 回包作为当前进程的私有覆盖安装，不修改共享能力页。
 - **fork**：可写 Region 标 `COW` 并共享 Frame；为子任务复制私有页（范围外的可写页）产生的字节计入子任务 Task Ledger。绑定 Provider 的懒 Region 不在 fork 前预装入，子任务首次访问时再由 Provider 提供。
