@@ -1,10 +1,8 @@
 //! 冒烟执行：启动 QEMU、注入输入并校验结果。
 
-use super::*;
 use super::net::{free_port, serve_port_echo, serve_tcp_echo, serve_udp_echo, serve_vcon_echo};
-use super::verify::{
-    prepare_disk, serial_tail, verify_ext4, verify_holyfs, verify_tone, wait_for,
-};
+use super::verify::{prepare_disk, serial_tail, verify_ext4, verify_holyfs, verify_tone, wait_for};
+use super::*;
 
 /// 启动内核并校验串口输出。
 pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {

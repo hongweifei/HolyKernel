@@ -15,7 +15,7 @@ mod cow;
 
 /// 命中的 Region 快照：解析缺页时需要的全部元数据。
 #[derive(Clone, Copy)]
-struct FaultRegion {
+pub(super) struct FaultRegion {
     tcb: TcbId,
     capability: Handle,
     region: hk_mem::hmp::RegionId,

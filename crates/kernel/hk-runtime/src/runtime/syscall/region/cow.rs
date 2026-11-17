@@ -3,6 +3,7 @@
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 解析用户 COW 缺页；复制出新页时登记为当前进程的私有覆盖。
     pub fn resolve_cow(&mut self, cpu: usize, address: u64) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;
