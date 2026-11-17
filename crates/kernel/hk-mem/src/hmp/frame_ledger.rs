@@ -18,21 +18,7 @@ static FRAME_LEDGER: Mutex<FrameLedger> = Mutex::new(FrameLedger::new());
 
 /// 增加一次物理页映射引用。
 pub fn mapping_acquire(phys: u64) -> bool {
-    let mut ledger = FRAME_LEDGER.lock();
-    if let Some(ids) = ledger.by_page.get(&phys).cloned() {
-        for id in ids {
-            if let Some(account) = ledger.accounts.get_mut(&id) {
-                account.refs = account.refs.saturating_add(1);
-            }
-        }
-    } else {
-        ledger
-            .refs
-            .entry(phys)
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
-    }
-    true
+    FRAME_LEDGER.lock().acquire_mapping(phys)
 }
 
 /// 释放一次物理页映射引用；返回剩余引用数。
@@ -270,6 +256,23 @@ impl FrameLedger {
         id
     }
 
+    /// 增加一次物理映射引用；已绑定记账时直接增加账目引用。
+    pub fn acquire_mapping(&mut self, phys: u64) -> bool {
+        if let Some(ids) = self.by_page.get(&phys).cloned() {
+            for id in ids {
+                if let Some(account) = self.accounts.get_mut(&id) {
+                    account.refs = account.refs.saturating_add(1);
+                }
+            }
+        } else {
+            self.refs
+                .entry(phys)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+        }
+        true
+    }
+
     /// 释放一次物理映射引用。
     pub fn release_mapping(&mut self, phys: u64) -> u32 {
         if let Some(ids) = self.by_page.get(&phys).cloned() {
@@ -385,6 +388,42 @@ mod tests {
         frames.release_mapping(range.start().get());
         assert_eq!(ledger.charged(), 0);
         assert_eq!(frames.tracked(), 0);
+    }
+
+    #[test]
+    fn mapping_then_charge_releases_on_last_unmap() {
+        let ledger = SharedLedger::create(0x2000);
+        let mut frames = FrameLedger::new();
+        let range = PhysRange::new(PhysAddr::new(0x2000), 0x1000);
+        assert!(frames.acquire_mapping(range.start().get()));
+        let frame = frames.charge_range(1, &ledger, range).expect("charge");
+        frames.release(frame);
+        assert_eq!(ledger.charged(), 0x1000, "映射仍在时不能提前归还");
+        frames.release_mapping(range.start().get());
+        assert_eq!(ledger.charged(), 0);
+    }
+
+    #[test]
+    fn charge_then_mapping_releases_on_unmap() {
+        let ledger = SharedLedger::create(0x2000);
+        let mut frames = FrameLedger::new();
+        let range = PhysRange::new(PhysAddr::new(0x3000), 0x1000);
+        let frame = frames.charge_range(1, &ledger, range).expect("charge");
+        assert!(frames.acquire_mapping(range.start().get()));
+        frames.release(frame);
+        assert_eq!(ledger.charged(), 0x1000, "映射仍在时不能提前归还");
+        frames.release_mapping(range.start().get());
+        assert_eq!(ledger.charged(), 0);
+    }
+
+    #[test]
+    fn release_without_mapping_returns_immediately() {
+        let ledger = SharedLedger::create(0x2000);
+        let mut frames = FrameLedger::new();
+        let range = PhysRange::new(PhysAddr::new(0x4000), 0x1000);
+        let frame = frames.charge_range(1, &ledger, range).expect("charge");
+        frames.release(frame);
+        assert_eq!(ledger.charged(), 0);
     }
 
     #[test]
