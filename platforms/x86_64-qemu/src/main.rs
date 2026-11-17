@@ -15,11 +15,11 @@ extern crate alloc;
 #[cfg(target_os = "none")]
 mod allocator;
 #[cfg(target_os = "none")]
+mod host;
+#[cfg(target_os = "none")]
 mod loader;
 #[cfg(target_os = "none")]
 mod memory;
-#[cfg(target_os = "none")]
-mod runtime;
 #[cfg(target_os = "none")]
 mod shell;
 #[cfg(target_os = "none")]
@@ -122,7 +122,7 @@ extern "C" fn kmain() -> ! {
     }
 
     announce(&console, screen.as_ref(), "启动信息校验通过\n");
-    runtime::set_framebuffer(info.framebuffer);
+    host::set_framebuffer(info.framebuffer);
 
     let direct_map = match info.direct_map {
         Some(direct_map) => direct_map,

@@ -14,7 +14,7 @@ use hk_platform_x86_64::{FramebufferConsole, PageTable, Serial, keyboard};
 use hk_root_server::ServiceTable;
 use hk_shell::ShellIo;
 
-use crate::{loader, runtime};
+use crate::{host, loader};
 
 /// 按需装载服务所需的上下文。
 pub struct Loader<'a> {
@@ -155,7 +155,7 @@ impl Scheduler {
 
 impl Scheduling for Scheduler {
     fn run_budgeted(&mut self, services: &mut ServiceTable, steps: usize) -> bool {
-        runtime::run_budgeted(services, steps)
+        host::run_budgeted(services, steps)
     }
 
     fn begin_service_run(&mut self) {
@@ -189,7 +189,7 @@ pub fn run(
     let io = ConsoleIo { console, screen };
     hk_kernel_shell::run(
         &io,
-        runtime::host(),
+        host::host(),
         services,
         loader,
         &mut Scheduler::new(),
@@ -206,13 +206,7 @@ pub fn interactive(
     loader: &mut Loader<'_>,
 ) -> Result<(), String> {
     let io = ConsoleIo { console, screen };
-    hk_kernel_shell::interactive(
-        &io,
-        runtime::host(),
-        services,
-        loader,
-        &mut Scheduler::new(),
-    );
+    hk_kernel_shell::interactive(&io, host::host(), services, loader, &mut Scheduler::new());
     Ok(())
 }
 

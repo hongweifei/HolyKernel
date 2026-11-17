@@ -17,7 +17,7 @@ use hk_syscall::{
 };
 use spin::Mutex;
 
-use crate::runtime;
+use crate::host;
 use crate::shell::Loader;
 
 /// 只有这个服务可以执行启动/重启/脚本读取。
@@ -130,10 +130,8 @@ pub fn process(loader: &mut Loader<'_>, services: &mut ServiceTable) {
 
 fn execute(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTable) -> Vec<u8> {
     match request.op {
-        ROOT_OP_CHECKPOINT => runtime::checkpoint_service(services, &request.argument),
-        ROOT_OP_RESTORE_CHECKPOINT => {
-            runtime::restore_checkpoint_service(services, &request.argument)
-        }
+        ROOT_OP_CHECKPOINT => host::checkpoint_service(services, &request.argument),
+        ROOT_OP_RESTORE_CHECKPOINT => host::restore_checkpoint_service(services, &request.argument),
         ROOT_OP_CHECKPOINT_READ => checkpoint_read(&request.argument),
         ROOT_OP_CHECKPOINT_WRITE => checkpoint_write(&request.argument, &request.data, services),
         _ => execute_text(request, loader, services).into_bytes(),
@@ -147,7 +145,7 @@ fn checkpoint_read(argument: &str) -> Vec<u8> {
     let Ok(offset) = offset.parse::<u64>() else {
         return Vec::new();
     };
-    runtime::checkpoint_chunk(name, offset, 16 * 1024)
+    host::checkpoint_chunk(name, offset, 16 * 1024)
 }
 
 fn checkpoint_write(argument: &str, chunk: &[u8], services: &mut ServiceTable) -> Vec<u8> {
@@ -178,7 +176,7 @@ fn checkpoint_write(argument: &str, chunk: &[u8], services: &mut ServiceTable) -
     let data = core::mem::take(&mut restore.data);
     *guard = None;
     drop(guard);
-    runtime::restore_checkpoint_bytes(services, &data)
+    host::restore_checkpoint_bytes(services, &data)
 }
 
 fn execute_text(request: &Request, loader: &mut Loader<'_>, services: &mut ServiceTable) -> String {
@@ -189,14 +187,14 @@ fn execute_text(request: &Request, loader: &mut Loader<'_>, services: &mut Servi
         ROOT_OP_TRACE => hk_shell::format::format_trace(&trace()),
         ROOT_OP_STATS => hk_shell::format::format_stats(&stats()),
         ROOT_OP_PERF => perf(),
-        ROOT_OP_CADENCE => runtime::cadence_text(&request.argument),
-        ROOT_OP_METER => runtime::meter_text(&request.argument),
-        ROOT_OP_TEMPO => runtime::tempo_text(),
-        ROOT_OP_START => runtime::start_service(loader, services, &request.argument, None),
-        ROOT_OP_RESTART => runtime::restart_service(loader, services, &request.argument, None),
-        ROOT_OP_REPLACE => runtime::replace_service(loader, services, &request.argument),
+        ROOT_OP_CADENCE => host::cadence_text(&request.argument),
+        ROOT_OP_METER => host::meter_text(&request.argument),
+        ROOT_OP_TEMPO => host::tempo_text(),
+        ROOT_OP_START => host::start_service(loader, services, &request.argument, None),
+        ROOT_OP_RESTART => host::restart_service(loader, services, &request.argument, None),
+        ROOT_OP_REPLACE => host::replace_service(loader, services, &request.argument),
         ROOT_OP_SCRIPT => script(loader, &request.argument),
-        ROOT_OP_SYMBOLIZE => runtime::host().symbolize_list(&request.argument),
+        ROOT_OP_SYMBOLIZE => host::host().symbolize_list(&request.argument),
         ROOT_OP_LOOKUP => lookup(loader, &request.argument),
         _ => String::from("未知控制操作\n"),
     }
@@ -263,8 +261,8 @@ fn push_result(state: &mut ControlState, id: u64, data: Vec<u8>) {
 /// `sched <TCB> <类别> <权重> <预算> <周期> <截止期> <消耗> <等待> <节流> <超限> <切换> <迁移> <CPU>`，
 /// 供任务管理器展示 Cadence/Meter。
 fn perf() -> String {
-    let stats = runtime::stats();
-    let tasks = runtime::tasks();
+    let stats = host::stats();
+    let tasks = host::tasks();
     let cpus = stats
         .resumes
         .iter()
@@ -372,7 +370,7 @@ fn perf() -> String {
 }
 
 fn tasks() -> Vec<TaskInfo> {
-    runtime::tasks()
+    host::tasks()
         .into_iter()
         .map(|task| TaskInfo {
             tcb: task.tcb,
@@ -404,7 +402,7 @@ fn service_view(services: &ServiceTable) -> Vec<ServiceInfo> {
 }
 
 fn trace() -> Vec<ShellTrace> {
-    runtime::trace(32)
+    host::trace(32)
         .into_iter()
         .map(|event: TraceEvent| ShellTrace {
             sequence: event.sequence,
@@ -417,7 +415,7 @@ fn trace() -> Vec<ShellTrace> {
 }
 
 fn stats() -> RuntimeStats {
-    let stats = runtime::stats();
+    let stats = host::stats();
     RuntimeStats {
         switches: stats.switches,
         switch_cycles: stats.switch_cycles,

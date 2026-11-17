@@ -18,7 +18,7 @@ use hk_root_server::loader::{self, ImageSpec};
 use hk_root_server::{ServiceSpec, ServiceTable};
 use spin::Mutex;
 
-use crate::runtime;
+use crate::host;
 
 /// 用户栈基址。
 const USER_STACK_BASE: u64 = hk_base::user::STACK_BASE;
@@ -101,8 +101,8 @@ pub fn run(
             spec
         })
         .collect();
-    runtime::init_symbols(info);
-    runtime::init(&specs)?;
+    host::init_symbols(info);
+    host::init(&specs)?;
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
@@ -116,7 +116,7 @@ pub fn run(
             paging,
         )?;
         services.register_with_authority(names[index], specs[index].device_authority);
-        runtime::attach_with_regions(index, context, &regions)?;
+        host::attach_with_regions(index, context, &regions)?;
     }
     // 服务装载可能在高半区新增页表页；补登记新出现的内核映射。
     hk_platform_x86_64::system_arena::register_kernel_mappings(paging);
@@ -129,9 +129,9 @@ pub fn run(
     };
     let mut restarts = 0;
     loop {
-        let idle = runtime::run_budgeted(services, 1024);
-        runtime::process_controls(&mut shell_loader, services);
-        let restarted = runtime::supervise(&mut shell_loader, services);
+        let idle = host::run_budgeted(services, 1024);
+        host::process_controls(&mut shell_loader, services);
+        let restarted = host::supervise(&mut shell_loader, services);
         if restarted > 0 {
             restarts += restarted;
             if restarts >= 64 {
@@ -144,13 +144,13 @@ pub fn run(
             // 任务可能只是在等实时预算补充、sleep 到期或外部输入。图形桌面与
             // 控制台自检要一直等外部中断；其他模式只要还有未退出任务且存在
             // 下一次唤醒期限，就必须等到期，而不是提前收尾。
-            let pending = runtime::tasks().iter().any(|task| task.state != "exited");
-            let keep_alive = desktop || console_test || runtime::has_pending_wakeup();
+            let pending = host::tasks().iter().any(|task| task.state != "exited");
+            let keep_alive = desktop || console_test || host::has_pending_wakeup();
             if keep_alive && pending {
                 // 在关中断状态下编程唤醒期限，再由 `wait_for_interrupt` 原子地
                 // 开中断并 `hlt`。否则一次性唤醒可能在 `hlt` 之前被投递，随后
                 // 进入没有定时器的永久等待。
-                runtime::arm_idle_wakeup();
+                host::arm_idle_wakeup();
                 hk_platform_x86_64::cpu::wait_for_interrupt();
                 continue;
             }
@@ -174,7 +174,7 @@ fn load(
         .ok_or_else(|| format!("模块不在 direct map 内：{}", module.name))?;
 
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
-    let (arena_base, arena_size) = runtime::arena(index);
+    let (arena_base, arena_size) = host::arena(index);
     let spec = ImageSpec {
         bytes,
         endpoint,

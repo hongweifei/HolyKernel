@@ -142,5 +142,5 @@ extern "C" fn ap_main(lapic_id: u64, cpu_index: u64) -> ! {
     cpu::init_ap(cpu_index);
     cpu::start_ap_tick();
     AP_POOL.mark_online(lapic_id as u32);
-    crate::runtime::run_ap(cpu_index)
+    crate::host::run_ap(cpu_index)
 }
