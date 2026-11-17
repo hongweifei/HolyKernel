@@ -10,7 +10,7 @@ use spin::Mutex;
 use virtio_drivers::device::gpu::VirtIOGpu;
 use virtio_drivers::transport::pci::PciTransport;
 
-use crate::hal::{self, HalImpl};
+use crate::hal::{self, GpuHal};
 
 /// 扫描输出区域：能力内的虚拟地址、长度与几何。
 #[derive(Clone, Copy)]
@@ -23,14 +23,14 @@ struct Scanout {
 
 /// virtio-gpu 设备。
 pub struct Gpu {
-    gpu: Mutex<VirtIOGpu<HalImpl, PciTransport>>,
+    gpu: Mutex<VirtIOGpu<GpuHal, PciTransport>>,
     grant: u64,
     descriptor: DeviceGrant,
     scanout: Mutex<Option<Scanout>>,
 }
 
 impl Gpu {
-    pub(crate) fn new(gpu: VirtIOGpu<HalImpl, PciTransport>) -> Self {
+    pub(crate) fn new(gpu: VirtIOGpu<GpuHal, PciTransport>) -> Self {
         Self {
             gpu: Mutex::new(gpu),
             grant: hal::grant_handle(),

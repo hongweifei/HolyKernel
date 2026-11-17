@@ -13,6 +13,31 @@ use hk_syscall::{
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    pub(crate) fn gpu_capacity(&mut self, index: usize, frame: &mut C) -> Switch {
+        if self.tasks[index].name != "hk-server-virtio" {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(capacity) = self.platform.gpu_capacity() else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let tcb = self.tasks[index].tcb;
+        // Gpu 资源与设备 Dma 共用同一本 Task Ledger；授予 Gpu 时同步放宽
+        // 配额，否则 1 MiB 的默认 Dma 上限会拒绝扫描输出大缓冲。
+        let ledger_limit = self.process(index).ledger.limit();
+        self.process_mut(index)
+            .ledger
+            .set_limit(ledger_limit.saturating_add(capacity.lock().limit()));
+        let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
+        let Ok(handle) = self.kernel.create_capacity_shared(tcb, capacity, rights) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        frame.set_result(self.install_capacity(index, handle));
+        Switch::Continue
+    }
+
     pub(crate) fn capacity_info(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

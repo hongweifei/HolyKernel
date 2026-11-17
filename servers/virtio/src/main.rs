@@ -68,6 +68,8 @@ struct Grants {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-virtio: start\n".as_bytes());
+    let gpu_capacity = hk_server_api::gpu_capacity().unwrap_or(0);
+    hk_driver_virtio::set_gpu_capacity(gpu_capacity);
     let manager = service_endpoint("hk-server-device");
     if manager == 0 {
         write("hk-server-virtio: 没有设备管理器\n".as_bytes());
@@ -157,6 +159,15 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         .finish();
                 }
                 None => write(b"hk-server-virtio: gpu pattern failed\n"),
+            }
+            if let Some(info) = hk_server_api::capacity_info(gpu_capacity) {
+                hk_server_api::format::Line::new()
+                    .text(b"hk-server-virtio: gpu used ")
+                    .number(info.used)
+                    .text(b" / ")
+                    .number(info.limit)
+                    .text(b"\n")
+                    .finish();
             }
             devices.gpu = Some(*device);
         } else {

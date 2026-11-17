@@ -305,6 +305,10 @@ pub const SYS_ARENA_GROW: u64 = 0xAE;
 pub const SYS_MEMORY_EVENTS: u64 = 0xAF;
 /// `SYS_MEMORY_EVENTS` 单条记录长度。
 pub const MEMORY_EVENT_BYTES: usize = 56;
+/// 取得共享的 Gpu 后备容量；仅 virtio 驱动服务可调用。
+pub const SYS_CAPACITY_GPU: u64 = 0xB0;
+/// 从指定 Capacity 创建常驻类型化能力；`arg2` 为容量句柄。
+pub const SYS_CAPABILITY_CREATE_ON: u64 = 0xB1;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -822,6 +826,8 @@ mod tests {
             SYS_NUMA_MIGRATE,
             SYS_ARENA_GROW,
             SYS_MEMORY_EVENTS,
+            SYS_CAPACITY_GPU,
+            SYS_CAPABILITY_CREATE_ON,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

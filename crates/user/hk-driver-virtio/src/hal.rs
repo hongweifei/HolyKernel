@@ -6,8 +6,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
 use hk_server_api::{
-    CapabilityKind, capability_create, capability_phys, close_handle, device_map, dma_map,
-    dma_sync, map_attach, pci_read, pci_write, region_unmap,
+    CapabilityKind, capability_create, capability_create_on, capability_phys, close_handle,
+    device_map, dma_map, dma_sync, map_attach, pci_read, pci_write, region_unmap,
 };
 use spin::Mutex;
 use virtio_drivers::transport::pci::bus::{ConfigurationAccess, DeviceFunction};
@@ -22,6 +22,7 @@ static SHARED: Mutex<Vec<Shared>> = Mutex::new(Vec::new());
 static ALLOCATIONS: Mutex<Vec<Allocation>> = Mutex::new(Vec::new());
 static FRAMES: Mutex<Vec<FrameRegion>> = Mutex::new(Vec::new());
 static MMIO: Mutex<Vec<MmioMapping>> = Mutex::new(Vec::new());
+static GPU_CAPACITY: AtomicU64 = AtomicU64::new(0);
 
 struct MmioMapping {
     grant: u64,
@@ -74,6 +75,11 @@ struct Allocation {
     region: u64,
 }
 
+/// 设置 Gpu 资源使用的共享后备容量。
+pub fn set_gpu_capacity(capacity: u64) {
+    GPU_CAPACITY.store(capacity, Ordering::Release);
+}
+
 /// 绑定本次驱动实例使用的设备授权。
 pub fn bind(grant: u64, descriptor: DeviceGrant) {
     GRANT.store(grant, Ordering::Release);
@@ -95,12 +101,28 @@ pub struct HalImpl;
 
 impl HalImpl {
     fn alloc_pages(pages: usize) -> Option<(u64, u64)> {
+        Self::alloc_pages_from(pages, false)
+    }
+
+    fn alloc_gpu_pages(pages: usize) -> Option<(u64, u64)> {
+        Self::alloc_pages_from(pages, true)
+    }
+
+    fn alloc_pages_from(pages: usize, gpu: bool) -> Option<(u64, u64)> {
         let len = pages.checked_mul(PAGE)?;
         let grant = GRANT.load(Ordering::Acquire);
         if grant == 0 {
             return None;
         }
-        let capability = capability_create(CapabilityKind::DeviceAllocation, len)?;
+        let capability = if gpu {
+            let capacity = GPU_CAPACITY.load(Ordering::Acquire);
+            if capacity == 0 {
+                return None;
+            }
+            capability_create_on(CapabilityKind::DeviceAllocation, len, capacity)?
+        } else {
+            capability_create(CapabilityKind::DeviceAllocation, len)?
+        };
         let (region, virt) = map_attach(capability)?;
         let (phys, length) = capability_phys(capability)?;
         let mapped = dma_map(grant, capability, len);
@@ -232,6 +254,45 @@ unsafe impl Hal for HalImpl {
         if !entry.borrowed {
             HalImpl::release_pages(entry.len.div_ceil(PAGE), entry.phys, entry.virt);
         }
+    }
+}
+
+/// Gpu 专用 HAL：页表与 IRQ 复用通用实现，DMA 从 Gpu Capacity 分配。
+pub struct GpuHal;
+
+// SAFETY: GpuHal 只改变 DMA 分配来源；MMIO、共享与 IRQ 委托给同一任务内的
+// HalImpl，授权与地址校验规则完全相同。
+unsafe impl Hal for GpuHal {
+    fn dma_alloc(pages: usize, _direction: BufferDirection) -> (PhysAddr, NonNull<u8>) {
+        let (phys, virt) = HalImpl::alloc_gpu_pages(pages).expect("Gpu DMA 分配失败");
+        // SAFETY: map_attach 已把 Gpu Allocation 的连续区间映射到当前任务。
+        unsafe {
+            core::ptr::write_bytes(virt as *mut u8, 0, pages * PAGE);
+        }
+        (
+            phys,
+            NonNull::new(virt as *mut u8).expect("非空 Gpu DMA 指针"),
+        )
+    }
+
+    unsafe fn dma_dealloc(paddr: PhysAddr, vaddr: NonNull<u8>, pages: usize) -> i32 {
+        HalImpl::release_pages(pages, paddr, vaddr.as_ptr() as u64);
+        0
+    }
+
+    unsafe fn mmio_phys_to_virt(paddr: PhysAddr, size: usize) -> NonNull<u8> {
+        // SAFETY: 调用方在 Gpu 设备上下文中调用，授权与通用 HAL 相同。
+        unsafe { HalImpl::mmio_phys_to_virt(paddr, size) }
+    }
+
+    unsafe fn share(buffer: NonNull<[u8]>, direction: BufferDirection) -> PhysAddr {
+        // SAFETY: 共享缓冲生命周期由调用方保证。
+        unsafe { HalImpl::share(buffer, direction) }
+    }
+
+    unsafe fn unshare(paddr: PhysAddr, buffer: NonNull<[u8]>, direction: BufferDirection) {
+        // SAFETY: 与 share 成对调用。
+        unsafe { HalImpl::unshare(paddr, buffer, direction) }
     }
 }
 

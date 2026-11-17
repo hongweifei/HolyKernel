@@ -234,7 +234,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 缓存属性（`hk_hal::CachePolicy`）在创建能力时按物理内存种类确定并记入能力与
   Region，映射时直接取用：寄存器窗口 `Uncached`、系统内存扫描输出 `WriteBack`、
   显存扫描输出 `WriteCombining`；用户可请求的映射标志里没有缓存位。
-- `SYS_CAPABILITY_CREATE` 建的 DeviceAllocation 从服务的分配 Capacity 取得内存，默认 `WriteBack`；MMIO 寄存器窗口只经设备映射路径建立，显式 `Uncached`。
+- `SYS_CAPABILITY_CREATE` 建的 DeviceAllocation 从服务的分配 Capacity 取得内存；`SYS_CAPABILITY_CREATE_ON` 可指定其他容量句柄；`SYS_CAPACITY_GPU` 向 virtio 驱动授予共享 Gpu 容量。默认 `WriteBack`；MMIO 寄存器窗口只经设备映射路径建立，显式 `Uncached`。
   显存与 DMA 共用 `DeviceAllocation`，由 `CapacityKind::Gpu` 与 Provider residency 区分。
 
 ### Anonymous

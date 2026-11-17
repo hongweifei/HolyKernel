@@ -3,15 +3,16 @@
 use hk_syscall::{
     CapabilityKind, RIGHT_READ, RIGHT_WRITE, SYS_ARENA_GROW, SYS_ARENA_INFO,
     SYS_CAPABILITY_BIND_PROVIDER, SYS_CAPABILITY_COMMIT, SYS_CAPABILITY_CREATE,
-    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_EXPORT, SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN,
-    SYS_CAPABILITY_SCANOUT, SYS_CAPABILITY_SWAP, SYS_CAPABILITY_WRITEBACK, SYS_CAPACITY_ALLOC,
-    SYS_CAPACITY_FREE, SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT,
-    SYS_CAPACITY_WINDOWS, SYS_DMA_MAP, SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP,
-    SYS_FRAME_PIN, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM,
-    SYS_LEDGER_INFO, SYS_MEMORY_EVENTS, SYS_MEMORY_PRESSURE, SYS_MESSAGE_WORDS, SYS_NUMA_INFO,
-    SYS_NUMA_MIGRATE, SYS_OBJECT_ENUM, SYS_OBJECT_LEDGER, SYS_OOM_EVENT, SYS_OOM_POLICY,
-    SYS_REGION_GROW, SYS_REGION_INFO, SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP,
-    SYS_SYSTEM_ARENA_INFO, SYS_SYSTEM_ARENA_REGIONS,
+    SYS_CAPABILITY_CREATE_LAZY, SYS_CAPABILITY_CREATE_ON, SYS_CAPABILITY_EXPORT,
+    SYS_CAPABILITY_PHYS, SYS_CAPABILITY_PIN, SYS_CAPABILITY_SCANOUT, SYS_CAPABILITY_SWAP,
+    SYS_CAPABILITY_WRITEBACK, SYS_CAPACITY_ALLOC, SYS_CAPACITY_FREE, SYS_CAPACITY_GPU,
+    SYS_CAPACITY_INFO, SYS_CAPACITY_MERGE, SYS_CAPACITY_SPLIT, SYS_CAPACITY_WINDOWS, SYS_DMA_MAP,
+    SYS_FRAME_BANK_STATS, SYS_FRAME_INFO, SYS_FRAME_MAP, SYS_FRAME_PIN, SYS_FRAME_READ,
+    SYS_FRAME_WRITE, SYS_HANDLE_ID, SYS_LEDGER_ENUM, SYS_LEDGER_INFO, SYS_MEMORY_EVENTS,
+    SYS_MEMORY_PRESSURE, SYS_MESSAGE_WORDS, SYS_NUMA_INFO, SYS_NUMA_MIGRATE, SYS_OBJECT_ENUM,
+    SYS_OBJECT_LEDGER, SYS_OOM_EVENT, SYS_OOM_POLICY, SYS_REGION_GROW, SYS_REGION_INFO,
+    SYS_REGION_MAP, SYS_REGION_PROTECT, SYS_REGION_UNMAP, SYS_SYSTEM_ARENA_INFO,
+    SYS_SYSTEM_ARENA_REGIONS,
 };
 
 use hk_syscall::{CAPACITY_KIND_COUNT, LEDGER_RECORD_BYTES, MAX_NUMA_NODES, NUMA_NODE_BYTES};
@@ -29,6 +30,22 @@ pub fn capability_create(kind: CapabilityKind, length: usize) -> Option<u64> {
             u64::from(kind.as_u8()),
             length as u64,
             0,
+            0,
+        )
+        .value
+    };
+    (handle != u64::MAX).then_some(handle)
+}
+
+/// 从指定 Capacity 创建常驻类型化能力；`capacity == 0` 使用任务默认容量。
+pub fn capability_create_on(kind: CapabilityKind, length: usize, capacity: u64) -> Option<u64> {
+    // SAFETY: 内核校验类型、长度与容量句柄后分配常驻物理页。
+    let handle = unsafe {
+        syscall_call(
+            SYS_CAPABILITY_CREATE_ON,
+            u64::from(kind.as_u8()),
+            length as u64,
+            capacity,
             0,
         )
         .value
@@ -287,6 +304,13 @@ pub fn capacity_alloc_on(capacity: u64, length: usize, node: Option<u8>) -> Opti
     // SAFETY: 内核校验 Capacity、长度与节点后分配 Frame。
     let frame = unsafe { syscall_call(SYS_CAPACITY_ALLOC, capacity, length as u64, hint, 0).value };
     (frame != u64::MAX).then_some(frame)
+}
+
+/// 取得共享 Gpu 后备容量句柄；非 virtio 服务或没有 Gpu 容量时返回 `None`。
+pub fn gpu_capacity() -> Option<u64> {
+    // SAFETY: 内核校验调用任务与平台 Gpu 容量后返回共享句柄。
+    let handle = unsafe { syscall_call(SYS_CAPACITY_GPU, 0, 0, 0, 0).value };
+    (handle != u64::MAX && handle != 0).then_some(handle)
 }
 
 /// 返回内存审计事件数。

@@ -212,7 +212,7 @@ impl Notification {
 - 大消息通过 Frame Handle 传递；接收方创建自己的 Region，句柄权限决定只读/可写/可转移。
 - `SYS_RECV_DATA*` 返回实际写入缓冲区的字节数；载荷超过缓冲区时截断，调用方按返回长度切片。
 - 内核提供 `SYS_CAPACITY_*`、`SYS_FRAME_*`、`SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP`。
-- `SYS_CAPABILITY_CREATE(kind, length)` 创建类型化能力并分配常驻物理页，返回能力句柄。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
+- `SYS_CAPABILITY_CREATE(kind, length)` 从任务默认容量创建类型化能力并分配常驻物理页；`SYS_CAPABILITY_CREATE_ON(kind, length, capacity)` 从指定容量创建。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
 - 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。`SYS_REGION_PROTECT` 只允许收窄到能力句柄 Rights 覆盖的范围；Region 句柄不参与复制与转移。
 - Provider 缺页消息携带 `{offset, page, address, access}`，`access` 区分读与写；写缺页由 Provider 决定复制、共享或拒绝，回包作为当前进程的私有 COW 覆盖安装。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。

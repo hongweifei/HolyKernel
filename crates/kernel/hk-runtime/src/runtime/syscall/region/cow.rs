@@ -211,7 +211,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             return self.platform.user_mapped(page_address);
         }
-        let Some(backing) = self.allocate_owned(index, page) else {
+        let Some(backing) = self.allocate_owned(index, page, None) else {
             return false;
         };
         let Ok(charge) = self.process_mut(index).ledger.charge(page) else {

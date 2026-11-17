@@ -9,11 +9,19 @@ use hk_mem::hmp::{
 use super::*;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
-    pub(super) fn allocate_owned(&mut self, index: usize, len: u64) -> Option<FrameBacking> {
+    pub(super) fn allocate_owned(
+        &mut self,
+        index: usize,
+        len: u64,
+        capacity_number: Option<usize>,
+    ) -> Option<FrameBacking> {
         // Capacity 句柄登记在进程主线程的句柄表；同进程线程共享该容量，
         // 因此必须用主线程的 TCB 解析，线程自己的句柄表没有这份句柄。
         let tcb = self.tasks[self.leader_of(index)].tcb;
-        let handle = self.process(index).allocation_capacity;
+        let handle = match capacity_number {
+            Some(number) => self.handle_at(index, number)?,
+            None => self.process(index).allocation_capacity,
+        };
         let capacity = self.kernel.capacity_ref(tcb, handle).ok()?;
         let allocated = { capacity.lock().allocate(len as usize) };
         let frame = match allocated {
@@ -29,6 +37,26 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn capability_create(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        self.capability_create_with(index, tcb, frame, None)
+    }
+
+    pub(crate) fn capability_create_on(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        let capacity_number = (frame.arg2() != 0).then_some(frame.arg2() as usize);
+        self.capability_create_with(index, tcb, frame, capacity_number)
+    }
+
+    fn capability_create_with(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+        capacity_number: Option<usize>,
+    ) -> Switch {
         let Some(kind) = CapabilityKind::from_u8(frame.arg0() as u8) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -43,7 +71,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(backing) = self.allocate_owned(index, aligned) else {
+        let Some(backing) = self.allocate_owned(index, aligned, capacity_number) else {
             let _ = self.process_mut(index).ledger.release(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
