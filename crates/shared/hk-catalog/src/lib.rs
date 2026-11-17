@@ -320,7 +320,6 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
     "hk-client-display-test",
     "hk-client-gpu-test",
     "hk-client-image-test",
-    "hk-server-image",
     "hk-client-netstat",
     "hk-client-netsock",
     "hk-client-numa-test",
@@ -371,6 +370,13 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
 /// 判断服务是否走懒 TaskImage 装载。
 pub fn lazy_task_image(name: &str) -> bool {
     LAZY_TASK_IMAGES.contains(&name)
+}
+/// 使用用户态 Image Server 的隔离服务名单。
+pub const USER_IMAGE_SERVICES: &[&str] = &["hk-client-image-test", "hk-server-echo"];
+
+/// 判断服务是否在用户态 Image Server 模式下提供页。
+pub fn user_image_service(name: &str) -> bool {
+    USER_IMAGE_SERVICES.contains(&name)
 }
 
 /// 返回桌面模式排序键；未登记服务排在最后。
@@ -573,12 +579,12 @@ pub const BOOT_MODES: &[BootMode] = &[
         services: &["hk-server-memory-test"],
     },
     BootMode {
-        tokens: &["task-image"],
-        services: &["hk-client-image-test"],
+        tokens: &["task-image-user"],
+        services: &["hk-server-image", "hk-client-image-test", "hk-server-echo"],
     },
     BootMode {
-        tokens: &["task-image-user"],
-        services: &["hk-server-image", "hk-client-image-test"],
+        tokens: &["task-image"],
+        services: &["hk-client-image-test"],
     },
     BootMode {
         tokens: &["swap-test"],

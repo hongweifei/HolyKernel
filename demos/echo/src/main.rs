@@ -59,6 +59,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         exit(1)
     };
     pool.set_wake(endpoint, WORK_DONE);
+    write(b"hk-server-echo: image ready\n");
     let mut pending: Vec<(u64, u64)> = Vec::new();
     let mut free: Vec<u64> = Vec::new();
 

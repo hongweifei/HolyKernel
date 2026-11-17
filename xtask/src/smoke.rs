@@ -687,7 +687,10 @@ impl SmokeMode {
                 "hk-client-swap-test: ok",
             ],
             Self::TaskImage => &["hk-client-image-test: lazy-ok"],
-            Self::TaskImageUser => &["hk-client-image-test: lazy-ok"],
+            Self::TaskImageUser => &[
+                "hk-server-echo: image ready",
+                "hk-client-image-test: lazy-ok",
+            ],
             Self::Heap => &["内核堆测试：24 MiB ok"],
             Self::Oom => &[
                 "hk-client-oom-test: triggering",

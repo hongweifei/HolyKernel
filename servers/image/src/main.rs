@@ -14,7 +14,7 @@ use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, capacity_alloc, frame_write, message_words,
-    module_read, recv_data_handle, reply, reply_handle,
+    module_read, recv_data_handle, reply, reply_handle, write,
 };
 #[cfg(target_os = "none")]
 use hk_syscall::IMAGE_REGISTER;
@@ -49,6 +49,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let mut segments = [Segment::default(); SEGMENTS];
     let mut buffer = [0_u8; 8];
+    write(b"hk-server-image: ready\n");
     loop {
         let (label, _word, _sender, _length, _handle) = recv_data_handle(endpoint, &mut buffer, 0);
         if label == IMAGE_REGISTER {
