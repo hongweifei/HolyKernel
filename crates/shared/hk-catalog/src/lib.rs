@@ -212,14 +212,7 @@ services![
         NEVER,
         Some("memory-test")
     ),
-    (
-        "hk-server-image",
-        false,
-        9,
-        THROUGHPUT,
-        ON_FAILURE,
-        Some("task-image")
-    ),
+    ("hk-server-image", true, 9, THROUGHPUT, ON_FAILURE, None),
     (
         "hk-client-image-test",
         false,
@@ -372,7 +365,15 @@ pub fn lazy_task_image(name: &str) -> bool {
     LAZY_TASK_IMAGES.contains(&name)
 }
 /// 使用用户态 Image Server 的隔离服务名单。
-pub const USER_IMAGE_SERVICES: &[&str] = &["hk-client-image-test", "hk-server-echo"];
+pub const USER_IMAGE_SERVICES: &[&str] = &[
+    "hk-client-image-test",
+    "hk-server-echo",
+    "hk-server-demo",
+    "hk-server-ext4",
+    "hk-server-vfs",
+    "hk-server-path",
+    "hk-server-memory",
+];
 
 /// 判断服务是否在用户态 Image Server 模式下提供页。
 pub fn user_image_service(name: &str) -> bool {
