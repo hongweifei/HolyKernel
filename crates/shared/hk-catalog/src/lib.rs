@@ -312,6 +312,10 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
     "hk-server-ext4",
     "hk-server-vfs",
     "hk-server-path",
+    "hk-server-taskman",
+    "hk-server-console",
+    "hk-server-memory",
+    "hk-server-virtio",
 ];
 
 /// 判断服务是否走懒 TaskImage 装载。
