@@ -25,8 +25,8 @@ use hk_proto::input::{Decoder, Key};
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    console_read, exit, recv_data_try, send, send_data, service_endpoint, sleep_ticks, write,
-    write_u64,
+    console_read, exit, recv_data_try, send, send_data, service_endpoint, service_restarts,
+    sleep_ticks, write, write_u64,
 };
 
 #[cfg(target_os = "none")]
@@ -67,11 +67,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut buffer = [0_u8; 256];
     let mut editor = Editor::new();
     let mut keys = Decoder::new();
+    let mut attached_generation = 0;
 
     loop {
         let current_display = service_endpoint(DISPLAY_SERVICE);
+        let current_generation = service_restarts(DISPLAY_SERVICE);
+        // 重启复用端点编号；必须用累计重启次数判断 Display 是否已换实例。
         let needs_attach = match terminal.as_ref() {
-            Some(terminal) => terminal.display() != current_display,
+            Some(terminal) => {
+                terminal.display() != current_display || attached_generation != current_generation
+            }
             None => current_display != 0,
         };
         if needs_attach {
@@ -89,6 +94,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 write(b"\n");
                 hk_proto::display::set_title(terminal.display(), terminal.window(), "Console");
                 ever_attached = true;
+                attached_generation = current_generation;
             }
         }
         if restart.finished(current_display) {
