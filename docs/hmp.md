@@ -219,6 +219,15 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - scanout 开启即 pinned；关闭时解除。
 - Provider：Display / GPU。当前由 `hk-server-surface-provider` 承担：`SURFACE_ALLOC` 创建懒 Surface 能力并绑定自身端点，缺页提供零页；Display 的后备缓冲通过该服务映射。
 
+### 启动模块读取
+
+- `SYS_MODULE_COUNT`、`SYS_MODULE_INFO`、`SYS_MODULE_READ` 只允许
+  `hk-server-image` 调用。
+- 模块表由装载器按本轮实际装载顺序登记，记录服务名与物理文件区间。
+- `SYS_MODULE_INFO` 返回 16 字节头 `[size, name_len]` 与模块名；
+  `SYS_MODULE_READ` 按偏移复制文件字节。
+- 该 ABI 是用户态 Image Server 的地基，默认 TaskImage 路径仍由内核 Provider 服务。
+
 ### TaskImage
 
 - Native Task 镜像（HKX）中的代码、只读数据与数据区域。

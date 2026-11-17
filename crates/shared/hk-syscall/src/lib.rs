@@ -311,6 +311,20 @@ pub const SYS_CAPACITY_GPU: u64 = 0xB0;
 pub const SYS_CAPABILITY_CREATE_ON: u64 = 0xB1;
 /// 设置 Capacity 软上限；仅 Root/Tempo 可调用。
 pub const SYS_CAPACITY_SOFT_LIMIT: u64 = 0xB2;
+/// 查询启动模块数量；仅 Image Server 可调用。
+pub const SYS_MODULE_COUNT: u64 = 0xB4;
+/// 查询启动模块信息；仅 Image Server 可调用。
+///
+/// `arg0` 为索引，`arg1` 输出缓冲，`arg2` 长度。前 16 字节为
+/// `[size, name_len]`，随后是模块名；返回写入字节数。
+pub const SYS_MODULE_INFO: u64 = 0xB5;
+/// 读取启动模块内容；仅 Image Server 可调用。
+///
+/// `arg0` 索引、`arg1` 文件偏移、`arg2` 输出缓冲、`arg3` 长度。
+pub const SYS_MODULE_READ: u64 = 0xB6;
+/// `SYS_MODULE_INFO` 头部长度。
+pub const MODULE_INFO_BYTES: usize = 16;
+
 /// 订阅内存审计事件；`arg0` 为 Notification 句柄编号，传 0 取消订阅。
 ///
 /// 每记录一条事件按 `1 << kind` 置位；`kind` 见 `MEMORY_EVENT_*`。
@@ -838,6 +852,9 @@ mod tests {
             SYS_CAPABILITY_CREATE_ON,
             SYS_CAPACITY_SOFT_LIMIT,
             SYS_MEMORY_EVENT_SUBSCRIBE,
+            SYS_MODULE_COUNT,
+            SYS_MODULE_INFO,
+            SYS_MODULE_READ,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,

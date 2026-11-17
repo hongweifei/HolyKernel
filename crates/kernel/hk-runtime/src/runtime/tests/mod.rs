@@ -15,6 +15,7 @@ mod image;
 mod ipc;
 mod ledger;
 mod lifecycle;
+mod modules;
 mod payload;
 mod provider;
 mod reclaim;

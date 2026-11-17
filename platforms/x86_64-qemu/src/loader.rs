@@ -103,6 +103,7 @@ pub fn run(
         .collect();
     host::init_symbols(info);
     host::init(&specs)?;
+    host::register_modules(info, &modules);
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;

@@ -77,6 +77,15 @@ pub(crate) const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
 
+/// 启动模块的只读物理来源。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModuleRecord {
+    /// 模块服务名。
+    pub name: alloc::string::String,
+    /// 模块文件物理区间。
+    pub range: hk_hal::PhysRange,
+}
+
 /// 装载器交付的镜像文件来源。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImageSource {
@@ -304,6 +313,8 @@ pub struct UserRuntime<C, P> {
     oom: oom::OomState,
     /// 懒镜像能力来源：(能力对象标识, 文件段)。
     image_sources: Vec<(u64, ImageSource)>,
+    /// 启动模块只读来源。
+    modules: Vec<ModuleRecord>,
     platform: P,
 }
 
@@ -350,6 +361,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             console_subscriber: None,
             oom: oom::OomState::new(),
             image_sources: Vec::new(),
+            modules: Vec::new(),
             platform,
         }
     }
@@ -486,6 +498,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 设置任务的用户态初始现场，并使任务进入调度。
     pub fn attach(&mut self, index: usize, context: C) {
         let _ = self.attach_with_regions(index, context, &[]);
+    }
+
+    /// 登记启动模块，供受限的模块读取系统调用使用。
+    pub fn register_modules(&mut self, modules: Vec<ModuleRecord>) {
+        self.modules = modules;
     }
 
     /// 设置任务的用户态初始现场，并登记装载器交付的 Region。

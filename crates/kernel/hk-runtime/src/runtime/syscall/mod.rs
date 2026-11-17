@@ -3,7 +3,8 @@
 use super::*;
 use hk_syscall::{
     SYS_CAPABILITY_WRITEBACK, SYS_FRAME_READ, SYS_FRAME_WRITE, SYS_HANDLE_ID,
-    SYS_MEMORY_EVENT_SUBSCRIBE, SYS_MESSAGE_WORDS,
+    SYS_MEMORY_EVENT_SUBSCRIBE, SYS_MESSAGE_WORDS, SYS_MODULE_COUNT, SYS_MODULE_INFO,
+    SYS_MODULE_READ,
 };
 
 mod arena;
@@ -15,6 +16,7 @@ mod dma;
 mod framebuffer;
 mod handle;
 mod ipc;
+mod modules;
 mod oom;
 mod region;
 mod stats;
@@ -353,6 +355,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_ARENA_INFO => self.arena_info(index, frame),
             SYS_ARENA_GROW => self.arena_grow(index, frame),
             SYS_MEMORY_EVENTS => self.memory_events_query(frame),
+            SYS_MODULE_COUNT => self.module_count(index, frame),
+            SYS_MODULE_INFO => self.module_info(index, frame),
+            SYS_MODULE_READ => self.module_read(index, frame),
             SYS_MEMORY_EVENT_SUBSCRIBE => self.memory_event_subscribe(index, frame),
             SYS_SYSTEM_ARENA_INFO => self.system_arena_info(index, frame),
             SYS_OBJECT_ENUM => self.object_enum(index, frame),

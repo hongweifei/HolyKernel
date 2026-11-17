@@ -13,8 +13,8 @@ use spin::Mutex;
 
 use hk_runtime::ServiceSpec;
 use hk_runtime::runtime::{
-    CheckpointCapture, FaultOutcome, ProviderAccess, Step, Switch, TaskInfo, UserPlatform,
-    UserRegionSpec, UserRuntime,
+    CheckpointCapture, FaultOutcome, ModuleRecord, ProviderAccess, Step, Switch, TaskInfo,
+    UserPlatform, UserRegionSpec, UserRuntime,
 };
 
 use crate::ServiceTable;
@@ -107,6 +107,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .as_ref()
             .and_then(|runtime| runtime.current_task_name(cpu))
             .map(String::from)
+    }
+
+    /// 登记本轮启动模块的只读来源。
+    pub fn register_modules(&self, modules: Vec<ModuleRecord>) {
+        if let Some(runtime) = self.runtime.lock().as_mut() {
+            runtime.register_modules(modules);
+        }
     }
 
     /// 安装镜像符号表。

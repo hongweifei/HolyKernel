@@ -17,9 +17,9 @@ pub mod service;
 pub use hk_image::ServiceRole;
 pub use hk_kernel::{TraceCategory, TraceEvent};
 pub use hk_runtime::{
-    CowOutcome, FaultOutcome, Pending, RootServer, RuntimeStats, Service, ServiceSpec, Step,
-    Switch, SystemArenaInfo, SystemRegionRecord, TaskInfo, UserPlatform, UserRegionSpec,
-    UserRuntime, UserTask,
+    CowOutcome, FaultOutcome, ModuleRecord, Pending, RootServer, RuntimeStats, Service,
+    ServiceSpec, Step, Switch, SystemArenaInfo, SystemRegionRecord, TaskInfo, UserPlatform,
+    UserRegionSpec, UserRuntime, UserTask,
 };
 pub use host::RuntimeHost;
 pub use registry::{ServiceRecord, ServiceState, ServiceTable};

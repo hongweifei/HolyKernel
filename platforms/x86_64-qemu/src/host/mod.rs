@@ -9,14 +9,14 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use hk_checkpoint::Page;
-use hk_hal::{Console, SyscallFrame};
+use hk_hal::{BootModule, Console, SyscallFrame};
 use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
 use hk_platform_x86_64::paging;
 use hk_platform_x86_64::timing;
 use hk_platform_x86_64::{COM1, Serial, USER_ADDRESS_SPACES};
 use hk_root_server::{
-    CowOutcome, FaultOutcome, RuntimeHost, ServiceSpec, ServiceTable, Switch, TaskInfo,
-    UserPlatform,
+    CowOutcome, FaultOutcome, ModuleRecord, RuntimeHost, ServiceSpec, ServiceTable, Switch,
+    TaskInfo, UserPlatform,
 };
 
 mod control;
@@ -542,6 +542,21 @@ pub fn init_symbols(info: &hk_hal::BootInfo) {
         return;
     };
     RUNTIME.install_symbols(bytes);
+}
+
+/// 登记本轮启动实际装载的模块，供 Image Server 受限读取。
+pub fn register_modules(info: &hk_hal::BootInfo, modules: &[&BootModule]) {
+    let records = modules
+        .iter()
+        .filter_map(|module| {
+            let bytes = info.module_bytes(module)?;
+            Some(ModuleRecord {
+                name: String::from(hk_root_server::loader::service_name(module.name)),
+                range: hk_hal::PhysRange::new(module.region.base, bytes.len() as u64),
+            })
+        })
+        .collect();
+    RUNTIME.register_modules(records);
 }
 
 /// 按服务清单装配用户态运行时。
