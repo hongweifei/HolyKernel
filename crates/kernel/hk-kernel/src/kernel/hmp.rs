@@ -434,6 +434,27 @@ impl Kernel {
         Ok(())
     }
 
+    /// 直接按端点对象绑定 Provider，供装载器代客户端完成绑定。
+    pub fn bind_capability_provider_id(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        endpoint: ObjectId,
+        kind: ProviderKind,
+    ) -> Result<(), KernelError> {
+        let (object, _) =
+            self.resolve(thread, capability, Rights::ADMIN, ObjectKind::Capability)?;
+        let capability = object.capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })?;
+        if !kind.supports(capability.kind()) {
+            return Err(KernelError::Hmp(HmpError::WrongCapability));
+        }
+        let task = self.task_of(thread).map_or(thread.get(), |task| task.get());
+        object.set_capability_provider(endpoint, task);
+        Ok(())
+    }
+
     /// Provider 按对象标识重新取得自己提供的能力句柄。
     ///
     /// 只允许绑定该能力的 Provider 任务调用；返回句柄只携带映射需要的权利，

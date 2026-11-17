@@ -11,9 +11,9 @@ pub mod boot;
 pub mod runtime;
 
 pub use runtime::{
-    CowOutcome, FaultOutcome, ImageSource, ModuleRecord, Pending, RuntimeStats, Step, Switch,
-    SystemArenaInfo, SystemRegionRecord, TaskInfo, UserPlatform, UserRegionSpec, UserRuntime,
-    UserTask,
+    CowOutcome, FaultOutcome, ImageProviderSpec, ImageSource, ModuleRecord, Pending, RuntimeStats,
+    Step, Switch, SystemArenaInfo, SystemRegionRecord, TaskInfo, UserPlatform, UserRegionSpec,
+    UserRuntime, UserTask,
 };
 
 use alloc::vec::Vec;

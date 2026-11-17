@@ -7,7 +7,7 @@ use core::cmp::min;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, UserMemory};
 use hk_image::Image;
-use hk_runtime::{ImageSource, UserRegionSpec};
+use hk_runtime::{ImageProviderSpec, ImageSource, UserRegionSpec};
 
 /// 用户镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +68,8 @@ pub fn load_into<M: UserMemory>(image: &[u8], memory: &mut M) -> Result<u64, Ima
             regions: None,
             source_base: None,
             lazy: false,
+            provider_endpoint: None,
+            module_index: 0,
         },
     )
 }
@@ -85,6 +87,8 @@ pub fn load_into_with_regions<M: UserMemory>(
             regions: Some(&mut regions),
             source_base: None,
             lazy: false,
+            provider_endpoint: None,
+            module_index: 0,
         },
     )?;
     Ok((entry, regions))
@@ -96,6 +100,8 @@ pub fn load_into_with_regions_from<M: UserMemory>(
     memory: &mut M,
     source_base: Option<PhysAddr>,
     lazy: bool,
+    provider_endpoint: Option<usize>,
+    module_index: usize,
 ) -> Result<(u64, Vec<UserRegionSpec>), ImageError> {
     let mut regions = Vec::new();
     let entry = load(
@@ -105,6 +111,8 @@ pub fn load_into_with_regions_from<M: UserMemory>(
             regions: Some(&mut regions),
             source_base,
             lazy,
+            provider_endpoint,
+            module_index,
         },
     )?;
     Ok((entry, regions))
@@ -115,6 +123,8 @@ struct UserSink<'a, M> {
     regions: Option<&'a mut Vec<UserRegionSpec>>,
     source_base: Option<PhysAddr>,
     lazy: bool,
+    provider_endpoint: Option<usize>,
+    module_index: usize,
 }
 
 impl<M: UserMemory> PageSink for UserSink<'_, M> {
@@ -131,7 +141,9 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
         // ELF p_flags：1 = 可执行，2 = 可写，4 = 可读。W+X 段退化为只读可执行。
         let executable = flags & 1 != 0;
         let writable = flags & 2 != 0 && !executable;
-        let lazy = self.lazy && executable && self.source_base.is_some();
+        let lazy = self.lazy
+            && executable
+            && (self.source_base.is_some() || self.provider_endpoint.is_some());
 
         if !lazy {
             for page in 0..pages {
@@ -155,20 +167,34 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
         if pages > 0
             && let Some(regions) = self.regions.as_mut()
         {
-            let source = lazy.then(|| ImageSource {
-                phys: PhysAddr::new(
-                    self.source_base
-                        .map_or(0, |base| base.get())
-                        .saturating_add(file_offset as u64),
-                ),
-                file_len: file.len(),
-            });
+            let source = if lazy && self.provider_endpoint.is_none() {
+                Some(ImageSource {
+                    phys: PhysAddr::new(
+                        self.source_base
+                            .map_or(0, |base| base.get())
+                            .saturating_add(file_offset as u64),
+                    ),
+                    file_len: file.len(),
+                })
+            } else {
+                None
+            };
+            let provider = lazy
+                .then_some(self.provider_endpoint)
+                .flatten()
+                .map(|endpoint| ImageProviderSpec {
+                    endpoint,
+                    module: self.module_index,
+                    file_offset,
+                    file_len: file.len(),
+                });
             regions.push(UserRegionSpec {
                 virt: virtual_address,
                 len: pages as usize * PAGE_SIZE,
                 writable,
                 executable,
                 source,
+                provider,
             });
         }
         Ok(())
@@ -217,6 +243,7 @@ mod tests {
                 writable: true,
                 executable: false,
                 source: None,
+                provider: None,
             }]
         );
         assert_eq!(&memory.data[..4], &[1, 2, 3, 4]);

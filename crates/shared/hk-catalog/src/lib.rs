@@ -213,6 +213,14 @@ services![
         Some("memory-test")
     ),
     (
+        "hk-server-image",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("task-image-user")
+    ),
+    (
         "hk-client-image-test",
         false,
         9,
@@ -312,6 +320,7 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
     "hk-client-display-test",
     "hk-client-gpu-test",
     "hk-client-image-test",
+    "hk-server-image",
     "hk-client-netstat",
     "hk-client-netsock",
     "hk-client-numa-test",
@@ -566,6 +575,10 @@ pub const BOOT_MODES: &[BootMode] = &[
     BootMode {
         tokens: &["task-image"],
         services: &["hk-client-image-test"],
+    },
+    BootMode {
+        tokens: &["task-image-user"],
+        services: &["hk-server-image", "hk-client-image-test"],
     },
     BootMode {
         tokens: &["swap-test"],

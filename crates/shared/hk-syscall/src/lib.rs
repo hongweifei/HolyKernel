@@ -311,6 +311,11 @@ pub const SYS_CAPACITY_GPU: u64 = 0xB0;
 pub const SYS_CAPABILITY_CREATE_ON: u64 = 0xB1;
 /// 设置 Capacity 软上限；仅 Root/Tempo 可调用。
 pub const SYS_CAPACITY_SOFT_LIMIT: u64 = 0xB2;
+/// Image Server 注册懒 TaskImage 段；由 Loader 在装载期投递。
+///
+/// `words = [object_id, module_index, file_offset, segment_len, 0, 0, 0, 0]`。
+pub const IMAGE_REGISTER: u64 = 0x1300;
+
 /// 查询启动模块数量；仅 Image Server 可调用。
 pub const SYS_MODULE_COUNT: u64 = 0xB4;
 /// 查询启动模块信息；仅 Image Server 可调用。

@@ -45,6 +45,7 @@ fn register_image(
             phys: hk_hal::PhysAddr::new(source_phys),
             file_len: file.len(),
         }),
+        provider: None,
     };
     let charge = runtime
         .process_mut(index)

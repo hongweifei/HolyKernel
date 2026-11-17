@@ -70,6 +70,10 @@ pub struct ImageSpec<'a> {
     pub module_phys: Option<PhysAddr>,
     /// 可执行段只登记来源，由内核在缺页时装入。
     pub lazy_image: bool,
+    /// 用户态 Image Server 的任务槽位。
+    pub provider_endpoint: Option<usize>,
+    /// 当前模块在启动模块表中的索引。
+    pub module_index: usize,
 }
 
 /// 装载镜像并映射用户栈，返回入口现场与已映射区间。
@@ -88,7 +92,14 @@ where
     let image = hk_image::Image::parse(spec.bytes).ok_or(LoadError::Image(ImageError::Parse))?;
     let task = image.task().ok_or(LoadError::Image(ImageError::Parse))?;
     let (entry, mut regions) = if spec.lazy_image {
-        load_into_with_regions_from(spec.bytes, memory, spec.module_phys, true)
+        load_into_with_regions_from(
+            spec.bytes,
+            memory,
+            spec.module_phys,
+            true,
+            spec.provider_endpoint,
+            spec.module_index,
+        )
     } else {
         load_into_with_regions(spec.bytes, memory)
     }
@@ -106,6 +117,7 @@ where
         writable: true,
         executable: false,
         source: None,
+        provider: None,
     });
     Ok((
         make_context(entry, spec.stack_base + stack_size - 8, spec.endpoint),

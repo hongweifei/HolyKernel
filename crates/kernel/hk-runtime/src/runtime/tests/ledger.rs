@@ -159,6 +159,7 @@ fn object_ledger_reports_loader_region_charge() {
         writable: false,
         executable: true,
         source: None,
+        provider: None,
     };
     let charge = runtime
         .process_mut(index)

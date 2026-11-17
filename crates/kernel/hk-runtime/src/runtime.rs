@@ -86,6 +86,19 @@ pub struct ModuleRecord {
     pub range: hk_hal::PhysRange,
 }
 
+/// 用户态 Image Server 的段注册信息。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageProviderSpec {
+    /// 提供者任务槽位（端点编号 = 槽位 + 1）。
+    pub endpoint: usize,
+    /// 模块在启动模块表中的索引。
+    pub module: usize,
+    /// 段文件在模块中的偏移。
+    pub file_offset: usize,
+    /// 段文件长度。
+    pub file_len: usize,
+}
+
 /// 装载器交付的镜像文件来源。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImageSource {
@@ -111,6 +124,8 @@ pub struct UserRegionSpec {
     pub executable: bool,
     /// 懒装载的可执行段来源；`None` 表示装载期已映射。
     pub source: Option<ImageSource>,
+    /// 用户态 Image Server 注册信息。
+    pub provider: Option<ImageProviderSpec>,
 }
 
 /// 进程私有 COW 页；记账统一由映射该页的 Region `page_charges` 持有，

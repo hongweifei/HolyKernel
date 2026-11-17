@@ -110,6 +110,36 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None,
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         )?;
+        if let Some(provider) = spec.provider {
+            let Some(endpoint) = self.endpoints.get(provider.endpoint).copied().flatten() else {
+                let _ = self.kernel.close_handle(tcb, capability_handle);
+                return Err(KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped));
+            };
+            if self
+                .kernel
+                .bind_capability_provider_id(
+                    tcb,
+                    capability_handle,
+                    endpoint,
+                    hk_mem::hmp::provider::ProviderKind::Image,
+                )
+                .is_err()
+            {
+                let _ = self.kernel.close_handle(tcb, capability_handle);
+                return Err(KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped));
+            }
+            if let Ok(id) = self.kernel.handle_id(tcb, capability_handle) {
+                let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
+                words[0] = id.get();
+                words[1] = provider.module as u64;
+                words[2] = provider.file_offset as u64;
+                words[3] = provider.file_len as u64;
+                let _ = self.kernel.post_to_endpoint(
+                    endpoint,
+                    Message::new(hk_syscall::IMAGE_REGISTER).with_words(words),
+                );
+            }
+        }
         if let Some(source) = spec.source
             && let Ok(id) = self.kernel.handle_id(tcb, capability_handle)
         {

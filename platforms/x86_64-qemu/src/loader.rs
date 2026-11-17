@@ -104,6 +104,14 @@ pub fn run(
     host::init_symbols(info);
     host::init(&specs)?;
     host::register_modules(info, &modules);
+    let image_provider = cmdline
+        .contains("image.user")
+        .then(|| {
+            modules
+                .iter()
+                .position(|module| loader::service_name(module.name) == "hk-server-image")
+        })
+        .flatten();
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;
@@ -115,6 +123,7 @@ pub fn run(
             direct_map_base,
             allocator,
             paging,
+            image_provider,
         )?;
         services.register_with_authority(names[index], specs[index].device_authority);
         host::attach_with_regions(index, context, &regions)?;
@@ -169,6 +178,7 @@ fn load(
     direct_map_base: u64,
     allocator: &FrameBank,
     paging: &PageTable,
+    image_provider: Option<usize>,
 ) -> Result<(cpu::InterruptFrame, Vec<hk_root_server::UserRegionSpec>), String> {
     let bytes = info
         .module_bytes(module)
@@ -177,6 +187,9 @@ fn load(
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
     let (arena_base, arena_size) = host::arena(index);
     let lazy_image = hk_catalog::lazy_task_image(loader::service_name(module.name));
+    let provider_endpoint =
+        image_provider.filter(|_| loader::service_name(module.name) == "hk-client-image-test");
+    let lazy_image = lazy_image && provider_endpoint.is_none();
     let module_phys = lazy_image.then(|| PhysAddr::new(bytes.as_ptr() as u64 - direct_map_base));
     let spec = ImageSpec {
         bytes,
@@ -187,6 +200,8 @@ fn load(
         arena_size,
         module_phys,
         lazy_image,
+        provider_endpoint,
+        module_index: index,
     };
 
     let table = paging
@@ -278,5 +293,14 @@ pub fn load_module(
         .iter()
         .find(|module| !loader::is_script(module.name) && loader::service_name(module.name) == name)
         .ok_or_else(|| format!("未知镜像：{name}"))?;
-    load(info, module, slot, 0, direct_map_base, allocator, paging)
+    load(
+        info,
+        module,
+        slot,
+        0,
+        direct_map_base,
+        allocator,
+        paging,
+        None,
+    )
 }

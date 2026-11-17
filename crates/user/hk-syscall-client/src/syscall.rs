@@ -25,6 +25,42 @@ pub fn acpi_listen(notification: u64) -> u64 {
     unsafe { syscall_call(SYS_ACPI_LISTEN, notification, 0, 0, 0).value }
 }
 
+/// 查询启动模块数量；仅 Image Server 可用。
+pub fn module_count() -> u64 {
+    // SAFETY: 只读取内核登记的模块表长度。
+    unsafe { syscall_call(SYS_MODULE_COUNT, 0, 0, 0, 0).value }
+}
+
+/// 读取启动模块信息；返回写入字节数。
+pub fn module_info(index: u64, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 内核校验服务身份与用户缓冲。
+    unsafe {
+        syscall_call(
+            SYS_MODULE_INFO,
+            index,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            0,
+        )
+        .value
+    }
+}
+
+/// 读取启动模块内容；返回实际字节数。
+pub fn module_read(index: u64, offset: u64, buffer: &mut [u8]) -> u64 {
+    // SAFETY: 内核校验服务身份、边界与用户缓冲。
+    unsafe {
+        syscall_call(
+            SYS_MODULE_READ,
+            index,
+            offset,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+        )
+        .value
+    }
+}
+
 /// 订阅内存审计事件；传入通知句柄，0 取消订阅。
 pub fn memory_event_subscribe(notification: u64) -> u64 {
     // SAFETY: 内核校验通知句柄类型与权限。

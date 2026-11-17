@@ -195,6 +195,9 @@ pub enum SmokeMode {
     /// 懒 TaskImage 从模块镜像缺页装入
     #[value(name = "task-image")]
     TaskImage,
+    /// 用户态 Image Server 提供懒 TaskImage 页
+    #[value(name = "task-image-user")]
+    TaskImageUser,
 
     /// 内核堆超过启动期 16 MiB 后按需增长
     #[value(name = "heap")]
@@ -292,6 +295,7 @@ impl SmokeMode {
             Self::Memory => Some(String::from("memory-test")),
             Self::Swap => Some(String::from("swap-test")),
             Self::TaskImage => Some(String::from("task-image")),
+            Self::TaskImageUser => Some(String::from("task-image-user image.user")),
             Self::Heap => Some(String::from("shell-test heap-test")),
             Self::Oom => Some(String::from("oom-test")),
             Self::Numa => None,
@@ -683,6 +687,7 @@ impl SmokeMode {
                 "hk-client-swap-test: ok",
             ],
             Self::TaskImage => &["hk-client-image-test: lazy-ok"],
+            Self::TaskImageUser => &["hk-client-image-test: lazy-ok"],
             Self::Heap => &["内核堆测试：24 MiB ok"],
             Self::Oom => &[
                 "hk-client-oom-test: triggering",
@@ -748,6 +753,7 @@ impl SmokeMode {
             | Self::NumaMigrate
             | Self::GpuAlloc
             | Self::TaskImage
+            | Self::TaskImageUser
             | Self::Swap
             | Self::Heap
             | Self::Oom => QEMU_SUCCESS,
@@ -806,6 +812,7 @@ impl SmokeMode {
             Self::Memory => "build/serial-memory.log",
             Self::Swap => "build/serial-swap.log",
             Self::TaskImage => "build/serial-task-image.log",
+            Self::TaskImageUser => "build/serial-task-image-user.log",
             Self::Heap => "build/serial-heap.log",
             Self::Oom => "build/serial-oom.log",
             Self::Numa => "build/serial-numa.log",
