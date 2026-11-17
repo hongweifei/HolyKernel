@@ -107,20 +107,41 @@ impl DmaAllocator {
         None
     }
 
-    /// 归还一段 DMA 内存。
+    /// 归还一段 DMA 内存；清空按需扩展的窗口并并回父容量。
     pub fn free(&self, range: PhysRange) {
         if range.is_empty() {
             return;
         }
-        let mut capacities = self.capacities.lock();
-        for capacity in capacities.iter_mut().flatten() {
-            if capacity
-                .release(range.start(), range.len() as usize)
-                .is_ok()
-            {
-                return;
+        let mut released = false;
+        {
+            let mut capacities = self.capacities.lock();
+            for capacity in capacities.iter_mut().flatten() {
+                if capacity
+                    .release(range.start(), range.len() as usize)
+                    .is_ok()
+                {
+                    released = true;
+                    break;
+                }
             }
         }
+        if released {
+            self.trim();
+        }
+    }
+
+    /// 释放已清空的按需窗口；启动窗口保留。
+    fn trim(&self) {
+        let mut released = alloc::vec::Vec::new();
+        {
+            let mut capacities = self.capacities.lock();
+            for slot in capacities.iter_mut().skip(1) {
+                if slot.as_ref().is_some_and(|capacity| capacity.used() == 0) {
+                    released.extend(slot.take());
+                }
+            }
+        }
+        // `Capacity::drop` 把窗口与配额并回父容量。
     }
 }
 
@@ -202,6 +223,8 @@ mod tests {
         let grown = pool.allocate(0x2000).expect("扩窗后的分配");
         assert_eq!(grown.start(), PhysAddr::new(0x30_0000));
         assert_eq!(pool.capacity_bytes(), 0x1000 + 0x2000);
+        pool.free(grown);
+        assert_eq!(pool.capacity_bytes(), 0x1000, "清空的扩窗并回父容量");
     }
 
     #[test]

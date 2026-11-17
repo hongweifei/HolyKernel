@@ -7,7 +7,7 @@ use hk_mem::DmaAllocator;
 use hk_mem::hmp::{Capacity, CapacityKind};
 
 /// 启动期预留的 DMA 窗口字节数；后续按需扩窗，不再受这个数字限制。
-pub const POOL_BYTES: usize = 64 * 1024 * 1024;
+pub const POOL_BYTES: usize = 8 * 1024 * 1024;
 /// DMA 总窗口上限：防止 DMA 在内存压力下无限侵占用户容量。
 pub const MAX_BYTES: usize = 512 * 1024 * 1024;
 

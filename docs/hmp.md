@@ -152,7 +152,7 @@ Capacity 是物理容量的授予单位。
 - 声明配额与可回收属性；物理用量由 Capacity/FrameBank 报告。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Task Ledger 是任务配额的唯一硬账；Capacity/FrameBank 是物理边界；Arena/Region/Capability/Frame 的 Ledger 快照只报告利用率。
-- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，Gpu 服务取得从顶层 Gpu Capacity 切出的子容量，内核持有 System Capacity。
+- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，Gpu 服务取得从顶层 Gpu Capacity 切出的子容量，内核持有 System Capacity；Dma 启动窗口为 8 MiB，按需扩窗并在清空后并回。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
 报告口径：

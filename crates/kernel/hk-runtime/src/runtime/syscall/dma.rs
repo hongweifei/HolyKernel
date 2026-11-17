@@ -56,14 +56,34 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let range = if let Ok((range, _, _, _, _)) = self.kernel.frame_info(tcb, object) {
-            range
-        } else if let Ok((_, Some(range))) = self.kernel.capability(tcb, object) {
-            range
+        let pages: alloc::vec::Vec<hk_hal::PhysRange> = if let Ok((range, _, _, _, _)) =
+            self.kernel.frame_info(tcb, object)
+        {
+            alloc::vec![range]
+        } else if let Ok((capability, Some(range))) = self.kernel.capability(tcb, object) {
+            let _ = capability;
+            alloc::vec![range]
+        } else if let Ok((capability, None)) = self.kernel.capability(tcb, object) {
+            // 非连续能力按页建立 IOMMU 映射，设备侧看到连续 IOVA。
+            let count = capability.size().div_ceil(hk_hal::PAGE_SIZE as u64) as usize;
+            let mut pages = alloc::vec::Vec::with_capacity(count);
+            for page_index in 0..count {
+                let Ok(Some(range)) = self.kernel.capability_page(tcb, object, page_index) else {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                pages.push(range);
+            }
+            pages
         } else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        let total_len: usize = pages.iter().map(|range| range.len() as usize).sum();
+        if total_len == 0 {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         // 设备映射的权限来自句柄：READ 才能导出，WRITE 才能让设备写；缺少对应
         // 权利时不能把只读对象以可写方式交给设备。
         let Some(kind) = self.kernel.handle_kind(tcb, object) else {
@@ -88,6 +108,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
         let domain = domain_of(&grant);
         let translating = iommu.translates_device_addresses();
+        if !translating {
+            // 没有 IOMMU 地址转换时设备直接使用物理地址，scatter 无法表达。
+            let mut expected = pages[0].start();
+            for page in &pages {
+                if page.start() != expected {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+                expected = hk_hal::PhysAddr::new(expected.get() + page.len());
+            }
+        }
         let iova = if translating {
             let Some(window) = grant.dma else {
                 frame.set_result(u64::MAX);
@@ -97,14 +128,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 &self.tasks[index].dma_mappings,
                 grant_handle,
                 window,
-                range.len() as usize,
+                total_len,
             ) else {
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             };
             iova
         } else {
-            hk_hal::Iova::new(range.start().get())
+            hk_hal::Iova::new(pages[0].start().get())
         };
         if self.tasks[index]
             .dma_mappings
@@ -131,19 +162,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
-        if iommu.map(domain, iova, range, iommu_flags).is_err() {
-            let _ = self.unpin_dma_object(tcb, object, kind);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+        let mut offset = 0_u64;
+        let mut mapped: alloc::vec::Vec<(u64, hk_hal::PhysRange)> = alloc::vec::Vec::new();
+        for page in &pages {
+            let address = hk_hal::Iova::new(iova.get() + offset);
+            if iommu.map(domain, address, *page, iommu_flags).is_err() {
+                for (mapped_offset, previous) in &mapped {
+                    let _ = iommu.unmap(
+                        domain,
+                        hk_hal::Iova::new(iova.get() + mapped_offset),
+                        previous.len() as usize,
+                    );
+                }
+                let _ = self.unpin_dma_object(tcb, object, kind);
+                frame.set_result(u64::MAX);
+                return Switch::Continue;
+            }
+            mapped.push((offset, *page));
+            offset = offset.saturating_add(page.len());
         }
-        self.tasks[index].dma_mappings.push((
-            grant_handle,
-            object,
-            domain,
-            iova,
-            range.len() as usize,
-            kind,
-        ));
+        self.tasks[index]
+            .dma_mappings
+            .push((grant_handle, object, domain, iova, total_len, kind));
         frame.set_result(if translating { iova.get() } else { 0 });
         Switch::Continue
     }
