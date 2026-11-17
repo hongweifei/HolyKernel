@@ -313,6 +313,7 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
     "hk-client-gpu-test",
     "hk-client-image-test",
     "hk-client-netstat",
+    "hk-client-netsock",
     "hk-client-numa-test",
     "hk-client-oom-observer",
     "hk-client-oom-test",

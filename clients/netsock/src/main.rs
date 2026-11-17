@@ -119,10 +119,18 @@ fn tcp_test(client: &Client, tcp_port: u16) -> bool {
 
 #[cfg(target_os = "none")]
 fn udp_test(client: &Client, udp_port: u16) -> bool {
-    let Some(handle) = client.open(SocketKind::Udp) else {
+    let deadline = now_ms().saturating_add(WAIT_MS);
+    let mut opened = None;
+    while now_ms() < deadline {
+        if let Some(handle) = client.open(SocketKind::Udp) {
+            opened = Some(handle);
+            break;
+        }
+        let _ = yield_now();
+    }
+    let Some(handle) = opened else {
         return false;
     };
-    let deadline = now_ms().saturating_add(WAIT_MS);
     let mut reply = [0_u8; 8];
     let mut ok = false;
     let mut last_send = 0;
