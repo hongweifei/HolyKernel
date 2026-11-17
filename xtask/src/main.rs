@@ -19,6 +19,7 @@ mod budget;
 mod build;
 mod cargo;
 mod catalog;
+mod console;
 mod crash;
 mod debug;
 mod deps;

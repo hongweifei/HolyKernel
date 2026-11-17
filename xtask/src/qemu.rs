@@ -191,6 +191,9 @@ pub fn run_with(
         command.args(["-device", "virtio-tablet-pci"]);
         command.args(["-device", "virtio-keyboard-pci"]);
     }
+    // QEMU 以 `-serial stdio` 把串口字节直接写到控制台句柄，控制台按当前代码页
+    // 解释；简体中文默认 936，内核与服务打印的 UTF-8 中文会变成乱码。
+    let _console_codepage = crate::console::utf8();
     let status = command
         .args(["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"])
         .status()
