@@ -386,6 +386,17 @@ pub const USER_IMAGE_SERVICES: &[&str] = &[
     "hk-server-memory",
     "hk-server-device",
     "hk-server-console",
+    "hk-server-taskman",
+    "hk-server-holyfs",
+    "hk-server-block",
+    "hk-server-shell",
+    "hk-server-tempo",
+    "hk-server-holydoc",
+    "hk-server-workbench",
+    "hk-server-debug",
+    "hk-server-checkpoint",
+    "hk-server-display",
+    "hk-server-input",
 ];
 
 /// 判断服务是否在用户态 Image Server 模式下提供页。
