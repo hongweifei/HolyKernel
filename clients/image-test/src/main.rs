@@ -793,6 +793,7 @@ pub extern "C" fn page_probe2(mut value: u64) -> u64 {
     value
 }
 
+/// 入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {

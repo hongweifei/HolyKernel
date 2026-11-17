@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 hk-server-api.workspace = true
+hk-sync.workspace = true
 hk-syscall.workspace = true
 
 [build-dependencies]
