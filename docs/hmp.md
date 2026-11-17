@@ -228,8 +228,9 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
   `SYS_MODULE_READ` 按偏移复制文件字节。
 - 该 ABI 是用户态 Image Server 的地基，默认 TaskImage 路径仍由内核 Provider 服务。
 - 原型 `hk-server-image` 已支持 `IMAGE_REGISTER`（对象标识、模块索引、段文件偏移与长度）
-  与 `PROVIDER_FAULT`。默认启动已迁移 `demo`、`echo`、`ext4`、`VFS`、`path`
-  与 `memory`；`virtio` 等驱动仍由内核 Provider 服务，避免中断/早期启动时序死锁。
+  与 `PROVIDER_FAULT`。默认启动已迁移 `demo`、`echo`、`ext4`、`VFS`、`path`、
+  `memory` 与 `device`；`virtio` 等驱动强制常驻映射，不绑定用户态 Provider，避免
+  中断路径缺页被 `PROVIDER_FAULT_EXIT` 终止。
   内核保留段注册表，Image Server 重启时重新绑定能力并重放注册消息；
   `task-image-restart` 通过 `SYS_SERVICE_WATCH` 等待重启完成后再触发新代码页。
 

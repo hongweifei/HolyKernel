@@ -384,6 +384,7 @@ pub const USER_IMAGE_SERVICES: &[&str] = &[
     "hk-server-vfs",
     "hk-server-path",
     "hk-server-memory",
+    "hk-server-device",
 ];
 
 /// 判断服务是否在用户态 Image Server 模式下提供页。
