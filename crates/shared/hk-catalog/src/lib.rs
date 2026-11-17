@@ -304,7 +304,15 @@ pub fn boot_service(name: &str) -> bool {
     service(name).is_some_and(|service| service.boot)
 }
 /// 逐服务接入懒 TaskImage 的名单；未列出的服务仍由装载器常驻映射。
-pub const LAZY_TASK_IMAGES: &[&str] = &["hk-client-image-test", "hk-server-demo", "hk-server-echo"];
+pub const LAZY_TASK_IMAGES: &[&str] = &[
+    "hk-client-image-test",
+    "hk-server-demo",
+    "hk-server-echo",
+    "hk-server-shell",
+    "hk-server-ext4",
+    "hk-server-vfs",
+    "hk-server-path",
+];
 
 /// 判断服务是否走懒 TaskImage 装载。
 pub fn lazy_task_image(name: &str) -> bool {
