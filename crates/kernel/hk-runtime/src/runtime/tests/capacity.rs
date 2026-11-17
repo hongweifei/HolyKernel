@@ -421,3 +421,26 @@ fn lazy_region_unmap_failure_keeps_region() {
     assert_eq!(runtime.process(0).regions.iter().flatten().count(), 1);
     let _ = runtime.finish(0, index);
 }
+
+#[test]
+fn tempo_sets_capacity_soft_limit() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    runtime.tasks[index].name = alloc::string::String::from("hk-server-tempo");
+    let handle = runtime.process(index).allocation_capacity;
+    let number = runtime.install_capacity(index, handle);
+    let tcb = runtime.tasks[index].tcb;
+    context.rax = SYS_CAPACITY_SOFT_LIMIT;
+    context.rdi = number;
+    context.rsi = 0x4000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+    let (_, soft) = runtime
+        .kernel
+        .capacity_stats(tcb, handle)
+        .expect("查询容量");
+    assert_eq!(soft, 0x4000);
+    let _ = runtime.finish(0, index);
+}

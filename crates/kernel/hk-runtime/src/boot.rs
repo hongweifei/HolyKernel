@@ -98,10 +98,14 @@ where
                 kernel.create_capacity_shared(service.tcb, capacity, shared_rights)?
             }
         };
-        let ledger_limit = kernel
-            .capacity_ref(service.tcb, handle)
+        let capacity_ref = kernel.capacity_ref(service.tcb, handle).ok();
+        if let (Some(limit), Some(capacity)) = (specs[index].soft_limit, capacity_ref.as_ref()) {
+            capacity.lock().set_soft_limit(limit);
+        }
+        let ledger_limit = capacity_ref
+            .as_ref()
             .map(|capacity| capacity.lock().limit())
-            .unwrap_or_else(|_| platform.memory_limit(index));
+            .unwrap_or_else(|| platform.memory_limit(index));
         let mut process = Process::new(arena_base, arena_size, ledger_limit, handle);
         process.device_factory = factory;
         // 把同一本 Task Ledger 挂到内核 Task：句柄转移在内核侧事务里记账。

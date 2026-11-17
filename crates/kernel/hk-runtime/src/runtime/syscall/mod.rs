@@ -358,6 +358,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_CAPABILITY_SWAP => self.capability_swap(index, tcb, frame),
             SYS_NUMA_MIGRATE => self.numa_migrate(index, tcb, frame),
             SYS_CAPACITY_GPU => self.gpu_capacity(index, frame),
+            SYS_CAPACITY_SOFT_LIMIT => self.capacity_soft_limit(index, frame),
             SYS_CAPACITY_INFO => self.capacity_info(index, frame),
             SYS_CAPACITY_SPLIT => self.capacity_split(index, tcb, frame),
             SYS_CAPACITY_ALLOC => self.capacity_alloc(cpu, index, tcb, frame),

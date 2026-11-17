@@ -60,6 +60,8 @@ pub struct ServiceSpec {
     pub cadence: CadenceSpec,
     /// 是否持有调度策略授权；由 Root 在启动时授予 Tempo。
     pub policy_authority: bool,
+    /// 初始 Capacity 软上限；`None` 表示不设置。
+    pub soft_limit: Option<u64>,
 }
 
 impl ServiceSpec {
@@ -71,6 +73,7 @@ impl ServiceSpec {
             capacity: CapacityGrant::User,
             cadence: DEFAULT_SPEC,
             policy_authority: false,
+            soft_limit: None,
         }
     }
 
@@ -82,6 +85,7 @@ impl ServiceSpec {
             capacity: service_capacity(true),
             cadence: DEFAULT_SPEC,
             policy_authority: false,
+            soft_limit: None,
         }
     }
 
@@ -94,6 +98,12 @@ impl ServiceSpec {
     /// 指定初始 Capacity 授予。
     pub const fn with_grant(mut self, capacity: CapacityGrant) -> Self {
         self.capacity = capacity;
+        self
+    }
+
+    /// 声明初始 Capacity 软上限。
+    pub const fn with_soft_limit(mut self, limit: u64) -> Self {
+        self.soft_limit = Some(limit);
         self
     }
 

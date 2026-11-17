@@ -38,6 +38,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn capacity_soft_limit(&mut self, index: usize, frame: &mut C) -> Switch {
+        if !matches!(self.tasks[index].name.as_str(), "root" | "hk-server-tempo") {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let Some(handle) = self.handle_at(index, frame.arg0() as usize) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let tcb = self.tasks[index].tcb;
+        let Ok(capacity) = self.kernel.capacity_ref(tcb, handle) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        capacity.lock().set_soft_limit(frame.arg1());
+        frame.set_result(0);
+        Switch::Continue
+    }
+
     pub(crate) fn capacity_info(&mut self, index: usize, frame: &mut C) -> Switch {
         let number = frame.arg0() as usize;
         let out = frame.arg1();

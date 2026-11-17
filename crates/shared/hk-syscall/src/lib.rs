@@ -309,6 +309,8 @@ pub const MEMORY_EVENT_BYTES: usize = 56;
 pub const SYS_CAPACITY_GPU: u64 = 0xB0;
 /// 从指定 Capacity 创建常驻类型化能力；`arg2` 为容量句柄。
 pub const SYS_CAPABILITY_CREATE_ON: u64 = 0xB1;
+/// 设置 Capacity 软上限；仅 Root/Tempo 可调用。
+pub const SYS_CAPACITY_SOFT_LIMIT: u64 = 0xB2;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -828,6 +830,7 @@ mod tests {
             SYS_MEMORY_EVENTS,
             SYS_CAPACITY_GPU,
             SYS_CAPABILITY_CREATE_ON,
+            SYS_CAPACITY_SOFT_LIMIT,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,
