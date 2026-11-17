@@ -226,8 +226,8 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 区域 sealed：拒绝写权限；需要改写的数据走 Revision 或 COW。
 - Provider：装载器登记模块文件来源，内核 Image Provider 在缺页时按文件内容装入；
   其余段与栈保持装载期映射。当前默认启动服务的可执行段已全部接入懒装载，
-  包括核心、VFS、网络、驱动与桌面服务；非启动客户端按 `LAZY_TASK_IMAGES`
-  名单逐步接入。
+  包括核心、VFS、网络、驱动与桌面服务；客户端也已接入，唯一例外是
+  `hk-client-netsock`，其 UDP 时序测试在懒缺页下不稳定，暂保持常驻。
 
 ### DeviceAllocation
 
