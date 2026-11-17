@@ -155,6 +155,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.processes.push(Some(process));
         }
         self.register_user_regions(index, regions)?;
+        if reuse {
+            self.replay_image_provider(index);
+        }
         let _ = self.kernel.activate(tcb);
         Ok(endpoint)
     }

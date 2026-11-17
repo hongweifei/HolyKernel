@@ -77,6 +77,16 @@ pub(crate) const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
 
+/// 用户态 Image Server 的段注册记录，供服务重启后重放。
+#[derive(Clone, Copy, Debug)]
+struct ImageRegistration {
+    object: u64,
+    module: u64,
+    file_offset: u64,
+    file_len: u64,
+    provider: usize,
+}
+
 /// 启动模块的只读物理来源。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleRecord {
@@ -330,6 +340,8 @@ pub struct UserRuntime<C, P> {
     image_sources: Vec<(u64, ImageSource)>,
     /// 启动模块只读来源。
     modules: Vec<ModuleRecord>,
+    /// 用户态 Image Server 段注册。
+    image_registrations: Vec<ImageRegistration>,
     platform: P,
 }
 
@@ -377,6 +389,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             oom: oom::OomState::new(),
             image_sources: Vec::new(),
             modules: Vec::new(),
+            image_registrations: Vec::new(),
             platform,
         }
     }
@@ -518,6 +531,34 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 登记启动模块，供受限的模块读取系统调用使用。
     pub fn register_modules(&mut self, modules: Vec<ModuleRecord>) {
         self.modules = modules;
+    }
+
+    /// 服务重启后重新绑定能力并重放 Image Server 段注册。
+    fn replay_image_provider(&mut self, provider: usize) {
+        let Some(endpoint) = self.endpoints.get(provider).copied().flatten() else {
+            return;
+        };
+        let task = self.tasks[provider].tcb.get();
+        for registration in self
+            .image_registrations
+            .iter()
+            .filter(|registration| registration.provider == provider)
+        {
+            let _ = self.kernel.rebind_capability_provider(
+                hk_handle::ObjectId::new(registration.object),
+                endpoint,
+                task,
+            );
+            let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
+            words[0] = registration.object;
+            words[1] = registration.module;
+            words[2] = registration.file_offset;
+            words[3] = registration.file_len;
+            let _ = self.kernel.post_to_endpoint(
+                endpoint,
+                Message::new(hk_syscall::IMAGE_REGISTER).with_words(words),
+            );
+        }
     }
 
     /// 设置任务的用户态初始现场，并登记装载器交付的 Region。

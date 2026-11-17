@@ -434,6 +434,28 @@ impl Kernel {
         Ok(())
     }
 
+    /// 把已有能力重新绑定到新的 Provider 端点。
+    pub fn rebind_capability_provider(
+        &self,
+        capability: ObjectId,
+        endpoint: ObjectId,
+        task: u64,
+    ) -> Result<(), KernelError> {
+        let object = self
+            .objects
+            .lock()
+            .get(&capability)
+            .and_then(alloc::sync::Weak::upgrade)
+            .ok_or(KernelError::StaleObject(capability))?;
+        if object.capability().is_none() {
+            return Err(KernelError::WrongKind {
+                expected: ObjectKind::Capability,
+            });
+        }
+        object.set_capability_provider(endpoint, task);
+        Ok(())
+    }
+
     /// 直接按端点对象绑定 Provider，供装载器代客户端完成绑定。
     pub fn bind_capability_provider_id(
         &self,

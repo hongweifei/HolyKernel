@@ -129,6 +129,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 return Err(KernelError::Hmp(hk_mem::hmp::HmpError::NotMapped));
             }
             if let Ok(id) = self.kernel.handle_id(tcb, capability_handle) {
+                self.image_registrations.push(ImageRegistration {
+                    object: id.get(),
+                    module: provider.module as u64,
+                    file_offset: provider.file_offset as u64,
+                    file_len: provider.file_len as u64,
+                    provider: provider.endpoint,
+                });
                 let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
                 words[0] = id.get();
                 words[1] = provider.module as u64;

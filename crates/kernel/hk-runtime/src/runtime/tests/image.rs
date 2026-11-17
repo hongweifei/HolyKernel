@@ -21,21 +21,6 @@ fn register_image(
     source_phys: u64,
 ) {
     let tcb = runtime.tasks[index].tcb;
-    let capability = hk_mem::hmp::Capability::new(
-        hk_mem::hmp::CapabilityKind::TaskImage,
-        len as u64,
-        hk_hal::PAGE_SIZE,
-    )
-    .expect("能力");
-    runtime
-        .kernel
-        .create_capability(
-            tcb,
-            capability,
-            None,
-            hk_handle::Rights::READ | hk_handle::Rights::EXECUTE | hk_handle::Rights::ADMIN,
-        )
-        .expect("能力句柄");
     let spec = UserRegionSpec {
         virt: 0x40_0000,
         len,
@@ -191,4 +176,77 @@ fn image_fault_write_failure_releases_page() {
     );
     assert_eq!(outcome, FaultOutcome::Unhandled);
     assert_eq!(runtime.process(index).ledger.charged(), before);
+}
+
+#[test]
+fn provider_restart_rebinds_capability() {
+    let platform = MockPlatform::new();
+    let mut runtime = runtime_on("hk-server-image", platform);
+    let Step::Resume { index, .. } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capability = hk_mem::hmp::Capability::new(
+        hk_mem::hmp::CapabilityKind::TaskImage,
+        hk_hal::PAGE_SIZE as u64,
+        hk_hal::PAGE_SIZE,
+    )
+    .expect("能力");
+    let handle = runtime
+        .kernel
+        .create_capability(
+            tcb,
+            capability,
+            None,
+            hk_handle::Rights::READ | hk_handle::Rights::WRITE | hk_handle::Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    let spec = UserRegionSpec {
+        virt: 0x40_0000,
+        len: hk_hal::PAGE_SIZE,
+        writable: false,
+        executable: true,
+        source: None,
+        provider: Some(ImageProviderSpec {
+            endpoint: 1,
+            module: 0,
+            file_offset: 0,
+            file_len: 1,
+        }),
+    };
+    let charge = runtime
+        .process_mut(index)
+        .ledger
+        .charge(hk_hal::PAGE_SIZE as u64)
+        .expect("记账");
+    runtime
+        .register_region(index, spec, Some(charge))
+        .expect("登记 Region");
+    let handle = runtime.process(index).regions[0]
+        .as_ref()
+        .expect("Region")
+        .capability;
+    let before = runtime
+        .kernel
+        .capability_provider(tcb, handle)
+        .expect("旧 Provider");
+    assert!(before.is_some());
+    assert!(runtime.terminate("hk-server-image", 1));
+    runtime
+        .start_at_with_regions(
+            1,
+            "hk-server-image",
+            false,
+            hk_cadence::DEFAULT_SPEC,
+            MockContext::default(),
+            None,
+            &[],
+        )
+        .expect("重启 Image Server");
+    let after = runtime
+        .kernel
+        .capability_provider(tcb, handle)
+        .expect("新 Provider");
+    assert_ne!(before, after);
+    assert_eq!(after, runtime.endpoints[1]);
 }
