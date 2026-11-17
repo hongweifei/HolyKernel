@@ -856,7 +856,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         } else {
                             self.kernel
                                 .end_capability_reclaim(caller, capability, page_index);
-                            0
+                            u64::MAX
                         };
                         self.tasks[index].context.set_result(released);
                     }

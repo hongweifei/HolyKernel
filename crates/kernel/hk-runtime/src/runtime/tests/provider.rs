@@ -208,6 +208,138 @@ fn provider_reclaim_notifies_and_frees_page() {
 }
 
 #[test]
+fn provider_reclaim_error_keeps_page() {
+    let mut runtime = runtime_with(hk_syscall::MEMORY_SERVICE);
+    let Step::Resume {
+        index: _,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = u64::from(hk_syscall::CapabilityKind::Anonymous.as_u8());
+    context.rsi = 0x1000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+
+    context.rax = SYS_CAPABILITY_BIND_PROVIDER;
+    context.rdi = capability;
+    context.rsi = 2;
+    context.rdx = u64::from(hk_syscall::PROVIDER_KIND_ANONYMOUS);
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    // 先让 Provider 提供一页，然后写入非零内容。
+    assert!(runtime.provider_fault(
+        0,
+        hk_base::user::AUTO_WINDOW_BASE,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    ));
+    let Step::Resume {
+        index: provider,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Provider 应可运行");
+    };
+    assert_eq!(provider, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = 4096;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    context.rax = hk_syscall::SYS_REPLY_HANDLE;
+    context.rdi = hk_syscall::PROVIDER_PROVIDE;
+    context.rsi = 0;
+    context.rdx = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("缺页任务应恢复");
+    };
+    assert_eq!(index, 0);
+
+    let tcb = runtime.tasks[index].tcb;
+    let (handle, _, _) = runtime
+        .capability_at(index, capability as usize)
+        .expect("能力");
+    let page = runtime
+        .kernel
+        .capability_page(tcb, handle, 0)
+        .expect("查询")
+        .expect("已装入页");
+    let mut data = [0_u8; hk_hal::PAGE_SIZE];
+    data[..20].copy_from_slice(b"provider swap test!!");
+    assert!(runtime.platform.write_phys(page.start(), &data));
+    runtime.platform.zero = false;
+
+    let provider_endpoint = runtime
+        .kernel
+        .capability_provider(tcb, handle)
+        .expect("查询 Provider")
+        .expect("Provider 端点");
+    assert!(
+        runtime.kernel.endpoint_served(provider_endpoint),
+        "Provider 端点仍在服务"
+    );
+    context.rax = SYS_CAPABILITY_SWAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(
+        runtime.dispatch(0, &mut context),
+        Switch::Block,
+        "swap result {}",
+        context.rax
+    );
+    assert_eq!(runtime.tasks()[0].pending, "provider-reclaim");
+
+    let Step::Resume {
+        index: provider,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Provider 应可运行");
+    };
+    assert_eq!(provider, 1);
+    context.rax = SYS_RECV;
+    context.rdi = 2;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_syscall::PROVIDER_RECLAIM);
+    context.rax = SYS_REPLY;
+    context.rdi = hk_syscall::PROVIDER_ERROR;
+    context.rsi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("回收任务应恢复");
+    };
+    assert_eq!(index, 0);
+    assert_eq!(context.rax, u64::MAX, "Provider 拒绝必须返回错误");
+    assert!(
+        runtime
+            .kernel
+            .capability_page(tcb, handle, 0)
+            .expect("查询")
+            .is_some(),
+        "Provider 拒绝时页保持常驻"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn provider_fault_installs_region_rights() {
     let platform = MockPlatform::new();
     let last_map = Arc::clone(&platform.last_map);
