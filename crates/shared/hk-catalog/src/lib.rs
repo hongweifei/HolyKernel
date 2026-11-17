@@ -385,7 +385,6 @@ pub const USER_IMAGE_SERVICES: &[&str] = &[
     "hk-server-path",
     "hk-server-memory",
     "hk-server-device",
-    "hk-server-console",
     "hk-server-taskman",
     "hk-server-holyfs",
     "hk-server-block",

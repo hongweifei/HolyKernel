@@ -229,10 +229,11 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 该 ABI 是用户态 Image Server 的地基，默认 TaskImage 路径仍由内核 Provider 服务。
 - 原型 `hk-server-image` 已支持 `IMAGE_REGISTER`（对象标识、模块索引、段文件偏移与长度）
   与 `PROVIDER_FAULT`。默认启动已迁移 `demo`、`echo`、`ext4`、`VFS`、`path`、
-  `memory`、`device`、`console`、`taskman`、`holyfs`、`block`、`shell`、`tempo`、
-  `holydoc`、`workbench`、`debug`、`checkpoint`、`display` 与 `input`；`virtio`
-  等驱动强制常驻映射，不绑定用户态 Provider，避免中断路径缺页被
-  `PROVIDER_FAULT_EXIT` 终止。
+  `memory`、`device`、`taskman`、`holyfs`、`block`、`shell`、`tempo`、`holydoc`、
+  `workbench`、`debug`、`checkpoint`、`display` 与 `input`；`console` 保留内核
+  Provider，以保证 display 热重启后的稳定重连。`virtio` 强制常驻映射，不绑定
+  用户态 Provider，避免中断路径缺页被 `PROVIDER_FAULT_EXIT` 终止；其余驱动
+  继续由内核 Provider 服务。
   内核保留段注册表，Image Server 重启时重新绑定能力并重放注册消息；
   `task-image-restart` 通过 `SYS_SERVICE_WATCH` 等待重启完成后再触发新代码页。
 
