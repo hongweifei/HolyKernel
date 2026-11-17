@@ -360,9 +360,20 @@ pub const LAZY_TASK_IMAGES: &[&str] = &[
     "hk-server-workbench",
 ];
 
+/// 必须在启动阶段常驻映射的服务。
+///
+/// 驱动的中断路径不能等待用户态 Provider，否则缺页会以 `PROVIDER_FAULT_EXIT`
+/// 终止任务；这些服务即使出现在懒装载名单里也强制 eager。
+pub const RESIDENT_SERVICES: &[&str] = &["hk-server-virtio"];
+
+/// 判断服务是否强制常驻映射。
+pub fn resident_service(name: &str) -> bool {
+    RESIDENT_SERVICES.contains(&name)
+}
+
 /// 判断服务是否走懒 TaskImage 装载。
 pub fn lazy_task_image(name: &str) -> bool {
-    LAZY_TASK_IMAGES.contains(&name)
+    !resident_service(name) && LAZY_TASK_IMAGES.contains(&name)
 }
 /// 使用用户态 Image Server 的隔离服务名单。
 pub const USER_IMAGE_SERVICES: &[&str] = &[
@@ -730,6 +741,17 @@ mod tests {
         for name in LAZY_TASK_IMAGES {
             assert!(service(name).is_some(), "懒镜像未登记：{name}");
         }
+    }
+
+    #[test]
+    fn resident_services_override_lazy_loading() {
+        for name in RESIDENT_SERVICES {
+            assert!(service(name).is_some(), "常驻服务未登记：{name}");
+            assert!(!lazy_task_image(name), "常驻服务不能懒装载：{name}");
+        }
+        assert!(resident_service("hk-server-virtio"));
+        assert!(!resident_service("hk-server-echo"));
+        assert!(lazy_task_image("hk-server-echo"));
     }
 
     #[test]
