@@ -104,14 +104,9 @@ pub fn run(
     host::init_symbols(info);
     host::init(&specs)?;
     host::register_modules(info, &modules);
-    let image_provider = cmdline
-        .contains("image.user")
-        .then(|| {
-            modules
-                .iter()
-                .position(|module| loader::service_name(module.name) == "hk-server-image")
-        })
-        .flatten();
+    let image_provider = modules
+        .iter()
+        .position(|module| loader::service_name(module.name) == "hk-server-image");
 
     for (index, module) in modules.iter().enumerate() {
         let endpoint = index as u64 + 1;

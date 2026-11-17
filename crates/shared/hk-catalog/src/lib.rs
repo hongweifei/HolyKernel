@@ -212,14 +212,7 @@ services![
         NEVER,
         Some("memory-test")
     ),
-    (
-        "hk-server-image",
-        false,
-        9,
-        THROUGHPUT,
-        NEVER,
-        Some("task-image-user")
-    ),
+    ("hk-server-image", true, 9, THROUGHPUT, NEVER, None),
     (
         "hk-client-image-test",
         false,
@@ -372,7 +365,36 @@ pub fn lazy_task_image(name: &str) -> bool {
     LAZY_TASK_IMAGES.contains(&name)
 }
 /// 使用用户态 Image Server 的隔离服务名单。
-pub const USER_IMAGE_SERVICES: &[&str] = &["hk-client-image-test", "hk-server-echo"];
+pub const USER_IMAGE_SERVICES: &[&str] = &[
+    "hk-server-ahci",
+    "hk-server-block",
+    "hk-server-checkpoint",
+    "hk-server-console",
+    "hk-server-debug",
+    "hk-server-demo",
+    "hk-server-device",
+    "hk-server-display",
+    "hk-server-echo",
+    "hk-server-ext4",
+    "hk-server-holydoc",
+    "hk-server-holyfs",
+    "hk-server-input",
+    "hk-server-memory",
+    "hk-server-net",
+    "hk-server-nvme",
+    "hk-server-path",
+    "hk-server-shell",
+    "hk-server-spin",
+    "hk-server-taskman",
+    "hk-server-tempo",
+    "hk-server-usb",
+    "hk-server-vfs",
+    "hk-server-virtio",
+    "hk-server-virtio-net",
+    "hk-server-virtio-sound",
+    "hk-server-workbench",
+    "hk-client-image-test",
+];
 
 /// 判断服务是否在用户态 Image Server 模式下提供页。
 pub fn user_image_service(name: &str) -> bool {
