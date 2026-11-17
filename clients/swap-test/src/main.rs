@@ -13,7 +13,8 @@ use alloc::vec::Vec;
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    MemoryClient, arena_grow, exit, memory_pressure, memory_pressure_full, sleep_ticks, write,
+    MemoryClient, arena_grow, exit, memory_event_subscribe, memory_pressure, memory_pressure_full,
+    self_notification, sleep_ticks, wait_notify, write,
 };
 
 #[cfg(target_os = "none")]
@@ -52,6 +53,10 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     // 页表和测试数据。
     if arena_grow(32 * 1024 * 1024) == u64::MAX {
         fail(b"arena-grow")
+    }
+    let notification = self_notification();
+    if memory_event_subscribe(notification) != 0 {
+        fail(b"event-subscribe")
     }
 
     let mut pages: Vec<(u64, u64, u64, u8)> = Vec::new();
@@ -120,6 +125,11 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     }
     if swapped == 0 {
         fail(b"no-reclaim")
+    }
+    // 换出事件已在 `finish_provider_reclaim` 中置位；等待确认通知链路。
+    let swap_bit = 1_u64 << 1;
+    if wait_notify(notification, swap_bit) & swap_bit == 0 {
+        fail(b"event-notify")
     }
 
     let mut verified = 0;
