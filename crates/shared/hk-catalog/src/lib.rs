@@ -213,6 +213,14 @@ services![
         Some("memory-test")
     ),
     (
+        "hk-client-image-test",
+        false,
+        9,
+        THROUGHPUT,
+        NEVER,
+        Some("task-image")
+    ),
+    (
         "hk-client-swap-test",
         false,
         9,
@@ -494,6 +502,10 @@ pub const BOOT_MODES: &[BootMode] = &[
     BootMode {
         tokens: &["memory-test"],
         services: &["hk-server-memory-test"],
+    },
+    BootMode {
+        tokens: &["task-image"],
+        services: &["hk-client-image-test"],
     },
     BootMode {
         tokens: &["swap-test"],

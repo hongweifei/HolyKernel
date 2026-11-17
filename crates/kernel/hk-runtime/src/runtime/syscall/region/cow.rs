@@ -122,7 +122,88 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(true)
     }
 
-    /// 处理匿名能力的按需零页缺页。
+    /// 查找懒镜像能力的文件来源。
+    pub(super) fn image_source(&self, capability: hk_handle::ObjectId) -> Option<ImageSource> {
+        self.image_sources
+            .iter()
+            .find_map(|(id, source)| (*id == capability.get()).then_some(*source))
+    }
+
+    /// 按镜像文件内容装入 TaskImage 页；其余字节保持零。
+    pub(super) fn image_fault_region(
+        &mut self,
+        index: usize,
+        region: FaultRegion,
+        address: u64,
+        capability: &Capability,
+        source: ImageSource,
+    ) -> bool {
+        if region.flags.contains(RegionFlags::GUARD) {
+            return false;
+        }
+        let page = hk_hal::PAGE_SIZE as u64;
+        let offset = region.capability_offset(address, page);
+        if offset >= capability.size() {
+            return false;
+        }
+        let page_address = region.page_address(offset);
+        let page_index = (offset / page) as usize;
+        if self.platform.user_mapped(page_address) {
+            return true;
+        }
+        let Some(backing) = self.allocate_owned(index, page, None) else {
+            return false;
+        };
+        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+            return false;
+        };
+        let range = backing.range();
+        let mut buffer = alloc::vec![0_u8; page as usize];
+        let length = source
+            .file_len
+            .saturating_sub(offset as usize)
+            .min(page as usize);
+        if length > 0
+            && !self.platform.read_phys(
+                hk_hal::PhysAddr::new(source.phys.get().saturating_add(offset)),
+                &mut buffer[..length],
+            )
+        {
+            let _ = self.process_mut(index).ledger.release(charge);
+            return false;
+        }
+        if !self.platform.write_phys(range.start(), &buffer) {
+            let _ = self.process_mut(index).ledger.release(charge);
+            return false;
+        }
+        if !self.platform.map_region(
+            index,
+            &hk_mem::RegionMapping {
+                virt: page_address,
+                phys: range.start().get(),
+                len: page as usize,
+                rights: region.rights,
+                flags: region.flags,
+                policy: capability.cache(),
+            },
+        ) {
+            let _ = self.process_mut(index).ledger.release(charge);
+            return false;
+        }
+        if !self
+            .kernel
+            .set_capability_page(region.tcb, region.capability, page_index, backing)
+            .unwrap_or(false)
+        {
+            let _ = self.platform.unmap_user(index, page_address, page as usize);
+            let _ = self.process_mut(index).ledger.release(charge);
+            return false;
+        }
+        self.record_page_charge(index, region.region, page_index, charge);
+        true
+    }
+
+    /// 处理匿名能力的按需零页缺页。    /// 处理匿名能力的按需零页缺页。
     pub fn anonymous_fault(&mut self, cpu: usize, address: u64) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;

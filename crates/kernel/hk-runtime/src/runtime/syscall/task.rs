@@ -16,6 +16,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             len,
             writable: true,
             executable: false,
+            source: None,
         };
         if self.register_region(slot, spec, None).is_err() {
             self.process_mut(slot).set_arena_used(before);

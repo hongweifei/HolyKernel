@@ -11,7 +11,7 @@ pub mod boot;
 pub mod runtime;
 
 pub use runtime::{
-    CowOutcome, FaultOutcome, Pending, RuntimeStats, Step, Switch, SystemArenaInfo,
+    CowOutcome, FaultOutcome, ImageSource, Pending, RuntimeStats, Step, Switch, SystemArenaInfo,
     SystemRegionRecord, TaskInfo, UserPlatform, UserRegionSpec, UserRuntime, UserTask,
 };
 

@@ -736,6 +736,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 None => {}
             }
         }
+        if capability.kind() == CapabilityKind::TaskImage
+            && let Ok(id) = self.kernel.handle_id(region.tcb, region.capability)
+            && let Some(source) = self.image_source(id)
+        {
+            return if self.image_fault_region(index, region, address, &capability, source) {
+                FaultOutcome::Resumed
+            } else {
+                FaultOutcome::Unhandled
+            };
+        }
         let provider = self
             .kernel
             .capability_provider(region.tcb, region.capability)

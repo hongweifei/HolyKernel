@@ -77,6 +77,15 @@ pub(crate) const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
 
+/// 装载器交付的镜像文件来源。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageSource {
+    /// 段文件内容的起始物理地址。
+    pub phys: hk_hal::PhysAddr,
+    /// 段文件内容长度；其余页按零填充。
+    pub file_len: usize,
+}
+
 /// 装载器交付的用户映射区间。
 ///
 /// 镜像段与用户栈在装载期已经由平台映射；运行时按该描述建立对应的 Region，
@@ -91,6 +100,8 @@ pub struct UserRegionSpec {
     pub writable: bool,
     /// 是否可执行。
     pub executable: bool,
+    /// 懒装载的可执行段来源；`None` 表示装载期已映射。
+    pub source: Option<ImageSource>,
 }
 
 /// 进程私有 COW 页；记账统一由映射该页的 Region `page_charges` 持有，
@@ -291,6 +302,8 @@ pub struct UserRuntime<C, P> {
     console_subscriber: Option<usize>,
     /// 全局压力与 OOM 审计。
     oom: oom::OomState,
+    /// 懒镜像能力来源：(能力对象标识, 文件段)。
+    image_sources: Vec<(u64, ImageSource)>,
     platform: P,
 }
 
@@ -336,6 +349,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             irq_routes: [0; 256],
             console_subscriber: None,
             oom: oom::OomState::new(),
+            image_sources: Vec::new(),
             platform,
         }
     }

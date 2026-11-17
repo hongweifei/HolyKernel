@@ -6,8 +6,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::image::{ImageError, load_into_with_regions};
-use hk_hal::{BootModule, PAGE_SIZE, UserMemory};
+use crate::image::{ImageError, load_into_with_regions, load_into_with_regions_from};
+use hk_hal::{BootModule, PAGE_SIZE, PhysAddr, UserMemory};
 use hk_runtime::UserRegionSpec;
 
 /// 从启动模块中选出默认启动的服务。
@@ -66,6 +66,10 @@ pub struct ImageSpec<'a> {
     pub arena_base: u64,
     /// Arena 大小；装载期不映射，分配游标限定在该窗口内。
     pub arena_size: u64,
+    /// 模块文件在物理内存中的起点；用于懒镜像段。
+    pub module_phys: Option<PhysAddr>,
+    /// 可执行段只登记来源，由内核在缺页时装入。
+    pub lazy_image: bool,
 }
 
 /// 装载镜像并映射用户栈，返回入口现场与已映射区间。
@@ -83,8 +87,12 @@ where
 {
     let image = hk_image::Image::parse(spec.bytes).ok_or(LoadError::Image(ImageError::Parse))?;
     let task = image.task().ok_or(LoadError::Image(ImageError::Parse))?;
-    let (entry, mut regions) =
-        load_into_with_regions(spec.bytes, memory).map_err(LoadError::Image)?;
+    let (entry, mut regions) = if spec.lazy_image {
+        load_into_with_regions_from(spec.bytes, memory, spec.module_phys, true)
+    } else {
+        load_into_with_regions(spec.bytes, memory)
+    }
+    .map_err(LoadError::Image)?;
     let stack_size = if task.stack_size == 0 {
         spec.stack_size
     } else {
@@ -97,6 +105,7 @@ where
         len: stack_size.div_ceil(page_size) as usize * PAGE_SIZE,
         writable: true,
         executable: false,
+        source: None,
     });
     Ok((
         make_context(entry, spec.stack_base + stack_size - 8, spec.endpoint),

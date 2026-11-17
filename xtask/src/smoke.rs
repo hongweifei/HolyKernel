@@ -192,6 +192,10 @@ pub enum SmokeMode {
     /// Provider 压力自动换出/换入
     #[value(name = "swap")]
     Swap,
+    /// 懒 TaskImage 从模块镜像缺页装入
+    #[value(name = "task-image")]
+    TaskImage,
+
     /// 内核堆超过启动期 16 MiB 后按需增长
     #[value(name = "heap")]
     Heap,
@@ -287,6 +291,7 @@ impl SmokeMode {
             Self::CheckpointServer => Some(String::from("vfs.fs=holyfs checkpoint-srv-test")),
             Self::Memory => Some(String::from("memory-test")),
             Self::Swap => Some(String::from("swap-test")),
+            Self::TaskImage => Some(String::from("task-image")),
             Self::Heap => Some(String::from("shell-test heap-test")),
             Self::Oom => Some(String::from("oom-test")),
             Self::Numa => None,
@@ -677,6 +682,7 @@ impl SmokeMode {
                 "hk-client-swap-test: verified ",
                 "hk-client-swap-test: ok",
             ],
+            Self::TaskImage => &["hk-client-image-test: lazy-ok"],
             Self::Heap => &["内核堆测试：24 MiB ok"],
             Self::Oom => &[
                 "hk-client-oom-test: triggering",
@@ -741,6 +747,7 @@ impl SmokeMode {
             | Self::Numa
             | Self::NumaMigrate
             | Self::GpuAlloc
+            | Self::TaskImage
             | Self::Swap
             | Self::Heap
             | Self::Oom => QEMU_SUCCESS,
@@ -798,6 +805,7 @@ impl SmokeMode {
             Self::CheckpointServer => "build/serial-checkpointsrv.log",
             Self::Memory => "build/serial-memory.log",
             Self::Swap => "build/serial-swap.log",
+            Self::TaskImage => "build/serial-task-image.log",
             Self::Heap => "build/serial-heap.log",
             Self::Oom => "build/serial-oom.log",
             Self::Numa => "build/serial-numa.log",

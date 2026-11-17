@@ -5,9 +5,9 @@
 use alloc::vec::Vec;
 use core::cmp::min;
 
-use hk_hal::{PAGE_SIZE, UserMemory};
+use hk_hal::{PAGE_SIZE, PhysAddr, UserMemory};
 use hk_image::Image;
-use hk_runtime::UserRegionSpec;
+use hk_runtime::{ImageSource, UserRegionSpec};
 
 /// 用户镜像装载错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +31,7 @@ pub trait PageSink {
         &mut self,
         virtual_address: u64,
         file: &[u8],
+        file_offset: usize,
         memory_size: u64,
         flags: u32,
     ) -> Result<(), MapError>;
@@ -38,12 +39,15 @@ pub trait PageSink {
 
 /// 装载全部段，返回入口地址。
 pub fn load(image: &[u8], sink: &mut impl PageSink) -> Result<u64, ImageError> {
-    let image = Image::parse(image).ok_or(ImageError::Parse)?;
+    let bytes = image;
+    let image = Image::parse(bytes).ok_or(ImageError::Parse)?;
     let task = image.task().ok_or(ImageError::Parse)?;
     for region in image.regions() {
+        let file_offset = region.file.as_ptr() as usize - bytes.as_ptr() as usize;
         sink.map_segment(
             region.virtual_address,
             region.file,
+            file_offset,
             region.memory_size,
             region.flags,
         )
@@ -62,6 +66,8 @@ pub fn load_into<M: UserMemory>(image: &[u8], memory: &mut M) -> Result<u64, Ima
         &mut UserSink {
             memory,
             regions: None,
+            source_base: None,
+            lazy: false,
         },
     )
 }
@@ -77,6 +83,28 @@ pub fn load_into_with_regions<M: UserMemory>(
         &mut UserSink {
             memory,
             regions: Some(&mut regions),
+            source_base: None,
+            lazy: false,
+        },
+    )?;
+    Ok((entry, regions))
+}
+
+/// 装载镜像；可执行段可选择只登记来源，由内核在缺页时装入。
+pub fn load_into_with_regions_from<M: UserMemory>(
+    image: &[u8],
+    memory: &mut M,
+    source_base: Option<PhysAddr>,
+    lazy: bool,
+) -> Result<(u64, Vec<UserRegionSpec>), ImageError> {
+    let mut regions = Vec::new();
+    let entry = load(
+        image,
+        &mut UserSink {
+            memory,
+            regions: Some(&mut regions),
+            source_base,
+            lazy,
         },
     )?;
     Ok((entry, regions))
@@ -85,6 +113,8 @@ pub fn load_into_with_regions<M: UserMemory>(
 struct UserSink<'a, M> {
     memory: &'a mut M,
     regions: Option<&'a mut Vec<UserRegionSpec>>,
+    source_base: Option<PhysAddr>,
+    lazy: bool,
 }
 
 impl<M: UserMemory> PageSink for UserSink<'_, M> {
@@ -92,6 +122,7 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
         &mut self,
         virtual_address: u64,
         file: &[u8],
+        file_offset: usize,
         memory_size: u64,
         flags: u32,
     ) -> Result<(), MapError> {
@@ -100,32 +131,44 @@ impl<M: UserMemory> PageSink for UserSink<'_, M> {
         // ELF p_flags：1 = 可执行，2 = 可写，4 = 可读。W+X 段退化为只读可执行。
         let executable = flags & 1 != 0;
         let writable = flags & 2 != 0 && !executable;
+        let lazy = self.lazy && executable && self.source_base.is_some();
 
-        for page in 0..pages {
-            let offset = page * page_size;
-            {
-                let slice = self
-                    .memory
-                    .map_page(virtual_address + offset)
-                    .ok_or(MapError)?;
+        if !lazy {
+            for page in 0..pages {
+                let offset = page * page_size;
+                {
+                    let slice = self
+                        .memory
+                        .map_page(virtual_address + offset)
+                        .ok_or(MapError)?;
 
-                let start = offset as usize;
-                if start < file.len() {
-                    let length = min(PAGE_SIZE, file.len() - start);
-                    slice[..length].copy_from_slice(&file[start..start + length]);
+                    let start = offset as usize;
+                    if start < file.len() {
+                        let length = min(PAGE_SIZE, file.len() - start);
+                        slice[..length].copy_from_slice(&file[start..start + length]);
+                    }
                 }
+                self.memory
+                    .protect_page(virtual_address + offset, writable, executable);
             }
-            self.memory
-                .protect_page(virtual_address + offset, writable, executable);
         }
         if pages > 0
             && let Some(regions) = self.regions.as_mut()
         {
+            let source = lazy.then(|| ImageSource {
+                phys: PhysAddr::new(
+                    self.source_base
+                        .map_or(0, |base| base.get())
+                        .saturating_add(file_offset as u64),
+                ),
+                file_len: file.len(),
+            });
             regions.push(UserRegionSpec {
                 virt: virtual_address,
                 len: pages as usize * PAGE_SIZE,
                 writable,
                 executable,
+                source,
             });
         }
         Ok(())
@@ -173,9 +216,42 @@ mod tests {
                 len: PAGE_SIZE,
                 writable: true,
                 executable: false,
+                source: None,
             }]
         );
         assert_eq!(&memory.data[..4], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn lazy_image_registers_source_without_mapping() {
+        let image = build(
+            TaskData {
+                name: "test",
+                role: 0,
+                entry: 0x4000,
+                stack_size: 0,
+                arena_size: 0,
+            },
+            &[RegionData {
+                virtual_address: 0x4000,
+                data: &[0x90, 0x90, 0x90, 0x90],
+                memory_size: 8,
+                flags: 1,
+            }],
+            &[],
+            &[],
+            &[],
+        );
+        let mut memory = TestMemory::default();
+        let (_, regions) =
+            load_into_with_regions_from(&image, &mut memory, Some(PhysAddr::new(0x1000)), true)
+                .expect("装载镜像");
+        assert!(memory.pages.is_empty(), "可执行段不应在装载期映射");
+        assert_eq!(regions.len(), 1);
+        assert!(regions[0].executable);
+        let source = regions[0].source.expect("执行段来源");
+        assert_eq!(source.file_len, 4);
+        assert!(source.phys.get() >= 0x1000);
     }
 
     #[derive(Default)]
@@ -233,7 +309,14 @@ mod tests {
     struct NullSink;
 
     impl PageSink for NullSink {
-        fn map_segment(&mut self, _: u64, _: &[u8], _: u64, _: u32) -> Result<(), MapError> {
+        fn map_segment(
+            &mut self,
+            _: u64,
+            _: &[u8],
+            _: usize,
+            _: u64,
+            _: u32,
+        ) -> Result<(), MapError> {
             Ok(())
         }
     }
@@ -243,7 +326,14 @@ mod tests {
     }
 
     impl PageSink for CountingSink {
-        fn map_segment(&mut self, _: u64, _: &[u8], _: u64, _: u32) -> Result<(), MapError> {
+        fn map_segment(
+            &mut self,
+            _: u64,
+            _: &[u8],
+            _: usize,
+            _: u64,
+            _: u32,
+        ) -> Result<(), MapError> {
             self.segments += 1;
             Ok(())
         }

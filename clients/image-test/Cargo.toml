@@ -1,0 +1,22 @@
+[package]
+name = "hk-client-image-test"
+description = "HolyKernel 懒 TaskImage 冒烟客户端"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "hk-client-image-test"
+path = "src/main.rs"
+
+[dependencies]
+hk-server-api.workspace = true
+hk-syscall.workspace = true
+
+[build-dependencies]
+hk-server-build.workspace = true
+
+[lints]
+workspace = true

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 
 use alloc::sync::Arc;
 
-use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, UserMemory, VirtAddr};
+use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, PhysAddr, UserMemory, VirtAddr};
 use hk_mem::FrameBank;
 use hk_mem::hmp::Capacity;
 use hk_platform_x86_64::cpu;
@@ -175,6 +175,8 @@ fn load(
 
     let stack_base = USER_STACK_BASE + index as u64 * USER_STACK_STRIDE;
     let (arena_base, arena_size) = host::arena(index);
+    let lazy_image = loader::service_name(module.name) == "hk-client-image-test";
+    let module_phys = lazy_image.then(|| PhysAddr::new(bytes.as_ptr() as u64 - direct_map_base));
     let spec = ImageSpec {
         bytes,
         endpoint,
@@ -182,6 +184,8 @@ fn load(
         stack_size: USER_STACK_SIZE,
         arena_base,
         arena_size,
+        module_phys,
+        lazy_image,
     };
 
     let table = paging

@@ -665,6 +665,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hk-client-image-test"
+version = "0.1.0"
+dependencies = [
+ "hk-server-api",
+ "hk-server-build",
+ "hk-syscall",
+]
+
+[[package]]
 name = "hk-client-netsock"
 version = "0.1.0"
 dependencies = [

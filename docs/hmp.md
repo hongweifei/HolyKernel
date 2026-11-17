@@ -224,7 +224,9 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - Native Task 镜像（HKX）中的代码、只读数据与数据区域。
 - 操作：sealed map、execute。
 - 区域 sealed：拒绝写权限；需要改写的数据走 Revision 或 COW。
-- Provider：Image Loader / Root Server；代码页通常已常驻。
+- Provider：装载器登记模块文件来源，内核 Image Provider 在缺页时按文件内容装入；
+  其余段与栈保持装载期映射。当前仅 `hk-client-image-test` 走懒路径，
+  其余服务仍由装载器常驻映射，便于逐服务接入与回退。
 
 ### DeviceAllocation
 
@@ -274,7 +276,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 - `ImageProvider`：load、seal、execute。
 - `DeviceProvider`：residency、eviction、pin、export/import、IOMMU。
 - `AnonymousProvider`：zero-fill、COW、compress、swap、grow。
-- 除 Frame 外的类型化能力都可以创建为无 backing 的懒加载能力；绑定 `ProviderKind` 匹配的端点后，缺页转发给 Provider。Frame 是常驻页能力，不参与懒加载。未绑定 Provider 的非 Anonymous 能力没有后备来源，`SYS_REGION_MAP` 直接拒绝。
+- 除 Frame 外的类型化能力都可以创建为无 backing 的懒加载能力；绑定 `ProviderKind` 匹配的端点后，缺页转发给 Provider。Frame 是常驻页能力，不参与懒加载。未绑定 Provider 的非 Anonymous 能力没有后备来源，`SYS_REGION_MAP` 直接拒绝；装载器登记的懒 TaskImage 例外，由内核 Image Provider 按模块文件页装入。
 
 内核快速路径：
 

@@ -110,6 +110,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None,
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         )?;
+        if let Some(source) = spec.source
+            && let Ok(id) = self.kernel.handle_id(tcb, capability_handle)
+        {
+            self.image_sources.push((id.get(), source));
+        }
         let mut region = match hk_mem::hmp::Region::new(&capability, 0, spec.len, rights, flags) {
             Ok(region) => region,
             Err(error) => {
