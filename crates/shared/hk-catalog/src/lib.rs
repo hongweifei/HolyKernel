@@ -303,6 +303,13 @@ pub fn service(name: &str) -> Option<&'static Service> {
 pub fn boot_service(name: &str) -> bool {
     service(name).is_some_and(|service| service.boot)
 }
+/// 逐服务接入懒 TaskImage 的名单；未列出的服务仍由装载器常驻映射。
+pub const LAZY_TASK_IMAGES: &[&str] = &["hk-client-image-test", "hk-server-demo", "hk-server-echo"];
+
+/// 判断服务是否走懒 TaskImage 装载。
+pub fn lazy_task_image(name: &str) -> bool {
+    LAZY_TASK_IMAGES.contains(&name)
+}
 
 /// 返回桌面模式排序键；未登记服务排在最后。
 pub fn desktop_order(name: &str) -> u8 {
@@ -640,6 +647,13 @@ pub fn default_visible(name: &str, network: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lazy_task_images_exist() {
+        for name in LAZY_TASK_IMAGES {
+            assert!(service(name).is_some(), "懒镜像未登记：{name}");
+        }
+    }
 
     #[test]
     fn realtime_catalog_load_fits_period() {

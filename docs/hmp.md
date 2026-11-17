@@ -225,8 +225,9 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 操作：sealed map、execute。
 - 区域 sealed：拒绝写权限；需要改写的数据走 Revision 或 COW。
 - Provider：装载器登记模块文件来源，内核 Image Provider 在缺页时按文件内容装入；
-  其余段与栈保持装载期映射。当前仅 `hk-client-image-test` 走懒路径，
-  其余服务仍由装载器常驻映射，便于逐服务接入与回退。
+  其余段与栈保持装载期映射。当前已接入 `hk-client-image-test`、
+  `hk-server-demo`、`hk-server-echo`、`hk-server-shell`、`hk-server-ext4`、
+  `hk-server-vfs` 与 `hk-server-path`；其余服务仍由装载器常驻映射，便于逐服务接入与回退。
 
 ### DeviceAllocation
 
