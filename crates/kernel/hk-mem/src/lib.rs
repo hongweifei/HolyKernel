@@ -12,8 +12,8 @@ pub mod page;
 pub mod platform;
 
 pub use page::{
-    AddressSpaceRegistry, FrameBank, FrameBankStats, FrameKind, LedgerStats, PageAllocator,
-    RegionMapping, UserAddressSpace,
+    AddressSpaceRegistry, ForkResult, FrameBank, FrameBankStats, FrameKind, LedgerStats,
+    PageAllocator, RegionMapping, UserAddressSpace,
 };
 pub use platform::{DmaAllocator, SoftwareIommu};
 

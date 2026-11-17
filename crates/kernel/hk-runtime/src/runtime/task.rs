@@ -40,7 +40,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .map(|region| (region.virt, region.len as u64))
             .collect();
         let capacity = self.task_capacity(index);
-        let Some(copied) = self
+        let Some(forked) = self
             .platform
             .fork(index, child_index, &cow_ranges, capacity.as_ref())
         else {
@@ -134,12 +134,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 )
             })
             .collect();
-        if copied > 0 {
-            let Ok(charge) = process.ledger.charge(copied) else {
+        for range in &forked.pages {
+            let Ok(charge) = self.frames.charge_range(&process.ledger, *range) else {
+                for charge in process.cow_charges.drain(..) {
+                    self.frames.release(charge);
+                }
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             };
-            process.cow_charge = Some(charge);
+            process.cow_charges.push(charge);
         }
         let mut task = UserTask::new(TaskInit {
             tcb: child,
@@ -192,7 +195,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 self.platform.dma_free(range);
             }
             if let Some(charge) = entry.charge {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
             }
         }
     }
@@ -926,12 +929,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         // 写时复制：Provider 回包只作为当前进程的私有覆盖，
                         // 不改共享能力页；读缺页直接安装到能力。
                         let stored = if private {
-                            let Ok(charge) = self.process_mut(index).ledger.charge(range.len())
-                            else {
+                            let Ok(charge) = self.charge_frame_range(index, range) else {
                                 return self.fail_provider(cpu, index, pending);
                             };
                             let Ok(id) = self.kernel.handle_id(owner_tcb, capability) else {
-                                let _ = self.process_mut(index).ledger.release(charge);
+                                self.release_frame(charge);
                                 return self.fail_provider(cpu, index, pending);
                             };
                             self.process_mut(index).cow_pages.insert(
@@ -948,8 +950,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                 .set_capability_page(owner_tcb, capability, page_index, backing)
                                 .unwrap_or(false);
                             if stored {
-                                let Ok(charge) = self.process_mut(index).ledger.charge(range.len())
-                                else {
+                                let Ok(charge) = self.charge_frame_range(index, range) else {
                                     let _ = self
                                         .kernel
                                         .take_capability_page(owner_tcb, capability, page_index);

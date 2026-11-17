@@ -31,11 +31,7 @@ fn register_image(
         }),
         provider: None,
     };
-    let charge = runtime
-        .process_mut(index)
-        .ledger
-        .charge(len as u64)
-        .expect("记账");
+    let charge = runtime.charge_frame(index, len as u64).expect("记账");
     runtime
         .register_region(index, spec, Some(charge))
         .expect("登记镜像 Region");
@@ -214,9 +210,7 @@ fn provider_restart_rebinds_capability() {
         }),
     };
     let charge = runtime
-        .process_mut(index)
-        .ledger
-        .charge(hk_hal::PAGE_SIZE as u64)
+        .charge_frame(index, hk_hal::PAGE_SIZE as u64)
         .expect("记账");
     runtime
         .register_region(index, spec, Some(charge))

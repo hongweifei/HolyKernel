@@ -20,7 +20,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let tcb = self.tasks[index].tcb;
         // IPC 转移已由内核在转移事务里记账；本地安装只取走那笔账目。
         // 非转移路径（测试、内核代建）没有预记账，才在这里补记。
-        let transfer_charge = self.kernel.take_transfer_charge(tcb, handle);
+        let transfer_charge = self
+            .kernel
+            .take_transfer_charge(tcb, handle)
+            .map(|charge| self.adopt_frame(index, charge));
         // DeviceGrant 统一进入 Grant 段，避免同一对象出现两套句柄编号。
         if self.kernel.device_grant(tcb, handle).is_ok() {
             return Some(self.install_grant(index, handle, transfer_charge));
@@ -34,7 +37,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             if let Some(charge) = transfer_charge {
                 return Some(self.install_extra_entry(index, handle, Some(charge)));
             }
-            let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
+            let Ok(charge) = self.charge_frame(index, range.len()) else {
                 let _ = self.kernel.close_handle(tcb, handle);
                 return None;
             };
@@ -48,7 +51,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if resident == 0 {
             return Some(self.install_extra_entry(index, handle, None));
         }
-        let Ok(charge) = self.process_mut(index).ledger.charge(resident) else {
+        let Ok(charge) = self.charge_frame(index, resident) else {
             let _ = self.kernel.close_handle(tcb, handle);
             return None;
         };
@@ -65,13 +68,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             // 镜像与用户栈页由装载器从任务 Capacity 分配；虚拟区间同样计入
             // Task Ledger，配额不能只约束 `SYS_ALLOC`。
             let charge = self
-                .process_mut(index)
-                .ledger
-                .charge(spec.len as u64)
+                .charge_frame(index, spec.len as u64)
                 .map_err(KernelError::Hmp)?;
             if let Err(error) = self.register_region(index, *spec, Some(charge)) {
                 // 注册失败时这笔记账没有被任何槽位持有，必须归还。
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
                 return Err(error);
             }
         }
@@ -83,7 +84,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         spec: UserRegionSpec,
-        charge: Option<Charge>,
+        charge: Option<FrameRef>,
     ) -> Result<(), KernelError> {
         if spec.len == 0 {
             return Ok(());
@@ -267,6 +268,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let region_rights = region.rights();
             let region_flags = region.flags();
             let region_id = region.id();
+            let inherited = self
+                .process(parent)
+                .regions
+                .iter()
+                .flatten()
+                .find(|mapping| mapping.handle == region_handle)
+                .map(|mapping| (mapping.charge, mapping.page_charges.clone()));
             if self.process_mut(child).hmp_arena.insert(&region).is_err() {
                 let _ = self.kernel.close_handle(child_tcb, capability);
                 continue;
@@ -298,6 +306,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 region_flags,
                 None,
             );
+            if let Some((charge, page_charges)) = inherited {
+                if let Some(charge) = charge {
+                    self.frames.retain(charge);
+                }
+                for (_, charge) in &page_charges {
+                    self.frames.retain(*charge);
+                }
+                if let Some(mapping) = self
+                    .process_mut(child)
+                    .regions
+                    .iter_mut()
+                    .flatten()
+                    .find(|mapping| mapping.handle == child_region)
+                {
+                    mapping.charge = charge;
+                    mapping.page_charges = page_charges;
+                }
+            }
         }
     }
 
@@ -305,7 +331,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.install_extra_entry(index, handle, None)
     }
 
-    fn install_extra_entry(&mut self, index: usize, handle: Handle, charge: Option<Charge>) -> u64 {
+    fn install_extra_entry(
+        &mut self,
+        index: usize,
+        handle: Handle,
+        charge: Option<FrameRef>,
+    ) -> u64 {
         let slot = match self.tasks[index].extra_free.pop() {
             Some(slot) => slot,
             None => {
@@ -321,7 +352,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         handle: Handle,
-        charge: Option<Charge>,
+        charge: Option<FrameRef>,
     ) -> u64 {
         let slot = match self.tasks[index].capability_free.pop() {
             Some(slot) => slot,
@@ -369,7 +400,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         offset: u64,
         rights: Rights,
         flags: hk_mem::hmp::RegionFlags,
-        charge: Option<Charge>,
+        charge: Option<FrameRef>,
     ) -> u64 {
         let slot = match self.process_mut(index).region_free.pop() {
             Some(slot) => slot,
@@ -434,7 +465,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         handle: Handle,
-        charge: Option<Charge>,
+        charge: Option<FrameRef>,
     ) -> u64 {
         let slot = match self.tasks[index].frame_free.pop() {
             Some(slot) => slot,
@@ -454,7 +485,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 取出指定 Frame 槽位的容量记账，供映射或释放转移。
-    pub(crate) fn take_frame_charge(&mut self, index: usize, number: usize) -> Option<Charge> {
+    pub(crate) fn take_frame_charge(&mut self, index: usize, number: usize) -> Option<FrameRef> {
         if number >= FRAME_HANDLE_BASE {
             let slot = number.checked_sub(FRAME_HANDLE_BASE + 1)?;
             self.tasks[index]
@@ -486,17 +517,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].extra_free.clear();
         for slot in frames.into_iter().flatten() {
             if let Some(charge) = slot.charge {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
             }
         }
         for map in capabilities.into_iter().flatten() {
             if let Some(charge) = map.charge {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
             }
         }
         for slot in extra.into_iter().flatten() {
             if let Some(charge) = slot.charge {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
             }
         }
     }
@@ -513,7 +544,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         &mut self,
         index: usize,
         handle: Handle,
-        charge: Option<hk_mem::hmp::Charge>,
+        charge: Option<FrameRef>,
     ) -> u64 {
         let slot = self.tasks[index]
             .grants
@@ -597,7 +628,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             {
                 self.tasks[index].frame_free.push(slot_index);
                 if let Some(charge) = entry.charge {
-                    let _ = self.process_mut(index).ledger.release(charge);
+                    self.release_frame(charge);
                 }
             }
         } else if number >= CAPACITY_HANDLE_BASE {
@@ -651,7 +682,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .and_then(|slot| slot.take())
             {
                 if let Some(charge) = map.charge {
-                    let _ = self.process_mut(index).ledger.release(charge);
+                    self.release_frame(charge);
                 }
                 self.tasks[index].capability_free.push(slot_index);
             }
@@ -662,7 +693,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 && let Some(entry) = slot.take()
                 && let Some(charge) = entry.charge
             {
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
             }
         } else if number >= EXTRA_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(EXTRA_HANDLE_BASE + 1)
@@ -671,7 +702,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             {
                 self.tasks[index].extra_free.push(slot_index);
                 if let Some(charge) = entry.charge {
-                    let _ = self.process_mut(index).ledger.release(charge);
+                    self.release_frame(charge);
                 }
             }
         } else if let Some(slot) = number
@@ -779,10 +810,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
         if let Some(charge) = charge {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
         }
         for (_, charge) in page_charges {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
         }
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);
@@ -815,8 +846,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 归还全部 COW 私有页记账。
     fn release_cow_charges(&mut self, index: usize) {
-        if let Some(charge) = self.process_mut(index).cow_charge.take() {
-            let _ = self.process_mut(index).ledger.release(charge);
+        let charges = core::mem::take(&mut self.process_mut(index).cow_charges);
+        for charge in charges {
+            self.release_frame(charge);
         }
     }
 

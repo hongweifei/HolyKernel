@@ -15,7 +15,7 @@ use hk_device::DeviceGrant;
 use hk_hal::{MAX_CPUS, SyscallFrame, UserContext, VirtAddr};
 use hk_handle::{Handle, HandleTable, ObjectId, Rights};
 use hk_ipc::Message;
-use hk_mem::hmp::{Arena as HmpArena, Charge, RegionFlags, SharedLedger};
+use hk_mem::hmp::{Arena as HmpArena, Charge, FrameLedger, FrameRef, RegionFlags, SharedLedger};
 use hk_syscall::CONSOLE_NOTIFY_INPUT;
 use hk_syscall::{
     FAULT_EVENT, FUTEX_CHANGED, SYS_ACPI_EVENTS, SYS_ACPI_LISTEN, SYS_ALLOC, SYS_ARENA_GROW,
@@ -151,7 +151,7 @@ pub struct CowPage {
 pub(crate) struct CapabilityMap {
     pub handle: Handle,
     /// 已常驻物理页的记账；惰性能力在缺页装页前为 `None`。
-    pub charge: Option<Charge>,
+    pub charge: Option<FrameRef>,
 }
 
 pub(crate) struct RegionMap {
@@ -169,9 +169,9 @@ pub(crate) struct RegionMap {
     /// 映射这段 Region 时使用的缓存属性，随能力确定。
     pub cache: hk_hal::CachePolicy,
     /// 已常驻物理页的整段记账；惰性映射为 `None`。
-    pub charge: Option<Charge>,
+    pub charge: Option<FrameRef>,
     /// 逐页装入与 COW 私有页产生的记账，键为能力内页索引。
-    pub page_charges: Vec<(usize, Charge)>,
+    pub page_charges: Vec<(usize, FrameRef)>,
 }
 
 /// 进程级共享状态；同进程的线程共享 Arena、记账、虚拟窗口与 Region 表。
@@ -187,8 +187,8 @@ pub(crate) struct Process {
     pub arena_next: u64,
     /// 进程级 COW 私有页覆盖：能力 ObjectId + 页索引 → 私有物理页与记账。
     pub cow_pages: BTreeMap<(u64, usize), CowPage>,
-    /// fork 时为子任务整段复制私有页产生的记账；任务退出时归还。
-    pub cow_charge: Option<Charge>,
+    /// fork 时为子任务复制私有页产生的逐帧记账；任务退出时归还。
+    pub cow_charges: Vec<FrameRef>,
     /// 进程能力分配使用的 Capacity 句柄；关闭句柄即撤销分配权。
     pub allocation_capacity: Handle,
     pub device_factory: Option<Handle>,
@@ -213,7 +213,7 @@ impl Process {
             arena_size,
             arena_next: arena_base,
             cow_pages: BTreeMap::new(),
-            cow_charge: None,
+            cow_charges: Vec::new(),
             allocation_capacity,
             device_factory: None,
         }
@@ -344,6 +344,8 @@ pub struct UserRuntime<C, P> {
     image_registrations: Vec<ImageRegistration>,
     /// 服务启动/重启通知：(服务名, Notification 对象)。
     service_watchers: Vec<(alloc::string::String, hk_handle::ObjectId)>,
+    /// 统一 Frame 引用账本；共享物理区间只计费一次。
+    frames: FrameLedger,
     platform: P,
 }
 
@@ -393,6 +395,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             modules: Vec::new(),
             image_registrations: Vec::new(),
             service_watchers: Vec::new(),
+            frames: FrameLedger::new(),
             platform,
         }
     }
@@ -413,6 +416,37 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn process_mut(&mut self, index: usize) -> &mut Process {
         let process = self.tasks[index].process;
         self.processes[process].as_mut().expect("任务所属进程存在")
+    }
+
+    /// 从任务 Ledger 记入一笔常驻区间。
+    pub(crate) fn charge_frame(
+        &mut self,
+        index: usize,
+        amount: u64,
+    ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
+        let ledger = self.process(index).ledger.clone();
+        self.frames.charge(&ledger, amount)
+    }
+
+    /// 记入一段具体物理区间；同一区间在多个进程间共享时只计费一次。
+    pub(crate) fn charge_frame_range(
+        &mut self,
+        index: usize,
+        range: hk_hal::PhysRange,
+    ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
+        let ledger = self.process(index).ledger.clone();
+        self.frames.charge_range(&ledger, range)
+    }
+
+    /// 接管一笔内核已经扣过的记账。
+    pub(crate) fn adopt_frame(&mut self, index: usize, charge: Charge) -> FrameRef {
+        let ledger = self.process(index).ledger.clone();
+        self.frames.adopt(ledger, charge)
+    }
+
+    /// 释放一次 Frame 引用。
+    pub(crate) fn release_frame(&mut self, frame: FrameRef) {
+        self.frames.release(frame);
     }
 
     /// 判断是否有等待调度的线程。

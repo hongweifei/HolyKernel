@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use hk_hal::CachePolicy;
+use hk_hal::{CachePolicy, PhysRange};
 use hk_handle::Rights;
 use spin::Mutex;
 
@@ -29,6 +29,25 @@ pub struct RegionMapping {
     pub policy: CachePolicy,
 }
 
+/// fork 时为子地址空间私有复制的物理页。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForkResult {
+    /// 复制出的物理页区间。
+    pub pages: Vec<PhysRange>,
+}
+
+impl ForkResult {
+    /// 返回复制字节数。
+    pub fn bytes(&self) -> u64 {
+        self.pages.iter().map(|range| range.len()).sum()
+    }
+
+    /// 判断是否没有复制页。
+    pub fn is_empty(&self) -> bool {
+        self.pages.is_empty()
+    }
+}
+
 /// 可登记的用户地址空间。
 pub trait UserAddressSpace: Sized {
     /// 切换到该地址空间。
@@ -38,12 +57,12 @@ pub trait UserAddressSpace: Sized {
     /// 复制为子地址空间；`cow_ranges` 指定需要标 COW 的虚拟区间，
     /// 其余可写页必须复制为私有页。
     /// 复制为写时复制副本；`capacity` 为新私有页的物理来源。
-    /// 返回副本与为子地址空间复制私有页的字节数。
+    /// 返回副本与为子地址空间复制出的物理页。
     fn fork_user(
         &self,
         cow_ranges: &[(u64, u64)],
         capacity: Option<&Arc<Mutex<Capacity>>>,
-    ) -> Option<(Self, u64)>;
+    ) -> Option<(Self, ForkResult)>;
     /// 返回同一地址空间的共享句柄；不支持时返回 `None`。
     fn share_user(&self) -> Option<Self> {
         None
@@ -209,7 +228,7 @@ impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
         child: usize,
         cow_ranges: &[(u64, u64)],
         capacity: Option<&Arc<Mutex<Capacity>>>,
-    ) -> Option<u64> {
+    ) -> Option<ForkResult> {
         let mut tables = self.tables.lock();
         let (child_table, copied) = {
             let table = tables.get(parent).and_then(Option::as_ref)?;
@@ -258,8 +277,8 @@ mod tests {
             &self,
             _cow_ranges: &[(u64, u64)],
             _capacity: Option<&Arc<Mutex<Capacity>>>,
-        ) -> Option<(Self, u64)> {
-            Some((Self(self.0 + 1), 0))
+        ) -> Option<(Self, ForkResult)> {
+            Some((Self(self.0 + 1), ForkResult::default()))
         }
 
         fn share_user(&self) -> Option<Self> {
@@ -281,7 +300,7 @@ mod tests {
             &self,
             _cow_ranges: &[(u64, u64)],
             _capacity: Option<&Arc<Mutex<Capacity>>>,
-        ) -> Option<(Self, u64)> {
+        ) -> Option<(Self, ForkResult)> {
             None
         }
 

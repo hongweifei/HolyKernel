@@ -4,9 +4,9 @@
 
 use alloc::sync::Arc;
 
-use hk_hal::{PAGE_SIZE, PhysAddr};
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 use hk_mem::hmp::{Capacity, Frame};
-use hk_mem::page::PageAllocator;
+use hk_mem::page::{ForkResult, PageAllocator};
 use hk_paging::FrameRefs;
 use spin::Mutex;
 
@@ -37,7 +37,7 @@ struct ForkState<'a> {
     cow_ranges: &'a [(u64, u64)],
     refs: &'a mut FrameRefs,
     capacity: &'a Arc<Mutex<Capacity>>,
-    copied: u64,
+    copied: alloc::vec::Vec<PhysRange>,
 }
 
 impl PageTable {
@@ -47,14 +47,14 @@ impl PageTable {
         &self,
         cow_ranges: &[(u64, u64)],
         capacity: Option<&Arc<Mutex<Capacity>>>,
-    ) -> Option<(Self, u64)> {
+    ) -> Option<(Self, ForkResult)> {
         let capacity = capacity?;
         let mut refs = super::frame_refs().lock();
         let mut state = ForkState {
             cow_ranges,
             refs: &mut refs,
             capacity,
-            copied: 0,
+            copied: alloc::vec::Vec::new(),
         };
         let child_root = take_table_page()?;
         self.zero_page(child_root);
@@ -102,7 +102,9 @@ impl PageTable {
                 root: child_root,
                 pcid: super::table::allocate_pcid(),
             },
-            state.copied,
+            ForkResult {
+                pages: state.copied,
+            },
         ))
     }
 
@@ -200,7 +202,7 @@ impl PageTable {
         &self,
         source: PhysAddr,
         capacity: &Arc<Mutex<Capacity>>,
-        copied: &mut u64,
+        copied: &mut alloc::vec::Vec<PhysRange>,
     ) -> Option<PhysAddr> {
         let (frame, allocation) = take_cow_page(capacity)?;
         let source = (self.direct_map + source.get()) as *const u8;
@@ -213,7 +215,7 @@ impl PageTable {
             release_cow_page(capacity, allocation);
             return None;
         }
-        *copied = copied.saturating_add(PAGE_SIZE as u64);
+        copied.push(PhysRange::new(frame, PAGE_SIZE as u64));
         Some(frame)
     }
 

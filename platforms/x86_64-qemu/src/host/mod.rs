@@ -381,7 +381,7 @@ impl UserPlatform for X86Platform {
         child: usize,
         cow_ranges: &[(u64, u64)],
         capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
-    ) -> Option<u64> {
+    ) -> Option<hk_mem::page::ForkResult> {
         USER_ADDRESS_SPACES.fork(parent, child, cow_ranges, capacity)
     }
 

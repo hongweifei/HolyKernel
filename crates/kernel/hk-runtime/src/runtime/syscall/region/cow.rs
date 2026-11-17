@@ -43,12 +43,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let capacity = self.task_capacity(index);
         match self.platform.resolve_cow(address, capacity.as_ref()) {
             Some(crate::runtime::CowOutcome::Copied(physical)) => {
-                let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+                let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
+                let Ok(charge) = self.charge_frame_range(index, range) else {
                     return false;
                 };
-                let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
                 let Ok(id) = self.kernel.handle_id(region.tcb, region.capability) else {
-                    let _ = self.process_mut(index).ledger.release(charge);
+                    self.release_frame(charge);
                     return false;
                 };
                 self.process_mut(index).cow_pages.insert(
@@ -101,7 +101,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             return None;
         };
-        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+        let Ok(charge) = self.charge_frame_range(index, range) else {
             return Some(false);
         };
         if !self.platform.map_region(
@@ -115,7 +115,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 policy: capability.cache(),
             },
         ) {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return Some(false);
         }
         self.record_page_charge(index, region.region, page_index, charge);
@@ -154,10 +154,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(backing) = self.allocate_owned(index, page, None) else {
             return false;
         };
-        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+        let range = backing.range();
+        let Ok(charge) = self.charge_frame_range(index, range) else {
             return false;
         };
-        let range = backing.range();
         let mut buffer = alloc::vec![0_u8; page as usize];
         let length = source
             .file_len
@@ -169,11 +169,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 &mut buffer[..length],
             )
         {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         if !self.platform.write_phys(range.start(), &buffer) {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         if !self.platform.map_region(
@@ -187,7 +187,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 policy: capability.cache(),
             },
         ) {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         if !self
@@ -196,7 +196,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or(false)
         {
             let _ = self.platform.unmap_user(index, page_address, page as usize);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         self.record_page_charge(index, region.region, page_index, charge);
@@ -300,10 +300,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(backing) = self.allocate_owned(index, page, None) else {
             return false;
         };
-        let Ok(charge) = self.process_mut(index).ledger.charge(page) else {
+        let range = backing.range();
+        let Ok(charge) = self.charge_frame_range(index, range) else {
             return false;
         };
-        let range = backing.range();
         if !self.platform.map_region(
             index,
             &hk_mem::RegionMapping {
@@ -315,7 +315,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 policy: capability.cache(),
             },
         ) {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         if !self
@@ -324,7 +324,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .unwrap_or(false)
         {
             let _ = self.platform.unmap_user(index, page_address, page as usize);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         self.record_page_charge(index, region.region, page_index, charge);

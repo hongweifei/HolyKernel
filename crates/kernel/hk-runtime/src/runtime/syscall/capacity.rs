@@ -257,7 +257,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(charge) = self.process_mut(index).ledger.charge(range.len()) else {
+        let Ok(charge) = self.charge_frame(index, range.len()) else {
             let _ = self.kernel.free_frame(tcb, handle, frame_handle);
             let _ = self.kernel.close_handle(tcb, frame_handle);
             frame.set_result(u64::MAX);

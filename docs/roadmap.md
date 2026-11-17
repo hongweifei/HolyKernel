@@ -97,7 +97,9 @@ flowchart LR
 - **Capability 操作收敛**：`SYS_CAPABILITY_*` 仍无 `Swap` 入口（`CapabilityOp::Swap` 只对 Anonymous 定义，swap 策略属于 AnonymousProvider）。`Map` 对所有类型成立是契约本身：Region 是任何类型化能力的唯一映射视图，类型收敛由 `execute`/`grow`/`commit`/`scanout` 等操作与句柄 Rights/W^X 校验完成。
 - **System Arena 覆盖面**：已完成。用户地址空间的页表页（含检查点恢复建立的根与中间页表）在分配时经 direct map 登记、地址空间释放时移除；Hosted 模拟器不运行用户地址空间页表，`SYS_SYSTEM_ARENA_*` 在该模拟器上没有数据源。
 - **客户端类型层**：已完成。`hk-server-api::handle` 提供 `Handle<Revision>`/`Handle<Surface>`/`Handle<Anonymous>`/`Handle<Capability>` 等 `repr(transparent)` 包装与类型化创建/操作；Memory Server 的惰性匿名能力已改用类型化路径，ABI 仍是单一 `u64`。
-- **COW 记账**：私有页仍按能力行与 `page_charges` 记账，未统一为单一 Frame 引用模型。
+- **COW 记账**：已完成。运行时以 `FrameLedger`/`FrameRef` 统一常驻区间记账；
+  COW 私有页、共享常驻页、句柄与 Grant 不再各自持有 `Charge`，fork 继承只增加
+  引用，最后一个引用释放时归还 Task Ledger。
 
 ---
 

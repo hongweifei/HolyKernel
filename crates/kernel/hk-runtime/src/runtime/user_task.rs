@@ -6,7 +6,7 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(crate) struct HandleSlot {
     pub handle: Handle,
-    pub charge: Option<Charge>,
+    pub charge: Option<FrameRef>,
 }
 
 /// 构造用户任务所需的全部输入。

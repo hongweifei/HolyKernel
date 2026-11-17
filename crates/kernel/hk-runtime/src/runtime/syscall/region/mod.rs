@@ -531,7 +531,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         policy: hk_hal::CachePolicy,
     ) -> bool {
         // 设备映射按实际窗口计入任务配额；解除映射时归还。
-        let Ok(charge) = self.process_mut(index).ledger.charge(len as u64) else {
+        let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(phys), len as u64);
+        let Ok(charge) = self.charge_frame_range(index, range) else {
             return false;
         };
         let Ok(capability) = Capability::with_cache(
@@ -540,7 +541,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             hk_hal::PAGE_SIZE,
             policy,
         ) else {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         };
         let lease = FrameBacking::Imported(FrameLease::import(hk_hal::PhysAddr::new(phys), len));
@@ -550,7 +551,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(lease),
             Rights::READ | Rights::WRITE,
         ) else {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         };
         let Ok(mut region) = Region::new(
@@ -561,18 +562,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             RegionFlags::empty(),
         ) else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         };
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.kernel.close_handle(tcb, capability_handle);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         }
         let Ok(region_handle) =
@@ -581,7 +582,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         else {
             let _ = self.kernel.close_handle(tcb, capability_handle);
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             return false;
         };
         self.install_region(
@@ -825,7 +826,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         index: usize,
         region: hk_mem::hmp::RegionId,
         page_index: usize,
-        charge: Charge,
+        charge: FrameRef,
     ) {
         if let Some(slot) = self
             .process(index)
@@ -844,7 +845,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         index: usize,
         capability: hk_handle::Handle,
         page_index: usize,
-        charge: Charge,
+        charge: FrameRef,
     ) {
         if let Some(slot) = self
             .process(index)
@@ -946,10 +947,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.process_mut(index).regions[slot] = None;
         self.process_mut(index).region_free.push(slot);
         if let Some(charge) = charge {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
         }
         for (_, charge) in page_charges {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
         }
         if let Some(capability_id) = capability_id {
             self.prune_cow_pages(index, capability_id);

@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 use hk_base::CivilTime;
 use hk_checkpoint::Page;
+use hk_mem::page::ForkResult;
 
 /// COW 缺页解析结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,15 +237,14 @@ pub trait UserPlatform {
     }
     /// 把父任务的用户地址空间复制为子任务的写时复制副本。
     ///
-    /// 成功时返回为子任务复制私有页的字节数；该部分字节由调用方计入
-    /// 子任务的 Task Ledger。
+    /// 成功时返回为子任务复制出的私有物理页；调用方按 Frame 记账。
     fn fork(
         &self,
         _parent: usize,
         _child: usize,
         _cow_ranges: &[(u64, u64)],
         _capacity: Option<&Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
-    ) -> Option<u64> {
+    ) -> Option<ForkResult> {
         None
     }
     /// 让子任务与父任务共享同一用户地址空间。

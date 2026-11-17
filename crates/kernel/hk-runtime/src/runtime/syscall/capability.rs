@@ -67,17 +67,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         let aligned = (length as u64).div_ceil(PAGE_SIZE as u64) * PAGE_SIZE as u64;
-        let Ok(charge) = self.process_mut(index).ledger.charge(aligned) else {
+        let Ok(charge) = self.charge_frame(index, aligned) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Some(backing) = self.allocate_owned(index, aligned, capacity_number) else {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE) else {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };

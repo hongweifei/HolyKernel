@@ -211,7 +211,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     break;
                 };
                 let (_, charge) = map.page_charges.swap_remove(position);
-                let _ = self.process_mut(slot).ledger.release(charge);
+                self.release_frame(charge);
             }
         }
     }

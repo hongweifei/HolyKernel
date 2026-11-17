@@ -444,9 +444,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.kernel
                 .create_region(tcb, region, Rights::READ | Rights::WRITE | Rights::ADMIN)?;
         let charge = self
-            .process_mut(index)
-            .ledger
-            .charge(descriptor.len)
+            .charge_frame(index, descriptor.len)
             .map_err(KernelError::Hmp)?;
         self.install_region(
             index,

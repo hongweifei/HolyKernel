@@ -5,7 +5,7 @@ use core::ops::Deref;
 use hk_hal::CachePolicy;
 use hk_mem::hmp::RegionFlags;
 
-use hk_mem::{AddressSpaceRegistry, RegionMapping, UserAddressSpace};
+use hk_mem::{AddressSpaceRegistry, ForkResult, RegionMapping, UserAddressSpace};
 use hk_paging::UserSpace as PagingUserSpace;
 
 use crate::paging::PageTable;
@@ -41,7 +41,7 @@ impl UserAddressSpace for UserSpace {
         &self,
         cow_ranges: &[(u64, u64)],
         capacity: Option<&Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
-    ) -> Option<(Self, u64)> {
+    ) -> Option<(Self, ForkResult)> {
         PageTable::fork_user(self.0.backend(), cow_ranges, capacity)
             .map(|(table, copied)| (UserSpace::new(table), copied))
     }

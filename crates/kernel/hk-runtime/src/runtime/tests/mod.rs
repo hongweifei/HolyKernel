@@ -339,9 +339,9 @@ impl UserPlatform for MockPlatform {
         _child: usize,
         cow_ranges: &[(u64, u64)],
         _capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
-    ) -> Option<u64> {
+    ) -> Option<hk_mem::page::ForkResult> {
         *self.last_cow.lock() = cow_ranges.to_vec();
-        Some(0)
+        Some(hk_mem::page::ForkResult::default())
     }
 
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {
@@ -574,8 +574,8 @@ impl UserPlatform for ShortPlatform {
         _child: usize,
         _cow_ranges: &[(u64, u64)],
         _capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
-    ) -> Option<u64> {
-        Some(0)
+    ) -> Option<hk_mem::page::ForkResult> {
+        Some(hk_mem::page::ForkResult::default())
     }
 
     fn share_vspace(&self, _parent: usize, _child: usize) -> bool {

@@ -20,16 +20,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Ok(charge) = self
-            .process_mut(index)
-            .ledger
-            .charge(DMA_WINDOW_BYTES as u64)
-        else {
+        let Ok(charge) = self.charge_frame(index, DMA_WINDOW_BYTES as u64) else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
         let Some(range) = self.platform.dma_window(DMA_WINDOW_BYTES) else {
-            let _ = self.process_mut(index).ledger.release(charge);
+            self.release_frame(charge);
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
@@ -46,7 +42,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             Err(_) => {
                 self.platform.dma_free(range);
-                let _ = self.process_mut(index).ledger.release(charge);
+                self.release_frame(charge);
                 frame.set_result(u64::MAX);
                 Switch::Continue
             }
@@ -237,7 +233,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Ok(()) => {
                 let entry = self.tasks[index].grants[slot].take();
                 if let Some(charge) = entry.and_then(|entry| entry.charge) {
-                    let _ = self.process_mut(index).ledger.release(charge);
+                    self.release_frame(charge);
                 }
                 0
             }

@@ -162,9 +162,7 @@ fn object_ledger_reports_loader_region_charge() {
         provider: None,
     };
     let charge = runtime
-        .process_mut(index)
-        .ledger
-        .charge(hk_hal::PAGE_SIZE as u64)
+        .charge_frame(index, hk_hal::PAGE_SIZE as u64)
         .expect("记账");
     runtime
         .register_region(index, spec, Some(charge))
