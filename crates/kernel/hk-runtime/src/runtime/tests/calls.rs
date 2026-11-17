@@ -1,6 +1,8 @@
 //! 通知等待、call/reply 与超时测试。
 
 use super::*;
+use crate::runtime::oom::MEMORY_EVENT_OOM;
+use hk_syscall::SYS_MEMORY_EVENT_SUBSCRIBE;
 
 #[test]
 fn waits_for_notification() {
@@ -192,4 +194,38 @@ fn times_out_unanswered_call() {
     let context = resumed.expect("调用方应被超时唤醒");
     assert_eq!(context.rax, u64::MAX);
     assert_eq!(runtime.tasks()[caller].pending, "-");
+}
+
+#[test]
+fn memory_events_notify_subscriber() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let (slot, notification) = runtime.tasks[index]
+        .notifications
+        .iter()
+        .enumerate()
+        .find_map(|(slot, handle)| handle.map(|handle| (slot, handle)))
+        .expect("自己的通知");
+
+    context.rax = SYS_MEMORY_EVENT_SUBSCRIBE;
+    context.rdi = slot as u64 + 1;
+    assert_eq!(runtime.dispatch(index, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0);
+
+    runtime.notify_memory_event(MEMORY_EVENT_OOM);
+    assert_eq!(
+        runtime
+            .kernel
+            .wait(tcb, notification, 1 << MEMORY_EVENT_OOM)
+            .expect("等待通知"),
+        Some(1 << MEMORY_EVENT_OOM)
+    );
+
+    context.rax = SYS_MEMORY_EVENT_SUBSCRIBE;
+    context.rdi = 0;
+    assert_eq!(runtime.dispatch(index, &mut context), Switch::Continue);
+    assert_eq!(runtime.oom.event_notification, None);
 }

@@ -120,6 +120,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 index as u64,
                 u64::from(node),
             );
+            self.notify_memory_event(super::oom::MEMORY_EVENT_MIGRATE);
             migrated = migrated.saturating_add(page);
             page_index += 1;
         }

@@ -25,6 +25,12 @@ pub fn acpi_listen(notification: u64) -> u64 {
     unsafe { syscall_call(SYS_ACPI_LISTEN, notification, 0, 0, 0).value }
 }
 
+/// 订阅内存审计事件；传入通知句柄，0 取消订阅。
+pub fn memory_event_subscribe(notification: u64) -> u64 {
+    // SAFETY: 内核校验通知句柄类型与权限。
+    unsafe { syscall_call(SYS_MEMORY_EVENT_SUBSCRIBE, notification, 0, 0, 0).value }
+}
+
 /// 取出并清除待处理的 ACPI GPE 事件位图。
 pub fn acpi_events() -> u64 {
     // SAFETY: 只读取并清除内核事件位图。

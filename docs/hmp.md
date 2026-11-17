@@ -413,6 +413,7 @@ flowchart LR
   - `SYS_OOM_POLICY`：Root 设置阈值与动作（0 只回收、1 允许终止）；
   - `SYS_OOM_EVENT`：最近一次 victim、回收量与终止结果；
   - `SYS_MEMORY_EVENTS`：64 条环形事件，覆盖回收、Provider 换出、OOM 与 NUMA 迁移；每条 56 字节，按序号、类别、对象、偏移、长度、任务槽位、附加值排列；
+  - `SYS_MEMORY_EVENT_SUBSCRIBE`：把一个 Notification 句柄登记为事件订阅；每记录一条事件按 `1 << kind` 置位，`arg0 = 0` 取消订阅；
   - `SYS_RECLAIM`：主动回收当前任务可证明为零的匿名页；
   - 同一 Task 的 Provider 回收线程可在压力下按对象标识取回句柄并调用 `SYS_CAPABILITY_SWAP`。
 

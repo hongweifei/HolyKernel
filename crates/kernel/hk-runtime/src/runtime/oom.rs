@@ -95,6 +95,8 @@ pub struct OomState {
     pub memory_event_sequence: u64,
     /// 已记录事件数。
     pub memory_event_count: usize,
+    /// 订阅事件通知的对象标识。
+    pub event_notification: Option<u64>,
 }
 
 impl Default for OomState {
@@ -119,6 +121,7 @@ impl OomState {
             memory_event_next: 0,
             memory_event_sequence: 1,
             memory_event_count: 0,
+            event_notification: None,
         }
     }
 

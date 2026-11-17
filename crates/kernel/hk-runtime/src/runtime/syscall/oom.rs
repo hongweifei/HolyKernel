@@ -103,6 +103,28 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Switch::Continue
     }
 
+    pub(crate) fn memory_event_subscribe(&mut self, index: usize, frame: &mut C) -> Switch {
+        let number = frame.arg0() as usize;
+        if number == 0 {
+            self.oom.event_notification = None;
+            frame.set_result(0);
+            return Switch::Continue;
+        }
+        let Some(handle) = self.notification_handle(index, number) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let tcb = self.tasks[index].tcb;
+        match self.kernel.handle_id(tcb, handle) {
+            Ok(id) => {
+                self.oom.event_notification = Some(id.get());
+                frame.set_result(0);
+            }
+            Err(_) => frame.set_result(u64::MAX),
+        }
+        Switch::Continue
+    }
+
     pub(crate) fn memory_events_query(&mut self, frame: &mut C) -> Switch {
         let out = frame.arg0();
         let capacity = frame.arg1() as usize;

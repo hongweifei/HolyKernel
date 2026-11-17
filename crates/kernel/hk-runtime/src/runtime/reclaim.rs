@@ -15,6 +15,16 @@ use hk_mem::hmp::{CapabilityKind, RegionFlags};
 use super::{UserPlatform, UserRuntime};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 让订阅者按事件类别收到通知；对象已失效时忽略。
+    pub(crate) fn notify_memory_event(&self, kind: u8) {
+        let Some(id) = self.oom.event_notification else {
+            return;
+        };
+        let _ = self
+            .kernel
+            .signal_id(hk_handle::ObjectId::new(id), 1_u64 << kind);
+    }
+
     /// 回收当前任务中可证明为零的匿名页，返回释放字节数。
     pub fn reclaim_zero_pages(&mut self, index: usize, budget: u64) -> u64 {
         let owner = self.leader_of(index);
@@ -106,6 +116,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     owner as u64,
                     0,
                 );
+                self.notify_memory_event(super::oom::MEMORY_EVENT_RECLAIM);
                 released = released.saturating_add(page);
             }
         }
@@ -159,6 +170,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             index as u64,
             0,
         );
+        self.notify_memory_event(super::oom::MEMORY_EVENT_SWAP);
         self.oom.swapped = self.oom.swapped.saturating_add(PAGE_SIZE as u64);
         PAGE_SIZE as u64
     }

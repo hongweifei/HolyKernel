@@ -311,6 +311,10 @@ pub const SYS_CAPACITY_GPU: u64 = 0xB0;
 pub const SYS_CAPABILITY_CREATE_ON: u64 = 0xB1;
 /// 设置 Capacity 软上限；仅 Root/Tempo 可调用。
 pub const SYS_CAPACITY_SOFT_LIMIT: u64 = 0xB2;
+/// 订阅内存审计事件；`arg0` 为 Notification 句柄编号，传 0 取消订阅。
+///
+/// 每记录一条事件按 `1 << kind` 置位；`kind` 见 `MEMORY_EVENT_*`。
+pub const SYS_MEMORY_EVENT_SUBSCRIBE: u64 = 0xB3;
 
 /// 统计数组支持的 NUMA 节点上限。
 pub const MAX_NUMA_NODES: usize = 8;
@@ -833,6 +837,7 @@ mod tests {
             SYS_CAPACITY_GPU,
             SYS_CAPABILITY_CREATE_ON,
             SYS_CAPACITY_SOFT_LIMIT,
+            SYS_MEMORY_EVENT_SUBSCRIBE,
             SYS_TICKS,
             SYS_TSC,
             SYS_TSC_FREQ,
