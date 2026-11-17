@@ -1,0 +1,195 @@
+//! 修订、原生文档 API、标签、快照与卷标识测试。
+
+use super::*;
+
+#[test]
+fn revision_head_moves_on_write() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "doc", DocumentKind::Content).expect("创建");
+    fs.write_range(document, 0, b"one").expect("写一");
+    let first = fs.document_info(document).expect("元数据").size;
+    fs.write_range(document, 0, b"two").expect("写二");
+    assert_eq!(first, 3);
+    let mut buffer = [0_u8; 8];
+    assert_eq!(fs.read_range(document, 0, &mut buffer).expect("读"), 3);
+    assert_eq!(&buffer[..3], b"two");
+}
+
+#[test]
+fn native_document_api_reads_whole_documents() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let system = fs
+        .create(root, "System", DocumentKind::Collection)
+        .expect("集合");
+    let document = fs
+        .create(system, "Welcome", DocumentKind::Content)
+        .expect("文档");
+    fs.write_range(document, 0, b"@title(\"Welcome\")")
+        .expect("写");
+    fs.sync().expect("提交");
+
+    assert_eq!(
+        fs.resolve("H:/System/Welcome").expect("解析"),
+        fs.resolve("/System/Welcome").expect("无盘符")
+    );
+    assert_eq!(
+        fs.read_document("H:/System/Welcome").expect("整文档"),
+        b"@title(\"Welcome\")"
+    );
+    let info = fs.document("H:/System/Welcome").expect("文档视图");
+    assert_eq!(info.size, 17);
+    assert_eq!(fs.revisions("H:/System/Welcome").expect("修订").len(), 2);
+    let entries = fs.enumerate("H:/System").expect("集合");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "Welcome");
+}
+
+#[test]
+fn native_document_write_moves_head() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+    fs.write_range(document, 0, b"first").expect("写一");
+    fs.sync().expect("提交");
+    let head = fs.document("H:/Doc").expect("视图").head;
+    let next = fs.write_document("H:/Doc", b"second").expect("整文档写");
+    assert_ne!(next, head);
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"second");
+    assert_eq!(fs.revisions("H:/Doc").expect("修订").len(), 3);
+}
+
+#[test]
+fn tags_documents_and_persists() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    let tag;
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
+        let root = fs.root();
+        let document = fs.create(root, "Doc", DocumentKind::Content).expect("创建");
+        tag = fs.create_tag("work").expect("标签");
+        assert_eq!(fs.create_tag("work"), Err(HolyError::Exists));
+        fs.tag(document, tag).expect("加入标签");
+        assert_eq!(fs.tags_of(document).expect("所属标签"), vec![tag]);
+        assert_eq!(fs.tag_members(tag).expect("成员"), vec![document]);
+        assert_eq!(fs.tags().len(), 1);
+        fs.sync().expect("提交");
+    }
+    let mut fs = HolyFs::mount(Shared(disk)).expect("重新挂载");
+    let root = fs.root();
+    let document = fs.lookup(root, "Doc").expect("查找");
+    let tags = fs.tags();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "work");
+    assert_eq!(fs.tag_members(tags[0].id).expect("成员"), vec![document]);
+    assert_eq!(fs.tags_of(document).expect("所属标签"), vec![tags[0].id]);
+    fs.drop_tag(tags[0].id).expect("删除标签");
+    assert!(fs.tags().is_empty());
+    assert_eq!(fs.tag_members(tag), Err(HolyError::NotFound));
+    fs.sync().expect("提交删除");
+}
+
+#[test]
+fn snapshots_restore_documents_and_tags() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let root = fs.root();
+    let document = fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+    fs.write_document("H:/Doc", b"before").expect("写一");
+    let tag = fs.create_tag("keep").expect("标签");
+    fs.tag(document, tag).expect("加入标签");
+    let snapshot = fs.snapshot("checkpoint").expect("快照");
+    assert_eq!(fs.snapshots().len(), 1);
+    assert_eq!(fs.snapshots()[0].name, "checkpoint");
+
+    fs.write_document("H:/Doc", b"after!").expect("写二");
+    let extra = fs
+        .create(root, "Extra", DocumentKind::Content)
+        .expect("新增");
+    let late = fs.create_tag("late").expect("新标签");
+    fs.tag(extra, late).expect("新标签成员");
+    let generation = fs.generation();
+
+    let restored = fs.restore(snapshot).expect("恢复");
+    assert!(restored > generation);
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+    assert_eq!(fs.lookup(root, "Extra"), Err(HolyError::NotFound));
+    assert_eq!(fs.document_info(extra), Err(HolyError::NotFound));
+    let tags = fs.tags();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "keep");
+    assert_eq!(fs.tag_members(tag).expect("成员"), vec![document]);
+    assert_eq!(fs.tag_members(late), Err(HolyError::NotFound));
+}
+
+#[test]
+fn snapshots_survive_remount() {
+    let disk = Rc::new(RefCell::new(formatted()));
+    let snapshot;
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("首次挂载");
+        let root = fs.root();
+        fs.create(root, "Doc", DocumentKind::Content).expect("文档");
+        fs.write_document("H:/Doc", b"before").expect("写一");
+        snapshot = fs.snapshot("persisted").expect("快照");
+        fs.write_document("H:/Doc", b"after!").expect("写二");
+        fs.sync().expect("提交");
+    }
+    {
+        let mut fs = HolyFs::mount(Shared(disk.clone())).expect("重新挂载");
+        let snapshots = fs.snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].id, snapshot);
+        assert_eq!(snapshots[0].name, "persisted");
+        assert_eq!(snapshots[0].documents, 2);
+        assert_eq!(fs.read_document("H:/Doc").expect("读"), b"after!");
+        fs.restore(snapshot).expect("恢复");
+        assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+        assert_eq!(fs.snapshots().len(), 1);
+    }
+    let fs = HolyFs::mount(Shared(disk)).expect("再次挂载");
+    assert_eq!(fs.read_document("H:/Doc").expect("读"), b"before");
+    assert_eq!(fs.snapshots().len(), 1);
+}
+
+#[test]
+fn formats_distinct_volume_ids() {
+    let blocks = (8 * 1024 * 1024) / SECTOR_SIZE as u64;
+    let h =
+        format_with_volume_id(MemoryDisk::new(blocks, SECTOR_SIZE), VOLUME_H).expect("格式化 H");
+    let h = HolyFs::mount(h).expect("挂载 H");
+    assert_eq!(h.volume_id(), VOLUME_H);
+    let i =
+        format_with_volume_id(MemoryDisk::new(blocks, SECTOR_SIZE), VOLUME_I).expect("格式化 I");
+    let i = HolyFs::mount(i).expect("挂载 I");
+    assert_eq!(i.volume_id(), VOLUME_I);
+    assert_ne!(h.volume_id(), i.volume_id());
+}
+
+#[test]
+fn restore_advances_epoch_only_on_restore() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let epoch = fs.epoch();
+    let snapshot = fs.snapshot("epoch").expect("快照");
+    assert_eq!(fs.epoch(), epoch);
+    fs.sync().expect("提交");
+    assert_eq!(fs.epoch(), epoch);
+    fs.restore(snapshot).expect("恢复");
+    assert!(fs.epoch() > epoch);
+}
+
+#[test]
+fn forget_releases_snapshot() {
+    let mut fs = HolyFs::mount(formatted()).expect("挂载");
+    let snapshot = fs.snapshot("temporary").expect("快照");
+    fs.forget(snapshot).expect("释放");
+    assert!(fs.snapshots().is_empty());
+    assert_eq!(fs.restore(snapshot), Err(HolyError::NotFound));
+}
+
+#[test]
+fn native_paths_have_no_parent_traversal() {
+    let fs = HolyFs::mount(formatted()).expect("挂载");
+    assert!(fs.resolve("H:/..").is_err());
+    assert!(fs.resolve("H:/Missing").is_err());
+}
