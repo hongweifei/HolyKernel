@@ -24,7 +24,7 @@
 - **BootInfo**：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务器载荷。
 - **引导后端**：`hk-boot` 定义 `BootBackend` 契约，Limine 与 DTB 适配在 crate 内实现；UEFI 后端为设计中。
 - **platform crate**：已实现 `hk-arch-hosted`、`hk-arch-x86_64`；`hk-arch-aarch64`、`hk-arch-riscv64` 为设计中。
-- **启动目录**：`platforms/hosted` 与 `platforms/x86_64-qemu`；`aarch64-qemu` 构建目标当前只编译内核库，启动入口按 P4/P7 实施。
+- **启动目录**：`platforms/hosted` 与 `platforms/x86_64-qemu`；`aarch64-qemu` 仅由 `cargo xtask check` 做内核库编译检查，启动入口按 P4/P7 实施。
 - **Hosted 模拟**：虚拟时钟、虚拟 CPU、模拟设备、故障注入、回放。
 
 ---
