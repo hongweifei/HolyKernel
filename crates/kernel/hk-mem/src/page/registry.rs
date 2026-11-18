@@ -32,14 +32,14 @@ pub struct RegionMapping {
 /// fork 时为子地址空间私有复制的物理页。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ForkResult {
-    /// 复制出的物理页区间。
-    pub pages: Vec<PhysRange>,
+    /// 源虚拟地址与复制出的物理页区间。
+    pub pages: Vec<(u64, PhysRange)>,
 }
 
 impl ForkResult {
     /// 返回复制字节数。
     pub fn bytes(&self) -> u64 {
-        self.pages.iter().map(|range| range.len()).sum()
+        self.pages.iter().map(|(_, range)| range.len()).sum()
     }
 
     /// 判断是否没有复制页。

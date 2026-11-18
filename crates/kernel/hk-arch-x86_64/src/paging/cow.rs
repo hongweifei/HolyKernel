@@ -39,7 +39,7 @@ struct ForkState<'a> {
     cow_ranges: &'a [(u64, u64)],
     refs: &'a mut FrameRefs,
     capacity: &'a Arc<Mutex<Capacity>>,
-    copied: alloc::vec::Vec<PhysRange>,
+    copied: alloc::vec::Vec<(u64, PhysRange)>,
 }
 
 impl PageTable {
@@ -154,7 +154,7 @@ impl PageTable {
                     // 未登记 Region 的可写页不能隐式共享；为子任务复制私有页，
                     // 父页表保持原映射与权限。
                     let child_frame =
-                        self.copy_private_page(frame, state.capacity, &mut state.copied)?;
+                        self.copy_private_page(frame, virt, state.capacity, &mut state.copied)?;
                     // SAFETY: 子页表叶项指向新分配的私有页帧。
                     unsafe {
                         self.entry(target, index)
@@ -205,8 +205,9 @@ impl PageTable {
     fn copy_private_page(
         &self,
         source: PhysAddr,
+        virt: u64,
         capacity: &Arc<Mutex<Capacity>>,
-        copied: &mut alloc::vec::Vec<PhysRange>,
+        copied: &mut alloc::vec::Vec<(u64, PhysRange)>,
     ) -> Option<PhysAddr> {
         let (frame, allocation) = take_cow_page(capacity)?;
         let source = (self.direct_map + source.get()) as *const u8;
@@ -219,7 +220,7 @@ impl PageTable {
             release_cow_page(capacity, allocation);
             return None;
         }
-        copied.push(PhysRange::new(frame, PAGE_SIZE as u64));
+        copied.push((virt, PhysRange::new(frame, PAGE_SIZE as u64)));
         Some(frame)
     }
 

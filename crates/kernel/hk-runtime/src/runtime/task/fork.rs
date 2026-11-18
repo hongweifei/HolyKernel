@@ -133,7 +133,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 )
             })
             .collect();
-        for range in &forked.pages {
+        for (virt, range) in &forked.pages {
             let Ok(charge) =
                 hk_mem::hmp::frame_ledger::charge_range(self.frame_scope, &process.ledger, *range)
             else {
@@ -143,7 +143,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             };
-            process.cow_charges.push(charge);
+            let dont_fork = self.process(index).regions.iter().flatten().any(|region| {
+                region.flags.contains(hk_mem::hmp::RegionFlags::DONT_FORK)
+                    && *virt >= region.virt
+                    && *virt < region.virt.saturating_add(region.len as u64)
+            });
+            if dont_fork {
+                // 子侧随后会解除该区域并归还物理页；记账不能留到退出。
+                self.release_frame(charge);
+            } else {
+                process.cow_charges.push(charge);
+            }
         }
         let mut task = UserTask::new(TaskInit {
             tcb: child,
