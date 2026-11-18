@@ -28,7 +28,7 @@ use hk_user_api::{recv_data_handle, send_data, write, yield_now};
 #[cfg(target_os = "none")]
 use hk_vfs::PathObject;
 
-hk_user_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!();
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]

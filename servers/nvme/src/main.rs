@@ -25,7 +25,7 @@ use hk_user_api::{
 #[cfg(target_os = "none")]
 use nvme_driver::{Config, Nvme, NvmeBlockDriver, NvmeIntxSource};
 
-hk_user_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!();
 
 #[cfg(target_os = "none")]
 struct IntxSource;

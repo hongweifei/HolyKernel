@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 hk-base.workspace = true
+hk-catalog.workspace = true
 hk-syscall.workspace = true
 hk-syscall-client.workspace = true
 linked_list_allocator.workspace = true

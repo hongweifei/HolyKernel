@@ -16,7 +16,7 @@ use hk_user_api::{
     write_u64,
 };
 
-hk_user_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!();
 
 /// 观测窗口（调度 tick，10 ms）。
 #[cfg(target_os = "none")]

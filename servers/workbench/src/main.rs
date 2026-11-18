@@ -47,7 +47,7 @@ use model::{EditorKey, Focus, Model, line_text};
 #[cfg(target_os = "none")]
 use render::{HEIGHT, Layout, WIDTH, render};
 
-hk_user_api::server_heap!(1024 * 1024);
+hk_user_api::server_heap!();
 /// 无输入时的等待 tick；用于发现 Display 退出与重启。
 #[cfg(target_os = "none")]
 const WATCH_TICKS: u64 = 100;

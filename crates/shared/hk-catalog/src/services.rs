@@ -263,3 +263,67 @@ services![
         Some("wakeup-test")
     ),
 ];
+
+/// 未在 [`HEAP_BYTES`] 登记的服务使用的默认堆大小。
+pub const DEFAULT_HEAP_BYTES: usize = 512 * 1024;
+
+/// 各服务首次分配时向内核申请的堆大小。
+///
+/// 服务入口通过 `hk_user_api::server_heap!()` 按包名查询，不再各自硬编码。
+pub const HEAP_BYTES: &[(&str, usize)] = &[
+    ("hk-server-ahci", 512 * 1024),
+    ("hk-server-block", 512 * 1024),
+    ("hk-server-checkpoint", 256 * 1024),
+    ("hk-server-console", 512 * 1024),
+    ("hk-server-debug", 512 * 1024),
+    ("hk-server-display", 16 * 1024),
+    ("hk-server-ext4", 2 * 1024 * 1024),
+    ("hk-server-holydoc", 1024 * 1024),
+    ("hk-server-holyfs", 2 * 1024 * 1024),
+    ("hk-server-image", 2 * 1024 * 1024),
+    ("hk-server-input", 512 * 1024),
+    ("hk-server-memory", 1024 * 1024),
+    ("hk-server-net", 768 * 1024),
+    ("hk-server-nvme", 512 * 1024),
+    ("hk-server-path", 2 * 1024 * 1024),
+    ("hk-server-shell", 256 * 1024),
+    ("hk-server-surface-provider", 64 * 1024),
+    ("hk-server-taskman", 512 * 1024),
+    ("hk-server-usb", 512 * 1024),
+    ("hk-server-vfs", 2 * 1024 * 1024),
+    ("hk-server-virtio", 512 * 1024),
+    ("hk-server-virtio-net", 256 * 1024),
+    ("hk-server-virtio-sound", 64 * 1024),
+    ("hk-server-workbench", 1024 * 1024),
+    ("hk-client-dbg", 64 * 1024),
+    ("hk-client-swap-test", 2 * 1024 * 1024),
+    ("hk-server-demo", 256 * 1024),
+    ("hk-server-echo", 256 * 1024),
+    ("hk-server-realtime", 64 * 1024),
+    ("hk-server-tempo-test", 64 * 1024),
+    ("hk-server-wakeup", 32 * 1024),
+];
+
+/// 查询服务堆大小；未登记的服务使用 [`DEFAULT_HEAP_BYTES`]。
+pub fn heap_bytes(name: &str) -> usize {
+    HEAP_BYTES
+        .iter()
+        .find(|(service, _)| *service == name)
+        .map_or(DEFAULT_HEAP_BYTES, |(_, bytes)| *bytes)
+}
+
+#[cfg(test)]
+mod heap_tests {
+    use super::*;
+
+    #[test]
+    fn heap_sizes_are_registered_and_aligned() {
+        for (name, bytes) in HEAP_BYTES {
+            assert!(SERVERS.contains(name), "堆大小登记了未知服务：{name}");
+            assert!(*bytes >= 4096, "{name} 的堆过小");
+            assert_eq!(bytes % 4096, 0, "{name} 的堆未按页对齐");
+        }
+        assert_eq!(heap_bytes("hk-server-console"), 512 * 1024);
+        assert_eq!(heap_bytes("unknown"), DEFAULT_HEAP_BYTES);
+    }
+}

@@ -14,7 +14,7 @@ use hk_user_api::{
     cadence_self, exit, runtime::wait_service, task_attach_cadence, write, write_u64,
 };
 
-hk_user_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!();
 
 /// 申请的子契约权重。
 #[cfg(target_os = "none")]

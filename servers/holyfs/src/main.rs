@@ -2,6 +2,7 @@
 
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(all(test, not(target_os = "none")), allow(dead_code))]
 
 #[cfg(any(target_os = "none", test))]
 extern crate alloc;
@@ -20,7 +21,9 @@ use hk_fs_holyfs::{
     HolyError, HolyFs, VOLUME_H, VOLUME_I, VolumeId, format_with_volume_id, is_formatted,
 };
 #[cfg(target_os = "none")]
-use hk_proto::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
+use hk_proto::holy::{
+    HOLY_REQUEST, HOLY_RESPONSE, OP_ATTACH_DRIVE, OP_DETACH_DRIVE, OP_SYNC, Request, decode_request,
+};
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
@@ -28,13 +31,13 @@ use hk_user_api::{recv_data_handle, recv_data_handle_try, send_data, write, yiel
 
 #[cfg(any(target_os = "none", test))]
 mod commit;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod holy;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod read_cache;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod sessions;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod volumes;
 
 #[cfg(target_os = "none")]
@@ -42,9 +45,11 @@ use read_cache::ReadCache;
 #[cfg(target_os = "none")]
 use sessions::Sessions;
 #[cfg(target_os = "none")]
-use volumes::{ServiceDisk, SharedClient, Volumes};
+use volumes::{ServiceDisk, Volumes};
+#[cfg(target_os = "none")]
+use volumes::SharedClient;
 
-hk_user_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!();
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]
@@ -55,6 +60,22 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
     if let Some(length) = encode_response(response, status, data) {
         let _ = send_data(sender, HOLY_RESPONSE, &response[..length]);
     }
+}
+
+#[cfg(target_os = "none")]
+fn dispatch(
+    volumes: &mut Volumes<ServiceDisk>,
+    sessions: &mut Sessions,
+    cache: &mut ReadCache,
+    sender: u64,
+    endpoint: u64,
+    request: &Request<'_>,
+    body: &mut [u8],
+) -> (u8, usize) {
+    if matches!(request.op, OP_ATTACH_DRIVE | OP_DETACH_DRIVE) {
+        return holy::control(volumes, sessions, sender, endpoint, request);
+    }
+    holy::handle(volumes, sessions, cache, sender, request, body)
 }
 
 /// 服务入口。
@@ -128,7 +149,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         };
         if request.op != OP_SYNC {
-            let (status, written) = holy::handle(
+            let (status, written) = dispatch(
                 &mut volumes,
                 &mut sessions,
                 &mut cache,
@@ -166,7 +187,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 pending.push((letter, sender));
                 continue;
             }
-            let (status, written) = holy::handle(
+            let (status, written) = dispatch(
                 &mut volumes,
                 &mut sessions,
                 &mut cache,

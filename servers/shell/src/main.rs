@@ -63,7 +63,7 @@ const LINE_BUFFER: usize = 256;
 #[cfg(target_os = "none")]
 const HANDSHAKE_TICKS: u64 = 500;
 
-hk_user_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!();
 
 #[cfg(target_os = "none")]
 struct ConsoleIo {

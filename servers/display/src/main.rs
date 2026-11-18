@@ -19,7 +19,7 @@ mod seat;
 mod surface;
 
 // 服务堆大小：只用于接管期缓存客户端消息。
-hk_user_api::server_heap!(16 * 1024);
+hk_user_api::server_heap!();
 
 #[cfg(target_os = "none")]
 mod actions;

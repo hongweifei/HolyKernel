@@ -11,6 +11,7 @@ use spin::Mutex;
 
 /// 可回收的堆分配器。
 pub struct FreeHeap {
+    service: Option<&'static str>,
     size: usize,
     heap: Mutex<Heap>,
 }
@@ -19,9 +20,24 @@ impl FreeHeap {
     /// 以指定字节数构造分配器；首次分配时向内核申请。
     pub const fn new(size: usize) -> Self {
         Self {
+            service: None,
             size,
             heap: Mutex::new(Heap::empty()),
         }
+    }
+
+    /// 按服务包名从 `hk-catalog` 查询堆大小。
+    pub const fn for_service(service: &'static str) -> Self {
+        Self {
+            service: Some(service),
+            size: 0,
+            heap: Mutex::new(Heap::empty()),
+        }
+    }
+
+    fn requested_size(&self) -> usize {
+        self.service
+            .map_or(self.size, hk_catalog::heap_bytes)
     }
 }
 
@@ -31,13 +47,14 @@ unsafe impl GlobalAlloc for FreeHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut heap = self.heap.lock();
         if heap.size() == 0 {
-            let base = crate::alloc(self.size, 16);
+            let size = self.requested_size();
+            let base = crate::alloc(size, 16);
             if base.is_null() {
                 return core::ptr::null_mut();
             }
             // SAFETY: 区间由 SYS_ALLOC 返回并属于当前任务，大小与对齐满足要求。
             unsafe {
-                heap.init(base, self.size);
+                heap.init(base, size);
             }
         }
         heap.allocate_first_fit(layout)

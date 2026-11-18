@@ -14,7 +14,7 @@ use hk_proto::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_
 #[cfg(target_os = "none")]
 use hk_user_api::{recv_data_handle, write};
 
-hk_user_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!();
 
 #[cfg(target_os = "none")]
 mod mounts;

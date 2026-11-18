@@ -40,7 +40,7 @@ use hk_user_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write};
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
 
-hk_user_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!();
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]
 const BUFFER_SIZE: usize = 64 * 1024;

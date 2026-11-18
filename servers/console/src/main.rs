@@ -40,7 +40,7 @@ use editor::{Editor, emit};
 use terminal::attach_terminal;
 
 // 服务堆大小；终端网格约 225 KiB，其余留给临时分配。
-hk_user_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!();
 
 /// 服务入口。
 #[cfg(target_os = "none")]

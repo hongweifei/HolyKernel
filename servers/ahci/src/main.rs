@@ -27,7 +27,7 @@ use hk_user_api::{
     wait_notify, write,
 };
 
-hk_user_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!();
 
 /// 服务入口。
 #[cfg(target_os = "none")]

@@ -36,7 +36,7 @@ use hk_user_api::{
     self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
-hk_user_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!();
 
 /// 块完成中断使用的通知位。
 #[cfg(target_os = "none")]

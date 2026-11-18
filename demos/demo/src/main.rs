@@ -11,7 +11,7 @@
 extern crate alloc;
 
 // 服务堆大小；协程栈从该堆分配。
-hk_user_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!();
 
 #[cfg(target_os = "none")]
 use hk_user_api::{

@@ -11,7 +11,7 @@ use hk_user_api::{
     recv_data_handle, reply, reply_handle, send_handle,
 };
 
-hk_user_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!();
 
 /// 页长度。
 #[cfg(target_os = "none")]
