@@ -273,6 +273,7 @@ pub fn run() -> Result<()> {
             }
         }
     }
+    check_heap_sizes(&root, &mut violations)?;
     if !violations.is_empty() {
         return Err(Failure::new(format!(
             "依赖方向违规：\n{}",
@@ -287,6 +288,78 @@ pub fn run() -> Result<()> {
         counts[2]
     );
     Ok(())
+}
+
+/// 服务入口的 `server_heap!` 数值必须与 `hk-catalog::HEAP_BYTES` 一致。
+fn check_heap_sizes(root: &Path, violations: &mut Vec<String>) -> Result<()> {
+    for (name, bytes) in hk_catalog::HEAP_BYTES {
+        if !hk_catalog::SERVERS.contains(name) {
+            violations.push(format!("  HEAP_BYTES 登记了未知服务：{name}"));
+        }
+        if bytes % 4096 != 0 {
+            violations.push(format!("  {name} 的堆大小未按页对齐：{bytes}"));
+        }
+    }
+    for group in ["servers", "clients", "demos"] {
+        let directory = root.join(group);
+        for entry in fs::read_dir(&directory)
+            .map_err(|error| Failure::new(format!("读取 {} 失败：{error}", directory.display())))?
+        {
+            let directory = entry
+                .map_err(|error| Failure::new(format!("读取目录项失败：{error}")))?
+                .path();
+            let manifest = directory.join("Cargo.toml");
+            if !manifest.is_file() {
+                continue;
+            }
+            let main = directory.join("src/main.rs");
+            let Ok(text) = fs::read_to_string(&main) else {
+                continue;
+            };
+            let Some(expression) = heap_expression(&text) else {
+                continue;
+            };
+            let manifest_text = fs::read_to_string(&manifest).map_err(|error| {
+                Failure::new(format!("读取 {} 失败：{error}", manifest.display()))
+            })?;
+            let manifest: toml::Value = manifest_text.parse().map_err(|error| {
+                Failure::new(format!("解析 {} 失败：{error}", manifest.display()))
+            })?;
+            let name = manifest["package"]["name"].as_str().unwrap_or("");
+            let Some(declared) = hk_catalog::HEAP_BYTES
+                .iter()
+                .find(|(service, _)| *service == name)
+                .map(|(_, bytes)| *bytes as u64)
+            else {
+                violations.push(format!("  {name} 未在 HEAP_BYTES 登记堆大小"));
+                continue;
+            };
+            match eval_bytes(expression) {
+                Some(bytes) if bytes == declared => {}
+                Some(bytes) => violations.push(format!(
+                    "  {name} 的堆大小 {bytes} 与 catalog 的 {declared} 不一致"
+                )),
+                None => violations.push(format!("  {name} 的堆大小表达式无效：{expression}")),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 取出 `server_heap!(<表达式>)` 中的表达式。
+fn heap_expression(text: &str) -> Option<&str> {
+    let start = text.find("server_heap!(")? + "server_heap!(".len();
+    let end = text[start..].find(')')? + start;
+    Some(text[start..end].trim())
+}
+
+/// 计算 `512 * 1024` 形式的常量表达式。
+fn eval_bytes(expression: &str) -> Option<u64> {
+    let mut value = 1_u64;
+    for factor in expression.split('*') {
+        value = value.checked_mul(factor.trim().parse().ok()?)?;
+    }
+    Some(value)
 }
 
 fn check(

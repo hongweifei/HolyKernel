@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use hk_user_api::{exit, sleep_ticks, tsc, tsc_frequency, write, write_u64};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(32 * 1024);
 
 /// 测量轮数。
 #[cfg(target_os = "none")]

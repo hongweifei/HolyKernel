@@ -30,7 +30,7 @@ use hk_user_api::{
     thread_create, write,
 };
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(2 * 1024 * 1024);
 /// 页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;

@@ -16,7 +16,7 @@ use hk_block_ipc::serve;
 #[cfg(target_os = "none")]
 use hk_user_api::{exit, write};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(512 * 1024);
 /// 内存盘块数。
 #[cfg(target_os = "none")]
 const BLOCKS: u64 = 64;

@@ -42,7 +42,7 @@ use keymap::{
     KEY_LEFTSHIFT, KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_RIGHTSHIFT, REL_WHEEL, key_bytes,
 };
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(512 * 1024);
 
 /// 最多接管的输入设备数。
 #[cfg(target_os = "none")]

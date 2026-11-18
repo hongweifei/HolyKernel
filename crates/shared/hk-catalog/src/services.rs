@@ -264,53 +264,107 @@ services![
     ),
 ];
 
-/// 未在 [`HEAP_BYTES`] 登记的服务使用的默认堆大小。
-pub const DEFAULT_HEAP_BYTES: usize = 512 * 1024;
-
-/// 各服务首次分配时向内核申请的堆大小。
+/// 服务首次分配时向内核申请的堆大小。
 ///
-/// 服务入口通过 `hk_user_api::server_heap!()` 按包名查询，不再各自硬编码。
-pub const HEAP_BYTES: &[(&str, usize)] = &[
-    ("hk-server-ahci", 512 * 1024),
-    ("hk-server-block", 512 * 1024),
-    ("hk-server-checkpoint", 256 * 1024),
-    ("hk-server-console", 512 * 1024),
-    ("hk-server-debug", 512 * 1024),
-    ("hk-server-display", 16 * 1024),
-    ("hk-server-ext4", 2 * 1024 * 1024),
-    ("hk-server-holydoc", 1024 * 1024),
-    ("hk-server-holyfs", 2 * 1024 * 1024),
-    ("hk-server-image", 2 * 1024 * 1024),
-    ("hk-server-input", 512 * 1024),
-    ("hk-server-memory", 1024 * 1024),
-    ("hk-server-net", 768 * 1024),
-    ("hk-server-nvme", 512 * 1024),
-    ("hk-server-path", 2 * 1024 * 1024),
-    ("hk-server-shell", 256 * 1024),
-    ("hk-server-surface-provider", 64 * 1024),
-    ("hk-server-taskman", 512 * 1024),
-    ("hk-server-usb", 512 * 1024),
-    ("hk-server-vfs", 2 * 1024 * 1024),
-    ("hk-server-virtio", 512 * 1024),
-    ("hk-server-virtio-net", 256 * 1024),
-    ("hk-server-virtio-sound", 64 * 1024),
-    ("hk-server-workbench", 1024 * 1024),
-    ("hk-client-dbg", 64 * 1024),
-    ("hk-client-swap-test", 2 * 1024 * 1024),
-    ("hk-server-demo", 256 * 1024),
-    ("hk-server-echo", 256 * 1024),
-    ("hk-server-realtime", 64 * 1024),
-    ("hk-server-tempo-test", 64 * 1024),
-    ("hk-server-wakeup", 32 * 1024),
-];
+/// 服务入口用 `hk_user_api::server_heap!(hk_catalog::HEAP_*)` 引用；
+/// 常量在编译期内联，不把清单一表链进服务。
+/// ahci 的堆大小。
+pub const HEAP_AHCI: usize = 512 * 1024;
+/// block 的堆大小。
+pub const HEAP_BLOCK: usize = 512 * 1024;
+/// checkpoint 的堆大小。
+pub const HEAP_CHECKPOINT: usize = 256 * 1024;
+/// console 的堆大小。
+pub const HEAP_CONSOLE: usize = 512 * 1024;
+/// debug 的堆大小。
+pub const HEAP_DEBUG: usize = 512 * 1024;
+/// display 的堆大小。
+pub const HEAP_DISPLAY: usize = 16 * 1024;
+/// ext4 的堆大小。
+pub const HEAP_EXT4: usize = 2 * 1024 * 1024;
+/// holydoc 的堆大小。
+pub const HEAP_HOLYDOC: usize = 1024 * 1024;
+/// holyfs 的堆大小。
+pub const HEAP_HOLYFS: usize = 2 * 1024 * 1024;
+/// image 的堆大小。
+pub const HEAP_IMAGE: usize = 2 * 1024 * 1024;
+/// input 的堆大小。
+pub const HEAP_INPUT: usize = 512 * 1024;
+/// memory 的堆大小。
+pub const HEAP_MEMORY: usize = 1024 * 1024;
+/// net 的堆大小。
+pub const HEAP_NET: usize = 768 * 1024;
+/// nvme 的堆大小。
+pub const HEAP_NVME: usize = 512 * 1024;
+/// path 的堆大小。
+pub const HEAP_PATH: usize = 2 * 1024 * 1024;
+/// shell 的堆大小。
+pub const HEAP_SHELL: usize = 256 * 1024;
+/// surface provider 的堆大小。
+pub const HEAP_SURFACE_PROVIDER: usize = 64 * 1024;
+/// taskman 的堆大小。
+pub const HEAP_TASKMAN: usize = 512 * 1024;
+/// usb 的堆大小。
+pub const HEAP_USB: usize = 512 * 1024;
+/// vfs 的堆大小。
+pub const HEAP_VFS: usize = 2 * 1024 * 1024;
+/// virtio net 的堆大小。
+pub const HEAP_VIRTIO_NET: usize = 256 * 1024;
+/// virtio sound 的堆大小。
+pub const HEAP_VIRTIO_SOUND: usize = 64 * 1024;
+/// virtio 的堆大小。
+pub const HEAP_VIRTIO: usize = 512 * 1024;
+/// workbench 的堆大小。
+pub const HEAP_WORKBENCH: usize = 1024 * 1024;
+/// dbg 的堆大小。
+pub const HEAP_DBG: usize = 64 * 1024;
+/// swap test 的堆大小。
+pub const HEAP_SWAP_TEST: usize = 2 * 1024 * 1024;
+/// demo 的堆大小。
+pub const HEAP_DEMO: usize = 256 * 1024;
+/// echo 的堆大小。
+pub const HEAP_ECHO: usize = 256 * 1024;
+/// realtime 的堆大小。
+pub const HEAP_REALTIME: usize = 64 * 1024;
+/// tempo test 的堆大小。
+pub const HEAP_TEMPO_TEST: usize = 64 * 1024;
+/// wakeup 的堆大小。
+pub const HEAP_WAKEUP: usize = 32 * 1024;
 
-/// 查询服务堆大小；未登记的服务使用 [`DEFAULT_HEAP_BYTES`]。
-pub fn heap_bytes(name: &str) -> usize {
-    HEAP_BYTES
-        .iter()
-        .find(|(service, _)| *service == name)
-        .map_or(DEFAULT_HEAP_BYTES, |(_, bytes)| *bytes)
-}
+/// 服务名到堆大小的表；供校验与工具使用。
+pub const HEAP_BYTES: &[(&str, usize)] = &[
+    ("hk-server-ahci", HEAP_AHCI),
+    ("hk-server-block", HEAP_BLOCK),
+    ("hk-server-checkpoint", HEAP_CHECKPOINT),
+    ("hk-server-console", HEAP_CONSOLE),
+    ("hk-server-debug", HEAP_DEBUG),
+    ("hk-server-display", HEAP_DISPLAY),
+    ("hk-server-ext4", HEAP_EXT4),
+    ("hk-server-holydoc", HEAP_HOLYDOC),
+    ("hk-server-holyfs", HEAP_HOLYFS),
+    ("hk-server-image", HEAP_IMAGE),
+    ("hk-server-input", HEAP_INPUT),
+    ("hk-server-memory", HEAP_MEMORY),
+    ("hk-server-net", HEAP_NET),
+    ("hk-server-nvme", HEAP_NVME),
+    ("hk-server-path", HEAP_PATH),
+    ("hk-server-shell", HEAP_SHELL),
+    ("hk-server-surface-provider", HEAP_SURFACE_PROVIDER),
+    ("hk-server-taskman", HEAP_TASKMAN),
+    ("hk-server-usb", HEAP_USB),
+    ("hk-server-vfs", HEAP_VFS),
+    ("hk-server-virtio-net", HEAP_VIRTIO_NET),
+    ("hk-server-virtio-sound", HEAP_VIRTIO_SOUND),
+    ("hk-server-virtio", HEAP_VIRTIO),
+    ("hk-server-workbench", HEAP_WORKBENCH),
+    ("hk-client-dbg", HEAP_DBG),
+    ("hk-client-swap-test", HEAP_SWAP_TEST),
+    ("hk-server-demo", HEAP_DEMO),
+    ("hk-server-echo", HEAP_ECHO),
+    ("hk-server-realtime", HEAP_REALTIME),
+    ("hk-server-tempo-test", HEAP_TEMPO_TEST),
+    ("hk-server-wakeup", HEAP_WAKEUP),
+];
 
 #[cfg(test)]
 mod heap_tests {
@@ -323,7 +377,6 @@ mod heap_tests {
             assert!(*bytes >= 4096, "{name} 的堆过小");
             assert_eq!(bytes % 4096, 0, "{name} 的堆未按页对齐");
         }
-        assert_eq!(heap_bytes("hk-server-console"), 512 * 1024);
-        assert_eq!(heap_bytes("unknown"), DEFAULT_HEAP_BYTES);
+        assert_eq!(HEAP_CONSOLE, 512 * 1024);
     }
 }

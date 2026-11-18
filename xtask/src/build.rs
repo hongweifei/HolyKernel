@@ -28,13 +28,15 @@ pub(crate) fn build_target(target: Target, release: bool) -> Result<()> {
         if let Some(triple) = target.triple() {
             command.arg("--target").arg(triple);
         }
-        for package in group {
-            command.args(["-p", package]);
+        for package in &group {
+            command.args(["-p", *package]);
         }
         if release {
             command.arg("--release");
         }
-        if let Some(linker) = &linker {
+        if let Some(linker) = &linker
+            && !group.iter().any(|package| package.starts_with("hk-image-"))
+        {
             command.env("RUSTFLAGS", rustflags(linker));
         }
         cargo::run(command)?;

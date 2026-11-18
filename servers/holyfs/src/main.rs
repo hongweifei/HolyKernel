@@ -45,11 +45,11 @@ use read_cache::ReadCache;
 #[cfg(target_os = "none")]
 use sessions::Sessions;
 #[cfg(target_os = "none")]
-use volumes::{ServiceDisk, Volumes};
-#[cfg(target_os = "none")]
 use volumes::SharedClient;
+#[cfg(target_os = "none")]
+use volumes::{ServiceDisk, Volumes};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]

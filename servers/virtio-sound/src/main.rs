@@ -25,7 +25,7 @@ use hk_user_api::{
 };
 
 // 驱动 crate 需要全局分配器；本服务自身只用固定队列。
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(64 * 1024);
 
 /// 等待受理的播放请求。
 #[cfg(target_os = "none")]

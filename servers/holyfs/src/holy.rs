@@ -10,6 +10,8 @@ use hk_fs::{
 };
 use hk_fs_holyfs::{HolyFs, MaintenanceReport, Quota};
 use hk_holy_service::{DriveSource, SHARED_OPS, handle as shared_handle};
+#[cfg(target_os = "none")]
+use hk_proto::holy::OP_ATTACH_DRIVE;
 use hk_proto::holy::{
     MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE_VOLUME, OP_CHECK, OP_COMMIT_STAGING,
     OP_CREATE_TAG, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_FORGET, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
@@ -18,8 +20,6 @@ use hk_proto::holy::{
     OP_TAGS_OF, OP_UNTAG, OP_WRITE_STAGING, QuotaView, Request, TOKEN_RIGHT_ADMIN,
     TOKEN_RIGHT_INSPECT, decode_quota, encode_maintenance, encode_quota,
 };
-#[cfg(target_os = "none")]
-use hk_proto::holy::OP_ATTACH_DRIVE;
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
 use hk_holy_response::response;
@@ -27,10 +27,10 @@ use hk_holy_response::response;
 use crate::read_cache::ReadCache;
 use crate::sessions::Sessions;
 #[cfg(target_os = "none")]
-use crate::volumes::parse_drive;
-#[cfg(target_os = "none")]
 use crate::volumes::ServiceDisk;
 use crate::volumes::Volumes;
+#[cfg(target_os = "none")]
+use crate::volumes::parse_drive;
 
 /// 把 HolyFS 卷适配为通用文档后端。
 struct HolyDrive<'a, D: BlockDevice> {
@@ -490,8 +490,8 @@ mod tests {
     use hk_block::{MemoryDisk, SECTOR_SIZE};
     use hk_fs_holyfs::{format_with_volume_id, volume_id_for_drive};
     use hk_proto::holy::{
-        OP_ACQUIRE, OP_CREATE, OP_DRIVES, OP_READ_ID, OP_READ_TOKEN, OP_ROOT, OP_SYNC,
-        OP_VOLUME, OP_WRITE_ID, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_drives, decode_token,
+        OP_ACQUIRE, OP_CREATE, OP_DRIVES, OP_READ_ID, OP_READ_TOKEN, OP_ROOT, OP_SYNC, OP_VOLUME,
+        OP_WRITE_ID, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_drives, decode_token,
     };
     use hk_proto::vfs::STATUS_OK;
 
@@ -545,7 +545,9 @@ mod tests {
             &mut body,
         );
         assert_eq!(status, STATUS_OK);
-        let letters: Vec<u8> = decode_drives(&body[..written]).map(|view| view.letter).collect();
+        let letters: Vec<u8> = decode_drives(&body[..written])
+            .map(|view| view.letter)
+            .collect();
         assert_eq!(letters, [b'H']);
 
         let (status, written) = handle(

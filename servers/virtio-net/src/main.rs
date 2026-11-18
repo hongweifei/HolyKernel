@@ -29,7 +29,7 @@ use hk_user_api::{
 
 #[cfg(target_os = "none")]
 mod shared;
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(256 * 1024);
 #[cfg(target_os = "none")]
 use shared::{attach_shared, drain_rx, drain_shared_rx, zerocopy_enabled};
 

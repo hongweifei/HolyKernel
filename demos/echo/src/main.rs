@@ -29,7 +29,7 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 const NOTIFY_REQUEST: u64 = 0x300;
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(256 * 1024);
 
 /// 工作线程数量。
 #[cfg(target_os = "none")]

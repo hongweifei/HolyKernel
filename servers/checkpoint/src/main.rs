@@ -31,7 +31,7 @@ use hk_user_api::root::{
 #[cfg(target_os = "none")]
 use hk_user_api::{recv_data, send_data, service_endpoint, write};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(256 * 1024);
 
 /// 快照分块大小。
 #[cfg(target_os = "none")]

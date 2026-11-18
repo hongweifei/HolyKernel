@@ -36,7 +36,7 @@ use hk_user_api::{
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {

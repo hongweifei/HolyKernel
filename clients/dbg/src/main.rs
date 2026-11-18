@@ -16,7 +16,7 @@ use hk_user_api::root::{
 #[cfg(target_os = "none")]
 use hk_user_api::{exit, write};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(64 * 1024);
 
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]

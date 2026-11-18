@@ -1540,7 +1540,6 @@ name = "hk-user-api"
 version = "0.1.0"
 dependencies = [
  "hk-base",
- "hk-catalog",
  "hk-syscall",
  "hk-syscall-client",
  "linked_list_allocator",

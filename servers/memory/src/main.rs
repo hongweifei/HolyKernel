@@ -31,7 +31,7 @@ mod selftest;
 #[cfg(target_os = "none")]
 mod swap;
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(1024 * 1024);
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
 /// 请求载荷：能力类型（1 字节）+ 标志（1 字节）+ 长度（8 字节小端）。

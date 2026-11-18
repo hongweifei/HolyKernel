@@ -47,7 +47,7 @@ use driver::{attach_shared, poll_once, restart_network, wait_driver};
 #[cfg(target_os = "none")]
 use protocol::{flush_tx, handle_socket, status_blob};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(768 * 1024);
 /// 宿主 TCP echo 端口；测试命令行可用 `net.tcp=` 覆盖。
 #[cfg(target_os = "none")]
 const DEFAULT_TCP_PORT: u16 = 45678;

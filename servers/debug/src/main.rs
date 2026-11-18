@@ -40,7 +40,7 @@ use pages::Page;
 #[cfg(target_os = "none")]
 use render::{HEIGHT, WIDTH, line_count, render, visible_lines};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(512 * 1024);
 /// 无输入时的等待 tick；用于发现 Display 退出与重启。
 #[cfg(target_os = "none")]
 const WATCH_TICKS: u64 = 100;

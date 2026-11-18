@@ -49,7 +49,7 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(1024 * 1024);
 
 /// 渲染工作线程栈尺寸。
 #[cfg(target_os = "none")]

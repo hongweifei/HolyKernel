@@ -15,7 +15,7 @@ use hk_user_api::{
     self_notification, sleep_ticks, wait_notify, write,
 };
 
-hk_user_api::server_heap!();
+hk_user_api::server_heap!(2 * 1024 * 1024);
 /// 单页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
