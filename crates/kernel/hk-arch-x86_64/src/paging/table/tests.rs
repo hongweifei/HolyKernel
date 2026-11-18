@@ -1,7 +1,11 @@
 //! x86_64 页表映射与枚举测试。
 
-use super::*;
-use crate::paging::flags::NX;
+use hk_hal::{PAGE_SIZE, PhysAddr, VirtAddr};
+use hk_mem::{FrameBank, FrameKind};
+
+use crate::paging::flags::{HUGE, NX, PRESENT, PageFlags, USER, WRITABLE};
+
+use super::PageTable;
 
 #[test]
 fn unmaps_absent_range_idempotently() {

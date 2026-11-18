@@ -142,6 +142,7 @@ pub const fn restore_flags(bits: u64) -> PageFlags {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

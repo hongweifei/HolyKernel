@@ -355,7 +355,11 @@ impl Tcb {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use hk_handle::{HandleTable, ObjectId};
+    use hk_ipc::Message;
+
+    use super::{PendingCall, Tcb, TcbId};
+    use crate::task::TaskId;
 
     #[test]
     fn assigns_increasing_call_sequences() {

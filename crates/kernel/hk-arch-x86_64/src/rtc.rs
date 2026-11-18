@@ -145,6 +145,7 @@ fn decode(value: u8, binary: bool) -> u8 {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

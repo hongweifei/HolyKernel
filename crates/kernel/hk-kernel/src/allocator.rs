@@ -479,7 +479,11 @@ unsafe impl<const N: usize> GlobalAlloc for FreeHeap<N> {
 
 #[cfg(test)]
 mod growth_tests {
-    use super::*;
+    use core::alloc::{GlobalAlloc, Layout};
+    use core::cell::UnsafeCell;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::KernelHeap;
 
     #[repr(align(4096))]
     struct Arena(UnsafeCell<[u8; 2 * 1024 * 1024]>);

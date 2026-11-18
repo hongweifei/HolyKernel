@@ -1,5 +1,7 @@
 //! 内核对象、HMP 能力/Frame/Capacity 与对象账目测试。
 
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 
 #[test]

@@ -1,5 +1,17 @@
-use super::*;
+use alloc::sync::{Arc, Weak};
+use alloc::vec::Vec;
 use hk_cadence::CadenceClass;
+use hk_handle::{Handle, ObjectId, ObjectKind, Rights};
+use hk_ipc::{Message, SendOutcome, Waiter};
+
+use super::{
+    Kernel, Received, TRACE_CALL, TRACE_HANDLE_TRANSFER, TRACE_RECV, TRACE_REPLY, TRACE_RETURN,
+    TRACE_SEND, TRACE_SIGNAL,
+};
+use crate::error::KernelError;
+use crate::object::KernelObject;
+use crate::tcb::{BlockReason, PendingCall, PendingDelivery, ReplyToken, TcbId};
+use crate::trace::Category;
 
 impl Kernel {
     /// 发送消息；消息入队或直接交付后立即返回，不阻塞发送者。

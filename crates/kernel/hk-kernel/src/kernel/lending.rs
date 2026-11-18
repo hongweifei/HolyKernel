@@ -4,8 +4,10 @@
 //! 与时间片取调用方与服务端中更强的一个，执行时间同时记入调用方 Meter 与预算。
 //! `reply`、调用方退出或服务端退出时弹出/清理 frame。
 
-use super::*;
-use crate::tcb::LendingFrame;
+use super::{Kernel, TRACE_LEND, TRACE_RETURN};
+use crate::task::TaskState;
+use crate::tcb::{LendingFrame, ReplyToken, Tcb, TcbId};
+use crate::trace::Category;
 
 impl Kernel {
     /// 服务端收到调用时压入 lending frame。

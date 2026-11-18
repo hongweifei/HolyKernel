@@ -12,24 +12,21 @@ mod state;
 mod tracing;
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
-use core::fmt::Write;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::trace::{Category, TraceRing};
+use crate::trace::TraceRing;
 use hk_cadence::{CadenceSpec, CpuMask, IDLE_SPEC};
-use hk_device::DeviceGrant;
-use hk_handle::{Handle, HandleTable, Object, ObjectId, ObjectKind, Rights};
-use hk_ipc::{Message, SendOutcome, Waiter};
+use hk_handle::{Handle, HandleTable, ObjectId, ObjectKind, Rights};
+use hk_ipc::Message;
 use spin::Mutex;
 
 use crate::error::KernelError;
 use crate::object::{KernelObject, ObjectPayload};
 use crate::sched::Scheduler;
-use crate::task::{Task, TaskId, TaskMetrics, TaskState};
-use crate::tcb::{BlockReason, PendingCall, PendingDelivery, ReplyToken, Tcb, TcbId, ThreadState};
+use crate::task::{Task, TaskId, TaskMetrics};
+use crate::tcb::{ReplyToken, Tcb, TcbId};
 
 /// trace 环形缓冲容量。
 pub const TRACE_CAPACITY: usize = 256;

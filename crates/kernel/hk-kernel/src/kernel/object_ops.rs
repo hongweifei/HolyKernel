@@ -1,4 +1,13 @@
-use super::*;
+use alloc::sync::{Arc, Weak};
+use hk_device::DeviceGrant;
+use hk_handle::{Handle, Object, ObjectId, ObjectKind, Rights};
+
+use super::{Kernel, TRACE_HANDLE_CLOSE, TRACE_HANDLE_GRANT};
+use crate::error::KernelError;
+use crate::object::{KernelObject, ObjectPayload};
+use crate::task::TaskId;
+use crate::tcb::TcbId;
+use crate::trace::Category;
 
 impl Kernel {
     /// 在指定线程的句柄表中创建端点。

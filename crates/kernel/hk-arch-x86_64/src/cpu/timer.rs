@@ -5,7 +5,10 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use x86_64::instructions::interrupts;
 
 use super::apic::{lapic_read, lapic_write};
-use super::*;
+use super::{
+    LAPIC_LVT_TIMER, LAPIC_TIMER_CURRENT, LAPIC_TIMER_DIVIDE, LAPIC_TIMER_INITIAL, LVT_MASKED,
+    LVT_PERIODIC, TICK_INITIAL_COUNT, TIMER_INITIAL_COUNT, TIMER_VECTOR,
+};
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static UPTIME_TICKS: AtomicU64 = AtomicU64::new(0);

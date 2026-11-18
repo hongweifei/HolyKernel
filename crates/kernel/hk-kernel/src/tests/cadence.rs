@@ -1,5 +1,7 @@
 //! Cadence/Meter 授予、借用、亲和与对象生命周期测试。
 
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 
 #[test]

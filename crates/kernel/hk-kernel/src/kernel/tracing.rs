@@ -1,4 +1,8 @@
-use super::*;
+use alloc::vec::Vec;
+use core::sync::atomic::Ordering;
+
+use super::Kernel;
+use crate::trace::Category;
 
 impl Kernel {
     pub(crate) fn record(&self, thread: u64, category: Category, code: u32, argument: u64) {

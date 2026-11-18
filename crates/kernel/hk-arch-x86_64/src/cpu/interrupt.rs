@@ -1,11 +1,16 @@
 //! 中断分派。
 
-use super::apic::lapic_write;
+use super::apic::{cpu_index, lapic_write};
 use super::smp::{handle_tlb_ipi, note_ipi, take_resched};
 use super::syscall::{handle_syscall, preempt};
 use super::timer::note_timer_interrupt;
-use super::user::{dispatch_fault, handle_mce, handle_nmi, leave_user, report_exception};
-use super::*;
+use super::user::{
+    FaultAction, dispatch_fault, handle_mce, handle_nmi, leave_user, report_exception,
+};
+use super::{
+    HPET_VECTOR, IPI_VECTOR, InterruptFrame, LAPIC_EOI, SCI_VECTOR, SYSCALL_VECTOR, TIMER_VECTOR,
+    USER_CODE_SELECTOR,
+};
 
 /// 中断分派：定时器计数、键盘输入、系统调用分派，其余向量按异常处理。
 #[unsafe(no_mangle)]

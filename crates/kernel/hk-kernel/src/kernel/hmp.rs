@@ -2,10 +2,16 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU64};
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::sync::Arc;
+use spin::Mutex;
 
-use super::*;
+use super::Kernel;
+use crate::error::KernelError;
+use crate::object::{KernelObject, ObjectPayload};
+use crate::tcb::TcbId;
 use hk_hal::{PhysRange, VirtAddr};
+use hk_handle::{Handle, Object, ObjectId, ObjectKind, Rights};
 use hk_mem::hmp::{
     Capability, CapabilityOp, Capacity, CapacityId, CapacityKind, Frame, FrameBacking, HmpError,
     OwnedFrame, ProviderKind, Region,

@@ -10,7 +10,11 @@ use x86_64::instructions::tables::DescriptorTablePointer;
 use x86_64::registers::model_specific::Msr;
 use x86_64::registers::segmentation::SegmentSelector;
 
-use super::*;
+use super::{
+    CODE_DESCRIPTOR, DATA_DESCRIPTOR, DOUBLE_FAULT_IST, DOUBLE_FAULT_STACK_SIZE, KERNEL_CODE,
+    KERNEL_DATA, MAX_CPUS, SYSCALL_STACK_SIZE, TSS_SELECTOR, TSS_TYPE_AVAILABLE,
+    USER_CODE_DESCRIPTOR, USER_DATA_DESCRIPTOR,
+};
 
 #[repr(C, align(64))]
 struct SyscallStack(UnsafeCell<[u8; SYSCALL_STACK_SIZE]>);

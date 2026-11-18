@@ -3,10 +3,17 @@
 //! `SYS_CADENCE_*` 与 `SYS_METER_INFO` 的内核侧实现：查询、更新、拆分、撤销与
 //! 重新附加契约。策略由 Tempo 决定，内核只校验 Rights 与契约不变量。
 
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use hk_base::Duration;
 use hk_cadence::{Cadence, CadenceId, CadenceSnapshot, CadenceSpec, Meter, MeterSnapshot, Weight};
+use hk_handle::{Handle, Object, ObjectKind, Rights};
 
-use super::*;
+use super::Kernel;
+use crate::error::KernelError;
+use crate::object::{KernelObject, ObjectPayload};
+use crate::task::{Task, TaskId, TaskState};
+use crate::tcb::{Tcb, TcbId, ThreadState};
 
 impl Kernel {
     fn cadence_object(

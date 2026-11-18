@@ -1,5 +1,7 @@
 //! 调度、idle TCB、亲和性与预算轮转测试。
 
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 
 #[test]

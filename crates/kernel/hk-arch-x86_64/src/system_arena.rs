@@ -339,6 +339,7 @@ pub fn unregister_kernel_page(phys: PhysAddr, direct_map_base: u64) {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use crate::paging::flags::PRESENT;

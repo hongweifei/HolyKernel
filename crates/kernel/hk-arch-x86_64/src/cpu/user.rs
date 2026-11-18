@@ -9,7 +9,7 @@ use hk_hal::Console;
 use spin::Mutex;
 
 use super::frame::FpuState;
-use super::*;
+use super::{InterruptFrame, USER_CODE_SELECTOR, USER_DATA_SELECTOR};
 use crate::serial::{COM1, Serial};
 
 /// 返回异常向量名称。

@@ -1,5 +1,7 @@
 //! 内核 IPC：send/recv、call/reply、通知与句柄转移测试。
 
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 
 #[test]

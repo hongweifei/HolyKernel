@@ -1,4 +1,8 @@
-use super::*;
+use alloc::string::String;
+use core::fmt::Write;
+
+use super::Kernel;
+use crate::tcb::{Tcb, TcbId, ThreadState};
 
 impl Kernel {
     /// 返回线程状态。

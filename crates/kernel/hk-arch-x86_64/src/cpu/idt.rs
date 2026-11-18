@@ -6,7 +6,10 @@ use x86_64::VirtAddr;
 use x86_64::instructions::tables;
 use x86_64::instructions::tables::DescriptorTablePointer;
 
-use super::*;
+use super::{
+    DOUBLE_FAULT_IST, HPET_VECTOR, INTERRUPT_GATE, IPI_VECTOR, KERNEL_CODE, SCI_VECTOR,
+    TIMER_VECTOR,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy)]

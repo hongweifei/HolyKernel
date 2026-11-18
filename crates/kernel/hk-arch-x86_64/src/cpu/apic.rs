@@ -7,7 +7,10 @@ use crate::port::outb;
 use super::gdt::init_gdt;
 use super::idt::load_idt;
 use super::smp::IPI_COUNT;
-use super::*;
+use super::{
+    LAPIC_ICR_HIGH, LAPIC_ICR_LOW, LAPIC_ID, LAPIC_LVT_TIMER, LAPIC_SIVR, LAPIC_TIMER_DIVIDE,
+    LVT_MASKED, MAX_CPUS, PIC1_DATA, PIC2_DATA, SPURIOUS_ENABLE, SPURIOUS_VECTOR, TIMER_VECTOR,
+};
 
 pub(super) static APIC_IDS: [AtomicU32; MAX_CPUS] = [const { AtomicU32::new(u32::MAX) }; MAX_CPUS];
 static LAPIC_BASE: AtomicU64 = AtomicU64::new(0);

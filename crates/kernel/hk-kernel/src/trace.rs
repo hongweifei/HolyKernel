@@ -151,8 +151,8 @@ extern crate std;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::vec::Vec;
+    use super::std::vec::Vec;
+    use super::{Category, TraceRing};
 
     #[test]
     fn records_events_in_order() {

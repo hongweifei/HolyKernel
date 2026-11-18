@@ -403,7 +403,10 @@ impl Default for Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use hk_cadence::{CadenceClass, NO_CPU};
+
+    use super::Scheduler;
+    use crate::tcb::TcbId;
 
     fn id(value: u64) -> TcbId {
         TcbId::new(value)

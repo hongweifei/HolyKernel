@@ -131,6 +131,7 @@ pub fn config_write(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

@@ -475,8 +475,10 @@ impl Task {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use hk_cadence::{CadenceId, CadenceSpec, Weight, millis};
+    use hk_cadence::{CadenceClass, CadenceId, CadenceSpec, Meter, Weight, millis};
+
+    use super::{Task, TaskId, TaskState};
+    use crate::tcb::TcbId;
 
     fn task(spec: CadenceSpec) -> Task {
         let cadence = spec.cadence(CadenceId::new(1)).expect("契约合法");

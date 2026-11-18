@@ -220,6 +220,7 @@ pub(crate) fn read_cr3() -> PhysAddr {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod mapping_tests {
     use super::*;
 

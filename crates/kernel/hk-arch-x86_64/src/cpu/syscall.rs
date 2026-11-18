@@ -6,7 +6,7 @@ use hk_hal::Console;
 
 use super::smp::take_resched;
 use super::user::leave_user;
-use super::*;
+use super::{InterruptFrame, cpu_index, user_access_begin, user_access_end};
 use crate::serial::{COM1, Serial};
 
 /// 系统调用处理结果。

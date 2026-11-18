@@ -198,6 +198,7 @@ impl InterruptFrame {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use crate::cpu::user::user_frame;

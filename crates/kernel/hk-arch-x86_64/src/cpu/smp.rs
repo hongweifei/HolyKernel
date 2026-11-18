@@ -8,7 +8,7 @@ use x86_64::instructions::{interrupts, tlb};
 use hk_smp::{IdleState, TlbHardware, TlbShootdown};
 
 use super::apic::{APIC_IDS, cpu_index, send_ipi};
-use super::*;
+use super::{IPI_VECTOR, MAX_CPUS};
 
 pub(super) static IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
 static TLB: TlbShootdown<MAX_CPUS> = TlbShootdown::new();

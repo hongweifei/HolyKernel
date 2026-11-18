@@ -130,6 +130,7 @@ impl V1PageTable {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use alloc::vec;
