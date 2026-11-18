@@ -1,20 +1,16 @@
-//! Task 生命周期、契约计算与退出回收。
+//! Task 创建、契约计算与有效契约选择。
 
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::cmp::Ordering as CmpOrdering;
 use core::sync::atomic::Ordering;
 
 use hk_base::Duration;
 use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec, Meter, Weight};
-use hk_handle::{HandleTable, ObjectId};
-use hk_ipc::Message;
+use hk_handle::HandleTable;
 
 use crate::error::KernelError;
-use crate::kernel::{
-    Kernel, TRACE_EXIT, TRACE_HANDLE_RELEASE, TRACE_PROMOTE, TRACE_REPLY, TRACE_THREAD_SPAWN,
-};
-use crate::task::{Task, TaskId, TaskState};
+use crate::kernel::{Kernel, TRACE_THREAD_SPAWN};
+use crate::task::{Task, TaskId};
 use crate::tcb::{Tcb, TcbId, ThreadState};
 use crate::trace::Category;
 
@@ -84,7 +80,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.tasks.lock().insert(id, task);
+        self.register_task(id, task);
         Ok(thread)
     }
 
@@ -118,7 +114,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.tasks.lock().insert(id, task);
+        self.register_task(id, task);
         Ok(thread)
     }
 
@@ -148,7 +144,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.tasks.lock().insert(id, task);
+        self.register_task(id, task);
         Ok(thread)
     }
 
@@ -239,116 +235,5 @@ impl Kernel {
     pub(crate) fn slice_for_thread(&self, thread: TcbId) -> Option<u64> {
         self.effective_contract(thread)
             .map(|(_, _, slice, _)| slice)
-    }
-
-    /// 终止 TCB；Task 的最后一个 TCB 退出时回收 Task。
-    pub fn exit(&self, thread: TcbId) -> Result<(), KernelError> {
-        self.release_lending(thread);
-        self.release_transfer_charges(thread);
-        self.clear_active_if(thread);
-        let tcb = self
-            .threads
-            .lock()
-            .remove(&thread)
-            .ok_or(KernelError::UnknownThread(thread))?;
-        let live = tcb.handles().lock().live();
-        let task_id = tcb.task();
-        let empty = if let Some(task) = self.task(task_id) {
-            let mut task = task.lock();
-            let empty = task.detach(thread);
-            if empty {
-                task.set_state(TaskState::Exited);
-            }
-            empty
-        } else {
-            false
-        };
-        drop(tcb);
-        {
-            let mut scheduler = self.scheduler.lock();
-            scheduler.remove(thread);
-            scheduler.clear_current_if(thread);
-        }
-        if empty {
-            if let Some(task) = self.task(task_id) {
-                let cadence = task.lock().cadence();
-                self.release_child_budget(&cadence.lock());
-            }
-            // 父 Task 退出：把子 Task 的收窄契约提升为独立契约，子任务继续运行；
-            // 显式“回收”仍由 Tempo 通过 revoke/regrant 完成。
-            self.promote_children(task_id);
-            let endpoints = self.take_endpoint_servers(task_id);
-            self.fail_calls_to(&endpoints);
-            self.tasks.lock().remove(&task_id);
-        } else {
-            if let Some(task) = self.task(task_id) {
-                task.lock().clear_queued();
-            }
-            self.enqueue_next_thread(task_id, Some(thread));
-        }
-        self.record(thread.get(), Category::Sched, TRACE_EXIT, 0);
-        self.record(
-            thread.get(),
-            Category::Handle,
-            TRACE_HANDLE_RELEASE,
-            live as u64,
-        );
-        Ok(())
-    }
-
-    /// 取出并移除绑定到指定 Task 的端点。
-    fn take_endpoint_servers(&self, task: TaskId) -> Vec<ObjectId> {
-        let mut servers = self.endpoint_servers.lock();
-        let endpoints: Vec<ObjectId> = servers
-            .iter()
-            .filter(|(_, server)| **server == task)
-            .map(|(endpoint, _)| *endpoint)
-            .collect();
-        servers.retain(|_, server| *server != task);
-        endpoints
-    }
-
-    /// 服务退出时让所有等待这些端点的调用方立即收到错误回复。
-    fn fail_calls_to(&self, endpoints: &[ObjectId]) {
-        if endpoints.is_empty() {
-            return;
-        }
-        let mut callers = Vec::new();
-        {
-            let mut threads = self.threads.lock();
-            for (id, tcb) in threads.iter_mut() {
-                let Some(pending) = tcb.pending_call_mut() else {
-                    continue;
-                };
-                if !pending.answered && endpoints.contains(&pending.endpoint) {
-                    pending.reply = Some(Message::new(u64::MAX));
-                    pending.answered = true;
-                    callers.push(*id);
-                }
-            }
-        }
-        for caller in callers {
-            self.record(caller.get(), Category::Ipc, TRACE_REPLY, 0);
-            self.wake(caller);
-        }
-    }
-
-    /// 父 Task 退出时提升其子 Task：解除 Task 父链与 Cadence 父链。
-    fn promote_children(&self, parent: TaskId) {
-        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
-        for task in tasks {
-            let (thread, cadence) = {
-                let mut task = task.lock();
-                if task.parent() != Some(parent) {
-                    continue;
-                }
-                task.set_parent(None);
-                (task.threads().first().copied(), task.cadence())
-            };
-            cadence.lock().promote();
-            if let Some(thread) = thread {
-                self.record(thread.get(), Category::Sched, TRACE_PROMOTE, parent.get());
-            }
-        }
     }
 }

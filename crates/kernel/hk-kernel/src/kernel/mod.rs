@@ -6,6 +6,7 @@ mod cadence;
 mod hmp;
 mod ipc;
 mod lending;
+mod meter;
 mod object_ops;
 mod sched_ops;
 mod state;
@@ -55,6 +56,10 @@ const TRACE_MIGRATE: u32 = 21;
 const TRACE_OVERRUN: u32 = 22;
 const TRACE_PREEMPT: u32 = 23;
 const TRACE_PROMOTE: u32 = 24;
+const TRACE_CADENCE_ATTACH: u32 = 25;
+const TRACE_CADENCE_UPDATE: u32 = 26;
+const TRACE_CADENCE_SPLIT: u32 = 27;
+const TRACE_CADENCE_REVOKE: u32 = 28;
 
 /// 接收方取到的消息。
 #[derive(Clone, Debug, PartialEq, Eq)]

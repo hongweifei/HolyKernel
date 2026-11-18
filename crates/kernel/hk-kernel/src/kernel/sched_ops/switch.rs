@@ -11,7 +11,7 @@ use crate::task::{TaskId, TaskState};
 use crate::tcb::{BlockReason, Tcb, TcbId, ThreadState};
 use crate::trace::Category;
 
-use super::cadence::lending_contract;
+use super::task::lending_contract;
 
 impl Kernel {
     /// 把停泊 TCB 置为可运行并按所属 Task 的契约入队。
@@ -172,6 +172,13 @@ impl Kernel {
                         task.latency_ticks(),
                         lending,
                     );
+                    // 硬预算：Grant 不得越过本周期剩余预算，否则低权重任务会在
+                    // 节流前多跑一个 slice，破坏 Tempo 的 EDF 准入结论。
+                    let slice = if task.has_budget() {
+                        slice.min(task.budget_left()).max(1)
+                    } else {
+                        slice
+                    };
                     if !idle {
                         let (_, late) = task.dispatch_with(now, class, key, latency);
                         overrun = late;

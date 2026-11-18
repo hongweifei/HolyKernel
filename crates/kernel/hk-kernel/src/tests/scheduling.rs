@@ -408,6 +408,72 @@ fn records_waited_switches_and_overruns() {
 }
 
 #[test]
+fn clamps_grant_to_remaining_budget() {
+    let kernel = kernel();
+    kernel.set_clock(0);
+    // weight=1 的基准时间片是 MAX_SLICE（8 ms），但硬预算只有 1 ms。
+    let spec = CadenceSpec::new(CadenceClass::Realtime, 1)
+        .with_budget(millis(1), millis(16))
+        .with_deadline(millis(16))
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let thread = kernel
+        .spawn_task(HandleTable::new(8), spec)
+        .expect("实时任务");
+
+    assert_eq!(kernel.schedule(0), Some(thread));
+    assert_eq!(
+        kernel.next_deadline(0),
+        Some(millis(1).ticks()),
+        "Grant 必须钳到剩余预算，而不是按权重时间片跑到 8 ms"
+    );
+
+    kernel.charge(thread, millis(1).ticks());
+    assert_eq!(kernel.schedule(0), None, "预算耗尽应立即节流");
+}
+
+#[test]
+fn restored_cadence_reserves_and_releases_parent_budget() {
+    let kernel = kernel();
+    let parent = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 4096).with_budget(millis(8), millis(32)),
+        )
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    let parent_cadence = kernel
+        .task(parent_id)
+        .expect("父 Task 存在")
+        .lock()
+        .cadence();
+    let parent_cadence_id = parent_cadence.lock().id();
+
+    // 模拟 checkpoint 恢复：带父链但未经 split。
+    let restored = Cadence::restore(
+        CadenceId::next(),
+        Some(parent_cadence_id),
+        0,
+        CadenceSpec::new(CadenceClass::Latency, 1024).with_budget(millis(4), millis(32)),
+    )
+    .expect("恢复契约");
+    let child = kernel
+        .spawn_task_with_cadence(HandleTable::new(8), restored)
+        .expect("恢复任务");
+    assert_eq!(
+        parent_cadence.lock().children_budget(),
+        millis(4).ticks(),
+        "恢复的带父链契约必须预留父预算"
+    );
+
+    kernel.exit(child).expect("子任务退出");
+    assert_eq!(
+        parent_cadence.lock().children_budget(),
+        0,
+        "退出时只归还自己记录的预留"
+    );
+}
+
+#[test]
 fn throttles_budgeted_task_and_refills_next_period() {
     let kernel = kernel();
     let realtime = kernel

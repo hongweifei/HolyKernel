@@ -31,12 +31,6 @@ pub enum CadenceError {
     WeightExceedsParent,
     /// 子契约预算超过父契约。
     BudgetExceedsParent,
-    /// 预算池已耗尽。
-    BudgetPoolExhausted,
-    /// 预算租约不属于该池。
-    BudgetPoolForeign,
-    /// 预算租约为零。
-    ZeroBudget,
     /// 快照缓冲区不足。
     SnapshotTooShort,
     /// 快照中的类别无法识别。
@@ -59,9 +53,6 @@ impl fmt::Display for CadenceError {
             Self::LendingWidensParent => formatter.write_str("借贷策略不能比父契约更宽"),
             Self::WeightExceedsParent => formatter.write_str("子契约权重不能超过父契约"),
             Self::BudgetExceedsParent => formatter.write_str("子契约预算不能超过父契约"),
-            Self::BudgetPoolExhausted => formatter.write_str("预算池已耗尽"),
-            Self::BudgetPoolForeign => formatter.write_str("预算租约不属于该池"),
-            Self::ZeroBudget => formatter.write_str("预算租约不能为零"),
             Self::SnapshotTooShort => formatter.write_str("快照缓冲区不足"),
             Self::UnknownClass => formatter.write_str("快照中的调度类别无法识别"),
         }

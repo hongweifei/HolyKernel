@@ -118,37 +118,6 @@ impl CadenceSpec {
 /// 默认契约：Latency 类、基准权重、无硬预算。
 pub const DEFAULT_SPEC: CadenceSpec = CadenceSpec::new(CadenceClass::Latency, WEIGHT_REFERENCE);
 
-/// 利用率固定点标度（1.0 = 1_000_000）。
-pub const UTILIZATION_SCALE: u64 = 1_000_000;
-
-/// 计算 `budget / period` 的固定点利用率。
-pub fn utilization(budget: Duration, period: Duration) -> u64 {
-    if period.ticks() == 0 {
-        return 0;
-    }
-    (budget.ticks().saturating_mul(UTILIZATION_SCALE) / period.ticks()).min(UTILIZATION_SCALE)
-}
-
-/// 计算 `budget / deadline` 的固定点密度；deadline 为 0 时按 period。
-pub fn density(budget: Duration, deadline: Duration, period: Duration) -> u64 {
-    let limit = if deadline.ticks() == 0 {
-        period.ticks()
-    } else {
-        deadline.ticks()
-    };
-    if limit == 0 {
-        return 0;
-    }
-    (budget.ticks().saturating_mul(UTILIZATION_SCALE) / limit).min(UTILIZATION_SCALE)
-}
-
-/// Realtime 准入：类别必须是 Realtime，且累计 EDF 密度不超过 1.0。
-pub fn admits_realtime(used: u64, spec: CadenceSpec) -> bool {
-    spec.class == CadenceClass::Realtime
-        && used.saturating_add(density(spec.budget, spec.deadline, spec.period))
-            <= UTILIZATION_SCALE
-}
-
 /// EDF 需求界函数（demand bound function）检查的时间上界（契约 tick，1 秒）。
 pub const ADMISSION_HORIZON_TICKS: u64 = 1_000_000;
 
@@ -217,6 +186,11 @@ pub struct Cadence {
     migratable: bool,
     lending: Lending,
     children_budget: u64,
+    /// 已在父契约 `children_budget` 中预留的额度；0 表示尚未预留。
+    ///
+    /// 内核在把带父链的契约绑定到 Task 时预留，释放与变更时按该值归还，
+    /// 避免重复扣减或误扣兄弟契约的预留。
+    reserved: u64,
 }
 
 impl Cadence {
@@ -236,6 +210,7 @@ impl Cadence {
             migratable: true,
             lending: Lending::caller_pays(),
             children_budget: 0,
+            reserved: 0,
         }
     }
 
@@ -265,6 +240,7 @@ impl Cadence {
             migratable: spec.migratable,
             lending: spec.lending,
             children_budget: 0,
+            reserved: 0,
         };
         cadence.validate()?;
         Ok(cadence)
@@ -368,8 +344,9 @@ impl Cadence {
             migratable: self.migratable,
             lending: self.lending.narrowed_to(self.lending)?,
         };
-        let child = Self::restore(id, Some(self.id), self.epoch, spec)?;
+        let mut child = Self::restore(id, Some(self.id), self.epoch, spec)?;
         self.children_budget = self.children_budget.saturating_add(budget.ticks());
+        child.reserved = budget.ticks();
         Ok(child)
     }
 
@@ -393,6 +370,36 @@ impl Cadence {
         self.children_budget
     }
 
+    /// 返回本契约已在父契约中预留的额度。
+    pub const fn reserved(&self) -> u64 {
+        self.reserved
+    }
+
+    /// 取出预留额度并清零；返回需要从父契约归还的预算。
+    ///
+    /// 释放路径必须使用该值，而不是当前 `budget`：契约预算可能在预留后被修改，
+    /// 直接按 `budget` 扣减会误伤兄弟契约的预留。
+    pub fn take_reserved(&mut self) -> u64 {
+        core::mem::take(&mut self.reserved)
+    }
+
+    /// 在父契约中预留本契约的预算；已预留时幂等。
+    ///
+    /// 用于带父链但未经 [`Self::split`] 创建的契约（例如 checkpoint 恢复）：
+    /// 预留成功后父契约的 `children_budget` 与子契约的 `reserved` 同时更新。
+    pub fn reserve_in_parent(&mut self, parent: &mut Self) -> Result<(), CadenceError> {
+        if self.parent.is_none() || self.reserved != 0 {
+            return Ok(());
+        }
+        let amount = self.budget.ticks();
+        if amount > 0 && parent.children_budget.saturating_add(amount) > parent.budget.ticks() {
+            return Err(CadenceError::BudgetExceedsParent);
+        }
+        parent.children_budget = parent.children_budget.saturating_add(amount);
+        self.reserved = amount;
+        Ok(())
+    }
+
     /// 归还一个已释放子契约的预算。
     pub fn release_child_budget(&mut self, budget: u64) {
         self.children_budget = self.children_budget.saturating_sub(budget);
@@ -406,8 +413,10 @@ impl Cadence {
     /// 解除父链，把收窄契约提升为独立契约。
     ///
     /// 父契约撤销或父 Task 退出后使用；契约的类别、权重、预算与亲和性保持不变。
+    /// 调用方必须先通过 [`Self::take_reserved`] 归还父契约的预留。
     pub fn promote(&mut self) {
         self.parent = None;
+        self.reserved = 0;
     }
 
     /// 递增 epoch，使旧句柄失效；返回新 epoch。
@@ -588,23 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn computes_realtime_utilization_and_admission() {
-        let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
-            .with_budget(Duration::from_ticks(2_000), Duration::from_ticks(16_000));
-        assert_eq!(
-            utilization(Duration::from_ticks(2_000), Duration::from_ticks(16_000)),
-            125_000
-        );
-        assert!(admits_realtime(0, spec));
-        assert!(admits_realtime(875_000, spec));
-        assert!(!admits_realtime(900_000, spec));
-        assert!(!admits_realtime(
-            0,
-            CadenceSpec::new(CadenceClass::Latency, 1024)
-        ));
-    }
-
-    #[test]
     fn admits_realtime_set_by_demand_bound() {
         assert!(edf_admissible(&[
             (3_000, 16_000, 8_000),
@@ -637,6 +629,7 @@ mod tests {
         assert_eq!(child.parent(), Some(parent.id()));
         assert_eq!(child.epoch(), parent.epoch());
         assert_eq!(child.class(), parent.class());
+        assert_eq!(child.reserved(), 2);
 
         assert_eq!(
             parent
@@ -656,6 +649,51 @@ mod tests {
                 .err(),
             Some(CadenceError::BudgetExceedsParent)
         );
+    }
+
+    #[test]
+    fn restored_child_reserves_once_and_releases_exactly() {
+        let mut parent = CadenceSpec::new(CadenceClass::Latency, 4096)
+            .with_budget(Duration::from_ticks(8), Duration::from_ticks(32))
+            .cadence(CadenceId::new(1))
+            .expect("父契约");
+        let spec = CadenceSpec::new(CadenceClass::Latency, 1024)
+            .with_budget(Duration::from_ticks(4), Duration::from_ticks(32));
+
+        // 模拟 checkpoint 恢复：带父链但未经 split，先预留再绑定。
+        let mut restored =
+            Cadence::restore(CadenceId::new(2), Some(parent.id()), 0, spec).expect("恢复契约");
+        assert_eq!(restored.reserved(), 0);
+        restored
+            .reserve_in_parent(&mut parent)
+            .expect("父契约有空间");
+        assert_eq!(parent.children_budget(), 4);
+        assert_eq!(restored.reserved(), 4);
+
+        // 幂等；重复预留不得重复记账。
+        restored
+            .reserve_in_parent(&mut parent)
+            .expect("重复预留幂等");
+        assert_eq!(parent.children_budget(), 4);
+
+        // 释放只按记录额度归还一次，不会误伤其他子契约。
+        parent.release_child_budget(restored.take_reserved());
+        assert_eq!(parent.children_budget(), 0);
+        assert_eq!(restored.take_reserved(), 0);
+
+        // 容量不足时拒绝，且不改变双方记账。
+        parent.reserve_child_budget(7);
+        let mut too_large = CadenceSpec::new(CadenceClass::Latency, 1024)
+            .with_budget(Duration::from_ticks(2), Duration::from_ticks(32))
+            .cadence(CadenceId::new(3))
+            .expect("契约");
+        too_large.parent = Some(parent.id());
+        assert_eq!(
+            too_large.reserve_in_parent(&mut parent),
+            Err(CadenceError::BudgetExceedsParent)
+        );
+        assert_eq!(parent.children_budget(), 7);
+        assert_eq!(too_large.reserved(), 0);
     }
 
     #[test]

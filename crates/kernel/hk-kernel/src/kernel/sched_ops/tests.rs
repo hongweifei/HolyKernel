@@ -5,7 +5,7 @@ use hk_cadence::CadenceClass;
 use crate::task::TaskId;
 use crate::tcb::LendingFrame;
 
-use super::cadence::lending_contract;
+use super::task::lending_contract;
 
 fn frame(class: CadenceClass, key: u64, slice: u64, latency: u64) -> LendingFrame {
     LendingFrame {

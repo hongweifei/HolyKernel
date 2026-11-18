@@ -133,6 +133,13 @@ pub fn reschedule(cpu: usize) {
     send_ipi(id as u8, IPI_VECTOR);
 }
 
+/// 置位指定 CPU 的抢占请求；不发 IPI，由返回用户态路径或空闲循环消费。
+pub(super) fn note_resched(cpu: usize) {
+    if cpu < MAX_CPUS {
+        RESCHED.fetch_or(1_u64 << cpu, Ordering::SeqCst);
+    }
+}
+
 /// 取出并清除指定 CPU 的抢占请求。
 pub(super) fn take_resched(cpu: usize) -> bool {
     cpu < MAX_CPUS && RESCHED.fetch_and(!(1_u64 << cpu), Ordering::SeqCst) != 0

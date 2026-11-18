@@ -41,6 +41,8 @@ struct Beat {
     queues: [BTreeSet<(u64, u64, u64)>; CadenceClass::COUNT],
     placements: BTreeMap<u64, Placement>,
     current: Option<TcbId>,
+    /// 当前运行 TCB 的权重；运行中的任务不再留在 `placements`，压力必须单独计入。
+    current_weight: u64,
     runnable: usize,
     class_runnable: [usize; CadenceClass::COUNT],
     load: u64,
@@ -52,10 +54,17 @@ impl Beat {
             queues: core::array::from_fn(|_| BTreeSet::new()),
             placements: BTreeMap::new(),
             current: None,
+            current_weight: 0,
             runnable: 0,
             class_runnable: [0; CadenceClass::COUNT],
             load: 0,
         }
+    }
+
+    /// 记录本 CPU 的当前 TCB 与其权重。
+    fn set_current(&mut self, id: TcbId, weight: u64) {
+        self.current = Some(id);
+        self.current_weight = weight;
     }
 
     fn insert(
@@ -259,10 +268,11 @@ impl Scheduler {
         Some(best)
     }
 
-    /// 返回 CPU 的调度压力：权重负载 + 可运行 TCB 数当量。
+    /// 返回 CPU 的调度压力：排队权重 + 运行中权重 + 可运行 TCB 数当量。
     fn pressure(&self, cpu: usize) -> u64 {
         let beat = &self.beats[cpu];
         beat.load
+            .saturating_add(beat.current_weight)
             .saturating_add(beat.runnable as u64 * LOAD_PER_TASK)
     }
 
@@ -284,27 +294,27 @@ impl Scheduler {
     {
         assert!(cpu < MAX_CPUS, "CPU 索引越界");
         let real = &CLASSES[..CadenceClass::Idle as usize];
-        if let Some((tcb, class, _, _, _, _)) =
+        if let Some((tcb, class, _, _, weight, _)) =
             self.beats[cpu].take_allowed(&mut allowed, real, false)
         {
             self.homed.remove(&tcb.get());
-            self.beats[cpu].current = Some(tcb);
+            self.beats[cpu].set_current(tcb, weight);
             return Some((tcb, class));
         }
         // 本地没有真实任务时先窃取，避免 idle TCB 让本 CPU 抢先进入空闲。
         if self.steal_into(cpu, &mut allowed)
-            && let Some((tcb, class, _, _, _, _)) =
+            && let Some((tcb, class, _, _, weight, _)) =
                 self.beats[cpu].take_allowed(&mut allowed, real, false)
         {
             self.homed.remove(&tcb.get());
-            self.beats[cpu].current = Some(tcb);
+            self.beats[cpu].set_current(tcb, weight);
             return Some((tcb, class));
         }
         // 最后才选择 idle TCB。
-        let (tcb, class, _, _, _, _) =
+        let (tcb, class, _, _, weight, _) =
             self.beats[cpu].take_allowed(&mut allowed, &CLASSES, false)?;
         self.homed.remove(&tcb.get());
-        self.beats[cpu].current = Some(tcb);
+        self.beats[cpu].set_current(tcb, weight);
         Some((tcb, class))
     }
 
@@ -357,6 +367,7 @@ impl Scheduler {
     /// 取走 `cpu` 的当前线程记录。
     pub fn take_current(&mut self, cpu: usize) -> Option<TcbId> {
         assert!(cpu < MAX_CPUS, "CPU 索引越界");
+        self.beats[cpu].current_weight = 0;
         self.beats[cpu].current.take()
     }
 
@@ -365,6 +376,7 @@ impl Scheduler {
         for beat in &mut self.beats {
             if beat.current == Some(id) {
                 beat.current = None;
+                beat.current_weight = 0;
             }
         }
     }
@@ -513,6 +525,25 @@ mod tests {
                 0
             ),
             None
+        );
+    }
+
+    #[test]
+    fn pressure_includes_running_weight() {
+        let mut scheduler = Scheduler::new();
+        scheduler.set_online(2);
+        // CPU0 运行一个高权重任务（不可迁移，保持在该 CPU）。
+        scheduler.enqueue(id(1), CadenceClass::Realtime, 0, 0, 4096, false);
+        assert_eq!(
+            scheduler.pick_with(0, |_| true),
+            Some((id(1), CadenceClass::Realtime))
+        );
+        // CPU1 排着一个低权重任务：不把运行中权重计入时 CPU0 看起来更空。
+        scheduler.enqueue(id(2), CadenceClass::Throughput, 0, 1, 1024, true);
+        assert_eq!(
+            scheduler.choose_cpu(u64::MAX, NO_CPU, true, 0),
+            Some(1),
+            "新任务应落到排队压力更低的 CPU1"
         );
     }
 

@@ -16,12 +16,18 @@ use super::{
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
     if frame.vector == TIMER_VECTOR {
-        note_timer_interrupt();
+        let oneshot = note_timer_interrupt();
         let mut switch = false;
         // 中断发生在内核态时保留抢占标志，由系统调用返回路径消费。
         if frame.cs == u64::from(USER_CODE_SELECTOR) {
             let _ = take_resched(cpu_index());
             switch = preempt(frame);
+        } else if oneshot {
+            // 一次性定时器在内核态到期：LVT 已被改成 one-shot，若就此丢弃，
+            // 该 CPU 会失去唯一的调度定时器。保留一次重调度请求，并重新臂一个
+            // 短 watchdog，让下一次到期回到用户态时完成抢占。
+            super::smp::note_resched(cpu_index());
+            super::arm_oneshot(1_000);
         }
         lapic_write(LAPIC_EOI, 0);
         if switch {
