@@ -104,7 +104,7 @@ qemu-system-x86_64 -M q35 -m 256M -cdrom build/holy-x86_64.iso -serial stdio \
 
 产物：x86_64 ISO、AArch64/RISC-V 镜像、Hosted 可执行文件、服务器镜像、根文件系统镜像；镜像构建使用固定磁盘时间戳与 `--locked`，ISO 以暂存树内容键缓存，重复构建校验和一致。
 
-`xtask` 与 `hk-server-build` 是宿主构建期成员（`std`）；裸机构建按平台包选择目标，避免对整个 workspace 使用裸机 target。
+`xtask` 与 `hk-server-build` 是宿主构建期成员（`std`）；xtask 生成 `build/linker.ld` 并通过 `RUSTFLAGS` 注入，裸机构建必须走 `cargo xtask build|image|smoke`，直接 `cargo build` 不再提供链接参数。
 
 ### Windows 宿主
 
@@ -128,7 +128,8 @@ Windows + WHPX 下 39 个冒烟模式通过；`debugfault` 的 fork 写时复制
 | `lint` | `cargo xtask lint`：host 与 x86_64-unknown-none 的 clippy、格式与依赖检查 |
 | `deps` | `cargo xtask deps`：crate 依赖方向 |
 | `host-test` | Hosted 单元测试与属性测试 |
-| `build-matrix` | x86_64 / AArch64 / Hosted |
+| `build-matrix` | x86_64 / Hosted |
+| `compile-check-aarch64` | `cargo xtask check --target aarch64-qemu`（仅编译内核库，无启动入口） |
 | `qemu-smoke` | `boot`、`shell`、`memory` 三个 QEMU 冒烟模式 |
 | `docs` | rustdoc、Markdown 链接、ADR 与文档索引 |
 | `budget` | 内核代码行数统计 |
@@ -142,7 +143,7 @@ Windows + WHPX 下 39 个冒烟模式通过；`debugfault` 的 fork 写时复制
 
 - 单文件内联 `#[cfg(test)] mod tests`：测试代码少于 200 行。
 - `src/tests/`（或 `src/<module>/tests/`）：同一 crate 的单元测试超过 200 行。
-- `tests/`：仅用于需要 crate 公共 API 的集成测试（目前只有 `platforms/hosted/tests`）。
+- `tests/`：仅用于需要 crate 公共 API 且需要进程隔离的集成测试（`platforms/hosted/tests`、`hk-mem/tests` 的容量/NUMA 用例；后者共享全局物理后端，不能并入 lib 测试进程）。
 - `use super::*` 只允许出现在测试模块，并需 `#[allow(clippy::wildcard_imports)]`。
 
 ### 金字塔
@@ -232,7 +233,7 @@ Windows + WHPX 下 39 个冒烟模式通过；`debugfault` 的 fork 写时复制
 - 核心依赖使用 `no_std`；服务器可以使用 `std`。
 - 许可证兼容：MIT/Apache-2.0/BSD/ISC/MPL-2.0。
 - 依赖精简、可审计、维护活跃。
-- `build.rs` 与过程宏经过审查。
+- 过程宏与 xtask 生成的链接脚本经过审查（服务已不再各自维护 `build.rs`）。
 - HMP 是唯一内存契约；对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable`，页表项格式、固件解析、引导与架构库在平台或包装边界内。
 - 外部库按机制分类：页表机制、固件描述、UEFI 引导、架构原语、MMIO 寄存器、驱动协议栈。固件、UEFI 与 MMIO 由包装 crate 引入；架构原语（`x86_64`、`aarch64-cpu`）与页表项格式（`page_table_entry`）由各 `hk-arch-<arch>` 直接使用——platform crate 本身就是架构边界；页表编码、TLB、PCID 与大页机制由平台维护；COW 共享状态与 `UserSpace` 契约归 `hk-paging`。`hk-fw` 通过固定 git rev 使用 `intel-iommu`/`amd-iommu` 分别解析 DMAR 与 IVRS；`deny.toml` 只允许该 git 源。
 - `cargo-deny` 检查许可证与安全公告。

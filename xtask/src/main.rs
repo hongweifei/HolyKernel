@@ -19,6 +19,7 @@ mod budget;
 mod build;
 mod cargo;
 mod catalog;
+mod check;
 mod console;
 mod crash;
 mod debug;
@@ -58,6 +59,8 @@ struct Cli {
 enum Task {
     /// 构建目标
     Build(BuildArguments),
+    /// 只做编译检查（不产镜像）
+    Check(CheckArguments),
     /// 构建可启动镜像
     Image(ImageArguments),
     /// 运行目标
@@ -97,6 +100,16 @@ struct DiskArguments {
     /// 创建 H: 卷桌面磁盘 build/run-holy.img
     #[arg(long)]
     holy: bool,
+}
+
+#[derive(Debug, Args)]
+struct CheckArguments {
+    /// 检查目标
+    #[arg(long, value_enum, default_value = "x86_64-qemu")]
+    target: Selection,
+    /// 使用 release 配置
+    #[arg(long)]
+    release: bool,
 }
 
 #[derive(Debug, Args)]
@@ -175,6 +188,7 @@ fn main() -> ExitCode {
 fn execute(task: Task) -> Result<()> {
     match task {
         Task::Build(arguments) => build::run(arguments.target, arguments.release),
+        Task::Check(arguments) => check::run(arguments.target, arguments.release),
         Task::Image(arguments) => {
             let cmdline = arguments.cmdline.as_deref().unwrap_or("shell-interactive");
             image::run(arguments.target, arguments.release, Some(cmdline)).map(|_| ())

@@ -53,7 +53,7 @@ pub enum Target {
     Hosted,
     /// x86_64 QEMU。
     X86_64Qemu,
-    /// AArch64 QEMU。
+    /// AArch64 QEMU；当前只做内核库编译检查，无启动入口。
     Aarch64Qemu,
 }
 

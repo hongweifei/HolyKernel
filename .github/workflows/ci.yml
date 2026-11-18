@@ -45,11 +45,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [hosted, x86_64-qemu, aarch64-qemu]
+        target: [hosted, x86_64-qemu]
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask build --target ${{ matrix.target }}
+
+  compile-check-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask check --target aarch64-qemu
 
   docs:
     runs-on: ubuntu-latest
