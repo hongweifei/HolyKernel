@@ -273,7 +273,6 @@ impl PageTable {
                     .write_volatile(physical.get() | flags | WRITABLE);
             }
             self.flush(address);
-            super::shootdown_user();
             return Some(super::CowResolution::Writable);
         }
 
@@ -296,7 +295,6 @@ impl PageTable {
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
         unsafe { self.entry(table, index).write_volatile(updated) };
         self.flush(address);
-        super::shootdown_user();
         Some(super::CowResolution::Copied(frame))
     }
 }

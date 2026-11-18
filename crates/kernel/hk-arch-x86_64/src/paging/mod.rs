@@ -149,14 +149,6 @@ pub fn resolve_cow(
     table.resolve_cow(address, capacity)
 }
 
-/// 广播用户页表失效；单元测试没有 APIC，仅做本地刷新。
-pub(crate) fn shootdown_user() {
-    #[cfg(not(test))]
-    {
-        let _ = crate::cpu::shootdown_tlb(None);
-    }
-}
-
 /// 释放地址空间：先按 PTE 释放映射与 COW 引用，再回收最后一个映射者。
 pub fn release_user(table: &PageTable) {
     let mut tracked = alloc::vec::Vec::new();
@@ -193,8 +185,7 @@ pub fn release_user(table: &PageTable) {
             _ => {}
         }
     }
-    // 地址空间的 PTE 已全部拆除；其他 CPU 可能仍持有旧 TLB 项。
-    shootdown_user();
+    // 地址空间退出后不再有线程使用这些 PTE；不需要远端 shootdown。
 }
 
 pub(crate) fn frame_refs() -> &'static Mutex<FrameRefs> {

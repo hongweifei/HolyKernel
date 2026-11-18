@@ -392,7 +392,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             map.rights = rights;
             map.flags = flags;
         }
-        self.platform.flush_user(index, virt, length);
+        if self.process_active_elsewhere(index) {
+            self.platform.flush_user(index, virt, length);
+        }
         frame.set_result(0);
         Switch::Continue
     }
@@ -928,6 +930,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             frame.set_result(0);
             return Switch::Continue;
+        }
+        if self.process_active_elsewhere(index) {
+            self.platform.flush_user(index, virt, length);
         }
         self.process_mut(index).user_window.release(virt);
         let region_id = self.process(index).regions[slot]

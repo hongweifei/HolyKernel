@@ -432,6 +432,34 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.kernel.has_runnable()
     }
 
+    /// 返回可运行的普通线程数；唤醒空闲 CPU 前用它避免为单个线程发 IPI。
+    pub fn runnable(&self) -> usize {
+        self.kernel.runnable()
+    }
+
+    /// 同一进程是否正在另一个 CPU 上执行。只有这种映射才需要远端 TLB 失效；
+    /// 否则当前 CPU 本地失效 + 下次激活时刷新即可。
+    pub(crate) fn process_active_elsewhere(&self, index: usize) -> bool {
+        let owner = self.leader_of(index);
+        self.current
+            .iter()
+            .flatten()
+            .filter(|current| self.leader_of(**current) == owner)
+            .count()
+            > 1
+    }
+
+    /// 指定进程是否有其它 CPU 正在执行；调用者所在 CPU 已由本地失效覆盖。
+    pub(crate) fn process_active_on_other_cpu(&self, process: usize, caller: usize) -> bool {
+        let caller_cpu = self
+            .current
+            .iter()
+            .position(|current| *current == Some(caller));
+        self.current.iter().enumerate().any(|(cpu, current)| {
+            Some(cpu) != caller_cpu && current.is_some_and(|task| self.leader_of(task) == process)
+        })
+    }
+
     /// 判断是否有能让任务重新可运行的待办唤醒：预算补充、sleep 到期或 IPC 超时。
     ///
     /// 与 [`Self::next_wakeup`] 不同，这里不含 idle 线程的 grant 结束时间；

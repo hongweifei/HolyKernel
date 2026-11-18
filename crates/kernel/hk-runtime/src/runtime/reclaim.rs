@@ -219,7 +219,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 解除该能力第 `page_index` 页在全部进程中的映射。
     pub(crate) fn unmap_capability_page(
         &self,
-        _index: usize,
+        index: usize,
         object: ObjectId,
         page_index: usize,
     ) -> bool {
@@ -244,6 +244,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 }
                 let virt = region.virt + (capability_offset - start);
                 if self.platform.unmap_user(slot, virt, page as usize) {
+                    if self.process_active_on_other_cpu(slot, index) {
+                        self.platform.flush_user(slot, virt, page as usize);
+                    }
                     unmapped = true;
                 }
             }

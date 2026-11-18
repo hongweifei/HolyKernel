@@ -827,6 +827,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         // 整段解除；平台在清完 PTE 后广播 TLB 失效。惰性 Region 的未装入
         // 页没有 PTE，解除视为成功。
         let _ = self.platform.unmap_user(index, virt, length);
+        if self.process_active_elsewhere(index) {
+            self.platform.flush_user(index, virt, length);
+        }
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
         if pinned && force {

@@ -295,9 +295,7 @@ impl PageTable {
             self.flush(address);
             offset += PAGE_SIZE;
         }
-        // 解除的 PTE 可能仍残留在其他 CPU 的 TLB 中；在归还物理页之前
-        // 广播失效，避免旧映射继续写入已释放的页。
-        crate::paging::shootdown_user();
+        // 本地失效率由调用方决定是否广播；同进程不在其它 CPU 运行时无需 IPI。
         true
     }
 

@@ -508,11 +508,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                 return false;
             }
             steps += 1;
-            let step = self.runtime.lock().as_mut().map(|runtime| {
+            // AP 不忙等全局运行时锁；拿不到就返回让出 CPU，由 BSP 的
+            // wake_aps 在真正有并行工作时再唤醒，避免跨核锁争用拖慢 BSP。
+            let mut guard = if cpu == 0 {
+                self.runtime.lock()
+            } else {
+                let Some(guard) = self.runtime.try_lock() else {
+                    return false;
+                };
+                guard
+            };
+            let step = guard.as_mut().map(|runtime| {
                 let step = runtime.step(cpu);
                 runtime.arm_wakeup(cpu);
                 step
             });
+            drop(guard);
             match step {
                 Some(Step::Resume { index, context }) => {
                     context.resume();
@@ -567,7 +578,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             return Switch::Continue;
         };
         let switch = runtime.dispatch(cpu, frame);
-        if runtime.has_runnable() {
+        // 只有一个可运行线程时当前 CPU 可以继续处理；唤醒空闲核只会制造
+        // 无效 IPI 与调度器锁竞争。至少有两个线程才需要并行。
+        if runtime.runnable() > 1 {
             runtime.wake_aps();
         }
         switch

@@ -71,9 +71,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     page_index,
                     charge,
                 );
+                if self.process_active_elsewhere(index) {
+                    self.platform.flush_user(index, address, page as usize);
+                }
                 true
             }
-            Some(crate::runtime::CowOutcome::Writable) => true,
+            Some(crate::runtime::CowOutcome::Writable) => {
+                if self.process_active_elsewhere(index) {
+                    self.platform.flush_user(index, address, page as usize);
+                }
+                true
+            }
             None => false,
         }
     }
