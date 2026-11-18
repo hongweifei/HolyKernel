@@ -51,6 +51,7 @@ fn resident_capability_backing_is_zeroed() {
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
     assert_ne!(context.rax, u64::MAX);
     let memory = physical.lock();
+    assert!(memory.len() >= 0x2000, "常驻能力创建必须写入整段清零页");
     assert!(
         memory.values().all(|byte| *byte == 0),
         "常驻能力首次可读必须为零"

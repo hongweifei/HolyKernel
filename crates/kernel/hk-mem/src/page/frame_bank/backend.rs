@@ -323,7 +323,7 @@ impl PhysicalBackend for FrameBank {
         }
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_sub(range.len());
-        let node_slot = &mut inner.by_node[usize::from(allocation.node) % MAX_NODES];
+        let node_slot = &mut inner.by_node[usize::from(allocation.node).min(MAX_NODES - 1)];
         *node_slot = node_slot.saturating_sub(range.len());
         // 分配记录已经移除，区间尚未进入空闲表，其他分配不可能拿到它；这时
         // 放锁清零，避免在 spin 锁内逐字节访问物理内存（与 free_for 一致）。
