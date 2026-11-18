@@ -28,8 +28,6 @@ use hk_proto::input::{
 #[cfg(target_os = "none")]
 use hk_server_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, recv_handle, self_notification, send, service_endpoint,
     wait_notify, write, write_u64,
@@ -44,17 +42,11 @@ use keymap::{
     KEY_LEFTSHIFT, KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_RIGHTSHIFT, REL_WHEEL, key_bytes,
 };
 
-/// 堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 
 /// 最多接管的输入设备数。
 #[cfg(target_os = "none")]
 const MAX_INPUTS: usize = 4;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

@@ -10,16 +10,8 @@
 #[cfg(target_os = "none")]
 extern crate alloc;
 
-#[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-
-/// 服务堆大小；协程栈从该堆分配。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 256 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+// 服务堆大小；协程栈从该堆分配。
+hk_server_api::server_heap!(256 * 1024);
 
 #[cfg(target_os = "none")]
 use hk_server_api::{

@@ -39,8 +39,6 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     exit, recv_data_timeout, recv_data_try, send, service_endpoint, sleep_ticks, write, write_u64,
     yield_now,
@@ -51,9 +49,7 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 1024 * 1024;
+hk_server_api::server_heap!(1024 * 1024);
 
 /// 渲染工作线程栈尺寸。
 #[cfg(target_os = "none")]
@@ -62,10 +58,6 @@ const RENDER_STACK: usize = 64 * 1024;
 /// 无输入时的等待 tick；用于发现 Display 退出与重启。
 #[cfg(target_os = "none")]
 const WATCH_TICKS: u64 = 100;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

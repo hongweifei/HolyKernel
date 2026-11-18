@@ -10,15 +10,12 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     MemoryClient, arena_grow, exit, memory_event_subscribe, memory_pressure, memory_pressure_full,
     self_notification, sleep_ticks, wait_notify, write,
 };
 
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2 * 1024 * 1024;
+hk_server_api::server_heap!(2 * 1024 * 1024);
 /// 单页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
@@ -28,10 +25,6 @@ const MAX_PAGES: usize = 4096;
 /// Memory Server 在 swap-test 模式设置的阈值。
 #[cfg(target_os = "none")]
 const PRESSURE_THRESHOLD: u64 = 90;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 fn fail(message: &[u8]) -> ! {

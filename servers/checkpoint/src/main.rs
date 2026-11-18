@@ -24,8 +24,6 @@ use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::root::{
     ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE,
     ROOT_OP_RESTORE_CHECKPOINT, call, call_data,
@@ -33,9 +31,7 @@ use hk_server_api::root::{
 #[cfg(target_os = "none")]
 use hk_server_api::{recv_data, send_data, service_endpoint, write};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 256 * 1024;
+hk_server_api::server_heap!(256 * 1024);
 
 /// 快照分块大小。
 #[cfg(target_os = "none")]
@@ -48,10 +44,6 @@ const MANIFEST: &str = "HKCKP1";
 /// 存放快照的 Holy 集合。
 #[cfg(target_os = "none")]
 const COLLECTION: &str = "Checkpoints";
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

@@ -19,20 +19,13 @@ use hk_proto::sound::{
 #[cfg(target_os = "none")]
 use hk_server_api::device::{DEVICE_CLASS_SOUND, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, device_info, exit, format::Line, recv_data_handle, recv_data_handle_try, send,
     send_data, service_endpoint, sleep_ticks, write,
 };
 
-/// 驱动 crate 需要全局分配器；本服务自身只用固定队列。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+// 驱动 crate 需要全局分配器；本服务自身只用固定队列。
+hk_server_api::server_heap!(64 * 1024);
 
 /// 等待受理的播放请求。
 #[cfg(target_os = "none")]

@@ -32,8 +32,6 @@ use hk_proto::vfs::list_mounts;
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::root::{
     ROOT_OP_CADENCE, ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_METER, ROOT_OP_REPLACE,
     ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START,
@@ -65,13 +63,7 @@ const LINE_BUFFER: usize = 256;
 #[cfg(target_os = "none")]
 const HANDSHAKE_TICKS: u64 = 500;
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 256 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(256 * 1024);
 
 #[cfg(target_os = "none")]
 struct ConsoleIo {

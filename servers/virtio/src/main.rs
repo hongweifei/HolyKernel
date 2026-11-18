@@ -31,16 +31,12 @@ use hk_server_api::device::{
     DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, device_info, dma_map, exit, irq_bind, msi_bind, recv_data_handle, recv_handle,
     self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 
 /// 块完成中断使用的通知位。
 #[cfg(target_os = "none")]
@@ -49,10 +45,6 @@ const BLOCK_NOTIFY_IRQ: u64 = 1;
 /// 辅助设备消息缓冲长度。
 #[cfg(target_os = "none")]
 const AUX_BUFFER: usize = 256;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 启动时按类别收集到的设备授权。
 #[cfg(target_os = "none")]

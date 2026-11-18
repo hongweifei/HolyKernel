@@ -12,17 +12,9 @@ use alloc::vec;
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, write};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2 * 1024 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 mod mounts;

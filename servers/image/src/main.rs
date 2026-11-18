@@ -20,8 +20,6 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, boot_cmdline, capacity_alloc, exit,
     frame_write, message_words, module_read, recv_data_handle, reply, reply_handle, sleep_ticks,
@@ -32,9 +30,7 @@ use hk_sync::Mutex;
 #[cfg(target_os = "none")]
 use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2 * 1024 * 1024;
+hk_server_api::server_heap!(2 * 1024 * 1024);
 /// 页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
@@ -64,10 +60,6 @@ static PENDING: Mutex<Vec<Segment>> = Mutex::new(Vec::new());
 static CACHE: Mutex<BTreeMap<(u64, u64, u64), Vec<u8>>> = Mutex::new(BTreeMap::new());
 #[cfg(target_os = "none")]
 static CACHED_PAGES: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

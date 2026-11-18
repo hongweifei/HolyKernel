@@ -34,24 +34,16 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::root::{self, ROOT_OP_PERF};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write};
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]
 const BUFFER_SIZE: usize = 64 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 任务管理器状态。
 #[cfg(target_os = "none")]

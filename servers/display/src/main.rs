@@ -18,13 +18,8 @@ mod seat;
 #[cfg(any(target_os = "none", test))]
 mod surface;
 
-/// 服务堆大小：只用于接管期缓存客户端消息。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 16 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: hk_server_api::heap::FreeHeap = hk_server_api::heap::FreeHeap::new(HEAP_SIZE);
+// 服务堆大小：只用于接管期缓存客户端消息。
+hk_server_api::server_heap!(16 * 1024);
 
 #[cfg(target_os = "none")]
 mod actions;

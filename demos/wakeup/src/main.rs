@@ -7,17 +7,9 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{exit, sleep_ticks, tsc, tsc_frequency, write, write_u64};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 32 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(32 * 1024);
 
 /// 测量轮数。
 #[cfg(target_os = "none")]

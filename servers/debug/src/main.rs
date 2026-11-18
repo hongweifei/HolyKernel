@@ -31,8 +31,6 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     exit, fault_subscribe, kernel_stats, recv_data_timeout, send, service_endpoint, sleep_ticks,
     write, write_u64,
@@ -42,16 +40,10 @@ use pages::Page;
 #[cfg(target_os = "none")]
 use render::{HEIGHT, WIDTH, line_count, render, visible_lines};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 /// 无输入时的等待 tick；用于发现 Display 退出与重启。
 #[cfg(target_os = "none")]
 const WATCH_TICKS: u64 = 100;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &Window) {

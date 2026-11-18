@@ -22,8 +22,6 @@ use hk_proto::input::{
 #[cfg(target_os = "none")]
 use hk_server_api::device::{DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     close_handle, device_info, device_map, exit, irq_bind, recv_handle, self_notification, send,
     service_endpoint, wait_notify, write, write_u64,
@@ -50,15 +48,10 @@ mod hid;
 #[cfg(target_os = "none")]
 use hid::{Event, KeyboardState, MouseState};
 
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 
 #[cfg(target_os = "none")]
 const MAX_HID: usize = 8;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 #[derive(Clone, Copy, PartialEq, Eq)]

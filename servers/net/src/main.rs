@@ -7,7 +7,6 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
 use core::net::Ipv4Addr;
 
 #[cfg(target_os = "none")]
@@ -25,8 +24,6 @@ use hk_proto::socket::{
     SOCK_CLOSE, SOCK_CONNECT, SOCK_OPEN, SOCK_RECV, SOCK_RESOLVE, SOCK_SEND, SOCK_UDP_RECV,
     SOCK_UDP_SEND,
 };
-#[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
 use hk_server_api::{
     exit, notify, recv_data, recv_data_handle, send, send_data, tsc, tsc_frequency, write,
@@ -48,11 +45,9 @@ use config::{parse_resolvers, parse_static, zerocopy_enabled};
 #[cfg(target_os = "none")]
 use driver::{attach_shared, poll_once, restart_network, wait_driver};
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
 use protocol::{flush_tx, handle_socket, status_blob};
 
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 768 * 1024;
+hk_server_api::server_heap!(768 * 1024);
 /// 宿主 TCP echo 端口；测试命令行可用 `net.tcp=` 覆盖。
 #[cfg(target_os = "none")]
 const DEFAULT_TCP_PORT: u16 = 45678;
@@ -81,10 +76,6 @@ pub(crate) struct Stats {
     rx_bytes: u64,
     tx_bytes: u64,
 }
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

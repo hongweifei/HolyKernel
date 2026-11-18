@@ -24,8 +24,6 @@ use hk_proto::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
 
 #[cfg(any(target_os = "none", test))]
@@ -46,17 +44,11 @@ use sessions::Sessions;
 #[cfg(target_os = "none")]
 use volumes::{ServiceDisk, SharedClient, Volumes};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2 * 1024 * 1024;
+hk_server_api::server_heap!(2 * 1024 * 1024);
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]
 const BLOCK_SERVICE: &str = "hk-server-virtio";
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 #[cfg(target_os = "none")]
 fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {

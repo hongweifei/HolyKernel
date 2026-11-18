@@ -76,6 +76,22 @@ macro_rules! server_boilerplate {
     };
 }
 
+/// 生成服务堆样板：堆大小常量与全局分配器。
+///
+/// 每个服务二进制在 crate 根部调用一次；`_start` 仍由服务自己实现。
+#[macro_export]
+macro_rules! server_heap {
+    ($bytes:expr) => {
+        /// 服务堆大小。
+        #[cfg(target_os = "none")]
+        pub(crate) const HEAP_SIZE: usize = $bytes;
+
+        #[cfg(target_os = "none")]
+        #[global_allocator]
+        static ALLOCATOR: $crate::heap::FreeHeap = $crate::heap::FreeHeap::new(HEAP_SIZE);
+    };
+}
+
 pub(crate) use hk_syscall_client::call as syscall_call;
 
 pub use hk_syscall_client::syscall::*;

@@ -14,20 +14,12 @@ use hk_block::{MemoryDisk, SECTOR_SIZE};
 #[cfg(target_os = "none")]
 use hk_block_ipc::serve;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{exit, write};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
+hk_server_api::server_heap!(512 * 1024);
 /// 内存盘块数。
 #[cfg(target_os = "none")]
 const BLOCKS: u64 = 64;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

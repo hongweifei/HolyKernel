@@ -26,8 +26,6 @@ use hk_proto::vfs::encode_response;
 #[cfg(target_os = "none")]
 use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_REVISION,
     PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, RIGHT_READ, RIGHT_TRANSFER,
@@ -38,13 +36,7 @@ use hk_server_api::{
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2 * 1024 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {

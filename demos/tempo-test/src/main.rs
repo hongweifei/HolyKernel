@@ -10,19 +10,11 @@ use hk_cadence::{CadenceClass, CadenceSnapshot, CpuMask, Lending};
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     cadence_self, exit, runtime::wait_service, task_attach_cadence, write, write_u64,
 };
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(64 * 1024);
 
 /// 申请的子契约权重。
 #[cfg(target_os = "none")]

@@ -21,8 +21,6 @@ use hk_proto::echo::{
     WORK_DONE, WORK_REQUEST, WORK_RESPONSE, WORK_ROUNDS, WORK_STATS, WORK_STATS_RESPONSE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{exit, handle_count, notify, recv_handle, reply, send, write, write_u64};
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
@@ -31,17 +29,11 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 const NOTIFY_REQUEST: u64 = 0x300;
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 256 * 1024;
+hk_server_api::server_heap!(256 * 1024);
 
 /// 工作线程数量。
 #[cfg(target_os = "none")]
 const WORKERS: usize = 3;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 正在计算的任务数。
 #[cfg(target_os = "none")]

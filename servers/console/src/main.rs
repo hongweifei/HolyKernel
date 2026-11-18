@@ -22,8 +22,6 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     console_read, exit, recv_data_try, send, send_data, service_endpoint, service_restarts,
     sleep_ticks, write, write_u64,
@@ -41,13 +39,8 @@ use editor::{Editor, emit};
 #[cfg(target_os = "none")]
 use terminal::attach_terminal;
 
-/// 服务堆大小；终端网格约 225 KiB，其余留给临时分配。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+// 服务堆大小；终端网格约 225 KiB，其余留给临时分配。
+hk_server_api::server_heap!(512 * 1024);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

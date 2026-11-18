@@ -22,8 +22,6 @@ use hk_proto::net::{
 #[cfg(target_os = "none")]
 use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     device_info, exit, irq_bind, msi_bind, recv_data_try, recv_handle, self_notification, send,
     send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
@@ -31,14 +29,9 @@ use hk_server_api::{
 
 #[cfg(target_os = "none")]
 mod shared;
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 256 * 1024;
+hk_server_api::server_heap!(256 * 1024);
 #[cfg(target_os = "none")]
 use shared::{attach_shared, drain_rx, drain_shared_rx, zerocopy_enabled};
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

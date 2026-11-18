@@ -4,8 +4,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_SURFACE,
     PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, capability_bind_provider,
@@ -13,17 +11,11 @@ use hk_server_api::{
     recv_data_handle, reply, reply_handle, send_handle,
 };
 
-/// 服务堆大小。
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 64 * 1024;
+hk_server_api::server_heap!(64 * 1024);
 
 /// 页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// 服务入口。
 #[cfg(target_os = "none")]

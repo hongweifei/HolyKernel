@@ -11,9 +11,6 @@ use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
 use alloc::vec::Vec;
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
-#[cfg(target_os = "none")]
 use hk_server_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     RIGHT_READ, RIGHT_WRITE, boot_cmdline, capability_create, capability_swap, capacity_alloc,
@@ -34,8 +31,7 @@ mod selftest;
 #[cfg(target_os = "none")]
 mod swap;
 
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 1024 * 1024;
+hk_server_api::server_heap!(1024 * 1024);
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
 /// 请求载荷：能力类型（1 字节）+ 标志（1 字节）+ 长度（8 字节小端）。
@@ -44,10 +40,6 @@ const REQUEST_BYTES: usize = 1 + 1 + 8;
 /// 请求标志：按需装入的匿名能力。
 #[cfg(target_os = "none")]
 const FLAG_LAZY: u8 = 1 << 0;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 
 /// Provider 保存的一页内容。
 #[cfg(target_os = "none")]
