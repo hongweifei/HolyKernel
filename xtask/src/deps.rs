@@ -98,7 +98,13 @@ const PROTO_FORBIDDEN: &[&str] = &[
 ];
 
 /// 零依赖 crate：保持纯契约或纯库。
-const ZERO_DEPENDENCY: &[&str] = &["hk-shell", "hk-syscall", "hk-block", "hk-status"];
+const ZERO_DEPENDENCY: &[&str] = &[
+    "hk-shell",
+    "hk-syscall",
+    "hk-block",
+    "hk-status",
+    "hk-image",
+];
 
 /// 系统调用薄客户端禁止依赖的类别：只保留 ABI 与零分配基础类型。
 const SYSCALL_CLIENT_FORBIDDEN: &[&str] = &[

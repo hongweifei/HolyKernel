@@ -20,7 +20,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L0 | 共享契约 | `hk-device` | 设备授权描述、PCI 地址与配置访问契约、通用总线枚举；只依赖 `hk-base` |
 | L0 | 共享契约 | `hk-mmio` | MMIO 寄存器窗口（`volatile-register` 包装）；内核设备页与用户态驱动共用 |
 | L1 | 共享契约 | `hk-fw` | ACPI/DTB 固件与 IOMMU 中性描述；只依赖 `hk-base` 与固件库 |
-| L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据、检查点快照格式；零依赖 |
+| L1 | 共享契约 | `hk-image`、`hk-checkpoint` | 原生任务镜像格式与服务角色元数据（零依赖）、检查点快照格式（依赖 `hk-cadence`，快照内嵌 Cadence/Meter 快照） |
 | L1 | 共享契约 | `hk-shell`、`hk-font`、`hk-symbols` | 命令框架（零依赖）；字体（内核取位图字形，用户态取可缩放栅格化）；文本符号表解析与符号化 |
 | L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait 与退出协议、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
 | L1 | 内核侧 | `hk-paging`、`hk-boot`、`hk-framebuffer`、`hk-smp`、`hk-drivers` | 通用用户地址空间包装与帧引用计数 COW、引导后端（Limine/DTB）与启动信息、帧缓冲文本控制台、SMP 状态机、16550 UART 与 PS/2 键盘 |
@@ -110,7 +110,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | Holy 文档响应构造与错误映射 | `crates/user/hk-holy-proto/src/response.rs` |
 | 协议公共帧头（请求/响应） | `crates/user/hk-proto/src/wire.rs`；块设备响应在头后追加固定 `tag` |
 | 服务状态枚举 | `crates/shared/hk-status/src/lib.rs`；协议常量、`hk_fs::Error::status()` 与 `VfsError::status()` 都从它派生 |
-| Holy 服务端盘符注册与请求分派 | `crates/user/hk-holy-service/src/{drives,handle}.rs`；VFS 与 ext4 服务共用 |
+| Holy 服务端盘符注册与请求分派 | `crates/user/hk-holy-service/src/{drives,handle}.rs`；`DriveSource` 契约由 VFS、ext4 与 HolyFS 共用，HolyFS 通过卷适配器接入 |
 | 远程 Holy 后端适配 | `crates/user/hk-fs-remote/src/lib.rs`；VFS 与 Path Server 共用 |
 | ext4 独立服务入口 | `servers/ext4/src/main.rs`；挂载 `E:` 并进入统一 Holy 请求循环 |
 | 服务自检入口 | `servers/*/src/selftest.rs`；net、debug、taskman、console、display、memory、holydoc、workbench，`_start` 只做选择与转交 |
