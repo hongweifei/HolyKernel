@@ -7,8 +7,6 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use alloc::collections::BTreeMap;
-#[cfg(target_os = "none")]
 use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_syscall::{
@@ -114,6 +112,38 @@ extern "C" fn reclaim_worker(notification: u64) -> ! {
     }
 }
 
+/// 换出页存储：键为 `(能力对象, 页号)`，规模上限 256，线性扫描足够。
+#[cfg(target_os = "none")]
+type SwapStore = Vec<((u64, u64), Stored)>;
+
+#[cfg(target_os = "none")]
+fn swap_get(store: &SwapStore, key: (u64, u64)) -> Option<&Stored> {
+    store
+        .iter()
+        .find(|(stored, _)| *stored == key)
+        .map(|(_, value)| value)
+}
+
+#[cfg(target_os = "none")]
+fn swap_contains(store: &SwapStore, key: (u64, u64)) -> bool {
+    store.iter().any(|(stored, _)| *stored == key)
+}
+
+#[cfg(target_os = "none")]
+fn swap_insert(store: &mut SwapStore, key: (u64, u64), value: Stored) {
+    if let Some((_, slot)) = store.iter_mut().find(|(stored, _)| *stored == key) {
+        *slot = value;
+    } else {
+        store.push((key, value));
+    }
+}
+
+#[cfg(target_os = "none")]
+fn swap_remove(store: &mut SwapStore, key: (u64, u64)) -> Option<Stored> {
+    let position = store.iter().position(|(stored, _)| *stored == key)?;
+    Some(store.swap_remove(position).1)
+}
+
 /// 服务入口。
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
@@ -141,14 +171,16 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             .text(b"\n")
             .finish();
     }
-    let mut swapped: BTreeMap<(u64, u64), Stored> = BTreeMap::new();
+    let mut swapped: SwapStore = Vec::new();
     // 回收线程只发 swap 请求；主循环负责实际压缩与存储。
     let notification = self_notification();
     let _ = hk_thread::spawn_raw(reclaim_worker, notification, 64 * 1024);
     loop {
         // 批量回收最多携带 16 页；其它请求只使用前 10 字节。
         let mut request = alloc::vec![0_u8; PAGE * 16];
+
         let (label, _word, sender, length) = recv_data(endpoint, &mut request);
+
         if let Some((free, total, threshold)) = memory_pressure()
             && total > 0
             && free.saturating_mul(100) / total <= threshold
@@ -213,7 +245,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         }
         if label == PROVIDER_RELEASE {
             if let Some(words) = message_words() {
-                swapped.retain(|(capability, _), _| *capability != words[0]);
+                swapped.retain(|((capability, _), _)| *capability != words[0]);
                 TRACKED
                     .lock()
                     .retain(|(capability, _)| *capability != words[0]);
@@ -250,7 +282,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 continue;
             }
             for (page, content) in stored {
-                swapped.insert((words[0], page as u64), content);
+                swap_insert(&mut swapped, (words[0], page as u64), content);
             }
             let _ = reply(PROVIDER_RECLAIMED, 0);
             continue;
@@ -265,16 +297,20 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 continue;
             }
             let source = &request[..PAGE];
-            if swapped.len() >= 256 && !swapped.contains_key(&(words[0], words[1])) {
+            if swapped.len() >= 256 && !swap_contains(&swapped, (words[0], words[1])) {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
+
             let Some(stored) = store_page(source) else {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             };
-            swapped.insert((words[0], words[1]), stored);
+
+            swap_insert(&mut swapped, (words[0], words[1]), stored);
+
             let _ = reply(PROVIDER_RECLAIMED, 0);
+
             continue;
         }
         if matches!(
@@ -296,9 +332,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             let _ = reply(0, u64::MAX);
             continue;
         };
+
         let page_index = words[0] / PAGE as u64;
         let mut buffer = [0_u8; PAGE];
-        let stored = swapped.get(&(words[4], page_index));
+        let stored = swap_get(&swapped, (words[4], page_index));
         if let Some(stored) = stored {
             match stored {
                 Stored::Compressed(compressed) => {
@@ -316,20 +353,24 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 }
             }
         }
+
         let Some(frame) = capacity_alloc(capacity, PAGE) else {
             let _ = reply(0, u64::MAX);
             continue;
         };
+
         if frame_write(frame, 0, &buffer) != 0 {
             let _ = hk_user_api::close_handle(frame);
             let _ = reply(0, u64::MAX);
             continue;
         }
+
         if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
             exit(2);
         }
+
         // 页已重新驻留；Provider 不再保留副本，下一次回收会重新写入。
-        swapped.remove(&(words[4], page_index));
+        let _ = swap_remove(&mut swapped, (words[4], page_index));
     }
 }
 
