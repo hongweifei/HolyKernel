@@ -211,6 +211,7 @@ impl Mappable for Capability {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

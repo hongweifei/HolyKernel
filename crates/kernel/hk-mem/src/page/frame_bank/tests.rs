@@ -1,6 +1,8 @@
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 use crate::hmp::{HmpError, PhysicalBackend};
-use hk_hal::RegionKind;
+use hk_hal::{MemoryRegion, PAGE_SIZE, PhysAddr, PhysRange, RegionKind};
 
 #[test]
 fn aligns_large_page_allocations() {
@@ -600,7 +602,7 @@ fn allocations_enumerate_by_owner_and_kind() {
     let system_allocations = bank.allocations_of(Some(system));
     assert_eq!(
         system_allocations,
-        alloc::vec![
+        ::alloc::vec![
             (heap, FrameKind::KernelHeap),
             (
                 PhysRange::new(table, PAGE_SIZE as u64),
@@ -609,7 +611,7 @@ fn allocations_enumerate_by_owner_and_kind() {
         ]
     );
     let user_allocations = bank.allocations_of(Some(user));
-    assert_eq!(user_allocations, alloc::vec![(image, FrameKind::Image)]);
+    assert_eq!(user_allocations, ::alloc::vec![(image, FrameKind::Image)]);
     assert!(bank.allocations_of(None).is_empty());
 
     bank.free_for(
@@ -618,7 +620,7 @@ fn allocations_enumerate_by_owner_and_kind() {
     );
     assert_eq!(
         bank.allocations_of(Some(system)),
-        alloc::vec![(heap, FrameKind::KernelHeap)]
+        ::alloc::vec![(heap, FrameKind::KernelHeap)]
     );
 }
 

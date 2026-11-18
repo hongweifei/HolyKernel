@@ -1,7 +1,11 @@
 //! `PhysicalBackend` 实现：窗口归因、按容量分配与回收。
 
-use super::*;
-use crate::hmp::{HmpError, PhysicalBackend};
+use ::alloc::vec::Vec;
+
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
+
+use super::{FrameBank, FrameKind, MAX_NODES, OwnedWindow};
+use crate::hmp::{CapacityId, CapacityKind, HmpError, PhysicalBackend};
 
 impl PhysicalBackend for FrameBank {
     fn split_owned(&self, parent: CapacityId, child: CapacityId, len: u64) -> Option<PhysRange> {
@@ -109,7 +113,7 @@ impl PhysicalBackend for FrameBank {
         // 父窗口按实际转出的区间切分，剩余部分仍归父容量。
         inner.owned.retain(|_, window| window.capacity != parent);
         for window in windows {
-            let mut segments = alloc::vec![window];
+            let mut segments = ::alloc::vec![window];
             for range in &taken {
                 let mut next = Vec::new();
                 for segment in segments {

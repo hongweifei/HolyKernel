@@ -175,6 +175,7 @@ impl DmaOps for DmaAllocator {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use hk_hal::PhysAddr;
 

@@ -1,5 +1,7 @@
 //! Capacity 分配、切分、合并与配额测试。
 
+#![allow(clippy::wildcard_imports)]
+
 use super::*;
 
 fn capacity_with_id(id: u64) -> Capacity {

@@ -110,6 +110,7 @@ impl Iommu for SoftwareIommu {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use hk_hal::PhysAddr;

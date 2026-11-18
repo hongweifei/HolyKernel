@@ -261,6 +261,7 @@ impl<T> Default for AddressSpaceRegistry<T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

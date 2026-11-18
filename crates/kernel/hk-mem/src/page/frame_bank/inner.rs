@@ -1,6 +1,11 @@
 //! 帧银行内部空闲表：按节点切分、查找、切出与合并。
 
-use super::*;
+use ::alloc::vec::Vec;
+
+use hk_hal::{PhysAddr, PhysRange};
+
+use super::{Inner, MAX_NODES, OwnedWindow, align_up_u64};
+use crate::hmp::CapacityId;
 
 impl Inner {
     /// 返回物理地址所属节点；未配置拓扑时归入节点 0。
@@ -25,7 +30,7 @@ impl Inner {
         for range in ranges {
             let start = range.start().get();
             let end = range.end().get();
-            let mut cuts = alloc::vec![start, end];
+            let mut cuts = ::alloc::vec![start, end];
             for (node_range, _) in &self.nodes {
                 let node_start = node_range.start().get();
                 let node_end = node_range.end().get();
@@ -54,11 +59,11 @@ impl Inner {
     /// 把一段区间按节点边界切成多段，保证空闲条目不跨节点。
     pub(super) fn node_pieces(&self, range: PhysRange) -> Vec<PhysRange> {
         if self.nodes.is_empty() {
-            return alloc::vec![range];
+            return ::alloc::vec![range];
         }
         let start = range.start().get();
         let end = range.end().get();
-        let mut cuts = alloc::vec![start, end];
+        let mut cuts = ::alloc::vec![start, end];
         for (node_range, _) in &self.nodes {
             let node_start = node_range.start().get();
             let node_end = node_range.end().get();

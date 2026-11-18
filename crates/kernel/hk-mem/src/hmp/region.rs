@@ -310,6 +310,7 @@ impl Mappable for Region {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use hk_handle::ObjectId;
