@@ -265,6 +265,29 @@ impl Screen {
         true
     }
 
+    /// 在后备缓冲内平移一块像素；`dx`/`dy` 为带符号增量。
+    ///
+    /// 拖动窗口时内容已是后备缓冲里合成好的位图，直接搬移比按新位置重新
+    /// 合成整窗便宜得多；搬移后调用方只需补暴露边带与投影。
+    pub(crate) fn scroll(
+        &self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        dx: isize,
+        dy: isize,
+    ) {
+        if width == 0 || height == 0 || (dx == 0 && dy == 0) {
+            return;
+        }
+        self.surface.scroll(
+            Rect::new(x as i32, y as i32, width as i32, height as i32),
+            dx as i32,
+            dy as i32,
+        );
+    }
+
     pub(crate) fn put(&self, x: usize, y: usize, color: u32) {
         self.surface.put(x as i32, y as i32, color);
     }

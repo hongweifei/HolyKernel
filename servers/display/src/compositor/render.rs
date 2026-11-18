@@ -4,6 +4,7 @@ use hk_canvas::mix;
 use hk_font::Font;
 
 use crate::pointer::{self, Cursor, Hover};
+use crate::resize::Rect as Frame;
 use crate::theme::{scale, theme};
 use crate::window::{
     MAX_WINDOWS, Screen, Window, close_button_origin, close_size, maximize_button_origin,
@@ -718,7 +719,11 @@ fn window_union(
     )
 }
 
-/// 把窗口移动到新的左上角：旧、新矩形的并集一次重绘，重叠部分不重复合成。
+/// 把窗口移动到新的左上角。
+///
+/// 拖动期间窗口始终在最上层，后备缓冲里已有它的完整合成结果：直接搬移这
+/// 块像素，再补旧位置暴露的边带、新位置的投影环与四个圆角。一次移动的
+/// 代价与窗口周长成正比，而不是按窗口面积重新合成。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn move_window(
@@ -740,11 +745,57 @@ pub(crate) fn move_window(
     window.x = x;
     window.y = y;
     window.restore = None;
-    let (left, top, width, height) = window_union(
-        (old.x, old.y, old.width, old.height + title_height()),
-        (x, y, old.width, old.height + title_height()),
-    );
-    compose_region(screen, windows, focus, font, None, left, top, width, height);
+    let dx = x as isize - old.x as isize;
+    let dy = y as isize - old.y as isize;
+    if dx == 0 && dy == 0 {
+        return;
+    }
+    let inner_height = old.height + title_height();
+    screen.scroll(old.x, old.y, old.width, inner_height, dx, dy);
+    screen.mark_damage(x, y, old.width, inner_height);
+
+    let old_rect = Frame {
+        x: old.x,
+        y: old.y,
+        width: old.width,
+        height: inner_height,
+    };
+    let new_rect = Frame {
+        x,
+        y,
+        width: old.width,
+        height: inner_height,
+    };
+    for rect in crate::resize::move_repair(old_rect, new_rect, shadow_margin())
+        .into_iter()
+        .flatten()
+    {
+        compose_region(
+            screen,
+            windows,
+            focus,
+            font,
+            None,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+        );
+    }
+
+    let radius = if old.width >= screen.width {
+        0
+    } else {
+        corner_radius().min(old.width / 2).min(inner_height / 2)
+    };
+    if radius > 0 {
+        // 搬过去的是旧位置的像素，圆角缺口里还带着旧背景；按新位置重建四角。
+        let right = x.saturating_add(old.width).saturating_sub(radius);
+        let bottom = y.saturating_add(inner_height).saturating_sub(radius);
+        for (cx, cy) in [(x, y), (right, y), (x, bottom), (right, bottom)] {
+            compose_region(screen, windows, focus, font, None, cx, cy, radius, radius);
+        }
+    }
 }
 
 /// 把窗口缩放到新尺寸：旧、新矩形的并集一次重绘，重叠部分不重复合成。

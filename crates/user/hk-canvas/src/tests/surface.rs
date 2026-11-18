@@ -149,6 +149,22 @@ fn scroll_moves_content_down_without_corruption() {
 }
 
 #[test]
+fn scroll_moves_content_up_without_corruption() {
+    let mut pixels = [1_u32, 2, 3, 4, 5, 6];
+    let surface = canvas(&mut pixels, 3, 2);
+    surface.scroll(Rect::new(0, 0, 3, 2), 0, -1);
+    assert_eq!(pixels, [4, 5, 6, 4, 5, 6]);
+}
+
+#[test]
+fn scroll_moves_content_diagonally_without_corruption() {
+    let mut pixels = [1_u32, 2, 3, 4, 5, 6, 7, 8, 9];
+    let surface = canvas(&mut pixels, 3, 3);
+    surface.scroll(Rect::new(0, 0, 3, 3), 1, 1);
+    assert_eq!(pixels, [1, 2, 3, 4, 1, 2, 7, 4, 5]);
+}
+
+#[test]
 fn scroll_only_updates_the_destination_region() {
     let mut pixels = [1_u32, 2, 3, 4, 5, 6];
     let surface = canvas(&mut pixels, 3, 2);

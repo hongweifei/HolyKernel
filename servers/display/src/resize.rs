@@ -85,6 +85,114 @@ pub(crate) fn dragged(
     )
 }
 
+/// 矩形向外扩 `margin`。
+fn expand(rect: Rect, margin: usize) -> Rect {
+    Rect {
+        x: rect.x.saturating_sub(margin),
+        y: rect.y.saturating_sub(margin),
+        width: rect.width.saturating_add(margin * 2),
+        height: rect.height.saturating_add(margin * 2),
+    }
+}
+
+/// 只保留非空矩形的构造。
+fn band(x: usize, y: usize, width: usize, height: usize) -> Option<Rect> {
+    (width > 0 && height > 0).then_some(Rect {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+/// `rect` 去掉 `hole` 后剩下的边带：上半、下半、中间左侧、中间右侧。
+fn subtract(rect: Rect, hole: Rect) -> [Option<Rect>; 4] {
+    let right = rect.x.saturating_add(rect.width);
+    let bottom = rect.y.saturating_add(rect.height);
+    let hole_right = hole.x.saturating_add(hole.width);
+    let hole_bottom = hole.y.saturating_add(hole.height);
+
+    let top_end = hole.y.min(bottom);
+    let bottom_start = hole_bottom.max(rect.y).min(bottom);
+    let middle_top = hole.y.max(rect.y);
+    let middle_bottom = hole_bottom.min(bottom);
+    let mut sides = [None; 2];
+    if middle_top < middle_bottom {
+        let left_end = hole.x.min(right);
+        sides[0] = band(
+            rect.x,
+            middle_top,
+            left_end.saturating_sub(rect.x),
+            middle_bottom - middle_top,
+        );
+        let right_start = hole_right.max(rect.x).min(right);
+        sides[1] = band(
+            right_start,
+            middle_top,
+            right.saturating_sub(right_start),
+            middle_bottom - middle_top,
+        );
+    }
+    [
+        band(rect.x, rect.y, rect.width, top_end.saturating_sub(rect.y)),
+        band(
+            rect.x,
+            bottom_start,
+            rect.width,
+            bottom.saturating_sub(bottom_start),
+        ),
+        sides[0],
+        sides[1],
+    ]
+}
+
+/// 内沿四周的投影环：上、下、左、右四条边带。
+fn ring(inner: Rect, margin: usize) -> [Option<Rect>; 4] {
+    let outer = expand(inner, margin);
+    let right = outer.x.saturating_add(outer.width);
+    let bottom = outer.y.saturating_add(outer.height);
+    let inner_right = inner.x.saturating_add(inner.width);
+    let inner_bottom = inner.y.saturating_add(inner.height);
+    [
+        band(
+            outer.x,
+            outer.y,
+            outer.width,
+            inner.y.saturating_sub(outer.y),
+        ),
+        band(
+            outer.x,
+            inner_bottom,
+            outer.width,
+            bottom.saturating_sub(inner_bottom),
+        ),
+        band(
+            outer.x,
+            inner.y,
+            inner.x.saturating_sub(outer.x),
+            inner.height,
+        ),
+        band(
+            inner_right,
+            inner.y,
+            right.saturating_sub(inner_right),
+            inner.height,
+        ),
+    ]
+}
+
+/// 窗口平移后需要重绘的区域：旧外沿去掉新内沿，加上新内沿外的投影环。
+///
+/// 窗口内容已作为像素整体搬走后，这些边带是唯一还带着旧画面或缺少投影的
+/// 地方；合成它们即可得到与整窗重绘相同的画面。
+pub(crate) fn move_repair(old: Rect, new: Rect, margin: usize) -> [Option<Rect>; 8] {
+    let exposed = subtract(expand(old, margin), new);
+    let ring = ring(new, margin);
+    [
+        exposed[0], exposed[1], exposed[2], exposed[3], ring[0], ring[1], ring[2], ring[3],
+    ]
+}
+
 #[cfg(test)]
 #[allow(clippy::wildcard_imports)]
 mod tests {
@@ -225,6 +333,67 @@ mod tests {
         assert_eq!(
             dragged((10, 10), (20, 20), 400, 300, (1280, 772), 24),
             (0, 0)
+        );
+    }
+
+    fn inside(rect: Rect, x: usize, y: usize) -> bool {
+        x >= rect.x
+            && y >= rect.y
+            && x < rect.x.saturating_add(rect.width)
+            && y < rect.y.saturating_add(rect.height)
+    }
+
+    fn check_repair(old: Rect, new: Rect, margin: usize, limit: (usize, usize)) {
+        let rects = move_repair(old, new, margin);
+        let old_outer = expand(old, margin);
+        let new_outer = expand(new, margin);
+        for y in 0..limit.1 {
+            for x in 0..limit.0 {
+                let stale =
+                    (inside(old_outer, x, y) || inside(new_outer, x, y)) && !inside(new, x, y);
+                let covered = rects.iter().flatten().any(|rect| inside(*rect, x, y));
+                assert_eq!(covered, stale, "({x},{y}) 覆盖与预期不符");
+            }
+        }
+    }
+
+    #[test]
+    fn move_repair_covers_stale_bands() {
+        check_repair(
+            Rect {
+                x: 100,
+                y: 80,
+                width: 200,
+                height: 150,
+            },
+            Rect {
+                x: 111,
+                y: 74,
+                width: 200,
+                height: 150,
+            },
+            4,
+            (420, 400),
+        );
+    }
+
+    #[test]
+    fn move_repair_handles_disjoint_positions() {
+        check_repair(
+            Rect {
+                x: 10,
+                y: 10,
+                width: 40,
+                height: 30,
+            },
+            Rect {
+                x: 300,
+                y: 200,
+                width: 40,
+                height: 30,
+            },
+            2,
+            (360, 250),
         );
     }
 }
