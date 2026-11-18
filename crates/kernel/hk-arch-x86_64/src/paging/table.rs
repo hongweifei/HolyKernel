@@ -2,12 +2,6 @@
 //!
 //! 句柄与页表创建在此；映射与解除映射在 `map`，遍历、翻译与内核高半区登记在
 //! `walk`；页表项操作的单元测试在 `tests`。
-        // 进程不活跃时跳过远端失效；重新激活地址空间前本地清空 TLB，
-        // 保证不会复用此前遗留的失效条目。
-        #[cfg(not(test))]
-        tlb::flush_all();
-        #[cfg(not(test))]
-        tlb::flush_all();
 
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 
@@ -236,6 +230,10 @@ impl PageTable {
         unsafe {
             core::arch::asm!("mov cr3, {}", in(reg) value, options(nostack, preserves_flags));
         }
+        // 进程不活跃时跳过远端失效；重新激活地址空间前本地清空 TLB，
+        // 保证不会复用此前遗留的失效条目。
+        #[cfg(not(test))]
+        tlb::flush_all();
     }
 
     /// 刷新该地址空间中的地址；PCID 模式下用 INVPCID 定向失效。
