@@ -115,6 +115,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut alt = false;
     let mut abs_x = 0_u16;
     let mut abs_y = 0_u16;
+    // 一次唤醒内的 X/Y 轴事件合并成一条指针消息：virtio-tablet 每次移动会先报
+    // X 再报 Y，逐事件转发会让 Display 用半个新坐标重复合成一次。
+    let mut pointer_pending = false;
+    let mut wheel_pending = 0_i32;
     loop {
         for input in &mut inputs {
             input.ack_interrupt();
@@ -123,24 +127,24 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     EV_ABS => match event.code {
                         ABS_X => {
                             abs_x = event.value.min(ABS_MAX) as u16;
-                            forward_pointer(abs_x, abs_y);
+                            pointer_pending = true;
                         }
                         ABS_Y => {
                             abs_y = event.value.min(ABS_MAX) as u16;
-                            forward_pointer(abs_x, abs_y);
+                            pointer_pending = true;
                         }
                         _ => {}
                     },
                     EV_REL => {
                         if event.code == REL_WHEEL && event.value != 0 {
-                            let display = service_endpoint("hk-server-display");
-                            if display != 0 {
-                                let _ = send(display, INPUT_WHEEL, pack_wheel(event.value as i32));
-                            }
+                            wheel_pending = wheel_pending.saturating_add(event.value as i32);
                         }
                     }
                     EV_KEY => {
                         if event.code == BTN_LEFT || event.code == BTN_TOUCH {
+                            // 按钮按本批最新的指针位置命中，不能等到批次结束再补发。
+                            flush_pointer(&mut pointer_pending, abs_x, abs_y);
+                            flush_wheel(&mut wheel_pending);
                             let display = service_endpoint("hk-server-display");
                             if display != 0 {
                                 let _ = send(
@@ -169,6 +173,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                         let Some(keys) = key_bytes(event.code, shift, ctrl, alt) else {
                             continue;
                         };
+                        flush_pointer(&mut pointer_pending, abs_x, abs_y);
+                        flush_wheel(&mut wheel_pending);
                         let display = service_endpoint("hk-server-display");
                         if display != 0 {
                             for &byte in &keys.bytes[..keys.len] {
@@ -180,16 +186,35 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
             }
         }
+        flush_pointer(&mut pointer_pending, abs_x, abs_y);
+        flush_wheel(&mut wheel_pending);
         let _ = wait_notify(notification, 1);
     }
 }
 
-/// 转发绝对指针位置。
+/// 把本批最后一次指针位置发给显示服务；没有移动时不发消息。
 #[cfg(target_os = "none")]
-fn forward_pointer(x: u16, y: u16) {
+fn flush_pointer(pending: &mut bool, x: u16, y: u16) {
+    if !*pending {
+        return;
+    }
+    *pending = false;
     let display = service_endpoint("hk-server-display");
     if display != 0 {
         let _ = send(display, INPUT_POINTER, pack_pointer(x, y));
+    }
+}
+
+/// 把本批累积的滚轮增量发给显示服务。
+#[cfg(target_os = "none")]
+fn flush_wheel(pending: &mut i32) {
+    let delta = core::mem::take(pending);
+    if delta == 0 {
+        return;
+    }
+    let display = service_endpoint("hk-server-display");
+    if display != 0 {
+        let _ = send(display, INPUT_WHEEL, pack_wheel(delta));
     }
 }
 

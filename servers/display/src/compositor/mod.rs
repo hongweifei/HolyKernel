@@ -56,6 +56,9 @@ pub(crate) struct Compositor {
 /// 客户端表面尺寸与窗口不一致时，补发缩放通知的间隔（微秒）。
 const RESIZE_RETRY_MICROS: u64 = 200_000;
 
+/// 单批最多处理的消息数；内核端点队列容量为 64，批次在队列取空时提前结束。
+const BATCH_LIMIT: usize = 64;
+
 impl Compositor {
     /// 建立合成器状态并绘制初始任务栏。
     pub(crate) fn new(
@@ -109,7 +112,34 @@ impl Compositor {
                 &message.payload[..message.length],
             );
         }
+        let mut payload = [0_u8; 8 + TITLE_MAX];
         loop {
+            // 成批取空队列：连续指针移动只应用最后位置，整批只合成、提交一次。
+            // 指针移动与非指针消息之间保持顺序，避免按键落在过期的指针位置上。
+            let mut pointer = None;
+            let mut messages = 0;
+            loop {
+                let (label, word, sender, length, handle) =
+                    recv_data_handle_try(self.endpoint, &mut payload, 0);
+                if label == 0 {
+                    break;
+                }
+                if label == INPUT_POINTER {
+                    pointer = Some(word);
+                } else {
+                    if let Some(word) = pointer.take() {
+                        self.input_pointer(word);
+                    }
+                    self.handle_message(label, word, sender, length, handle, &payload);
+                }
+                messages += 1;
+                if messages >= BATCH_LIMIT {
+                    break;
+                }
+            }
+            if let Some(word) = pointer.take() {
+                self.input_pointer(word);
+            }
             let presented = self.screen.present();
             if presented && let Some(scanout) = &self.scanout {
                 scanout.flush();
@@ -122,15 +152,9 @@ impl Compositor {
                     self.console_key(byte);
                 }
             }
-            let mut payload = [0_u8; 8 + TITLE_MAX];
-            let (label, word, sender, length, handle) =
-                recv_data_handle_try(self.endpoint, &mut payload, 0);
-
-            if label == 0 {
+            if messages == 0 {
                 let _ = sleep_ticks(1);
-                continue;
             }
-            self.handle_message(label, word, sender, length, handle, &payload);
         }
     }
 

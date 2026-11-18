@@ -23,15 +23,24 @@ fn corner_radius() -> usize {
     6 * scale()
 }
 
-/// 整数平方根；半径很小，线性探测足够。
+/// 整数平方根；每个窗口的投影要按像素求距离，线性探测在 debug 下会成为热点。
 #[cfg(target_os = "none")]
 fn sqrt_floor(value: usize) -> usize {
-    let mut root = 0;
-    while (root + 1) * (root + 1) <= value {
-        root += 1;
+    if value < 2 {
+        return value;
     }
-    root
+    let mut current = value;
+    let mut next = current.div_ceil(2);
+    while next < current {
+        current = next;
+        next = (current + value / current) / 2;
+    }
+    current
 }
+
+/// 圆角半径上限（`ui.scale` 最大 2 时的 6×scale）。
+#[cfg(target_os = "none")]
+const MAX_CORNER_RADIUS: usize = 12;
 
 /// 距离窗口边缘 `distance` 行/列处的圆角内缩量。
 #[cfg(target_os = "none")]
@@ -42,6 +51,20 @@ fn corner_inset(distance: usize, radius: usize) -> usize {
     let radius = radius as u32;
     let dy = radius - distance as u32;
     (radius - sqrt_floor((radius * radius - dy * dy) as usize) as u32) as usize
+}
+
+/// 预先算出一圈圆角内缩量：逐行绘制时直接查表，避免每行重复开方。
+#[cfg(target_os = "none")]
+fn corner_insets(radius: usize) -> [usize; MAX_CORNER_RADIUS + 1] {
+    let mut insets = [0; MAX_CORNER_RADIUS + 1];
+    for (distance, inset) in insets
+        .iter_mut()
+        .enumerate()
+        .take(radius.min(MAX_CORNER_RADIUS))
+    {
+        *inset = corner_inset(distance, radius);
+    }
+    insets
 }
 
 /// 窗口在屏幕上是否需要圆角；最大化窗口铺满宽度，不剪角。
@@ -216,6 +239,7 @@ fn paint_window(
     let radius = window_radius(screen, window)
         .min(window.width / 2)
         .min((title_height() + window.height) / 2);
+    let insets = corner_insets(radius);
     paint_shadow(screen, window, radius, left, top, right, bottom);
     let palette = theme();
     let window_x = window.x;
@@ -231,7 +255,7 @@ fn paint_window(
             palette.title_color
         };
         for row in title_top..title_bottom {
-            let inset = corner_inset(row.saturating_sub(window_y), radius);
+            let inset = insets[row.saturating_sub(window_y).min(MAX_CORNER_RADIUS)];
             let row_left = window_x.saturating_add(inset).max(title_left);
             let row_right = (window_x + window.width)
                 .saturating_sub(inset)
@@ -249,6 +273,13 @@ fn paint_window(
         for character in title.chars() {
             let advance = font.advance(character);
             if pen_x + advance > text_end {
+                break;
+            }
+            if pen_x + advance <= left as i32 {
+                pen_x += advance;
+                continue;
+            }
+            if pen_x >= right as i32 {
                 break;
             }
             if let Some(glyph) = font.glyph(character) {
@@ -355,7 +386,7 @@ fn paint_window(
         let window_bottom = window_y + title_height() + window.height;
         for row in body_top..body_bottom {
             let distance = window_bottom.saturating_sub(1).saturating_sub(row);
-            let inset = corner_inset(distance, radius);
+            let inset = insets[distance.min(MAX_CORNER_RADIUS)];
             let row_left = window_x.saturating_add(inset).max(body_left);
             let row_right = (window_x + window.width)
                 .saturating_sub(inset)
@@ -447,6 +478,14 @@ fn paint_taskbar(
         let fill_bottom = (button_top + taskbar_button_height()).min(bottom);
         let fill_left = button_x.max(left);
         let fill_right = (button_x + button_width).min(right);
+        // 按钮与字形都不在本次重绘区域内时整块跳过：光标小块重绘不再逐像素
+        // 遍历任务栏上每个标题的字形。字形带的上下界按字号放宽，避免裁掉
+        // 突出按钮行之外的像素。
+        let text_band_top = button_top.saturating_sub(font.size() as usize);
+        let text_band_bottom = button_top + taskbar_button_height() + font.size() as usize;
+        if fill_left >= fill_right || text_band_bottom <= top || text_band_top >= bottom {
+            continue;
+        }
         for row in fill_top..fill_bottom {
             screen.fill_row(fill_left, row, fill_right.saturating_sub(fill_left), color);
         }
@@ -454,6 +493,7 @@ fn paint_taskbar(
         let font_scale = scale() as i32;
         let mut pen_x = button_x as i32 + 6 * font_scale;
         let text_end = (button_x + button_width) as i32 - 6 * font_scale;
+        let origin_y = button_top as i32 + 2 * font_scale;
         let title = if window.title_length == 0 {
             "window"
         } else {
@@ -465,8 +505,14 @@ fn paint_taskbar(
             if pen_x + advance > text_end {
                 break;
             }
+            if pen_x + advance <= left as i32 {
+                pen_x += advance;
+                continue;
+            }
+            if pen_x >= right as i32 {
+                break;
+            }
             if let Some(glyph) = font.glyph(character) {
-                let origin_y = button_top as i32 + 2 * font_scale;
                 glyph.for_each_pixel(|x, y| {
                     let pixel_x = pen_x + x;
                     let pixel_y = origin_y + y;
@@ -645,7 +691,34 @@ pub(crate) fn damage_title(
     }
 }
 
-/// 把窗口移动到新的左上角，并重绘旧、新两个区域。
+/// 旧、新窗口矩形（含标题栏）的并集，向外扩出投影边距。
+#[cfg(target_os = "none")]
+fn window_union(
+    old: (usize, usize, usize, usize),
+    new: (usize, usize, usize, usize),
+) -> (usize, usize, usize, usize) {
+    let margin = shadow_margin();
+    let left = old.0.min(new.0).saturating_sub(margin);
+    let top = old.1.min(new.1).saturating_sub(margin);
+    let right = old
+        .0
+        .saturating_add(old.2)
+        .max(new.0.saturating_add(new.2))
+        .saturating_add(margin);
+    let bottom = old
+        .1
+        .saturating_add(old.3)
+        .max(new.1.saturating_add(new.3))
+        .saturating_add(margin);
+    (
+        left,
+        top,
+        right.saturating_sub(left),
+        bottom.saturating_sub(top),
+    )
+}
+
+/// 把窗口移动到新的左上角：旧、新矩形的并集一次重绘，重叠部分不重复合成。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn move_window(
@@ -667,31 +740,14 @@ pub(crate) fn move_window(
     window.x = x;
     window.y = y;
     window.restore = None;
-    compose_window_region(
-        screen,
-        windows,
-        focus,
-        font,
-        None,
-        old.x,
-        old.y,
-        old.width,
-        old.height + title_height(),
+    let (left, top, width, height) = window_union(
+        (old.x, old.y, old.width, old.height + title_height()),
+        (x, y, old.width, old.height + title_height()),
     );
-    compose_window_region(
-        screen,
-        windows,
-        focus,
-        font,
-        None,
-        x,
-        y,
-        old.width,
-        old.height + title_height(),
-    );
+    compose_region(screen, windows, focus, font, None, left, top, width, height);
 }
 
-/// 把窗口缩放到新尺寸，并重绘旧、新两个区域。
+/// 把窗口缩放到新尺寸：旧、新矩形的并集一次重绘，重叠部分不重复合成。
 #[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resize_window(
@@ -717,26 +773,19 @@ pub(crate) fn resize_window(
     window.width = width;
     window.height = height;
     window.restore = None;
-    compose_window_region(
-        screen,
-        windows,
-        focus,
-        font,
-        None,
-        old.x,
-        old.y,
-        old.width,
-        old.height + title_height(),
+    let (left, top, union_width, union_height) = window_union(
+        (old.x, old.y, old.width, old.height + title_height()),
+        (x, y, width, height + title_height()),
     );
-    compose_window_region(
+    compose_region(
         screen,
         windows,
         focus,
         font,
         None,
-        x,
-        y,
-        width,
-        height + title_height(),
+        left,
+        top,
+        union_width,
+        union_height,
     );
 }
