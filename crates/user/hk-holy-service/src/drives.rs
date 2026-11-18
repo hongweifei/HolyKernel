@@ -72,6 +72,11 @@ impl Drives {
         self.drives.get_mut(&letter)
     }
 
+    /// 返回盘符的卷视图。
+    pub fn volume(&self, letter: u8) -> Option<VolumeView> {
+        self.drives.get(&letter).map(|drive| drive.volume)
+    }
+
     /// 列出全部盘符与卷视图。
     pub fn list(&self) -> Vec<(u8, VolumeView)> {
         self.drives

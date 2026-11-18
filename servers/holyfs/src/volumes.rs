@@ -62,13 +62,25 @@ pub(crate) struct VolumeInfo {
     pub(crate) root: DocId,
 }
 
+impl VolumeInfo {
+    /// 线协议卷视图。
+    pub(crate) fn view(&self) -> hk_proto::holy::VolumeView {
+        hk_proto::holy::VolumeView {
+            volume: self.volume.get(),
+            generation: self.generation,
+            epoch: self.epoch,
+            root: hk_proto::holy::DocId::new(self.root.get()),
+        }
+    }
+}
+
 /// 盘符到卷的注册表。
-pub(crate) struct Volumes {
-    drives: BTreeMap<u8, HolyFs<ServiceDisk>>,
+pub(crate) struct Volumes<D: BlockDevice = ServiceDisk> {
+    drives: BTreeMap<u8, HolyFs<D>>,
     services: BTreeMap<u8, String>,
 }
 
-impl Volumes {
+impl<D: BlockDevice> Volumes<D> {
     pub(crate) const fn new() -> Self {
         Self {
             drives: BTreeMap::new(),
@@ -82,11 +94,7 @@ impl Volumes {
     }
 
     /// 注册盘符；盘符必须是 A-Z，且不能重复。
-    pub(crate) fn insert(
-        &mut self,
-        letter: u8,
-        volume: HolyFs<ServiceDisk>,
-    ) -> Result<(), HolyError> {
+    pub(crate) fn insert(&mut self, letter: u8, volume: HolyFs<D>) -> Result<(), HolyError> {
         if !letter.is_ascii_alphabetic() {
             return Err(HolyError::Invalid);
         }
@@ -97,6 +105,48 @@ impl Volumes {
         Ok(())
     }
 
+    /// 刷写并移除盘符。
+    pub(crate) fn detach(&mut self, letter: u8) -> Result<(), u8> {
+        let mut volume = self.drives.remove(&letter).ok_or(STATUS_NOT_FOUND)?;
+        if let Err(error) = volume.sync() {
+            self.drives.insert(letter, volume);
+            return Err(response::status(error));
+        }
+        self.services.remove(&letter);
+        Ok(())
+    }
+
+    /// 按盘符取卷。
+    pub(crate) fn get_mut(&mut self, letter: u8) -> Option<&mut HolyFs<D>> {
+        self.drives.get_mut(&letter)
+    }
+
+    /// 返回盘符的元数据。
+    pub(crate) fn slot(&self, letter: u8) -> Option<VolumeInfo> {
+        self.drives.get(&letter).map(|volume| VolumeInfo {
+            letter,
+            volume: volume.volume_id(),
+            generation: volume.generation(),
+            epoch: volume.epoch(),
+            root: volume.root(),
+        })
+    }
+
+    /// 返回盘符的线协议卷视图。
+    pub(crate) fn volume_view(&self, letter: u8) -> Option<hk_proto::holy::VolumeView> {
+        self.slot(letter).map(|info| info.view())
+    }
+
+    /// 枚举已注册盘符。
+    pub(crate) fn list(&self) -> Vec<VolumeInfo> {
+        self.drives
+            .keys()
+            .filter_map(|letter| self.slot(*letter))
+            .collect()
+    }
+}
+
+impl Volumes<ServiceDisk> {
     /// 动态接入一个块服务并注册盘符；未格式化的设备会先格式化。
     pub(crate) fn attach(&mut self, letter: u8, service: &str, endpoint: u64) -> Result<(), u8> {
         if !letter.is_ascii_alphabetic() {
@@ -122,36 +172,6 @@ impl Volumes {
         self.insert(letter, volume).map_err(response::status)?;
         self.services.insert(letter, String::from(service));
         Ok(())
-    }
-
-    /// 刷写并移除盘符。
-    pub(crate) fn detach(&mut self, letter: u8) -> Result<(), u8> {
-        let mut volume = self.drives.remove(&letter).ok_or(STATUS_NOT_FOUND)?;
-        if let Err(error) = volume.sync() {
-            self.drives.insert(letter, volume);
-            return Err(response::status(error));
-        }
-        self.services.remove(&letter);
-        Ok(())
-    }
-
-    /// 按盘符取卷。
-    pub(crate) fn get_mut(&mut self, letter: u8) -> Option<&mut HolyFs<ServiceDisk>> {
-        self.drives.get_mut(&letter)
-    }
-
-    /// 枚举已注册盘符。
-    pub(crate) fn list(&self) -> Vec<VolumeInfo> {
-        self.drives
-            .iter()
-            .map(|(letter, volume)| VolumeInfo {
-                letter: *letter,
-                volume: volume.volume_id(),
-                generation: volume.generation(),
-                epoch: volume.epoch(),
-                root: volume.root(),
-            })
-            .collect()
     }
 }
 

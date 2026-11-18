@@ -4,11 +4,10 @@
 //! 交给工作线程一次性解压到缓存帧，后续块直接从缓存拷贝。缓存按
 //! (盘符, 文档, head 修订) 校验，文档产生新修订后自动失效。
 
+use hk_block::BlockDevice;
 use hk_fs_holyfs::{DocId, DocumentKind, HolyError, HolyFs};
 use hk_server_api::{MemoryClient, yield_now};
 use hk_worker::Pool;
-
-use crate::volumes::ServiceDisk;
 
 /// 单篇缓存上限。
 const MAX_CACHE: usize = 2 * 1024 * 1024;
@@ -41,9 +40,9 @@ impl ReadCache {
     }
 
     /// 读取文档的一段；命中或整篇解压成功后返回长度，未命中返回 `None`。
-    pub(crate) fn read(
+    pub(crate) fn read<D: BlockDevice>(
         &mut self,
-        drive: &mut HolyFs<ServiceDisk>,
+        drive: &HolyFs<D>,
         letter: u8,
         document: DocId,
         revision: Option<u64>,

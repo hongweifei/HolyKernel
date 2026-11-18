@@ -11,4 +11,4 @@ mod drives;
 mod handle;
 
 pub use drives::{Drive, Drives, LOCAL_VOLUME_BASE};
-pub use handle::handle;
+pub use handle::{DriveSource, SHARED_OPS, handle};

@@ -1,12 +1,14 @@
 //! Holy 文档请求分派。
 
-use hk_fs::{DocSessions, RevisionId};
+use alloc::vec::Vec;
+
+use hk_fs::{Backend, DocId, DocSessions, HandleRights, RevisionId};
 use hk_proto::holy::{
     DriveView, OP_ACQUIRE, OP_CREATE, OP_DOCUMENT_ID, OP_DRIVES, OP_ENUMERATE_ID, OP_GRANT,
     OP_READ_ID, OP_READ_REVISION, OP_READ_TOKEN, OP_RELEASE, OP_RESOLVE, OP_REVISIONS_ID,
     OP_REVOKE, OP_ROOT, OP_SYNC, OP_TRANSFER, OP_TRUNCATE_ID, OP_TRUNCATE_TOKEN, OP_UNBIND,
     OP_VOLUME, OP_WRITE_ID, OP_WRITE_TOKEN, Request, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE,
-    decode_u64,
+    VolumeView, decode_u64,
 };
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
@@ -14,9 +16,76 @@ use hk_holy_proto::response;
 
 use crate::Drives;
 
-/// 处理原生 VFS 请求。
-pub fn handle(
-    drives: &mut Drives,
+/// 通用文档协议覆盖的操作码。
+///
+/// 由 [`handle`] 分派；具备原生后端的服务不得再自行实现这些分支。
+pub const SHARED_OPS: &[u8] = &[
+    OP_DRIVES,
+    OP_TRANSFER,
+    OP_RELEASE,
+    OP_REVOKE,
+    OP_GRANT,
+    OP_VOLUME,
+    OP_ROOT,
+    OP_RESOLVE,
+    OP_CREATE,
+    OP_UNBIND,
+    OP_ENUMERATE_ID,
+    OP_DOCUMENT_ID,
+    OP_READ_ID,
+    OP_READ_REVISION,
+    OP_WRITE_ID,
+    OP_TRUNCATE_ID,
+    OP_REVISIONS_ID,
+    OP_SYNC,
+    OP_ACQUIRE,
+    OP_READ_TOKEN,
+    OP_WRITE_TOKEN,
+    OP_TRUNCATE_TOKEN,
+];
+
+/// 盘符到文档后端的来源。
+///
+/// 通用分派只依赖该契约：进程内后端注册表与 HolyFS 自己的卷都能复用同一套
+/// 协议处理，不需要各自维护分派表。
+pub trait DriveSource {
+    /// 列出全部盘符与卷视图。
+    fn list(&self) -> Vec<(u8, VolumeView)>;
+
+    /// 返回盘符的卷视图。
+    fn volume(&self, letter: u8) -> Option<VolumeView>;
+
+    /// 在盘符上执行一次后端操作；盘符不存在时返回 `None`。
+    fn with_drive<R>(
+        &mut self,
+        letter: u8,
+        f: impl FnOnce(&mut dyn Backend, DocId) -> R,
+    ) -> Option<R>;
+}
+
+impl DriveSource for Drives {
+    fn list(&self) -> Vec<(u8, VolumeView)> {
+        Drives::list(self)
+    }
+
+    fn volume(&self, letter: u8) -> Option<VolumeView> {
+        Drives::volume(self, letter)
+    }
+
+    fn with_drive<R>(
+        &mut self,
+        letter: u8,
+        f: impl FnOnce(&mut dyn Backend, DocId) -> R,
+    ) -> Option<R> {
+        let drive = self.get_mut(letter)?;
+        let root = drive.root;
+        Some(f(drive.backend.as_mut(), root))
+    }
+}
+
+/// 处理原生文档请求，返回状态与响应字节数。
+pub fn handle<S: DriveSource>(
+    drives: &mut S,
     sessions: &mut DocSessions,
     sender: u64,
     request: &Request<'_>,
@@ -50,26 +119,23 @@ pub fn handle(
         };
     }
     if request.op == OP_GRANT {
-        return match sessions.doc(sender, letter).grant(
-            request.arg0,
-            hk_fs::HandleRights::from_bits(request.arg1 as u32),
-        ) {
+        return match sessions
+            .doc(sender, letter)
+            .grant(request.arg0, HandleRights::from_bits(request.arg1 as u32))
+        {
             Ok(token) => response::token(body, token),
             Err(error) => (response::status(error), 0),
         };
     }
-    let Some(entry) = drives.get_mut(letter) else {
-        return (STATUS_NOT_FOUND, 0);
-    };
-    let volume = entry.volume;
-    let root = entry.root;
-    let backend = entry.backend.as_mut();
     if request.op == OP_VOLUME {
+        let Some(volume) = drives.volume(letter) else {
+            return (STATUS_NOT_FOUND, 0);
+        };
         return response::volume(body, volume);
     }
     match request.op {
-        OP_ROOT => response::doc(body, root),
-        OP_RESOLVE => {
+        OP_ROOT => with_drive(drives, letter, |_, root| response::doc(body, root)),
+        OP_RESOLVE => with_drive(drives, letter, |backend, _| {
             let Some(collection) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -77,8 +143,8 @@ pub fn handle(
                 Ok(document) => response::doc(body, document),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_CREATE => {
+        }),
+        OP_CREATE => with_drive(drives, letter, |backend, _| {
             let Some(collection) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -89,8 +155,8 @@ pub fn handle(
                 Ok(document) => response::doc(body, document),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_UNBIND => {
+        }),
+        OP_UNBIND => with_drive(drives, letter, |backend, _| {
             let Some(collection) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -98,8 +164,8 @@ pub fn handle(
                 Ok(document) => response::doc(body, document),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_ENUMERATE_ID => {
+        }),
+        OP_ENUMERATE_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -107,8 +173,8 @@ pub fn handle(
                 Ok(entries) => response::entries(body, &entries),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_DOCUMENT_ID => {
+        }),
+        OP_DOCUMENT_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -116,8 +182,8 @@ pub fn handle(
                 Ok(info) => response::info(body, info),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_READ_ID => {
+        }),
+        OP_READ_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -126,8 +192,8 @@ pub fn handle(
                 Ok(read) => (STATUS_OK, read),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_READ_REVISION => {
+        }),
+        OP_READ_REVISION => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -149,8 +215,8 @@ pub fn handle(
                 Ok(read) => (STATUS_OK, read),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_WRITE_ID => {
+        }),
+        OP_WRITE_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -162,8 +228,8 @@ pub fn handle(
                 },
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_TRUNCATE_ID => {
+        }),
+        OP_TRUNCATE_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -171,8 +237,8 @@ pub fn handle(
                 Ok(()) => (STATUS_OK, 0),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_REVISIONS_ID => {
+        }),
+        OP_REVISIONS_ID => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -180,12 +246,12 @@ pub fn handle(
                 Ok(revisions) => response::revisions(body, &revisions),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_SYNC => match backend.sync() {
+        }),
+        OP_SYNC => with_drive(drives, letter, |backend, _| match backend.sync() {
             Ok(()) => (STATUS_OK, 0),
             Err(error) => (response::status(error), 0),
-        },
-        OP_ACQUIRE => {
+        }),
+        OP_ACQUIRE => with_drive(drives, letter, |backend, _| {
             let Some(document) = response::doc_from(request.data) else {
                 return (STATUS_INVALID, 0);
             };
@@ -194,14 +260,14 @@ pub fn handle(
                     let token = sessions.doc(sender, letter).acquire(
                         document,
                         info.head,
-                        hk_fs::HandleRights::from_bits(request.arg0 as u32),
+                        HandleRights::from_bits(request.arg0 as u32),
                     );
                     response::token(body, token)
                 }
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_READ_TOKEN => {
+        }),
+        OP_READ_TOKEN => with_drive(drives, letter, |backend, _| {
             let token = match sessions.doc(sender, letter).get(request.arg0) {
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
@@ -222,8 +288,8 @@ pub fn handle(
                 Ok(read) => (STATUS_OK, read),
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_WRITE_TOKEN => {
+        }),
+        OP_WRITE_TOKEN => with_drive(drives, letter, |backend, _| {
             let token = match sessions.doc(sender, letter).get(request.arg0) {
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
@@ -243,8 +309,8 @@ pub fn handle(
                 },
                 Err(error) => (response::status(error), 0),
             }
-        }
-        OP_TRUNCATE_TOKEN => {
+        }),
+        OP_TRUNCATE_TOKEN => with_drive(drives, letter, |backend, _| {
             let token = match sessions.doc(sender, letter).get(request.arg0) {
                 Ok(token) => token,
                 Err(error) => return (response::status(error), 0),
@@ -264,8 +330,19 @@ pub fn handle(
                 },
                 Err(error) => (response::status(error), 0),
             }
-        }
+        }),
         _ => (STATUS_INVALID, 0),
+    }
+}
+
+fn with_drive<S: DriveSource>(
+    drives: &mut S,
+    letter: u8,
+    f: impl FnOnce(&mut dyn Backend, DocId) -> (u8, usize),
+) -> (u8, usize) {
+    match drives.with_drive(letter, f) {
+        Some(result) => result,
+        None => (STATUS_NOT_FOUND, 0),
     }
 }
 
@@ -360,8 +437,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn dispatches_drives_roots_and_missing_drives() {
+    fn fake_drives() -> Drives {
         let mut drives = Drives::new();
         assert!(drives.insert_local(
             b'H',
@@ -369,6 +445,12 @@ mod tests {
                 root: DocId::new(7)
             }
         ));
+        drives
+    }
+
+    #[test]
+    fn dispatches_drives_roots_and_missing_drives() {
+        let mut drives = fake_drives();
         let mut sessions = DocSessions::new();
         let mut body = [0_u8; 64];
 
@@ -407,13 +489,7 @@ mod tests {
 
     #[test]
     fn rejects_malformed_document_payloads() {
-        let mut drives = Drives::new();
-        assert!(drives.insert_local(
-            b'H',
-            Fake {
-                root: DocId::new(7)
-            }
-        ));
+        let mut drives = fake_drives();
         let mut sessions = DocSessions::new();
         let mut body = [0_u8; 64];
 
@@ -427,6 +503,25 @@ mod tests {
                 &mut body,
             );
             assert_eq!(status, STATUS_INVALID);
+        }
+    }
+
+    #[test]
+    fn shared_ops_are_implemented() {
+        let mut drives = fake_drives();
+        let mut sessions = DocSessions::new();
+        let mut body = [0_u8; 64];
+        let mut data = [0_u8; 24];
+        data[..16].copy_from_slice(&7_u128.to_le_bytes());
+        for &op in SHARED_OPS {
+            let (status, _) = handle(
+                &mut drives,
+                &mut sessions,
+                1,
+                &request(op, b'H', &data),
+                &mut body,
+            );
+            assert_ne!(status, STATUS_INVALID, "shared op {op:#x} 未实现");
         }
     }
 }

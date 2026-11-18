@@ -1276,6 +1276,7 @@ dependencies = [
  "hk-fs",
  "hk-fs-holyfs",
  "hk-holy-proto",
+ "hk-holy-service",
  "hk-proto",
  "hk-server-api",
  "hk-server-build",
