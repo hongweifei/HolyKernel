@@ -146,6 +146,7 @@ pub(crate) fn union(current: Rect, next: Rect) -> Rect {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

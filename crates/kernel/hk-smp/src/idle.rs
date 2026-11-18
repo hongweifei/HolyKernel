@@ -73,6 +73,7 @@ impl<const N: usize> Default for IdleState<N> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

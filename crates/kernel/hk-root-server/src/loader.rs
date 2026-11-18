@@ -172,6 +172,7 @@ pub fn is_script(name: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use hk_hal::{MemoryRegion, PhysAddr, RegionKind};

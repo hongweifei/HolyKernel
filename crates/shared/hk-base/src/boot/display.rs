@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use super::*;
+use super::BootInfo;
 
 impl fmt::Display for BootInfo {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

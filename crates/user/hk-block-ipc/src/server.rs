@@ -316,6 +316,7 @@ fn reply(sender: u64, tag: u32, status: u8, data: &[u8], response: &mut [u8]) {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

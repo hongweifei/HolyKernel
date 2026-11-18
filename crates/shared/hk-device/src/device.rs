@@ -205,6 +205,7 @@ fn get_u64(bytes: &[u8], at: &mut usize) -> Option<u64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

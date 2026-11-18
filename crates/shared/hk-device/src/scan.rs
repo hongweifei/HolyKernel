@@ -302,6 +302,7 @@ fn vendor(id: u32) -> u16 {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use alloc::vec::Vec;

@@ -214,6 +214,7 @@ impl Default for VolumeSessions {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

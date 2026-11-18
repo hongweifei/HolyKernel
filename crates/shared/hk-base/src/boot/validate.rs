@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use super::*;
+use super::{BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, RegionKind};
 use crate::addr::{PAGE_SIZE, PhysAddr};
 
 impl BootInfo {

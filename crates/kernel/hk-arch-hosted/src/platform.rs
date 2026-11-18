@@ -164,6 +164,7 @@ impl Platform for HostedPlatform {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

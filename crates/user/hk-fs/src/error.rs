@@ -104,6 +104,7 @@ impl fmt::Display for Error {
 impl core::error::Error for Error {}
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

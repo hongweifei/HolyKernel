@@ -61,6 +61,7 @@ pub fn from_device(config: &dyn PciConfig, device: &Device) -> DeviceGrant {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use crate::pci::PciAddress;

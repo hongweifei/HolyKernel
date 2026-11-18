@@ -70,6 +70,7 @@ impl<I: Io> Console for Uart16550<I> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

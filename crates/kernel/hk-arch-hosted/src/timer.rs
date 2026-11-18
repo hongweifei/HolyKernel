@@ -82,6 +82,7 @@ impl Timer for HostedTimer {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

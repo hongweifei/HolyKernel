@@ -115,6 +115,7 @@ fn wait_drive(client: &mut HolyClient) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

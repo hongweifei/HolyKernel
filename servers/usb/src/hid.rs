@@ -148,6 +148,7 @@ fn printable(usage: u8) -> Option<u8> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

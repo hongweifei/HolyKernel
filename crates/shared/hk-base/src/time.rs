@@ -246,6 +246,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

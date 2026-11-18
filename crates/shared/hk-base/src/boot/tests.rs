@@ -1,6 +1,9 @@
 //! 启动信息校验测试。
 
-use super::*;
+use super::{
+    BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BootInfo, BootInfoError, BootModule, DirectMapInfo,
+    FramebufferInfo, MemoryRegion, PixelFormat, RegionKind,
+};
 
 use crate::addr::{PhysAddr, VirtAddr};
 use crate::arch::Arch;

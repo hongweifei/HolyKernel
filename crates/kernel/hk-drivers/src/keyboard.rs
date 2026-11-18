@@ -269,6 +269,7 @@ fn shifted(base: u8) -> u8 {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use core::sync::atomic::AtomicU8;

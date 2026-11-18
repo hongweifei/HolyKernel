@@ -272,6 +272,7 @@ impl Default for VolumeTokenTable {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

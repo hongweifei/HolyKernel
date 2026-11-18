@@ -59,6 +59,7 @@ impl Default for ApPool {
 pub static AP_POOL: ApPool = ApPool::new();
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

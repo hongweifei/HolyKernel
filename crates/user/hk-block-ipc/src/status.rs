@@ -24,6 +24,7 @@ pub(crate) fn to_status(error: BlockError) -> u8 {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
     use hk_proto::block::STATUS_OK;
