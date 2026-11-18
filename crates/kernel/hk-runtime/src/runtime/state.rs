@@ -121,7 +121,7 @@ pub enum Switch {
 pub enum Step<C> {
     /// 恢复该任务的用户态现场。
     Resume {
-        /// 任务下标，供 [`UserRuntime::finish`] 收尾。
+        /// 任务下标，供 [`UserRuntime::finish`](crate::runtime::UserRuntime::finish) 收尾。
         index: usize,
         /// 用户态现场。
         context: C,
