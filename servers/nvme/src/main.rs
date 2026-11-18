@@ -16,23 +16,16 @@ use hk_driver_host::{init_dma, init_log, init_mmio, register_mapping, register_m
 #[cfg(target_os = "none")]
 use hk_driver_rdif::{RdifDisk, Waiter};
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_NVME, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
-#[cfg(target_os = "none")]
-use hk_server_api::heap::FreeHeap;
+use hk_server_api::device::{DEVICE_CLASS_NVME, request_grant};
 #[cfg(target_os = "none")]
 use hk_server_api::{
-    close_handle, device_info, device_map, dma_map, exit, irq_bind, recv_handle, self_notification,
-    send, service_endpoint, wait_notify, write,
+    device_info, device_map, dma_map, exit, irq_bind, self_notification, service_endpoint,
+    wait_notify, write,
 };
 #[cfg(target_os = "none")]
 use nvme_driver::{Config, Nvme, NvmeBlockDriver, NvmeIntxSource};
 
-#[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 512 * 1024;
-
-#[cfg(target_os = "none")]
-#[global_allocator]
-static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
+hk_server_api::server_heap!(512 * 1024);
 
 #[cfg(target_os = "none")]
 struct IntxSource;
@@ -54,7 +47,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write(b"hk-server-nvme: no device manager\n");
         exit(0)
     }
-    let Some(grant) = request_grant(endpoint, manager) else {
+    let Some(grant) = request_grant(endpoint, manager, DEVICE_CLASS_NVME) else {
         write(b"hk-server-nvme: no NVMe device\n");
         exit(0)
     };
@@ -138,23 +131,6 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         |_, _, _, _, _| {},
     );
     exit(0)
-}
-
-#[cfg(target_os = "none")]
-fn request_grant(endpoint: u64, manager: u64) -> Option<u64> {
-    let _ = send(manager, DEVICE_REQUEST, DEVICE_CLASS_NVME);
-    loop {
-        let (label, _word, _sender, handle) = recv_handle(endpoint);
-        if label == DEVICE_GRANT && handle != 0 {
-            return Some(handle);
-        }
-        if label == DEVICE_NONE {
-            return None;
-        }
-        if handle != 0 {
-            let _ = close_handle(handle);
-        }
-    }
 }
 
 hk_server_api::server_boilerplate!();

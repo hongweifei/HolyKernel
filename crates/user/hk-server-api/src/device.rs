@@ -2,6 +2,28 @@
 
 pub use hk_syscall::{DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 
+use crate::{close_handle, recv_handle, send};
+
+/// 向设备管理器申请一类设备授权。
+///
+/// 管理器回复 `DEVICE_GRANT` 时返回授权句柄，回复 `DEVICE_NONE` 时返回
+/// `None`；等待期间收到的其他句柄会被关闭。
+pub fn request_grant(endpoint: u64, manager: u64, class: u64) -> Option<u64> {
+    let _ = send(manager, DEVICE_REQUEST, class);
+    loop {
+        let (label, _word, _sender, handle) = recv_handle(endpoint);
+        if label == DEVICE_GRANT && handle != 0 {
+            return Some(handle);
+        }
+        if label == DEVICE_NONE {
+            return None;
+        }
+        if handle != 0 {
+            let _ = close_handle(handle);
+        }
+    }
+}
+
 /// 任意 virtio 设备。
 pub const DEVICE_CLASS_ANY: u64 = 0;
 /// 块设备。
