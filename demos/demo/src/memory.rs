@@ -19,15 +19,33 @@ pub(super) fn verify_arena() -> bool {
 }
 
 /// 验证匿名能力、换出换入、Frame 映射与容量归因。
+///
+/// 默认服务使用懒 TaskImage：首次执行某段代码会经 Provider 装入代码页并计入
+/// 任务 Ledger。先完整跑一遍预热，再在第二遍比较水位，避免把代码页缺页误判
+/// 成 HMP 泄漏。
 pub(super) fn verify_memory(endpoint: u64) -> bool {
-    const PAGE: usize = 4096;
-    let client = MemoryClient::new(endpoint);
-    if !client.available() {
+    if !exercise_memory(endpoint) {
         return false;
     }
     let Some(before) = ledger_info() else {
         return false;
     };
+    if !exercise_memory(endpoint) {
+        return false;
+    }
+    let Some(after) = ledger_info() else {
+        return false;
+    };
+    after.charged == before.charged
+}
+
+/// 执行一次匿名能力、换出换入与 Frame 映射校验。
+fn exercise_memory(endpoint: u64) -> bool {
+    const PAGE: usize = 4096;
+    let client = MemoryClient::new(endpoint);
+    if !client.available() {
+        return false;
+    }
     let Some((capability, region, virt)) = client.map_lazy(PAGE) else {
         return false;
     };
@@ -49,9 +67,6 @@ pub(super) fn verify_memory(endpoint: u64) -> bool {
     let restored = unsafe { core::ptr::read_volatile(virt as *const u8) };
     let _ = region_unmap(region);
     let _ = close_handle(capability);
-    let Some(after) = ledger_info() else {
-        return false;
-    };
     let Some(frame) = client.frame(PAGE) else {
         return false;
     };
@@ -75,5 +90,5 @@ pub(super) fn verify_memory(endpoint: u64) -> bool {
         }
     }
     let _ = region_unmap(frame_region);
-    zero == 0 && written == 0xAB && swapped && restored == 0xAB && after.charged == before.charged
+    zero == 0 && written == 0xAB && swapped && restored == 0xAB
 }
