@@ -200,7 +200,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 continue;
             };
             if send_handle(sender, MEMORY_FRAME_ALLOCATED, size as u64, frame) != 0 {
-                exit(4);
+                // 接收方配额不足时内核回滚转移，句柄仍归本服务；回收后
+                // 用无句柄失败回包，不能因为一个客户端失败而终止服务。
+                let _ = close_handle(frame);
+                let _ = send(sender, MEMORY_FRAME_ALLOCATED, u64::MAX);
             }
             continue;
         }
@@ -217,10 +220,14 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 .and_then(|(kind, size)| {
                     if lazy && kind == CapabilityKind::Anonymous {
                         let memory = Handle::<Anonymous>::create_lazy(size)?;
-                        let _ = memory.bind_provider(
+                        if memory.bind_provider(
                             Handle::<Endpoint>::from_raw(endpoint),
                             PROVIDER_KIND_ANONYMOUS,
-                        );
+                        ) != 0
+                        {
+                            let _ = close_handle(memory.raw());
+                            return None;
+                        }
                         if let Some(id) = handle_id(memory.raw()) {
                             TRACKED.lock().push((id, size));
                         }
@@ -239,7 +246,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 continue;
             };
             if send_handle(sender, MEMORY_ALLOCATED, size as u64, memory) != 0 {
-                exit(3);
+                let _ = close_handle(memory);
+                let _ = send(sender, MEMORY_ALLOCATED, u64::MAX);
             }
             continue;
         }
@@ -263,7 +271,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
-            if swapped.len() + count > 256 {
+            let existing = (0..count)
+                .filter(|index| swap_contains(&swapped, (words[0], (first + index) as u64)))
+                .count();
+            if swapped.len() + count - existing > 256 {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
@@ -319,8 +330,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 | hk_syscall::PROVIDER_WRITEBACK
                 | hk_syscall::PROVIDER_ERROR
         ) {
-            // 匿名页没有后备存储；驱逐、回写与错误通知只需确认。
-            let _ = reply(0, 0);
+            // 匿名页没有后备存储；这三类都是单向通知，不需要回包。
             continue;
         }
         if label != PROVIDER_FAULT {

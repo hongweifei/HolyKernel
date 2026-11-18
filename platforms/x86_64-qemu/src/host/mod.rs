@@ -147,6 +147,13 @@ impl UserPlatform for X86Platform {
         USER_ADDRESS_SPACES.unmap_user(slot, virt, len)
     }
 
+    fn flush_user(&self, _slot: usize, _virt: u64, _len: usize) {
+        // 页表已经改写；广播整 TLB 失效，覆盖同一地址空间在其他 CPU 上的
+        // 旧权限/旧映射。地址范围失效需要逐页 IPI，这里以整表刷新换取实现
+        // 简单与正确性，后续可按 ASID/PCID 收窄。
+        let _ = hk_arch_x86_64::cpu::shootdown_tlb(None);
+    }
+
     fn page_is_zero(&self, phys: hk_hal::PhysAddr) -> Option<bool> {
         let physical = self.0.physical();
         let mut buffer = [0_u8; 256];

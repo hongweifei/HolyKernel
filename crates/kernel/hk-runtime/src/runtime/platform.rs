@@ -101,6 +101,12 @@ pub trait UserPlatform {
         false
     }
 
+    /// 让所有 CPU 丢弃任务地址空间中的旧 TLB 项。
+    ///
+    /// 解除映射本身由 `unmap_user` 负责失效；本地范围改权/重映射需要平台
+    /// 在此广播。默认实现用于不支持 SMP 的平台。
+    fn flush_user(&self, _slot: usize, _virt: u64, _len: usize) {}
+
     /// 判断一页物理内存是否全为零；平台不支持检查时返回 `None`。
     fn page_is_zero(&self, _phys: hk_hal::PhysAddr) -> Option<bool> {
         None

@@ -91,11 +91,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 continue;
             }
             let new_backing = FrameBacking::Owned(OwnedFrame::new(frame, capacity));
+            let Ok(charge) = self.charge_frame_range(index, new) else {
+                let _ = self
+                    .kernel
+                    .set_capability_page(tcb, handle, page_index, backing);
+                page_index += 1;
+                continue;
+            };
             if !matches!(
                 self.kernel
                     .set_capability_page(tcb, handle, page_index, new_backing),
                 Ok(true)
             ) {
+                self.release_frame(charge);
                 let _ = self
                     .kernel
                     .set_capability_page(tcb, handle, page_index, backing);
@@ -111,9 +119,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .set_capability_page(tcb, handle, page_index, backing);
                     drop(new);
                 }
+                self.release_frame(charge);
                 page_index += 1;
                 continue;
             }
+            // 旧页的映射引用已释放；把新页的记账挂回当前 Region，后续
+            // unmap 时才能归还。
+            self.record_page_charge_for_capability(index, handle, page_index, charge);
             drop(backing);
             self.oom.record_event(
                 super::oom::MEMORY_EVENT_MIGRATE,

@@ -73,4 +73,29 @@ fn merge_returns_grown_windows_to_parent() {
     }
     drop(user);
     system.allocate(0x2000).expect("并回后的窗口可再次分配");
+
+    // 孙容量在中间容量已 merge 后析构：窗口必须沿 split 记录挂回仍存活的
+    // System 容量，而不是已销毁的中间 CapacityId。
+    let middle_id = CapacityId::next();
+    let mut middle = system
+        .split(middle_id, 0x2_0000, CapacityKind::User)
+        .expect("中间容量");
+    let grandchild_id = CapacityId::next();
+    let mut grandchild = middle
+        .split(grandchild_id, 0x1_0000, CapacityKind::User)
+        .expect("孙容量");
+    let grand_range = grandchild.windows()[0];
+    let mut frame = Some(grandchild.allocate(PAGE_SIZE).expect("孙容量分配"));
+    grandchild.free(&mut frame).expect("归还孙容量页");
+    system.merge(&mut middle).expect("先并回中间容量");
+    drop(middle);
+    drop(grandchild);
+    assert!(
+        system.windows().iter().any(|window| {
+            window.start().get() <= grand_range.start().get()
+                && window.end().get() >= grand_range.end().get()
+        }),
+        "孙窗口必须沿代际挂回 System，而不是死亡 CapacityId"
+    );
+    system.allocate(0x2000).expect("孙窗口可再次分配");
 }

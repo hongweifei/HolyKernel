@@ -8,7 +8,7 @@ use hk_user_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_SURFACE,
     PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, capability_bind_provider,
     capability_create_lazy, capacity_alloc, close_handle, frame_write, message_words,
-    recv_data_handle, reply, reply_handle, send_handle,
+    recv_data_handle, reply, reply_handle, send, send_handle,
 };
 
 hk_user_api::server_heap!(64 * 1024);
@@ -40,14 +40,20 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
 /// 创建懒 Surface 能力并回传句柄。
 #[cfg(target_os = "none")]
 fn serve_alloc(endpoint: u64, sender: u64, bytes: u64) {
+    let fail = || {
+        let _ = send(sender, hk_proto::display::SURFACE_ALLOCATED, u64::MAX);
+    };
     let Some(bytes) = usize::try_from(bytes).ok().filter(|bytes| *bytes > 0) else {
+        fail();
         return;
     };
     let Some(capability) = capability_create_lazy(CapabilityKind::Surface, bytes) else {
+        fail();
         return;
     };
     if capability_bind_provider(capability, endpoint, PROVIDER_KIND_SURFACE) != 0 {
         let _ = close_handle(capability);
+        fail();
         return;
     }
     if send_handle(
@@ -58,6 +64,7 @@ fn serve_alloc(endpoint: u64, sender: u64, bytes: u64) {
     ) != 0
     {
         let _ = close_handle(capability);
+        fail();
     }
 }
 
@@ -69,16 +76,19 @@ fn serve_fault(capacity: u64) {
         return;
     };
     let length = (words[1] as usize).clamp(1, PAGE);
-    let Some(frame) = capacity_alloc(capacity, length) else {
+    let Some(frame) = capacity_alloc(capacity, PAGE) else {
         let _ = reply(PROVIDER_ERROR, 0);
         return;
     };
     let zeros = [0_u8; PAGE];
-    if frame_write(frame, 0, &zeros[..length]) != 0 {
+    // Provider 契约是整页；即使内核本次只请求较短内容，也写满整页，
+    // 避免 Frame 尾部保留旧物理内存。
+    if frame_write(frame, 0, &zeros) != 0 {
         let _ = close_handle(frame);
         let _ = reply(PROVIDER_ERROR, 0);
         return;
     }
+    let _ = length;
     let _ = reply_handle(PROVIDER_PROVIDE, 0, frame);
 }
 

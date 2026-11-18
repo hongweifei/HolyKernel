@@ -3,7 +3,7 @@
 use crate::runtime::{
     CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, CapabilityMap, EXTRA_HANDLE_BASE,
     FRAME_HANDLE_BASE, GRANT_HANDLE_BASE, HandleSlot, ImageRegistration, REGION_HANDLE_BASE,
-    RegionMap, UserPlatform, UserRegionSpec, UserRuntime,
+    REGION_USER_BASE, RegionMap, UserPlatform, UserRegionSpec, UserRuntime,
 };
 use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
@@ -75,14 +75,22 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         specs: &[UserRegionSpec],
     ) -> Result<(), KernelError> {
         for spec in specs {
-            // 镜像与用户栈页由装载器从任务 Capacity 分配；虚拟区间同样计入
-            // Task Ledger，配额不能只约束 `SYS_ALLOC`。
-            let charge = self
-                .charge_frame(index, spec.len as u64)
-                .map_err(KernelError::Hmp)?;
-            if let Err(error) = self.register_region(index, *spec, Some(charge)) {
+            // 装载器已物化的镜像/栈页按常驻长度计费；惰性镜像段在缺页装入
+            // 时逐页计费，不能在这里先按虚拟长度占满配额。
+            let lazy = spec.source.is_some() || spec.provider.is_some();
+            let charge = if lazy {
+                None
+            } else {
+                Some(
+                    self.charge_frame(index, spec.len as u64)
+                        .map_err(KernelError::Hmp)?,
+                )
+            };
+            if let Err(error) = self.register_region(index, *spec, charge) {
                 // 注册失败时这笔记账没有被任何槽位持有，必须归还。
-                self.release_frame(charge);
+                if let Some(charge) = charge {
+                    self.release_frame(charge);
+                }
                 return Err(error);
             }
         }
@@ -420,7 +428,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 process.regions.len() - 1
             }
         };
+        let generation = self.process(index).region_generation;
+        self.process_mut(index).region_generation = generation.saturating_add(1);
+        let user = REGION_USER_BASE
+            .saturating_mul(generation)
+            .saturating_add((REGION_HANDLE_BASE + slot + 1) as u64);
         let map = RegionMap {
+            user,
             handle,
             capability,
             owner: self.tasks[index].tcb,
@@ -440,7 +454,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             page_charges: Vec::new(),
         };
         self.process_mut(index).regions[slot] = Some(map);
-        (REGION_HANDLE_BASE + slot + 1) as u64
+        user
     }
 
     pub(crate) fn region_at(
@@ -448,8 +462,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         index: usize,
         number: usize,
     ) -> Option<(usize, Handle, u64, usize)> {
-        let slot = number.checked_sub(REGION_HANDLE_BASE + 1)?;
-        let map = self.process(index).regions.get(slot)?.as_ref()?;
+        let number = number as u64;
+        let process = self.process(index);
+        let slot = process
+            .regions
+            .iter()
+            .position(|region| region.as_ref().is_some_and(|map| map.user == number))?;
+        let map = process.regions[slot].as_ref()?;
         Some((slot, map.handle, map.virt, map.len))
     }
 
@@ -571,7 +590,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn handle_at(&self, index: usize, number: usize) -> Option<Handle> {
-        if number >= FRAME_HANDLE_BASE {
+        if number as u64 >= REGION_USER_BASE {
+            self.region_at(index, number)
+                .map(|(_, handle, _, _)| handle)
+        } else if number >= FRAME_HANDLE_BASE {
             self.frame_at(index, number).map(|(_, handle)| handle)
         } else if number >= CAPACITY_HANDLE_BASE {
             self.capacity_at(index, number).map(|(_, handle)| handle)
@@ -629,7 +651,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     pub(crate) fn clear_handle(&mut self, index: usize, number: usize) {
-        if number >= FRAME_HANDLE_BASE {
+        if number as u64 >= REGION_USER_BASE {
+            if let Some((slot, ..)) = self.region_at(index, number) {
+                let _ = self.teardown_region(index, slot, true, false);
+            }
+        } else if number >= FRAME_HANDLE_BASE {
             if let Some(slot_index) = number.checked_sub(FRAME_HANDLE_BASE + 1)
                 && let Some(entry) = self.tasks[index]
                     .frames
@@ -798,16 +824,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .handle_id(owner, capability)
             .ok()
             .map(|id| id.get());
-        // 逐页解除，同时覆盖惰性 Region 与已物化 Region；也避免在关闭
-        // capability 之后再去解析它来决定映射范围。
-        let page = hk_hal::PAGE_SIZE as u64;
-        let mut offset = 0;
-        while offset < length as u64 {
-            let _ = self
-                .platform
-                .unmap_user(index, virt + offset, page as usize);
-            offset += page;
-        }
+        // 整段解除；平台在清完 PTE 后广播 TLB 失效。惰性 Region 的未装入
+        // 页没有 PTE，解除视为成功。
+        let _ = self.platform.unmap_user(index, virt, length);
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
         if pinned && force {

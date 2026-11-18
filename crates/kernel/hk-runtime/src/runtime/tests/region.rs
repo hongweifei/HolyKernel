@@ -37,6 +37,82 @@ fn lazy_anonymous_capability_maps_without_backing() {
 }
 
 #[test]
+fn resident_capability_backing_is_zeroed() {
+    let platform = MockPlatform::new();
+    let physical = Arc::clone(&platform.phys);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE;
+    context.rdi = hk_syscall::CapabilityKind::Anonymous.as_u8() as u64;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX);
+    let memory = physical.lock();
+    assert!(
+        memory.values().all(|byte| *byte == 0),
+        "常驻能力首次可读必须为零"
+    );
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
+fn region_handles_are_not_reused_after_unmap() {
+    let mut runtime = runtime();
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+
+    context.rax = SYS_CAPABILITY_CREATE_LAZY;
+    context.rdi = 4;
+    context.rsi = 0x2000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let capability = context.rax;
+    assert_ne!(capability, u64::MAX);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let first = context.rax;
+    assert_ne!(first, u64::MAX);
+
+    context.rax = SYS_REGION_UNMAP;
+    context.rdi = first;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    context.rax = SYS_REGION_MAP;
+    context.rdi = capability;
+    context.rsi = 0;
+    context.rdx = 0x1000;
+    context.r10 = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let second = context.rax;
+    assert_ne!(second, u64::MAX);
+    assert_ne!(first, second, "槽位复用必须更换用户句柄");
+
+    // 旧句柄不得命中复用后的新 Region。
+    context.rax = SYS_REGION_INFO;
+    context.rdi = first;
+    context.rsi = 0;
+    context.rdx = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX, "陈旧 Region 句柄必须失效");
+
+    context.rax = SYS_REGION_INFO;
+    context.rdi = second;
+    context.rsi = 0;
+    context.rdx = 16;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 16);
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn region_offset_maps_capability_page_at_region_start() {
     let mut runtime = runtime();
     let Step::Resume { index, mut context } = runtime.step(0) else {

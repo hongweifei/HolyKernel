@@ -48,9 +48,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(crate::runtime::CowOutcome::Copied(physical)) => {
                 let range = hk_hal::PhysRange::new(hk_hal::PhysAddr::new(physical), page);
                 let Ok(charge) = self.charge_frame_range(index, range) else {
+                    // 平台已经安装可写私有页；计费失败必须撤销映射，避免
+                    // 任务绕过 Task Ledger 配额继续写入。
+                    let _ = self.platform.unmap_user(index, address, page as usize);
                     return false;
                 };
                 let Ok(id) = self.kernel.handle_id(region.tcb, region.capability) else {
+                    let _ = self.platform.unmap_user(index, address, page as usize);
                     self.release_frame(charge);
                     return false;
                 };

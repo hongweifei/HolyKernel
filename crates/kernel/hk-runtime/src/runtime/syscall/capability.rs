@@ -1,6 +1,6 @@
 //! 类型化能力的创建与物理区间查询。
 
-use hk_hal::PAGE_SIZE;
+use hk_hal::{PAGE_SIZE, PhysAddr};
 use hk_handle::{ObjectId, Rights};
 use hk_mem::hmp::{
     Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame, ProviderKind,
@@ -13,6 +13,26 @@ use hk_ipc::Message;
 use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
+    /// 常驻能力首次可读时必须为零。物理页只保证归还时清零，直接分配路径
+    /// 需在此显式清零，避免把上一使用者的内容暴露给新能力。
+    fn zero_backing(&self, backing: &FrameBacking) -> bool {
+        let FrameBacking::Owned(_) = backing else {
+            // 导入区间是设备/Memory Server 提供的既有内容，不在分配路径清零。
+            return true;
+        };
+        let range = backing.range();
+        let zero = [0_u8; PAGE_SIZE];
+        let mut offset = 0_u64;
+        while offset < range.len() {
+            let phys = PhysAddr::new(range.start().get().saturating_add(offset));
+            if !self.platform.write_phys(phys, &zero) {
+                return false;
+            }
+            offset = offset.saturating_add(PAGE_SIZE as u64);
+        }
+        true
+    }
+
     pub(super) fn allocate_owned(
         &mut self,
         index: usize,
@@ -80,6 +100,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !self.zero_backing(&backing) {
+            self.release_frame(charge);
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         let Ok(capability) = Capability::new(kind, aligned, PAGE_SIZE) else {
             self.release_frame(charge);
             frame.set_result(u64::MAX);
@@ -93,6 +118,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         ) {
             Ok(handle) => handle,
             Err(_) => {
+                self.release_frame(charge);
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -191,13 +217,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 if page_index >= end {
                     return Some(released);
                 }
-                let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
+                let Ok(Some(_)) = self.kernel.capability_page(tcb, handle, page_index) else {
                     page_index += 1;
                     continue;
                 };
-                if self.platform.page_shared(range.start())
-                    || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
-                {
+                if matches!(self.kernel.capability_pinned(tcb, handle), Ok(true)) {
                     page_index += 1;
                     continue;
                 }
@@ -210,9 +234,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 let Ok(Some(range)) = self.kernel.capability_page(tcb, handle, page_index) else {
                     break;
                 };
-                if self.platform.page_shared(range.start())
-                    || matches!(self.kernel.capability_pinned(tcb, handle), Ok(true))
-                {
+                if matches!(self.kernel.capability_pinned(tcb, handle), Ok(true)) {
                     break;
                 }
                 if !matches!(
@@ -220,7 +242,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .begin_capability_reclaim(tcb, handle, page_index),
                     Ok(true)
                 ) {
-                    break;
+                    // 同一页已有在途换出：整批失败，避免把重复请求当作
+                    // “已跳过”而返回成功。
+                    for page in first..page_index {
+                        self.kernel.end_capability_reclaim(tcb, handle, page);
+                    }
+                    return Some(u64::MAX);
                 }
                 // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
                 // 常驻，下一次缺页会按常驻页快速路径重新映射。

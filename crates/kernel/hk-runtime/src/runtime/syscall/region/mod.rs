@@ -196,6 +196,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !self
+            .kernel
+            .handle_rights(tcb, handle, hk_handle::ObjectKind::Region)
+            .is_ok_and(|rights| rights.contains(Rights::ADMIN))
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         // 权限只能收窄或被映射能力句柄覆盖：protect 不能把只读能力提升为可写。
         let Some((owner, capability, cache)) = self.process(index).regions[slot]
             .as_ref()
@@ -384,6 +392,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             map.rights = rights;
             map.flags = flags;
         }
+        self.platform.flush_user(index, virt, length);
         frame.set_result(0);
         Switch::Continue
     }
@@ -396,6 +405,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        if !self
+            .kernel
+            .handle_rights(tcb, handle, hk_handle::ObjectKind::Region)
+            .is_ok_and(|rights| rights.contains(Rights::ADMIN))
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
         if new_len <= length {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -901,28 +918,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .handle_id(owner, capability)
             .ok()
             .map(|id| id.get());
-        let lazy = self
-            .kernel
-            .capability(owner, capability)
-            .is_ok_and(|(_, backing)| backing.is_none());
-        // 逐页解除并聚合结果：任一步失败时保留 Region 元数据、句柄与记账，
-        // 让调用方可以重试；不因首页失败就停在半解除状态。
-        let mut failed = false;
-        if lazy {
-            let page = hk_hal::PAGE_SIZE as u64;
-            let mut offset = 0;
-            while offset < length as u64 {
-                if !self
-                    .platform
-                    .unmap_user(index, virt + offset, page as usize)
-                {
-                    failed = true;
-                }
-                offset += page;
-            }
-        } else {
-            failed = !self.platform.unmap_user(index, virt, length);
-        }
+        // 整段解除：平台逐页清 PTE，并在返回前广播 TLB 失效。惰性 Region
+        // 的未装入页本来就没有 PTE，解除不存在的页视为成功。
+        let failed = !self.platform.unmap_user(index, virt, length);
         if failed {
             if pinned {
                 // 解除失败时恢复固定状态，保持 Region 元数据与能力一致。

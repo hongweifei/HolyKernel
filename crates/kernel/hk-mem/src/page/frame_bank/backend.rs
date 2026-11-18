@@ -47,6 +47,7 @@ impl PhysicalBackend for FrameBank {
                     range,
                 },
             );
+            inner.parents.insert(child, parent);
             return Some(range);
         }
         None
@@ -143,9 +144,9 @@ impl PhysicalBackend for FrameBank {
                 }
             }
         }
+        inner.parents.insert(child, parent);
         Some((PhysRange::new(start, end.get() - start.get()), moved))
     }
-
     fn split_owned_node(
         &self,
         parent: CapacityId,
@@ -205,6 +206,7 @@ impl PhysicalBackend for FrameBank {
                 );
             }
             inner.attach_window(child, range);
+            inner.parents.insert(child, parent);
             return Some(range);
         }
         None
@@ -350,6 +352,15 @@ impl PhysicalBackend for FrameBank {
             .collect();
         for range in &windows {
             inner.owned.remove(&range.start().get());
+        }
+        let mut parent = parent;
+        // 父容量可能已被先 merge 掉；沿 split 记录向上找仍然存活的祖先，
+        // 否则孙窗口会挂到一个不再有 Capacity 的 ID 上。
+        while let Some(pid) = parent {
+            if inner.ledgers.contains_key(&pid) {
+                break;
+            }
+            parent = inner.parents.get(&pid).copied();
         }
         if let Some(parent) = parent {
             for range in windows {

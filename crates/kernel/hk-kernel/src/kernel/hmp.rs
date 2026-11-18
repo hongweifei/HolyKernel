@@ -95,7 +95,7 @@ impl Kernel {
         handle: Handle,
         pinned: bool,
     ) -> Result<(), KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Frame)?;
         let frame = object.frame().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Frame,
         })?;
@@ -390,7 +390,7 @@ impl Kernel {
             thread,
             Arc::new(KernelObject::new(ObjectPayload::Capability {
                 capability,
-                backing,
+                backing: Mutex::new(backing),
                 provider: Mutex::new(None),
                 provider_task: Mutex::new(None),
                 pages: Mutex::new(BTreeMap::new()),
@@ -613,6 +613,30 @@ impl Kernel {
         object
             .take_owned_frame()
             .ok_or(KernelError::Hmp(HmpError::NotMapped))
+    }
+
+    /// 把取出的 Frame 放回原对象；只用于 `SYS_FRAME_MAP` 失败回滚。
+    pub fn restore_owned_frame(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        owned: OwnedFrame,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Frame)?;
+        object
+            .restore_owned_frame(owned)
+            .then_some(())
+            .ok_or(KernelError::Hmp(HmpError::NotMapped))
+    }
+
+    /// 取出类型化能力的常驻后备；失败时由调用方关闭该能力。
+    pub fn take_capability_backing(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<Option<FrameBacking>, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::ADMIN, ObjectKind::Capability)?;
+        Ok(object.take_capability_backing())
     }
 
     /// 在指定线程的句柄表中创建虚拟映射。

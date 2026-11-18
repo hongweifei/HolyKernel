@@ -22,7 +22,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_os = "none")]
 use hk_sync::Mutex;
 #[cfg(target_os = "none")]
-use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART};
+use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART, PROVIDER_RELEASE};
 #[cfg(target_os = "none")]
 use hk_user_api::{
     PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, boot_cmdline, capacity_alloc, exit,
@@ -105,6 +105,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             }
         } else if label == PROVIDER_FAULT {
             serve_fault(capacity, &segments);
+        } else if label == PROVIDER_RELEASE {
+            // 能力对象析构后按对象标识回收段元数据；不保留会阻止后续
+            // 同标识（若未来复用）语义的陈旧记录。
+            if let Some(words) = message_words() {
+                segments.retain(|segment| segment.object != words[0]);
+            }
         } else if label == IMAGE_RESTART && restart_test {
             exit(1);
         }

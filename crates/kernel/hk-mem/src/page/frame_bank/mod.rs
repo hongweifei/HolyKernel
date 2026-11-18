@@ -134,6 +134,8 @@ struct Inner {
     by_node: [u64; MAX_NODES],
     /// 已登记给容量的窗口，按起始地址索引。
     owned: BTreeMap<u64, OwnedWindow>,
+    /// split 产生的父子关系；父容量先被 merge 时用于把孙窗口挂回活祖先。
+    parents: BTreeMap<CapacityId, CapacityId>,
     /// 内核自用分配的归属容量；`None` 表示尚未建立 System Capacity。
     kernel_owner: Option<CapacityId>,
     /// 各容量的峰值用量。

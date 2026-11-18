@@ -152,7 +152,7 @@ Capacity 是物理容量的授予单位。
 - 声明配额与可回收属性；物理用量由 Capacity/FrameBank 报告。
 - `allocate` 生成 Frame；`release` 归还 Frame；`split` 生成子 Capacity；`merge` 把已清空的子 Capacity 并回父容量；`transfer` 转移 Handle。
 - Task Ledger 是任务配额的唯一硬账；Capacity/FrameBank 是物理边界；Arena/Region/Capability/Frame 的 Ledger 快照只报告利用率。
-- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，Gpu 服务取得从顶层 Gpu Capacity 切出的子容量，内核持有 System Capacity；Dma 启动窗口为 8 MiB，按需扩窗并在清空后并回。
+- Root Server 持有初始 Capacity；普通服务与 Memory Server 共享顶层 User Capacity，设备授权服务取得独立的 Dma 子容量，Gpu 服务取得从顶层 Gpu Capacity 切出的子容量，内核持有 System Capacity；每服务 Dma 子容量启动为 1 MiB，每个 DeviceGrant 的 DMA IOVA 窗口为 256 KiB，架构 DMA 池启动为 8 MiB，按需扩窗并在清空后并回。
 - 物理空闲表只有一份：Capacity 是 `PhysicalBackend` 之上的配额视图，按 `CapacityId` 归因。`split` 切出的子容量拥有自己的窗口，`merge` 把它并回父窗口；未注册后端时 Capacity 退回自带的窗口分配器（Hosted 与单元测试）。
 
 报告口径：
@@ -196,7 +196,7 @@ Region 是类型化能力在 Arena 中的唯一映射视图。
 - 内核页表是 Region 的物化；Region 是唯一映射视图。
 - `SYS_REGION_PROTECT` 的权限上限是被映射能力句柄的 Rights：可在句柄范围内调整；只读能力句柄的映射权限保持只读。
 - `PINNED` 在映射或 protect 时固定能力（需要 `Capability` 的 ADMIN），解除映射时解除固定；scanout 驻留期间拒绝解除。
-- Region 句柄属于创建它的任务，不参与 `SYS_HANDLE_DUPLICATE` 或 IPC 转移；`unmap`/`grow` 校验 Region 句柄的 ADMIN。
+- Region 句柄属于创建它的任务，不参与 `SYS_HANDLE_DUPLICATE` 或 IPC 转移；用户句柄带代数，槽位复用不会复活旧句柄；`unmap`/`grow` 校验 Region 句柄的 ADMIN。
 - unmap 释放 Region；所引用的类型化能力继续持有对象。
 
 ---
@@ -360,7 +360,7 @@ HMP 的文件页缓存以修订为中心。
 - 不可变 Revision 的页只读、可共享、可跨进程映射。
 - 读路径与映射共享同一份常驻 Frame；同一修订只有一份常驻页。
 - 实现上，VFS 对每个 `(DocId, RevisionId)` 只保留一个 Revision 能力对象；后续
-  映射通过 `SYS_CAPABILITY_GRANT` 取得同一对象的只读句柄（该调用只对绑定该
+  映射通过 `SYS_CAPABILITY_GRANT` 取得同一对象的只读映射句柄（该调用只对绑定该
   能力的 Provider 任务开放），因此所有 Region 共享同一份能力页。最后一个句柄
   关闭后对象析构，`PROVIDER_RELEASE` 通知 VFS 移除元数据；VFS 不额外持有会
   阻止释放的句柄。
@@ -406,7 +406,7 @@ flowchart LR
 | 持有者 | 初始授予 |
 | --- | --- |
 | Root Server | System / User / Dma / Gpu 顶层 Capacity；初始 Arena |
-| Memory Server | User Capacity 子集；Anonymous Provider 绑定权 |
+| Memory Server | 共享顶层 User Capacity；Anonymous Provider 绑定权 |
 | 驱动服务 | Dma/Gpu Capacity 子集；DeviceGrant；Frame 的 pin/export |
 | VFS / HolyFS | User Capacity 子集或 Memory Server 的 Capability；Revision Provider |
 | Display / UI | Framebuffer/Surface Capability；Frame 的 map/pin |
@@ -430,7 +430,7 @@ flowchart LR
 ## 13. 安全与可观测性
 
 - 访问权在 Handle/Region 上；映射时持有对应类型化能力或 Frame 的 Handle。
-- W^X、NX、guard、ASLR 在 Region/页表层执行；设备页默认按 NX 映射。
+- W^X、NX、guard 在 Region/页表层执行；ASLR 尚未实现；设备页默认按 NX 映射。
 - 释放清零；Frame 回 Capacity 前清空敏感内容。
 - 设备内存通过 DeviceGrant/IOMMU 约束；设备访问范围由授权 Frame 或能力句柄决定。IOMMU 映射与 CPU 的 Region 都从同一句柄派生：`SYS_DMA_MAP` 解析 Frame/Capability 后建立设备页表项，不构成第二条 CPU 访问路径。
 - Debug Server 枚举 Capacity、Frame、类型化能力、Region 与 Provider；Arena/Ledger 通过运行时快照报告。

@@ -345,11 +345,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .ok_or_else(|| String::from("缺少 User Capacity"))?;
         let capacity_handle = self
             .kernel
-            .create_capacity_shared(
-                tcb,
-                user_capacity,
-                Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::ADMIN,
-            )
+            .create_capacity_shared(tcb, user_capacity, Rights::READ | Rights::WRITE)
             .map_err(|error| format!("{error}"))?;
         let ledger_limit = self
             .kernel

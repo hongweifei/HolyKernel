@@ -290,7 +290,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let mut faults = alloc::vec::Vec::new();
         let mut reclaims = alloc::vec::Vec::new();
         for slot in 0..self.tasks.len() {
-            if self.tasks[slot].exited || self.tasks[slot].leader != slot {
+            if self.tasks[slot].exited {
                 continue;
             }
             let tcb = self.tasks[slot].tcb;
@@ -304,7 +304,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                     .is_none_or(|endpoint| !self.kernel.endpoint_served(endpoint))
                             });
                     if dead {
-                        faults.push(slot);
+                        faults.push(self.tasks[slot].leader);
                     }
                 }
                 Pending::ProviderReclaim {

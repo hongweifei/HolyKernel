@@ -24,6 +24,7 @@ impl FrameBank {
                 nodes: Vec::new(),
                 by_node: [0; MAX_NODES],
                 owned: BTreeMap::new(),
+                parents: BTreeMap::new(),
                 kernel_owner: None,
                 peaks: BTreeMap::new(),
             }),
@@ -110,6 +111,7 @@ impl FrameBank {
         inner.allocations.clear();
         inner.by_capacity = [0; CapacityKind::COUNT];
         inner.owned.clear();
+        inner.parents.clear();
         inner.peaks.clear();
         for region in regions {
             if !region.kind.is_usable() {
@@ -286,9 +288,13 @@ impl FrameBank {
             *slot = slot.saturating_sub(range.len());
             let node_slot = &mut inner.by_node[usize::from(allocation.node) % MAX_NODES];
             *node_slot = node_slot.saturating_sub(range.len());
+            // 分配记录已移除，区间尚未进入空闲表；此时不会再有分配者拿到它。
+            // 放锁后清零，再将区间并入空闲表，避免清零晚于重新分配。
+            drop(inner);
+            crate::hmp::capacity::scrub(range.start(), range.len() as usize);
+            let mut inner = self.inner.lock();
             inner.coalesce_free(range);
         }
-        crate::hmp::capacity::scrub(range.start(), range.len() as usize);
     }
 
     /// 归还一段用途为 `Other` 的物理区间。

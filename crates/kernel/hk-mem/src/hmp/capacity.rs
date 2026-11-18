@@ -447,6 +447,15 @@ impl Capacity {
         if limit == 0 || self.limit() < limit {
             return Err(HmpError::OutOfCapacity);
         }
+        // split_free_to 以 4 KiB 粒度搬运窗口；大页容量直接走普通 split，
+        // 避免搬出小于子容量页大小的窗口后构造失败。
+        if self.page_size != hk_hal::PAGE_SIZE {
+            return self.split(
+                id,
+                usize::try_from(limit).map_err(|_| HmpError::InvalidSize)?,
+                kind,
+            );
+        }
         if let Some(backend) = super::backend::physical_backend() {
             let (range, moved) = backend
                 .split_free_to(self.id, id, limit)

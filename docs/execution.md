@@ -214,7 +214,7 @@ impl Notification {
 - `SYS_RECV_DATA*` 返回实际写入缓冲区的字节数；载荷超过缓冲区时截断，调用方按返回长度切片。
 - 内核提供 `SYS_CAPACITY_*`、`SYS_FRAME_*`、`SYS_CAPABILITY_CREATE`、`SYS_REGION_MAP`、`SYS_REGION_INFO`、`SYS_REGION_UNMAP`、`SYS_CAPABILITY_PHYS`、`SYS_HANDLE_DUPLICATE` 与 `SYS_DMA_MAP`。
 - `SYS_CAPABILITY_CREATE(kind, length)` 从任务默认容量创建类型化能力并分配常驻物理页；`SYS_CAPABILITY_CREATE_ON(kind, length, capacity)` 从指定容量创建。`SYS_CAPACITY_SOFT_LIMIT(capacity, limit)` 由 Root/Tempo 设置软上限。`SYS_REGION_MAP(capability, offset, len, rights_flags)` 把能力的一段映射进任务地址空间，返回 Region 句柄；`SYS_REGION_INFO` 返回虚拟地址与长度，`SYS_REGION_UNMAP` 解除映射并归还窗口区间。`SYS_CAPABILITY_PHYS` 返回物理地址与长度，供驱动建立 DMA。
-- 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。`SYS_REGION_PROTECT` 只允许收窄到能力句柄 Rights 覆盖的范围；Region 句柄不参与复制与转移。
+- 调用校验 `Handle + Rights + ObjectKind`；内存授权由这些对象决定。`SYS_REGION_PROTECT` 只能在能力句柄 Rights 覆盖的范围内调整权限，不能超出句柄授权；Region 句柄不参与复制与转移。
 - Provider 缺页消息携带 `{offset, page, address, access}`，`access` 区分读与写；写缺页由 Provider 决定复制、共享或拒绝，回包作为当前进程的私有 COW 覆盖安装。
 - 客户端保留原句柄，用 `SYS_HANDLE_DUPLICATE` 复制一份后通过 `SYS_SEND_HANDLE` 转移给服务；服务用 `SYS_REGION_MAP` 映射同一能力。
 - 块协议：客户端通过 `BLOCK_ATTACH` 按槽位附加共享缓冲区，缓冲区是从 Memory Server 申请的匿名能力（`Anonymous`），消息字高 32 位为槽位、低 32 位为长度；每个请求携带 `{op, sector, length, tag}`，响应回显 `tag` 并按发送者与槽位定位对应映射。同一连接可以同时有多个未完成请求：服务端收下请求后交给设备异步队列，完成回收时再回复；驱动通过 `SYS_DMA_MAP` 把能力绑定到 IOMMU，设备 DMA 直接读写缓冲区。客户端与服务端各自 `SYS_REGION_MAP` 同一能力，映射不消耗句柄，`BLOCK_DETACH` 按槽位或整体解除 Region 并关闭转移来的能力句柄。服务重启复用同一任务槽位、端点编号不变，客户端因此同时跟踪 `SYS_SERVICE_RESTARTS` 的代际：代际变化时重新 `BLOCK_ATTACH`，否则新服务实例看不到旧缓冲区映射。

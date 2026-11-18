@@ -1,7 +1,7 @@
 //! Capacity 与 Frame 对象操作。
 
 use hk_hal::VirtAddr;
-use hk_handle::Rights;
+use hk_handle::{Handle, Rights};
 use hk_mem::hmp::{
     Capability, CapabilityKind, CapacityKind, FrameBacking, OwnedFrame, Region, RegionFlags,
 };
@@ -13,6 +13,13 @@ use hk_syscall::{
 use crate::runtime::{Switch, UserPlatform, UserRuntime};
 use hk_hal::{SyscallFrame, UserContext};
 use hk_kernel::TcbId;
+
+/// `SYS_FRAME_MAP` 的失败阶段：决定能否把 OwnedFrame 还给调用方。
+enum FrameMapFailure {
+    Before(OwnedFrame),
+    After(Handle),
+    Lost,
+}
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn gpu_capacity(&mut self, index: usize, frame: &mut C) -> Switch {
@@ -407,7 +414,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        if !granted.covers(rights) {
+        if !granted.covers(rights)
+            || (flags.contains(RegionFlags::PINNED) && !granted.contains(Rights::ADMIN))
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -433,9 +442,45 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         let result = self.finish_frame_map(index, tcb, number, owned, rights, flags);
-        let _ = self.kernel.close_handle(tcb, frame_handle);
-        self.clear_handle(index, number);
-        frame.set_result(result);
+        match result {
+            Ok(region) => {
+                let _ = self.kernel.close_handle(tcb, frame_handle);
+                self.clear_handle(index, number);
+                frame.set_result(region);
+            }
+            Err(FrameMapFailure::Before(owned)) => {
+                // capability 尚未建立，Frame 仍在原对象里；放回后保留句柄。
+                let _ = self.kernel.restore_owned_frame(tcb, frame_handle, owned);
+                frame.set_result(u64::MAX);
+            }
+            Err(FrameMapFailure::After(capability_handle)) => {
+                // 能力已建立但映射失败：取回 OwnedFrame，关闭空能力，再放回
+                // 原 Frame 对象。调用方仍持有原句柄，可重试或释放。
+                if let Ok(Some(FrameBacking::Owned(owned))) =
+                    self.kernel.take_capability_backing(tcb, capability_handle)
+                {
+                    let _ = self.kernel.close_handle(tcb, capability_handle);
+                    if self
+                        .kernel
+                        .restore_owned_frame(tcb, frame_handle, owned)
+                        .is_err()
+                    {
+                        let _ = self.kernel.close_handle(tcb, frame_handle);
+                        self.clear_handle(index, number);
+                    }
+                } else {
+                    let _ = self.kernel.close_handle(tcb, capability_handle);
+                    let _ = self.kernel.close_handle(tcb, frame_handle);
+                    self.clear_handle(index, number);
+                }
+                frame.set_result(u64::MAX);
+            }
+            Err(FrameMapFailure::Lost) => {
+                let _ = self.kernel.close_handle(tcb, frame_handle);
+                self.clear_handle(index, number);
+                frame.set_result(u64::MAX);
+            }
+        }
         Switch::Continue
     }
 
@@ -448,15 +493,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         owned: OwnedFrame,
         rights: Rights,
         flags: RegionFlags,
-    ) -> u64 {
+    ) -> Result<u64, FrameMapFailure> {
         let range = owned.range();
         let length = owned.len();
         let page_size = owned.page_size();
         if length == 0 || page_size == 0 || !length.is_multiple_of(page_size) {
-            return u64::MAX;
+            return Err(FrameMapFailure::Before(owned));
         }
         let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size) else {
-            return u64::MAX;
+            return Err(FrameMapFailure::Before(owned));
         };
         let backing = FrameBacking::Owned(owned);
         let Ok(capability_handle) = self.kernel.create_capability(
@@ -465,10 +510,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(backing),
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         ) else {
-            return u64::MAX;
-        };
-        let cleanup = |runtime: &mut Self| {
-            let _ = runtime.kernel.close_handle(tcb, capability_handle);
+            // 内核拒绝创建时 OwnedFrame 已随参数析构；没有剩余可回滚对象。
+            return Err(FrameMapFailure::Lost);
         };
         // `PINNED` 在帧映射上与 Region 映射语义一致：固定代建的能力，阻止回收。
         if flags.contains(RegionFlags::PINNED)
@@ -477,16 +520,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .pin_capability_internal(tcb, capability_handle, true)
                 .is_err()
         {
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         }
         let Ok(mut region) = Region::new(&capability, 0, length, rights, flags) else {
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         };
         let Some(virt) = self.process_mut(index).user_window.allocate(length) else {
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         };
         if !self.platform.map_region(
             index,
@@ -500,21 +540,18 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             },
         ) {
             self.process_mut(index).user_window.release(virt);
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         }
         if region.map(VirtAddr::new(virt)).is_err() {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         }
         let region_id = region.id();
         if self.process_mut(index).hmp_arena.insert(&region).is_err() {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         }
         let Ok(region_handle) =
             self.kernel
@@ -523,11 +560,10 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let _ = self.platform.unmap_user(index, virt, length);
             self.process_mut(index).user_window.release(virt);
             let _ = self.process_mut(index).hmp_arena.remove(region_id);
-            cleanup(self);
-            return u64::MAX;
+            return Err(FrameMapFailure::After(capability_handle));
         };
         let charge = self.take_frame_charge(index, number);
-        self.install_region(
+        Ok(self.install_region(
             index,
             region_handle,
             capability_handle,
@@ -539,7 +575,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             rights,
             flags,
             charge,
-        )
+        ))
     }
 
     fn free_frame_at(

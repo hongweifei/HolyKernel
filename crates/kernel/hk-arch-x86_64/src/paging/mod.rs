@@ -26,10 +26,7 @@ pub use table::{PageTable, PagingError, has_1g_pages, init_cpu};
 /// 内核全局物理帧银行。
 pub static FRAME_BANK: FrameBank = FrameBank::empty();
 
-/// 用户帧的 COW 共享引用。
-static FRAME_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
-
-/// 物理页在用户地址空间中的映射数。
+/// 物理页在用户地址空间中的映射数；fork/COW 与普通映射共用这一本账。
 static MAPPING_REFS: Mutex<FrameRefs> = Mutex::new(FrameRefs::new());
 
 /// 把全局帧银行注册为 HMP 的唯一物理后端。
@@ -152,6 +149,14 @@ pub fn resolve_cow(
     table.resolve_cow(address, capacity)
 }
 
+/// 广播用户页表失效；单元测试没有 APIC，仅做本地刷新。
+pub(crate) fn shootdown_user() {
+    #[cfg(not(test))]
+    {
+        let _ = crate::cpu::shootdown_tlb(None);
+    }
+}
+
 /// 释放地址空间：先按 PTE 释放映射与 COW 引用，再回收最后一个映射者。
 pub fn release_user(table: &PageTable) {
     let mut tracked = alloc::vec::Vec::new();
@@ -162,12 +167,6 @@ pub fn release_user(table: &PageTable) {
             return;
         }
         tracked.push(physical);
-        {
-            let mut refs = FRAME_REFS.lock();
-            if refs.count(physical) > 0 {
-                let _ = refs.release(physical);
-            }
-        }
         mapping_release(physical);
     });
     for frame in table.user_frames() {
@@ -194,10 +193,12 @@ pub fn release_user(table: &PageTable) {
             _ => {}
         }
     }
+    // 地址空间的 PTE 已全部拆除；其他 CPU 可能仍持有旧 TLB 项。
+    shootdown_user();
 }
 
 pub(crate) fn frame_refs() -> &'static Mutex<FrameRefs> {
-    &FRAME_REFS
+    &MAPPING_REFS
 }
 
 /// 判断当前页表中地址是否为用户可访问页。

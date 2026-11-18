@@ -27,9 +27,11 @@ fn release_cow_page(capacity: &Arc<Mutex<Capacity>>, frame: Frame) {
     let _ = capacity.lock().free(&mut frame);
 }
 
-/// 取一页页表；页表页始终由 System 承载。
+/// 取一页页表；页表页始终由 System 承载，并登记到 System Arena。
 fn take_table_page() -> Option<PhysAddr> {
-    PageAllocator::new(&FRAME_BANK).page_table()
+    let page = PageAllocator::new(&FRAME_BANK).page_table()?;
+    crate::system_arena::register_kernel_page(page, super::direct_map_base());
+    Some(page)
 }
 
 /// fork 期间的共享状态：COW 区间、帧引用表与私有复制字节数。
@@ -160,19 +162,21 @@ impl PageTable {
                     }
                     continue;
                 }
-                if !mmio && !super::mapping_acquire(frame) {
-                    return None;
+                if !mmio {
+                    // 子任务新增一份映射；父映射若此前未被映射账本跟踪
+                    // （装载器直接建立），同时补记父映射，避免共享计数从 0
+                    // 或 1 开始漂移。
+                    let acquires = if tracked == 0 { 2 } else { 1 };
+                    for acquired in 0..acquires {
+                        if !state.refs.acquire(frame) {
+                            for _ in 0..acquired {
+                                state.refs.release(frame);
+                            }
+                            return None;
+                        }
+                    }
                 }
                 if !mmio && (writable || tracked > 0) {
-                    // Region 内的可写页在 fork 时新增父、子两个共享者；
-                    // 已经共享的只读页只新增当前子地址空间这一份引用。
-                    if !state.refs.acquire(frame) {
-                        return None;
-                    }
-                    if tracked == 0 && writable && !state.refs.acquire(frame) {
-                        state.refs.release(frame);
-                        return None;
-                    }
                     flags &= !WRITABLE;
                 }
                 // SAFETY: 父页表叶项经 HHDM 可写，保持不变共享页帧。
@@ -254,20 +258,21 @@ impl PageTable {
 
         let physical = PhysAddr::new(value & ADDRESS_MASK);
         let flags = value & !ADDRESS_MASK;
-        let mut refs = super::frame_refs().lock();
-        let count = refs.count(physical);
+        let count = super::frame_refs().lock().count(physical);
         if count == 0 {
             return None;
         }
 
         if count == 1 {
-            refs.release(physical);
+            // 页仍属于当前映射；这里只恢复写权限，不能释放唯一的映射引用，
+            // 否则 unmap 时 mapping_count 已为 0，物理页将永远不会归还。
             // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
             unsafe {
                 self.entry(table, index)
                     .write_volatile(physical.get() | flags | WRITABLE);
             }
             self.flush(address);
+            super::shootdown_user();
             return Some(super::CowResolution::Writable);
         }
 
@@ -283,12 +288,14 @@ impl PageTable {
             core::ptr::copy_nonoverlapping(source, target, PAGE_SIZE);
         }
 
+        // 旧共享页只失去当前映射这一份引用；仍然存在的其他映射由它们自己
+        // 在 unmap 时释放。
         super::mapping_release(physical);
-        refs.release(physical);
         let updated = frame.get() | flags | WRITABLE;
         // SAFETY: 末级页表项经 HHDM 可写，索引在 0..512 范围内。
         unsafe { self.entry(table, index).write_volatile(updated) };
         self.flush(address);
+        super::shootdown_user();
         Some(super::CowResolution::Copied(frame))
     }
 }

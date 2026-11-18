@@ -57,6 +57,12 @@ impl OwnedFrame {
     pub fn capacity(&self) -> &Arc<Mutex<Capacity>> {
         &self.capacity
     }
+    /// 取出内部 Frame，供失败路径把所有权放回原对象。
+    pub fn into_frame(mut self) -> Frame {
+        self.frame
+            .take()
+            .expect("OwnedFrame 在构造后必须持有 Frame")
+    }
 }
 
 impl Drop for OwnedFrame {

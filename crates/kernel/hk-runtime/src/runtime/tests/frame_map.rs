@@ -278,6 +278,72 @@ fn rejected_frame_map_keeps_frame_handle() {
 }
 
 #[test]
+fn frame_map_failure_after_take_restores_frame() {
+    let platform = MockPlatform::new();
+    let map_ok = Arc::clone(&platform.map_ok);
+    map_ok.store(false, Ordering::Release);
+    let mut runtime = runtime_on("b", platform);
+    let Step::Resume { index, mut context } = runtime.step(0) else {
+        panic!("任务应可运行");
+    };
+    let tcb = runtime.tasks[index].tcb;
+    let capacity = hk_mem::hmp::Capacity::new(
+        hk_mem::hmp::CapacityId::new(103),
+        hk_hal::PhysRange::new(hk_hal::PhysAddr::new(0x84_0000), 0x2000),
+        hk_hal::PAGE_SIZE,
+        hk_mem::hmp::CapacityKind::User,
+        0,
+    )
+    .expect("Capacity");
+    let capacity_handle = runtime
+        .kernel
+        .create_capacity(
+            tcb,
+            capacity,
+            hk_handle::Rights::READ
+                | hk_handle::Rights::WRITE
+                | hk_handle::Rights::TRANSFER
+                | hk_handle::Rights::ADMIN,
+        )
+        .expect("创建 Capacity");
+    runtime.tasks[index].capacities.push(Some(capacity_handle));
+    let capacity_number = 0x5000 + runtime.tasks[index].capacities.len() as u64;
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = capacity_number;
+    context.rsi = hk_hal::PAGE_SIZE as u64;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert!(
+        runtime.handle_at(index, frame as usize).is_some(),
+        "映射阶段失败必须保留原 Frame 句柄"
+    );
+    assert_eq!(
+        runtime
+            .kernel
+            .capacity_info(tcb, capacity_handle)
+            .expect("Capacity")
+            .4,
+        hk_hal::PAGE_SIZE as u64,
+        "映射阶段失败不得归还物理页"
+    );
+
+    map_ok.store(true, Ordering::Release);
+    context.rax = hk_syscall::SYS_FRAME_MAP;
+    context.rdi = frame;
+    context.rsi = 0b11;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_ne!(context.rax, u64::MAX, "恢复后的 Frame 必须可再次映射");
+    let _ = runtime.finish(0, index);
+}
+
+#[test]
 fn protect_to_guard_unmaps_region() {
     let platform = MockPlatform::new();
     let unmapped = Arc::clone(&platform.unmapped);

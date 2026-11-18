@@ -43,7 +43,7 @@ pub enum ObjectPayload {
         /// 能力描述。
         capability: Capability,
         /// 常驻物理页。
-        backing: Option<FrameBacking>,
+        backing: Mutex<Option<FrameBacking>>,
         /// 缺页/回写 Provider 端点。
         provider: Mutex<Option<ObjectId>>,
         /// 绑定 Provider 的任务；只有该任务能按对象标识重新取得句柄。
@@ -226,7 +226,7 @@ impl KernelObject {
         let ObjectPayload::Capability { backing, pages, .. } = &self.payload else {
             return 0;
         };
-        let mut total = backing.as_ref().map_or(0, |page| page.len() as u64);
+        let mut total = backing.lock().as_ref().map_or(0, |page| page.len() as u64);
         for page in pages.lock().values() {
             total = total.saturating_add(page.len() as u64);
         }
@@ -246,7 +246,9 @@ impl KernelObject {
     /// 返回类型化能力的常驻物理区间。
     pub fn capability_backing(&self) -> Option<PhysRange> {
         match &self.payload {
-            ObjectPayload::Capability { backing, .. } => backing.as_ref().map(FrameBacking::range),
+            ObjectPayload::Capability { backing, .. } => {
+                backing.lock().as_ref().map(FrameBacking::range)
+            }
             _ => None,
         }
     }
@@ -300,7 +302,7 @@ impl KernelObject {
             ..
         } = &self.payload
         {
-            if backing.is_some() {
+            if backing.lock().is_some() {
                 return false;
             }
             let count = (capability.size() / capability.page_size() as u64) as usize;
@@ -309,7 +311,7 @@ impl KernelObject {
             }
             let mut pages = pages.lock();
             pages.insert(index, page);
-            let resident = backing.as_ref().map_or(0, |page| page.len() as u64)
+            let resident = backing.lock().as_ref().map_or(0, |page| page.len() as u64)
                 + pages
                     .values()
                     .map(|page| page.len() as u64)
@@ -334,6 +336,27 @@ impl KernelObject {
             frame.unpin();
         }
         Some(OwnedFrame::new(frame, Arc::clone(capacity)))
+    }
+
+    /// 把取出的 Frame 放回原 Frame 对象；仅用于失败回滚。
+    pub fn restore_owned_frame(&self, owned: OwnedFrame) -> bool {
+        let ObjectPayload::Frame { frame, .. } = &self.payload else {
+            return false;
+        };
+        let mut slot = frame.lock();
+        if slot.is_some() {
+            return false;
+        }
+        *slot = Some(owned.into_frame());
+        true
+    }
+
+    /// 取出类型化能力的常驻后备；用于映射失败后的回滚。
+    pub fn take_capability_backing(&self) -> Option<FrameBacking> {
+        let ObjectPayload::Capability { backing, .. } = &self.payload else {
+            return None;
+        };
+        backing.lock().take()
     }
 
     /// 返回类型化能力绑定的 Provider 端点。

@@ -43,6 +43,12 @@ impl TlbHardware for X86Tlb {
 ///
 /// `address` 为 `None` 时刷新整个 TLB。返回 `false` 表示等待确认超时。
 pub fn shootdown_tlb(address: Option<u64>) -> bool {
+    if !super::apic::initialized() {
+        // 早期引导尚未建立 LAPIC 时只有当前 CPU 需要失效；后续 SMP 启动
+        // 会重新装载页表，不能在这里 panic。
+        flush_local(address);
+        return true;
+    }
     let current = cpu_index();
     let mut hardware = X86Tlb {
         self_id: APIC_IDS[current].load(Ordering::Acquire),

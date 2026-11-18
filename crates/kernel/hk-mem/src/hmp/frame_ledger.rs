@@ -169,7 +169,18 @@ impl FrameLedger {
         Ok(FrameRef::new(id))
     }
 
-    /// 记入一段物理区间；同一作用域内已存在时只增加引用。
+    /// 返回指定作用域内覆盖该物理页的账目。
+    fn account_in_scope(&self, scope: u64, phys: u64) -> Option<u64> {
+        self.by_page.get(&phys).and_then(|ids| {
+            ids.iter().copied().find(|id| {
+                self.accounts
+                    .get(id)
+                    .is_some_and(|account| account.scope == scope)
+            })
+        })
+    }
+
+    /// 记入一段物理区间；同一页已被记账时只复用既有账目，不重复计费。
     pub fn charge_range(
         &mut self,
         scope: u64,
@@ -187,26 +198,53 @@ impl FrameLedger {
         let pages: Vec<u64> = (range.start().get()..range.end().get())
             .step_by(page as usize)
             .collect();
-        let mapped = pages
+        let mut uncovered = Vec::new();
+        for phys in &pages {
+            if self.account_in_scope(scope, *phys).is_some() {
+                // 该页已有本任务记账；新映射只增加引用，不再扣一笔配额。
+                continue;
+            }
+            uncovered.push(*phys);
+        }
+        if uncovered.is_empty() {
+            // 完全重叠：返回本作用域内任一覆盖页的账目，调用方只持有引用。
+            let id = pages
+                .first()
+                .and_then(|phys| self.account_in_scope(scope, *phys))
+                .ok_or(HmpError::AlreadyMapped)?;
+            return Ok(FrameRef::new(id));
+        }
+        let amount = uncovered.len() as u64 * page;
+        let mapped = uncovered
             .iter()
             .map(|phys| self.refs.remove(phys).unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let charge = ledger.charge(range.len())?;
+        let charge = ledger.charge(amount)?;
+        let full = uncovered.len() == pages.len();
         let id = self.insert(
             scope,
-            range.len(),
+            amount,
             ledger.clone(),
             charge,
-            Some(range),
-            pages.clone(),
+            full.then_some(range),
+            uncovered,
             true,
             mapped,
         );
-        self.by_range
-            .insert((scope, range.start().get(), range.len()), id);
-        for phys in pages {
-            self.by_page.entry(phys).or_default().push(id);
+        if full {
+            self.by_range
+                .insert((scope, range.start().get(), range.len()), id);
+            for phys in pages {
+                self.by_page.entry(phys).or_default().push(id);
+            }
+        } else {
+            // 部分重叠：只登记尚未计费的页，避免一页出现两本账。
+            let account = self.accounts.get(&id).expect("刚插入的账目");
+            let pages = account.pages.clone();
+            for phys in pages {
+                self.by_page.entry(phys).or_default().push(id);
+            }
         }
         Ok(FrameRef::new(id))
     }
@@ -425,6 +463,17 @@ mod tests {
         let frame = frames.charge_range(1, &ledger, range).expect("charge");
         frames.release(frame);
         assert_eq!(ledger.charged(), 0);
+    }
+
+    #[test]
+    fn overlapping_ranges_charge_each_page_once() {
+        let ledger = SharedLedger::create(0x4000);
+        let mut frames = FrameLedger::new();
+        let large = PhysRange::new(PhysAddr::new(0x5000), 0x2000);
+        let slice = PhysRange::new(PhysAddr::new(0x6000), 0x1000);
+        frames.charge_range(1, &ledger, large).expect("large");
+        frames.charge_range(1, &ledger, slice).expect("slice");
+        assert_eq!(ledger.charged(), 0x2000, "重叠页不能被重复计费");
     }
 
     #[test]

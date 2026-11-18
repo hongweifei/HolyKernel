@@ -4,7 +4,7 @@ use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 use hk_mem::FrameKind;
 
 use crate::paging::flags::{HUGE, PRESENT, PageFlags, USER, WRITABLE};
-use crate::paging::{FRAME_BANK, frame_refs, mapping_count, mapping_release};
+use crate::paging::{FRAME_BANK, mapping_count, mapping_release};
 
 use super::{ADDRESS_MASK, ENTRIES, PageTable, PagingError, has_1g_pages};
 
@@ -278,23 +278,15 @@ impl PageTable {
             let value = unsafe { entry.read_volatile() };
             if value & PRESENT != 0 {
                 let physical = PhysAddr::new(value & ADDRESS_MASK);
-                if mapping_count(physical) > 0 {
-                    {
-                        let mut refs = frame_refs().lock();
-                        if refs.count(physical) > 0 {
-                            let _ = refs.release(physical);
+                if mapping_count(physical) > 0
+                    && mapping_release(physical) == 0
+                    && let Some(kind) = FRAME_BANK.kind_of(physical)
+                {
+                    match kind {
+                        FrameKind::Image | FrameKind::Cow | FrameKind::Restore => {
+                            FRAME_BANK.free_for(kind, PhysRange::new(physical, PAGE_SIZE as u64));
                         }
-                    }
-                    if mapping_release(physical) == 0
-                        && let Some(kind) = FRAME_BANK.kind_of(physical)
-                    {
-                        match kind {
-                            FrameKind::Image | FrameKind::Cow | FrameKind::Restore => {
-                                FRAME_BANK
-                                    .free_for(kind, PhysRange::new(physical, PAGE_SIZE as u64));
-                            }
-                            _ => {}
-                        }
+                        _ => {}
                     }
                 }
             }
@@ -303,6 +295,9 @@ impl PageTable {
             self.flush(address);
             offset += PAGE_SIZE;
         }
+        // 解除的 PTE 可能仍残留在其他 CPU 的 TLB 中；在归还物理页之前
+        // 广播失效，避免旧映射继续写入已释放的页。
+        crate::paging::shootdown_user();
         true
     }
 

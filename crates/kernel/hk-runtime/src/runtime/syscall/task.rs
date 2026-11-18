@@ -1,6 +1,6 @@
 use crate::runtime::{
-    CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, REGION_HANDLE_BASE, Switch, UserPlatform,
-    UserRegionSpec, UserRuntime,
+    CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, REGION_HANDLE_BASE, REGION_USER_BASE, Switch,
+    UserPlatform, UserRegionSpec, UserRuntime,
 };
 use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
@@ -64,19 +64,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(handle) = self.handle_at(index, endpoint) else {
             return u64::MAX;
         };
-        if (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint) {
-            let Some(slot) = endpoint.checked_sub(REGION_HANDLE_BASE + 1) else {
+        if endpoint as u64 >= REGION_USER_BASE
+            || (REGION_HANDLE_BASE..CAPACITY_HANDLE_BASE).contains(&endpoint)
+        {
+            let Some((slot, ..)) = self.region_at(index, endpoint) else {
                 return u64::MAX;
             };
-            if self
-                .process(index)
-                .regions
-                .get(slot)
-                .and_then(|region| region.as_ref())
-                .is_none()
-            {
-                return u64::MAX;
-            }
             if !self.teardown_region(index, slot, true, false) {
                 return u64::MAX;
             }

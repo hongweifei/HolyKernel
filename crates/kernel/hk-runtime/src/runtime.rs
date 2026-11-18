@@ -44,6 +44,8 @@ const EXTRA_HANDLE_BASE: usize = 0x1000;
 const GRANT_HANDLE_BASE: usize = 0x2000;
 const CAPABILITY_HANDLE_BASE: usize = 0x3000;
 const REGION_HANDLE_BASE: usize = 0x4000;
+/// Region 用户句柄的代数命名空间；低值槽位号只在第一代使用。
+pub(crate) const REGION_USER_BASE: u64 = 0x1_0000_0000;
 pub(crate) const CAPACITY_HANDLE_BASE: usize = 0x5000;
 const FRAME_HANDLE_BASE: usize = 0x6000;
 const DMA_WINDOW_BYTES: usize = 256 * 1024;
@@ -126,6 +128,8 @@ pub(crate) struct CapabilityMap {
 }
 
 pub(crate) struct RegionMap {
+    /// 返回给用户态的不可复用编号（槽位 + 代数）。
+    pub user: u64,
     pub handle: Handle,
     pub capability: Handle,
     pub owner: TcbId,
@@ -152,6 +156,8 @@ pub(crate) struct Process {
     pub user_window: UserWindow,
     pub regions: Vec<Option<RegionMap>>,
     pub region_free: Vec<usize>,
+    /// 当前 Region 用户句柄代数；槽位复用时不复用旧编号。
+    pub region_generation: u64,
     /// 任务 Arena 的虚拟区间与线性分配游标。
     pub arena_base: u64,
     pub arena_size: u64,
@@ -180,6 +186,7 @@ impl Process {
             user_window: UserWindow::new(),
             regions: Vec::new(),
             region_free: Vec::new(),
+            region_generation: 0,
             arena_base,
             arena_size,
             arena_next: arena_base,
@@ -216,7 +223,7 @@ impl Process {
         if additional == 0 || !additional.is_multiple_of(page) {
             return None;
         }
-        let limit = hk_base::user::AUTO_WINDOW_LIMIT.saturating_sub(self.arena_base);
+        let limit = hk_base::user::STACK_BASE.saturating_sub(self.arena_base);
         let size = self.arena_size.checked_add(additional)?;
         if size > limit {
             return None;

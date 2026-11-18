@@ -62,6 +62,11 @@ pub fn init_apic(lapic_base: u64) {
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
 }
 
+/// 返回本地 APIC 是否已初始化。
+pub fn initialized() -> bool {
+    LAPIC_BASE.load(Ordering::SeqCst) != 0
+}
+
 /// 启动周期定时器，目标中断次数为 `target`。
 pub(super) fn lapic_write(offset: u64, value: u32) {
     let base = LAPIC_BASE.load(Ordering::SeqCst);
