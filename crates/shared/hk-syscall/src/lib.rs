@@ -351,7 +351,7 @@ pub const MODULE_INFO_BYTES: usize = 16;
 pub const SYS_MEMORY_EVENT_SUBSCRIBE: u64 = 0xB3;
 
 /// 统计数组支持的 NUMA 节点上限。
-pub const MAX_NUMA_NODES: usize = 8;
+pub const MAX_NUMA_NODES: usize = 256;
 
 /// 查询当前任务 Ledger。
 pub const SYS_LEDGER_INFO: u64 = 0x4F;

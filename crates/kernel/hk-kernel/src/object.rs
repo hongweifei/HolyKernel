@@ -359,6 +359,14 @@ impl KernelObject {
         backing.lock().take()
     }
 
+    /// 消费对象并取出常驻后备；注册失败时用于恢复 OwnedFrame。
+    pub fn into_capability_backing(self) -> Option<FrameBacking> {
+        let ObjectPayload::Capability { backing, .. } = &self.payload else {
+            return None;
+        };
+        backing.lock().take()
+    }
+
     /// 返回类型化能力绑定的 Provider 端点。
     pub fn capability_provider(&self) -> Option<ObjectId> {
         match &self.payload {

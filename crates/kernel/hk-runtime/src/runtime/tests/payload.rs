@@ -60,7 +60,11 @@ fn transports_byte_payloads() {
                 peak: 0x900,
                 free: 0x800,
                 by_capacity: [0x100, 0x200, 0x300, 0, 0],
-                by_node: [0x800, 0, 0, 0, 0, 0, 0, 0],
+                by_node: {
+                    let mut nodes = [0; hk_syscall::MAX_NUMA_NODES];
+                    nodes[0] = 0x800;
+                    nodes
+                },
             })
         }
 
@@ -194,9 +198,10 @@ fn transports_byte_payloads() {
 
     context.rax = hk_syscall::SYS_FRAME_BANK_STATS;
     context.rdi = 0x400;
-    context.rsi = 136;
+    let stats_bytes = 32 + hk_syscall::CAPACITY_KIND_COUNT * 8 + hk_syscall::MAX_NUMA_NODES * 8;
+    context.rsi = stats_bytes as u64;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(context.rax, 136);
+    assert_eq!(context.rax, stats_bytes as u64);
     let data = DATA.lock();
     assert_eq!(
         u64::from_le_bytes(data[0x400..0x408].try_into().expect("total")),

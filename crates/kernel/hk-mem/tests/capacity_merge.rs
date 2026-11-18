@@ -98,4 +98,27 @@ fn merge_returns_grown_windows_to_parent() {
         "孙窗口必须沿代际挂回 System，而不是死亡 CapacityId"
     );
     system.allocate(0x2000).expect("孙窗口可再次分配");
+
+    // 析构时仍有未归还的裸 Frame：强制回收也必须归还窗口并移除 Ledger，
+    // 不能把窗口永久挂在已销毁的 CapacityId 上。
+    let leak_id = CapacityId::next();
+    let mut leak = system
+        .split(leak_id, 0x1_0000, CapacityKind::User)
+        .expect("临时容量");
+    let _raw = leak.allocate(PAGE_SIZE).expect("裸 Frame");
+    drop(leak);
+    assert!(
+        !BANK
+            .ledger_stats()
+            .iter()
+            .any(|entry| entry.capacity == leak_id),
+        "析构后不得保留死亡 CapacityId 的 Ledger"
+    );
+    assert!(
+        system
+            .windows()
+            .iter()
+            .any(|window| window.len() >= 0x1_0000),
+        "强制回收应把窗口还给父容量"
+    );
 }

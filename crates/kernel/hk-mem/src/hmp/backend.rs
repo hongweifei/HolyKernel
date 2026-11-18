@@ -92,6 +92,19 @@ pub trait PhysicalBackend: Send + Sync {
         Ok(())
     }
 
+    /// 析构路径的强制回收：即使仍有遗留分配，也把窗口与 Ledger 归回祖先。
+    ///
+    /// 分配记录本身保留给持有者释放；这里只避免容量窗口与 Ledger 永久挂在
+    /// 一个已销毁的 `CapacityId` 上。
+    fn reclaim_capacity_force(
+        &self,
+        owner: CapacityId,
+        parent: Option<CapacityId>,
+        limit: u64,
+    ) -> Result<(), HmpError> {
+        self.reclaim_capacity(owner, parent, limit)
+    }
+
     /// 返回指定容量名下的已用字节数。
     fn used_owned(&self, owner: CapacityId) -> u64;
 

@@ -166,6 +166,22 @@ impl Kernel {
         Ok(table.lock().handle_id(handle)?)
     }
 
+    /// 判断线程句柄表是否还有空位；创建对象前用它避免丢弃已持有的后备。
+    pub fn handle_capacity_available(
+        &self,
+        thread: TcbId,
+        count: usize,
+    ) -> Result<bool, KernelError> {
+        let table = self
+            .threads
+            .lock()
+            .get(&thread)
+            .ok_or(KernelError::UnknownThread(thread))?
+            .handles();
+        let table = table.lock();
+        Ok(table.live().saturating_add(count) <= table.quota())
+    }
+
     pub(crate) fn register(
         &self,
         thread: TcbId,

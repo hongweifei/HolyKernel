@@ -145,7 +145,7 @@ pub fn object_enum(index: u64, out: &mut [u8; OBJECT_RECORD_BYTES]) -> u64 {
 }
 
 /// FrameBank 物理用量快照。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameBankStats {
     /// 总字节数。
     pub total: u64,
@@ -159,6 +159,19 @@ pub struct FrameBankStats {
     pub by_capacity: [u64; CAPACITY_KIND_COUNT],
     /// 各 NUMA 节点已用字节数。
     pub by_node: [u64; MAX_NUMA_NODES],
+}
+
+impl Default for FrameBankStats {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            used: 0,
+            peak: 0,
+            free: 0,
+            by_capacity: [0; CAPACITY_KIND_COUNT],
+            by_node: [0; MAX_NUMA_NODES],
+        }
+    }
 }
 
 /// 查询 FrameBank 物理用量快照。

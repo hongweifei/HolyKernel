@@ -4,8 +4,56 @@ use ::alloc::vec::Vec;
 
 use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
 
-use super::{FrameBank, FrameKind, MAX_NODES, OwnedWindow};
+use super::{FrameBank, FrameKind, OwnedWindow};
 use crate::hmp::{CapacityId, CapacityKind, HmpError, PhysicalBackend};
+
+impl FrameBank {
+    /// 回收容量窗口与 Ledger；`require_empty` 为 false 时用于析构兜底。
+    fn reclaim_capacity_inner(
+        &self,
+        owner: CapacityId,
+        parent: Option<CapacityId>,
+        limit: u64,
+        require_empty: bool,
+    ) -> Result<(), HmpError> {
+        let mut inner = self.inner.lock();
+        if require_empty && inner.used_for(owner) != 0 {
+            return Err(HmpError::PermissionDenied);
+        }
+        let windows: Vec<PhysRange> = inner
+            .owned
+            .iter()
+            .filter(|(_, window)| window.capacity == owner)
+            .map(|(_, window)| window.range)
+            .collect();
+        for range in &windows {
+            inner.owned.remove(&range.start().get());
+        }
+        let mut parent = parent;
+        // 父容量可能已被先 merge 掉；沿 split 记录向上找仍然存活的祖先，
+        // 否则孙窗口会挂到一个不再有 Capacity 的 ID 上。
+        while let Some(pid) = parent {
+            if inner.ledgers.contains_key(&pid) {
+                break;
+            }
+            parent = inner.parents.get(&pid).copied();
+        }
+        if let Some(parent) = parent {
+            for range in windows {
+                inner.attach_window(parent, range);
+            }
+            if inner.ledger_kinds.get(&parent) != Some(&CapacityKind::System)
+                && let Some(ledger) = inner.ledgers.get_mut(&parent)
+            {
+                ledger.set_limit(ledger.limit().saturating_add(limit));
+            }
+        }
+        inner.ledgers.remove(&owner);
+        inner.ledger_kinds.remove(&owner);
+        inner.peaks.remove(&owner);
+        Ok(())
+    }
+}
 
 impl PhysicalBackend for FrameBank {
     fn split_owned(&self, parent: CapacityId, child: CapacityId, len: u64) -> Option<PhysRange> {
@@ -323,7 +371,7 @@ impl PhysicalBackend for FrameBank {
         }
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_sub(range.len());
-        let node_slot = &mut inner.by_node[usize::from(allocation.node).min(MAX_NODES - 1)];
+        let node_slot = &mut inner.by_node[usize::from(allocation.node)];
         *node_slot = node_slot.saturating_sub(range.len());
         // 分配记录已经移除，区间尚未进入空闲表，其他分配不可能拿到它；这时
         // 放锁清零，避免在 spin 锁内逐字节访问物理内存（与 free_for 一致）。
@@ -340,42 +388,16 @@ impl PhysicalBackend for FrameBank {
         parent: Option<CapacityId>,
         limit: u64,
     ) -> Result<(), HmpError> {
-        let mut inner = self.inner.lock();
-        if inner.used_for(owner) != 0 {
-            return Err(HmpError::PermissionDenied);
-        }
-        let windows: Vec<PhysRange> = inner
-            .owned
-            .iter()
-            .filter(|(_, window)| window.capacity == owner)
-            .map(|(_, window)| window.range)
-            .collect();
-        for range in &windows {
-            inner.owned.remove(&range.start().get());
-        }
-        let mut parent = parent;
-        // 父容量可能已被先 merge 掉；沿 split 记录向上找仍然存活的祖先，
-        // 否则孙窗口会挂到一个不再有 Capacity 的 ID 上。
-        while let Some(pid) = parent {
-            if inner.ledgers.contains_key(&pid) {
-                break;
-            }
-            parent = inner.parents.get(&pid).copied();
-        }
-        if let Some(parent) = parent {
-            for range in windows {
-                inner.attach_window(parent, range);
-            }
-            if inner.ledger_kinds.get(&parent) != Some(&CapacityKind::System)
-                && let Some(ledger) = inner.ledgers.get_mut(&parent)
-            {
-                ledger.set_limit(ledger.limit().saturating_add(limit));
-            }
-        }
-        inner.ledgers.remove(&owner);
-        inner.ledger_kinds.remove(&owner);
-        inner.peaks.remove(&owner);
-        Ok(())
+        self.reclaim_capacity_inner(owner, parent, limit, true)
+    }
+
+    fn reclaim_capacity_force(
+        &self,
+        owner: CapacityId,
+        parent: Option<CapacityId>,
+        limit: u64,
+    ) -> Result<(), HmpError> {
+        self.reclaim_capacity_inner(owner, parent, limit, false)
     }
 
     fn windows_owned(&self, owner: CapacityId) -> Vec<PhysRange> {

@@ -503,15 +503,27 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Ok(capability) = Capability::new(CapabilityKind::Frame, range.len(), page_size) else {
             return Err(FrameMapFailure::Before(owned));
         };
+        // capability 与 Region 各需一个句柄槽；先确认配额，避免创建 capability
+        // 失败时 OwnedFrame 随参数析构。
+        if !self
+            .kernel
+            .handle_capacity_available(tcb, 2)
+            .unwrap_or(false)
+        {
+            return Err(FrameMapFailure::Before(owned));
+        }
         let backing = FrameBacking::Owned(owned);
-        let Ok(capability_handle) = self.kernel.create_capability(
+        let capability_handle = match self.kernel.try_create_capability(
             tcb,
             capability.clone(),
             Some(backing),
             Rights::READ | Rights::WRITE | Rights::ADMIN,
-        ) else {
-            // 内核拒绝创建时 OwnedFrame 已随参数析构；没有剩余可回滚对象。
-            return Err(FrameMapFailure::Lost);
+        ) {
+            Ok(handle) => handle,
+            Err((_, Some(FrameBacking::Owned(owned)))) => {
+                return Err(FrameMapFailure::Before(owned));
+            }
+            Err(_) => return Err(FrameMapFailure::Lost),
         };
         // `PINNED` 在帧映射上与 Region 映射语义一致：固定代建的能力，阻止回收。
         if flags.contains(RegionFlags::PINNED)

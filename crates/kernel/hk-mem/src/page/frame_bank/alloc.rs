@@ -92,7 +92,7 @@ impl FrameBank {
         }
         inner.by_node = [0; MAX_NODES];
         for (_, length, node) in updates {
-            let slot = &mut inner.by_node[usize::from(node).min(MAX_NODES - 1)];
+            let slot = &mut inner.by_node[usize::from(node)];
             *slot = slot.saturating_add(length);
         }
     }
@@ -225,7 +225,7 @@ impl FrameBank {
         );
         let slot = &mut inner.by_capacity[capacity_kind.index()];
         *slot = slot.saturating_add(length);
-        let node_slot = &mut inner.by_node[usize::from(node).min(MAX_NODES - 1)];
+        let node_slot = &mut inner.by_node[usize::from(node)];
         *node_slot = node_slot.saturating_add(length);
         Some(allocated)
     }
@@ -286,7 +286,7 @@ impl FrameBank {
             }
             let slot = &mut inner.by_capacity[capacity_kind.index()];
             *slot = slot.saturating_sub(range.len());
-            let node_slot = &mut inner.by_node[usize::from(allocation.node).min(MAX_NODES - 1)];
+            let node_slot = &mut inner.by_node[usize::from(allocation.node)];
             *node_slot = node_slot.saturating_sub(range.len());
             // 分配记录已移除，区间尚未进入空闲表；此时不会再有分配者拿到它。
             // 放锁后清零，再将区间并入空闲表，避免清零晚于重新分配。

@@ -385,23 +385,40 @@ impl Kernel {
         backing: Option<FrameBacking>,
         rights: Rights,
     ) -> Result<Handle, KernelError> {
+        self.try_create_capability(thread, capability, backing, rights)
+            .map_err(|(error, _)| error)
+    }
+
+    /// 创建类型化能力；句柄注册失败时把后备交还调用方。
+    pub fn try_create_capability(
+        &self,
+        thread: TcbId,
+        capability: Capability,
+        backing: Option<FrameBacking>,
+        rights: Rights,
+    ) -> Result<Handle, (KernelError, Option<FrameBacking>)> {
         let resident = backing.as_ref().map_or(0, |page| page.len() as u64);
-        self.register(
-            thread,
-            Arc::new(KernelObject::new(ObjectPayload::Capability {
-                capability,
-                backing: Mutex::new(backing),
-                provider: Mutex::new(None),
-                provider_task: Mutex::new(None),
-                pages: Mutex::new(BTreeMap::new()),
-                reclaiming: Mutex::new(BTreeSet::new()),
-                resident_peak: AtomicU64::new(resident),
-                pinned: AtomicBool::new(false),
-                scanout: AtomicBool::new(false),
-                version: AtomicU64::new(0),
-            })),
-            rights,
-        )
+        let object = Arc::new(KernelObject::new(ObjectPayload::Capability {
+            capability,
+            backing: Mutex::new(backing),
+            provider: Mutex::new(None),
+            provider_task: Mutex::new(None),
+            pages: Mutex::new(BTreeMap::new()),
+            reclaiming: Mutex::new(BTreeSet::new()),
+            resident_peak: AtomicU64::new(resident),
+            pinned: AtomicBool::new(false),
+            scanout: AtomicBool::new(false),
+            version: AtomicU64::new(0),
+        }));
+        match self.register(thread, Arc::clone(&object), rights) {
+            Ok(handle) => Ok(handle),
+            Err(error) => {
+                let backing = Arc::try_unwrap(object)
+                    .ok()
+                    .and_then(KernelObject::into_capability_backing);
+                Err((error, backing))
+            }
+        }
     }
 
     /// 解析类型化能力，返回能力描述与常驻物理区间。

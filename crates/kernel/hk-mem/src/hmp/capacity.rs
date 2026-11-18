@@ -739,7 +739,7 @@ impl Drop for Capacity {
         // 后端路径归还窗口归属；配额与 fallback 窗口由 LimitCell/Pool 的
         // Drop 沿父子链自动并回，不在这里重复处理。
         if let Some(backend) = super::backend::physical_backend() {
-            let _ = backend.reclaim_capacity(self.id, self.parent, self.limit());
+            let _ = backend.reclaim_capacity_force(self.id, self.parent, self.limit());
         }
     }
 }

@@ -60,7 +60,7 @@ impl FrameKind {
 pub const MAX_NODES: usize = hk_syscall::MAX_NUMA_NODES;
 
 /// FrameBank 记账快照。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameBankStats {
     /// 总字节数。
     pub total: u64,
@@ -74,6 +74,19 @@ pub struct FrameBankStats {
     pub by_capacity: [u64; CapacityKind::COUNT],
     /// 各 NUMA 节点已用字节数；未配置拓扑时只有节点 0。
     pub by_node: [u64; MAX_NODES],
+}
+
+impl Default for FrameBankStats {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            used: 0,
+            peak: 0,
+            free: 0,
+            by_capacity: [0; CapacityKind::COUNT],
+            by_node: [0; MAX_NODES],
+        }
+    }
 }
 
 /// 单个 Capacity 的 Ledger 快照。
