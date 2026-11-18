@@ -28,8 +28,8 @@ mod selftest;
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK_AT, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL, Window,
-    unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
+    DISPLAY_CLICK_AT, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE, DISPLAY_SHUTDOWN,
+    DISPLAY_WHEEL, Window, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
@@ -208,7 +208,7 @@ pub(crate) fn show(app: &App, window: &Window) {
     // SAFETY: 表面帧已映射，长度为 width * height。
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render::render(&view, width, height, &frame);
-    window.commit();
+    let _ = window.commit();
 }
 
 /// 处理选中、排序与页面切换；返回是否需要重绘。
@@ -288,7 +288,7 @@ fn scroll_by(app: &mut App, delta: i32) {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-taskman: no display\n");
         exit(1)
@@ -309,10 +309,37 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     if selftest::selected(cmdline) {
         selftest::run(&mut app, &window, display);
     }
+    // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
+    let restart_test = cmdline.is_some_and(|line| line.contains("display-restart-test"));
+    let mut reconnected = false;
 
     let mut keys = Decoder::new();
     let mut buffer = [0_u8; 2048];
     loop {
+        if window.stale() {
+            // Display 退出或换实例：旧表面随旧实例失效，重建窗口后重绘当前页。
+            window.detach();
+            let next = hk_server_api::service_endpoint(DISPLAY_SERVICE);
+            if next == 0 {
+                if restart_test && reconnected {
+                    exit(0)
+                }
+                let _ = sleep_ticks(1);
+                continue;
+            }
+            let Some(attached) = Window::attach(endpoint, next, width, height) else {
+                let _ = sleep_ticks(1);
+                continue;
+            };
+            window = attached;
+            display = next;
+            width = window.width();
+            height = window.height();
+            app.refresh();
+            show(&app, &window);
+            write(b"hk-server-taskman: reconnected\n");
+            reconnected = true;
+        }
         let mut dirty = false;
         loop {
             let (label, word, _sender, _length) = recv_data_try(endpoint, &mut buffer);

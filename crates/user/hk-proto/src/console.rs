@@ -63,6 +63,10 @@ impl Client {
         loop {
             let (label, _word, sender, length) =
                 recv_data_from(self.endpoint, self.console, buffer);
+            // Console 已退出时内核立即返回 `u64::MAX`；不能继续等待同一实例。
+            if label == u64::MAX {
+                return 0;
+            }
             if label == CONSOLE_READ_LINE && sender == self.console {
                 return length.min(buffer.len());
             }

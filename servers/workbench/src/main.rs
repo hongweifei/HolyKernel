@@ -31,15 +31,18 @@ use hk_canvas::Surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, DISPLAY_WHEEL,
-    Window, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
+    DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE,
+    DISPLAY_SHUTDOWN, DISPLAY_WHEEL, Window, unpack_click_at, unpack_key, unpack_wheel,
+    unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, fault_subscribe, recv_data, send, write, write_u64};
+use hk_server_api::{
+    exit, fault_subscribe, recv_data_timeout, send, service_endpoint, sleep_ticks, write, write_u64,
+};
 
 #[cfg(target_os = "none")]
 use model::{EditorKey, Focus, Model, line_text};
@@ -49,6 +52,9 @@ use render::{HEIGHT, Layout, WIDTH, render};
 /// 服务堆大小。
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 1024 * 1024;
+/// 无输入时的等待 tick；用于发现 Display 退出与重启。
+#[cfg(target_os = "none")]
+const WATCH_TICKS: u64 = 100;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -66,7 +72,7 @@ pub(crate) fn show(model: &Model, font: &Font, window: &Window) {
     // SAFETY: 表面帧已映射，长度为 width * height。
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(model, font, &frame);
-    window.commit_with(|label, _, data| {
+    let _ = window.commit_with(|label, _, data| {
         if label == hk_server_api::FAULT_EVENT {
             hk_debug::ingest(label, data);
         }
@@ -256,7 +262,7 @@ fn handle_key(model: &mut Model, key: Key, display: u64) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-workbench: start\n");
-    let display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-workbench: no display\n");
         exit(1)
@@ -280,16 +286,47 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut cmdline_buffer = [0_u8; 128];
-    let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("workbench-test"));
+    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let test = cmdline.is_some_and(|line| line.contains("workbench-test"));
     if test {
         selftest::run(&mut model, font, &window);
     }
+    // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
+    let restart_test = cmdline.is_some_and(|line| line.contains("display-restart-test"));
+    let mut reconnected = false;
 
     let mut decoder = Decoder::new();
     let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if window.stale() {
+            // Display 退出或换实例：重建窗口，按新尺寸重排并重绘当前文档。
+            window.detach();
+            let next = service_endpoint(DISPLAY_SERVICE);
+            if next == 0 {
+                if restart_test && reconnected {
+                    exit(0)
+                }
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            }
+            let Some(attached) = Window::attach(endpoint, next, window.width(), window.height())
+            else {
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            };
+            window = attached;
+            display = next;
+            let layout = Layout::new(window.width(), window.height());
+            model.set_viewport(layout.nav_rows, layout.editor_rows, layout.editor_cols);
+            show(&model, font, &window);
+            write(b"hk-server-workbench: reconnected\n");
+            reconnected = true;
+        }
+        let (label, word, _sender, length) = recv_data_timeout(endpoint, &mut buffer, WATCH_TICKS);
+        if label == u64::MAX {
+            // 等待超时：下一轮先检查 Display 实例，再继续收事件。
+            continue;
+        }
         if label == hk_server_api::FAULT_EVENT {
             hk_debug::ingest(label, &buffer[..length]);
             continue;

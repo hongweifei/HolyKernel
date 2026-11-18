@@ -620,8 +620,17 @@ pub const BOOT_MODES: &[BootMode] = &[
         services: &[
             "hk-server-display",
             "hk-server-console",
+            "hk-server-taskman",
+            "hk-server-debug",
+            "hk-server-workbench",
+            "hk-server-holydoc",
             "hk-client-display-restart-test",
             "hk-server-memory",
+            "hk-server-device",
+            "hk-server-virtio",
+            "hk-server-block",
+            "hk-server-holyfs",
+            "hk-server-vfs",
         ],
     },
     BootMode {

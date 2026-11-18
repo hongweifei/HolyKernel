@@ -57,7 +57,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 - `desktop` 启动模式装载 virtio-blk 驱动与 VFS，并以 `vfs.fs=holyfs` 挂载 `H:` 卷；`cargo xtask run --target x86_64-qemu --ui` 会把 `docs/holy` 的文档播种到 `build/run-holy.img`。
 - Debug Server：调试窗口分页展示概览、任务、服务、trace、统计与最近一次用户异常回溯；概览包含 System Capacity 总量、已用、峰值与分类用量。`1`-`6` 切换视图，`j`/`k`、`u`/`d`、方向键与 PageUp/PageDown 滚动，`r` 刷新，`q` 或关闭退出。异常页显示故障现场与符号化栈帧。`smoke --mode debug` 验证分页读取、渲染与符号解析。
 - Task Manager：任务管理器窗口提供「进程」与「性能」两页；进程页展示 Task 状态、Cadence 类别与权重、预算、CPU 份额、Arena、Ledger 提交/常驻、句柄与端点（`n/a/m/s/h/c/t` 排序，`m` 按提交量），性能页绘制 CPU 份额、System Capacity（已用/上限/峰值/软上限）、FrameBank 总量与分类以及 Meter 历史（消耗、等待、节流、迁移），并显示每核占用，默认每秒自动刷新，支持键盘与鼠标切换页面、排序与暂停。内核 Beat 执行 Cadence，Meter 记录计量，Tempo 提供契约与准入视图；`smoke --mode taskman` 验证 Cadence/Meter 快照、System/FrameBank 记账与两页渲染。
-- Display 以非零码退出时由 Root Server 重启；Console 检测 Display 端点变化，解除旧表面映射并重建窗口。`smoke --mode displayrestart` 验证重启与重连。
+- Display 以非零码退出时由 Root Server 重启；Console、Task Manager、Debug、Workbench 与 HolyDoc 同时比较 Display 端点与累计重启次数（重启会复用任务槽位与端点编号），解除旧表面映射、重建窗口并恢复当前视图。提交与握手使用带发送者过滤的超时接收：Display 退出后内核立即返回错误，客户端不会永久阻塞在旧实例上。`smoke --mode displayrestart` 验证重启与 Task Manager/Debug 重连。
 - 窗口标题由 `DISPLAY_SET_TITLE` 设置，显示服务用 8×16 位图字体绘制到标题栏，并回读像素确认文字已渲染。
 - Surface/Seat 协议：`SURFACE_CREATE`/`SURFACE_DAMAGE`/`SURFACE_COMMIT`/`SURFACE_DESTROY` 与 `WINDOW_CREATE` 把表面与窗口分离；damage 在表面坐标裁剪并合并，提交时只重绘受影响区域；`SURFACE_SET_INPUT_REGION` 控制正文命中，`SURFACE_SET_CURSOR` 声明该表面的光标形状，标题栏与装饰始终由服务端处理；`SEAT_FOCUS` 统一焦点，`SEAT_SET_CLIPBOARD`/`SEAT_GET_CLIPBOARD` 提供剪贴板。指针在窗口正文内移动时经 `DISPLAY_POINTER` 把窗口内坐标发给对应客户端，离开时发 `DISPLAY_POINTER_LEAVE`；事件按悬停窗口路由，不依赖焦点。所有原生客户端统一走 surface/window 两段式创建与表面提交。`smoke --mode display` 验证局部 damage、焦点与剪贴板。
 - Workbench 走同一 surface/window 协议：三栏布局展示 `H:` 文档树、编辑器与输出面板；文档经 Holy 协议整篇读写，键盘支持方向键、Home/End、Delete 编辑与 Ctrl+S 保存，Ctrl+B 统计构建、Ctrl+R 运行 `@exec`、Ctrl+D 读取异常回溯；鼠标可命中文档树与编辑器定位。`smoke --mode workbench` 验证打开、保存、构建、运行、调试与清理。
@@ -251,7 +251,7 @@ flowchart LR
 - 原生应用可启动 HolyDoc 欢迎页与 Workbench。
 - 文本回退：Console Service 使用串口/VGA 文本输出；POSIX 应用保持可用。
 - 字体回退：8×16 位图字体。
-- Display Server 崩溃后，Root Server 重启；Console 客户端重连并恢复文本缓冲。
+- Display Server 崩溃后，Root Server 重启；窗口客户端按端点与重启代数重连并重绘当前视图，Console 恢复文本缓冲。
 
 ---
 

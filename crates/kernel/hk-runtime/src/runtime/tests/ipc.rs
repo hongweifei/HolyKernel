@@ -232,3 +232,116 @@ fn ipc_queued_handle_waits_for_receiver_quota() {
     assert_ne!(context.r8, 0, "句柄必须随消息一并交付");
     let _ = runtime.finish(0, receiver);
 }
+
+#[test]
+fn filtered_receive_keeps_other_senders_message() {
+    let mut runtime = runtime();
+
+    let Step::Resume {
+        index: sender,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(sender, 0);
+    context.rax = SYS_SEND;
+    context.rdi = 2;
+    context.rsi = 9;
+    context.rdx = 5;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+
+    let Step::Resume {
+        index: receiver,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(receiver, 1);
+
+    // 期望发送者是 2（自己的端点，不是发送方）：立即返回错误，且不吞掉队列里的消息。
+    context.rax = SYS_RECV_DATA_FROM_TIMEOUT;
+    context.rdi = 2;
+    context.rsi = 0x200;
+    context.rdx = 64;
+    context.r10 = 2 << 32;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, u64::MAX);
+    assert_eq!(runtime.tasks()[receiver].pending, "-");
+
+    // 期望发送者是 1（发送方）：取到刚才排队的那条消息。
+    context.rax = SYS_RECV_DATA_FROM_TIMEOUT;
+    context.rdi = 2;
+    context.rsi = 0x200;
+    context.rdx = 64;
+    context.r10 = 1 << 32;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 9);
+    assert_eq!(context.rdx, 5);
+    let _ = runtime.finish(0, receiver);
+}
+
+#[test]
+fn filtered_receive_fails_when_sender_exits() {
+    let mut runtime = runtime();
+
+    let Step::Resume {
+        index: sender,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(sender, 0);
+    context.rax = SYS_YIELD;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+
+    let Step::Resume {
+        index: receiver,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("任务应可运行");
+    };
+    assert_eq!(receiver, 1);
+    context.rax = SYS_RECV_DATA_FROM_TIMEOUT;
+    context.rdi = 2;
+    context.rsi = 0x200;
+    context.rdx = 64;
+    context.r10 = (1 << 32) | 1_000;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Block);
+    assert_eq!(runtime.tasks()[receiver].pending, "recv-data");
+
+    // 发送方退出：只等待它的接收者立即收到错误，而不是永久挂起。
+    let Step::Resume {
+        index: sender,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("发送方应可再次运行");
+    };
+    assert_eq!(sender, 0);
+    context.rax = SYS_EXIT;
+    context.rdi = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Exit);
+    assert!(runtime.finish(0, sender).is_some());
+
+    let Step::Resume { index, context } = runtime.step(0) else {
+        panic!("接收方应被唤醒");
+    };
+    assert_eq!(index, receiver);
+    assert_eq!(context.rax, u64::MAX);
+    assert_eq!(runtime.tasks()[receiver].pending, "-");
+
+    // 之后再发一次接收请求也立即失败，不会重新阻塞。
+    let mut again = context;
+    again.rax = SYS_RECV_DATA_FROM_TIMEOUT;
+    again.rdi = 2;
+    again.rsi = 0x200;
+    again.rdx = 64;
+    again.r10 = (1 << 32) | 1_000;
+    assert_eq!(runtime.dispatch(0, &mut again), Switch::Continue);
+    assert_eq!(again.rax, u64::MAX);
+    let _ = runtime.finish(0, receiver);
+}

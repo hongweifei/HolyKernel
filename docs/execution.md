@@ -171,6 +171,7 @@ pub struct Message {
 - 消息携带 label、最多 8 个字与 4 个 Handle；发送方需要 `TRANSFER` 权限。
 - 大块数据通过共享 Frame 传递；消息只携带 Frame Handle。
 - 阻塞、超时与取消由内核管理；等待队列按 Cadence 类别与虚拟键值排序，同类别内保持 FIFO。
+- 带发送者过滤的接收（`expected`）只接受该实例的消息；实例退出后立即返回 `u64::MAX`，已登记的等待者也被唤醒为错误，避免持有旧 Endpoint 的客户端永久阻塞。`SYS_RECV_DATA_FROM_TIMEOUT` 以 `(expected << 32) | timeout` 同时表达过滤与超时。
 - Endpoint 可绑定 badge；服务端区分客户端。
 - `call` 期间建立 lending frame：服务端取得调用方与服务端中更强的有效契约，执行时间记入调用方 Meter；`reply`、超时或退出时恢复。细节见 [Holy Cadence Model](scheduling.md)。
 

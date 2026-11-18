@@ -211,6 +211,34 @@ pub fn recv_data_from(endpoint: u64, expected: u64, buffer: &mut [u8]) -> (u64, 
     )
 }
 
+/// 从端点接收消息，校验发送端点并带超时。
+///
+/// `expected == 0` 接受任意发送者；超时、发送方已退出或参数非法返回 `u64::MAX`。
+pub fn recv_data_from_timeout(
+    endpoint: u64,
+    expected: u64,
+    buffer: &mut [u8],
+    timeout: u64,
+) -> (u64, u64, u64, usize) {
+    let packed = (expected << 32) | (timeout & 0xFFFF_FFFF);
+    // SAFETY: 缓冲区属于本进程；内核校验范围后写入。
+    let result = unsafe {
+        syscall_call(
+            SYS_RECV_DATA_FROM_TIMEOUT,
+            endpoint,
+            buffer.as_mut_ptr() as u64,
+            buffer.len() as u64,
+            packed,
+        )
+    };
+    (
+        result.value,
+        result.word,
+        result.sender,
+        (result.extra as usize).min(buffer.len()),
+    )
+}
+
 /// 从端点接收消息，并返回随消息收到的句柄编号；`0` 表示没有句柄。
 pub fn recv_handle(endpoint: u64) -> (u64, u64, u64, u64) {
     // SAFETY: 端点编号由内核分配；没有消息时内核阻塞本任务。

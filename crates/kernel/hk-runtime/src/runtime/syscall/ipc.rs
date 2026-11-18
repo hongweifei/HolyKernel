@@ -329,6 +329,62 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    /// 带发送者过滤与超时的字节接收；`arg3` 低 32 位为超时、高 32 位为发送方端点。
+    ///
+    /// 发送方已退出时立即返回 `u64::MAX`，避免无限等待不会再回复的实例。
+    pub(crate) fn recv_data_from_timeout(
+        &mut self,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        let endpoint = frame.arg0() as usize;
+        let Some(handle) = self.handle_at(index, endpoint) else {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        };
+        let buffer = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        if capacity > MAX_USER_DATA {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        let packed = frame.arg3();
+        let expected = self.tcb_of_endpoint(packed >> 32);
+        let timeout = packed & 0xFFFF_FFFF;
+        if self.expected_exited(expected) {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        match self.kernel.recv_from(tcb, handle, expected) {
+            Ok(Some(received)) => self.deliver_data(index, frame, &received, buffer, capacity),
+            Ok(None) if timeout == 0 => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+            Ok(None) => {
+                let deadline = self.contract_now().saturating_add(timeout);
+                let mut context = *frame;
+                context.set_result(0);
+                self.tasks[index].context = context;
+                self.tasks[index].pending = Pending::RecvData {
+                    handle,
+                    buffer,
+                    capacity,
+                    expected,
+                    handle_out: false,
+                    deadline: Some(deadline),
+                };
+                self.timeouts.entry(deadline).or_default().push(index);
+                Switch::Block
+            }
+            Err(_) => {
+                frame.set_result(u64::MAX);
+                Switch::Continue
+            }
+        }
+    }
+
     pub(crate) fn recv_data_try(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
         let endpoint = frame.arg0() as usize;
         let Some(handle) = self.handle_at(index, endpoint) else {

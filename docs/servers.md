@@ -252,7 +252,7 @@ sequenceDiagram
 ```
 
 - 重启时关闭旧 Handle，防止旧实例继续访问资源。
-- 客户端持有旧 Endpoint 时收到 `DeadEndpoint`；重新连接新实例。
+- 客户端持有旧 Endpoint 时收到错误：带发送者过滤的接收（`SYS_RECV_DATA` 的 `expected`、`SYS_RECV_DATA_FROM_TIMEOUT`）在实例退出时立即返回 `u64::MAX`，已阻塞的接收者在实例退出时被唤醒为错误；调用方据此重新连接新实例。
 - VFS、POSIX、Network 等有状态服务需要恢复策略：重建句柄、重新打开文件、重新绑定 socket。
 - Root Server 记录重启次数与最后错误，供诊断。
 

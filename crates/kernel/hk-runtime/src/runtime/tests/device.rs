@@ -162,7 +162,7 @@ fn deferred_irq_wakes_bound_notification() {
 }
 
 #[test]
-fn failed_service_wakes_inflight_recv_with_empty_response() {
+fn failed_service_wakes_inflight_recv_with_error() {
     let mut runtime = runtime();
     let Step::Resume { index, .. } = runtime.step(0) else {
         panic!("任务应可运行");
@@ -182,6 +182,7 @@ fn failed_service_wakes_inflight_recv_with_empty_response() {
 
     assert!(runtime.finish(0, other).is_some());
     assert!(matches!(runtime.tasks[index].pending, Pending::None));
-    assert_eq!(runtime.tasks[index].context.rax, 0);
+    // 只等待该实例消息的接收者不会再有输入：返回错误而不是空消息。
+    assert_eq!(runtime.tasks[index].context.rax, u64::MAX);
     assert_eq!(runtime.tasks[index].context.r8, 0);
 }

@@ -21,5 +21,5 @@ pub(crate) fn apply(view: &DocView, window: &Window) {
     // SAFETY: 调用方传入的表面帧已映射，长度为 width * height。
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(view, &frame);
-    window.commit();
+    let _ = window.commit();
 }

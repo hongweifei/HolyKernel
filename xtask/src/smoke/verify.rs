@@ -134,6 +134,7 @@ pub(super) fn prepare_disk(mode: SmokeMode, path: &Path) -> Result<PathBuf> {
             | SmokeMode::Holydoc
             | SmokeMode::HolyDocResize
             | SmokeMode::Workbench
+            | SmokeMode::DisplayRestart
             | SmokeMode::CheckpointServer
     ) {
         crate::disk::seed_holy_docs(disk)?

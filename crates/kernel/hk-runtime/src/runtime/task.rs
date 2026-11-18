@@ -346,7 +346,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 } if expected == exited_tcb => {
                     let _ = self.kernel.cancel_recv(tcb, handle);
                     let mut context = self.tasks[other].context;
-                    context.set_result(0);
+                    // 只等待该实例消息的接收者不会再有输入；返回错误让调用方
+                    // 区分「服务已退出」与「暂时没有事件」。
+                    context.set_result(u64::MAX);
                     context.set_handle(0);
                     context.set_sender(0);
                     self.tasks[other].context = context;
@@ -803,7 +805,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         self.remove_sleep(index);
                     }
                     Ok(None) => {
-                        if deadline.is_some_and(|at| self.contract_now() >= at) {
+                        if self.expected_exited(expected) {
+                            // 期望的发送者已退出：过滤后不会再有消息，返回错误
+                            // 而不是把客户端重新挂回等待队列。
+                            let _ = self.kernel.cancel_recv(tcb, handle);
+                            self.tasks[index].context.set_result(u64::MAX);
+                        } else if deadline.is_some_and(|at| self.contract_now() >= at) {
                             // 超时兜底：撤销本次登记，避免悬挂接收者。
                             let _ = self.kernel.cancel_recv(tcb, handle);
                             self.tasks[index].context.set_result(u64::MAX);

@@ -32,15 +32,19 @@ use alloc::vec::Vec;
 use hk_canvas::Surface;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN,
-    DISPLAY_WHEEL, Window, unpack_click_at, unpack_key, unpack_wheel, unpack_window_size,
+    DISPLAY_CLICK, DISPLAY_CLICK_AT, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE,
+    DISPLAY_SHUTDOWN, DISPLAY_WHEEL, Window, unpack_click_at, unpack_key, unpack_wheel,
+    unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv, recv_data_try, send, write, write_u64, yield_now};
+use hk_server_api::{
+    exit, recv_data_timeout, recv_data_try, send, service_endpoint, sleep_ticks, write, write_u64,
+    yield_now,
+};
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
 
@@ -55,6 +59,10 @@ const HEAP_SIZE: usize = 1024 * 1024;
 #[cfg(target_os = "none")]
 const RENDER_STACK: usize = 64 * 1024;
 
+/// 无输入时的等待 tick；用于发现 Display 退出与重启。
+#[cfg(target_os = "none")]
+const WATCH_TICKS: u64 = 100;
+
 #[cfg(target_os = "none")]
 #[global_allocator]
 static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
@@ -63,7 +71,7 @@ static ALLOCATOR: FreeHeap = FreeHeap::new(HEAP_SIZE);
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-holydoc: no display\n");
         exit(1)
@@ -93,7 +101,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     window::update_title(&window, &view);
     submit_render(pool, &view, surface_virt);
     wait_render(pool);
-    window.commit();
+    let _ = window.commit();
     write(b"hk-server-holydoc: render worker ok\n");
     write(b"hk-server-holydoc: ready ");
     write_u64(window.window());
@@ -123,14 +131,16 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         let _ = hk_server_api::send(window.display(), DISPLAY_SHUTDOWN, 0);
         hk_server_api::exit(u64::from(!ok));
     }
-    let test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("holydoc-test"));
-    let resize_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
-        .is_some_and(|line| line.contains("holydoc-resize-test"));
+    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let test = cmdline.is_some_and(|line| line.contains("holydoc-test"));
+    let resize_test = cmdline.is_some_and(|line| line.contains("holydoc-resize-test"));
+    // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
+    let restart_test = cmdline.is_some_and(|line| line.contains("display-restart-test"));
+    let mut reconnected = false;
     if test {
         submit_render(pool, &view, surface_virt);
         wait_render(pool);
-        window.commit();
+        let _ = window.commit();
         selftest::run(&mut view, &mut docs, endpoint, &window, loaded.documents);
     }
 
@@ -141,8 +151,42 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut resized = false;
 
     loop {
+        if window.stale() {
+            // Display 退出或换实例：先等旧表面上的渲染结束，再重建窗口。
+            if render_pending {
+                wait_render(pool);
+                render_pending = false;
+                render_dirty = false;
+            }
+            window.detach();
+            let next = service_endpoint(DISPLAY_SERVICE);
+            if next == 0 {
+                if restart_test && reconnected {
+                    exit(0)
+                }
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            }
+            let Some(attached) = Window::attach(endpoint, next, width, height) else {
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            };
+            window = attached;
+            display = next;
+            width = window.width();
+            height = window.height();
+            surface_virt = window.pixels() as u64;
+            if let Some(next) = refit_view(&docs, &view, width, height) {
+                view = next;
+            }
+            window::update_title(&window, &view);
+            submit_render(pool, &view, surface_virt);
+            render_pending = true;
+            write(b"hk-server-holydoc: reconnected\n");
+            reconnected = true;
+        }
         if render_pending && pool.try_next().is_some() {
-            window.commit();
+            let _ = window.commit();
             if resized {
                 // SAFETY: 表面帧已映射，首像素位于 surface_virt。
                 let pixel = unsafe { core::ptr::read_volatile(surface_virt as *const u32) };
@@ -178,7 +222,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             (label, word)
         } else {
-            let (label, word, _sender) = recv(endpoint);
+            let (label, word, _sender, _length) =
+                recv_data_timeout(endpoint, &mut scratch, WATCH_TICKS);
+            if label == u64::MAX {
+                // 等待超时：下一轮先检查 Display 实例，再继续收事件。
+                continue;
+            }
             (label, word)
         };
 
@@ -204,12 +253,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 width = new_width;
                 height = new_height;
                 surface_virt = window.pixels() as u64;
-                let scroll = view.scroll;
-                let history = core::mem::take(&mut view.history);
-                let forward = core::mem::take(&mut view.forward);
-                let id = view.id.clone();
-                if let Some(mut next) = DocView::load(&docs, &id, history, forward, width, height) {
-                    next.scroll = scroll.min(next.max_scroll());
+                if let Some(next) = refit_view(&docs, &view, width, height) {
                     view = next;
                 }
                 window::update_title(&window, &view);
@@ -336,6 +380,18 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
         }
     }
+}
+
+/// 按新窗口尺寸重排当前文档，保留滚动位置与前进/后退历史。
+#[cfg(target_os = "none")]
+fn refit_view(docs: &DocSet, view: &DocView, width: usize, height: usize) -> Option<DocView> {
+    let scroll = view.scroll;
+    let history = view.history.clone();
+    let forward = view.forward.clone();
+    let id = view.id.clone();
+    let mut next = DocView::load(docs, &id, history, forward, width, height)?;
+    next.scroll = scroll.min(next.max_scroll());
+    Some(next)
 }
 
 /// 把当前视图快照交给渲染线程，直接绘制到窗口表面。

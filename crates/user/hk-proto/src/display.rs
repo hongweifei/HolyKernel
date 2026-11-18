@@ -6,12 +6,15 @@
 pub use hk_syscall::DISPLAY_SERVICE;
 
 use hk_server_api::{
-    CapabilityKind, MemoryClient, close_handle, exit, handle_duplicate, recv_data_from,
-    region_unmap, send, send_handle,
+    CapabilityKind, MemoryClient, close_handle, exit, handle_duplicate, recv_data_from_timeout,
+    region_unmap, send, send_handle, service_endpoint, service_restarts,
 };
 
 /// 交给 Display 的权利：映射绘制与句柄转移。
 const DISPLAY_RIGHTS: u32 = 0x1 | 0x2 | 0x8;
+
+/// 等待 Display 回包的 tick 上限；超时后由调用方判断实例是否已更换。
+const DISPLAY_TIMEOUT: u64 = 250;
 
 /// 客户端窗口：表面缓冲、窗口编号与提交。
 pub struct Window {
@@ -23,11 +26,38 @@ pub struct Window {
     virt: u64,
     width: usize,
     height: usize,
+    /// 建立窗口时 Display 的累计重启次数；与端点编号一起判断实例是否更换。
+    generation: u64,
+}
+
+/// 等待 Display 的握手回包；同一实例只是启动/合成较慢时继续等。
+///
+/// Display 退出（端点为 0）或换实例（累计重启次数变化）时返回 `None`，
+/// 避免把回包错配给下一次启动的窗口。
+fn wait_display(
+    endpoint: u64,
+    display: u64,
+    generation: u64,
+    buffer: &mut [u8],
+) -> Option<(u64, u64)> {
+    loop {
+        let (label, word, _sender, _length) =
+            recv_data_from_timeout(endpoint, display, buffer, DISPLAY_TIMEOUT);
+        if label != u64::MAX {
+            return Some((label, word));
+        }
+        if service_endpoint(DISPLAY_SERVICE) != display
+            || service_restarts(DISPLAY_SERVICE) != generation
+        {
+            return None;
+        }
+    }
 }
 
 impl Window {
     /// 创建共享表面并挂到 Display，返回已映射的窗口。
     pub fn attach(endpoint: u64, display: u64, width: usize, height: usize) -> Option<Self> {
+        let generation = service_restarts(DISPLAY_SERVICE);
         let bytes = width.checked_mul(height)?.checked_mul(4)?;
         let (handle, region, virt) =
             MemoryClient::new(endpoint).map(CapabilityKind::Surface, bytes)?;
@@ -54,7 +84,13 @@ impl Window {
         // 只接受 Display 的回复：本端点同时承载 Console 等业务消息，不能把它们
         // 当成握手结果，否则会漏掉表面并让后续回复错位。
         let mut buffer = [0_u8; 0];
-        let (label, surface, _sender, _length) = recv_data_from(endpoint, display, &mut buffer);
+        let Some((label, surface)) = wait_display(endpoint, display, generation, &mut buffer)
+        else {
+            let _ = close_handle(transferred);
+            let _ = close_handle(handle);
+            let _ = region_unmap(region);
+            return None;
+        };
         if label != SURFACE_CREATED || surface == 0 {
             let _ = region_unmap(region);
             return None;
@@ -64,7 +100,11 @@ impl Window {
             let _ = region_unmap(region);
             return None;
         }
-        let (label, window, _sender, _length) = recv_data_from(endpoint, display, &mut buffer);
+        let Some((label, window)) = wait_display(endpoint, display, generation, &mut buffer) else {
+            let _ = send(display, SURFACE_DESTROY, surface);
+            let _ = region_unmap(region);
+            return None;
+        };
         if label != WINDOW_CREATED || window == 0 {
             let _ = send(display, SURFACE_DESTROY, surface);
             let _ = region_unmap(region);
@@ -79,7 +119,17 @@ impl Window {
             virt,
             width,
             height,
+            generation,
         })
+    }
+
+    /// Display 是否已换成别的实例（退出后未重启时端点会变成 0）。
+    ///
+    /// 重启会复用任务槽位与端点编号，所以必须同时比较累计重启次数；只比
+    /// 端点编号会把新实例误判成旧实例，继续向已退出的端点提交。
+    pub fn stale(&self) -> bool {
+        service_endpoint(DISPLAY_SERVICE) != self.display
+            || service_restarts(DISPLAY_SERVICE) != self.generation
     }
 
     /// 替换窗口表面；成功后可继续使用同一 surface/window 编号。
@@ -130,25 +180,30 @@ impl Window {
         set_title(self.display, self.window, title);
     }
 
-    /// 提交并等待 Display 完成合成。
-    pub fn commit(&self) {
-        self.commit_with(|_, _, _| {});
+    /// 提交并等待 Display 完成合成；Display 已更换实例时返回 `false`。
+    pub fn commit(&self) -> bool {
+        self.commit_with(|_, _, _| {})
     }
 
     /// 提交并等待合成；等待期间把其他消息交给调用方处理。
-    pub fn commit_with<F>(&self, mut on_message: F)
+    ///
+    /// 带超时等待 Display 的帧完成。Display 退出后端点对象仍被本地句柄引用，
+    /// 阻塞接收会永久挂起；超时后比较实例代数，换了实例就返回 `false`，
+    /// 由调用方重新 `attach`。同一实例只是合成较慢时继续等待。
+    pub fn commit_with<F>(&self, mut on_message: F) -> bool
     where
         F: FnMut(u64, u64, &[u8]),
     {
         let _ = send(self.display, SURFACE_COMMIT, self.surface);
         let mut buffer = [0_u8; 2048];
         loop {
-            // 只消费 Display 的帧完成/输入事件，避免误吞同一端点上的业务消息。
             let (label, word, _sender, length) =
-                recv_data_from(self.endpoint, self.display, &mut buffer);
+                recv_data_from_timeout(self.endpoint, self.display, &mut buffer, DISPLAY_TIMEOUT);
             match label {
-                SURFACE_FRAME_DONE if word == self.surface => return,
+                SURFACE_FRAME_DONE if word == self.surface => return true,
                 DISPLAY_CLOSE => exit(0),
+                u64::MAX if self.stale() => return false,
+                u64::MAX => continue,
                 _ => on_message(label, word, &buffer[..length.min(buffer.len())]),
             }
         }

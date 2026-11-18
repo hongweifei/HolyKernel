@@ -52,6 +52,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_RECV_DATA_HANDLE => self.recv_data_handle(index, tcb, frame),
             SYS_RECV_DATA_HANDLE_TRY => self.recv_data_handle_try(index, tcb, frame),
             SYS_RECV_DATA_TIMEOUT => self.recv_data_timeout(index, tcb, frame),
+            SYS_RECV_DATA_FROM_TIMEOUT => self.recv_data_from_timeout(index, tcb, frame),
             SYS_SERVICE_ENDPOINT => {
                 let length = frame.arg1() as usize;
                 let mut name = [0_u8; 64];

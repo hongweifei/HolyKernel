@@ -10,9 +10,9 @@ use hk_proto::display::{DISPLAY_RESTART, DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
 use hk_server_api::{exit, send, service_endpoint, sleep_ticks, ticks, write, write_u64};
 
-/// 等待 Console 完成首次连接的 tick 数。
+/// 等待窗口服务完成首次连接、以及重启后重新连接的 tick 数。
 #[cfg(target_os = "none")]
-const SETTLE_TICKS: u64 = 50;
+const SETTLE_TICKS: u64 = 300;
 /// 等待 Display 重启的 tick 上限。
 #[cfg(target_os = "none")]
 const RESTART_TICKS: u64 = 1_000;

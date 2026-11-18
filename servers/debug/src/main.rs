@@ -25,15 +25,18 @@ use hk_canvas::Surface;
 use hk_font::Font;
 #[cfg(target_os = "none")]
 use hk_proto::display::{
-    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SHUTDOWN, Window,
-    unpack_key, unpack_window_size,
+    DISPLAY_CLICK, DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_SERVICE, DISPLAY_SHUTDOWN,
+    Window, unpack_key, unpack_window_size,
 };
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
 use hk_server_api::heap::FreeHeap;
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, fault_subscribe, kernel_stats, recv_data, send, write, write_u64};
+use hk_server_api::{
+    exit, fault_subscribe, kernel_stats, recv_data_timeout, send, service_endpoint, sleep_ticks,
+    write, write_u64,
+};
 #[cfg(target_os = "none")]
 use pages::Page;
 #[cfg(target_os = "none")]
@@ -42,6 +45,9 @@ use render::{HEIGHT, WIDTH, line_count, render, visible_lines};
 /// 服务堆大小。
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 512 * 1024;
+/// 无输入时的等待 tick；用于发现 Display 退出与重启。
+#[cfg(target_os = "none")]
+const WATCH_TICKS: u64 = 100;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -55,7 +61,7 @@ pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &
     // SAFETY: 表面帧已映射，长度为 width * height。
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(text, page.title(), scroll, width, height, font, &frame);
-    window.commit_with(|label, _, data| {
+    let _ = window.commit_with(|label, _, data| {
         if label == hk_server_api::FAULT_EVENT {
             hk_debug::ingest(label, data);
         }
@@ -66,7 +72,7 @@ pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-debug: no display\n");
         exit(1)
@@ -104,6 +110,9 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let mut cmdline_buffer = [0_u8; 128];
     let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
+    // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
+    let restart_test = cmdline.contains("display-restart-test");
+    let mut reconnected = false;
     let _ = fault_subscribe(endpoint);
     if let Some(fault_test) = selftest::selected(cmdline) {
         selftest::run(endpoint, display, font, &window, fault_test);
@@ -112,7 +121,36 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut keys = Decoder::new();
     let mut buffer = [0_u8; 2048];
     loop {
-        let (label, word, _sender, length) = recv_data(endpoint, &mut buffer);
+        if window.stale() {
+            // Display 退出或换实例：重建窗口并重绘当前页。
+            window.detach();
+            let next = service_endpoint(DISPLAY_SERVICE);
+            if next == 0 {
+                if restart_test && reconnected {
+                    exit(0)
+                }
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            }
+            let Some(attached) = Window::attach(endpoint, next, width, height) else {
+                let _ = sleep_ticks(WATCH_TICKS);
+                continue;
+            };
+            window = attached;
+            display = next;
+            width = window.width();
+            height = window.height();
+            text = page.fetch();
+            scroll = 0;
+            show(page, &text, scroll, font, &window);
+            write(b"hk-server-debug: reconnected\n");
+            reconnected = true;
+        }
+        let (label, word, _sender, length) = recv_data_timeout(endpoint, &mut buffer, WATCH_TICKS);
+        if label == u64::MAX {
+            // 等待超时：下一轮先检查 Display 实例，再继续收事件。
+            continue;
+        }
         if label == hk_server_api::FAULT_EVENT {
             hk_debug::ingest(label, &buffer[..length]);
             continue;

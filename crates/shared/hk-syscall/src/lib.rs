@@ -171,6 +171,16 @@ pub const SYS_FUTEX_WAKE: u64 = 0x31;
 /// 带超时接收带字节载荷的消息；超时返回 `u64::MAX`。
 pub const SYS_RECV_DATA_TIMEOUT: u64 = 0x33;
 
+/// 带发送者过滤与超时的字节接收。
+///
+/// 参数：`arg0` 端点句柄、`arg1` 缓冲、`arg2` 长度、`arg3` 打包
+/// `(expected << 32) | timeout`；`expected` 为发送方端点编号，`0` 表示接受
+/// 任意发送者，`timeout` 按 tick 计，`0` 表示立即返回。
+///
+/// 收到期望发送者的消息时正常返回；超时、发送方已退出或参数非法返回
+/// `u64::MAX`，调用方据此区分「Display 换实例」与「暂时没有事件」。
+pub const SYS_RECV_DATA_FROM_TIMEOUT: u64 = 0x37;
+
 /// 带超时调用端点；超时返回 `u64::MAX`。
 pub const SYS_CALL_TIMEOUT: u64 = 0x34;
 
@@ -810,6 +820,7 @@ mod tests {
             SYS_RECV_DATA_TRY,
             SYS_RECV_DATA_HANDLE_TRY,
             SYS_RECV_DATA_TIMEOUT,
+            SYS_RECV_DATA_FROM_TIMEOUT,
             SYS_CALL,
             SYS_CALL_TIMEOUT,
             SYS_CADENCE_NAMED,
