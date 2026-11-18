@@ -1,11 +1,14 @@
 //! Cadence/Meter 系统调用。
 
-use hk_cadence::{CadenceSnapshot, MeterSnapshot};
+use hk_cadence::{CadenceClass, CadenceSnapshot, MeterSnapshot};
 
 use crate::runtime::{Switch, UserPlatform, UserRuntime};
 use alloc::string::String;
+use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::Rights;
 use hk_kernel::TcbId;
+use hk_syscall::CADENCE_DEMAND_RECORD_BYTES;
 
 /// 按名称解析任务时的名字上限。
 const MAX_TASK_NAME: usize = 64;
@@ -204,6 +207,86 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .ok()
             });
         frame.set_result(result.map_or(u64::MAX, |_| 0));
+        Switch::Continue
+    }
+
+    /// `SYS_CADENCE_DEMAND(exclude, out, len)`；返回写入的 Realtime 契约数。
+    ///
+    /// 只统计存活 RealTime Task（每个 Task 一次），跳过调用者自身与 `exclude`
+    /// 指定的 Cadence。Tempo 用它在真实系统状态上做 EDF 需求界判定，不再维护
+    /// 一份可能失真的服务内账本。
+    pub(crate) fn cadence_demand(&mut self, tcb: TcbId, frame: &mut C) -> Switch {
+        let exclude = frame.arg0();
+        let output = frame.arg1();
+        let capacity = frame.arg2() as usize;
+        let result = if !self.kernel.is_policy_authority(tcb) {
+            u64::MAX
+        } else {
+            let caller = self.kernel.task_of(tcb);
+            let mut records = Vec::new();
+            for (slot, task) in self.tasks.iter().enumerate() {
+                if task.exited || task.leader != slot {
+                    continue;
+                }
+                if self.kernel.task_of(task.tcb) == caller {
+                    continue;
+                }
+                let Some(snapshot) = self.kernel.task_cadence_snapshot(task.tcb) else {
+                    continue;
+                };
+                if snapshot.class != CadenceClass::Realtime
+                    || snapshot.budget == 0
+                    || snapshot.period == 0
+                    || (exclude != 0 && snapshot.id == exclude)
+                {
+                    continue;
+                }
+                records.push((snapshot.budget, snapshot.period, snapshot.deadline));
+            }
+            let length = records.len() * CADENCE_DEMAND_RECORD_BYTES;
+            if length > capacity {
+                u64::MAX
+            } else {
+                let mut bytes = Vec::with_capacity(length);
+                for (budget, period, deadline) in &records {
+                    bytes.extend_from_slice(&budget.to_le_bytes());
+                    bytes.extend_from_slice(&period.to_le_bytes());
+                    bytes.extend_from_slice(&deadline.to_le_bytes());
+                }
+                if length > 0 && !self.platform.write_user(output, &bytes) {
+                    u64::MAX
+                } else {
+                    records.len() as u64
+                }
+            }
+        };
+        frame.set_result(result);
+        Switch::Continue
+    }
+
+    /// `SYS_OBJECT_GRANT_NAMED(name, len, kind, rights)`；返回句柄编号。
+    ///
+    /// 策略任务按名取得 Task/Cadence/Meter 句柄，使句柄式调度 ABI 在生产中可达。
+    pub(crate) fn object_grant_named(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
+        let rights = u32::try_from(frame.arg3()).ok().and_then(Rights::from_bits);
+        let result = self
+            .read_task_name(frame.arg0(), frame.arg1() as usize)
+            .zip(rights)
+            .and_then(|(name, rights)| {
+                let target = self.named_target(tcb, &name)?;
+                let handle = match frame.arg2() {
+                    hk_syscall::OBJECT_KIND_TASK => self.kernel.grant_task(tcb, target, rights),
+                    hk_syscall::OBJECT_KIND_CADENCE => {
+                        self.kernel.grant_cadence(tcb, target, rights)
+                    }
+                    hk_syscall::OBJECT_KIND_METER => self.kernel.grant_meter(tcb, target, rights),
+                    _ => return None,
+                }
+                .ok()?;
+                Some(self.install_extra_handle(index, handle))
+            })
+            .unwrap_or(u64::MAX);
+        frame.set_result(result);
         Switch::Continue
     }
 

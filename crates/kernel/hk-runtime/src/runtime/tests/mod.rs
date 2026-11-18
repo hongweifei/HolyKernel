@@ -16,6 +16,7 @@ use hk_syscall::{
     SYS_SLEEP, SYS_THREAD_CREATE, SYS_WAIT_NOTIFY, SYS_YIELD,
 };
 
+mod cadence;
 mod calls;
 mod capacity;
 mod device;

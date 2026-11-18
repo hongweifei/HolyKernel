@@ -91,6 +91,23 @@ pub const SYS_HANDLE_DUPLICATE: u64 = 0x12;
 /// 重置 Meter 计量；需要 Meter 的 ADMIN。`handle = 0` 不接受。
 pub const SYS_METER_RESET: u64 = 0x13;
 
+/// 按任务名为策略任务授予 Task/Cadence/Meter 句柄。
+///
+/// 参数：`arg0` 名称指针、`arg1` 名称长度、`arg2` 对象类别编码、`arg3` 请求
+/// rights；返回句柄编号。仅策略授权任务可调用，目标不能是自身或其它策略任务。
+///
+/// 这是 `SYS_TASK_ATTACH_CADENCE(task, …)`、`SYS_METER_RESET(handle)` 与
+/// `SYS_CADENCE_REVOKE(handle)` 的授权入口：没有它，这些句柄式调用在生产中
+/// 不可达。
+pub const SYS_OBJECT_GRANT_NAMED: u64 = 0x14;
+
+/// 对象类别编码：Task。
+pub const OBJECT_KIND_TASK: u64 = 0;
+/// 对象类别编码：Cadence。
+pub const OBJECT_KIND_CADENCE: u64 = 1;
+/// 对象类别编码：Meter。
+pub const OBJECT_KIND_METER: u64 = 2;
+
 // === IPC、通知与同步 0x20-0x3F ===
 
 /// 向端点发送消息。
@@ -186,6 +203,18 @@ pub const SYS_CALL_TIMEOUT: u64 = 0x34;
 
 /// 按任务名读取 Cadence 快照；仅策略授权任务可用。
 pub const SYS_CADENCE_NAMED: u64 = 0x35;
+
+/// 读取全部存活 Realtime Task 的 EDF 需求；仅策略授权任务可用。
+///
+/// 参数：`arg0` 要排除的 Cadence 标识（0 表示不排除）、`arg1` 输出缓冲、
+/// `arg2` 缓冲长度。每条记录 24 字节：`budget`、`period`、`deadline`（小端
+/// `u64`）。返回写入的记录数；缓冲区不足以容纳全部记录时返回 `u64::MAX`。
+///
+/// 调用者自身的 Task 不计入；按名重准入时用目标当前 Cadence 标识排除旧契约。
+pub const SYS_CADENCE_DEMAND: u64 = 0x38;
+
+/// `SYS_CADENCE_DEMAND` 单条记录字节数。
+pub const CADENCE_DEMAND_RECORD_BYTES: usize = 24;
 
 /// `SYS_FUTEX_WAIT`：值已变化，无需等待。
 pub const FUTEX_CHANGED: u64 = 1;
@@ -759,7 +788,7 @@ mod tests {
     #[test]
     fn syscall_numbers_stay_in_their_groups() {
         const { assert!(SYS_THREAD_SET_TLS < 0x10 && SYS_CADENCE_SELF < 0x10) };
-        const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_METER_RESET < 0x20) };
+        const { assert!(SYS_HANDLE_CLOSE >= 0x10 && SYS_OBJECT_GRANT_NAMED < 0x20) };
         const { assert!(SYS_SEND >= 0x20 && SYS_REPLY_HANDLE < 0x40) };
         const { assert!(SYS_FUTEX_WAIT >= 0x30 && SYS_FUTEX_WAKE < 0x40) };
         const { assert!(SYS_ALLOC >= 0x40 && SYS_LEDGER_INFO < 0x50) };
@@ -811,6 +840,7 @@ mod tests {
             SYS_HANDLE_COUNT,
             SYS_HANDLE_DUPLICATE,
             SYS_METER_RESET,
+            SYS_OBJECT_GRANT_NAMED,
             SYS_SEND,
             SYS_SEND_HANDLE,
             SYS_SEND_DATA,
@@ -824,6 +854,7 @@ mod tests {
             SYS_CALL,
             SYS_CALL_TIMEOUT,
             SYS_CADENCE_NAMED,
+            SYS_CADENCE_DEMAND,
             SYS_REPLY,
             SYS_REPLY_HANDLE,
             SYS_NOTIFY,
