@@ -344,6 +344,18 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         };
 
         let page_index = words[0] / PAGE as u64;
+        // 能力 grow 后旧记录可能偏小；按实际缺页页号抬高回收线程的
+        // 扫描上界。使用 try_lock：压力回收线程可能正在遍历，宁可这一次
+        // 不更新也不能在 Provider 快速路径上阻塞。
+        if let Some(mut tracked) = TRACKED.try_lock() {
+            let required = (page_index as usize + 1).saturating_mul(PAGE);
+            if let Some(entry) = tracked
+                .iter_mut()
+                .find(|(capability, _)| *capability == words[4])
+            {
+                entry.1 = entry.1.max(required);
+            }
+        }
         let mut buffer = [0_u8; PAGE];
         let stored = swap_get(&swapped, (words[4], page_index));
         if let Some(stored) = stored {
