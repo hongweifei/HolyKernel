@@ -1,4 +1,5 @@
-use super::*;
+use crate::runtime::{UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 查询帧缓冲描述；只有显示服务可以调用。

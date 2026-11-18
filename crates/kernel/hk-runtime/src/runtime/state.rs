@@ -1,6 +1,8 @@
 //! 挂起状态与调度步骤。
 
-use super::*;
+use hk_handle::{Handle, ObjectId, Rights};
+use hk_kernel::TcbId;
+use hk_mem::hmp::RegionFlags;
 
 /// 缺页处理结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

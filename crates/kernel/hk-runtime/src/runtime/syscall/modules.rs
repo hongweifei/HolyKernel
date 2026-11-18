@@ -1,6 +1,7 @@
 //! 启动模块只读查询；仅 Image Server 可访问。
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     fn module_reader(&self, index: usize) -> bool {

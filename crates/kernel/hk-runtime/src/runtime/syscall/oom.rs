@@ -1,6 +1,7 @@
 //! 内存压力、OOM 策略与主动回收系统调用。
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn memory_pressure_query(&mut self, frame: &mut C) -> Switch {

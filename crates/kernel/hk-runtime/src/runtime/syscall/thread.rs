@@ -1,6 +1,11 @@
 //! 同地址空间线程：创建、加入、TLS 与共享内存等待。
 
-use super::*;
+use crate::runtime::{Pending, Switch, TaskInit, UserPlatform, UserRuntime, UserTask};
+use alloc::format;
+use alloc::vec::Vec;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_kernel::TcbId;
+use hk_syscall::FUTEX_CHANGED;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 在进程地址空间内创建线程；返回线程编号。

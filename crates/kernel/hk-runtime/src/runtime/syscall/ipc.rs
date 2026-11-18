@@ -1,4 +1,8 @@
-use super::*;
+use crate::runtime::syscall::MAX_USER_DATA;
+use crate::runtime::{Pending, Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_ipc::Message;
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 命中调度 tick 时保存现场；返回是否切换任务。

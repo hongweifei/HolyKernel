@@ -1,6 +1,9 @@
 //! 写时复制与匿名按需缺页。
 
-use super::*;
+use crate::runtime::syscall::region::FaultRegion;
+use crate::runtime::{ImageSource, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_mem::hmp::{Capability, CapabilityKind, RegionFlags};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 解析用户 COW 缺页；复制出新页时登记为当前进程的私有覆盖。

@@ -1,6 +1,9 @@
 //! 运行时视图与统计。
 
-use super::*;
+use crate::runtime::{UserPlatform, UserRuntime};
+use alloc::format;
+use alloc::string::String;
+use hk_hal::{MAX_CPUS, SyscallFrame, UserContext};
 
 impl<C, P> UserRuntime<C, P>
 where

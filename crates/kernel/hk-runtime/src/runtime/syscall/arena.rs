@@ -1,6 +1,7 @@
 //! 任务 Arena 查询。
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 查询任务 Arena 的地址窗口与 Region 统计。

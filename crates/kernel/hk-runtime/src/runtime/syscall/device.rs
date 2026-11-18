@@ -1,4 +1,7 @@
-use super::*;
+use crate::runtime::{DMA_WINDOW_BYTES, GRANT_HANDLE_BASE, Switch, UserPlatform, UserRuntime};
+use hk_device::DeviceGrant;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn create_grant(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {

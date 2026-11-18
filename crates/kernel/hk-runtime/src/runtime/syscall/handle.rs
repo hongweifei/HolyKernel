@@ -2,7 +2,9 @@
 
 use hk_handle::Rights;
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 返回句柄对应的对象标识；Provider 用它关联缺页消息中的能力。

@@ -1,6 +1,10 @@
 //! DMA 与 IOMMU 映射。
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_device::DeviceGrant;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::{Handle, Rights};
+use hk_kernel::{KernelError, TcbId};
 
 /// 设备授权对应的 IOMMU 域（BDF）。
 pub(crate) fn domain_of(grant: &DeviceGrant) -> hk_hal::IommuDomain {

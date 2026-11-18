@@ -7,7 +7,11 @@ use hk_mem::hmp::{
     Capability, CapabilityKind, CapabilityOp, FrameBacking, FrameLease, Region, RegionFlags,
 };
 
-use super::*;
+use crate::runtime::{FaultOutcome, Pending, RegionMap, Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::{Handle, ObjectId};
+use hk_kernel::TcbId;
+use hk_mem::hmp::FrameRef;
 
 use hk_syscall::PROVIDER_FAULT;
 

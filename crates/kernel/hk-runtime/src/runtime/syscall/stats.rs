@@ -1,6 +1,7 @@
 //! System Capacity 记账快照。
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 按索引枚举容量 Ledger；`index` 越界时返回 0。

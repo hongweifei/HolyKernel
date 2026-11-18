@@ -4,7 +4,10 @@ use alloc::sync::Arc;
 
 use hk_mem::hmp::{Capacity, FrameBacking, OwnedFrame};
 
-use super::*;
+use crate::runtime::{UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::Handle;
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 把能力的一段常驻页迁移到 `node`，返回迁移字节数。

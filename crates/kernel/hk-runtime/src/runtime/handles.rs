@@ -1,6 +1,16 @@
 //! 任务句柄表：额外句柄、能力、Region 与 DeviceGrant。
 
-use super::*;
+use crate::runtime::{
+    CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, CapabilityMap, EXTRA_HANDLE_BASE,
+    FRAME_HANDLE_BASE, GRANT_HANDLE_BASE, HandleSlot, ImageRegistration, REGION_HANDLE_BASE,
+    RegionMap, UserPlatform, UserRegionSpec, UserRuntime,
+};
+use alloc::vec::Vec;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::{Handle, Rights};
+use hk_ipc::Message;
+use hk_kernel::KernelError;
+use hk_mem::hmp::FrameRef;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 安装消息携带的句柄。

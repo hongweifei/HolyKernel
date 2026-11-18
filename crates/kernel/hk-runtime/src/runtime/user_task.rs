@@ -1,6 +1,11 @@
 //! 用户任务条目：现场、句柄映射与线程状态。
 
-use super::*;
+use crate::runtime::{CapabilityMap, Pending};
+use alloc::string::String;
+use alloc::vec::Vec;
+use hk_handle::Handle;
+use hk_kernel::{ReplyToken, TcbId};
+use hk_mem::hmp::FrameRef;
 
 /// 一起保存的句柄与容量记账。
 #[derive(Clone, Copy)]

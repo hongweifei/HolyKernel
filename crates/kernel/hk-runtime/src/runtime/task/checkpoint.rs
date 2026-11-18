@@ -1,6 +1,19 @@
 //! 检查点捕获、恢复与镜像读取。
 
-use super::*;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use hk_cadence::{Cadence, CadenceClass, CadenceId, CadenceSpec};
+use hk_checkpoint::Page;
+use hk_hal::{SyscallFrame, UserContext, VirtAddr};
+use hk_handle::{HandleTable, Rights};
+use hk_kernel::{KernelError, TcbId};
+use hk_mem::hmp::{Capability, CapabilityKind, Region};
+
+use crate::runtime::{
+    Checkpoint, CheckpointCapture, Process, TaskInit, UserPlatform, UserRuntime, UserTask,
+};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 捕获任务、序列化现场并终止任务。

@@ -6,7 +6,11 @@ use hk_mem::hmp::{
     Capability, CapabilityKind, CapabilityOp, FrameBacking, OwnedFrame, ProviderKind,
 };
 
-use super::*;
+use crate::runtime::{Pending, Switch, UserPlatform, UserRuntime};
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::Handle;
+use hk_ipc::Message;
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(super) fn allocate_owned(

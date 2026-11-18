@@ -1,4 +1,11 @@
-use super::*;
+use crate::runtime::{
+    CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, REGION_HANDLE_BASE, Switch, UserPlatform,
+    UserRegionSpec, UserRuntime,
+};
+use alloc::vec::Vec;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::Handle;
+use hk_kernel::TcbId;
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     pub(crate) fn allocate(&mut self, index: usize, size: usize, align: usize) -> Option<u64> {

@@ -1,6 +1,9 @@
 //! OOM 判定：压力度量、当前任务回收与 victim 选择。
 
-use super::*;
+use crate::runtime::oom;
+use crate::runtime::{UserPlatform, UserRuntime};
+use alloc::string::String;
+use hk_hal::{SyscallFrame, UserContext};
 
 /// 用户态 OOM 退出码。
 pub const OOM_EXIT: u64 = 0x4F_4F_4D;
@@ -84,6 +87,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

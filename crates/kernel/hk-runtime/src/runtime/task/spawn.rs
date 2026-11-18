@@ -1,6 +1,14 @@
 //! 任务装载与端点视图。
 
-use super::*;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use hk_cadence::CadenceSpec;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::{Handle, HandleTable, ObjectId, Rights};
+use hk_kernel::{KernelError, TcbId};
+
+use crate::runtime::{Process, TaskInit, UserPlatform, UserRegionSpec, UserRuntime, UserTask};
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 装载新任务，返回分配的端点编号。

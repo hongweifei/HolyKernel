@@ -2,7 +2,10 @@
 
 use hk_cadence::{CadenceSnapshot, MeterSnapshot};
 
-use super::*;
+use crate::runtime::{Switch, UserPlatform, UserRuntime};
+use alloc::string::String;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_kernel::TcbId;
 
 /// 按名称解析任务时的名字上限。
 const MAX_TASK_NAME: usize = 64;

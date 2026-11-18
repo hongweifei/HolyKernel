@@ -166,6 +166,7 @@ impl OomState {
 }
 
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests {
     use super::*;
 

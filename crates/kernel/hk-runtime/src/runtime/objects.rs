@@ -6,7 +6,13 @@
 use hk_checkpoint::ObjectSnapshot;
 use hk_handle::ObjectKind;
 
-use super::*;
+use crate::runtime::{
+    CAPABILITY_HANDLE_BASE, CAPACITY_HANDLE_BASE, EXTRA_HANDLE_BASE, FRAME_HANDLE_BASE,
+    REGION_HANDLE_BASE, Switch, UserPlatform, UserRuntime,
+};
+use alloc::vec::Vec;
+use hk_hal::{SyscallFrame, UserContext};
+use hk_handle::Rights;
 
 /// 对象记录在用户缓冲区中的编码长度。
 pub(crate) const OBJECT_RECORD_BYTES: usize = 64;
