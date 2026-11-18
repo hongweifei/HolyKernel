@@ -6,14 +6,12 @@ use core::net::Ipv4Addr;
 use hk_proto::net::NET_CONFIG_MAX_DNS;
 
 /// 是否启用共享帧路径。
-#[cfg(target_os = "none")]
 pub(crate) fn zerocopy_enabled() -> bool {
     let mut buffer = [0_u8; 128];
     hk_server_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
 }
 
 /// 解析原生启动期网络配置；`net.dhcp=off` 或 `net.ip=` 存在时返回静态配置。
-#[cfg(target_os = "none")]
 pub(crate) fn parse_static(line: &str) -> Option<(Ipv4Addr, u8, Option<Ipv4Addr>)> {
     let mut address = None;
     let mut prefix = 24_u8;
@@ -43,7 +41,6 @@ pub(crate) fn parse_static(line: &str) -> Option<(Ipv4Addr, u8, Option<Ipv4Addr>
 }
 
 /// 解析 `net.resolver=` 列表（逗号分隔，最多 4 个）。
-#[cfg(target_os = "none")]
 pub(crate) fn parse_resolvers(line: &str) -> Vec<Ipv4Addr> {
     let mut servers = Vec::new();
     for part in line.split_whitespace() {
@@ -62,7 +59,6 @@ pub(crate) fn parse_resolvers(line: &str) -> Vec<Ipv4Addr> {
     servers
 }
 
-#[cfg(target_os = "none")]
 fn parse_ipv4(text: &str) -> Option<Ipv4Addr> {
     let mut octets = [0_u8; 4];
     let mut index = 0;

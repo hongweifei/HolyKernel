@@ -11,19 +11,16 @@ use hk_vfs::{FileType, OpenFlags, Vfs};
 
 use crate::sessions::Session;
 
-#[cfg(target_os = "none")]
 fn frame_length(data: &[u8]) -> Option<usize> {
     Some(u64::from_le_bytes(data.get(..8)?.try_into().ok()?) as usize)
 }
 
-#[cfg(target_os = "none")]
 pub(crate) fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
     if let Some(length) = encode_response(response, status, data) {
         let _ = send_data(sender, VFS_RESPONSE, &response[..length]);
     }
 }
 
-#[cfg(target_os = "none")]
 pub(crate) fn handle(
     filesystem: &mut Vfs,
     session: &mut Session,

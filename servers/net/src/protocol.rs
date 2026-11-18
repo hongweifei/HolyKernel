@@ -17,7 +17,6 @@ use hk_server_api::{notify, send, send_data};
 use crate::{DNS_WAIT_MS, NET_FRAME_MAX, Stats, now_ms, poll_once};
 
 /// 把接口状态与收发计数编码为线协议字节串。
-#[cfg(target_os = "none")]
 pub(crate) fn status_blob(stack: &Stack, stats: &Stats, buffer: &mut [u8]) -> Option<usize> {
     let status = stack.status();
     NetStatus {
@@ -37,7 +36,6 @@ pub(crate) fn status_blob(stack: &Stack, stats: &Stats, buffer: &mut [u8]) -> Op
 }
 
 /// 处理一次原生 Socket 请求并回复。
-#[cfg(target_os = "none")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_socket(
     label: u64,
@@ -164,33 +162,28 @@ pub(crate) fn handle_socket(
     let _ = notify(driver, NET_NOTIFY_TX);
 }
 
-#[cfg(target_os = "none")]
 fn socket_id(data: &[u8], offset: usize) -> Option<SocketId> {
     let handle = read_u64(data, offset)?;
     (handle != 0).then(|| SocketId((handle - 1) as usize))
 }
 
-#[cfg(target_os = "none")]
 fn read_u64(data: &[u8], offset: usize) -> Option<u64> {
     Some(u64::from_le_bytes(
         data.get(offset..offset + 8)?.try_into().ok()?,
     ))
 }
 
-#[cfg(target_os = "none")]
 fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
     Some(u16::from_le_bytes(
         data.get(offset..offset + 2)?.try_into().ok()?,
     ))
 }
 
-#[cfg(target_os = "none")]
 fn read_ipv4(data: &[u8], offset: usize) -> Option<[u8; 4]> {
     data.get(offset..offset + 4)?.try_into().ok()
 }
 
 /// 用协议栈解析名称，返回最多 4 个 IPv4 地址。
-#[cfg(target_os = "none")]
 fn lookup(
     stack: &mut Stack,
     servers: &[Ipv4Addr],
@@ -235,7 +228,6 @@ fn lookup(
 }
 
 /// 回传共享环的归还/发送事件，并补发普通发送队列；随后唤醒驱动。
-#[cfg(target_os = "none")]
 pub(crate) fn flush_tx(driver: u64, stack: &mut Stack, stats: &mut Stats) {
     let mut rx_done = Vec::new();
     let mut tx_ready = Vec::new();

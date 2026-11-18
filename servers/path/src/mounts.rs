@@ -13,7 +13,6 @@ use hk_vfs::Vfs;
 use hk_fs_remote::RemoteHolyFs;
 
 /// 等待原生 VFS 就绪，并以原生盘符构造路径命名空间。
-#[cfg(target_os = "none")]
 pub(crate) fn mount_drives(endpoint: u64, ext4_root: bool) -> Option<Vfs> {
     for _ in 0..4096 {
         if service_endpoint("hk-server-vfs") == 0 {

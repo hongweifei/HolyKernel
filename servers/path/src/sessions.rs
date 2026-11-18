@@ -7,13 +7,11 @@ use hk_server_api::{
 };
 use hk_vfs::{FileHandle, Vfs};
 
-#[cfg(target_os = "none")]
 pub(crate) struct Session {
     handles: BTreeMap<u64, FileHandle>,
     next: u64,
 }
 
-#[cfg(target_os = "none")]
 impl Session {
     const fn new() -> Self {
         Self {
@@ -38,13 +36,11 @@ impl Session {
     }
 }
 
-#[cfg(target_os = "none")]
 pub(crate) struct Sessions {
     clients: BTreeMap<u64, Session>,
     frames: BTreeMap<u64, (u64, u64, usize, u64)>,
 }
 
-#[cfg(target_os = "none")]
 impl Sessions {
     pub(crate) const fn new() -> Self {
         Self {

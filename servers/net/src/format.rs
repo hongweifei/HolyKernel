@@ -4,7 +4,6 @@ use hk_net::IpAddress;
 use hk_server_api::{write, write_u64};
 
 /// 输出 IPv4/IPv6 地址。
-#[cfg(target_os = "none")]
 pub(crate) fn write_address(address: &IpAddress) {
     match address {
         IpAddress::Ipv4(address) => {
@@ -29,7 +28,6 @@ pub(crate) fn write_address(address: &IpAddress) {
 }
 
 /// 以十六进制输出 16 位整数。
-#[cfg(target_os = "none")]
 fn write_hex(value: u16) {
     hk_server_api::format::write_hex(u64::from(value), 4);
 }

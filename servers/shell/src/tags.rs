@@ -11,7 +11,6 @@ use hk_proto::holy::{
     DocId, STATUS_NOT_FOUND, STATUS_PERMISSION, decode_doc_ids, decode_tags, decode_u32,
 };
 use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO};
-#[cfg(target_os = "none")]
 use hk_proto_client::HolyClient;
 
 /// 处理标签扩展命令；不是标签命令时返回 `None`。

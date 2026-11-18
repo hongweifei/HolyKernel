@@ -11,81 +11,63 @@ use crate::surface::Surface;
 use crate::theme::scale;
 
 /// 最多同时合成的窗口数。
-#[cfg(target_os = "none")]
 pub(crate) const MAX_WINDOWS: usize = 8;
 
 /// 标题栏高度。
-#[cfg(target_os = "none")]
 pub(crate) const TITLE_HEIGHT: usize = 24;
 
 /// 窗口最小宽度。
-#[cfg(target_os = "none")]
 pub(crate) const MIN_WINDOW_WIDTH: usize = 120;
 
 /// 窗口最小高度。
-#[cfg(target_os = "none")]
 pub(crate) const MIN_WINDOW_HEIGHT: usize = 80;
 
 /// 缩放把手尺寸。
-#[cfg(target_os = "none")]
 pub(crate) const RESIZE_SIZE: usize = 12;
 
 /// 边缘缩放命中宽度。
-#[cfg(target_os = "none")]
 pub(crate) const RESIZE_BORDER: usize = 8;
 
 /// 标题栏按钮间距。
-#[cfg(target_os = "none")]
 pub(crate) const TITLE_BUTTON_GAP: usize = 4;
 
 /// 标题栏关闭按钮尺寸。
-#[cfg(target_os = "none")]
 pub(crate) const CLOSE_SIZE: usize = 10;
 
 /// 标题栏关闭按钮右边距。
-#[cfg(target_os = "none")]
 pub(crate) const CLOSE_MARGIN: usize = 4;
 
 /// 底部任务栏高度。
-#[cfg(target_os = "none")]
 pub(crate) const TASKBAR_HEIGHT: usize = 28;
 
 /// 任务栏左右留白。
-#[cfg(target_os = "none")]
 pub(crate) const TASKBAR_MARGIN: usize = 8;
 
 /// 任务栏按钮宽度。
-#[cfg(target_os = "none")]
 pub(crate) const TASKBAR_BUTTON_WIDTH: usize = 160;
 
 /// 任务栏按钮高度。
-#[cfg(target_os = "none")]
 pub(crate) const TASKBAR_BUTTON_HEIGHT: usize = 20;
 
 /// 任务栏按钮间距。
-#[cfg(target_os = "none")]
 pub(crate) const TASKBAR_GAP: usize = 6;
 
 /// 任务栏顶边。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_top(height: usize) -> usize {
     height.saturating_sub(taskbar_height())
 }
 
 /// 任务栏按钮左边界。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_x(index: usize) -> usize {
     taskbar_margin() + index * (taskbar_button_width() + taskbar_gap())
 }
 
 /// 任务栏按钮上边界。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_top(height: usize) -> usize {
     taskbar_top(height) + (taskbar_height() - taskbar_button_height()) / 2
 }
 
 /// 返回任务栏按钮对应的窗口编号。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_at(
     windows: &[Option<Window>; MAX_WINDOWS],
     x: usize,
@@ -108,73 +90,61 @@ pub(crate) fn taskbar_at(
 }
 
 /// 标题栏高度（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn title_height() -> usize {
     TITLE_HEIGHT * scale()
 }
 
 /// 任务栏高度（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_height() -> usize {
     TASKBAR_HEIGHT * scale()
 }
 
 /// 任务栏留白（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_margin() -> usize {
     TASKBAR_MARGIN * scale()
 }
 
 /// 任务栏按钮宽度（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_width() -> usize {
     TASKBAR_BUTTON_WIDTH * scale()
 }
 
 /// 任务栏按钮高度（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_button_height() -> usize {
     TASKBAR_BUTTON_HEIGHT * scale()
 }
 
 /// 任务栏按钮间距（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn taskbar_gap() -> usize {
     TASKBAR_GAP * scale()
 }
 
 /// 标题栏按钮尺寸（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn close_size() -> usize {
     CLOSE_SIZE * scale()
 }
 
 /// 标题栏按钮右边距（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn close_margin() -> usize {
     CLOSE_MARGIN * scale()
 }
 
 /// 标题栏按钮间距（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn title_gap() -> usize {
     TITLE_BUTTON_GAP * scale()
 }
 
 /// 缩放把手尺寸（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn resize_size() -> usize {
     RESIZE_SIZE * scale()
 }
 
 /// 边缘缩放命中宽度（含缩放）。
-#[cfg(target_os = "none")]
 pub(crate) fn resize_border() -> usize {
     RESIZE_BORDER * scale()
 }
 
 /// 已创建的窗口；槽位顺序即 z 序（越靠后越靠上）。
-#[cfg(target_os = "none")]
 #[derive(Clone, Copy)]
 pub(crate) struct Window {
     pub(crate) id: u64,
@@ -191,7 +161,6 @@ pub(crate) struct Window {
 }
 
 /// 正在缩放的窗口。
-#[cfg(target_os = "none")]
 #[derive(Clone, Copy)]
 pub(crate) struct Resize {
     pub(crate) id: u64,
@@ -203,7 +172,6 @@ pub(crate) struct Resize {
 }
 
 /// 正在拖动的窗口。
-#[cfg(target_os = "none")]
 #[derive(Clone, Copy)]
 pub(crate) struct Drag {
     pub(crate) id: u64,
@@ -212,7 +180,6 @@ pub(crate) struct Drag {
     pub(crate) moved: bool,
 }
 
-#[cfg(target_os = "none")]
 pub(crate) struct Screen {
     surface: Canvas<'static>,
     fb: *mut u32,
@@ -223,7 +190,6 @@ pub(crate) struct Screen {
     hover: Cell<Option<Hover>>,
 }
 
-#[cfg(target_os = "none")]
 impl Screen {
     pub(crate) fn new(
         back: *mut u32,
@@ -332,7 +298,6 @@ impl Screen {
 }
 
 /// 关闭按钮左上角。
-#[cfg(target_os = "none")]
 pub(crate) fn close_button_origin(window: &Window) -> (usize, usize) {
     let left = window
         .x
@@ -345,42 +310,36 @@ pub(crate) fn close_button_origin(window: &Window) -> (usize, usize) {
 }
 
 /// 最大化/还原按钮左上角。
-#[cfg(target_os = "none")]
 pub(crate) fn maximize_button_origin(window: &Window) -> (usize, usize) {
     let (close_x, top) = close_button_origin(window);
     (close_x.saturating_sub(CLOSE_SIZE + TITLE_BUTTON_GAP), top)
 }
 
 /// 最小化按钮左上角。
-#[cfg(target_os = "none")]
 pub(crate) fn minimize_button_origin(window: &Window) -> (usize, usize) {
     let (maximize_x, top) = maximize_button_origin(window);
     (maximize_x.saturating_sub(close_size() + title_gap()), top)
 }
 
 /// 指定点是否命中窗口的关闭按钮。
-#[cfg(target_os = "none")]
 pub(crate) fn close_at(window: &Window, x: usize, y: usize) -> bool {
     let (left, top) = close_button_origin(window);
     x >= left && x < left + close_size() && y >= top && y < top + close_size()
 }
 
 /// 指定点是否命中最大化/还原按钮。
-#[cfg(target_os = "none")]
 pub(crate) fn maximize_at(window: &Window, x: usize, y: usize) -> bool {
     let (left, top) = maximize_button_origin(window);
     x >= left && x < left + close_size() && y >= top && y < top + close_size()
 }
 
 /// 指定点是否命中最小化按钮。
-#[cfg(target_os = "none")]
 pub(crate) fn minimize_at(window: &Window, x: usize, y: usize) -> bool {
     let (left, top) = minimize_button_origin(window);
     x >= left && x < left + close_size() && y >= top && y < top + close_size()
 }
 
 /// 指定点命中的窗口缩放边；未命中返回 `None`。
-#[cfg(target_os = "none")]
 pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> Option<Edges> {
     let right = window.x.saturating_add(window.width);
     let bottom = window
@@ -401,7 +360,6 @@ pub(crate) fn resize_at(window: &Window, x: usize, y: usize) -> Option<Edges> {
 }
 
 /// 返回指定点最上层窗口。
-#[cfg(target_os = "none")]
 pub(crate) fn window_at(
     windows: &[Option<Window>; MAX_WINDOWS],
     x: usize,
@@ -437,7 +395,6 @@ pub(crate) fn window_at(
 }
 
 /// 把窗口提升到 z 序顶部。
-#[cfg(target_os = "none")]
 pub(crate) fn raise(windows: &mut [Option<Window>; MAX_WINDOWS], id: u64) {
     let Some(position) = windows
         .iter()

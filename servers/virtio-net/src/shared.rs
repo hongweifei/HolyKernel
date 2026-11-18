@@ -11,14 +11,12 @@ use hk_server_api::{
 };
 
 /// 解析是否启用共享帧路径。
-#[cfg(target_os = "none")]
 pub(crate) fn zerocopy_enabled() -> bool {
     let mut buffer = [0_u8; 128];
     hk_server_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
 }
 
 /// 分配共享帧、登记 DMA 并把副本句柄交给 Network Server；成功后提交接收缓冲。
-#[cfg(target_os = "none")]
 pub(crate) fn attach_shared(network: &mut Network, own: u64, peer: u64, grant: u64) -> bool {
     let mut rx = [0_u64; NET_SHARED_RX];
     let mut tx = [0_u64; NET_SHARED_TX];
@@ -39,7 +37,6 @@ pub(crate) fn attach_shared(network: &mut Network, own: u64, peer: u64, grant: u
     true
 }
 
-#[cfg(target_os = "none")]
 fn attach_role(own: u64, peer: u64, grant: u64, role: u64, virts: &mut [u64]) -> bool {
     for (index, mapping_virt) in virts.iter_mut().enumerate() {
         let Some((handle, _region, virt)) =
@@ -69,7 +66,6 @@ fn attach_role(own: u64, peer: u64, grant: u64, role: u64, virts: &mut [u64]) ->
     true
 }
 
-#[cfg(target_os = "none")]
 pub(crate) fn drain_rx(network: &hk_driver_virtio::Network, peer: u64) {
     if peer == 0 {
         return;
@@ -79,7 +75,6 @@ pub(crate) fn drain_rx(network: &hk_driver_virtio::Network, peer: u64) {
     }
 }
 
-#[cfg(target_os = "none")]
 pub(crate) fn drain_shared_rx(network: &hk_driver_virtio::Network, peer: u64) {
     if peer == 0 {
         return;

@@ -17,7 +17,6 @@ use hk_server_api::{
 use crate::protocol::flush_tx;
 use crate::{POLL_WAIT_MS, Stats, WAIT_MS, now_ms};
 
-#[cfg(target_os = "none")]
 pub(crate) fn poll_once(
     driver: u64,
     endpoint: u64,
@@ -61,7 +60,6 @@ pub(crate) fn poll_once(
 }
 
 /// 接收驱动移交的共享帧并映射到本任务地址空间。
-#[cfg(target_os = "none")]
 pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bool {
     let mut buffer = [0_u8; 8];
     let mut rx = [0_u64; NET_SHARED_RX];
@@ -114,7 +112,6 @@ pub(crate) fn attach_shared(driver: u64, endpoint: u64, stack: &mut Stack) -> bo
 }
 
 /// 向驱动发一次握手探测，短时间内收到 INFO 响应即视为存活。
-#[cfg(target_os = "none")]
 fn probe_driver(endpoint: u64, driver: u64, info: &mut [u8; NET_INFO_BYTES]) -> bool {
     if driver == 0 {
         return false;
@@ -133,7 +130,6 @@ fn probe_driver(endpoint: u64, driver: u64, info: &mut [u8; NET_INFO_BYTES]) -> 
 }
 
 /// 请求驱动退出，等待 Root Server 重启后重新握手并验证链路。
-#[cfg(target_os = "none")]
 pub(crate) fn restart_network(
     old: u64,
     endpoint: u64,
@@ -194,7 +190,6 @@ pub(crate) fn restart_network(
     driver
 }
 
-#[cfg(target_os = "none")]
 pub(crate) fn wait_driver() -> u64 {
     hk_server_api::runtime::wait_service("hk-server-virtio-net").unwrap_or(0)
 }

@@ -6,7 +6,6 @@ use hk_server_api::{
 };
 
 /// 验证 Root Server 授予的初始 Capacity 与 Frame 生命周期。
-#[cfg(target_os = "none")]
 pub(crate) fn verify_capacity(capacity: u64) -> bool {
     let Some(_before) = capacity_info(capacity) else {
         return false;
@@ -32,7 +31,6 @@ pub(crate) fn verify_capacity(capacity: u64) -> bool {
 }
 
 /// 验证容量 Ledger 枚举接口至少返回一条一致的记录。
-#[cfg(target_os = "none")]
 pub(crate) fn verify_ledger_enum() -> bool {
     ledger_enum(0).is_some_and(|info| info.capacity != 0 && info.used <= info.limit)
 }

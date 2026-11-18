@@ -138,7 +138,6 @@ pub(crate) fn run(
 }
 
 /// 用给定 DNS 服务器解析名称，并把结果写入控制台。
-#[cfg(target_os = "none")]
 fn resolve(
     stack: &mut Stack,
     servers: &[Ipv4Addr],
