@@ -64,6 +64,7 @@ pub fn parse_slit(bytes: &[u8]) -> Option<Slit> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use crate::acpi::tables::tests::table;
 

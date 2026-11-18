@@ -213,6 +213,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     pub(super) fn table(signature: &[u8; 4], body: &[u8]) -> Vec<u8> {

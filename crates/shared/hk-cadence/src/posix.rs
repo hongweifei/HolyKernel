@@ -46,6 +46,7 @@ pub fn weight_to_nice(weight: Weight) -> i8 {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

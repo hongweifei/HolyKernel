@@ -245,6 +245,7 @@ fn final_key(byte: u8) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     fn feed(decoder: &mut Decoder, bytes: &[u8]) -> Option<Key> {

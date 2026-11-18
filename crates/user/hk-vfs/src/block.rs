@@ -158,6 +158,7 @@ impl<D: BlockDevice> PathBackend for BlockBackend<D> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use hk_block::{MemoryDisk, SECTOR_SIZE};
 

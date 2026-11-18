@@ -287,6 +287,7 @@ fn read_u64(data: &[u8], offset: &mut usize) -> Result<u64, HolyError> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use alloc::vec;
     use hk_block::{MemoryDisk, SECTOR_SIZE};

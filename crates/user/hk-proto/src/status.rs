@@ -60,6 +60,7 @@ pub fn decode_response(bytes: &[u8]) -> Option<Response<'_>> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

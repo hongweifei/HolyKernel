@@ -8,6 +8,7 @@ pub const SCRIPT_MODULES: &[&str] = &["boot.hsh", "services.hsh"];
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use std::fs;
 

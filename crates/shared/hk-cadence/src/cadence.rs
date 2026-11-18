@@ -497,6 +497,7 @@ impl Cadence {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     fn weight(value: u32) -> Weight {

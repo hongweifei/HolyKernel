@@ -1,8 +1,20 @@
 //! 冒烟执行：启动 QEMU、注入输入并校验结果。
 
+use std::fs;
+use std::net::{TcpListener, UdpSocket};
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
 use super::net::{free_port, serve_port_echo, serve_tcp_echo, serve_udp_echo, serve_vcon_echo};
+use super::qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
 use super::verify::{prepare_disk, serial_tail, verify_ext4, verify_holyfs, verify_tone, wait_for};
-use super::*;
+use super::{
+    Artifacts, HOLYDOC_TIMEOUT, QemuSession, SHELL_TIMEOUT, SmokeMode, TIMEOUT, smoke_timeout,
+};
+use crate::failure::{Failure, Result};
+use crate::target::{Selection, Target};
+use crate::workspace;
 
 /// 启动内核并校验串口输出。
 pub fn run(selection: Selection, release: bool, mode: SmokeMode) -> Result<()> {

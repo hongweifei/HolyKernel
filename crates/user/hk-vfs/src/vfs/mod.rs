@@ -5,18 +5,18 @@
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_fs::{Backend, DocId, Error as FsError, RevisionId};
 
 use crate::cache::PageCache;
-use crate::path::normalize;
 use crate::path_object::PathObject;
 
 mod handle;
 mod mount;
 #[cfg(test)]
+#[allow(clippy::wildcard_imports)]
 mod tests;
 mod types;
 

@@ -128,6 +128,7 @@ pub fn decode_maintenance(bytes: &[u8]) -> Option<MaintenanceView> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

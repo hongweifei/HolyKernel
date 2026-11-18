@@ -29,6 +29,7 @@ pub fn normalize(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

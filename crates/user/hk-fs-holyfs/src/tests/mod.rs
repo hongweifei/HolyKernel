@@ -17,9 +17,13 @@ fn formatted() -> MemoryDisk {
     format(MemoryDisk::new(IMAGE_BLOCKS, SECTOR_SIZE)).expect("格式化")
 }
 
+#[allow(clippy::wildcard_imports)]
 mod content;
+#[allow(clippy::wildcard_imports)]
 mod documents;
+#[allow(clippy::wildcard_imports)]
 mod durability;
+#[allow(clippy::wildcard_imports)]
 mod staging;
 
 struct Shared(Rc<RefCell<MemoryDisk>>);

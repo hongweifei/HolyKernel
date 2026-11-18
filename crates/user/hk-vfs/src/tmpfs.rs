@@ -178,6 +178,7 @@ impl PathBackend for Tmpfs {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

@@ -221,6 +221,7 @@ impl Default for PageCache {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use crate::PathObject;
     use crate::Tmpfs;
@@ -358,6 +359,7 @@ mod tests {
 
 #[cfg(test)]
 mod readahead_tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use crate::PathObject;
     use crate::Tmpfs;

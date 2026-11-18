@@ -238,6 +238,7 @@ pub const LABEL_GROUPS: &[(&str, u64, &[u64])] = &[
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

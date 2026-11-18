@@ -105,6 +105,7 @@ pub fn decode_response(bytes: &[u8]) -> Option<(u8, u32, &[u8])> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

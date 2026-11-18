@@ -216,6 +216,7 @@ fn checksum(bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     fn seal(bytes: &mut [u8]) {

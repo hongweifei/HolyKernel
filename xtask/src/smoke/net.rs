@@ -1,6 +1,12 @@
 //! 宿主侧回显服务：TCP/UDP/virtio-console 与空闲端口预留。
 
-use super::*;
+use std::io::{Read, Write};
+use std::net::{TcpListener, UdpSocket};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use super::{TIMEOUT, smoke_timeout};
+use crate::failure::{Failure, Result};
 
 /// 接受 QEMU 的 virtio-console 连接，等待测试行并回显确认。
 pub(super) fn serve_port_echo(listener: TcpListener) -> Result<()> {

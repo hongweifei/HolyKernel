@@ -55,6 +55,7 @@ pub const fn unpack_surface_cursor(word: u64) -> (u64, Option<Shape>) {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

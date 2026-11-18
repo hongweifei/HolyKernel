@@ -157,6 +157,7 @@ impl FirmwareDeviceTable {
 mod tests {
     use alloc::vec;
 
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use crate::acpi::tables::{
         GenericAddress, Hpet, Mcfg, McfgEntry, MemoryAffinity, Srat, Tables,

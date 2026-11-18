@@ -30,6 +30,7 @@ pub const fn from_platform(duration: Duration, frequency: u64) -> Duration {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

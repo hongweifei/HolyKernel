@@ -277,6 +277,7 @@ fn compatible_list(data: &[u8]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use alloc::collections::BTreeMap;
 

@@ -88,6 +88,7 @@ pub const fn charge_for(elapsed: Duration, weight: Weight) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

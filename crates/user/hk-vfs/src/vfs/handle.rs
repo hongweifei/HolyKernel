@@ -1,4 +1,12 @@
-use super::*;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
+use hk_fs::DocId;
+
+use super::{
+    DirEntry, FileHandle, FileType, Metadata, OpenFile, OpenFlags, Vfs, VfsError, map_fs_error,
+};
+use crate::path::normalize;
 
 impl Vfs {
     /// 打开文档，返回句柄。

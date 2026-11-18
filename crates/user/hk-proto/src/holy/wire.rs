@@ -217,6 +217,7 @@ pub(super) const QUOTA_LEN: usize = 5 * 8;
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

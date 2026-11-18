@@ -104,6 +104,7 @@ fn parse_address(text: &str) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

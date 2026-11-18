@@ -1,6 +1,16 @@
 //! 冒烟结果校验：串口日志、自检音与磁盘镜像。
 
-use super::*;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use hk_block::{BlockDevice, DiskSlice, MemoryDisk, SECTOR_SIZE};
+use hk_vfs::PathBackend;
+
+use super::{FS_MARKER, SmokeMode};
+use crate::disk::HostClock;
+use crate::failure::{Failure, Result};
 
 /// 解析 WAV 后端录到的自检音，校验音高与幅度。
 pub(super) fn verify_tone(path: &Path) -> Result<()> {
@@ -200,6 +210,7 @@ pub(super) fn verify_ext4(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

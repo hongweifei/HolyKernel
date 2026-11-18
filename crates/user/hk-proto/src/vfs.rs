@@ -140,6 +140,7 @@ pub fn decode_request(bytes: &[u8]) -> Option<Request<'_>> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     #[test]

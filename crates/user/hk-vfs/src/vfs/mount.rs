@@ -1,4 +1,12 @@
-use super::*;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
+use hk_fs::{Backend, DocId};
+
+use super::{DENTRY_LIMIT, Instance, Mount, PathBackend, Vfs, VfsError, map_fs_error};
+use crate::path::normalize;
+use crate::path_object::PathObject;
 
 impl Vfs {
     /// 在挂载点安装 Holy 后端。

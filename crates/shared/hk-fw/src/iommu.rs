@@ -172,6 +172,7 @@ mod tests {
     use alloc::string::String;
     use alloc::vec;
 
+    #[allow(clippy::wildcard_imports)]
     use super::*;
     use crate::Device;
 

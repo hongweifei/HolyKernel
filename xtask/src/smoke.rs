@@ -8,20 +8,11 @@ mod verify;
 pub use run::run;
 
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::{Child, ExitStatus};
+use std::time::Duration;
 
-use hk_block::{BlockDevice, DiskSlice, MemoryDisk, SECTOR_SIZE};
-use hk_vfs::PathBackend;
-use qmp::{inject, inject_key, inject_pointer, inject_pointer_drag};
-
-use crate::disk::HostClock;
 use crate::failure::{Failure, Result};
-use crate::target::{Selection, Target};
 use crate::workspace;
 
 /// 等待内核退出的上限。

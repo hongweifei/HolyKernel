@@ -211,6 +211,7 @@ fn push_processor(values: &mut Vec<Processor>, value: Processor) {
 
 #[cfg(test)]
 mod tests {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
     fn table(entries: &[&[u8]]) -> Vec<u8> {
