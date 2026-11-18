@@ -8,10 +8,12 @@ use core::cell::RefCell;
 
 use hk_block::{BlockDevice, DiskSlice};
 use hk_block_ipc::ClientDisk;
-use hk_fs_holyfs::{
-    DocId, HolyError, HolyFs, VolumeId, format_with_volume_id, is_formatted, volume_id_for_drive,
-};
+use hk_fs_holyfs::{DocId, HolyError, HolyFs, VolumeId};
+#[cfg(target_os = "none")]
+use hk_fs_holyfs::{format_with_volume_id, is_formatted, volume_id_for_drive};
+#[cfg(target_os = "none")]
 use hk_holy_response::response;
+#[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND};
 
 /// 多个卷共享同一个块客户端，避免同一服务上的重复 Frame 映射。
@@ -89,6 +91,7 @@ impl<D: BlockDevice> Volumes<D> {
     }
 
     /// 记录盘符使用的块服务，防止同一服务被重复接入。
+    #[cfg(target_os = "none")]
     pub(crate) fn register_service(&mut self, letter: u8, service: &str) {
         self.services.insert(letter, String::from(service));
     }
@@ -106,6 +109,7 @@ impl<D: BlockDevice> Volumes<D> {
     }
 
     /// 刷写并移除盘符。
+    #[cfg(target_os = "none")]
     pub(crate) fn detach(&mut self, letter: u8) -> Result<(), u8> {
         let mut volume = self.drives.remove(&letter).ok_or(STATUS_NOT_FOUND)?;
         if let Err(error) = volume.sync() {
@@ -146,6 +150,7 @@ impl<D: BlockDevice> Volumes<D> {
     }
 }
 
+#[cfg(target_os = "none")]
 impl Volumes<ServiceDisk> {
     /// 动态接入一个块服务并注册盘符；未格式化的设备会先格式化。
     pub(crate) fn attach(&mut self, letter: u8, service: &str, endpoint: u64) -> Result<(), u8> {

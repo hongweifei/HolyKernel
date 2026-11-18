@@ -11,21 +11,26 @@ use hk_fs::{
 use hk_fs_holyfs::{HolyFs, MaintenanceReport, Quota};
 use hk_holy_service::{DriveSource, SHARED_OPS, handle as shared_handle};
 use hk_proto::holy::{
-    MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE_VOLUME, OP_ATTACH_DRIVE, OP_CHECK,
-    OP_COMMIT_STAGING, OP_CREATE_TAG, OP_DETACH_DRIVE, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_FORGET,
-    OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE, OP_QUOTA, OP_READ, OP_RELEASE_VOLUME, OP_REPAIR,
-    OP_RESTORE, OP_REVOKE_VOLUME, OP_SCRUB, OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS,
-    OP_STAGE, OP_TAG, OP_TAG_MEMBERS, OP_TAGS, OP_TAGS_OF, OP_UNTAG, OP_WRITE_STAGING, QuotaView,
-    Request, TOKEN_RIGHT_ADMIN, TOKEN_RIGHT_INSPECT, decode_quota, encode_maintenance,
-    encode_quota,
+    MaintenanceView, OP_ABORT_STAGING, OP_ACQUIRE_VOLUME, OP_CHECK, OP_COMMIT_STAGING,
+    OP_CREATE_TAG, OP_DOCUMENT_TOKEN, OP_DROP_TAG, OP_FORGET, OP_GRANT_VOLUME, OP_PRUNE, OP_PURGE,
+    OP_QUOTA, OP_READ, OP_RELEASE_VOLUME, OP_REPAIR, OP_RESTORE, OP_REVOKE_VOLUME, OP_SCRUB,
+    OP_SEAL, OP_SET_QUOTA, OP_SNAPSHOT, OP_SNAPSHOTS, OP_STAGE, OP_TAG, OP_TAG_MEMBERS, OP_TAGS,
+    OP_TAGS_OF, OP_UNTAG, OP_WRITE_STAGING, QuotaView, Request, TOKEN_RIGHT_ADMIN,
+    TOKEN_RIGHT_INSPECT, decode_quota, encode_maintenance, encode_quota,
 };
+#[cfg(target_os = "none")]
+use hk_proto::holy::OP_ATTACH_DRIVE;
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
 use hk_holy_response::response;
 
 use crate::read_cache::ReadCache;
 use crate::sessions::Sessions;
-use crate::volumes::{ServiceDisk, Volumes, parse_drive};
+#[cfg(target_os = "none")]
+use crate::volumes::parse_drive;
+#[cfg(target_os = "none")]
+use crate::volumes::ServiceDisk;
+use crate::volumes::Volumes;
 
 /// 把 HolyFS 卷适配为通用文档后端。
 struct HolyDrive<'a, D: BlockDevice> {
@@ -146,6 +151,7 @@ impl<D: BlockDevice> DriveSource for HolyDrives<'_, D> {
 }
 
 /// 对一个盘符执行一次提交；供 group commit 统一刷写。
+#[cfg(target_os = "none")]
 pub(crate) fn sync(volumes: &mut Volumes<ServiceDisk>, letter: u8) -> u8 {
     let Some(drive) = volumes.get_mut(letter) else {
         return STATUS_NOT_FOUND;
@@ -156,53 +162,61 @@ pub(crate) fn sync(volumes: &mut Volumes<ServiceDisk>, letter: u8) -> u8 {
     }
 }
 
-/// 处理原生文档请求，返回状态与响应字节数。
-pub(crate) fn handle(
+/// 处理动态盘符接入/移除；仅服务入口的块客户端路径调用。
+#[cfg(target_os = "none")]
+pub(crate) fn control(
     volumes: &mut Volumes<ServiceDisk>,
+    sessions: &mut Sessions,
+    sender: u64,
+    endpoint: u64,
+    request: &Request<'_>,
+) -> (u8, usize) {
+    let auth = if request.drive == 0 {
+        b'H'
+    } else {
+        request.drive
+    };
+    let Some(volume) = volumes.get_mut(auth) else {
+        return (STATUS_NOT_FOUND, 0);
+    };
+    let (volume_id, epoch) = (volume.volume_id(), volume.epoch());
+    if let Err(error) = sessions.volume(sender, auth).check(
+        request.arg0,
+        volume_id,
+        epoch,
+        HandleRights::from_bits(TOKEN_RIGHT_ADMIN),
+    ) {
+        return (response::status(error), 0);
+    }
+    let Some(target) = parse_drive(request.path) else {
+        return (STATUS_INVALID, 0);
+    };
+    let result = if request.op == OP_ATTACH_DRIVE {
+        let Ok(service) = core::str::from_utf8(request.data) else {
+            return (STATUS_INVALID, 0);
+        };
+        volumes.attach(target, service, endpoint)
+    } else {
+        volumes.detach(target)
+    };
+    match result {
+        Ok(()) => (STATUS_OK, 0),
+        Err(status) => (status, 0),
+    }
+}
+
+/// 处理原生文档请求，返回状态与响应字节数。
+pub(crate) fn handle<D: BlockDevice>(
+    volumes: &mut Volumes<D>,
     sessions: &mut Sessions,
     cache: &mut ReadCache,
     sender: u64,
-    endpoint: u64,
     request: &Request<'_>,
     body: &mut [u8],
 ) -> (u8, usize) {
     if SHARED_OPS.contains(&request.op) {
         let mut drives = HolyDrives { volumes, cache };
         return shared_handle(&mut drives, sessions.documents(), sender, request, body);
-    }
-    if request.op == OP_ATTACH_DRIVE || request.op == OP_DETACH_DRIVE {
-        let auth = if request.drive == 0 {
-            b'H'
-        } else {
-            request.drive
-        };
-        let Some(volume) = volumes.get_mut(auth) else {
-            return (STATUS_NOT_FOUND, 0);
-        };
-        let (volume_id, epoch) = (volume.volume_id(), volume.epoch());
-        if let Err(error) = sessions.volume(sender, auth).check(
-            request.arg0,
-            volume_id,
-            epoch,
-            HandleRights::from_bits(TOKEN_RIGHT_ADMIN),
-        ) {
-            return (response::status(error), 0);
-        }
-        let Some(target) = parse_drive(request.path) else {
-            return (STATUS_INVALID, 0);
-        };
-        let result = if request.op == OP_ATTACH_DRIVE {
-            let Ok(service) = core::str::from_utf8(request.data) else {
-                return (STATUS_INVALID, 0);
-            };
-            volumes.attach(target, service, endpoint)
-        } else {
-            volumes.detach(target)
-        };
-        return match result {
-            Ok(()) => (STATUS_OK, 0),
-            Err(status) => (status, 0),
-        };
     }
     let letter = if request.drive == 0 {
         b'H'
@@ -466,4 +480,171 @@ fn encode_maintenance_response(body: &mut [u8], report: MaintenanceReport) -> (u
         repaired_blocks: report.repaired_blocks,
     };
     response::encoded(encode_maintenance(body, view))
+}
+
+#[cfg(test)]
+#[allow(clippy::wildcard_imports)]
+mod tests {
+    use super::*;
+
+    use hk_block::{MemoryDisk, SECTOR_SIZE};
+    use hk_fs_holyfs::{format_with_volume_id, volume_id_for_drive};
+    use hk_proto::holy::{
+        OP_ACQUIRE, OP_CREATE, OP_DRIVES, OP_READ_ID, OP_READ_TOKEN, OP_ROOT, OP_SYNC,
+        OP_VOLUME, OP_WRITE_ID, TOKEN_RIGHT_READ, TOKEN_RIGHT_WRITE, decode_drives, decode_token,
+    };
+    use hk_proto::vfs::STATUS_OK;
+
+    const BLOCKS: u64 = (8 * 1024 * 1024) / SECTOR_SIZE as u64;
+
+    fn mounted() -> (Volumes<MemoryDisk>, Sessions, ReadCache) {
+        let disk = format_with_volume_id(
+            MemoryDisk::new(BLOCKS, SECTOR_SIZE),
+            volume_id_for_drive(b'H'),
+        )
+        .expect("格式化 H");
+        let volume = HolyFs::mount(disk).expect("挂载 H");
+        let mut volumes = Volumes::new();
+        volumes.insert(b'H', volume).expect("注册 H");
+        (volumes, Sessions::new(), ReadCache::new(None, 0))
+    }
+
+    fn request<'a>(
+        op: u8,
+        drive: u8,
+        path: &'a str,
+        arg0: u64,
+        arg1: u64,
+        data: &'a [u8],
+    ) -> Request<'a> {
+        Request {
+            op,
+            drive,
+            path,
+            arg0,
+            arg1,
+            data,
+        }
+    }
+
+    fn document(bytes: &[u8]) -> u128 {
+        u128::from_le_bytes(bytes[..16].try_into().expect("文档身份"))
+    }
+
+    #[test]
+    fn dispatches_shared_ops_on_memory_volume() {
+        let (mut volumes, mut sessions, mut cache) = mounted();
+        let mut body = [0_u8; 256];
+
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_DRIVES, 0, "", 0, 0, &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        let letters: Vec<u8> = decode_drives(&body[..written]).map(|view| view.letter).collect();
+        assert_eq!(letters, [b'H']);
+
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_VOLUME, b'H', "", 0, 0, &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        assert!(written > 0);
+
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_ROOT, b'H', "", 0, 0, &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        let root = document(&body[..written]);
+        let root_bytes = root.to_le_bytes();
+
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_CREATE, b'H', "test", 0, 0, &root_bytes),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        let created = document(&body[..written]);
+
+        let mut write = Vec::new();
+        write.extend_from_slice(&created.to_le_bytes());
+        write.extend_from_slice(b"hello");
+        let (status, _) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_WRITE_ID, b'H', "", 0, 0, &write),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+
+        let created_bytes = created.to_le_bytes();
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_READ_ID, b'H', "", 0, 5, &created_bytes),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(&body[..written], b"hello");
+
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(
+                OP_ACQUIRE,
+                b'H',
+                "",
+                u64::from(TOKEN_RIGHT_READ | TOKEN_RIGHT_WRITE),
+                0,
+                &created_bytes,
+            ),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        let token = decode_token(&body[..written]).expect("令牌");
+
+        let length = 5_u64.to_le_bytes();
+        let (status, written) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_READ_TOKEN, b'H', "", token, 0, &length),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(&body[..written], b"hello");
+
+        let (status, _) = handle(
+            &mut volumes,
+            &mut sessions,
+            &mut cache,
+            1,
+            &request(OP_SYNC, b'H', "", 0, 0, &[]),
+            &mut body,
+        );
+        assert_eq!(status, STATUS_OK);
+    }
 }
