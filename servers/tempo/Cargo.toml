@@ -12,7 +12,6 @@ name = "hk-server-tempo"
 path = "src/main.rs"
 
 [dependencies]
-hk-catalog.workspace = true
 hk-cadence.workspace = true
 hk-proto.workspace = true
 hk-user-api.workspace = true

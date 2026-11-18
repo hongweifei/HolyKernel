@@ -1390,7 +1390,6 @@ name = "hk-server-tempo"
 version = "0.1.0"
 dependencies = [
  "hk-cadence",
- "hk-catalog",
  "hk-proto",
  "hk-user-api",
 ]
