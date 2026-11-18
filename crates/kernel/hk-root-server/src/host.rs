@@ -1,12 +1,6 @@
 //! 运行时宿主：全局持有用户运行时，提供启动、调度与系统调用入口。
 //!
 //! 平台只负责在锁外恢复用户现场，并在系统调用/抢占回调里把现场交给本宿主。
-        // 定时器可能在关中断上下文进入；调度器锁被另一 CPU 持有时不要自旋，
-        // 否则本 CPU 无法确认 TLB shootdown IPI。
-        let Some(mut guard) = self.runtime.try_lock() else {
-            return false;
-        };
-        guard
 
 use alloc::format;
 use alloc::string::String;
@@ -590,8 +584,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
 
     /// 保存抢占现场；返回是否切换任务。
     pub fn preempt(&self, cpu: usize, context: C) -> bool {
-        self.runtime
-            .lock()
+        // 定时器可能在关中断上下文进入；调度器锁被另一 CPU 持有时不要自旋，
+        // 否则本 CPU 无法确认 TLB shootdown IPI。
+        let Some(mut guard) = self.runtime.try_lock() else {
+            return false;
+        };
+        guard
             .as_mut()
             .is_some_and(|runtime| runtime.preempt(cpu, context))
     }
