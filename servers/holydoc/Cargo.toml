@@ -19,8 +19,5 @@ hk-proto-client.workspace = true
 hk-user-api.workspace = true
 hk-worker.workspace = true
 
-[build-dependencies]
-hk-server-build.workspace = true
-
 [lints]
 workspace = true

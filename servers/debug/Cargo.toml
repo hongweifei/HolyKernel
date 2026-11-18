@@ -12,14 +12,12 @@ name = "hk-server-debug"
 path = "src/main.rs"
 
 [dependencies]
+hk-base.workspace = true
 hk-canvas.workspace = true
 hk-font.workspace = true
 hk-debug.workspace = true
 hk-proto.workspace = true
 hk-user-api.workspace = true
-
-[build-dependencies]
-hk-server-build.workspace = true
 
 [lints]
 workspace = true

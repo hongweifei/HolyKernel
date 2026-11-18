@@ -17,8 +17,5 @@ hk-syscall.workspace = true
 hk-thread.workspace = true
 spin.workspace = true
 
-[build-dependencies]
-hk-server-build.workspace = true
-
 [lints]
 workspace = true

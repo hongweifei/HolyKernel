@@ -23,7 +23,7 @@ pub(crate) fn run(
     window: &Window,
     fault_test: bool,
 ) -> ! {
-    let base = u64::from_str_radix(env!("HK_IMAGE_BASE").trim_start_matches("0x"), 16).unwrap_or(0);
+    let base = hk_base::user::IMAGE_BASE;
     for page in Page::ALL {
         let text = page.fetch();
         show(page, &text, 0, font, window);

@@ -19,8 +19,5 @@ hk-driver-rdif.workspace = true
 hk-user-api.workspace = true
 nvme-driver.workspace = true
 
-[build-dependencies]
-hk-server-build.workspace = true
-
 [lints]
 workspace = true

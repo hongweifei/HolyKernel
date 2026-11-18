@@ -32,7 +32,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L2 | 用户态 | `hk-proto-client` | Holy/VFS 协议客户端；收发缓冲在首次请求时按需分配 |
 | L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-holy-response`、`hk-holy-service`、`hk-fs-remote`、`hk-fs-ext4`、`hk-fs-holyfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约、原生文档响应层、服务端分派、远程后端适配与实现 |
 | L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-driver-host`、`hk-driver-rdif`、`hk-driver-usb`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 驱动与外部 AHCI/NVMe/USB crate 的 DMA/MMIO/log 宿主层、RDIF 块桥与 crab-usb 宿主/事件循环、像素绘制、工作线程与并发库、符号化与回溯 |
-| L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
+| L2 | 用户态 | `hk-server-build` | 服务镜像链接脚本生成（仅供 xtask 调用，不再作为服务 build-dependency） |
 | L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo` 承载 Cadence 策略与准入 |
 
 `hk-shell`、`hk-syscall`、`hk-status` 与 `hk-block` 必须保持零依赖：`hk-shell` 通过 `ShellHost::extension` 把用户态命令交给宿主；`hk-syscall` 只是内核与用户态共用的编号与编码，不承载服务协议或服务实现；`hk-block` 只定义块设备契约与内存盘，IPC 运行时放在 `hk-block-ipc`。
@@ -135,8 +135,8 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 
 ## 4. 新增服务清单
 
-1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-user-api`、`hk-proto` 与所需 L2 库；`[build-dependencies] hk-server-build`。
-2. `build.rs`：`hk_server_build::configure()`；所有服务共享同一镜像区（各自独立 Arena）。
+1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-user-api`、`hk-proto` 与所需 L2 库；不再声明 `build-dependencies`。
+2. 链接脚本由 `cargo xtask build|image|smoke` 统一生成并注入，服务目录不再需要 `build.rs`；所有服务共享同一镜像区（各自独立 Arena）。
 3. `src/main.rs`：
    - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
    - 实现 `_start(endpoint)`；
