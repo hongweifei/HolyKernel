@@ -7,7 +7,6 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-#[cfg(target_os = "none")]
 use hk_server_api::{call, exit, service_endpoint, tsc, tsc_frequency, write, write_u64};
 
 /// 测量轮数。
