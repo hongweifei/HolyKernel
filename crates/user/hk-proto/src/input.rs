@@ -33,6 +33,99 @@ pub const fn unpack_pointer(word: u64) -> (u16, u16) {
     ((word >> 16) as u16, word as u16)
 }
 
+/// 方向键与编辑键的 ANSI 序列。
+///
+/// PS/2（evdev 键码）与 USB HID 两条输入路径共用同一份序列，避免同一按键
+/// 因总线不同产生不同字节。
+pub mod ansi {
+    /// Esc。
+    pub const ESCAPE: &[u8] = b"\x1b";
+    /// 上方向键。
+    pub const UP: &[u8] = b"\x1b[A";
+    /// 下方向键。
+    pub const DOWN: &[u8] = b"\x1b[B";
+    /// 右方向键。
+    pub const RIGHT: &[u8] = b"\x1b[C";
+    /// 左方向键。
+    pub const LEFT: &[u8] = b"\x1b[D";
+    /// Home。
+    pub const HOME: &[u8] = b"\x1b[H";
+    /// End。
+    pub const END: &[u8] = b"\x1b[F";
+    /// PageUp。
+    pub const PAGE_UP: &[u8] = b"\x1b[5~";
+    /// PageDown。
+    pub const PAGE_DOWN: &[u8] = b"\x1b[6~";
+    /// Insert。
+    pub const INSERT: &[u8] = b"\x1b[2~";
+    /// Delete。
+    pub const DELETE: &[u8] = b"\x1b[3~";
+}
+
+/// 应用 Shift 映射。
+pub const fn shifted(byte: u8) -> u8 {
+    match byte {
+        b'a'..=b'z' => byte - 32,
+        b'1' => b'!',
+        b'2' => b'@',
+        b'3' => b'#',
+        b'4' => b'$',
+        b'5' => b'%',
+        b'6' => b'^',
+        b'7' => b'&',
+        b'8' => b'*',
+        b'9' => b'(',
+        b'0' => b')',
+        b'-' => b'_',
+        b'=' => b'+',
+        b'[' => b'{',
+        b']' => b'}',
+        b';' => b':',
+        b'\'' => b'"',
+        b'`' => b'~',
+        b'\\' => b'|',
+        b',' => b'<',
+        b'.' => b'>',
+        b'/' => b'?',
+        other => other,
+    }
+}
+
+/// 应用 Ctrl 映射。
+pub const fn control(byte: u8) -> Option<u8> {
+    Some(match byte {
+        b'a'..=b'z' => byte - b'a' + 1,
+        b'A'..=b'Z' => byte - b'A' + 1,
+        b'@' | b' ' => 0,
+        b'[' => 0x1B,
+        b'\\' => 0x1C,
+        b']' => 0x1D,
+        b'^' => 0x1E,
+        b'_' => 0x1F,
+        _ => return None,
+    })
+}
+
+/// 按修饰键转换可打印字节；`alt` 以 ESC 前缀表示。
+///
+/// 返回 `(字节, 长度)`，长度只可能是 1 或 2。
+pub const fn modified(byte: u8, shift: bool, ctrl: bool, alt: bool) -> ([u8; 2], usize) {
+    let byte = if shift { shifted(byte) } else { byte };
+    let byte = if ctrl {
+        match control(byte) {
+            Some(byte) => byte,
+            None => byte,
+        }
+    } else {
+        byte
+    };
+    if alt {
+        ([0x1B, byte], 2)
+    } else {
+        ([byte, 0], 1)
+    }
+}
+
 /// 解码后的按键。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -196,5 +289,42 @@ mod tests {
         for delta in [-3, -1, 0, 1, 3] {
             assert_eq!(unpack_wheel(pack_wheel(delta)), delta);
         }
+    }
+
+    #[test]
+    fn shared_sequences_decode_to_their_keys() {
+        let cases = [
+            (ansi::UP, Key::Up),
+            (ansi::DOWN, Key::Down),
+            (ansi::RIGHT, Key::Right),
+            (ansi::LEFT, Key::Left),
+            (ansi::HOME, Key::Home),
+            (ansi::END, Key::End),
+            (ansi::PAGE_UP, Key::PageUp),
+            (ansi::PAGE_DOWN, Key::PageDown),
+            (ansi::INSERT, Key::Insert),
+            (ansi::DELETE, Key::Delete),
+        ];
+        for (sequence, expected) in cases {
+            let mut decoder = Decoder::new();
+            assert_eq!(feed(&mut decoder, sequence), Some(expected), "{sequence:?}");
+        }
+    }
+
+    #[test]
+    fn modifiers_cover_ascii_and_control() {
+        assert_eq!(shifted(b'a'), b'A');
+        assert_eq!(shifted(b'1'), b'!');
+        assert_eq!(shifted(b'/'), b'?');
+        assert_eq!(control(b'a'), Some(1));
+        assert_eq!(control(b'@'), Some(0));
+        assert_eq!(control(b'['), Some(0x1B));
+        assert_eq!(control(b'!'), None);
+
+        assert_eq!(modified(b'a', false, false, false), ([b'a', 0], 1));
+        assert_eq!(modified(b'a', true, false, false), ([b'A', 0], 1));
+        assert_eq!(modified(b'a', false, true, false), ([1, 0], 1));
+        assert_eq!(modified(b'a', false, false, true), ([0x1B, b'a'], 2));
+        assert_eq!(modified(b'1', true, false, true), ([0x1B, b'!'], 2));
     }
 }

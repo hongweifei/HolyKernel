@@ -5,6 +5,8 @@
 
 use alloc::vec::Vec;
 
+use hk_proto::input::{ansi, modified};
+
 /// 需要转发给显示服务的输入事件。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -98,34 +100,28 @@ fn emit_usage(usage: u8, shift: bool, ctrl: bool, alt: bool, out: &mut Vec<Event
     let Some(plain) = printable(usage) else {
         return;
     };
-    let byte = if shift { shifted(plain) } else { plain };
-    let byte = if ctrl {
-        control(byte).unwrap_or(byte)
-    } else {
-        byte
-    };
-    if alt {
-        out.push(Event::Key(0x1B));
+    let (sequence, len) = modified(plain, shift, ctrl, alt);
+    for &byte in &sequence[..len] {
+        out.push(Event::Key(byte));
     }
-    out.push(Event::Key(byte));
 }
 
 fn special(usage: u8) -> Option<&'static [u8]> {
     Some(match usage {
-        0x28 => &b"\n"[..],
-        0x29 => &b"\x1b"[..],
-        0x2A => &b"\x08"[..],
-        0x2B => &b"\t"[..],
-        0x49 => &b"\x1b[2~"[..],
-        0x4A => &b"\x1b[H"[..],
-        0x4B => &b"\x1b[5~"[..],
-        0x4C => &b"\x1b[3~"[..],
-        0x4D => &b"\x1b[F"[..],
-        0x4E => &b"\x1b[6~"[..],
-        0x4F => &b"\x1b[C"[..],
-        0x50 => &b"\x1b[D"[..],
-        0x51 => &b"\x1b[B"[..],
-        0x52 => &b"\x1b[A"[..],
+        0x28 => b"\n",
+        0x29 => ansi::ESCAPE,
+        0x2A => b"\x08",
+        0x2B => b"\t",
+        0x49 => ansi::INSERT,
+        0x4A => ansi::HOME,
+        0x4B => ansi::PAGE_UP,
+        0x4C => ansi::DELETE,
+        0x4D => ansi::END,
+        0x4E => ansi::PAGE_DOWN,
+        0x4F => ansi::RIGHT,
+        0x50 => ansi::LEFT,
+        0x51 => ansi::DOWN,
+        0x52 => ansi::UP,
         _ => return None,
     })
 }
@@ -147,48 +143,6 @@ fn printable(usage: u8) -> Option<u8> {
         0x35 => b',',
         0x36 => b'.',
         0x37 => b'/',
-        _ => return None,
-    })
-}
-
-fn shifted(byte: u8) -> u8 {
-    match byte {
-        b'a'..=b'z' => byte - 32,
-        b'1' => b'!',
-        b'2' => b'@',
-        b'3' => b'#',
-        b'4' => b'$',
-        b'5' => b'%',
-        b'6' => b'^',
-        b'7' => b'&',
-        b'8' => b'*',
-        b'9' => b'(',
-        b'0' => b')',
-        b'-' => b'_',
-        b'=' => b'+',
-        b'[' => b'{',
-        b']' => b'}',
-        b';' => b':',
-        b'\'' => b'"',
-        b'`' => b'~',
-        b'\\' => b'|',
-        b',' => b'<',
-        b'.' => b'>',
-        b'/' => b'?',
-        other => other,
-    }
-}
-
-fn control(byte: u8) -> Option<u8> {
-    Some(match byte {
-        b'a'..=b'z' => byte - b'a' + 1,
-        b'A'..=b'Z' => byte - b'A' + 1,
-        b'@' | b' ' => 0,
-        b'[' => 0x1B,
-        b'\\' => 0x1C,
-        b']' => 0x1D,
-        b'^' => 0x1E,
-        b'_' => 0x1F,
         _ => return None,
     })
 }
