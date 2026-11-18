@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{MemoryClient, exit, numa_migrate, numa_node_count, write};
+use hk_user_api::{MemoryClient, exit, numa_migrate, numa_node_count, write};
 
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
@@ -40,7 +40,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         write(b"hk-client-numa-test: content mismatch\n");
         exit(4)
     }
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .text(b"hk-client-numa-test: migrated ")
         .number(migrated)
         .text(b" verified\n")
@@ -49,4 +49,4 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

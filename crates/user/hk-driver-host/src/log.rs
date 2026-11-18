@@ -2,7 +2,7 @@
 
 use core::fmt::{self, Write};
 
-use hk_server_api::write;
+use hk_user_api::write;
 
 struct Logger;
 

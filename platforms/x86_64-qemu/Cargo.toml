@@ -1,5 +1,5 @@
 [package]
-name = "hk-x86_64"
+name = "hk-image-x86_64-qemu"
 description = "HolyKernel x86_64 QEMU 启动入口"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-x86_64"
+name = "hk-image-x86_64-qemu"
 path = "src/main.rs"
 
 [dependencies]
@@ -21,7 +21,7 @@ hk-hal.workspace = true
 hk-kernel.workspace = true
 hk-mem.workspace = true
 hk-kernel-shell.workspace = true
-hk-platform-x86_64.workspace = true
+hk-arch-x86_64.workspace = true
 hk-root-server.workspace = true
 hk-shell.workspace = true
 hk-syscall.workspace = true

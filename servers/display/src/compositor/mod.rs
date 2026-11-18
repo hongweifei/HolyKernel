@@ -8,7 +8,7 @@ use hk_proto::display::{
     WINDOW_CREATE, WINDOW_RESIZE, pack_window_size,
 };
 use hk_proto::input::{INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL};
-use hk_server_api::{
+use hk_user_api::{
     close_handle, console_read, exit, format::Line, recv_data_handle_try, send_data, sleep_ticks,
     tsc, tsc_frequency, write, write_u64,
 };
@@ -153,7 +153,7 @@ impl Compositor {
         self.resize_retry_at = now.saturating_add(period);
         for window in self.windows.iter().flatten() {
             if window.width != window.surface.width || window.height != window.surface.height {
-                let _ = hk_server_api::send(
+                let _ = hk_user_api::send(
                     window.surface.client,
                     DISPLAY_RESIZE,
                     pack_window_size(window.id, window.width as u32, window.height as u32),

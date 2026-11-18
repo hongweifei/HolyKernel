@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeMap;
 
-use hk_server_api::{
+use hk_user_api::{
     RIGHT_READ, RIGHT_WRITE, capability_phys, close_handle, region_info, region_map, region_unmap,
 };
 use hk_vfs::{FileHandle, Vfs};

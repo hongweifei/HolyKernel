@@ -21,7 +21,7 @@ use hk_proto::echo::{
     WORK_DONE, WORK_REQUEST, WORK_RESPONSE, WORK_ROUNDS, WORK_STATS, WORK_STATS_RESPONSE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, handle_count, notify, recv_handle, reply, send, write, write_u64};
+use hk_user_api::{exit, handle_count, notify, recv_handle, reply, send, write, write_u64};
 #[cfg(target_os = "none")]
 use hk_worker::Pool;
 
@@ -29,7 +29,7 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 const NOTIFY_REQUEST: u64 = 0x300;
 
-hk_server_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!(256 * 1024);
 
 /// 工作线程数量。
 #[cfg(target_os = "none")]
@@ -151,4 +151,4 @@ fn write_request(word: u64) {
     write(&buffer[..=end]);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

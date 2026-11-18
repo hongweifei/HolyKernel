@@ -31,7 +31,7 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     exit, fault_subscribe, kernel_stats, recv_data_timeout, send, service_endpoint, sleep_ticks,
     write, write_u64,
 };
@@ -40,7 +40,7 @@ use pages::Page;
 #[cfg(target_os = "none")]
 use render::{HEIGHT, WIDTH, line_count, render, visible_lines};
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 /// 无输入时的等待 tick；用于发现 Display 退出与重启。
 #[cfg(target_os = "none")]
 const WATCH_TICKS: u64 = 100;
@@ -54,7 +54,7 @@ pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &
     let frame = unsafe { Surface::from_raw(window.pixels(), width, height, width) };
     render(text, page.title(), scroll, width, height, font, &frame);
     let _ = window.commit_with(|label, _, data| {
-        if label == hk_server_api::FAULT_EVENT {
+        if label == hk_user_api::FAULT_EVENT {
             hk_debug::ingest(label, data);
         }
     });
@@ -64,7 +64,7 @@ pub(crate) fn show(page: Page, text: &str, scroll: usize, font: &Font, window: &
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_user_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-debug: no display\n");
         exit(1)
@@ -101,7 +101,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut cmdline_buffer = [0_u8; 128];
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
+    let cmdline = hk_user_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
     let restart_test = cmdline.contains("display-restart-test");
     let mut reconnected = false;
@@ -143,7 +143,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             // 等待超时：下一轮先检查 Display 实例，再继续收事件。
             continue;
         }
-        if label == hk_server_api::FAULT_EVENT {
+        if label == hk_user_api::FAULT_EVENT {
             hk_debug::ingest(label, &buffer[..length]);
             continue;
         }
@@ -233,4 +233,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

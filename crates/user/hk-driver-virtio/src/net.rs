@@ -31,7 +31,7 @@ struct TxBuffer {
 
 /// 待发队列上限；超过后丢弃新帧，避免无界增长。
 const MAX_PENDING: usize = 64;
-/// 发送帧中为 virtio 头预留的空间；与 `hk-server-api` 的 `NET_TX_HEADER` 一致。
+/// 发送帧中为 virtio 头预留的空间；与 `hk-user-api` 的 `NET_TX_HEADER` 一致。
 const TX_HEADER: usize = 32;
 
 /// 共享帧环布局。

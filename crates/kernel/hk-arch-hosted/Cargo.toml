@@ -1,5 +1,5 @@
 [package]
-name = "hk-platform-hosted"
+name = "hk-arch-hosted"
 description = "HolyKernel Hosted 模拟器平台"
 version.workspace = true
 edition.workspace = true

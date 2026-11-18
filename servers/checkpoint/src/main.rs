@@ -24,14 +24,14 @@ use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::root::{
+use hk_user_api::root::{
     ROOT_OP_CHECKPOINT, ROOT_OP_CHECKPOINT_READ, ROOT_OP_CHECKPOINT_WRITE,
     ROOT_OP_RESTORE_CHECKPOINT, call, call_data,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data, send_data, service_endpoint, write};
+use hk_user_api::{recv_data, send_data, service_endpoint, write};
 
-hk_server_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!(256 * 1024);
 
 /// 快照分块大小。
 #[cfg(target_os = "none")]
@@ -51,7 +51,7 @@ const COLLECTION: &str = "Checkpoints";
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"hk-server-checkpoint: ready\n");
     let mut cmdline = [0_u8; 128];
-    let disk = hk_server_api::boot_cmdline(&mut cmdline).is_some_and(|line| {
+    let disk = hk_user_api::boot_cmdline(&mut cmdline).is_some_and(|line| {
         line.contains("checkpoint.disk") || line.contains("checkpoint-srv-test")
     });
     let mut names: Vec<String> = Vec::new();
@@ -291,7 +291,7 @@ fn collection(client: &mut HolyClient) -> Option<DocId> {
                 .create(root, COLLECTION, DocumentKind::Collection)
                 .ok();
         }
-        let _ = hk_server_api::yield_now();
+        let _ = hk_user_api::yield_now();
     }
     None
 }
@@ -314,4 +314,4 @@ fn root_text(op: u64, name: &str) -> String {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

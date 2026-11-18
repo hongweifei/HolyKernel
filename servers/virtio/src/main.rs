@@ -26,17 +26,17 @@ use hk_driver_virtio::{Block, Device, probe};
 #[cfg(target_os = "none")]
 use hk_proto::block::{BLOCK_REQUEST, BLOCK_RESPONSE, STATUS_ERROR, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::device::{
+use hk_user_api::device::{
     DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE, DEVICE_CLASS_GPU, DEVICE_CLASS_RNG, DEVICE_GRANT,
     DEVICE_NONE, DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     close_handle, device_info, dma_map, exit, irq_bind, msi_bind, recv_data_handle, recv_handle,
     self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
 };
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 
 /// 块完成中断使用的通知位。
 #[cfg(target_os = "none")]
@@ -60,7 +60,7 @@ struct Grants {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     write("hk-server-virtio: start\n".as_bytes());
-    let gpu_capacity = hk_server_api::gpu_capacity().unwrap_or(0);
+    let gpu_capacity = hk_user_api::gpu_capacity().unwrap_or(0);
     hk_driver_virtio::set_gpu_capacity(gpu_capacity);
     let manager = service_endpoint("hk-server-device");
     if manager == 0 {
@@ -100,7 +100,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
     if let Some(handle) = grants.console {
         if let Some(Device::Console(mut device)) = probe_grant(handle) {
-            hk_server_api::format::Line::new()
+            hk_user_api::format::Line::new()
                 .text(b"hk-server-virtio: console ready ports ")
                 .number(device.ports() as u64)
                 .text(b"\n")
@@ -112,7 +112,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             for port in 1..device.ports() {
                 let ok = aux::console::self_test_port(&mut device, port);
-                hk_server_api::format::Line::new()
+                hk_user_api::format::Line::new()
                     .text(b"hk-server-virtio: console port ")
                     .number(port as u64)
                     .text(if ok {
@@ -132,7 +132,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if let Some(Device::Gpu(device)) = probe_grant(handle) {
             write(b"hk-server-virtio: gpu ready\n");
             if let Some((width, height)) = device.edid_resolution() {
-                hk_server_api::format::Line::new()
+                hk_user_api::format::Line::new()
                     .text(b"hk-server-virtio: gpu edid ")
                     .number(u64::from(width))
                     .text(b"x")
@@ -142,7 +142,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             }
             match device.pattern() {
                 Some((width, height)) => {
-                    hk_server_api::format::Line::new()
+                    hk_user_api::format::Line::new()
                         .text(b"hk-server-virtio: gpu ")
                         .number(u64::from(width))
                         .text(b"x")
@@ -152,8 +152,8 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 }
                 None => write(b"hk-server-virtio: gpu pattern failed\n"),
             }
-            if let Some(info) = hk_server_api::capacity_info(gpu_capacity) {
-                hk_server_api::format::Line::new()
+            if let Some(info) = hk_user_api::capacity_info(gpu_capacity) {
+                hk_user_api::format::Line::new()
                     .text(b"hk-server-virtio: gpu used ")
                     .number(info.used)
                     .text(b" / ")
@@ -234,7 +234,7 @@ fn probe_grant(handle: u64) -> Option<Device> {
 /// 块设备主循环；辅助设备消息由 `devices` 分派。
 #[cfg(target_os = "none")]
 fn serve_block(endpoint: u64, grant: u64, mut block: Box<Block>, devices: Aux) -> ! {
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .text(b"hk-server-virtio: virtio-blk sectors=")
         .number(block.capacity_blocks())
         .text(if block.read_only() {
@@ -304,4 +304,4 @@ fn serve_aux(endpoint: u64, mut devices: Aux) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

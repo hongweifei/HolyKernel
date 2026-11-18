@@ -16,16 +16,16 @@ use hk_driver_host::{init_dma, init_log, init_mmio, register_mapping, register_m
 #[cfg(target_os = "none")]
 use hk_driver_rdif::{RdifDisk, Waiter};
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_NVME, request_grant};
+use hk_user_api::device::{DEVICE_CLASS_NVME, request_grant};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     device_info, device_map, dma_map, exit, irq_bind, self_notification, service_endpoint,
     wait_notify, write,
 };
 #[cfg(target_os = "none")]
 use nvme_driver::{Config, Nvme, NvmeBlockDriver, NvmeIntxSource};
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 
 #[cfg(target_os = "none")]
 struct IntxSource;
@@ -112,7 +112,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     };
 
     write(b"hk-server-nvme: sectors=");
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .number(disk.capacity_blocks())
         .text(b"\n")
         .finish();
@@ -133,4 +133,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

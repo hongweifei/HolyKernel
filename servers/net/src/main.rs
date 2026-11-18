@@ -25,7 +25,7 @@ use hk_proto::socket::{
     SOCK_UDP_SEND,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     exit, notify, recv_data, recv_data_handle, send, send_data, tsc, tsc_frequency, write,
 };
 
@@ -47,7 +47,7 @@ use driver::{attach_shared, poll_once, restart_network, wait_driver};
 #[cfg(target_os = "none")]
 use protocol::{flush_tx, handle_socket, status_blob};
 
-hk_server_api::server_heap!(768 * 1024);
+hk_user_api::server_heap!(768 * 1024);
 /// 宿主 TCP echo 端口；测试命令行可用 `net.tcp=` 覆盖。
 #[cfg(target_os = "none")]
 const DEFAULT_TCP_PORT: u16 = 45678;
@@ -116,7 +116,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     // 原生启动期配置：`net.dhcp=off`/`net.ip=`/`net.prefix=`/`net.gw=`/
     // `net.resolver=`。这是 Holy 的引导配置，不读取任何 Unix 文件。
     let mut cmdline_buffer = [0_u8; 256];
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let cmdline = hk_user_api::boot_cmdline(&mut cmdline_buffer);
     let resolvers = cmdline.map(parse_resolvers).unwrap_or_default();
     let static_config = cmdline.and_then(parse_static);
     let mut dns_servers = resolvers;
@@ -302,9 +302,9 @@ fn test_ports(cmdline: Option<&str>) -> (u16, u16) {
 pub(crate) fn now_ms() -> u64 {
     let frequency = tsc_frequency();
     if frequency == 0 {
-        return hk_server_api::ticks().saturating_mul(10);
+        return hk_user_api::ticks().saturating_mul(10);
     }
     tsc().saturating_mul(1_000) / frequency
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

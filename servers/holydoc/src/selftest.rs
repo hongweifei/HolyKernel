@@ -10,7 +10,7 @@ use hk_proto::holy::{
 };
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
-use hk_server_api::{
+use hk_user_api::{
     RIGHT_READ, close_handle, exit, region_info, region_map, region_unmap, send, write, write_u64,
 };
 

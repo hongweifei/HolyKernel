@@ -16,7 +16,7 @@ pub use crab_usb;
 
 mod sync;
 use crab_usb::{EventHandler, KernelOp};
-use hk_server_api::sleep_ticks;
+use hk_user_api::sleep_ticks;
 
 /// 调度 tick 的毫秒数。
 const TICK_MS: u128 = 10;
@@ -52,7 +52,7 @@ pub fn block_on<F: Future>(future: F, notification: u64, events: &EventHandler) 
             Poll::Ready(output) => return output,
             Poll::Pending => {
                 events.handle_event();
-                let _ = hk_server_api::wait_notify(notification, 1);
+                let _ = hk_user_api::wait_notify(notification, 1);
             }
         }
     }

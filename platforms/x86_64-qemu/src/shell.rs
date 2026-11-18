@@ -7,10 +7,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use hk_arch_x86_64::cpu;
+use hk_arch_x86_64::{FramebufferConsole, PageTable, Serial, keyboard};
 use hk_hal::{BootInfo, Console};
 use hk_kernel_shell::{Scheduling, ScriptSource};
-use hk_platform_x86_64::cpu;
-use hk_platform_x86_64::{FramebufferConsole, PageTable, Serial, keyboard};
 use hk_root_server::ServiceTable;
 use hk_shell::ShellIo;
 

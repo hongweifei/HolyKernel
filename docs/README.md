@@ -97,6 +97,6 @@ HMP、HCM 与多架构平台分层已通过 ADR-0016、ADR-0017 与 ADR-0018 接
 2. 内核代码只包含机制；策略位于服务器。
 3. 内存相关变更使用 [HMP](hmp.md) 的对象面与 [ADR-0016](adr/0016-hmp-native-contract.md) 的授予规则；HMP 是唯一内存契约。
 4. 调度相关变更使用 [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md) 的 Cadence/Meter 契约。
-5. 新增平台差异位于 `platforms/` 或 `crates/kernel/hk-platform-*`。
+5. 新增平台差异位于 `platforms/` 或 `crates/kernel/hk-arch-*`。
 6. 新增依赖通过 [工程策略](engineering.md) 的依赖审查。
 7. 接口有测试策略，覆盖失败路径、IPC 断开与服务器重启。

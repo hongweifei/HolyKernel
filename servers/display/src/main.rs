@@ -19,7 +19,7 @@ mod seat;
 mod surface;
 
 // 服务堆大小：只用于接管期缓存客户端消息。
-hk_server_api::server_heap!(16 * 1024);
+hk_user_api::server_heap!(16 * 1024);
 
 #[cfg(target_os = "none")]
 mod actions;
@@ -39,7 +39,7 @@ use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use compositor::{Compositor, draw_desktop};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_WRITE, exit, format::Line, framebuffer,
     recv_data_handle, region_info, region_map, send, service_endpoint, write, yield_now,
 };
@@ -51,7 +51,7 @@ use window::Screen;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let mut command = [0_u8; 128];
-    let command_line = hk_server_api::boot_cmdline(&mut command).unwrap_or("");
+    let command_line = hk_user_api::boot_cmdline(&mut command).unwrap_or("");
     let gpu_requested = command_line.contains("gpu.scanout");
     let mut pending: Vec<scanout::Pending> = Vec::new();
     let (width, height, stride, framebuffer_virt, scanout) = match framebuffer::query() {
@@ -126,9 +126,9 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     );
 
     let mut theme_buffer = [0_u8; 128];
-    let theme_name = theme::select(hk_server_api::boot_cmdline(&mut theme_buffer));
+    let theme_name = theme::select(hk_user_api::boot_cmdline(&mut theme_buffer));
     let mut test_buffer = [0_u8; 128];
-    let display_test = hk_server_api::boot_cmdline(&mut test_buffer)
+    let display_test = hk_user_api::boot_cmdline(&mut test_buffer)
         .is_some_and(|line| line.contains("display-test"));
     let font = hk_canvas::default_font_scaled(theme::scale());
     Line::new()
@@ -195,4 +195,4 @@ fn provider_surface(endpoint: u64, bytes: usize) -> Option<u64> {
     Some(virt)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

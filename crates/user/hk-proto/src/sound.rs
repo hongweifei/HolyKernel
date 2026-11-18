@@ -4,7 +4,7 @@
 //! `SOUND_TONE` 让驱动重放一段 440 Hz 自检音。
 
 use crate::labels::VIRTIO;
-use hk_server_api::{recv_data_try, send, yield_now};
+use hk_user_api::{recv_data_try, send, yield_now};
 
 /// 查询音频能力。
 pub const SOUND_INFO: u64 = VIRTIO + 0x50;
@@ -43,7 +43,7 @@ pub struct Client {
 impl Client {
     /// 等待 virtio 驱动服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let service = hk_server_api::runtime::wait_service(SOUND_SERVICE)?;
+        let service = hk_user_api::runtime::wait_service(SOUND_SERVICE)?;
         Some(Self { endpoint, service })
     }
 
@@ -73,7 +73,7 @@ impl Client {
         let mut payload = [0_u8; 8];
         payload[0..4].copy_from_slice(&hz.to_le_bytes());
         payload[4..8].copy_from_slice(&millis.to_le_bytes());
-        let _ = hk_server_api::send_data(self.service, SOUND_TONE, &payload);
+        let _ = hk_user_api::send_data(self.service, SOUND_TONE, &payload);
         let mut buffer = [0_u8; 8];
         for _ in 0..WAIT_ATTEMPTS {
             let (label, word, sender, _length) = recv_data_try(self.endpoint, &mut buffer);
@@ -108,7 +108,7 @@ impl Client {
     /// 播放由音频服务在定时节拍上推进，客户端不需要轮询。
     pub fn wait_done(&self) -> bool {
         loop {
-            let (label, word, sender) = hk_server_api::recv(self.endpoint);
+            let (label, word, sender) = hk_user_api::recv(self.endpoint);
             if label == SOUND_DONE && sender == self.service {
                 return word == 1;
             }

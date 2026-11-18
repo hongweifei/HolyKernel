@@ -39,7 +39,7 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     exit, recv_data_timeout, recv_data_try, send, service_endpoint, sleep_ticks, write, write_u64,
     yield_now,
 };
@@ -49,7 +49,7 @@ use hk_worker::Pool;
 #[cfg(target_os = "none")]
 use document::{DocSet, DocView, HEIGHT, HELP, INDEX, TAGS, WELCOME, WIDTH};
 
-hk_server_api::server_heap!(1024 * 1024);
+hk_user_api::server_heap!(1024 * 1024);
 
 /// 渲染工作线程栈尺寸。
 #[cfg(target_os = "none")]
@@ -63,7 +63,7 @@ const WATCH_TICKS: u64 = 100;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_user_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-holydoc: no display\n");
         exit(1)
@@ -111,7 +111,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     write(b"\n");
 
     let mut cmdline_buffer = [0_u8; 128];
-    let revmap_test = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+    let revmap_test = hk_user_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("revmap-test"));
     if revmap_test {
         let ok = selftest::verify_revision_map(endpoint);
@@ -120,10 +120,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         } else {
             b"hk-server-holydoc: revision failed\n".as_slice()
         });
-        let _ = hk_server_api::send(window.display(), DISPLAY_SHUTDOWN, 0);
-        hk_server_api::exit(u64::from(!ok));
+        let _ = hk_user_api::send(window.display(), DISPLAY_SHUTDOWN, 0);
+        hk_user_api::exit(u64::from(!ok));
     }
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let cmdline = hk_user_api::boot_cmdline(&mut cmdline_buffer);
     let test = cmdline.is_some_and(|line| line.contains("holydoc-test"));
     let resize_test = cmdline.is_some_and(|line| line.contains("holydoc-resize-test"));
     // 重启自检收尾：Display 被测试关闭后退出，让冒烟能判定系统空闲。
@@ -253,7 +253,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 render_pending = true;
                 resized = true;
                 // 一次写出整行，避免与 Display 的日志在串口上交错。
-                hk_server_api::format::Line::new()
+                hk_user_api::format::Line::new()
                     .text(b"hk-server-holydoc: resize ")
                     .number(width as u64)
                     .text(b"x")
@@ -413,4 +413,4 @@ fn wait_render(pool: &Pool) {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -1,7 +1,7 @@
 //! VFS 客户端/服务端共享协议与轻量查询。
 
 use crate::wire::{self, RequestHeader};
-use hk_server_api::{recv_data_from, send_data, service_endpoint};
+use hk_user_api::{recv_data_from, send_data, service_endpoint};
 
 /// 请求标签。
 pub const VFS_REQUEST: u64 = crate::labels::VFS;

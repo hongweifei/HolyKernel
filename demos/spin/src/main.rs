@@ -9,7 +9,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{close_handle, exit, handle_count, ticks, write, write_u64};
+use hk_user_api::{close_handle, exit, handle_count, ticks, write, write_u64};
 
 /// 忙等的调度 tick 数。
 #[cfg(target_os = "none")]
@@ -40,4 +40,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

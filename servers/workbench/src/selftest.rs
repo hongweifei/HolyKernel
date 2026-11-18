@@ -4,7 +4,7 @@ use alloc::format;
 
 use hk_font::Font;
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
-use hk_server_api::{exit, send, write, write_u64};
+use hk_user_api::{exit, send, write, write_u64};
 
 use crate::model::Model;
 

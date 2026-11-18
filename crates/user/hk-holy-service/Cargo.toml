@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 hk-fs.workspace = true
-hk-holy-proto.workspace = true
+hk-holy-response.workspace = true
 hk-proto.workspace = true
 
 [lints]

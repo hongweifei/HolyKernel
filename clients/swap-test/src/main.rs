@@ -10,12 +10,12 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     MemoryClient, arena_grow, exit, memory_event_subscribe, memory_pressure, memory_pressure_full,
     self_notification, sleep_ticks, wait_notify, write,
 };
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 /// 单页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
@@ -95,7 +95,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         pages.push((capability, region, virt, pattern));
     }
     if let Some((free, total, threshold)) = memory_pressure() {
-        hk_server_api::format::Line::new()
+        hk_user_api::format::Line::new()
             .text(b"hk-client-swap-test: pressure ")
             .number(free.saturating_mul(100) / total.max(1))
             .text(b"% threshold ")
@@ -130,7 +130,7 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         // SAFETY: 页可能已换出，读取触发 Provider 换入；内容必须与写入一致。
         let value = unsafe { core::ptr::read_volatile(*virt as *const u8) };
         if value != *pattern {
-            hk_server_api::format::Line::new()
+            hk_user_api::format::Line::new()
                 .text(b"hk-client-swap-test: mismatch ")
                 .number(index as u64)
                 .text(b" expected ")
@@ -144,14 +144,14 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         verified += 1;
     }
 
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .text(b"hk-client-swap-test: pages ")
         .number(pages.len() as u64)
         .text(b" swapped ")
         .number(swapped)
         .text(b"\n")
         .finish();
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .text(b"hk-client-swap-test: verified ")
         .number(verified as u64)
         .text(b"\n")
@@ -160,4 +160,4 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

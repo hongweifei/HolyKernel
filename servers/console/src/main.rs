@@ -22,7 +22,7 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     console_read, exit, recv_data_try, send, send_data, service_endpoint, service_restarts,
     sleep_ticks, write, write_u64,
 };
@@ -40,7 +40,7 @@ use editor::{Editor, emit};
 use terminal::attach_terminal;
 
 // 服务堆大小；终端网格约 225 KiB，其余留给临时分配。
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -56,7 +56,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
     let mut ever_attached = terminal.is_some();
     let mut cmdline_buffer = [0_u8; 128];
-    let mut restart = selftest::Restart::new(hk_server_api::boot_cmdline(&mut cmdline_buffer));
+    let mut restart = selftest::Restart::new(hk_user_api::boot_cmdline(&mut cmdline_buffer));
     let mut buffer = [0_u8; 256];
     let mut editor = Editor::new();
     let mut keys = Decoder::new();
@@ -145,4 +145,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

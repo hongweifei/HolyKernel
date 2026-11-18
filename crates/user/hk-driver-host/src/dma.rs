@@ -8,7 +8,7 @@ use dma_api::{
     DeviceDma, DmaAddr, DmaAllocHandle, DmaCoherency, DmaConstraints, DmaDeviceInfo, DmaDirection,
     DmaDomainId, DmaError, DmaMapHandle, DmaOp,
 };
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, capability_create, capability_phys, close_handle, dma_map, map_attach,
     region_unmap,
 };

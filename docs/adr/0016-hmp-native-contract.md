@@ -136,11 +136,11 @@ ABI 使用单一 `Handle` 值加 `ObjectKind`：
 ### 10. 实现结构
 
 - `hk-mem::hmp`：HMP 对象定义的唯一实现位置；定义 Arena、Capacity、Frame、Region、Capability、Provider、Ledger、Mappable、Handle 与 Rights。没有独立的共享契约 crate。
-- `hk-syscall`：HMP ABI 常量与用户态入口；`hk-server-api` 提供用户态封装。
+- `hk-syscall`：HMP ABI 常量与用户态入口；`hk-user-api` 提供用户态封装。
 - `hk-mem`：内核侧实现；持有 Capacity/Frame/Region 状态、Task Ledger 与对象利用率快照。
 - `hk-paging`：把 Region 物化为页表；页表格式与遍历位于 crate 内部。
 - `hk-fw`：解析 ACPI/DTB，产出 Arena/Capacity/设备描述。
-- `hk-boot`：产出 BootInfo；`hk-platform-*` 提供架构与硬件适配。
+- `hk-boot`：产出 BootInfo；`hk-arch-*` 提供架构与硬件适配。
 - 消费者：Root Server、Memory Server、Device Manager、驱动、VFS、HolyFS、Display 与客户端使用同一组 HMP 对象。
 
 ## 后果

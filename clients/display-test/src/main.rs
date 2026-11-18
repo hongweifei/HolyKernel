@@ -13,7 +13,7 @@ use hk_proto::display::{
     SURFACE_FRAME_DONE, WINDOW_CREATE, WINDOW_CREATED, pack_size, pack_surface_rect, unpack_key,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, exit, recv, recv_data, send, send_data, send_handle, write,
     write_u64,
 };
@@ -174,7 +174,7 @@ fn clipboard_round_trip(display: u64, endpoint: u64) -> bool {
 
 #[cfg(target_os = "none")]
 fn wait_display() -> u64 {
-    hk_server_api::runtime::wait_service(hk_server_api::DISPLAY_SERVICE).unwrap_or(0)
+    hk_user_api::runtime::wait_service(hk_user_api::DISPLAY_SERVICE).unwrap_or(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

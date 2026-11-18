@@ -5,7 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use hk_font::Font;
-use hk_server_api::write;
+use hk_user_api::write;
 
 use crate::exec::exec;
 use crate::markup::{call, char_width, doc_name, parse_inline, split_args, title_of};

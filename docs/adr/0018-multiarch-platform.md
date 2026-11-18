@@ -24,15 +24,15 @@ hk-base（共享契约）
   ├── hk-fw（固件描述：ACPI + DTB）
   └── hk-hal（平台 trait）
         └── hk-paging（通用用户页表 + COW）
-              └── hk-platform-<arch>
+              └── hk-arch-<arch>
                     └── platforms/<machine>
 ```
 
 - `hk-base` 只定义地址、架构标识、`BootInfo`、时间与用户布局，保持零依赖。
 - `hk-fw` 位于共享层，只依赖 `hk-base` 与固件库；不得依赖内核侧、平台侧或用户态 crate。
-- `hk-hal` 只依赖 `hk-base`；不得依赖 `hk-fw`、`hk-paging` 或 `hk-platform-*`。
+- `hk-hal` 只依赖 `hk-base`；不得依赖 `hk-fw`、`hk-paging` 或 `hk-arch-*`。
 - `hk-paging` 只依赖底层共享契约与页表机制；不得依赖用户态 crate，也不得依赖具体平台 crate。
-- `hk-platform-<arch>` 只做架构与硬件适配；微内核通过 `hk-hal`、`hk-fw`、`hk-paging` 的通用面工作，不出现 `cfg(target_arch)` 分支。
+- `hk-arch-<arch>` 只做架构与硬件适配；微内核通过 `hk-hal`、`hk-fw`、`hk-paging` 的通用面工作，不出现 `cfg(target_arch)` 分支。
 - `platforms/<machine>` 只负责入口、引导装配与机器特定初始化。
 
 上述方向由 `cargo xtask deps` 强制检查。新增例外必须先在 ADR 中记录。
@@ -75,7 +75,7 @@ hk-base（共享契约）
 
 **收益**
 
-- 固件、分页、引导与设备发现各有唯一通用层，平台差异集中到 `hk-platform-*`。
+- 固件、分页、引导与设备发现各有唯一通用层，平台差异集中到 `hk-arch-*`。
 - 依赖方向可自动检查，减少“共享 crate 反向依赖内核/平台”的隐性耦合。
 - COW 与用户页表不再绑定 x86 PTE 编码，为 AArch64/RISC-V 复用同一语义。
 - 固件库与厂商类型被限制在包装层，用户态只接触规范化描述。

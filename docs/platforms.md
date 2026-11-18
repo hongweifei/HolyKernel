@@ -23,7 +23,7 @@
 - **通用分页**：`hk-paging` 承载用户页表、内核高半区继承与帧引用计数 COW；平台只选择页表后端。
 - **BootInfo**：内存 map、内核镜像、帧缓冲、direct map、DTB/RSDP、服务器载荷。
 - **引导后端**：`hk-boot` 定义 `BootBackend` 契约，Limine 与 DTB 适配在 crate 内实现；UEFI 后端为设计中。
-- **platform crate**：已实现 `hk-platform-hosted`、`hk-platform-x86_64`；`hk-platform-aarch64`、`hk-platform-riscv64` 为设计中。
+- **platform crate**：已实现 `hk-arch-hosted`、`hk-arch-x86_64`；`hk-arch-aarch64`、`hk-arch-riscv64` 为设计中。
 - **启动目录**：`platforms/hosted` 与 `platforms/x86_64-qemu`；`aarch64-qemu` 构建目标当前只编译内核库，启动入口按 P4/P7 实施。
 - **Hosted 模拟**：虚拟时钟、虚拟 CPU、模拟设备、故障注入、回放。
 
@@ -102,14 +102,14 @@ hk-base
   ├── hk-fw（ACPI + DTB → FirmwareInfo / FirmwareDeviceTable）
   ├── hk-hal（Platform / Irq / Timer / Pci）
   └── hk-paging（UserSpace / FrameRefs / COW）
-        └── hk-platform-<arch>
+        └── hk-arch-<arch>
               └── platforms/<machine>
 ```
 
 - `hk-fw` 位于共享层，ACPI 与 DTB 统一产出 `FirmwareInfo`；`FirmwareDeviceTable` 提供 MMIO、IRQ、PCI ECAM 与兼容字符串。IOMMU 只通过中性 `IommuInfo` 暴露，DMAR/IVRS 原始字段不再从 `Tables` 泄漏。RSDP/RSDT/XSDT 遍历已并入，原 `hk-acpi` 不再作为独立机制层。
 - `hk-paging` 已提供 `UserSpace` 包装与 `FrameRefs`；fork、缺页复制与地址空间释放按引用计数处理。平台仍负责页表编码、页表根、激活、PCID 与 TLB 维护。
 - `hk-boot` 只保留 `BootBackend`、`BootError` 与 `BootInfo` 构造契约；Limine 与 UEFI 分别作为后端，DTB 直接启动复用同一契约。
-- 依赖方向由 `cargo xtask deps` 检查：`hk-base`/`hk-hal` 不得依赖 `hk-paging` 或 `hk-platform-*`；`hk-paging` 不得依赖用户态；`hk-fw` 只能依赖基础契约与固件库。
+- 依赖方向由 `cargo xtask deps` 检查：`hk-base`/`hk-hal` 不得依赖 `hk-paging` 或 `hk-arch-*`；`hk-paging` 不得依赖用户态；`hk-fw` 只能依赖基础契约与固件库。
 
 ---
 
@@ -184,7 +184,7 @@ Firmware / Bootloader → Kernel → Root Server
 
 ## 8. 移植指南
 
-1. 创建 `hk-platform-<arch>`，实现 `Platform`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`；页表机制物化 HMP Region，内存对象由 HMP 定义。
+1. 创建 `hk-arch-<arch>`，实现 `Platform`、`InterruptController`、`Timer`、`Console`、`DmaOps`、`PciConfig`、`Entropy`；页表机制物化 HMP Region，内存对象由 HMP 定义。
 2. 创建 `platforms/<arch>-qemu/`：链接脚本、启动汇编、QEMU 配置。
 3. BootInfo 适配：memory map、帧缓冲、DTB/ACPI、服务器模块；初始 Capacity 从 BootInfo 建立。
 4. 早期启动：栈、BSS、串口、页表、异常向量。

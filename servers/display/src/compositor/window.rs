@@ -4,7 +4,7 @@ use hk_proto::display::{
     DISPLAY_RESIZE, SURFACE_FRAME_DONE, TITLE_MAX, WINDOW_CREATED, pack_window_size,
     unpack_window_size,
 };
-use hk_server_api::{
+use hk_user_api::{
     capability_phys, close_handle, format::Line, map_attach, region_unmap, send, write,
 };
 

@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-status.workspace = true
 hk-syscall.workspace = true
 

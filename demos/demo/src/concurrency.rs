@@ -5,11 +5,11 @@ use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use hk_async::{NotificationWait, SleepTicks, block_on, join2};
 use hk_coroutine::{Coroutine, State, suspend};
 use hk_proto::echo::{WORK_REQUEST, WORK_RESPONSE, WORK_STATS, WORK_STATS_RESPONSE};
-use hk_server_api::{
+use hk_sync::{Condvar, Mutex, RwLock};
+use hk_user_api::{
     alloc, exit, futex_wait, futex_wake, notify, recv_data_try, self_notification, send,
     service_endpoint, thread_create, thread_join, write, write_u64, yield_now,
 };
-use hk_sync::{Condvar, Mutex, RwLock};
 
 /// 异步自检使用的通知位。
 const ASYNC_BIT: u64 = 1 << 40;

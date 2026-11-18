@@ -7,7 +7,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{call, exit, service_endpoint, tsc, tsc_frequency, write, write_u64};
+use hk_user_api::{call, exit, service_endpoint, tsc, tsc_frequency, write, write_u64};
 
 /// 测量轮数。
 #[cfg(target_os = "none")]
@@ -52,4 +52,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(if failures == 0 { 0 } else { 1 })
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -19,7 +19,7 @@ linked_list_allocator.workspace = true
 spin.workspace = true
 
 [dev-dependencies]
-hk-platform-hosted.workspace = true
+hk-arch-hosted.workspace = true
 
 [lints]
 workspace = true

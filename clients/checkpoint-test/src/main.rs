@@ -6,7 +6,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::checkpoint::{CHECKPOINT_SERVICE, list, restore, save};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, runtime::wait_service, write};
+use hk_user_api::{exit, runtime::wait_service, write};
 
 /// 被检查点的任务。
 #[cfg(target_os = "none")]
@@ -59,4 +59,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

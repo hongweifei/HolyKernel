@@ -13,7 +13,7 @@ use smoltcp::time::Instant;
 
 const MAX_QUEUE: usize = 64;
 const MTU: usize = 1514;
-/// 发送帧中为 virtio 头预留的空间；与 `hk-server-api` 的 `NET_TX_HEADER` 一致。
+/// 发送帧中为 virtio 头预留的空间；与 `hk-user-api` 的 `NET_TX_HEADER` 一致。
 const TX_HEADER: usize = 32;
 
 /// 一个待处理的接收帧描述。

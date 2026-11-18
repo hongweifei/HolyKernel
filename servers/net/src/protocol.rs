@@ -12,7 +12,7 @@ use hk_proto::socket::{
     SOCK_PAYLOAD_MAX, SOCK_RECV, SOCK_RESOLVE, SOCK_RESPONSE, SOCK_SEND, SOCK_UDP_RECV,
     SOCK_UDP_SEND,
 };
-use hk_server_api::{notify, send, send_data};
+use hk_user_api::{notify, send, send_data};
 
 use crate::{DNS_WAIT_MS, NET_FRAME_MAX, Stats, now_ms, poll_once};
 

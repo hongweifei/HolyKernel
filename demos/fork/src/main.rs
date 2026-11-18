@@ -7,7 +7,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, fork, write, write_u64};
+use hk_user_api::{exit, fork, write, write_u64};
 
 /// 服务入口：分叉后分别写入栈变量并输出。
 #[cfg(target_os = "none")]
@@ -34,4 +34,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

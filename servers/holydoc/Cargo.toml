@@ -16,7 +16,7 @@ hk-canvas.workspace = true
 hk-font.workspace = true
 hk-proto.workspace = true
 hk-proto-client.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-worker.workspace = true
 
 [build-dependencies]

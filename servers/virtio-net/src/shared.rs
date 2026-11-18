@@ -5,7 +5,7 @@ use hk_proto::net::{
     NET_MAPPING_ATTACH, NET_MAPPING_ROLE_RX, NET_MAPPING_ROLE_TX, NET_RX, NET_RX_FRAME,
     NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, net_mapping_word, net_rx_word,
 };
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys,
     dma_map, handle_duplicate, send, send_data, send_handle, write,
 };
@@ -13,7 +13,7 @@ use hk_server_api::{
 /// 解析是否启用共享帧路径。
 pub(crate) fn zerocopy_enabled() -> bool {
     let mut buffer = [0_u8; 128];
-    hk_server_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
+    hk_user_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
 }
 
 /// 分配共享帧、登记 DMA 并把副本句柄交给 Network Server；成功后提交接收缓冲。

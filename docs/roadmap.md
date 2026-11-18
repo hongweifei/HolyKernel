@@ -66,7 +66,7 @@ flowchart LR
 
 ### 交付
 
-- **HMP 契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；对象定义位于 `hk-mem::hmp`，内核与用户态通过 `hk-syscall` ABI 与 `hk-server-api` 封装共享同一对象语义。
+- **HMP 契约**：`Arena`、`Capacity`、`Frame`、`Region`、`Capability`、`Provider`、`Ledger`、`Mappable`、`Handle`、`Rights`；对象定义位于 `hk-mem::hmp`，内核与用户态通过 `hk-syscall` ABI 与 `hk-user-api` 封装共享同一对象语义。
 - **Arena**：任务内存根；创建、Region 映射、增长、检查点、恢复与销毁；栈、堆与工作区归入 Arena。
 - **Capacity**：从完整 BootInfo 内存描述建立 System/User/Dma/Gpu/Numa 容量；启动后按 ACPI SRAT 建立节点拓扑，空闲条目按节点切分，支持节点绑定容量与节点偏好分配；拆分、配额、Frame 分配与归还覆盖全部可用物理内存。
 - **Frame**：FrameId、所属 Capacity、共享引用、pin/unpin、export/import；最后一个引用归还 Capacity，归还前清零。
@@ -96,7 +96,7 @@ flowchart LR
 - **Provider 服务端**：按设计由各自服务承担——Revision 是 RevisionStore/VFS，Surface 是 Display/GPU，TaskImage 是 Image Loader/Root Server，DeviceAllocation 是 GPU/驱动，Anonymous 是 Memory Server。Revision 已完成：VFS 以 `OP_MAP_REVISION` 暴露只读懒能力、绑定自身端点，按 8 字 Fault 读取修订页并 `Provide`，`Release` 清理元数据。Surface 已完成：`hk-server-surface-provider` 以 `SURFACE_ALLOC` 创建懒 Surface 能力、绑定自身端点并服务零页缺页；Display 的后备缓冲经该服务映射。DeviceAllocation 已完成：virtio-gpu 通过 `SYS_CAPACITY_GPU` 取得共享 Gpu 容量，资源分配走 Gpu Capacity；TaskImage 已完成隔离验证：装载器为 `hk-client-image-test` 登记模块文件来源，内核 Image Provider 在缺页时装入代码页，`smoke --mode task-image` 通过；默认启动服务与客户端的可执行段已全部切换为懒 TaskImage，并通过 boot/ext4root/shell/console/taskman/swap/display/holyfs/holydoc/sound/netstatic/netsocket 回归。用户态 Image Server 已覆盖 image-test、默认 demo/echo/ext4/VFS/path/memory，并通过 `task-image-restart` 验证重启后继续提供新代码页；virtio 等早期驱动仍由内核 Provider 服务。
 - **Capability 操作收敛**：`SYS_CAPABILITY_*` 仍无 `Swap` 入口（`CapabilityOp::Swap` 只对 Anonymous 定义，swap 策略属于 AnonymousProvider）。`Map` 对所有类型成立是契约本身：Region 是任何类型化能力的唯一映射视图，类型收敛由 `execute`/`grow`/`commit`/`scanout` 等操作与句柄 Rights/W^X 校验完成。
 - **System Arena 覆盖面**：已完成。用户地址空间的页表页（含检查点恢复建立的根与中间页表）在分配时经 direct map 登记、地址空间释放时移除；Hosted 模拟器不运行用户地址空间页表，`SYS_SYSTEM_ARENA_*` 在该模拟器上没有数据源。
-- **客户端类型层**：已完成。`hk-server-api::handle` 提供 `Handle<Revision>`/`Handle<Surface>`/`Handle<Anonymous>`/`Handle<Capability>` 等 `repr(transparent)` 包装与类型化创建/操作；Memory Server 的惰性匿名能力已改用类型化路径，ABI 仍是单一 `u64`。
+- **客户端类型层**：已完成。`hk-user-api::handle` 提供 `Handle<Revision>`/`Handle<Surface>`/`Handle<Anonymous>`/`Handle<Capability>` 等 `repr(transparent)` 包装与类型化创建/操作；Memory Server 的惰性匿名能力已改用类型化路径，ABI 仍是单一 `u64`。
 - **COW 记账**：已完成。运行时以 `FrameLedger`/`FrameRef` 统一常驻区间记账；
   COW 私有页、共享常驻页、句柄与 Grant 不再各自持有 `Charge`，fork 继承只增加
   引用，最后一个引用释放时归还 Task Ledger。

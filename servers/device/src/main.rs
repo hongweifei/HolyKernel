@@ -16,14 +16,14 @@ use hk_device::{
 hk_image::declare_service_role!(SERVICE_ROLE, hk_image::ServiceRole::device());
 
 #[cfg(target_os = "none")]
-use hk_server_api::device::{
+use hk_user_api::device::{
     DEVICE_CLASS_AHCI, DEVICE_CLASS_ANY, DEVICE_CLASS_BLOCK, DEVICE_CLASS_CONSOLE,
     DEVICE_CLASS_GPU, DEVICE_CLASS_INPUT, DEVICE_CLASS_NETWORK, DEVICE_CLASS_NVME,
     DEVICE_CLASS_RNG, DEVICE_CLASS_SOUND, DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE,
     DEVICE_REQUEST,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
+use hk_user_api::{device_grant_create, pci_read, recv, send, send_handle, write, write_u64};
 
 /// 通过系统调用访问 PCI 配置空间。
 #[cfg(target_os = "none")]
@@ -41,7 +41,7 @@ impl PciConfig for SyscallConfig {
     }
 
     fn write32(&self, address: PciAddress, value: u32) {
-        hk_server_api::pci_write(
+        hk_user_api::pci_write(
             address.bus,
             address.device,
             address.function,
@@ -266,12 +266,12 @@ fn write_device(device: &Device, driver_endpoint: u64, sent_grant: &mut bool, re
 
 #[cfg(target_os = "none")]
 fn write_hex64(value: u64) {
-    hk_server_api::format::write_hex(value, 16);
+    hk_user_api::format::write_hex(value, 16);
 }
 
 #[cfg(target_os = "none")]
 fn write_hex(value: u32, digits: usize) {
-    hk_server_api::format::write_hex(u64::from(value), digits);
+    hk_user_api::format::write_hex(u64::from(value), digits);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -18,7 +18,7 @@ use hk_proto::tempo::{
     TEMPO_REJECTED, TEMPO_REQUEST, TEMPO_RESPONSE, TEMPO_REVOKE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, cadence_named, cadence_self, cadence_self_handle,
     cadence_split, close_handle, exit, handle_duplicate, recv_data, send, send_handle,
     task_attach_named, task_regrant_named, write,
@@ -356,4 +356,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

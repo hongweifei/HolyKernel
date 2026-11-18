@@ -11,12 +11,12 @@ use hk_cadence::{CadenceClass, CadenceSnapshot, CpuMask, Lending, MeterSnapshot,
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     cadence_self, exit, meter_info, runtime::wait_service, task_attach_cadence, ticks, tsc, write,
     write_u64,
 };
 
-hk_server_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!(64 * 1024);
 
 /// 观测窗口（调度 tick，10 ms）。
 #[cfg(target_os = "none")]
@@ -108,4 +108,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -17,7 +17,11 @@ pub fn run() -> Result<()> {
     // 二进制由下面的目标轮检查。
     let mut clippy = cargo::locked();
     clippy.args(["clippy", "--workspace", "--all-targets"]);
-    for service in hk_catalog::SERVERS.iter().copied().chain(["hk-x86_64"]) {
+    for service in hk_catalog::SERVERS
+        .iter()
+        .copied()
+        .chain(["hk-image-x86_64-qemu"])
+    {
         clippy.args(["--exclude", service]);
     }
     clippy.args(["--", "-D", "warnings"]);

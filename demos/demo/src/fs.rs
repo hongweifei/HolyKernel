@@ -3,9 +3,7 @@
 use hk_proto::block::BLOCK_SHUTDOWN;
 use hk_proto::vfs::{OPEN_CREATE, OPEN_READ, OPEN_WRITE};
 use hk_proto_client::VfsClient;
-use hk_server_api::{
-    send, service_endpoint, service_restarts, tsc, tsc_frequency, write, yield_now,
-};
+use hk_user_api::{send, service_endpoint, service_restarts, tsc, tsc_frequency, write, yield_now};
 
 /// 验证 VFS 读写、截断、删除与内建文件系统。
 pub(super) fn verify_vfs(endpoint: u64) -> bool {

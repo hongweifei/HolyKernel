@@ -1,5 +1,5 @@
 [package]
-name = "hk-hosted"
+name = "hk-image-hosted"
 description = "HolyKernel Hosted 模拟器启动入口"
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [[bin]]
-name = "hk-hosted"
+name = "hk-image-hosted"
 path = "src/main.rs"
 
 [dependencies]
@@ -19,7 +19,7 @@ hk-handle.workspace = true
 hk-ipc.workspace = true
 hk-kernel.workspace = true
 hk-mem.workspace = true
-hk-platform-hosted.workspace = true
+hk-arch-hosted.workspace = true
 hk-root-server.workspace = true
 hk-sim.workspace = true
 

@@ -10,7 +10,7 @@ use alloc::vec;
 use hk_canvas::{Surface, default_monospace};
 use hk_font::Font;
 use hk_proto::display::{DISPLAY_SERVICE, Window};
-use hk_server_api::{service_endpoint, write};
+use hk_user_api::{service_endpoint, write};
 
 use ansi::{Ansi, Command, Event};
 use style::{Cell, Style};

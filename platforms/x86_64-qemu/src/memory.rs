@@ -45,7 +45,7 @@ impl fmt::Display for Memory {
 
 /// 接管全部可用物理内存并建立 System Capacity。
 pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<Memory, String> {
-    let bank = &hk_platform_x86_64::paging::FRAME_BANK;
+    let bank = &hk_arch_x86_64::paging::FRAME_BANK;
     bank.init(info.memory_map, info.kernel_image);
     if bank.total() == 0 {
         return Err(String::from("没有可用的物理内存区域"));
@@ -60,27 +60,27 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
     }
     crate::allocator::init_dynamic(heap_virt as usize, KERNEL_HEAP_BYTES);
 
-    hk_platform_x86_64::paging::init_runtime(direct_map_base);
-    hk_platform_x86_64::paging::register_backend();
-    hk_platform_x86_64::cache::init(direct_map_base);
+    hk_arch_x86_64::paging::init_runtime(direct_map_base);
+    hk_arch_x86_64::paging::register_backend();
+    hk_arch_x86_64::cache::init(direct_map_base);
 
     let dma_capacity = CapacityId::next();
     let mut dma_bytes = 0;
-    if let Some(dma) = bank.reserve_for(dma_capacity, hk_platform_x86_64::dma::POOL_BYTES) {
+    if let Some(dma) = bank.reserve_for(dma_capacity, hk_arch_x86_64::dma::POOL_BYTES) {
         dma_bytes = dma.len();
-        hk_platform_x86_64::dma::init(dma_capacity, dma);
+        hk_arch_x86_64::dma::init(dma_capacity, dma);
     }
-    hk_platform_x86_64::system::establish(bank, heap, dma_bytes)
+    hk_arch_x86_64::system::establish(bank, heap, dma_bytes)
         .ok_or_else(|| String::from("无法从可用内存建立 System Capacity"))?;
     crate::allocator::register_grower();
-    if !hk_platform_x86_64::system_arena::establish() {
+    if !hk_arch_x86_64::system_arena::establish() {
         return Err(String::from("无法建立 System Arena"));
     }
     // 先登记内核自用分配（堆、页表、IOMMU 表），direct map 只补剩余空洞，
     // 否则整段 direct map 会先占住窗口，细粒度 Region 全部被重叠规则跳过。
-    hk_platform_x86_64::system_arena::register_bank_allocations(bank, direct_map_base);
+    hk_arch_x86_64::system_arena::register_bank_allocations(bank, direct_map_base);
     if let Some(direct_map) = info.direct_map {
-        hk_platform_x86_64::system_arena::register_direct_map(
+        hk_arch_x86_64::system_arena::register_direct_map(
             direct_map.virt_base.get(),
             direct_map.len,
         );
@@ -88,11 +88,11 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
 
     let stats = bank.stats();
     let (system_used, system_limit, system_span) =
-        hk_platform_x86_64::system::capacity().map_or((0, 0, 0), |capacity| {
+        hk_arch_x86_64::system::capacity().map_or((0, 0, 0), |capacity| {
             let capacity = capacity.lock();
             (capacity.used(), capacity.limit(), capacity.range().len())
         });
-    let (arena_regions, arena_used) = hk_platform_x86_64::system_arena::snapshot()
+    let (arena_regions, arena_used) = hk_arch_x86_64::system_arena::snapshot()
         .map_or((0, 0), |snapshot| (snapshot.regions, snapshot.used));
     Ok(Memory {
         stats,

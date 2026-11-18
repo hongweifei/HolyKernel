@@ -8,7 +8,7 @@ use hk_proto::vfs::{
     OP_TRUNCATE, OP_UMOUNT, OP_UNLINK, OP_WRITE, OP_WRITE_BUFFER, VFS_ATTACH, VFS_BUFFER_LEN,
     VFS_DETACH, VFS_MESSAGE_LEN, VFS_REQUEST, VFS_RESPONSE, encode_request,
 };
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
     close_handle, handle_duplicate, recv_data_from, region_unmap, send_data, send_handle,
     service_endpoint, service_restarts,

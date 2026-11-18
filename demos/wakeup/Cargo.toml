@@ -12,7 +12,7 @@ name = "hk-server-wakeup"
 path = "src/main.rs"
 
 [dependencies]
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 
 [build-dependencies]
 hk-server-build.workspace = true

@@ -20,17 +20,17 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_sync::Mutex;
+#[cfg(target_os = "none")]
+use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART};
+#[cfg(target_os = "none")]
+use hk_user_api::{
     PROVIDER_ERROR, PROVIDER_FAULT, PROVIDER_PROVIDE, boot_cmdline, capacity_alloc, exit,
     frame_write, message_words, module_read, recv_data_handle, reply, reply_handle, sleep_ticks,
     thread_create, write,
 };
-#[cfg(target_os = "none")]
-use hk_sync::Mutex;
-#[cfg(target_os = "none")]
-use hk_syscall::{IMAGE_REGISTER, IMAGE_RESTART};
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 /// 页长度。
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
@@ -199,11 +199,11 @@ fn serve_fault(capacity: u64, segments: &[Segment]) {
         return;
     };
     if frame_write(frame, 0, &page) != 0 {
-        let _ = hk_server_api::close_handle(frame);
+        let _ = hk_user_api::close_handle(frame);
         let _ = reply(PROVIDER_ERROR, 0);
         return;
     }
     let _ = reply_handle(PROVIDER_PROVIDE, 0, frame);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

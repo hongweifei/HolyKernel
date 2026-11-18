@@ -5,7 +5,7 @@ use hk_driver_virtio::protocol::vconsole::{
     VCONSOLE_ACK, VCONSOLE_DATA, VCONSOLE_MAX, VCONSOLE_PING, VCONSOLE_PONG, VCONSOLE_PORT_HEADER,
     VCONSOLE_READ, VCONSOLE_SHUTDOWN, VCONSOLE_WRITE,
 };
-use hk_server_api::{exit, send, send_data, yield_now};
+use hk_user_api::{exit, send, send_data, yield_now};
 
 /// 自检写入的测试行。
 const TEST_MESSAGE: &[u8] = b"vcon hello\n";

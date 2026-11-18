@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CAPACITY_KIND_GPU, CapabilityKind, PROVIDER_KIND_DEVICE, capability_bind_provider,
     capability_create, capability_create_lazy, capability_phys, exit, frame_bank_stats, map_lazy,
     runtime::wait_service, write,
@@ -58,7 +58,7 @@ pub extern "C" fn _start(_endpoint: u64, _capacity: u64) -> ! {
         exit(9)
     }
     write(b"hk-client-gpu-test: provider page ok\n");
-    hk_server_api::format::Line::new()
+    hk_user_api::format::Line::new()
         .text(b"hk-client-gpu-test: gpu bytes ")
         .number(gpu)
         .text(b"\n")
@@ -67,4 +67,4 @@ pub extern "C" fn _start(_endpoint: u64, _capacity: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -16,7 +16,7 @@ hk-cadence.workspace = true
 hk-debug.workspace = true
 hk-proto.workspace = true
 hk-proto-client.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-shell.workspace = true
 
 [build-dependencies]

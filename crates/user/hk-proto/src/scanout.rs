@@ -7,7 +7,7 @@
 //! 协议留在 `hk-proto` 而不是驱动 crate，是因为 Display 是它的消费者。
 
 use crate::labels::VIRTIO;
-use hk_server_api::{close_handle, recv_data_handle_try, recv_data_try, send, yield_now};
+use hk_user_api::{close_handle, recv_data_handle_try, recv_data_try, send, yield_now};
 
 /// 提供扫描输出的服务名（virtio 驱动服务）。
 pub const SCANOUT_SERVICE: &str = "hk-server-virtio";
@@ -61,7 +61,7 @@ pub struct Client {
 impl Client {
     /// 等待 virtio 驱动服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let service = hk_server_api::runtime::wait_service(SCANOUT_SERVICE)?;
+        let service = hk_user_api::runtime::wait_service(SCANOUT_SERVICE)?;
         Some(Self::at(endpoint, service))
     }
 

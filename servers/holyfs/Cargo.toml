@@ -17,10 +17,10 @@ hk-block.workspace = true
 hk-block-ipc.workspace = true
 hk-fs.workspace = true
 hk-fs-holyfs.workspace = true
-hk-holy-proto.workspace = true
+hk-holy-response.workspace = true
 hk-holy-service.workspace = true
 hk-proto.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-worker.workspace = true
 
 [build-dependencies]

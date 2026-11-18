@@ -5,9 +5,9 @@ use alloc::string::String;
 use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
 
+use hk_arch_x86_64::cpu;
 use hk_boot::limine::ApCpu;
 use hk_hal::MAX_CPUS;
-use hk_platform_x86_64::cpu;
 use hk_smp::AP_POOL;
 
 /// 每个 AP 的调度栈大小；Limine 提供的引导栈太小，深层启动路径会溢出。
@@ -36,11 +36,11 @@ pub fn start() -> Result<(usize, usize), String> {
     };
 
     let started = hk_boot::limine::start_aps(ap_entry);
-    let timeout = match hk_platform_x86_64::timing::tsc_frequency() {
+    let timeout = match hk_arch_x86_64::timing::tsc_frequency() {
         0 => 1_000_000_000,
         frequency => frequency,
     };
-    let online = AP_POOL.wait(started, hk_platform_x86_64::timing::rdtsc, timeout);
+    let online = AP_POOL.wait(started, hk_arch_x86_64::timing::rdtsc, timeout);
     if online < started {
         return Err(format!("AP 启动超时：{online}/{started}"));
     }
@@ -53,9 +53,9 @@ pub fn start() -> Result<(usize, usize), String> {
 
         let before = cpu::ipi_count();
         cpu::send_ipi(apic_id as u8, cpu::IPI_VECTOR);
-        let begin = hk_platform_x86_64::timing::rdtsc();
+        let begin = hk_arch_x86_64::timing::rdtsc();
         while cpu::ipi_count() == before
-            && hk_platform_x86_64::timing::rdtsc().wrapping_sub(begin) < timeout
+            && hk_arch_x86_64::timing::rdtsc().wrapping_sub(begin) < timeout
         {
             core::hint::spin_loop();
         }
@@ -73,7 +73,7 @@ pub fn verify_idle_and_tlb(started: usize) -> Result<(), String> {
         return Ok(());
     }
 
-    let timeout = match hk_platform_x86_64::timing::tsc_frequency() {
+    let timeout = match hk_arch_x86_64::timing::tsc_frequency() {
         0 => 1_000_000_000,
         frequency => frequency,
     };
@@ -94,9 +94,9 @@ pub fn verify_idle_and_tlb(started: usize) -> Result<(), String> {
 }
 
 fn wait_until(timeout: u64, mut done: impl FnMut() -> bool) -> bool {
-    let begin = hk_platform_x86_64::timing::rdtsc();
+    let begin = hk_arch_x86_64::timing::rdtsc();
     while !done() {
-        if hk_platform_x86_64::timing::rdtsc().wrapping_sub(begin) >= timeout {
+        if hk_arch_x86_64::timing::rdtsc().wrapping_sub(begin) >= timeout {
             return false;
         }
         core::hint::spin_loop();

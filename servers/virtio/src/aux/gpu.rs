@@ -6,7 +6,7 @@ use hk_proto::scanout::{
     SCANOUT_PATTERN_ACK, SCANOUT_PING, SCANOUT_PONG, SCANOUT_REGION, SCANOUT_REGION_INFO,
     SCANOUT_SHUTDOWN,
 };
-use hk_server_api::{exit, send, send_data, send_handle};
+use hk_user_api::{exit, send, send_data, send_handle};
 
 /// 交给 Display 的权利：读/写（映射并绘制）与转移（句柄要经 IPC 交付）。
 const REGION_RIGHTS: u32 = 0x1 | 0x2 | 0x8;
@@ -30,11 +30,11 @@ pub fn handle(gpu: &Gpu, label: u64, sender: u64) {
         }
         SCANOUT_REGION => {
             let Some((capability, width, height, stride)) = gpu.scanout() else {
-                hk_server_api::write(b"hk-server-virtio: gpu scanout missing\n");
+                hk_user_api::write(b"hk-server-virtio: gpu scanout missing\n");
                 return;
             };
             // 复制一份句柄交给调用方：驱动自己还要用原句柄关闭分配。
-            let transferred = hk_server_api::handle_duplicate(capability, REGION_RIGHTS);
+            let transferred = hk_user_api::handle_duplicate(capability, REGION_RIGHTS);
             if transferred == 0 || transferred == u64::MAX {
                 return;
             }

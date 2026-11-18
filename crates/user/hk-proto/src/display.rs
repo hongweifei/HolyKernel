@@ -5,7 +5,7 @@
 
 pub use hk_syscall::DISPLAY_SERVICE;
 
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, close_handle, exit, handle_duplicate, recv_data_from_timeout,
     region_unmap, send, send_handle, service_endpoint, service_restarts,
 };
@@ -327,7 +327,7 @@ pub fn set_title(display: u64, window: u64, title: &str) {
         length -= 1;
     }
     buffer[8..8 + length].copy_from_slice(&title.as_bytes()[..length]);
-    let _ = hk_server_api::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
+    let _ = hk_user_api::send_data(display, DISPLAY_SET_TITLE, &buffer[..8 + length]);
 }
 
 /// 把表面坐标矩形编码为 4 个小端 u16。

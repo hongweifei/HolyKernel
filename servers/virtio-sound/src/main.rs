@@ -17,15 +17,15 @@ use hk_proto::sound::{
     SOUND_STATUS_REPLY, SOUND_TONE, SOUND_TONE_ACK,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_SOUND, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
+use hk_user_api::device::{DEVICE_CLASS_SOUND, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     close_handle, device_info, exit, format::Line, recv_data_handle, recv_data_handle_try, send,
     send_data, service_endpoint, sleep_ticks, write,
 };
 
 // 驱动 crate 需要全局分配器；本服务自身只用固定队列。
-hk_server_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!(64 * 1024);
 
 /// 等待受理的播放请求。
 #[cfg(target_os = "none")]
@@ -244,7 +244,7 @@ fn handle(
 fn request_grant(endpoint: u64, manager: u64) -> Option<u64> {
     let _ = send(manager, DEVICE_REQUEST, DEVICE_CLASS_SOUND);
     loop {
-        let (label, _word, _sender, handle) = hk_server_api::recv_handle(endpoint);
+        let (label, _word, _sender, handle) = hk_user_api::recv_handle(endpoint);
         if label == DEVICE_GRANT && handle != 0 {
             return Some(handle);
         }
@@ -269,4 +269,4 @@ fn probe_grant(handle: u64) -> Option<Device> {
     probe(handle, descriptor).ok()
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

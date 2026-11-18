@@ -36,7 +36,7 @@ impl Selection {
     }
 }
 
-static HOSTED_PACKAGES: [&str; 1] = ["hk-hosted"];
+static HOSTED_PACKAGES: [&str; 1] = ["hk-image-hosted"];
 pub static KERNEL_PACKAGES: [&str; 6] = [
     "hk-hal",
     "hk-handle",
@@ -74,7 +74,10 @@ impl Target {
     pub fn package_groups(self) -> Vec<Vec<&'static str>> {
         match self {
             Self::Hosted => vec![HOSTED_PACKAGES.to_vec()],
-            Self::X86_64Qemu => vec![vec!["hk-x86_64"], crate::catalog::SERVERS.to_vec()],
+            Self::X86_64Qemu => vec![
+                vec!["hk-image-x86_64-qemu"],
+                crate::catalog::SERVERS.to_vec(),
+            ],
             Self::Aarch64Qemu => vec![KERNEL_PACKAGES.to_vec()],
         }
     }

@@ -7,7 +7,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, write};
+use hk_user_api::{exit, write};
 
 /// 服务入口：触发用户态页错误。
 #[cfg(target_os = "none")]
@@ -22,4 +22,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(1)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

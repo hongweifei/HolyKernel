@@ -25,12 +25,12 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L0 | 内核侧 | `hk-hal`、`hk-handle`、`hk-ipc`、`hk-mem`、`hk-kernel` | 平台 trait 与退出协议、句柄、IPC、HMP 对象模型与页机制、TCB/调度与内核对象 |
 | L1 | 内核侧 | `hk-paging`、`hk-boot`、`hk-framebuffer`、`hk-smp`、`hk-drivers` | 通用用户地址空间包装与帧引用计数 COW、引导后端（Limine/DTB）与启动信息、帧缓冲文本控制台、SMP 状态机、16550 UART 与 PS/2 键盘 |
 | L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
-| L4 | 内核侧 | `hk-platform-hosted`、`hk-platform-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
+| L4 | 内核侧 | `hk-arch-hosted`、`hk-arch-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
 | L2 | 用户态 | `hk-syscall-client` | 零分配系统调用薄客户端：参数整理、返回值解包与 Root 控制；并发库直接使用 |
-| L2 | 用户态 | `hk-server-api` | 内核提供给用户态服务的通用面：HMP、Root 控制、设备授权、帧缓冲与运行时样板；系统调用薄封装重新导出 `hk-syscall-client` |
+| L2 | 用户态 | `hk-user-api` | 内核提供给用户态服务的通用面：HMP、Root 控制、设备授权、帧缓冲与运行时样板；系统调用薄封装重新导出 `hk-syscall-client` |
 | L2 | 用户态 | `hk-proto` | 服务线协议、公共帧编解码、状态词表与协议标签区间 |
 | L2 | 用户态 | `hk-proto-client` | Holy/VFS 协议客户端；收发缓冲在首次请求时按需分配 |
-| L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-holy-proto`、`hk-holy-service`、`hk-fs-remote`、`hk-fs-ext4`、`hk-fs-holyfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约、原生文档响应层、服务端分派、远程后端适配与实现 |
+| L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-holy-response`、`hk-holy-service`、`hk-fs-remote`、`hk-fs-ext4`、`hk-fs-holyfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约、原生文档响应层、服务端分派、远程后端适配与实现 |
 | L2 | 用户态 | `hk-net`、`hk-driver-virtio`、`hk-driver-host`、`hk-driver-rdif`、`hk-driver-usb`、`hk-canvas`、`hk-worker`、`hk-thread`、`hk-sync`、`hk-async`、`hk-coroutine`、`hk-debug` | 网络协议栈、virtio 驱动与外部 AHCI/NVMe/USB crate 的 DMA/MMIO/log 宿主层、RDIF 块桥与 crab-usb 宿主/事件循环、像素绘制、工作线程与并发库、符号化与回溯 |
 | L2 | 用户态 | `hk-server-build` | 服务链接脚本（构建期） |
 | L3 | 用户态 | `servers/*`、`clients/*`、`demos/*` | 常驻服务、自检客户端与演示服务；`servers/tempo` 承载 Cadence 策略与准入 |
@@ -57,7 +57,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 也不再维护第二套计数。x86 平台保留页表编码、TLB、PCID 与大页机制。`cargo xtask deps`
 要求 `hk-paging` 不得依赖用户态 crate。
 
-在侧别规则之上还有几条窄约束，由同一命令检查：`hk-base` 与 `hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-platform-*`；`hk-fw` 只能依赖 `hk-base` 与固件库；`hk-paging` 不得依赖用户态 crate；`hk-syscall-client` 只依赖 `hk-base` 与 `hk-syscall`，并发库（`hk-sync`、`hk-thread`、`hk-async`、`hk-worker`、`hk-debug`）只依赖它而不是完整 `hk-server-api`；`hk-server-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；服务端 Holy 分派 `hk-holy-service` 与远程后端适配 `hk-fs-remote` 都不依赖服务二进制；`hk-proto` 只依赖内核面与 ABI，不引入会要求全局分配器的 `hk-fs`（无堆服务同样链接 `hk-proto`），原生文档的共享响应层放在 `hk-holy-proto`。
+在侧别规则之上还有几条窄约束，由同一命令检查：`hk-base` 与 `hk-hal` 不得依赖 `hk-fw`、`hk-paging`、`hk-boot` 或 `hk-arch-*`；`hk-fw` 只能依赖 `hk-base` 与固件库；`hk-paging` 不得依赖用户态 crate；`hk-syscall-client` 只依赖 `hk-base` 与 `hk-syscall`，并发库（`hk-sync`、`hk-thread`、`hk-async`、`hk-worker`、`hk-debug`）只依赖它而不是完整 `hk-user-api`；`hk-user-api` 不得依赖 `hk-proto`；文件系统契约 `hk-fs` 只依赖共享契约；HolyFS 原生实现 `hk-fs-holyfs` 不依赖 `hk-vfs` 或其适配器；服务端 Holy 分派 `hk-holy-service` 与远程后端适配 `hk-fs-remote` 都不依赖服务二进制；`hk-proto` 只依赖内核面与 ABI，不引入会要求全局分配器的 `hk-fs`（无堆服务同样链接 `hk-proto`），原生文档的共享响应层放在 `hk-holy-response`。
 
 HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region / Capability / Provider / Ledger / Mappable / Handle / Rights`；页表、固件解析、引导与架构库位于包装 crate 内部。
 
@@ -67,7 +67,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 
 文件系统遵循“契约 + 实现 + 后端”约定：`hk-fs` 定义 `DocId`、集合、修订、能力与 `Backend`；`hk-fs-holyfs` 是原生实现，只暴露文档操作，不得依赖 `hk-vfs`。`hk-vfs` 的核心使用 `hk-fs::Backend`，路径后端通过 `PathObject` 适配。直接包装外部库且只有后端形态的文件系统（如 `hk-fs-ext4`）保留单一 crate。部署上 ext4 与 HolyFS 是对等的独立服务：`hk-server-ext4` 与 `hk-server-holyfs` 各自挂载块设备，共用 `hk-holy-service` 的盘符注册与请求分派；VFS 只做盘符聚合，Path 通过 `hk-fs-remote` 把远程 Holy 后端当作普通 `hk-fs::Backend`，因此不再保留把 `HolyFs` 本地适配为 `Backend` 的中间 crate（无消费者）。tmpfs/devfs/procfs 仍由 VFS 进程内建。
 
-目录约定：共享契约、内核侧与用户态库分别放 `crates/shared/`、`crates/kernel/`、`crates/user/`；常驻服务放 `servers/`，演示与冒烟服务放 `demos/`，两者包名沿用 `hk-server-*`（镜像与白名单按名称引用）；只通过协议访问服务的自检/状态客户端放 `clients/`，包名为 `hk-client-*`，且默认不启动，由测试标记 opt-in。`hk-server-api` 只承载内核提供的用户态服务面：HMP 能力与 Region、设备授权、帧缓冲、堆、共享输出格式化与运行时样板；系统调用薄封装与 Root 控制在 `hk-syscall-client`，并由 `hk-server-api` 重新导出给服务。服务线协议与帧编解码在 `hk-proto` 的各服务模块（公共帧在 `wire.rs`，状态码在 `status.rs`，标签区间在 `labels.rs`）；需要堆缓冲的 Holy/VFS 客户端在 `hk-proto-client`，收发缓冲按需分配，`hk-proto` 本身保持零分配。各层都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
+目录约定：共享契约、内核侧与用户态库分别放 `crates/shared/`、`crates/kernel/`、`crates/user/`；常驻服务放 `servers/`，演示与冒烟服务放 `demos/`，两者包名沿用 `hk-server-*`（镜像与白名单按名称引用）；只通过协议访问服务的自检/状态客户端放 `clients/`，包名为 `hk-client-*`，且默认不启动，由测试标记 opt-in。`hk-user-api` 只承载内核提供的用户态服务面：HMP 能力与 Region、设备授权、帧缓冲、堆、共享输出格式化与运行时样板；系统调用薄封装与 Root 控制在 `hk-syscall-client`，并由 `hk-user-api` 重新导出给服务。服务线协议与帧编解码在 `hk-proto` 的各服务模块（公共帧在 `wire.rs`，状态码在 `status.rs`，标签区间在 `labels.rs`）；需要堆缓冲的 Holy/VFS 客户端在 `hk-proto-client`，收发缓冲按需分配，`hk-proto` 本身保持零分配。各层都从 `hk-syscall` 只显式引用用到的 ABI 常量与类型，不整体展开内核命名空间。
 
 运行时与 Root Server 分层：`hk-runtime` 只负责用户任务视图、系统调用语义、Arena 与停泊服务线程的创建；`hk-root-server` 在其上实现镜像装载、服务表、监督/重启与 `RuntimeHost`。平台只依赖两者提供的宿主接口。
 
@@ -80,7 +80,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 内容 | 位置 |
 | --- | --- |
 | 系统调用编号与跨边界 ABI 编码 | `crates/shared/hk-syscall/src/lib.rs` |
-| 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-server-api` 共用 |
+| 类型化能力判类（`CapabilityKind`） | `crates/shared/hk-syscall/src/lib.rs`，内核 `hk-mem` 与用户态 `hk-user-api` 共用 |
 | 句柄权利与 Region 标志位 | `crates/shared/hk-syscall/src/lib.rs`（`RIGHT_*`、`REGION_FLAG_*`），`hk-handle` 与 `hk-mem` 直接引用；文档/卷令牌权利在 `hk-proto::holy` 的 `TOKEN_RIGHT_*` |
 | HMP 对外词汇、Rights 与授予面 | [HMP 文档](hmp.md) 与 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 调度契约、Cadence/Meter 词汇与授予面 | [Holy Cadence Model](scheduling.md) 与 [ADR-0017](adr/0017-holy-cadence.md)；共享类型 `hk-cadence`，服务默认契约在 `crates/shared/hk-catalog/src/lib.rs` |
@@ -92,7 +92,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 固件描述（ACPI/DTB/IOMMU 外部库包装） | `crates/shared/hk-fw/src/{dtb,device,iommu}.rs`；ACPI 表在 `src/acpi/tables/`，RSDP/RSDT/XSDT 遍历在 `src/acpi/rsdp.rs`；`acpi`、`hermit-dtb`、`intel-iommu`、`amd-iommu` 只在此 crate 内出现 |
 | ACPI/DTB 统一固件描述与设备表 | `crates/shared/hk-fw/src/lib.rs` 的 `FirmwareInfo`；`src/device.rs` 的 `FirmwareDeviceTable`、`MmioDevice`、`PciEcamRange`、`IrqRoute` |
 | 引导后端（Limine 多架构/DTB）与 BootInfo 转换 | `crates/kernel/hk-boot/src/{lib,limine,dtb}.rs`；crate 根只定义 `BootBackend`/`BootError`，平台显式选择后端 |
-| x86_64 HAL `Platform`、CPUID 特性矩阵与熵源 | `crates/kernel/hk-platform-x86_64/src/{platform,entropy}.rs`、`cpu/features.rs` |
+| x86_64 HAL `Platform`、CPUID 特性矩阵与熵源 | `crates/kernel/hk-arch-x86_64/src/{platform,entropy}.rs`、`cpu/features.rs` |
 | 设备中断向量基址 | `crates/shared/hk-base/src/irq.rs` |
 | HMP 核心对象（Arena/Capacity/Frame/FrameLease/Capability/Region/Provider/Ledger） | `crates/kernel/hk-mem/src/hmp/`；对外词汇与授予规则见 [ADR-0016](adr/0016-hmp-native-contract.md) |
 | 物理页后端与按容量归因的额度视图 | `crates/kernel/hk-mem/src/hmp/backend.rs`、`crates/kernel/hk-mem/src/hmp/capacity.rs` |
@@ -101,13 +101,13 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 像素绘制、形状与渐变、缩放拷贝、文本落位与字宽累计 | `crates/user/hk-canvas/src/{surface,color,rect,text}.rs` |
 | 字形度量、栅格化、缓存与内置字体数据 | `crates/shared/hk-font/src/{font,glyph,raster,cache,data}.rs` |
 | 通用用户地址空间与帧引用计数 COW | `crates/kernel/hk-paging/src/{space,cow}.rs` |
-| x86_64 页表项属性（`page_table_entry`）、页表机制与 TLB/PCID | `crates/kernel/hk-platform-x86_64/src/paging/{flags,table,cow}.rs` |
+| x86_64 页表项属性（`page_table_entry`）、页表机制与 TLB/PCID | `crates/kernel/hk-arch-x86_64/src/paging/{flags,table,cow}.rs` |
 | Holy 文件系统契约与后端接口 | `crates/user/hk-fs/src/backend.rs` |
 | 文档与卷级令牌会话（复用 `TokenTable`） | `crates/user/hk-fs/src/session.rs` |
 | 系统调用薄封装、Root 控制与架构入口 | `crates/user/hk-syscall-client/src/{syscall,root,arch}.rs` |
 | 服务线协议与编解码 | `crates/user/hk-proto/src/*` |
 | Holy/VFS 协议客户端（缓冲按需分配） | `crates/user/hk-proto-client/src/{holy,vfs}.rs` |
-| Holy 文档响应构造与错误映射 | `crates/user/hk-holy-proto/src/response.rs` |
+| Holy 文档响应构造与错误映射 | `crates/user/hk-holy-response/src/response.rs` |
 | 协议公共帧头（请求/响应） | `crates/user/hk-proto/src/wire.rs`；块设备响应在头后追加固定 `tag` |
 | 服务状态枚举 | `crates/shared/hk-status/src/lib.rs`；协议常量、`hk_fs::Error::status()` 与 `VfsError::status()` 都从它派生 |
 | Holy 服务端盘符注册与请求分派 | `crates/user/hk-holy-service/src/{drives,handle}.rs`；`DriveSource` 契约由 VFS、ext4 与 HolyFS 共用，HolyFS 通过卷适配器接入 |
@@ -126,7 +126,7 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 | 服务链接基址 | `crates/user/hk-server-build/src/lib.rs`（所有服务共享同一镜像区） |
 | 依赖版本与路径 | 根 `Cargo.toml` 的 `[workspace.dependencies]`；成员用 `workspace = true` 继承，`hk-font` 的特性开关在 `hk-canvas` |
 | 默认启动与 opt-in 服务选择 | `crates/kernel/hk-root-server/src/loader.rs` 与各平台 loader 读取 `hk-catalog` |
-| 设备类与 DeviceGrant 协议 | `crates/user/hk-server-api/src/device.rs` 与 `crates/shared/hk-device/src/device.rs` |
+| 设备类与 DeviceGrant 协议 | `crates/user/hk-user-api/src/device.rs` 与 `crates/shared/hk-device/src/device.rs` |
 | 平台启动特性 | 启动命令行 token（见各平台 loader） |
 
 新增服务时只需要改 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`；测试模式在 `BOOT_MODES` 登记，不再维护多份并行清单。
@@ -135,13 +135,13 @@ HMP 是唯一内存契约。对外面包含 `Arena / Capacity / Frame / Region /
 
 ## 4. 新增服务清单
 
-1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-server-api`、`hk-proto` 与所需 L2 库；`[build-dependencies] hk-server-build`。
+1. `servers/<name>/Cargo.toml`（客户端放 `clients/<name>/`）：只依赖 `hk-user-api`、`hk-proto` 与所需 L2 库；`[build-dependencies] hk-server-build`。
 2. `build.rs`：`hk_server_build::configure()`；所有服务共享同一镜像区（各自独立 Arena）。
 3. `src/main.rs`：
    - `#![cfg_attr(target_os = "none", no_std)]` 与 `no_main`；
    - 实现 `_start(endpoint)`；
-   - 文件末尾调用 `hk_server_api::server_boilerplate!();`；
-   - 服务发现使用 `hk_server_api::runtime::wait_service`。
+   - 文件末尾调用 `hk_user_api::server_boilerplate!();`；
+   - 服务发现使用 `hk_user_api::runtime::wait_service`。
 4. 加入 `crates/shared/hk-catalog/src/lib.rs` 的 `SERVICES`：`boot` 决定默认启动，`desktop_order` 决定桌面顺序，`restart` 决定监督重启，`opt_in` 决定测试标记触发装载。
 5. 测试/桌面模式在 `BOOT_MODES` 里登记 token 与服务集合；平台 loader 只读目录，不再维护独立启动白名单。
 6. 服务线协议与标签放入 `hk-proto`，并在 `src/labels.rs` 的区间表里占一段；内核与用户态共用的编号与 ABI 编码放入 `hk-syscall`，不放入 `hk-shell`。

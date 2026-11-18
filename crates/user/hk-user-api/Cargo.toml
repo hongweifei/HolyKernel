@@ -1,5 +1,5 @@
 [package]
-name = "hk-server-api"
+name = "hk-user-api"
 description = "HolyKernel 服务协议、客户端与运行时辅助"
 version.workspace = true
 edition.workspace = true

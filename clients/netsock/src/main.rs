@@ -1,4 +1,4 @@
-//! 原生 Socket 自检：作为普通用户态客户端使用 `hk-server-api` 的 Socket 协议。
+//! 原生 Socket 自检：作为普通用户态客户端使用 `hk-user-api` 的 Socket 协议。
 //!
 //! 仅在 `net.socket-test` 启动参数存在时运行；内核与 Shell 不感知该协议。
 
@@ -8,7 +8,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::socket::{Client, SocketKind};
 #[cfg(target_os = "none")]
-use hk_server_api::{boot_cmdline, exit, tsc, tsc_frequency, write, yield_now};
+use hk_user_api::{boot_cmdline, exit, tsc, tsc_frequency, write, yield_now};
 
 #[cfg(target_os = "none")]
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
@@ -161,9 +161,9 @@ fn dns_test(client: &Client) -> bool {
 fn now_ms() -> u64 {
     let frequency = tsc_frequency();
     if frequency == 0 {
-        return hk_server_api::ticks().saturating_mul(10);
+        return hk_user_api::ticks().saturating_mul(10);
     }
     tsc().saturating_mul(1_000) / frequency
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

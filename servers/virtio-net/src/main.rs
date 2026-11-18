@@ -20,16 +20,16 @@ use hk_proto::net::{
     NET_TX_FRAME, net_rx_index, net_tx_index, net_tx_length,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
+use hk_user_api::device::{DEVICE_CLASS_NETWORK, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     device_info, exit, irq_bind, msi_bind, recv_data_try, recv_handle, self_notification, send,
     send_data, service_endpoint, wait_notify, write, write_u64, yield_now,
 };
 
 #[cfg(target_os = "none")]
 mod shared;
-hk_server_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!(256 * 1024);
 #[cfg(target_os = "none")]
 use shared::{attach_shared, drain_rx, drain_shared_rx, zerocopy_enabled};
 
@@ -220,7 +220,7 @@ fn send_info(sender: u64, mac: [u8; 6]) {
 
 #[cfg(target_os = "none")]
 fn write_hex(value: u8) {
-    hk_server_api::format::write_hex(u64::from(value), 2);
+    hk_user_api::format::write_hex(u64::from(value), 2);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

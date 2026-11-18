@@ -24,7 +24,7 @@ use hk_proto::holy::{HOLY_REQUEST, HOLY_RESPONSE, OP_SYNC, decode_request};
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
+use hk_user_api::{recv_data_handle, recv_data_handle_try, send_data, write, yield_now};
 
 #[cfg(any(target_os = "none", test))]
 mod commit;
@@ -44,7 +44,7 @@ use sessions::Sessions;
 #[cfg(target_os = "none")]
 use volumes::{ServiceDisk, SharedClient, Volumes};
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]
@@ -62,7 +62,7 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
-    let enabled = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+    let enabled = hk_user_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs") || line.contains("checkpoint-srv-test"));
     let mut volumes = Volumes::new();
     let mut cache = ReadCache::new(hk_worker::Pool::start_with_stack(1, 64 * 1024), endpoint);
@@ -229,4 +229,4 @@ fn format_error(error: HolyError) -> &'static str {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

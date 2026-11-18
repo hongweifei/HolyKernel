@@ -1,6 +1,6 @@
 //! netstat：向 Network Server 查询接口、Socket 与收发统计并打印。
 //!
-//! 作为独立用户态服务运行，只依赖 `hk-server-api` 的线协议；不把网络实现引入
+//! 作为独立用户态服务运行，只依赖 `hk-user-api` 的线协议；不把网络实现引入
 //! 内核或 Shell。`net` 命令通过运行时按需启动本服务。
 
 #![cfg_attr(target_os = "none", no_std)]
@@ -13,7 +13,7 @@ use hk_proto::net::{
     NET_STATUS_RESPONSE, NetConfig, NetStatus,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_from, send, write, write_u64};
+use hk_user_api::{exit, recv_data_from, send, write, write_u64};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -184,17 +184,17 @@ fn print_status(status: &NetStatus) {
 
 #[cfg(target_os = "none")]
 fn write_ipv4(address: &[u8; 4]) {
-    hk_server_api::format::write_ipv4(address);
+    hk_user_api::format::write_ipv4(address);
 }
 
 #[cfg(target_os = "none")]
 fn write_hex(byte: u8) {
-    hk_server_api::format::write_hex(u64::from(byte), 2);
+    hk_user_api::format::write_hex(u64::from(byte), 2);
 }
 
 #[cfg(target_os = "none")]
 fn wait_net() -> u64 {
-    hk_server_api::runtime::wait_service("hk-server-net").unwrap_or(0)
+    hk_user_api::runtime::wait_service("hk-server-net").unwrap_or(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

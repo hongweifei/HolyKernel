@@ -10,11 +10,11 @@ use hk_cadence::{CadenceClass, CadenceSnapshot, CpuMask, Lending};
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     cadence_self, exit, runtime::wait_service, task_attach_cadence, write, write_u64,
 };
 
-hk_server_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!(64 * 1024);
 
 /// 申请的子契约权重。
 #[cfg(target_os = "none")]
@@ -128,4 +128,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

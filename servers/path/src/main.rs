@@ -12,9 +12,9 @@ use alloc::vec;
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, VFS_ATTACH, VFS_DETACH, VFS_REQUEST, decode_request};
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, write};
+use hk_user_api::{recv_data_handle, write};
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 mod mounts;
@@ -35,16 +35,16 @@ use sessions::Sessions;
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
+    let cmdline = hk_user_api::boot_cmdline(&mut cmdline_buffer).unwrap_or("");
     let ext4_root = cmdline.contains("vfs.root=ext4");
     let holyfs = cmdline.contains("vfs.fs=holyfs");
-    match hk_server_api::civil_time() {
+    match hk_user_api::civil_time() {
         Some(time) if time.year >= 2000 => write("hk-server-path: rtc ok\n".as_bytes()),
         _ => write("hk-server-path: rtc 不可用\n".as_bytes()),
     }
     let Some(mut filesystem) = mount_drives(endpoint, ext4_root && !holyfs) else {
         write("hk-server-path: 文件系统不可用\n".as_bytes());
-        hk_server_api::exit(1)
+        hk_user_api::exit(1)
     };
     if holyfs {
         write("hk-server-path: drives via hk-server-vfs\n".as_bytes());
@@ -92,4 +92,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

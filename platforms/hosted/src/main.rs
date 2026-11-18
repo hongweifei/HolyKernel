@@ -13,13 +13,13 @@ mod demo;
 use std::fmt::Write;
 
 use clap::Parser;
+use hk_arch_hosted::{HostedConfig, HostedPlatform};
 use hk_hal::ExitCode;
 use hk_hal::{BootInfo, Platform};
-use hk_platform_hosted::{HostedConfig, HostedPlatform};
 
 /// Hosted 模拟器启动参数。
 #[derive(Debug, Parser)]
-#[command(name = "hk-hosted", about = "HolyKernel Hosted 模拟器", version)]
+#[command(name = "hk-image-hosted", about = "HolyKernel Hosted 模拟器", version)]
 struct Arguments {
     /// 逻辑 CPU 数量。
     #[arg(long, default_value_t = 1)]

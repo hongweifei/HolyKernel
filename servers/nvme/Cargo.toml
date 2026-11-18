@@ -16,7 +16,7 @@ hk-block-ipc.workspace = true
 hk-device.workspace = true
 hk-driver-host.workspace = true
 hk-driver-rdif.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 nvme-driver.workspace = true
 
 [build-dependencies]

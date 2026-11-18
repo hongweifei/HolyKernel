@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 hk-proto.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 
 [lints]
 workspace = true

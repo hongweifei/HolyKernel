@@ -3,10 +3,10 @@
 use std::process::Command;
 
 fn launch(arguments: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_hk-hosted"))
+    Command::new(env!("CARGO_BIN_EXE_hk-image-hosted"))
         .args(arguments)
         .output()
-        .expect("启动 hk-hosted")
+        .expect("启动 hk-image-hosted")
 }
 
 #[test]

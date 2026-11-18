@@ -21,7 +21,7 @@ use hk_proto::holy::{
 };
 use hk_proto::vfs::{STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, STATUS_PERMISSION};
 
-use hk_holy_proto::response;
+use hk_holy_response::response;
 
 use crate::read_cache::ReadCache;
 use crate::sessions::Sessions;

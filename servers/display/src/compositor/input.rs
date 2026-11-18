@@ -3,7 +3,7 @@
 use hk_proto::display::{DISPLAY_CLICK, DISPLAY_CLICK_AT, pack_click_at};
 use hk_proto::input::{unpack_pointer, unpack_wheel};
 use hk_proto::pointer::Shape;
-use hk_server_api::{format::Line, send, tsc, tsc_frequency, write, write_u64};
+use hk_user_api::{format::Line, send, tsc, tsc_frequency, write, write_u64};
 
 use super::Compositor;
 use super::surface::set_scanout;

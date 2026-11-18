@@ -35,7 +35,7 @@ pub(crate) fn service_image(service: &str, release: bool) -> Result<(String, Vec
 /// 读取构建期内核符号表；缺失时重新生成。
 pub(crate) fn kernel_symbols(release: bool) -> Result<Vec<(u64, String)>> {
     let path = workspace::root().join("build/kernel.sym");
-    let binary = binary_path("hk-x86_64", release);
+    let binary = binary_path("hk-image-x86_64-qemu", release);
     let path = if fresh(&path, &binary) {
         path
     } else {
@@ -81,7 +81,7 @@ const USER_ARENA_SIZE: u32 = 2 * 1024 * 1024;
 
 /// 生成内核符号表；服务符号随原生镜像携带。
 pub(crate) fn generate_symbols(release: bool) -> Result<PathBuf> {
-    let mut symbols = collect_symbols(&binary_path("hk-x86_64", release), "[kernel] ")?;
+    let mut symbols = collect_symbols(&binary_path("hk-image-x86_64-qemu", release), "[kernel] ")?;
     symbols.sort_by_key(|(address, _)| *address);
     let mut text = String::new();
     for (address, name) in symbols {

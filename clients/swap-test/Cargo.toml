@@ -12,7 +12,7 @@ name = "hk-client-swap-test"
 path = "src/main.rs"
 
 [dependencies]
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-syscall.workspace = true
 
 [build-dependencies]

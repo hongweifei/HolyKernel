@@ -10,7 +10,7 @@ use crate::workspace;
 const IMPL_FORBIDDEN: &[&str] = &[
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
+    "hk-arch-",
     "hk-server-",
     "hk-net",
     "hk-vfs",
@@ -18,13 +18,13 @@ const IMPL_FORBIDDEN: &[&str] = &[
     "hk-block",
     "hk-driver",
     "hk-framebuffer",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
     "hk-sim",
 ];
 
 /// 最底层契约禁止依赖的类别：分页与平台实现必须位于它们之上。
-const FOUNDATION_FORBIDDEN: &[&str] = &["hk-fw", "hk-paging", "hk-boot", "hk-platform-"];
+const FOUNDATION_FORBIDDEN: &[&str] = &["hk-fw", "hk-paging", "hk-boot", "hk-arch-"];
 
 /// `hk-fw` 允许的直接依赖：基础契约与固件库。
 const FIRMWARE_ALLOWED: &[&str] = &["hk-base", "acpi", "hermit-dtb", "intel-iommu", "amd-iommu"];
@@ -34,20 +34,20 @@ const LIB_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
+    "hk-arch-",
     "hk-server-",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
 ];
 
-/// 用户态库禁止依赖的类别（允许使用 `hk-server-api`）。
+/// 用户态库禁止依赖的类别（允许使用 `hk-user-api`）。
 const USERSPACE_LIB_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-arch-",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
 ];
 
 /// 文件系统契约禁止依赖的类别。
@@ -55,9 +55,9 @@ const CONTRACT_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-arch-",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
     "hk-vfs",
     "hk-fs-",
     "hk-server-",
@@ -68,14 +68,14 @@ const HOLYFS_IMPL_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-arch-",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
     "hk-vfs",
 ];
 
 /// 服务禁止依赖的类别。
-const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server", "hk-platform-"];
+const SERVER_FORBIDDEN: &[&str] = &["hk-kernel", "hk-runtime", "hk-root-server", "hk-arch-"];
 
 /// 服务线协议层禁止依赖的类别：只允许内核面与 ABI 常量。
 ///
@@ -89,12 +89,12 @@ const PROTO_FORBIDDEN: &[&str] = &[
     "hk-fs-",
     "hk-kernel",
     "hk-net",
-    "hk-platform-",
+    "hk-arch-",
     "hk-root-server",
     "hk-runtime",
     "hk-vfs",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
 ];
 
 /// 零依赖 crate：保持纯契约或纯库。
@@ -111,9 +111,9 @@ const SYSCALL_CLIENT_FORBIDDEN: &[&str] = &[
     "hk-kernel",
     "hk-runtime",
     "hk-root-server",
-    "hk-platform-",
-    "hk-x86_64",
-    "hk-hosted",
+    "hk-arch-",
+    "hk-image-x86_64-qemu",
+    "hk-image-hosted",
     "hk-server-",
     "hk-proto",
     "hk-fs",
@@ -470,32 +470,37 @@ fn rules(name: &str) -> &'static [&'static str] {
         "hk-base" | "hk-hal" => FOUNDATION_FORBIDDEN,
         "hk-handle" | "hk-ipc" | "hk-mem" | "hk-kernel" | "hk-syscall" => IMPL_FORBIDDEN,
         "hk-syscall-client" => SYSCALL_CLIENT_FORBIDDEN,
-        "hk-server-api" => &[
+        "hk-user-api" => &[
             "hk-handle",
             "hk-kernel",
             "hk-mem",
             "hk-proto",
             "hk-runtime",
             "hk-root-server",
-            "hk-platform-",
+            "hk-arch-",
             "hk-server-",
-            "hk-x86_64",
-            "hk-hosted",
+            "hk-image-x86_64-qemu",
+            "hk-image-hosted",
         ],
         "hk-runtime" => &[
             "hk-root-server",
             "hk-server-",
-            "hk-platform-",
-            "hk-x86_64",
-            "hk-hosted",
+            "hk-arch-",
+            "hk-image-x86_64-qemu",
+            "hk-image-hosted",
         ],
-        "hk-root-server" => &["hk-server-", "hk-platform-", "hk-x86_64", "hk-hosted"],
+        "hk-root-server" => &[
+            "hk-server-",
+            "hk-arch-",
+            "hk-image-x86_64-qemu",
+            "hk-image-hosted",
+        ],
         "hk-fs" => CONTRACT_FORBIDDEN,
         "hk-image" => IMPL_FORBIDDEN,
         "hk-fs-holyfs" => HOLYFS_IMPL_FORBIDDEN,
         "hk-proto" => PROTO_FORBIDDEN,
         "hk-driver-virtio" | "hk-net" | "hk-vfs" | "hk-block" | "hk-block-ipc"
-        | "hk-holy-proto" | "hk-proto-client" | "hk-fs-ext4" | "hk-debug" | "hk-canvas" => {
+        | "hk-holy-response" | "hk-proto-client" | "hk-fs-ext4" | "hk-debug" | "hk-canvas" => {
             USERSPACE_LIB_FORBIDDEN
         }
         "hk-paging" => USERSPACE_LIB_FORBIDDEN,
@@ -515,13 +520,13 @@ mod tests {
         assert_eq!(allowed_dependencies("hk-base"), None);
         assert!(FIRMWARE_ALLOWED.contains(&"hk-base"));
         assert!(!FIRMWARE_ALLOWED.contains(&"hk-paging"));
-        assert!(!FIRMWARE_ALLOWED.contains(&"hk-platform-x86_64"));
+        assert!(!FIRMWARE_ALLOWED.contains(&"hk-arch-x86_64"));
     }
 
     #[test]
     fn foundation_crates_cannot_reach_paging_or_platforms() {
         assert!(FOUNDATION_FORBIDDEN.contains(&"hk-paging"));
-        assert!(FOUNDATION_FORBIDDEN.contains(&"hk-platform-"));
+        assert!(FOUNDATION_FORBIDDEN.contains(&"hk-arch-"));
         assert_eq!(rules("hk-paging"), USERSPACE_LIB_FORBIDDEN);
     }
 
@@ -533,7 +538,7 @@ alias = { package = "hk-fs", path = "../hk-fs" }
 plain = "1"
 
 [dev-dependencies]
-hk-platform-hosted = { path = "../hk-platform-hosted" }
+hk-arch-hosted = { path = "../hk-arch-hosted" }
 
 [build-dependencies]
 hk-server-build = { path = "../../crates/user/hk-server-build" }
@@ -549,7 +554,7 @@ renamed = { package = "hk-vfs", path = "../hk-vfs" }
             kind: Kind::Normal,
         }));
         assert!(dependencies.contains(&Dependency {
-            package: "hk-platform-hosted".to_string(),
+            package: "hk-arch-hosted".to_string(),
             kind: Kind::Dev,
         }));
         assert!(dependencies.contains(&Dependency {

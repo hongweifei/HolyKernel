@@ -9,7 +9,7 @@ use hk_proto::net::{
     NET_RX_FRAME, NET_SHARED_LEN, NET_SHARED_RX, NET_SHARED_TX, NET_SHUTDOWN, NET_TX_DONE,
     net_mapping_index, net_mapping_role, net_rx_index, net_rx_length, net_rx_offset, net_tx_index,
 };
-use hk_server_api::{
+use hk_user_api::{
     capability_phys, close_handle, map_attach, notify, recv_data_handle, recv_data_try,
     region_unmap, send, service_endpoint, write, yield_now,
 };
@@ -191,5 +191,5 @@ pub(crate) fn restart_network(
 }
 
 pub(crate) fn wait_driver() -> u64 {
-    hk_server_api::runtime::wait_service("hk-server-virtio-net").unwrap_or(0)
+    hk_user_api::runtime::wait_service("hk-server-virtio-net").unwrap_or(0)
 }

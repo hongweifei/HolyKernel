@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     boot_cmdline, exit, self_notification, send, service_endpoint, service_watch, wait_notify,
     write,
 };
@@ -818,4 +818,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

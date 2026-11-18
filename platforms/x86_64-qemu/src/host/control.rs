@@ -272,14 +272,14 @@ fn perf() -> String {
         .iter()
         .filter(|task| matches!(task.state, "running" | "runnable"))
         .count();
-    let memory = hk_platform_x86_64::paging::FRAME_BANK.stats();
+    let memory = hk_arch_x86_64::paging::FRAME_BANK.stats();
     let mut text = format!(
         "perf cpus={} tasks={} runnable={} tsc={} ticks={}\n",
         cpus,
         tasks.len(),
         runnable,
         stats.tsc_frequency,
-        hk_platform_x86_64::cpu::uptime_ticks(),
+        hk_arch_x86_64::cpu::uptime_ticks(),
     );
     text.push_str(&format!(
         "mem total={} used={} peak={} free={} system={} user={} dma={} gpu={} numa={}\n",
@@ -293,7 +293,7 @@ fn perf() -> String {
         memory.by_capacity[3],
         memory.by_capacity[4],
     ));
-    if let Some(capacity) = hk_platform_x86_64::system::capacity() {
+    if let Some(capacity) = hk_arch_x86_64::system::capacity() {
         let capacity = capacity.lock();
         text.push_str(&format!(
             "system quota={} used={} peak={} soft={} span={} windows={}\n",
@@ -305,7 +305,7 @@ fn perf() -> String {
             capacity.windows().len(),
         ));
     }
-    if let Some(arena) = hk_platform_x86_64::system_arena::snapshot() {
+    if let Some(arena) = hk_arch_x86_64::system_arena::snapshot() {
         text.push_str(&format!(
             "system-arena base={} size={} used={} regions={}\n",
             arena.base, arena.size, arena.used, arena.regions,

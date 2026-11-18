@@ -32,20 +32,20 @@ use hk_proto::vfs::list_mounts;
 #[cfg(target_os = "none")]
 use hk_proto_client::TempoClient;
 #[cfg(target_os = "none")]
-use hk_server_api::root::{
+use hk_shell::{
+    Command, RuntimeStats, ServiceInfo, Session, ShellHost, ShellIo, TaskInfo, TraceEvent,
+    execute_line, parse,
+};
+#[cfg(target_os = "none")]
+use hk_user_api::root::{
     ROOT_OP_CADENCE, ROOT_OP_CHECKPOINT, ROOT_OP_HANDLES, ROOT_OP_METER, ROOT_OP_REPLACE,
     ROOT_OP_RESTART, ROOT_OP_RESTORE_CHECKPOINT, ROOT_OP_SCRIPT, ROOT_OP_SERVICES, ROOT_OP_START,
     ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TEMPO, ROOT_OP_TRACE,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     exit, fault_subscribe, recv_data_try, send_data, service_endpoint, sleep_ticks, write,
     write_u64,
-};
-#[cfg(target_os = "none")]
-use hk_shell::{
-    Command, RuntimeStats, ServiceInfo, Session, ShellHost, ShellIo, TaskInfo, TraceEvent,
-    execute_line, parse,
 };
 
 /// Root 控制结果缓冲长度。
@@ -63,7 +63,7 @@ const LINE_BUFFER: usize = 256;
 #[cfg(target_os = "none")]
 const HANDSHAKE_TICKS: u64 = 500;
 
-hk_server_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!(256 * 1024);
 
 #[cfg(target_os = "none")]
 struct ConsoleIo {
@@ -231,7 +231,7 @@ fn tempo_policy(endpoint: u64, arguments: &str, regrant: bool) -> String {
 #[cfg(target_os = "none")]
 fn root_text(op: u64, argument: &str) -> String {
     let mut buffer = [0_u8; ROOT_BUFFER];
-    match hk_server_api::root::call(op, argument, &mut buffer) {
+    match hk_user_api::root::call(op, argument, &mut buffer) {
         Ok(length) => String::from_utf8_lossy(&buffer[..length]).into_owned(),
         Err(code) => format!("Root 控制失败：{code}\n"),
     }
@@ -341,4 +341,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

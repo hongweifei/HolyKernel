@@ -6,7 +6,7 @@ use hk_proto::vfs::{
     OPEN_WRITE, Request, STATUS_ERROR, STATUS_INVALID, STATUS_NOT_FOUND, STATUS_OK, VFS_RESPONSE,
     encode_response,
 };
-use hk_server_api::send_data;
+use hk_user_api::send_data;
 use hk_vfs::{FileType, OpenFlags, Vfs};
 
 use crate::sessions::Session;

@@ -4,7 +4,7 @@ use hk_driver_virtio::Rng;
 use hk_driver_virtio::protocol::entropy::{
     ENTROPY_MAX, ENTROPY_PING, ENTROPY_PONG, ENTROPY_REQUEST, ENTROPY_RESPONSE, ENTROPY_SHUTDOWN,
 };
-use hk_server_api::{exit, send, send_data};
+use hk_user_api::{exit, send, send_data};
 
 /// 启动自检：读取一段随机字节。
 pub fn self_test(rng: &Rng) -> bool {

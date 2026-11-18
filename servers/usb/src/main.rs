@@ -20,9 +20,9 @@ use hk_proto::input::{
     INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
+use hk_user_api::device::{DEVICE_CLASS_USB, DEVICE_GRANT, DEVICE_NONE, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     close_handle, device_info, device_map, exit, irq_bind, recv_handle, self_notification, send,
     service_endpoint, wait_notify, write, write_u64,
 };
@@ -48,7 +48,7 @@ mod hid;
 #[cfg(target_os = "none")]
 use hid::{Event, KeyboardState, MouseState};
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 
 #[cfg(target_os = "none")]
 const MAX_HID: usize = 8;
@@ -331,4 +331,4 @@ fn request_grant(endpoint: u64, manager: u64) -> Option<u64> {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

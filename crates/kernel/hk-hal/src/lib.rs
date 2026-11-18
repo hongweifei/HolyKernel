@@ -1,6 +1,6 @@
 //! HolyKernel 硬件抽象层。
 //!
-//! 内核只依赖本 crate 的 trait 访问平台；架构差异位于 `hk-platform-*` 实现。
+//! 内核只依赖本 crate 的 trait 访问平台；架构差异位于 `hk-arch-*` 实现。
 //! 地址、架构标识与启动信息由 [`hk_base`] 定义并在此重导出。
 
 #![no_std]

@@ -10,7 +10,7 @@ use hk_proto::holy::{
 };
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
-use hk_server_api::{service_endpoint, write, write_u64};
+use hk_user_api::{service_endpoint, write, write_u64};
 
 use crate::document::{DocSet, DocTag};
 use crate::markup::{doc_name, title_of};

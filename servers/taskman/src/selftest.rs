@@ -1,7 +1,7 @@
 //! Taskman 自检：空闲采样、两页渲染与状态输出。
 
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
-use hk_server_api::{exit, send, sleep_ticks, write, write_u64};
+use hk_user_api::{exit, send, sleep_ticks, write, write_u64};
 
 use crate::model::{Page, REFRESH_TICKS};
 use crate::{App, show};

@@ -18,7 +18,7 @@ use hk_proto::holy::{
     encode_quota, encode_request, kind_code,
 };
 use hk_proto::status::{STATUS_ERROR, STATUS_INVALID, STATUS_IO, STATUS_OK, decode_response};
-use hk_server_api::{recv_data_from, send_data, service_endpoint};
+use hk_user_api::{recv_data_from, send_data, service_endpoint};
 
 /// Holy 文档客户端；缓冲在首次请求时分配。
 pub struct HolyClient {
@@ -545,7 +545,7 @@ impl HolyClient {
         }
         let mut empty = [0_u8; 0];
         let (label, _word, _sender, length, handle) =
-            hk_server_api::recv_data_handle(self.own_endpoint, &mut empty, self.endpoint);
+            hk_user_api::recv_data_handle(self.own_endpoint, &mut empty, self.endpoint);
         if label != HOLY_RESPONSE {
             return Err(STATUS_IO);
         }

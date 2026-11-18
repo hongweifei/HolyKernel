@@ -11,7 +11,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, RIGHT_EXECUTE, RIGHT_READ, RIGHT_WRITE, arena_info, capability_create_lazy,
     exit, ledger_info, region_info, region_map, region_protect, region_unmap, write,
 };
@@ -22,7 +22,7 @@ const PAGE: usize = 4096;
 #[cfg(target_os = "none")]
 fn fail(code: u64) -> ! {
     write(b"hk-server-memory-test: fail ");
-    hk_server_api::write_u64(code);
+    hk_user_api::write_u64(code);
     write(b"\n");
     exit(code)
 }
@@ -118,4 +118,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

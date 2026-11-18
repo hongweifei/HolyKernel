@@ -17,7 +17,7 @@ const DEFAULT_LIMINE_DIR: &str = "/usr/share/limine";
 
 fn limine_config(cmdline: Option<&str>) -> String {
     let mut config = String::from(
-        "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-x86_64\n",
+        "timeout: 0\nserial: yes\n\n/HolyKernel\n    protocol: limine\n    kernel_path: boot():/boot/hk-image-x86_64-qemu\n",
     );
     for service in SERVERS {
         config.push_str(&format!(
@@ -86,7 +86,10 @@ fn build_iso(release: bool, cmdline: Option<&str>, symbols: &Path) -> Result<Pat
     create_dir(&scripts)?;
 
     let limine = limine_dir();
-    copy(&binary_path("hk-x86_64", release), &boot.join("hk-x86_64"))?;
+    copy(
+        &binary_path("hk-image-x86_64-qemu", release),
+        &boot.join("hk-image-x86_64-qemu"),
+    )?;
     for service in SERVERS {
         let image = native_image(&binary_path(service, release))?;
         check_image_region(service, &image)?;

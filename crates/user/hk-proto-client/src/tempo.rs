@@ -5,7 +5,7 @@
 use hk_proto::tempo::{
     MAX_NAME, SNAPSHOT_LEN, TEMPO_ADMIT, TEMPO_READMIT, TEMPO_REQUEST, TEMPO_RESPONSE, TEMPO_REVOKE,
 };
-use hk_server_api::{recv_data, recv_data_handle, send_data};
+use hk_user_api::{recv_data, recv_data_handle, send_data};
 
 /// 回复缓冲上限。
 const MAX_REPLY: usize = 128;

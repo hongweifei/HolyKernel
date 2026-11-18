@@ -8,7 +8,7 @@ use hk_proto::net::NET_CONFIG_MAX_DNS;
 /// 是否启用共享帧路径。
 pub(crate) fn zerocopy_enabled() -> bool {
     let mut buffer = [0_u8; 128];
-    hk_server_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
+    hk_user_api::boot_cmdline(&mut buffer).is_some_and(|line| line.contains("net.zerocopy"))
 }
 
 /// 解析原生启动期网络配置；`net.dhcp=off` 或 `net.ip=` 存在时返回静态配置。

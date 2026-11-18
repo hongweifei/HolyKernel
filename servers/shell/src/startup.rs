@@ -11,7 +11,7 @@ use hk_proto::holy::{DocumentKind, STATUS_NOT_FOUND};
 #[cfg(target_os = "none")]
 use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
-use hk_server_api::yield_now;
+use hk_user_api::yield_now;
 
 /// 启动文档读取缓冲长度。
 #[cfg(target_os = "none")]

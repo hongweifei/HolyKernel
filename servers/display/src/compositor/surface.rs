@@ -2,7 +2,7 @@
 
 use hk_proto::display::{SURFACE_CREATED, unpack_size, unpack_surface_rect};
 use hk_proto::pointer::unpack_surface_cursor;
-use hk_server_api::{
+use hk_user_api::{
     capability_phys, capability_scanout, close_handle, format::Line, map_attach, region_unmap,
     send, write,
 };

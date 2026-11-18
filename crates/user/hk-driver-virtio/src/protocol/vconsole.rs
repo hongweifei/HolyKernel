@@ -5,7 +5,7 @@
 //! 取回已到达的输入字节，没有数据时响应载荷为空。
 
 use hk_proto::labels::VIRTIO;
-use hk_server_api::{recv_data_try, send, send_data, yield_now};
+use hk_user_api::{recv_data_try, send, send_data, yield_now};
 
 /// 写入字节；载荷前 4 字节为端口号（小端），其后为数据。
 pub const VCONSOLE_WRITE: u64 = VIRTIO + 0x10;
@@ -44,7 +44,7 @@ pub struct Client {
 impl Client {
     /// 等待 virtio 驱动服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let service = hk_server_api::runtime::wait_service(crate::SERVICE_NAME)?;
+        let service = hk_user_api::runtime::wait_service(crate::SERVICE_NAME)?;
         Some(Self { endpoint, service })
     }
 

@@ -10,7 +10,7 @@ use hk_proto::block::{
     BUFFER_SLOTS, OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_INVALID, STATUS_OK,
     attach_length, attach_slot, decode_request, encode_response,
 };
-use hk_server_api::{
+use hk_user_api::{
     RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE, capability_phys, close_handle, handle_duplicate,
     recv_data_handle, recv_data_handle_try, region_info, region_map, region_unmap, send_data,
     yield_now,

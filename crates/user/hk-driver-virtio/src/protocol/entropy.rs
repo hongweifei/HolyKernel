@@ -4,7 +4,7 @@
 //! 长度，响应载荷为实际字节；单次请求上限 [`ENTROPY_MAX`]。
 
 use hk_proto::labels::VIRTIO;
-use hk_server_api::{recv_data_try, send, yield_now};
+use hk_user_api::{recv_data_try, send, yield_now};
 
 /// 请求随机字节；消息字为长度。
 pub const ENTROPY_REQUEST: u64 = VIRTIO;
@@ -33,7 +33,7 @@ pub struct Client {
 impl Client {
     /// 等待 virtio 驱动服务并构造客户端。
     pub fn discover(endpoint: u64) -> Option<Self> {
-        let service = hk_server_api::runtime::wait_service(crate::SERVICE_NAME)?;
+        let service = hk_user_api::runtime::wait_service(crate::SERVICE_NAME)?;
         Some(Self { endpoint, service })
     }
 

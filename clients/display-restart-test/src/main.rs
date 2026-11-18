@@ -8,7 +8,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::display::{DISPLAY_RESTART, DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, send, service_endpoint, sleep_ticks, ticks, write, write_u64};
+use hk_user_api::{exit, send, service_endpoint, sleep_ticks, ticks, write, write_u64};
 
 /// 等待窗口服务完成首次连接、以及重启后重新连接的 tick 数。
 #[cfg(target_os = "none")]
@@ -21,7 +21,7 @@ const RESTART_TICKS: u64 = 1_000;
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(_endpoint: u64) -> ! {
-    let display = hk_server_api::runtime::wait_service(DISPLAY_SERVICE).unwrap_or(0);
+    let display = hk_user_api::runtime::wait_service(DISPLAY_SERVICE).unwrap_or(0);
     if display == 0 {
         write(b"hk-client-display-restart-test: no display\n");
         exit(1)
@@ -55,4 +55,4 @@ pub extern "C" fn _start(_endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

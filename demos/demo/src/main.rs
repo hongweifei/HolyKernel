@@ -11,10 +11,10 @@
 extern crate alloc;
 
 // 服务堆大小；协程栈从该堆分配。
-hk_server_api::server_heap!(256 * 1024);
+hk_user_api::server_heap!(256 * 1024);
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     boot_cmdline, call, exit, recv, send, send_handle, service_endpoint, wait_notify, write,
     write_u64,
 };
@@ -153,4 +153,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(1)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

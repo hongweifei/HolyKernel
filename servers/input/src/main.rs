@@ -26,9 +26,9 @@ use hk_proto::input::{
     INPUT_BUTTON, INPUT_KEY, INPUT_POINTER, INPUT_WHEEL, pack_pointer, pack_wheel,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
+use hk_user_api::device::{DEVICE_CLASS_INPUT, DEVICE_GRANT, DEVICE_REQUEST};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     device_info, exit, irq_bind, recv_handle, self_notification, send, service_endpoint,
     wait_notify, write, write_u64,
 };
@@ -42,7 +42,7 @@ use keymap::{
     KEY_LEFTSHIFT, KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_RIGHTSHIFT, REL_WHEEL, key_bytes,
 };
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 
 /// 最多接管的输入设备数。
 #[cfg(target_os = "none")]
@@ -193,4 +193,4 @@ fn forward_pointer(x: u16, y: u16) {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

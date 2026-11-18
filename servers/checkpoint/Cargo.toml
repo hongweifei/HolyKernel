@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 hk-proto.workspace = true
 hk-proto-client.workspace = true
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 
 [build-dependencies]
 hk-server-build.workspace = true

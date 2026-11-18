@@ -10,13 +10,13 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
-use hk_server_api::root::{
+use hk_user_api::root::{
     ROOT_OP_HANDLES, ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call,
 };
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, write};
+use hk_user_api::{exit, write};
 
-hk_server_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!(64 * 1024);
 
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]
@@ -33,7 +33,7 @@ fn print(title: &str, op: u64) {
         Ok(length) => write(&buffer[..length.min(buffer.len())]),
         Err(code) => {
             write(b"hk-client-dbg: control failed ");
-            hk_server_api::write_u64(code);
+            hk_user_api::write_u64(code);
             write(b"\n");
         }
     }
@@ -43,15 +43,15 @@ fn print(title: &str, op: u64) {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let _ = hk_server_api::fault_subscribe(endpoint);
+    let _ = hk_user_api::fault_subscribe(endpoint);
     write(b"hk-client-dbg: ready\n");
     let mut events = [0_u8; 2048];
     for _ in 0..64 {
-        let (label, _word, _sender, length) = hk_server_api::recv_data_try(endpoint, &mut events);
+        let (label, _word, _sender, length) = hk_user_api::recv_data_try(endpoint, &mut events);
         if label != 0 {
             hk_debug::ingest(label, &events[..length]);
         }
-        let _ = hk_server_api::yield_now();
+        let _ = hk_user_api::yield_now();
     }
     print("tasks", ROOT_OP_TASKS);
     print("handles", ROOT_OP_HANDLES);
@@ -64,4 +64,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

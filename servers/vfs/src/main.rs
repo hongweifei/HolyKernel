@@ -26,7 +26,7 @@ use hk_proto::vfs::encode_response;
 #[cfg(target_os = "none")]
 use hk_proto_client::HolyClient;
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_REVISION,
     PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, RIGHT_READ, RIGHT_TRANSFER,
     capability_bind_provider, capability_create_lazy, capacity_alloc, close_handle, frame_write,
@@ -36,7 +36,7 @@ use hk_server_api::{
 #[cfg(target_os = "none")]
 use hk_vfs::{Devfs, PathObject, Procfs, Tmpfs};
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
@@ -68,7 +68,7 @@ struct RevisionRecord {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
-    let holyfs = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+    let holyfs = hk_user_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs"));
     let mut drives = Drives::new();
     if holyfs {
@@ -162,7 +162,7 @@ fn log_drive(letter: u8) {
 #[cfg(target_os = "none")]
 fn discover(endpoint: u64, service: &'static str) -> Vec<u8> {
     for _ in 0..4096 {
-        if hk_server_api::service_endpoint(service) == 0 {
+        if hk_user_api::service_endpoint(service) == 0 {
             let _ = yield_now();
             continue;
         }
@@ -291,18 +291,18 @@ const CACHE_BUDGET: usize = 1024 * 1024;
 #[cfg(target_os = "none")]
 fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: u64) {
     let Some(words) = message_words() else {
-        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
         return;
     };
     if words[3] != 0 {
-        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
         return;
     }
     let Some(index) = revisions
         .iter()
         .position(|record| record.capability == words[4])
     else {
-        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
         return;
     };
     let offset = words[0];
@@ -321,7 +321,7 @@ fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: 
             let read_len = size.saturating_sub(window_start).min(window) as usize;
             let mut cache = vec![0_u8; read_len];
             let Some(drive) = drives.get_mut(drive) else {
-                let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+                let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
                 return;
             };
             match drive
@@ -335,7 +335,7 @@ fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: 
                     }
                 }
                 Err(_) => {
-                    let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+                    let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
                     return;
                 }
             }
@@ -365,15 +365,15 @@ fn serve_fault(drives: &mut Drives, revisions: &mut [RevisionRecord], capacity: 
         }
     }
     let Some(frame) = capacity_alloc(capacity, PAGE) else {
-        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
         return;
     };
     if frame_write(frame, 0, &buffer) != 0 {
         let _ = close_handle(frame);
-        let _ = hk_server_api::reply(PROVIDER_ERROR, 0);
+        let _ = hk_user_api::reply(PROVIDER_ERROR, 0);
         return;
     }
     let _ = reply_handle(PROVIDER_PROVIDE, 0, frame);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

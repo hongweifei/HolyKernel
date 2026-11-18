@@ -4,8 +4,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 
-use hk_server_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
-use hk_server_api::{
+use hk_user_api::root::{ROOT_OP_SERVICES, ROOT_OP_STATS, ROOT_OP_TASKS, ROOT_OP_TRACE, call};
+use hk_user_api::{
     frame_bank_stats, handle_count, kernel_stats, service_endpoint, system_arena_info,
     system_arena_region, system_arena_region_count, ticks, tsc_frequency,
 };

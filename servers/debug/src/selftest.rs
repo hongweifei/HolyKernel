@@ -4,7 +4,7 @@ use alloc::format;
 
 use hk_font::Font;
 use hk_proto::display::{DISPLAY_SHUTDOWN, Window};
-use hk_server_api::{FAULT_EVENT, exit, fork, recv_data_try, root, send, write, yield_now};
+use hk_user_api::{FAULT_EVENT, exit, fork, recv_data_try, root, send, write, yield_now};
 
 use crate::pages::Page;
 use crate::show;
@@ -31,10 +31,10 @@ pub(crate) fn run(
         write(page.slug().as_bytes());
         write(b"\n");
         if page == Page::Overview
-            && let Some(arena) = hk_server_api::system_arena_info()
+            && let Some(arena) = hk_user_api::system_arena_info()
         {
             write(b"hk-server-debug: system-arena ");
-            hk_server_api::write_u64(arena.regions);
+            hk_user_api::write_u64(arena.regions);
             write(b"\n");
         }
     }

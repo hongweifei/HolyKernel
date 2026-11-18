@@ -43,7 +43,7 @@ pub fn run(arguments: DebugArguments) -> Result<()> {
         disk
     };
 
-    let kernel = binary_path("hk-x86_64", arguments.release);
+    let kernel = binary_path("hk-image-x86_64-qemu", arguments.release);
     let script = workspace::root().join("build/holy.gdb");
     let script_text = format!(
         "set pagination off\n\

@@ -1,7 +1,7 @@
 //! Memory 自检：初始 Capacity 与 Frame 生命周期。
 
 use crate::PAGE;
-use hk_server_api::{
+use hk_user_api::{
     capacity_alloc, capacity_free, capacity_info, frame_info, frame_pin, ledger_enum,
 };
 

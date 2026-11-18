@@ -11,17 +11,17 @@ use alloc::collections::BTreeMap;
 #[cfg(target_os = "none")]
 use alloc::vec::Vec;
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_syscall::{
+    PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
+    PROVIDER_RECLAIM_BATCH, PROVIDER_RECLAIMED, PROVIDER_RELEASE,
+};
+#[cfg(target_os = "none")]
+use hk_user_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     RIGHT_READ, RIGHT_WRITE, boot_cmdline, capability_create, capability_swap, capacity_alloc,
     close_handle, exit, frame_write, grant_capability, handle::Anonymous, handle::Endpoint,
     handle::Handle, handle_id, memory_pressure, message_words, notify, recv_data, reply,
     reply_handle, self_notification, send, send_handle, set_oom_policy, wait_notify, write,
-};
-#[cfg(target_os = "none")]
-use hk_syscall::{
-    PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
-    PROVIDER_RECLAIM_BATCH, PROVIDER_RECLAIMED, PROVIDER_RELEASE,
 };
 #[cfg(target_os = "none")]
 use spin::Mutex;
@@ -31,7 +31,7 @@ mod selftest;
 #[cfg(target_os = "none")]
 mod swap;
 
-hk_server_api::server_heap!(1024 * 1024);
+hk_user_api::server_heap!(1024 * 1024);
 #[cfg(target_os = "none")]
 const PAGE: usize = 4096;
 /// 请求载荷：能力类型（1 字节）+ 标志（1 字节）+ 长度（8 字节小端）。
@@ -125,8 +125,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     if selftest::verify_ledger_enum() {
         write(b"hk-server-memory: ledger ok\n");
     }
-    let records = hk_server_api::numa_node_count().unwrap_or(0);
-    hk_server_api::format::Line::new()
+    let records = hk_user_api::numa_node_count().unwrap_or(0);
+    hk_user_api::format::Line::new()
         .text(b"hk-server-memory: numa records ")
         .number(records as u64)
         .text(b"\n")
@@ -135,7 +135,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     if boot_cmdline(&mut cmdline).is_some_and(|line| line.contains("swap-test")) {
         // 测试模式提高阈值、只回收不终止，便于在有限内存下触发自动换出。
         let result = set_oom_policy(90, 0);
-        hk_server_api::format::Line::new()
+        hk_user_api::format::Line::new()
             .text(b"hk-server-memory: swap policy ")
             .number(result)
             .text(b"\n")
@@ -198,7 +198,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                     }
                 });
             let Some(memory) = allocated else {
-                hk_server_api::format::Line::new()
+                hk_user_api::format::Line::new()
                     .text(b"hk-server-memory: alloc failed ")
                     .number(size as u64)
                     .text(b" bytes\n")
@@ -321,7 +321,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             continue;
         };
         if frame_write(frame, 0, &buffer) != 0 {
-            let _ = hk_server_api::close_handle(frame);
+            let _ = hk_user_api::close_handle(frame);
             let _ = reply(0, u64::MAX);
             continue;
         }
@@ -333,4 +333,4 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

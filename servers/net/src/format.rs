@@ -1,7 +1,7 @@
 //! Network Server 的地址输出格式。
 
 use hk_net::IpAddress;
-use hk_server_api::{write, write_u64};
+use hk_user_api::{write, write_u64};
 
 /// 输出 IPv4/IPv6 地址。
 pub(crate) fn write_address(address: &IpAddress) {
@@ -29,5 +29,5 @@ pub(crate) fn write_address(address: &IpAddress) {
 
 /// 以十六进制输出 16 位整数。
 fn write_hex(value: u16) {
-    hk_server_api::format::write_hex(u64::from(value), 4);
+    hk_user_api::format::write_hex(u64::from(value), 4);
 }

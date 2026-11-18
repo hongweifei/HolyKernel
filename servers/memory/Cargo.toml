@@ -12,7 +12,7 @@ name = "hk-server-memory"
 path = "src/main.rs"
 
 [dependencies]
-hk-server-api.workspace = true
+hk-user-api.workspace = true
 hk-syscall.workspace = true
 hk-thread.workspace = true
 spin.workspace = true

@@ -13,7 +13,7 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::pointer::{Shape, pack_surface_cursor};
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, exit, recv, region_unmap, send, send_handle, write, write_u64,
 };
 
@@ -151,7 +151,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn wait_display() -> u64 {
-    hk_server_api::runtime::wait_service(hk_server_api::DISPLAY_SERVICE).unwrap_or(0)
+    hk_user_api::runtime::wait_service(hk_user_api::DISPLAY_SERVICE).unwrap_or(0)
 }
 
 /// 按当前尺寸绘制测试图案。
@@ -176,4 +176,4 @@ fn paint(pixels: *mut u32, width: u32, height: u32) {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

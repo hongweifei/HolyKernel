@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use hk_proto::holy::decode_drives;
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
-use hk_server_api::{service_endpoint, yield_now};
+use hk_user_api::{service_endpoint, yield_now};
 use hk_vfs::Vfs;
 
 use hk_fs_remote::RemoteHolyFs;

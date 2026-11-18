@@ -399,7 +399,7 @@ pub(crate) fn route_pointer(
                 .flatten()
                 .find(|window| window.id == previous)
         {
-            let _ = hk_server_api::send(window.surface.client, DISPLAY_POINTER_LEAVE, previous);
+            let _ = hk_user_api::send(window.surface.client, DISPLAY_POINTER_LEAVE, previous);
         }
         *target = body;
         *last = None;
@@ -416,7 +416,7 @@ pub(crate) fn route_pointer(
         return;
     }
     *last = Some((id, body_x, body_y));
-    let _ = hk_server_api::send(
+    let _ = hk_user_api::send(
         window.surface.client,
         DISPLAY_POINTER,
         pack_click_at(id, body_x, body_y),

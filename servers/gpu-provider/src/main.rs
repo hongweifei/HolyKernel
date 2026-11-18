@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_PROVIDE, PROVIDER_RELEASE,
     PROVIDER_WRITEBACK, capacity_alloc, frame_write, recv_data_handle, reply, reply_handle, write,
 };
@@ -35,7 +35,7 @@ pub extern "C" fn _start(_endpoint: u64, capacity: u64) -> ! {
                 continue;
             }
             if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
-                hk_server_api::exit(2)
+                hk_user_api::exit(2)
             }
             continue;
         }
@@ -50,4 +50,4 @@ pub extern "C" fn _start(_endpoint: u64, capacity: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

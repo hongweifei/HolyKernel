@@ -9,7 +9,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::sound::Client;
 #[cfg(target_os = "none")]
-use hk_server_api::{boot_cmdline, exit, format::Line, ticks, write};
+use hk_user_api::{boot_cmdline, exit, format::Line, ticks, write};
 
 /// 并发点播的两个声部：(频率 Hz, 时长 ms)。
 #[cfg(target_os = "none")]
@@ -84,4 +84,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

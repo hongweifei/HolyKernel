@@ -9,11 +9,11 @@ use alloc::vec::Vec;
 
 use alloc::sync::Arc;
 
+use hk_arch_x86_64::cpu;
+use hk_arch_x86_64::{PageFlags, PageTable};
 use hk_hal::{BootInfo, BootModule, MapFlags, PAGE_SIZE, PhysAddr, UserMemory, VirtAddr};
 use hk_mem::FrameBank;
 use hk_mem::hmp::Capacity;
-use hk_platform_x86_64::cpu;
-use hk_platform_x86_64::{PageFlags, PageTable};
 use hk_root_server::loader::{self, ImageSpec};
 use hk_root_server::{ServiceSpec, ServiceTable};
 use spin::Mutex;
@@ -130,7 +130,7 @@ pub fn run(
         host::attach_with_regions(index, context, &regions)?;
     }
     // 服务装载可能在高半区新增页表页；补登记新出现的内核映射。
-    hk_platform_x86_64::system_arena::register_kernel_mappings(paging);
+    hk_arch_x86_64::system_arena::register_kernel_mappings(paging);
 
     let mut shell_loader = crate::shell::Loader {
         info,
@@ -162,7 +162,7 @@ pub fn run(
                 // 开中断并 `hlt`。否则一次性唤醒可能在 `hlt` 之前被投递，随后
                 // 进入没有定时器的永久等待。
                 host::arm_idle_wakeup();
-                hk_platform_x86_64::cpu::wait_for_interrupt();
+                hk_arch_x86_64::cpu::wait_for_interrupt();
                 continue;
             }
             break;
@@ -217,7 +217,7 @@ fn load(
         .paging
         .create_user(context.allocator)
         .map_err(|error| format!("创建地址空间失败：{error:?}"))?;
-    let capacity = hk_platform_x86_64::system::user_capacity()
+    let capacity = hk_arch_x86_64::system::user_capacity()
         .ok_or_else(|| String::from("User Capacity 尚未建立"))?;
     let mut memory = UserPages {
         direct_map_base: context.direct_map_base,
@@ -228,8 +228,7 @@ fn load(
         cpu::user_frame(entry, stack_top, endpoint)
     })
     .map_err(|error| format!("装载服务失败：{}：{error}", module.name))?;
-    hk_platform_x86_64::USER_ADDRESS_SPACES
-        .install(index, hk_platform_x86_64::UserSpace::new(table));
+    hk_arch_x86_64::USER_ADDRESS_SPACES.install(index, hk_arch_x86_64::UserSpace::new(table));
     Ok((context, regions))
 }
 
@@ -253,7 +252,7 @@ impl UserMemory for UserPages<'_> {
         self.paging
             .map(VirtAddr::new(virtual_address), physical, PageFlags::USER_RW)
             .ok()?;
-        if !hk_platform_x86_64::paging::mapping_acquire(physical) {
+        if !hk_arch_x86_64::paging::mapping_acquire(physical) {
             return None;
         }
 

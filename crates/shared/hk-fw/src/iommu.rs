@@ -1,7 +1,7 @@
 //! 平台中性的 IOMMU 固件描述。
 //!
 //! x86 的 DMAR/IVRS 与 ARM/RISC-V 设备树节点统一映射为 [`IommuUnit`]；
-//! 具体硬件后端仍由各 `hk-platform-<arch>` 实现 `hk_hal::Iommu`。
+//! 具体硬件后端仍由各 `hk-arch-<arch>` 实现 `hk_hal::Iommu`。
 
 use alloc::vec::Vec;
 

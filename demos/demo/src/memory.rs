@@ -1,6 +1,6 @@
 //! HMP 自检：经 Memory Server 申请匿名能力，缺页取零页写入后释放。
 
-use hk_server_api::{
+use hk_user_api::{
     MemoryClient, RIGHT_READ, RIGHT_WRITE, alloc, arena_info, capability_swap, close_handle,
     frame_info, frame_map, ledger_info, region_info, region_unmap,
 };

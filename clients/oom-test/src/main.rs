@@ -4,7 +4,7 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{capacity_alloc, exit, set_oom_policy, write};
+use hk_user_api::{capacity_alloc, exit, set_oom_policy, write};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -21,4 +21,4 @@ pub extern "C" fn _start(_endpoint: u64, capacity: u64) -> ! {
     exit(2)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

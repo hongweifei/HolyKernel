@@ -35,13 +35,13 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 #[cfg(target_os = "none")]
+use hk_arch_x86_64::bootstrap;
+#[cfg(target_os = "none")]
+use hk_arch_x86_64::{COM1, PageTable, Serial};
+#[cfg(target_os = "none")]
 use hk_hal::ExitCode;
 #[cfg(target_os = "none")]
 use hk_hal::{Console, Platform};
-#[cfg(target_os = "none")]
-use hk_platform_x86_64::bootstrap;
-#[cfg(target_os = "none")]
-use hk_platform_x86_64::{COM1, PageTable, Serial};
 #[cfg(target_os = "none")]
 use hk_root_server::ServiceTable;
 
@@ -76,17 +76,17 @@ core::arch::global_asm!(
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
-    let boot_start = hk_platform_x86_64::timing::rdtsc();
+    let boot_start = hk_arch_x86_64::timing::rdtsc();
     let console = Serial::new(COM1);
     console.init();
     console.write_str("HolyKernel x86_64\n");
-    hk_platform_x86_64::cpu::init();
+    hk_arch_x86_64::cpu::init();
 
-    let frequency = hk_platform_x86_64::timing::calibrate();
+    let frequency = hk_arch_x86_64::timing::calibrate();
     match frequency {
         Some(hz) => {
             console.write_str(&format!("TSC 频率：{} MHz\n", hz / 1_000_000));
-            hk_platform_x86_64::rtc::init(hz);
+            hk_arch_x86_64::rtc::init(hz);
         }
         None => console.write_str("TSC 校准失败\n"),
     }
@@ -116,7 +116,7 @@ extern "C" fn kmain() -> ! {
     announce(&console, screen.as_ref(), "HolyKernel x86_64\n");
     announce(&console, screen.as_ref(), &format!("{info}"));
 
-    if let Err(error) = hk_platform_x86_64::platform::PLATFORM.init(&info) {
+    if let Err(error) = hk_arch_x86_64::platform::PLATFORM.init(&info) {
         announce(&console, screen.as_ref(), &format!("{error}\n"));
         hk_hal::exit(ExitCode::Failure(2));
     }
@@ -146,7 +146,7 @@ extern "C" fn kmain() -> ! {
     announce(&console, screen.as_ref(), &format!("{memory}\n"));
     let paging = PageTable::new(direct_map_base);
 
-    if !hk_platform_x86_64::cpu::init_stacks(&paging, &hk_platform_x86_64::paging::FRAME_BANK) {
+    if !hk_arch_x86_64::cpu::init_stacks(&paging, &hk_arch_x86_64::paging::FRAME_BANK) {
         fail(
             &console,
             screen.as_ref(),
@@ -154,7 +154,7 @@ extern "C" fn kmain() -> ! {
             ExitCode::Failure(3),
         );
     }
-    hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
+    hk_arch_x86_64::system_arena::register_kernel_mappings(&paging);
 
     if let Err(error) = bootstrap::init_interrupts(&paging, direct_map_base) {
         fail(
@@ -167,7 +167,7 @@ extern "C" fn kmain() -> ! {
     announce(&console, screen.as_ref(), "本地 APIC 就绪\n");
 
     if let Some(hz) = frequency {
-        hk_platform_x86_64::cpu::calibrate_tick(hz);
+        hk_arch_x86_64::cpu::calibrate_tick(hz);
     }
 
     match bootstrap::init_ioapic(&info, &paging, direct_map_base) {
@@ -201,18 +201,18 @@ extern "C" fn kmain() -> ! {
         screen.as_ref(),
         &format!("NUMA 物理记录：{numa}\n"),
     );
-    if let Some(phys) = hk_platform_x86_64::system::verify_numa_node() {
+    if let Some(phys) = hk_arch_x86_64::system::verify_numa_node() {
         announce(
             &console,
             screen.as_ref(),
             &format!("NUMA 节点分配 ok：节点 1 物理 {phys:#x}\n"),
         );
     }
-    hk_platform_x86_64::system_arena::register_kernel_mappings(&paging);
+    hk_arch_x86_64::system_arena::register_kernel_mappings(&paging);
 
     match smp::start() {
         Ok((started, online)) => {
-            let ipi = hk_platform_x86_64::cpu::ipi_count();
+            let ipi = hk_arch_x86_64::cpu::ipi_count();
             announce(
                 &console,
                 screen.as_ref(),
@@ -231,7 +231,7 @@ extern "C" fn kmain() -> ! {
                 screen.as_ref(),
                 &format!(
                     "AP 空闲 IPI 唤醒完成，TLB shootdown {} 次\n",
-                    hk_platform_x86_64::cpu::tlb_shootdowns()
+                    hk_arch_x86_64::cpu::tlb_shootdowns()
                 ),
             );
         }
@@ -275,14 +275,14 @@ extern "C" fn kmain() -> ! {
                 screen.as_ref(),
                 "帧缓冲测试：画面保持 2 秒后退出\n",
             );
-            hk_platform_x86_64::cpu::arm_timer(200);
-            while !hk_platform_x86_64::cpu::timer_finished() {
+            hk_arch_x86_64::cpu::arm_timer(200);
+            while !hk_arch_x86_64::cpu::timer_finished() {
                 // SAFETY: `hlt` 等到下一次定时器中断。
                 unsafe {
                     core::arch::asm!("hlt", options(nomem, nostack));
                 }
             }
-            hk_platform_x86_64::cpu::disarm_timer();
+            hk_arch_x86_64::cpu::disarm_timer();
         }
         _ => {
             announce(&console, screen.as_ref(), "加载服务并进入用户态\n");
@@ -290,7 +290,7 @@ extern "C" fn kmain() -> ! {
             if let Err(error) = loader::run(
                 &info,
                 direct_map_base,
-                &hk_platform_x86_64::paging::FRAME_BANK,
+                &hk_arch_x86_64::paging::FRAME_BANK,
                 &paging,
                 &mut services,
             ) {
@@ -305,14 +305,14 @@ extern "C" fn kmain() -> ! {
             announce(
                 &console,
                 screen.as_ref(),
-                &format!("调度 tick：{} 次\n", hk_platform_x86_64::cpu::timer_ticks()),
+                &format!("调度 tick：{} 次\n", hk_arch_x86_64::cpu::timer_ticks()),
             );
             report_time(&console, screen.as_ref(), "启动耗时", boot_start, frequency);
 
             let mut shell_loader = shell::Loader {
                 info: &info,
                 direct_map_base,
-                allocator: &hk_platform_x86_64::paging::FRAME_BANK,
+                allocator: &hk_arch_x86_64::paging::FRAME_BANK,
                 paging: &paging,
             };
 
@@ -363,7 +363,7 @@ extern "C" fn kmain() -> ! {
 }
 
 #[cfg(target_os = "none")]
-fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferConsole>, text: &str) {
+fn announce(console: &Serial, screen: Option<&hk_arch_x86_64::FramebufferConsole>, text: &str) {
     console.write_str(text);
     if let Some(screen) = screen {
         screen.write_str(text);
@@ -373,13 +373,13 @@ fn announce(console: &Serial, screen: Option<&hk_platform_x86_64::FramebufferCon
 #[cfg(target_os = "none")]
 fn report_time(
     console: &Serial,
-    screen: Option<&hk_platform_x86_64::FramebufferConsole>,
+    screen: Option<&hk_arch_x86_64::FramebufferConsole>,
     label: &str,
     start: u64,
     frequency: Option<u64>,
 ) {
     if let Some(frequency) = frequency {
-        let elapsed = hk_platform_x86_64::timing::elapsed_ms(start, frequency);
+        let elapsed = hk_arch_x86_64::timing::elapsed_ms(start, frequency);
         announce(console, screen, &format!("{label}：{elapsed} ms\n"));
     }
 }
@@ -387,7 +387,7 @@ fn report_time(
 #[cfg(target_os = "none")]
 fn fail(
     console: &Serial,
-    screen: Option<&hk_platform_x86_64::FramebufferConsole>,
+    screen: Option<&hk_arch_x86_64::FramebufferConsole>,
     message: &str,
     code: ExitCode,
 ) -> ! {
@@ -399,17 +399,17 @@ fn fail(
 fn run_timer_test(console: &Serial) -> ! {
     console.write_str("启动本地 APIC 定时器，等待 5 次中断\n");
 
-    hk_platform_x86_64::cpu::arm_timer(5);
+    hk_arch_x86_64::cpu::arm_timer(5);
 
-    while !hk_platform_x86_64::cpu::timer_finished() {
+    while !hk_arch_x86_64::cpu::timer_finished() {
         // SAFETY: `hlt` 等到下一次中断；中断由本地 APIC 定时器投递。
         unsafe {
             core::arch::asm!("hlt", options(nomem, nostack));
         }
     }
 
-    hk_platform_x86_64::cpu::disarm_timer();
-    let ticks = hk_platform_x86_64::cpu::timer_ticks();
+    hk_arch_x86_64::cpu::disarm_timer();
+    let ticks = hk_arch_x86_64::cpu::timer_ticks();
     let mut report = String::new();
     let _ = writeln!(report, "定时器中断 {ticks} 次");
     console.write_str(&report);
@@ -438,5 +438,5 @@ fn panic(info: &PanicInfo) -> ! {
 
 #[cfg(not(target_os = "none"))]
 fn main() {
-    eprintln!("hk-x86_64 只在 x86_64-unknown-none 目标上构建");
+    eprintln!("hk-image-x86_64-qemu 只在 x86_64-unknown-none 目标上构建");
 }

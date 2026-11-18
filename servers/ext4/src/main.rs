@@ -24,11 +24,11 @@ use hk_proto::holy::{HOLY_REQUEST, HOLY_RESPONSE, decode_request};
 #[cfg(target_os = "none")]
 use hk_proto::vfs::{STATUS_INVALID, encode_response};
 #[cfg(target_os = "none")]
-use hk_server_api::{recv_data_handle, send_data, write, yield_now};
+use hk_user_api::{recv_data_handle, send_data, write, yield_now};
 #[cfg(target_os = "none")]
 use hk_vfs::PathObject;
 
-hk_server_api::server_heap!(2 * 1024 * 1024);
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 /// 提供块设备的驱动服务。
 #[cfg(target_os = "none")]
@@ -46,7 +46,7 @@ fn reply(sender: u64, status: u8, data: &[u8], response: &mut [u8]) {
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
     let mut cmdline_buffer = [0_u8; 128];
-    let holyfs = hk_server_api::boot_cmdline(&mut cmdline_buffer)
+    let holyfs = hk_user_api::boot_cmdline(&mut cmdline_buffer)
         .is_some_and(|line| line.contains("vfs.fs=holyfs"));
     let mut drives = Drives::new();
     if holyfs {
@@ -86,7 +86,7 @@ struct RealtimeClock;
 #[cfg(target_os = "none")]
 impl WallClock for RealtimeClock {
     fn now(&self) -> Option<CivilTime> {
-        hk_server_api::civil_time()
+        hk_user_api::civil_time()
     }
 }
 
@@ -104,4 +104,4 @@ fn mount(endpoint: u64) -> Option<PathObject<Ext4Backend<ClientDisk>>> {
     None
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

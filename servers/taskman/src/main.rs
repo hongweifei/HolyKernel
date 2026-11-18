@@ -34,13 +34,13 @@ use hk_proto::display::{
 #[cfg(target_os = "none")]
 use hk_proto::input::{Decoder, Key};
 #[cfg(target_os = "none")]
-use hk_server_api::root::{self, ROOT_OP_PERF};
+use hk_user_api::root::{self, ROOT_OP_PERF};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write};
+use hk_user_api::{exit, recv_data_try, send, sleep_ticks, ticks, tsc, write};
 #[cfg(target_os = "none")]
 use model::{HISTORY, MAX_CORES, Page, PerfSample, REFRESH_TICKS, SortKey};
 
-hk_server_api::server_heap!(512 * 1024);
+hk_user_api::server_heap!(512 * 1024);
 /// Root 控制结果缓冲长度。
 #[cfg(target_os = "none")]
 const BUFFER_SIZE: usize = 64 * 1024;
@@ -280,7 +280,7 @@ fn scroll_by(app: &mut App, delta: i32) {
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(endpoint: u64) -> ! {
-    let mut display = hk_server_api::runtime::wait_service("hk-server-display").unwrap_or(0);
+    let mut display = hk_user_api::runtime::wait_service("hk-server-display").unwrap_or(0);
     if display == 0 {
         write(b"hk-server-taskman: no display\n");
         exit(1)
@@ -297,7 +297,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     show(&app, &window);
 
     let mut cmdline_buffer = [0_u8; 128];
-    let cmdline = hk_server_api::boot_cmdline(&mut cmdline_buffer);
+    let cmdline = hk_user_api::boot_cmdline(&mut cmdline_buffer);
     if selftest::selected(cmdline) {
         selftest::run(&mut app, &window, display);
     }
@@ -311,7 +311,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         if window.stale() {
             // Display 退出或换实例：旧表面随旧实例失效，重建窗口后重绘当前页。
             window.detach();
-            let next = hk_server_api::service_endpoint(DISPLAY_SERVICE);
+            let next = hk_user_api::service_endpoint(DISPLAY_SERVICE);
             if next == 0 {
                 if restart_test && reconnected {
                     exit(0)
@@ -406,4 +406,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

@@ -11,7 +11,7 @@ use hk_block_ipc::ClientDisk;
 use hk_fs_holyfs::{
     DocId, HolyError, HolyFs, VolumeId, format_with_volume_id, is_formatted, volume_id_for_drive,
 };
-use hk_holy_proto::response;
+use hk_holy_response::response;
 use hk_proto::vfs::{STATUS_EXISTS, STATUS_INVALID, STATUS_IO, STATUS_NOT_FOUND};
 
 /// 多个卷共享同一个块客户端，避免同一服务上的重复 Frame 映射。

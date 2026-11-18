@@ -11,7 +11,7 @@ use hk_proto::block::{
     OP_CAPACITY, OP_FLUSH, OP_READ, OP_WRITE, STATUS_BUSY, STATUS_ERROR, STATUS_INVALID, STATUS_OK,
     attach_word, decode_response, encode_request,
 };
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, MemoryClient, RIGHT_ADMIN, RIGHT_READ, RIGHT_TRANSFER, RIGHT_WRITE,
     close_handle, handle_duplicate, recv_data_handle_try, region_unmap, send, send_data,
     send_handle, service_endpoint, service_restarts,

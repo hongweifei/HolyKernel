@@ -5,7 +5,7 @@ use hk_proto::display::{
     DISPLAY_CLOSE, DISPLAY_KEY, DISPLAY_RESIZE, DISPLAY_WHEEL, pack_key, pack_wheel,
     pack_window_size,
 };
-use hk_server_api::{close_handle, format::Line, region_unmap, send};
+use hk_user_api::{close_handle, format::Line, region_unmap, send};
 
 use crate::compositor::set_scanout;
 use crate::compositor::{compose_window_region, damage_taskbar, damage_title, damage_window};

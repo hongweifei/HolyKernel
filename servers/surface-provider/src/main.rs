@@ -4,14 +4,14 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, PROVIDER_ERROR, PROVIDER_EVICT, PROVIDER_FAULT, PROVIDER_KIND_SURFACE,
     PROVIDER_PROVIDE, PROVIDER_RELEASE, PROVIDER_WRITEBACK, capability_bind_provider,
     capability_create_lazy, capacity_alloc, close_handle, frame_write, message_words,
     recv_data_handle, reply, reply_handle, send_handle,
 };
 
-hk_server_api::server_heap!(64 * 1024);
+hk_user_api::server_heap!(64 * 1024);
 
 /// 页长度。
 #[cfg(target_os = "none")]
@@ -82,4 +82,4 @@ fn serve_fault(capacity: u64) {
     let _ = reply_handle(PROVIDER_PROVIDE, 0, frame);
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

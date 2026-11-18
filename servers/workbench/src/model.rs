@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use hk_proto::holy::{DocId, KIND_COLLECTION, TOKEN_RIGHT_ADMIN, decode_entries};
 #[cfg(any(target_os = "none", test))]
 use hk_proto_client::HolyClient;
-use hk_server_api::{civil_time, kernel_stats, service_endpoint, ticks};
+use hk_user_api::{civil_time, kernel_stats, service_endpoint, ticks};
 
 /// 编辑器缓冲上限。
 pub(crate) const DOC_MAX: usize = 48 * 1024;

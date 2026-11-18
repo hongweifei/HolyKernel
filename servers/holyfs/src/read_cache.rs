@@ -6,7 +6,7 @@
 
 use hk_block::BlockDevice;
 use hk_fs_holyfs::{DocId, DocumentKind, HolyError, HolyFs};
-use hk_server_api::{MemoryClient, yield_now};
+use hk_user_api::{MemoryClient, yield_now};
 use hk_worker::Pool;
 
 /// 单篇缓存上限。

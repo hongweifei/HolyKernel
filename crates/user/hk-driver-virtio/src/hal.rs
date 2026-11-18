@@ -5,7 +5,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
-use hk_server_api::{
+use hk_user_api::{
     CapabilityKind, capability_create, capability_create_on, capability_phys, close_handle,
     device_map, dma_map, dma_sync, map_attach, pci_read, pci_write, region_unmap,
 };

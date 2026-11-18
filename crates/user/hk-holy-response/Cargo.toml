@@ -1,5 +1,5 @@
 [package]
-name = "hk-holy-proto"
+name = "hk-holy-response"
 description = "HolyKernel 原生文档协议的共享响应构造：状态映射与常见响应编码"
 version.workspace = true
 edition.workspace = true

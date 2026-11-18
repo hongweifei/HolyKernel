@@ -15,7 +15,7 @@ use hk_proto::scanout::{
     Client, SCANOUT_FLUSH, SCANOUT_PING, SCANOUT_PONG, SCANOUT_REGION, SCANOUT_REGION_INFO,
     SCANOUT_SERVICE,
 };
-use hk_server_api::{map_attach, recv_data_handle_try, send, yield_now};
+use hk_user_api::{map_attach, recv_data_handle_try, send, yield_now};
 
 /// 接管期间缓存的消息载荷上限（与合成器的接收缓冲一致）。
 pub(crate) const PENDING_PAYLOAD: usize = 256;
@@ -126,7 +126,7 @@ impl Scanout {
     /// 只发请求不等回复：Display 的端点同时承载客户端消息，阻塞等待会吞掉
     /// 客户端的表面提交；驱动的 `SCANOUT_FLUSH_ACK` 由主循环按未知标签忽略。
     pub(crate) fn flush(&self) {
-        let _ = hk_server_api::send(self.client.service(), SCANOUT_FLUSH, 0);
+        let _ = hk_user_api::send(self.client.service(), SCANOUT_FLUSH, 0);
     }
 }
 
@@ -155,8 +155,8 @@ fn queue(
 
 /// 等待服务名对应的端点；超时返回 `None`。
 fn wait_service(name: &str) -> Option<u64> {
-    for _ in 0..hk_server_api::runtime::SERVICE_WAIT_ATTEMPTS {
-        let endpoint = hk_server_api::service_endpoint(name);
+    for _ in 0..hk_user_api::runtime::SERVICE_WAIT_ATTEMPTS {
+        let endpoint = hk_user_api::service_endpoint(name);
         if endpoint != 0 {
             return Some(endpoint);
         }

@@ -8,12 +8,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
+use hk_arch_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
+use hk_arch_x86_64::paging;
+use hk_arch_x86_64::timing;
+use hk_arch_x86_64::{COM1, Serial, USER_ADDRESS_SPACES};
 use hk_checkpoint::Page;
 use hk_hal::{BootModule, Console, SyscallFrame};
-use hk_platform_x86_64::cpu::{self, FaultAction, InterruptFrame, SyscallAction};
-use hk_platform_x86_64::paging;
-use hk_platform_x86_64::timing;
-use hk_platform_x86_64::{COM1, Serial, USER_ADDRESS_SPACES};
 use hk_root_server::{
     CowOutcome, FaultOutcome, ModuleRecord, RuntimeHost, ServiceSpec, ServiceTable, Switch,
     TaskInfo, UserPlatform,
@@ -92,7 +92,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn civil_time(&self) -> Option<hk_base::CivilTime> {
-        hk_platform_x86_64::rtc::civil_time()
+        hk_arch_x86_64::rtc::civil_time()
     }
 
     fn boot_cmdline(&self) -> Option<&'static str> {
@@ -100,11 +100,11 @@ impl UserPlatform for X86Platform {
     }
 
     fn take_acpi_events(&self) -> u64 {
-        hk_platform_x86_64::bootstrap::take_acpi_events()
+        hk_arch_x86_64::bootstrap::take_acpi_events()
     }
 
     fn set_acpi_listener(&self) {
-        hk_platform_x86_64::bootstrap::set_acpi_listener();
+        hk_arch_x86_64::bootstrap::set_acpi_listener();
     }
 
     fn temperature_celsius(&self) -> Option<u8> {
@@ -116,11 +116,11 @@ impl UserPlatform for X86Platform {
     }
 
     fn numa_distance(&self, from: u8, to: u8) -> u8 {
-        hk_platform_x86_64::bootstrap::numa_distance(from, to)
+        hk_arch_x86_64::bootstrap::numa_distance(from, to)
     }
 
     fn numa_node_count(&self) -> u8 {
-        hk_platform_x86_64::bootstrap::numa_node_count()
+        hk_arch_x86_64::bootstrap::numa_node_count()
     }
 
     fn pci_read(&self, bus: u8, device: u8, function: u8, offset: u8) -> u32 {
@@ -163,7 +163,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn page_shared(&self, phys: hk_hal::PhysAddr) -> bool {
-        hk_platform_x86_64::paging::is_shared_frame(phys)
+        hk_arch_x86_64::paging::is_shared_frame(phys)
     }
 
     fn resolve_cow(
@@ -171,9 +171,9 @@ impl UserPlatform for X86Platform {
         address: u64,
         capacity: Option<&alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>>,
     ) -> Option<CowOutcome> {
-        match hk_platform_x86_64::paging::resolve_cow(address, capacity) {
-            Some(hk_platform_x86_64::paging::CowResolution::Writable) => Some(CowOutcome::Writable),
-            Some(hk_platform_x86_64::paging::CowResolution::Copied(phys)) => {
+        match hk_arch_x86_64::paging::resolve_cow(address, capacity) {
+            Some(hk_arch_x86_64::paging::CowResolution::Writable) => Some(CowOutcome::Writable),
+            Some(hk_arch_x86_64::paging::CowResolution::Copied(phys)) => {
                 Some(CowOutcome::Copied(phys.get()))
             }
             None => None,
@@ -181,11 +181,11 @@ impl UserPlatform for X86Platform {
     }
 
     fn numa_topology(&self) -> Vec<(hk_hal::PhysRange, u8)> {
-        hk_platform_x86_64::bootstrap::numa_topology()
+        hk_arch_x86_64::bootstrap::numa_topology()
     }
 
     fn take_irqs(&self, pending: &mut [u64; 4]) {
-        *pending = hk_platform_x86_64::irq::take_pending();
+        *pending = hk_arch_x86_64::irq::take_pending();
     }
 
     fn console_read(&self) -> Option<u8> {
@@ -193,11 +193,11 @@ impl UserPlatform for X86Platform {
         if hk_boot::limine::cmdline().is_some_and(|line| line.contains("input-driver")) {
             return None;
         }
-        hk_platform_x86_64::keyboard::read().or_else(|| Serial::new(COM1).try_read_byte())
+        hk_arch_x86_64::keyboard::read().or_else(|| Serial::new(COM1).try_read_byte())
     }
 
     fn take_console_input(&self) -> bool {
-        hk_platform_x86_64::keyboard::take_input()
+        hk_arch_x86_64::keyboard::take_input()
     }
 
     fn interrupt_controller(&self) -> Option<&dyn hk_hal::InterruptController> {
@@ -230,7 +230,7 @@ impl UserPlatform for X86Platform {
     ) -> Option<hk_mem::hmp::Capacity> {
         // Gpu 授予来自启动期预留的 Gpu Capacity；其余授予从 System 切出。
         if kind == hk_mem::hmp::CapacityKind::Gpu {
-            let gpu = hk_platform_x86_64::system::gpu_capacity()?;
+            let gpu = hk_arch_x86_64::system::gpu_capacity()?;
             let limit = len as u64 / hk_hal::PAGE_SIZE as u64 * hk_hal::PAGE_SIZE as u64;
             if limit == 0 {
                 return None;
@@ -240,36 +240,36 @@ impl UserPlatform for X86Platform {
                 .split_free(hk_mem::hmp::CapacityId::next(), kind, limit)
                 .ok();
         }
-        hk_platform_x86_64::system::split_capacity(len, kind)
+        hk_arch_x86_64::system::split_capacity(len, kind)
     }
 
     fn user_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        hk_platform_x86_64::system::user_capacity()
+        hk_arch_x86_64::system::user_capacity()
     }
 
     fn gpu_capacity(&self) -> Option<alloc::sync::Arc<spin::Mutex<hk_mem::hmp::Capacity>>> {
-        hk_platform_x86_64::system::gpu_capacity()
+        hk_arch_x86_64::system::gpu_capacity()
     }
 
     fn numa_free(&self, node: u8) -> Option<u64> {
-        Some(hk_platform_x86_64::paging::FRAME_BANK.free_in_node(node))
+        Some(hk_arch_x86_64::paging::FRAME_BANK.free_in_node(node))
     }
 
     fn page_node(&self, phys: hk_hal::PhysAddr) -> Option<u8> {
-        hk_platform_x86_64::paging::FRAME_BANK
+        hk_arch_x86_64::paging::FRAME_BANK
             .node_of(hk_hal::PhysRange::new(phys, hk_hal::PAGE_SIZE as u64))
     }
 
     fn frame_bank_stats(&self) -> Option<hk_mem::FrameBankStats> {
-        Some(hk_platform_x86_64::paging::FRAME_BANK.stats())
+        Some(hk_arch_x86_64::paging::FRAME_BANK.stats())
     }
 
     fn ledger_stats(&self) -> Option<Vec<hk_mem::LedgerStats>> {
-        Some(hk_platform_x86_64::paging::FRAME_BANK.ledger_stats())
+        Some(hk_arch_x86_64::paging::FRAME_BANK.ledger_stats())
     }
 
     fn system_arena_info(&self) -> Option<hk_root_server::SystemArenaInfo> {
-        let snapshot = hk_platform_x86_64::system_arena::snapshot()?;
+        let snapshot = hk_arch_x86_64::system_arena::snapshot()?;
         Some(hk_root_server::SystemArenaInfo {
             base: snapshot.base,
             size: snapshot.size,
@@ -279,7 +279,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn system_arena_region(&self, index: usize) -> Option<hk_root_server::SystemRegionRecord> {
-        let region = hk_platform_x86_64::system_arena::region(index)?;
+        let region = hk_arch_x86_64::system_arena::region(index)?;
         Some(hk_root_server::SystemRegionRecord {
             virt: region.virt(),
             len: region.len(),
@@ -289,16 +289,16 @@ impl UserPlatform for X86Platform {
     }
 
     fn zero(&self, address: u64, length: usize) {
-        hk_platform_x86_64::cpu::user_access_begin();
+        hk_arch_x86_64::cpu::user_access_begin();
         // SAFETY: Arena 页已映射到当前用户页表，SMAP 由 STAC/CLAC 临时放行。
         unsafe {
             core::ptr::write_bytes(address as *mut u8, 0, length);
         }
-        hk_platform_x86_64::cpu::user_access_end();
+        hk_arch_x86_64::cpu::user_access_end();
     }
 
     fn write_phys(&self, phys: hk_hal::PhysAddr, data: &[u8]) -> bool {
-        let base = hk_platform_x86_64::paging::direct_map_base();
+        let base = hk_arch_x86_64::paging::direct_map_base();
         if base == 0 {
             return false;
         }
@@ -311,7 +311,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn read_phys(&self, phys: hk_hal::PhysAddr, buffer: &mut [u8]) -> bool {
-        let base = hk_platform_x86_64::paging::direct_map_base();
+        let base = hk_arch_x86_64::paging::direct_map_base();
         if base == 0 {
             return false;
         }
@@ -324,7 +324,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn user_mapped(&self, address: u64) -> bool {
-        user_range(address, 1) && hk_platform_x86_64::paging::is_user_mapped(address)
+        user_range(address, 1) && hk_arch_x86_64::paging::is_user_mapped(address)
     }
 
     fn read_user(&self, address: u64, buffer: &mut [u8]) -> bool {
@@ -334,12 +334,12 @@ impl UserPlatform for X86Platform {
         if !user_range(address, buffer.len()) {
             return false;
         }
-        hk_platform_x86_64::cpu::user_access_begin();
+        hk_arch_x86_64::cpu::user_access_begin();
         // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
         unsafe {
             core::ptr::copy_nonoverlapping(address as *const u8, buffer.as_mut_ptr(), buffer.len());
         }
-        hk_platform_x86_64::cpu::user_access_end();
+        hk_arch_x86_64::cpu::user_access_end();
         true
     }
 
@@ -350,12 +350,12 @@ impl UserPlatform for X86Platform {
         if !user_range(address, data.len()) {
             return false;
         }
-        hk_platform_x86_64::cpu::user_access_begin();
+        hk_arch_x86_64::cpu::user_access_begin();
         // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
         unsafe {
             core::ptr::copy_nonoverlapping(data.as_ptr(), address as *mut u8, data.len());
         }
-        hk_platform_x86_64::cpu::user_access_end();
+        hk_arch_x86_64::cpu::user_access_end();
         true
     }
 
@@ -364,7 +364,7 @@ impl UserPlatform for X86Platform {
     }
 
     fn memory_limit(&self, _slot: usize) -> u64 {
-        hk_platform_x86_64::dma::POOL_BYTES as u64
+        hk_arch_x86_64::dma::POOL_BYTES as u64
     }
 
     fn activate(&self, slot: usize) {
@@ -403,18 +403,17 @@ impl UserPlatform for X86Platform {
 
     fn arm_wakeup(&self, deadline: Option<u64>) {
         let Some(at) = deadline else {
-            hk_platform_x86_64::cpu::resume_periodic();
+            hk_arch_x86_64::cpu::resume_periodic();
             return;
         };
-        let frequency = hk_platform_x86_64::timing::tsc_frequency();
+        let frequency = hk_arch_x86_64::timing::tsc_frequency();
         if frequency == 0 {
             return;
         }
-        let now = (u128::from(hk_platform_x86_64::timing::rdtsc()) * 1_000_000
-            / u128::from(frequency))
-        .min(u128::from(u64::MAX)) as u64;
+        let now = (u128::from(hk_arch_x86_64::timing::rdtsc()) * 1_000_000 / u128::from(frequency))
+            .min(u128::from(u64::MAX)) as u64;
         let delta = at.saturating_sub(now).clamp(1, 10_000);
-        hk_platform_x86_64::cpu::arm_oneshot(delta);
+        hk_arch_x86_64::cpu::arm_oneshot(delta);
     }
 
     fn framebuffer(&self) -> Option<hk_hal::FramebufferInfo> {
@@ -508,7 +507,7 @@ impl UserPlatform for X86Platform {
                 return false;
             }
         }
-        USER_ADDRESS_SPACES.install(slot, hk_platform_x86_64::UserSpace::new(table));
+        USER_ADDRESS_SPACES.install(slot, hk_arch_x86_64::UserSpace::new(table));
         true
     }
 
@@ -526,7 +525,7 @@ static RUNTIME: Runtime = RuntimeHost::new();
 
 /// 返回任务槽位的 Arena 基址与大小。
 pub fn arena(slot: usize) -> (u64, u64) {
-    X86Platform(&hk_platform_x86_64::platform::PLATFORM).arena_layout(slot)
+    X86Platform(&hk_arch_x86_64::platform::PLATFORM).arena_layout(slot)
 }
 
 /// 解析镜像符号表；平台只负责定位模块字节。
@@ -563,7 +562,7 @@ pub fn register_modules(info: &hk_hal::BootInfo, modules: &[&BootModule]) {
 pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
     RUNTIME.boot(
         specs,
-        X86Platform(&hk_platform_x86_64::platform::PLATFORM),
+        X86Platform(&hk_arch_x86_64::platform::PLATFORM),
         |_index, endpoint| cpu::user_frame(0, 0, endpoint),
     )?;
     let online = 1 + hk_smp::AP_POOL.online();

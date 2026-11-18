@@ -6,7 +6,7 @@
 #[cfg(target_os = "none")]
 use hk_proto::console::Client;
 #[cfg(target_os = "none")]
-use hk_server_api::{boot_cmdline, exit, write};
+use hk_user_api::{boot_cmdline, exit, write};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -30,4 +30,4 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     exit(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();

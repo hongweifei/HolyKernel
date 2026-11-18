@@ -9,7 +9,7 @@ use hk_proto::console::{
 #[cfg(target_os = "none")]
 use hk_proto::display::{DISPLAY_SERVICE, DISPLAY_SHUTDOWN};
 #[cfg(target_os = "none")]
-use hk_server_api::{exit, recv_data_from, recv_data_try, send, send_data, sleep_ticks, write};
+use hk_user_api::{exit, recv_data_from, recv_data_try, send, send_data, sleep_ticks, write};
 
 /// 服务入口。
 #[cfg(target_os = "none")]
@@ -72,7 +72,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
 
 #[cfg(target_os = "none")]
 fn wait_for(name: &str) -> u64 {
-    hk_server_api::runtime::wait_service(name).unwrap_or(0)
+    hk_user_api::runtime::wait_service(name).unwrap_or(0)
 }
 
-hk_server_api::server_boilerplate!();
+hk_user_api::server_boilerplate!();
