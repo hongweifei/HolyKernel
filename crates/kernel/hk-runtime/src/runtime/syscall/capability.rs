@@ -21,6 +21,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return true;
         };
         let range = backing.range();
+        if self.platform.zero_phys(range.start(), range.len() as usize) {
+            return true;
+        }
         let zero = [0_u8; PAGE_SIZE];
         let mut offset = 0_u64;
         while offset < range.len() {

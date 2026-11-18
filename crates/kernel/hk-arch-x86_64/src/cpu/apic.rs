@@ -37,8 +37,22 @@ pub fn init_ap(cpu: usize) {
 
 /// 向指定本地 APIC 发送固定投递 IPI。
 pub fn send_ipi(destination: u8, vector: u8) {
+    // ICR 在上一笔投递完成前不能安全重写；高频 TLB shootdown 下若不等
+    // delivery status，IPI 会被丢弃，发送方随后只能等到超时。
+    for _ in 0..1_000_000 {
+        if lapic_read(LAPIC_ICR_LOW) & (1 << 12) == 0 {
+            break;
+        }
+        core::hint::spin_loop();
+    }
     lapic_write(LAPIC_ICR_HIGH, u32::from(destination) << 24);
     lapic_write(LAPIC_ICR_LOW, 0x0000_4000 | u32::from(vector));
+    for _ in 0..1_000_000 {
+        if lapic_read(LAPIC_ICR_LOW) & (1 << 12) == 0 {
+            break;
+        }
+        core::hint::spin_loop();
+    }
 }
 
 /// 返回已接收的 IPI 数量。

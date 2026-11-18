@@ -317,6 +317,19 @@ impl UserPlatform for X86Platform {
         true
     }
 
+    fn zero_phys(&self, phys: hk_hal::PhysAddr, len: usize) -> bool {
+        let base = hk_arch_x86_64::paging::direct_map_base();
+        if base == 0 {
+            return false;
+        }
+        let destination = base.saturating_add(phys.get()) as *mut u8;
+        // SAFETY: 调用方持有该 Frame 的写权限；物理页经 direct map 可写。
+        unsafe {
+            core::ptr::write_bytes(destination, 0, len);
+        }
+        true
+    }
+
     fn read_phys(&self, phys: hk_hal::PhysAddr, buffer: &mut [u8]) -> bool {
         let base = hk_arch_x86_64::paging::direct_map_base();
         if base == 0 {

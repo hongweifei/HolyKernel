@@ -225,6 +225,11 @@ pub trait UserPlatform {
     fn write_phys(&self, _phys: hk_hal::PhysAddr, _data: &[u8]) -> bool {
         false
     }
+
+    /// 清零一段常驻物理内存；平台支持批量清零时应覆盖此方法。
+    fn zero_phys(&self, _phys: hk_hal::PhysAddr, _len: usize) -> bool {
+        false
+    }
     /// 从一段常驻物理内存读入字节；平台无法访问时返回 `false`。
     fn read_phys(&self, _phys: hk_hal::PhysAddr, _buffer: &mut [u8]) -> bool {
         false
