@@ -138,6 +138,13 @@ Windows + WHPX 下 39 个冒烟模式通过；`debugfault` 的 fork 写时复制
 
 ## 4. 测试策略
 
+### 布局
+
+- 单文件内联 `#[cfg(test)] mod tests`：测试代码少于 200 行。
+- `src/tests/`（或 `src/<module>/tests/`）：同一 crate 的单元测试超过 200 行。
+- `tests/`：仅用于需要 crate 公共 API 的集成测试（目前只有 `platforms/hosted/tests`）。
+- `use super::*` 只允许出现在测试模块，并需 `#[allow(clippy::wildcard_imports)]`。
+
 ### 金字塔
 
 ```text

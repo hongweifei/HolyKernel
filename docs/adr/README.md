@@ -24,6 +24,7 @@
 | [0016](0016-hmp-native-contract.md) | Holy Memory Plane 作为唯一内存面 | 已接受 |
 | [0017](0017-holy-cadence.md) | Holy Cadence Model 作为原生调度契约 | 已接受 |
 | [0018](0018-multiarch-platform.md) | 多架构平台分层、依赖契约与可移植 COW | 已接受 |
+| [0019](0019-shared-holy-dispatch.md) | Holy 文档协议的共享分派 | 已接受 |
 
 ## 模板
 

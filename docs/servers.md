@@ -209,6 +209,7 @@ Compatibility Server 是用户态 supervisor：按应用声明选择 POSIX、Lin
 - 对象模型：卷、文档、修订、集合、标签、快照；文档由集合项、标签与快照保活。
 - 原生操作：`Stage`/`WriteRange`/`Commit`/`Read`/`Append`、`Bind`/`Unbind`/`Relocate`、`Checkout`/`Seal`/`Prune`、`Snapshot`/`Restore`/`Forget`、`Grant`/`Revoke`。
 - 通过 Block Endpoint 访问存储；全元数据 COW、checksum、双超级块。原生客户端直接向 `hk-server-holyfs` 发送 Holy 协议请求，并可按块服务动态 `Attach`/`Detach` 盘符。
+- 通用文档 op（读、写、令牌、修订、同步等 22 个）经由 `hk-holy-service` 的 `DriveSource` 分派，与 VFS/ext4 共用同一份实现；快照、标签、配额、维护与 staging 仍由 HolyFS 自身处理。`Attach`/`Detach` 依赖块客户端，留在服务入口，暂未进入冒烟断言。
 - POSIX 兼容环境的根文件系统为 ext4/ext2；HolyFS 作为 Holy 卷服务。
 - 详见 [HolyFS](holyfs.md)。
 

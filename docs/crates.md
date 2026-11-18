@@ -27,7 +27,7 @@ crate 按侧别划分：共享契约、内核侧与用户态。侧别同时决�
 | L4 | 内核侧 | `hk-runtime`、`hk-root-server`、`hk-kernel-shell`、`hk-sim` | 用户任务视图与系统调用分派、镜像装载与服务表、内核态 Shell 宿主、确定性仿真 |
 | L4 | 内核侧 | `hk-arch-hosted`、`hk-arch-x86_64`、`platforms/*` | Hosted 模拟与 x86_64 硬件适配 |
 | L2 | 用户态 | `hk-syscall-client` | 零分配系统调用薄客户端：参数整理、返回值解包与 Root 控制；并发库直接使用 |
-| L2 | 用户态 | `hk-user-api` | 内核提供给用户态服务的通用面：HMP、Root 控制、设备授权、帧缓冲与运行时样板；系统调用薄封装重新导出 `hk-syscall-client` |
+| L2 | 用户态 | `hk-user-api` | 内核提供给用户态服务的通用面：HMP、Root 控制、设备授权（`request_grant`）、帧缓冲、`server_heap!` 堆样板与运行时样板；系统调用薄封装重新导出 `hk-syscall-client` |
 | L2 | 用户态 | `hk-proto` | 服务线协议、公共帧编解码、状态词表与协议标签区间 |
 | L2 | 用户态 | `hk-proto-client` | Holy/VFS 协议客户端；收发缓冲在首次请求时按需分配 |
 | L2 | 用户态 | `hk-block`、`hk-block-ipc`、`hk-vfs`、`hk-fs`、`hk-holy-response`、`hk-holy-service`、`hk-fs-remote`、`hk-fs-ext4`、`hk-fs-holyfs` | 块契约与内存盘、块服务 IPC 运行时、命名空间、文件系统契约、原生文档响应层、服务端分派、远程后端适配与实现 |
