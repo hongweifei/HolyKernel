@@ -6,6 +6,8 @@
         // 保证不会复用此前遗留的失效条目。
         #[cfg(not(test))]
         tlb::flush_all();
+        #[cfg(not(test))]
+        tlb::flush_all();
 
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 
