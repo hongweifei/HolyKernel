@@ -646,7 +646,6 @@ name = "hk-client-checkpoint-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -655,7 +654,6 @@ name = "hk-client-console-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -664,7 +662,6 @@ name = "hk-client-dbg"
 version = "0.1.0"
 dependencies = [
  "hk-debug",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -673,7 +670,6 @@ name = "hk-client-display-restart-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -682,7 +678,6 @@ name = "hk-client-display-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -690,7 +685,6 @@ dependencies = [
 name = "hk-client-gpu-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-syscall",
  "hk-user-api",
 ]
@@ -699,7 +693,6 @@ dependencies = [
 name = "hk-client-image-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-syscall",
  "hk-user-api",
 ]
@@ -709,7 +702,6 @@ name = "hk-client-netsock"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -718,7 +710,6 @@ name = "hk-client-netstat"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -726,7 +717,6 @@ dependencies = [
 name = "hk-client-numa-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -734,7 +724,6 @@ dependencies = [
 name = "hk-client-oom-observer"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -742,7 +731,6 @@ dependencies = [
 name = "hk-client-oom-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -751,7 +739,6 @@ name = "hk-client-pointer-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -760,7 +747,6 @@ name = "hk-client-sound-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -768,7 +754,6 @@ dependencies = [
 name = "hk-client-swap-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-syscall",
  "hk-user-api",
 ]
@@ -778,7 +763,6 @@ name = "hk-client-terminal-test"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1124,7 +1108,6 @@ dependencies = [
  "hk-device",
  "hk-driver-host",
  "hk-driver-rdif",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1134,7 +1117,6 @@ version = "0.1.0"
 dependencies = [
  "hk-block",
  "hk-block-ipc",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1151,7 +1133,6 @@ version = "0.1.0"
 dependencies = [
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1162,7 +1143,6 @@ dependencies = [
  "hk-canvas",
  "hk-font",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1170,11 +1150,11 @@ dependencies = [
 name = "hk-server-debug"
 version = "0.1.0"
 dependencies = [
+ "hk-base",
  "hk-canvas",
  "hk-debug",
  "hk-font",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1186,7 +1166,6 @@ dependencies = [
  "hk-coroutine",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-sync",
  "hk-thread",
  "hk-user-api",
@@ -1198,7 +1177,6 @@ version = "0.1.0"
 dependencies = [
  "hk-device",
  "hk-image",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1209,7 +1187,6 @@ dependencies = [
  "hk-canvas",
  "hk-font",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1218,7 +1195,6 @@ name = "hk-server-echo"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
  "hk-worker",
 ]
@@ -1233,7 +1209,6 @@ dependencies = [
  "hk-fs-ext4",
  "hk-holy-service",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
  "hk-vfs",
 ]
@@ -1242,7 +1217,6 @@ dependencies = [
 name = "hk-server-fault"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1250,7 +1224,6 @@ dependencies = [
 name = "hk-server-fork"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1258,7 +1231,6 @@ dependencies = [
 name = "hk-server-gpu-provider"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-syscall",
  "hk-user-api",
 ]
@@ -1271,7 +1243,6 @@ dependencies = [
  "hk-font",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
  "hk-worker",
 ]
@@ -1288,7 +1259,6 @@ dependencies = [
  "hk-holy-response",
  "hk-holy-service",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
  "hk-worker",
 ]
@@ -1297,7 +1267,6 @@ dependencies = [
 name = "hk-server-image"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-sync",
  "hk-syscall",
  "hk-user-api",
@@ -1310,7 +1279,6 @@ dependencies = [
  "hk-device",
  "hk-driver-virtio",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1318,7 +1286,6 @@ dependencies = [
 name = "hk-server-latency"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1326,7 +1293,6 @@ dependencies = [
 name = "hk-server-memory"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-syscall",
  "hk-thread",
  "hk-user-api",
@@ -1337,7 +1303,6 @@ dependencies = [
 name = "hk-server-memory-test"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1347,7 +1312,6 @@ version = "0.1.0"
 dependencies = [
  "hk-net",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1359,7 +1323,6 @@ dependencies = [
  "hk-device",
  "hk-driver-host",
  "hk-driver-rdif",
- "hk-server-build",
  "hk-user-api",
  "nvme-driver",
 ]
@@ -1372,7 +1335,6 @@ dependencies = [
  "hk-fs-remote",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
  "hk-vfs",
 ]
@@ -1383,7 +1345,6 @@ version = "0.1.0"
 dependencies = [
  "hk-cadence",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1395,7 +1356,6 @@ dependencies = [
  "hk-debug",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-shell",
  "hk-user-api",
 ]
@@ -1404,7 +1364,6 @@ dependencies = [
 name = "hk-server-spin"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1413,7 +1372,6 @@ name = "hk-server-surface-provider"
 version = "0.1.0"
 dependencies = [
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1424,7 +1382,6 @@ dependencies = [
  "hk-canvas",
  "hk-font",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1435,7 +1392,6 @@ dependencies = [
  "hk-cadence",
  "hk-catalog",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1445,7 +1401,6 @@ version = "0.1.0"
 dependencies = [
  "hk-cadence",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1457,7 +1412,6 @@ dependencies = [
  "hk-driver-host",
  "hk-driver-usb",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1470,7 +1424,6 @@ dependencies = [
  "hk-holy-service",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
  "hk-vfs",
 ]
@@ -1484,7 +1437,6 @@ dependencies = [
  "hk-device",
  "hk-driver-virtio",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1495,7 +1447,6 @@ dependencies = [
  "hk-device",
  "hk-driver-virtio",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1506,7 +1457,6 @@ dependencies = [
  "hk-device",
  "hk-driver-virtio",
  "hk-proto",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1514,7 +1464,6 @@ dependencies = [
 name = "hk-server-wakeup"
 version = "0.1.0"
 dependencies = [
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1527,7 +1476,6 @@ dependencies = [
  "hk-font",
  "hk-proto",
  "hk-proto-client",
- "hk-server-build",
  "hk-user-api",
 ]
 
@@ -1592,6 +1540,7 @@ name = "hk-user-api"
 version = "0.1.0"
 dependencies = [
  "hk-base",
+ "hk-catalog",
  "hk-syscall",
  "hk-syscall-client",
  "linked_list_allocator",
