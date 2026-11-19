@@ -13,6 +13,8 @@ use spin::Mutex;
 
 use crate::task::Task;
 
+static NEXT_PROVIDER_TOKEN: AtomicU64 = AtomicU64::new(1);
+
 /// 内核对象的负载。
 pub enum ObjectPayload {
     /// 同步 IPC 端点。
@@ -48,6 +50,8 @@ pub enum ObjectPayload {
         provider: Mutex<Option<ObjectId>>,
         /// 绑定 Provider 的任务；只有该任务能按对象标识重新取得句柄。
         provider_task: Mutex<Option<u64>>,
+        /// 内核授予 Provider 的回收令牌；用于校验回收消息来源。
+        provider_token: AtomicU64,
         /// 按需装入的页；只保存已装入页。
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
         /// 正在等待 Provider 确认的页，防止并发重复换出。
@@ -395,11 +399,27 @@ impl KernelObject {
         if let ObjectPayload::Capability {
             provider,
             provider_task,
+            provider_token,
             ..
         } = &self.payload
         {
             *provider.lock() = Some(endpoint);
             *provider_task.lock() = Some(task);
+            provider_token.store(
+                NEXT_PROVIDER_TOKEN.fetch_add(1, Ordering::Relaxed),
+                Ordering::Release,
+            );
+        }
+    }
+
+    /// 返回内核授予该能力 Provider 的回收令牌。
+    pub fn capability_provider_token(&self) -> Option<u64> {
+        match &self.payload {
+            ObjectPayload::Capability { provider_token, .. } => {
+                let token = provider_token.load(Ordering::Acquire);
+                (token != 0).then_some(token)
+            }
+            _ => None,
         }
     }
 

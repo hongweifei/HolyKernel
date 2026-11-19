@@ -443,6 +443,7 @@ impl Kernel {
             backing: Mutex::new(backing),
             provider: Mutex::new(None),
             provider_task: Mutex::new(None),
+            provider_token: AtomicU64::new(0),
             pages: Mutex::new(BTreeMap::new()),
             reclaiming: Mutex::new(BTreeSet::new()),
             resident_peak: AtomicU64::new(resident),
@@ -578,6 +579,16 @@ impl Kernel {
     ) -> Result<Option<ObjectId>, KernelError> {
         let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
         Ok(object.capability_provider())
+    }
+
+    /// 返回内核授予该能力 Provider 的回收令牌。
+    pub fn capability_provider_token(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+    ) -> Result<Option<u64>, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_provider_token())
     }
 
     /// 返回能力内已装入的页。

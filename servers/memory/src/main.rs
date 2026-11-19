@@ -70,16 +70,17 @@ fn store_page(source: &[u8]) -> Option<Stored> {
     }
 }
 
-/// Provider 创建过的匿名能力：对象标识与长度，供压力回收线程使用。
+/// Provider 创建过的匿名能力：对象标识、长度与内核回收令牌。
 #[cfg(target_os = "none")]
-static TRACKED: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
+static TRACKED: Mutex<Vec<(u64, usize, u64)>> = Mutex::new(Vec::new());
 
 #[cfg(target_os = "none")]
-fn tracked_object(id: u64) -> bool {
+fn tracked_token(id: u64) -> Option<u64> {
     TRACKED
         .lock()
         .iter()
-        .any(|(capability, _)| *capability == id)
+        .find(|(capability, _, _)| *capability == id)
+        .map(|(_, _, token)| *token)
 }
 
 /// 压力回收线程：低于阈值时按对象标识重新取句柄并逐页请求换出。
@@ -94,7 +95,7 @@ extern "C" fn reclaim_worker(notification: u64) -> ! {
             && free.saturating_mul(100) / total <= threshold
         {
             let tracked = TRACKED.lock().clone();
-            'tracked: for (id, size) in tracked {
+            'tracked: for (id, size, _) in tracked {
                 if let Some((free, total, threshold)) = memory_pressure()
                     && total > 0
                     && free.saturating_mul(100) / total > threshold
@@ -237,7 +238,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                             return None;
                         }
                         if let Some(id) = handle_id(memory.raw()) {
-                            TRACKED.lock().push((id, size));
+                            TRACKED.lock().push((id, size, 0));
                         }
                         Some(memory.raw())
                     } else {
@@ -268,7 +269,7 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 swapped.retain(|((capability, _), _)| *capability != words[0]);
                 TRACKED
                     .lock()
-                    .retain(|(capability, _)| *capability != words[0]);
+                    .retain(|(capability, _, _)| *capability != words[0]);
             }
             continue;
         }
@@ -277,7 +278,9 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             };
-            if !tracked_object(words[0]) {
+            let authorized =
+                tracked_token(words[0]).is_some_and(|token| token != 0 && token == words[6]);
+            if !authorized {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
@@ -319,7 +322,9 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             };
-            if !tracked_object(words[0]) {
+            let authorized =
+                tracked_token(words[0]).is_some_and(|token| token != 0 && token == words[6]);
+            if !authorized {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             }
@@ -371,11 +376,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             let required = (page_index as usize + 1).saturating_mul(PAGE);
             if let Some(entry) = tracked
                 .iter_mut()
-                .find(|(capability, _)| *capability == words[4])
+                .find(|(capability, _, _)| *capability == words[4])
             {
                 entry.1 = entry.1.max(required);
+                entry.2 = words[7];
             } else {
-                tracked.push((words[4], required));
+                tracked.push((words[4], required, words[7]));
             }
         }
         let mut buffer = [0_u8; PAGE];

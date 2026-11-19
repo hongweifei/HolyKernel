@@ -310,6 +310,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 page_index += 1;
                 continue;
             }
+            let token = self
+                .kernel
+                .capability_provider_token(tcb, handle)
+                .ok()
+                .flatten()
+                .unwrap_or(0);
             let words = [
                 object.get(),
                 first as u64,
@@ -317,7 +323,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 page,
                 if count == 1 { 0 } else { count as u64 },
                 self.oom.events,
-                0,
+                token,
                 0,
             ];
             let label = if count == 1 {

@@ -103,6 +103,8 @@ pub struct FaultMessage {
     pub rights: u32,
     /// Region 标志位。
     pub flags: u32,
+    /// 内核授予该能力绑定 Provider 的回收令牌。
+    pub token: u64,
 }
 
 impl FaultMessage {
@@ -116,7 +118,7 @@ impl FaultMessage {
             self.capability,
             self.rights as u64,
             self.flags as u64,
-            0,
+            self.token,
         ]
     }
 
@@ -130,6 +132,7 @@ impl FaultMessage {
             capability: words[4],
             rights: words[5] as u32,
             flags: words[6] as u32,
+            token: words[7],
         })
     }
 }
@@ -230,6 +233,7 @@ mod tests {
             capability: 7,
             rights: 0x13,
             flags: 0x20,
+            token: 0x55,
         };
         assert_eq!(FaultMessage::decode(&message.encode()), Some(message));
         let mut words = message.encode();

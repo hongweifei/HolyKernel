@@ -367,6 +367,19 @@ fn capability_release_notifies_provider() {
     kernel
         .bind_capability_provider(worker, handle, endpoint, ProviderKind::Anonymous)
         .expect("绑定 Provider");
+    let token = kernel
+        .capability_provider_token(worker, handle)
+        .expect("查询令牌")
+        .expect("绑定后应有令牌");
+    assert_ne!(token, 0);
+    kernel
+        .rebind_capability_provider(capability_id, endpoint_id, worker.get())
+        .expect("重新绑定");
+    let rebound = kernel
+        .capability_provider_token(worker, handle)
+        .expect("查询令牌")
+        .expect("重绑后应有令牌");
+    assert_ne!(token, rebound, "重绑必须更换回收令牌");
     kernel.close_handle(worker, handle).expect("关闭能力");
 
     let releases = take_provider_releases();

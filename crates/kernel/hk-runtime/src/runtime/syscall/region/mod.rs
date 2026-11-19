@@ -749,6 +749,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Ok(capability_id) = self.kernel.handle_id(region.tcb, region.capability) else {
             return false;
         };
+        let token = self
+            .kernel
+            .capability_provider_token(region.tcb, region.capability)
+            .ok()
+            .flatten()
+            .unwrap_or(0);
         let words = hk_mem::hmp::provider::FaultMessage {
             offset,
             page,
@@ -757,6 +763,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             capability: capability_id.get(),
             rights: region.rights.bits(),
             flags: region.flags.bits(),
+            token,
         }
         .encode();
         if !self.kernel.endpoint_served(provider) {
