@@ -62,7 +62,11 @@ impl UserAddressSpace for UserSpace {
                 mapping.flags.contains(RegionFlags::COW),
                 true,
             ),
-            device => (crate::paging::PageFlags::device(device), true, false),
+            device => (
+                crate::paging::PageFlags::device(device, mapping.rights),
+                true,
+                false,
+            ),
         };
         PageTable::map_user_range(
             self.0.backend(),
@@ -181,3 +185,8 @@ impl PageTable {
 
 /// 全局用户页表登记表。
 pub static USER_ADDRESS_SPACES: AddressSpaceRegistry<UserSpace> = AddressSpaceRegistry::new();
+
+/// 返回用户虚拟地址当前映射的物理页。
+pub fn user_phys(slot: usize, virt: u64) -> Option<hk_hal::PhysAddr> {
+    USER_ADDRESS_SPACES.with(slot, |table| table.mapped_phys(virt))?
+}

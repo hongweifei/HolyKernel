@@ -17,7 +17,7 @@ use hk_syscall::{
 use hk_user_api::{
     CapabilityKind, MEMORY_ALLOC, MEMORY_ALLOCATED, MEMORY_FRAME, MEMORY_FRAME_ALLOCATED,
     RIGHT_READ, RIGHT_WRITE, boot_cmdline, capability_create, capability_swap, capacity_alloc,
-    close_handle, exit, frame_write, grant_capability, handle::Anonymous, handle::Endpoint,
+    close_handle, frame_write, grant_capability, handle::Anonymous, handle::Endpoint,
     handle::Handle, handle_id, memory_pressure, message_words, notify, recv_data, reply,
     reply_handle, self_notification, send, send_handle, set_oom_policy, wait_notify, write,
 };
@@ -252,7 +252,11 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
             continue;
         }
         if label == PROVIDER_RELEASE {
-            if let Some(words) = message_words() {
+            // 只有内核会发送能力析构通知；客户端伪造该消息不能删除任意
+            // 能力的 swap 记录。
+            if sender == 0
+                && let Some(words) = message_words()
+            {
                 swapped.retain(|((capability, _), _)| *capability != words[0]);
                 TRACKED
                     .lock()
@@ -388,7 +392,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         }
 
         if reply_handle(PROVIDER_PROVIDE, 0, frame) != 0 {
-            exit(2);
+            // 客户端可能已退出或句柄转移失败；关闭 Frame 后继续服务，
+            // 不能因为单个缺页客户端让整个 Memory Server 退出。
+            let _ = close_handle(frame);
+            continue;
         }
 
         // 页已重新驻留；Provider 不再保留副本，下一次回收会重新写入。

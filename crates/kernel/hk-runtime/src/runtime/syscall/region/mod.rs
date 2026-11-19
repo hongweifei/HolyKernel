@@ -23,6 +23,7 @@ pub(super) struct FaultRegion {
     tcb: TcbId,
     capability: Handle,
     region: hk_mem::hmp::RegionId,
+    region_user: u64,
     virt: u64,
     offset: u64,
     rights: Rights,
@@ -36,6 +37,7 @@ fn fault_region(region: &RegionMap, address: u64) -> Option<FaultRegion> {
         tcb: region.owner,
         capability: region.capability,
         region: region.region,
+        region_user: region.user,
         virt: region.virt,
         offset: region.offset,
         rights: region.rights,
@@ -156,7 +158,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if flags.contains(RegionFlags::PINNED)
             && self
                 .kernel
-                .pin_capability(tcb, capability_handle, true)
+                .pin_capability_region(tcb, capability_handle, true)
                 .is_err()
         {
             let _ = self.kernel.close_handle(tcb, handle);
@@ -228,19 +230,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let was_pinned = self.process(index).regions[slot]
             .as_ref()
             .is_some_and(|mapping| mapping.flags.contains(RegionFlags::PINNED));
-        if was_pinned != flags.contains(RegionFlags::PINNED)
-            && self
-                .kernel
-                .pin_capability(owner, capability, flags.contains(RegionFlags::PINNED))
-                .is_err()
-        {
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
-        }
         if self
             .kernel
             .check_protect_region(tcb, handle, rights, flags)
             .is_err()
+        {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if was_pinned != flags.contains(RegionFlags::PINNED)
+            && self
+                .kernel
+                .pin_capability_region(owner, capability, flags.contains(RegionFlags::PINNED))
+                .is_err()
         {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -271,7 +273,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .is_err()
             {
                 if was_pinned != flags.contains(RegionFlags::PINNED) {
-                    let _ = self.kernel.pin_capability(owner, capability, was_pinned);
+                    let _ = self
+                        .kernel
+                        .pin_capability_region(owner, capability, was_pinned);
                 }
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
@@ -315,7 +319,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 },
             ) {
                 if was_pinned != flags.contains(RegionFlags::PINNED) {
-                    let _ = self.kernel.pin_capability(owner, capability, was_pinned);
+                    let _ = self
+                        .kernel
+                        .pin_capability_region(owner, capability, was_pinned);
                 }
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
@@ -327,6 +333,19 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             let mut relative = 0_u64;
             while relative < length as u64 {
                 let page_index = (offset.saturating_add(relative) / page) as usize;
+                if self
+                    .kernel
+                    .capability_page_reclaiming(owner, capability, page_index)
+                    .unwrap_or(false)
+                {
+                    if was_pinned != flags.contains(RegionFlags::PINNED) {
+                        let _ = self
+                            .kernel
+                            .pin_capability_region(owner, capability, was_pinned);
+                    }
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
                 let page_range = capability_id
                     .and_then(|id| {
                         self.process(index)
@@ -353,6 +372,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                                     )
                                 })
                             })
+                            .or_else(|| {
+                                self.platform
+                                    .user_phys(index, virt + relative)
+                                    .map(|phys| hk_hal::PhysRange::new(phys, page))
+                            })
                     });
                 if let Some(range) = page_range
                     && !self.platform.map_region(
@@ -368,7 +392,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     )
                 {
                     if was_pinned != flags.contains(RegionFlags::PINNED) {
-                        let _ = self.kernel.pin_capability(owner, capability, was_pinned);
+                        let _ = self
+                            .kernel
+                            .pin_capability_region(owner, capability, was_pinned);
                     }
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
@@ -383,7 +409,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .is_err()
         {
             if was_pinned != flags.contains(RegionFlags::PINNED) {
-                let _ = self.kernel.pin_capability(owner, capability, was_pinned);
+                let _ = self
+                    .kernel
+                    .pin_capability_region(owner, capability, was_pinned);
             }
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -713,12 +741,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         self.tasks[index].pending = Pending::ProviderFault {
             capability: region.capability,
+            region: region.region,
+            region_user: region.region_user,
             index: (offset / page) as usize,
             page: region.page_address(offset),
             rights: region.rights,
             flags: region.flags,
             access,
-            private: access == hk_mem::hmp::provider::ProviderAccess::Write,
+            private: access == hk_mem::hmp::provider::ProviderAccess::Write
+                && region.flags.contains(hk_mem::hmp::RegionFlags::COW),
         };
         true
     }
@@ -908,7 +939,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if pinned
             && self
                 .kernel
-                .pin_capability(owner, capability, false)
+                .pin_capability_region(owner, capability, false)
                 .is_err()
         {
             // 仍在 scanout 驻留的映射不能解除。
@@ -926,7 +957,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if failed {
             if pinned {
                 // 解除失败时恢复固定状态，保持 Region 元数据与能力一致。
-                let _ = self.kernel.pin_capability(owner, capability, true);
+                let _ = self.kernel.pin_capability_region(owner, capability, true);
             }
             frame.set_result(0);
             return Switch::Continue;

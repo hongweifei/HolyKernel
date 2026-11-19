@@ -141,8 +141,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         object: ObjectId,
         page_index: usize,
     ) -> u64 {
-        let owner = self.leader_of(index);
-        let tcb = self.tasks[owner].tcb;
+        let tcb = self.tasks[index].tcb;
         let Ok(id) = self.kernel.capability_id(tcb, capability) else {
             return 0;
         };
@@ -225,7 +224,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ) -> bool {
         let page = PAGE_SIZE as u64;
         let capability_offset = page_index as u64 * page;
-        let mut unmapped = false;
+        let mut unmapped = true;
         for slot in 0..self.tasks.len() {
             if self.tasks[slot].leader != slot || self.tasks[slot].exited {
                 continue;
@@ -247,7 +246,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     if self.process_active_on_other_cpu(slot, index) {
                         self.platform.flush_user(slot, virt, page as usize);
                     }
-                    unmapped = true;
+                } else {
+                    unmapped = false;
                 }
             }
         }

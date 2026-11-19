@@ -58,13 +58,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     self.release_frame(charge);
                     return false;
                 };
-                self.process_mut(index).cow_pages.insert(
+                if !self.process_mut(index).insert_cow_page(
                     (id.get(), page_index),
                     crate::runtime::CowPage {
                         range,
                         backing: None,
                     },
-                );
+                ) {
+                    let _ = self.platform.unmap_user(index, address, page as usize);
+                    self.release_frame(charge);
+                    return false;
+                }
                 self.record_page_charge_for_capability(
                     index,
                     region.capability,
@@ -106,6 +110,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return None;
         }
         let page_index = (offset / page) as usize;
+        if self
+            .kernel
+            .capability_page_reclaiming(region.tcb, region.capability, page_index)
+            .unwrap_or(false)
+        {
+            // Provider 正在保存该页；此时重新建立 PTE 会让回收看到的快照与
+            // 后续写入分叉，必须按故障处理，不能映射常驻页。
+            return Some(false);
+        }
         let page_address = region.page_address(offset);
         if self.platform.user_mapped(page_address) {
             return Some(true);
@@ -263,6 +276,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let page_address = region.page_address(offset);
         let page_index = (offset / page) as usize;
+        if self
+            .kernel
+            .capability_page_reclaiming(region.tcb, region.capability, page_index)
+            .unwrap_or(false)
+        {
+            return false;
+        }
         // COW 私有页覆盖优先于共享 capability 页。
         let capability_id = self
             .kernel

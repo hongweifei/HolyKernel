@@ -48,7 +48,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.oom.policy.action == 0 {
             return false;
         }
-        let current_name = self.tasks[index].name.clone();
         let mut victim: Option<(u64, usize, String)> = None;
         for (slot, task) in self.tasks.iter().enumerate() {
             if task.exited || task.leader != slot || oom::OomState::exempt(&task.name) {
@@ -62,8 +61,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some((_, slot, name)) = victim else {
             return false;
         };
-        // 当前任务若本身就是最大占用者，也按同一策略退出；否则只终止 victim。
-        let killed = if slot == index || name == current_name {
+        // 当前任务若本身就是最大占用者，也按同一策略退出；否则只终止
+        // victim 的进程 leader，不能因为同名的 worker 线程只杀一个线程。
+        let killed = if slot == index {
             self.fault(cpu, OOM_EXIT)
         } else {
             self.terminate(&name, OOM_EXIT)

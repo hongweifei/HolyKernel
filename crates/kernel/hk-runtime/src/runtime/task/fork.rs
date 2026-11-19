@@ -128,15 +128,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     *key,
                     crate::runtime::CowPage {
                         range: page.range,
-                        backing: None,
+                        backing: page.backing.clone(),
                     },
                 )
             })
             .collect();
         for (virt, range) in &forked.pages {
-            let Ok(charge) =
-                hk_mem::hmp::frame_ledger::charge_range(self.frame_scope, &process.ledger, *range)
-            else {
+            let Ok(charge) = hk_mem::hmp::frame_ledger::charge_range(
+                process.frame_scope,
+                &process.ledger,
+                *range,
+            ) else {
                 for charge in process.cow_charges.drain(..) {
                     hk_mem::hmp::frame_ledger::release(charge);
                 }

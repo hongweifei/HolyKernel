@@ -260,6 +260,71 @@ fn closing_last_frame_handle_returns_it_to_capacity() {
 }
 
 #[test]
+fn capability_page_install_is_idempotent() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    let first = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x80_0000), PAGE_SIZE));
+    let second = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x81_0000), PAGE_SIZE));
+    assert!(
+        kernel
+            .set_capability_page(worker, handle, 0, first)
+            .expect("首次能力页")
+    );
+    assert!(
+        !kernel
+            .set_capability_page(worker, handle, 0, second)
+            .expect("重复能力页")
+    );
+    assert_eq!(
+        kernel
+            .capability_page(worker, handle, 0)
+            .expect("能力页")
+            .map(|range| range.start()),
+        Some(PhysAddr::new(0x80_0000))
+    );
+}
+
+#[test]
+fn region_pin_survives_until_last_holder() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    kernel
+        .pin_capability_region(worker, handle, true)
+        .expect("第一个 Region pin");
+    kernel
+        .pin_capability_region(worker, handle, true)
+        .expect("第二个 Region pin");
+    kernel
+        .pin_capability_region(worker, handle, false)
+        .expect("释放一个 pin");
+    assert_eq!(kernel.capability_pinned(worker, handle), Ok(true));
+    kernel
+        .pin_capability_region(worker, handle, false)
+        .expect("释放最后一个 pin");
+    assert_eq!(kernel.capability_pinned(worker, handle), Ok(false));
+}
+
+#[test]
 fn reports_capability_resident_bytes() {
     let kernel = kernel();
     let worker = thread(&kernel);

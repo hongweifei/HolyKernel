@@ -813,7 +813,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             && !force
             && self
                 .kernel
-                .pin_capability(owner, capability, false)
+                .pin_capability_region(owner, capability, false)
                 .is_err()
         {
             // scanout 仍驻留：保留映射与句柄，由调用方决定先关闭 scanout。
@@ -833,7 +833,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.process_mut(index).user_window.release(virt);
         let _ = self.process_mut(index).hmp_arena.remove(region_id);
         if pinned && force {
-            let _ = self.kernel.pin_capability(owner, capability, false);
+            let _ = self.kernel.pin_capability_region(owner, capability, false);
         }
         let _ = self.kernel.close_handle(owner, region_handle);
         if close_capability && internal_capability {
@@ -853,26 +853,33 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         true
     }
 
-    /// 当能力不再被本进程任何 Region/Arena 引用时，删除它的私有页覆盖。
+    /// 当能力不再被本进程任何 Region 覆盖该页时，删除它的私有页覆盖。
     pub(crate) fn prune_cow_pages(&mut self, index: usize, capability_id: u64) {
-        let referenced = self.process(index).regions.iter().flatten().any(|region| {
-            self.kernel
-                .handle_id(region.owner, region.capability)
-                .ok()
-                .map(|id| id.get())
-                == Some(capability_id)
-        });
-        if !referenced {
-            let removed: Vec<(u64, usize)> = self
-                .process(index)
+        let page = hk_hal::PAGE_SIZE as u64;
+        let stale: Vec<usize> = self
+            .process(index)
+            .cow_pages
+            .keys()
+            .filter(|(id, _)| *id == capability_id)
+            .filter_map(|(_, page_index)| {
+                let offset = (*page_index as u64) * page;
+                let covered = self.process(index).regions.iter().flatten().any(|region| {
+                    self.kernel
+                        .handle_id(region.owner, region.capability)
+                        .ok()
+                        .map(|id| id.get())
+                        == Some(capability_id)
+                        && offset >= region.offset
+                        && offset.saturating_add(page)
+                            <= region.offset.saturating_add(region.len as u64)
+                });
+                (!covered).then_some(*page_index)
+            })
+            .collect();
+        for page_index in stale {
+            self.process_mut(index)
                 .cow_pages
-                .keys()
-                .filter(|(id, _)| *id == capability_id)
-                .copied()
-                .collect();
-            for key in removed {
-                self.process_mut(index).cow_pages.remove(&key);
-            }
+                .remove(&(capability_id, page_index));
         }
     }
 

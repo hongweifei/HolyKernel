@@ -6,6 +6,7 @@
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_checkpoint::Page;
@@ -111,13 +112,21 @@ pub struct UserRegionSpec {
     pub provider: Option<ImageProviderSpec>,
 }
 
+/// Provider 提供的 COW 私有页后备。
+///
+/// 该对象由父进程与 fork 子进程共享；最后一个引用释放时才归还物理页。
+pub struct CowBacking {
+    /// 私有页物理后备。
+    pub backing: hk_mem::hmp::FrameBacking,
+}
+
 /// 进程私有 COW 页；记账统一由映射该页的 Region `page_charges` 持有，
-/// fork 复制出的子进程条目不带记账。
+/// fork 复制出的子进程条目与父进程共享同一份 backing。
 pub struct CowPage {
     /// 私有物理页区间。
     pub range: hk_hal::PhysRange,
     /// Provider 提供的私有页；内核 COW 页由页表持有，这里为 `None`。
-    pub backing: Option<hk_mem::hmp::FrameBacking>,
+    pub backing: Option<Arc<CowBacking>>,
 }
 
 /// 任务持有的共享 Frame。
@@ -153,6 +162,8 @@ pub(crate) struct RegionMap {
 pub(crate) struct Process {
     pub hmp_arena: HmpArena,
     pub ledger: SharedLedger,
+    /// 本进程在全局 Frame 账本中的作用域。
+    pub frame_scope: u64,
     pub user_window: UserWindow,
     pub regions: Vec<Option<RegionMap>>,
     pub region_free: Vec<usize>,
@@ -183,6 +194,7 @@ impl Process {
             hmp_arena: HmpArena::create(VirtAddr::new(arena_base), address_size)
                 .expect("用户 Arena 布局有效"),
             ledger: SharedLedger::create(ledger_limit),
+            frame_scope: hk_mem::hmp::frame_ledger::scope(),
             user_window: UserWindow::new(),
             regions: Vec::new(),
             region_free: Vec::new(),
@@ -195,6 +207,15 @@ impl Process {
             allocation_capacity,
             device_factory: None,
         }
+    }
+
+    /// 登记一份进程私有 COW 页；同一能力页只允许一个覆盖。
+    pub(crate) fn insert_cow_page(&mut self, key: (u64, usize), page: CowPage) -> bool {
+        if self.cow_pages.contains_key(&key) {
+            return false;
+        }
+        self.cow_pages.insert(key, page);
+        true
     }
 
     /// 在任务 Arena 中线性分配一段页对齐区间。
@@ -216,14 +237,17 @@ impl Process {
 
     /// 扩展 `SYS_ALLOC` 使用的 Arena 地址窗口。
     ///
-    /// 不改变 HMP Arena 的地址上界，只推进本任务可线性分配的窗口；新增长度
-    /// 必须页对齐，且不能越过自动映射窗口起点。
+    /// Arena 与同槽位的栈保持固定间隔；限制是“从 ARENA_BASE 到 STACK_BASE
+    /// 的窗口长度”，不能按 `STACK_BASE - arena_base` 计算——后者会让非零
+    /// 槽位的 Arena 永远无法增长。
     pub(crate) fn grow_arena(&mut self, additional: u64) -> Option<u64> {
         let page = hk_hal::PAGE_SIZE as u64;
         if additional == 0 || !additional.is_multiple_of(page) {
             return None;
         }
-        let limit = hk_base::user::STACK_BASE.saturating_sub(self.arena_base);
+        let limit = hk_base::user::STACK_BASE
+            .saturating_sub(hk_base::user::ARENA_BASE)
+            .max(hk_base::user::ARENA_SIZE);
         let size = self.arena_size.checked_add(additional)?;
         if size > limit {
             return None;
@@ -322,8 +346,6 @@ pub struct UserRuntime<C, P> {
     image_registrations: Vec<ImageRegistration>,
     /// 服务启动/重启通知：(服务名, Notification 对象)。
     service_watchers: Vec<(alloc::string::String, hk_handle::ObjectId)>,
-    /// 全局 Frame 账本中的运行时作用域。
-    frame_scope: u64,
     platform: P,
 }
 
@@ -373,7 +395,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             modules: Vec::new(),
             image_registrations: Vec::new(),
             service_watchers: Vec::new(),
-            frame_scope: hk_mem::hmp::frame_ledger::scope(),
             platform,
         }
     }
@@ -403,7 +424,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         amount: u64,
     ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
         let ledger = self.process(index).ledger.clone();
-        hk_mem::hmp::frame_ledger::charge(self.frame_scope, &ledger, amount)
+        let scope = self.process(index).frame_scope;
+        hk_mem::hmp::frame_ledger::charge(scope, &ledger, amount)
     }
 
     /// 记入一段具体物理区间；同一区间在多个进程间共享时只计费一次。
@@ -413,13 +435,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         range: hk_hal::PhysRange,
     ) -> Result<FrameRef, hk_mem::hmp::HmpError> {
         let ledger = self.process(index).ledger.clone();
-        hk_mem::hmp::frame_ledger::charge_range(self.frame_scope, &ledger, range)
+        let scope = self.process(index).frame_scope;
+        hk_mem::hmp::frame_ledger::charge_range(scope, &ledger, range)
     }
 
     /// 接管一笔内核已经扣过的记账。
     pub(crate) fn adopt_frame(&mut self, index: usize, charge: Charge) -> FrameRef {
         let ledger = self.process(index).ledger.clone();
-        hk_mem::hmp::frame_ledger::adopt(self.frame_scope, ledger, charge)
+        let scope = self.process(index).frame_scope;
+        hk_mem::hmp::frame_ledger::adopt(scope, ledger, charge)
     }
 
     /// 释放一次 Frame 引用。

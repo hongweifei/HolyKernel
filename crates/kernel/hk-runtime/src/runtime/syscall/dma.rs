@@ -156,10 +156,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             hk_handle::ObjectKind::Frame => {
                 self.kernel.pin_frame_internal(tcb, object, true).is_ok()
             }
-            hk_handle::ObjectKind::Capability => self
-                .kernel
-                .pin_capability_internal(tcb, object, true)
-                .is_ok(),
+            hk_handle::ObjectKind::Capability => {
+                self.kernel.pin_capability_dma(tcb, object, true).is_ok()
+            }
             _ => false,
         };
         if !pinned {
@@ -201,9 +200,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     ) -> Result<(), KernelError> {
         match kind {
             hk_handle::ObjectKind::Frame => self.kernel.pin_frame_internal(tcb, object, false),
-            hk_handle::ObjectKind::Capability => {
-                self.kernel.pin_capability_internal(tcb, object, false)
-            }
+            hk_handle::ObjectKind::Capability => self.kernel.pin_capability_dma(tcb, object, false),
             _ => Ok(()),
         }
     }

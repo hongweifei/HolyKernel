@@ -67,6 +67,10 @@ pub enum Pending {
     ProviderFault {
         /// 目标能力句柄。
         capability: Handle,
+        /// 目标 Region 标识。
+        region: hk_mem::hmp::RegionId,
+        /// 返回给用户的 Region 句柄编号；用于拒绝复用后的旧 Region。
+        region_user: u64,
         /// 目标能力内的页下标。
         index: usize,
         /// 待安装页的用户虚拟地址。

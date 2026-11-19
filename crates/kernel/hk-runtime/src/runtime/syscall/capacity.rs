@@ -529,7 +529,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if flags.contains(RegionFlags::PINNED)
             && self
                 .kernel
-                .pin_capability_internal(tcb, capability_handle, true)
+                .pin_capability_region(tcb, capability_handle, true)
                 .is_err()
         {
             return Err(FrameMapFailure::After(capability_handle));

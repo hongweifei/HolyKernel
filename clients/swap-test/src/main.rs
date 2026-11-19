@@ -43,8 +43,8 @@ pub extern "C" fn _start(endpoint: u64, _capacity: u64) -> ! {
         fail(b"memory-service")
     }
     // 先扩展地址窗口，再让 FreeHeap 首次分配；否则 2 MiB 初始窗口放不下
-    // 页表和测试数据。
-    if arena_grow(32 * 1024 * 1024) == u64::MAX {
+    // 页表和测试数据。Arena 到栈基址之间共 32 MiB，初始窗口已占 2 MiB。
+    if arena_grow(30 * 1024 * 1024) == u64::MAX {
         fail(b"arena-grow")
     }
     let notification = self_notification();

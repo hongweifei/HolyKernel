@@ -1,6 +1,6 @@
 //! HMP 对象创建与解析。
 
-use core::sync::atomic::{AtomicBool, AtomicU64};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
@@ -140,7 +140,7 @@ impl Kernel {
     /// 内核内部固定类型化能力驻留，用于 DMA 映射期间阻止回收。
     ///
     /// 不要求 ADMIN：最小权限的服务可能只持有 READ|WRITE 的共享缓冲能力。
-    pub fn pin_capability_internal(
+    pub fn pin_capability_dma(
         &self,
         thread: TcbId,
         handle: Handle,
@@ -152,7 +152,35 @@ impl Kernel {
                 expected: ObjectKind::Capability,
             });
         }
-        object.set_capability_pinned(pinned);
+        if !object.pin_capability_dma(pinned) {
+            return Err(KernelError::Hmp(HmpError::NotMapped));
+        }
+        Ok(())
+    }
+
+    /// 增加/释放一次 Region `PINNED` 持有。
+    ///
+    /// Region 已经由运行时校验 ADMIN；这里只维护 pin 计数，避免一个 Region
+    /// 解除映射就清除其他 Region/scanout 的驻留保证。
+    pub fn pin_capability_region(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+        pinned: bool,
+    ) -> Result<(), KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        let capability = object.capability().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capability,
+        })?;
+        capability
+            .require(CapabilityOp::Pin)
+            .map_err(KernelError::Hmp)?;
+        if !pinned && object.capability_scanout() {
+            return Err(KernelError::ScanoutActive);
+        }
+        if !object.pin_capability_region(pinned) {
+            return Err(KernelError::Hmp(HmpError::NotMapped));
+        }
         Ok(())
     }
 
@@ -218,6 +246,18 @@ impl Kernel {
         handle: Handle,
     ) -> Result<Arc<Mutex<Capacity>>, KernelError> {
         let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capacity)?;
+        object.capacity().cloned().ok_or(KernelError::WrongKind {
+            expected: ObjectKind::Capacity,
+        })
+    }
+
+    /// 返回 Capacity 的共享对象；仅用于需要分配/归还物理页的调用者。
+    pub fn capacity_ref_write(
+        &self,
+        thread: TcbId,
+        handle: Handle,
+    ) -> Result<Arc<Mutex<Capacity>>, KernelError> {
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capacity)?;
         object.capacity().cloned().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capacity,
         })
@@ -407,6 +447,8 @@ impl Kernel {
             reclaiming: Mutex::new(BTreeSet::new()),
             resident_peak: AtomicU64::new(resident),
             pinned: AtomicBool::new(false),
+            region_pinned: AtomicU32::new(0),
+            dma_pinned: AtomicU32::new(0),
             scanout: AtomicBool::new(false),
             version: AtomicU64::new(0),
         }));
@@ -573,6 +615,17 @@ impl Kernel {
         Ok(object.begin_capability_reclaim(index))
     }
 
+    /// 判断能力页是否正在等待 Provider 回收确认。
+    pub fn capability_page_reclaiming(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+    ) -> Result<bool, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_page_reclaiming(index))
+    }
+
     /// 释放在途回收标记。
     pub fn end_capability_reclaim(&self, thread: TcbId, capability: Handle, index: usize) {
         if let Ok((object, _)) =
@@ -672,7 +725,7 @@ impl Kernel {
 
     /// 提交 Revision 能力，推进版本。
     pub fn commit_capability(&self, thread: TcbId, handle: Handle) -> Result<u64, KernelError> {
-        let (object, _) = self.resolve(thread, handle, Rights::READ, ObjectKind::Capability)?;
+        let (object, _) = self.resolve(thread, handle, Rights::WRITE, ObjectKind::Capability)?;
         object.commit_capability().ok_or(KernelError::WrongKind {
             expected: ObjectKind::Capability,
         })
@@ -719,7 +772,6 @@ impl Kernel {
             });
         }
         object.set_capability_scanout(enabled);
-        object.set_capability_pinned(enabled);
         Ok(())
     }
 

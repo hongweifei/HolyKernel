@@ -147,6 +147,10 @@ impl UserPlatform for X86Platform {
         USER_ADDRESS_SPACES.unmap_user(slot, virt, len)
     }
 
+    fn user_phys(&self, slot: usize, virt: u64) -> Option<hk_hal::PhysAddr> {
+        hk_arch_x86_64::address_space::user_phys(slot, virt)
+    }
+
     fn flush_user(&self, _slot: usize, virt: u64, len: usize) {
         // 单页改权只失效该地址；大范围才刷整表。
         let address = (len <= hk_hal::PAGE_SIZE).then_some(virt);

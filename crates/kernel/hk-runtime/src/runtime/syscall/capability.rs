@@ -49,7 +49,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             Some(number) => self.handle_at(index, number)?,
             None => self.process(index).allocation_capacity,
         };
-        let capacity = self.kernel.capacity_ref(tcb, handle).ok()?;
+        let capacity = self.kernel.capacity_ref_write(tcb, handle).ok()?;
         let allocated = { capacity.lock().allocate(len as usize) };
         let frame = match allocated {
             Ok(frame) => frame,
@@ -63,22 +63,30 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
     }
 
-    pub(crate) fn capability_create(&mut self, index: usize, tcb: TcbId, frame: &mut C) -> Switch {
-        self.capability_create_with(index, tcb, frame, None)
+    pub(crate) fn capability_create(
+        &mut self,
+        cpu: usize,
+        index: usize,
+        tcb: TcbId,
+        frame: &mut C,
+    ) -> Switch {
+        self.capability_create_with(cpu, index, tcb, frame, None)
     }
 
     pub(crate) fn capability_create_on(
         &mut self,
+        cpu: usize,
         index: usize,
         tcb: TcbId,
         frame: &mut C,
     ) -> Switch {
         let capacity_number = (frame.arg2() != 0).then_some(frame.arg2() as usize);
-        self.capability_create_with(index, tcb, frame, capacity_number)
+        self.capability_create_with(cpu, index, tcb, frame, capacity_number)
     }
 
     fn capability_create_with(
         &mut self,
+        cpu: usize,
         index: usize,
         tcb: TcbId,
         frame: &mut C,
@@ -98,10 +106,21 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
-        let Some(backing) = self.allocate_owned(index, aligned, capacity_number) else {
-            self.release_frame(charge);
-            frame.set_result(u64::MAX);
-            return Switch::Continue;
+        let backing = match self.allocate_owned(index, aligned, capacity_number) {
+            Some(backing) => backing,
+            None => {
+                if !self.oom_guard(cpu, index, aligned) {
+                    self.release_frame(charge);
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+                let Some(retry) = self.allocate_owned(index, aligned, capacity_number) else {
+                    self.release_frame(charge);
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                };
+                retry
+            }
         };
         if !self.zero_backing(&backing) {
             self.release_frame(charge);
@@ -252,9 +271,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     }
                     return Some(u64::MAX);
                 }
-                // 先解除所有 PTE，Provider 保存期间不会被并发写入；失败时页仍
-                // 常驻，下一次缺页会按常驻页快速路径重新映射。
-                self.unmap_capability_page(index, object, page_index);
+                // 先解除所有 PTE，Provider 保存期间不会被并发写入；任何
+                // alias 解除失败都必须中止，不能带着仍存活的 PTE 释放物理页。
+                let unmapped = self.unmap_capability_page(index, object, page_index);
+                if !unmapped {
+                    for page in first..=page_index {
+                        self.kernel.end_capability_reclaim(tcb, handle, page);
+                    }
+                    return Some(u64::MAX);
+                }
                 let mut buffer = [0_u8; hk_hal::PAGE_SIZE];
                 if !self.platform.read_phys(range.start(), &mut buffer) {
                     self.kernel.end_capability_reclaim(tcb, handle, page_index);
@@ -379,6 +404,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         };
         if capability.require(CapabilityOp::Writeback).is_err() {
+            frame.set_result(u64::MAX);
+            return Switch::Continue;
+        }
+        if !self
+            .kernel
+            .handle_rights(tcb, handle, hk_handle::ObjectKind::Capability)
+            .is_ok_and(|rights| rights.contains(hk_handle::Rights::WRITE))
+        {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }

@@ -203,6 +203,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     self.exit_threads(index);
                 }
                 self.platform.release_pages(index);
+                self.recover_dead_provider();
                 Switch::Exit
             }
             SYS_PCI_READ => {
@@ -422,9 +423,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_FRAME_BANK_STATS => self.frame_bank_stats(frame),
             SYS_NUMA_INFO => self.numa_info(frame),
             SYS_LEDGER_ENUM => self.ledger_enum(frame),
-            SYS_CAPABILITY_CREATE => self.capability_create(index, tcb, frame),
+            SYS_CAPABILITY_CREATE => self.capability_create(cpu, index, tcb, frame),
             SYS_CAPABILITY_CREATE_LAZY => self.capability_create_lazy(index, tcb, frame),
-            SYS_CAPABILITY_CREATE_ON => self.capability_create_on(index, tcb, frame),
+            SYS_CAPABILITY_CREATE_ON => self.capability_create_on(cpu, index, tcb, frame),
             SYS_REGION_MAP => self.region_map(index, tcb, frame),
             SYS_REGION_INFO => self.region_info(index, tcb, frame),
             SYS_REGION_UNMAP => self.region_unmap(index, tcb, frame),

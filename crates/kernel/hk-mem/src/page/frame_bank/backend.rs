@@ -49,8 +49,12 @@ impl FrameBank {
             }
         }
         inner.ledgers.remove(&owner);
-        inner.ledger_kinds.remove(&owner);
         inner.peaks.remove(&owner);
+        // 强制回收（Capacity::drop）可能仍有 allocation 挂在旧 owner 上。
+        // 保留 kind 让后续 release 记到正确统计桶；正常清空回收才删除。
+        if require_empty {
+            inner.ledger_kinds.remove(&owner);
+        }
         Ok(())
     }
 }

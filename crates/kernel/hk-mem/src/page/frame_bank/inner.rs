@@ -84,6 +84,12 @@ impl Inner {
 
     pub(super) fn insert_free(&mut self, range: PhysRange) {
         let start = range.start().get();
+        if let Some(previous) = self.free_by_start.get(&start)
+            && previous.len() != range.len()
+            && let Some(starts) = self.free_by_len.get_mut(&previous.len())
+        {
+            starts.remove(&start);
+        }
         self.free_by_len
             .entry(range.len())
             .or_default()

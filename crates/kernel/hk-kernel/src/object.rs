@@ -2,7 +2,7 @@
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use hk_device::DeviceGrant;
 use hk_hal::PhysRange;
@@ -54,8 +54,12 @@ pub enum ObjectPayload {
         reclaiming: Mutex<BTreeSet<usize>>,
         /// 常驻字节数的历史峰值；只用于报告。
         resident_peak: AtomicU64,
-        /// 是否固定驻留。
+        /// 是否固定驻留（用户 PIN 调用）。
         pinned: AtomicBool,
+        /// Region `PINNED` 映射持有的固定数。
+        region_pinned: AtomicU32,
+        /// DMA 映射期间持有的固定数。
+        dma_pinned: AtomicU32,
         /// 是否正在 scanout 驻留。
         scanout: AtomicBool,
         /// Revision 版本。
@@ -285,6 +289,14 @@ impl KernelObject {
         false
     }
 
+    /// 判断能力页是否正在等待 Provider 回收确认。
+    pub fn capability_page_reclaiming(&self, index: usize) -> bool {
+        match &self.payload {
+            ObjectPayload::Capability { reclaiming, .. } => reclaiming.lock().contains(&index),
+            _ => false,
+        }
+    }
+
     /// 释放一页的在途回收标记；成功、失败与超时路径都必须调用。
     pub fn end_capability_reclaim(&self, index: usize) {
         if let ObjectPayload::Capability { reclaiming, .. } = &self.payload {
@@ -310,6 +322,9 @@ impl KernelObject {
                 return false;
             }
             let mut pages = pages.lock();
+            if pages.contains_key(&index) {
+                return false;
+            }
             pages.insert(index, page);
             let resident = backing.lock().as_ref().map_or(0, |page| page.len() as u64)
                 + pages
@@ -396,18 +411,66 @@ impl KernelObject {
         }
     }
 
-    /// 判断类型化能力是否固定驻留。
+    /// 判断类型化能力是否固定驻留；任一类持有者都算。
     pub fn capability_pinned(&self) -> bool {
         match &self.payload {
-            ObjectPayload::Capability { pinned, .. } => pinned.load(Ordering::Acquire),
+            ObjectPayload::Capability {
+                pinned,
+                region_pinned,
+                dma_pinned,
+                scanout,
+                ..
+            } => {
+                pinned.load(Ordering::Acquire)
+                    || region_pinned.load(Ordering::Acquire) != 0
+                    || dma_pinned.load(Ordering::Acquire) != 0
+                    || scanout.load(Ordering::Acquire)
+            }
             _ => false,
         }
     }
 
-    /// 设置类型化能力的固定驻留状态。
+    /// 设置用户 PIN 调用的固定状态。
     pub fn set_capability_pinned(&self, pinned: bool) {
         if let ObjectPayload::Capability { pinned: state, .. } = &self.payload {
             state.store(pinned, Ordering::Release);
+        }
+    }
+
+    fn adjust_pin_counter(counter: &AtomicU32, pinned: bool) -> bool {
+        if pinned {
+            counter.fetch_add(1, Ordering::AcqRel);
+            return true;
+        }
+        loop {
+            let current = counter.load(Ordering::Acquire);
+            if current == 0 {
+                return false;
+            }
+            if counter
+                .compare_exchange_weak(current, current - 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    /// 增加/释放一次 Region `PINNED` 持有。
+    pub fn pin_capability_region(&self, pinned: bool) -> bool {
+        if let ObjectPayload::Capability { region_pinned, .. } = &self.payload {
+            Self::adjust_pin_counter(region_pinned, pinned)
+        } else {
+            false
+        }
+    }
+
+    /// 增加/释放一次 DMA 固定持有。
+    pub fn pin_capability_dma(&self, pinned: bool) -> bool {
+        if let ObjectPayload::Capability { dma_pinned, .. } = &self.payload {
+            Self::adjust_pin_counter(dma_pinned, pinned)
+        } else {
+            false
         }
     }
 

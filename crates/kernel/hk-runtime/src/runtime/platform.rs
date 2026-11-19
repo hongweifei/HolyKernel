@@ -101,6 +101,11 @@ pub trait UserPlatform {
         false
     }
 
+    /// 返回用户虚拟地址当前映射的物理页；不存在或平台不支持时返回 `None`。
+    fn user_phys(&self, _slot: usize, _virt: u64) -> Option<hk_hal::PhysAddr> {
+        None
+    }
+
     /// 让所有 CPU 丢弃任务地址空间中的旧 TLB 项。
     ///
     /// 解除映射本身由 `unmap_user` 负责失效；本地范围改权/重映射需要平台

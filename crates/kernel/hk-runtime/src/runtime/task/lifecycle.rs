@@ -1,6 +1,7 @@
 //! 调度、退出与阻塞唤醒。
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use hk_hal::{SyscallFrame, UserContext};
@@ -286,7 +287,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 端点服务退出后，处理等待该 Provider 的阻塞任务。
-    fn recover_dead_provider(&mut self) {
+    pub(crate) fn recover_dead_provider(&mut self) {
         let mut faults = alloc::vec::Vec::new();
         let mut reclaims = alloc::vec::Vec::new();
         for slot in 0..self.tasks.len() {
@@ -757,6 +758,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             Pending::ProviderFault {
                 capability,
+                region,
+                region_user,
                 index: page_index,
                 page,
                 rights,
@@ -765,86 +768,156 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 private,
             } => {
                 let caller = self.tasks[index].tcb;
-                let owner = self.leader_of(index);
-                let owner_tcb = self.tasks[owner].tcb;
-                if let Some(message) = self.kernel.take_reply(caller) {
-                    // Provider 只能以 PROVIDE 标签回包；ERROR 与其它标签都按
-                    // 缺页故障处理，避免消费回复后永久阻塞。
-                    if message.label != hk_syscall::PROVIDER_PROVIDE {
-                        return self.fail_provider(cpu, index, pending);
-                    }
-                    let frame_handle = message.handles[0];
-                    let frame = frame_handle.and_then(|handle| {
-                        let frame = self.kernel.take_owned_frame(caller, handle).ok();
-                        let _ = self.kernel.close_handle(caller, handle);
-                        frame
-                    });
-                    if let Some(frame) = frame {
-                        let range = frame.range();
-                        let backing = hk_mem::hmp::FrameBacking::Owned(frame);
-                        // 写时复制：Provider 回包只作为当前进程的私有覆盖，
-                        // 不改共享能力页；读缺页直接安装到能力。
-                        let stored = if private {
-                            let Ok(charge) = self.charge_frame_range(index, range) else {
-                                return self.fail_provider(cpu, index, pending);
-                            };
-                            let Ok(id) = self.kernel.handle_id(owner_tcb, capability) else {
-                                self.release_frame(charge);
-                                return self.fail_provider(cpu, index, pending);
-                            };
-                            self.process_mut(index).cow_pages.insert(
-                                (id.get(), page_index),
-                                crate::runtime::CowPage {
-                                    range,
-                                    backing: Some(backing),
-                                },
-                            );
-                            true
-                        } else {
-                            let stored = self
-                                .kernel
-                                .set_capability_page(owner_tcb, capability, page_index, backing)
-                                .unwrap_or(false);
-                            if stored {
-                                let Ok(charge) = self.charge_frame_range(index, range) else {
-                                    let _ = self
-                                        .kernel
-                                        .take_capability_page(owner_tcb, capability, page_index);
-                                    return self.fail_provider(cpu, index, pending);
-                                };
-                                self.record_page_charge_for_capability(
-                                    index, capability, page_index, charge,
-                                );
-                            }
-                            stored
-                        };
-                        let cache = self
-                            .kernel
-                            .capability(owner_tcb, capability)
-                            .map(|(capability, _)| capability.cache())
-                            .unwrap_or(hk_hal::CachePolicy::WriteBack);
-                        let mapped = stored
-                            && self.platform.map_region(
-                                index,
-                                &hk_mem::RegionMapping {
-                                    virt: page,
-                                    phys: range.start().get(),
-                                    len: range.len() as usize,
-                                    rights,
-                                    flags,
-                                    policy: cache,
-                                },
-                            );
-                        if !mapped {
-                            return self.fail_provider(cpu, index, pending);
-                        }
-                        // Provider 提供页内容；内核只安装 PTE，不能再次清零。
-                    } else {
-                        return self.fail_provider(cpu, index, pending);
-                    }
-                } else {
+                let Some(message) = self.kernel.take_reply(caller) else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                if message.label != hk_syscall::PROVIDER_PROVIDE {
                     return self.fail_provider(cpu, index, pending);
                 }
+                let Some(frame) = message.handles[0].and_then(|handle| {
+                    let frame = self.kernel.take_owned_frame(caller, handle).ok();
+                    let _ = self.kernel.close_handle(caller, handle);
+                    frame
+                }) else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                let range = frame.range();
+                let page_size = hk_hal::PAGE_SIZE as u64;
+                if range.len() != hk_hal::PAGE_SIZE as u64 {
+                    return self.fail_provider(cpu, index, pending);
+                }
+                let Some(map) = self
+                    .process(index)
+                    .regions
+                    .iter()
+                    .flatten()
+                    .find(|map| map.region == region && map.user == region_user)
+                else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                let owner_tcb = map.owner;
+                let map_virt = map.virt;
+                let map_len = map.len as u64;
+                let map_offset = map.offset;
+                let map_rights = map.rights;
+                let map_flags = map.flags;
+                if map_rights != rights
+                    || map_flags != flags
+                    || page < map_virt
+                    || page.saturating_add(page_size) > map_virt.saturating_add(map_len)
+                {
+                    return self.fail_provider(cpu, index, pending);
+                }
+                let Ok((capability_info, _)) = self.kernel.capability(owner_tcb, capability) else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                let Some(capability_offset) = page
+                    .checked_sub(map_virt)
+                    .and_then(|relative| map_offset.checked_add(relative))
+                else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                let Some(capability_end) = page_index
+                    .checked_mul(hk_hal::PAGE_SIZE)
+                    .and_then(|offset| offset.checked_add(hk_hal::PAGE_SIZE))
+                else {
+                    return self.fail_provider(cpu, index, pending);
+                };
+                if capability_offset != (page_index * hk_hal::PAGE_SIZE) as u64
+                    || capability_end as u64 > capability_info.size()
+                {
+                    return self.fail_provider(cpu, index, pending);
+                }
+
+                let backing = hk_mem::hmp::FrameBacking::Owned(frame);
+                let mut installed = range;
+                let mut installed_new = false;
+                let charge = if private {
+                    let Ok(charge) = self.charge_frame_range(index, range) else {
+                        return self.fail_provider(cpu, index, pending);
+                    };
+                    let Ok(id) = self.kernel.handle_id(owner_tcb, capability) else {
+                        self.release_frame(charge);
+                        return self.fail_provider(cpu, index, pending);
+                    };
+                    if !self.process_mut(index).insert_cow_page(
+                        (id.get(), page_index),
+                        crate::runtime::CowPage {
+                            range,
+                            backing: Some(Arc::new(crate::runtime::CowBacking { backing })),
+                        },
+                    ) {
+                        self.release_frame(charge);
+                        return self.fail_provider(cpu, index, pending);
+                    }
+                    charge
+                } else {
+                    if let Ok(Some(existing)) = self
+                        .kernel
+                        .capability_page(owner_tcb, capability, page_index)
+                    {
+                        // 另一个任务已经装入该页：复用常驻页，不覆盖、不释放。
+                        installed = existing;
+                    } else {
+                        if self
+                            .kernel
+                            .set_capability_page(owner_tcb, capability, page_index, backing)
+                            .unwrap_or(false)
+                        {
+                            installed_new = true;
+                        } else if let Ok(Some(existing)) = self
+                            .kernel
+                            .capability_page(owner_tcb, capability, page_index)
+                        {
+                            // 并发的 Provider 回包抢先装入：新 Frame 已被丢弃，
+                            // 当前任务改为映射既有常驻页。
+                            installed = existing;
+                        } else {
+                            return self.fail_provider(cpu, index, pending);
+                        }
+                    }
+                    let Ok(charge) = self.charge_frame_range(index, installed) else {
+                        if installed_new {
+                            let _ = self
+                                .kernel
+                                .take_capability_page(owner_tcb, capability, page_index);
+                        }
+                        return self.fail_provider(cpu, index, pending);
+                    };
+                    charge
+                };
+                let cache = self
+                    .kernel
+                    .capability(owner_tcb, capability)
+                    .map(|(capability, _)| capability.cache())
+                    .unwrap_or(hk_hal::CachePolicy::WriteBack);
+                if !self.platform.map_region(
+                    index,
+                    &hk_mem::RegionMapping {
+                        virt: page,
+                        phys: installed.start().get(),
+                        len: hk_hal::PAGE_SIZE,
+                        rights: map_rights,
+                        flags: map_flags,
+                        policy: cache,
+                    },
+                ) {
+                    if private {
+                        if let Ok(id) = self.kernel.handle_id(owner_tcb, capability) {
+                            self.process_mut(index)
+                                .cow_pages
+                                .remove(&(id.get(), page_index));
+                        }
+                    } else if installed_new {
+                        let _ = self
+                            .kernel
+                            .take_capability_page(owner_tcb, capability, page_index);
+                    }
+                    self.release_frame(charge);
+                    return self.fail_provider(cpu, index, pending);
+                }
+                self.record_page_charge_for_capability(index, capability, page_index, charge);
+                // Provider 提供页内容；内核只安装 PTE，不能再次清零。
             }
             Pending::None | Pending::Send { .. } | Pending::Sleep { .. } => {}
         }

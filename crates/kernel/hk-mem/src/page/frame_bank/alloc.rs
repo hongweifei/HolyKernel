@@ -113,6 +113,11 @@ impl FrameBank {
         inner.owned.clear();
         inner.parents.clear();
         inner.peaks.clear();
+        inner.ledgers.clear();
+        inner.ledger_kinds.clear();
+        inner.by_node = [0; MAX_NODES];
+        inner.nodes.clear();
+        inner.kernel_owner = None;
         for region in regions {
             if !region.kind.is_usable() {
                 continue;

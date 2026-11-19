@@ -155,7 +155,9 @@ impl Pool {
         let align = align.max(1);
         for index in 0..self.free.len() {
             let range = self.free[index];
-            let start = align_up_u64(range.start().get(), align)?;
+            let Some(start) = align_up_u64(range.start().get(), align) else {
+                continue;
+            };
             let end = start.checked_add(length)?;
             if end > range.end().get() {
                 continue;
@@ -177,6 +179,10 @@ impl Pool {
         let end = start.checked_add(length)?;
         if end > self.end {
             return None;
+        }
+        if start > self.next {
+            self.free
+                .push(PhysRange::new(PhysAddr::new(self.next), start - self.next));
         }
         self.next = end;
         Some(PhysRange::new(PhysAddr::new(start), length))
@@ -303,7 +309,10 @@ impl Capacity {
             soft_limit: 0,
             used: 0,
             peak: 0,
-            pool: Arc::new(Mutex::new(Pool::new(range.start().get(), limit))),
+            pool: Arc::new(Mutex::new(Pool::new(
+                range.start().get(),
+                range.len().min(limit),
+            ))),
             allocated: Vec::new(),
             released: false,
             node: match kind {
@@ -352,23 +361,17 @@ impl Capacity {
                 self.page_size as u64,
                 node,
             ) {
-                return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
+                return frame_from_backend(backend, self.id, self.page_size, range);
             }
             // 配额尚有余量但既有窗口里没有足够长的连续空闲段：从父容量再扩
             // 一段连续窗口后重试一次。碎片化不能伪装成容量耗尽。
-            if !self.grow(length) {
+            if !self.grow_on(length, node) {
                 return Err(HmpError::OutOfCapacity);
             }
             let range = backend
-                .allocate_owned_aligned(
-                    self.id,
-                    self.kind,
-                    length,
-                    self.page_size as u64,
-                    self.node,
-                )
+                .allocate_owned_aligned(self.id, self.kind, length, self.page_size as u64, node)
                 .ok_or(HmpError::OutOfCapacity)?;
-            return Frame::new(range.start(), range.len() as usize, self.page_size, self.id);
+            return frame_from_backend(backend, self.id, self.page_size, range);
         }
 
         if self.used.saturating_add(length) > self.limit() {
@@ -391,14 +394,19 @@ impl Capacity {
     /// 只对通过 `split` 建立的子容量有效；扩窗只转移物理窗口的归属，用来
     /// 消除碎片，不改变任何一侧的配额。子容量的授予额在 `split` 时已经
     /// 固定，`grow` 不得让它越过父容量授予的范围。
-    fn grow(&mut self, length: u64) -> bool {
+    fn grow_on(&mut self, length: u64, node: Option<u8>) -> bool {
         let Some(parent) = self.parent else {
             return false;
         };
         let Some(backend) = super::backend::physical_backend() else {
             return false;
         };
-        backend.split_owned(parent, self.id, length).is_some()
+        match node {
+            Some(node) => backend
+                .split_owned_node(parent, self.id, length, node)
+                .is_some(),
+            None => backend.split_owned(parent, self.id, length).is_some(),
+        }
     }
 
     /// 从未分配尾部切出一个子 Capacity。
@@ -578,7 +586,7 @@ impl Capacity {
 
         let start = phys.get();
         let end = start.checked_add(length).ok_or(HmpError::OutOfRange)?;
-        let limit_end = self.range.start().get().saturating_add(self.limit());
+        let limit_end = self.range.end().get();
         if start < self.range.start().get() || end > limit_end {
             return Err(HmpError::OutOfRange);
         }
@@ -661,7 +669,29 @@ impl Capacity {
             // 后端是窗口归属的权威：已被 split/merge 清空时不伪造创建时的区间。
             return backend.windows_owned(self.id);
         }
-        alloc::vec![self.range]
+        let mut windows = self.allocated.clone();
+        {
+            let pool = self.pool.lock();
+            windows.extend(pool.free.iter().copied());
+            if pool.next < pool.end {
+                windows.push(PhysRange::new(
+                    PhysAddr::new(pool.next),
+                    pool.end - pool.next,
+                ));
+            }
+        }
+        windows.sort_unstable_by_key(|range| range.start().get());
+        let mut merged: Vec<PhysRange> = Vec::with_capacity(windows.len());
+        for range in windows {
+            if let Some(last) = merged.last_mut()
+                && last.end().get() == range.start().get()
+            {
+                *last = PhysRange::new(last.start(), last.len().saturating_add(range.len()));
+            } else {
+                merged.push(range);
+            }
+        }
+        merged
     }
 
     /// 返回页大小。
@@ -740,6 +770,21 @@ impl Drop for Capacity {
         // Drop 沿父子链自动并回，不在这里重复处理。
         if let Some(backend) = super::backend::physical_backend() {
             let _ = backend.reclaim_capacity_force(self.id, self.parent, self.limit());
+        }
+    }
+}
+
+fn frame_from_backend(
+    backend: &dyn super::PhysicalBackend,
+    owner: CapacityId,
+    page_size: usize,
+    range: PhysRange,
+) -> Result<Frame, HmpError> {
+    match Frame::new(range.start(), range.len() as usize, page_size, owner) {
+        Ok(frame) => Ok(frame),
+        Err(error) => {
+            let _ = backend.release_owned(owner, range);
+            Err(error)
         }
     }
 }

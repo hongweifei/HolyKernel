@@ -77,12 +77,14 @@ impl PageFlags {
     pub const MMIO: Self = Self(PRESENT | WRITABLE | NX | PAT_BITS[CachePolicy::Uncached as usize]);
     /// 用户设备页，缓存属性按 [`CachePolicy`] 选 PAT 索引。
     ///
-    /// 索引由 `cache_index` 与 `cpu::assembly::enable_pat` 共用，位组合由
-    /// `index_bits` 从索引推出，两边不会各写一份。扫描输出用
-    /// [`CachePolicy::WriteBack`]：非缓存映射下每个 4 字节写都是独立设备访问，
-    /// 1280×800 整屏提交在 QEMU 中要 250 ms，写回只要 0.15 ms。
-    pub const fn device(policy: CachePolicy) -> Self {
-        Self(PRESENT | WRITABLE | USER | NX | PAT_BITS[policy as usize])
+    /// 设备页始终 NX；写权限来自 Region 的 Rights，只读设备映射不会被
+    /// 悄悄提升为可写。
+    pub const fn device(policy: CachePolicy, rights: Rights) -> Self {
+        let mut bits = PRESENT | USER | NX | PAT_BITS[policy as usize];
+        if rights.bits() & Rights::WRITE.bits() != 0 {
+            bits |= WRITABLE;
+        }
+        Self(bits)
     }
 
     /// 按 Region 权利与标志构造用户页属性。
@@ -193,22 +195,32 @@ mod tests {
             CachePolicy::WriteCombining,
             CachePolicy::Uncached,
         ] {
-            assert_eq!(PageFlags::device(policy).raw() & NX, NX);
+            assert_eq!(
+                PageFlags::device(policy, Rights::READ | Rights::WRITE).raw() & NX,
+                NX
+            );
         }
     }
 
     #[test]
     fn cache_policy_selects_device_pat_index() {
         // 索引 3=UC、4=WB、6=WC 由 `enable_pat` 固定；位组合错就是缓存属性错。
-        let uncached = PageFlags::device(CachePolicy::Uncached).raw();
+        let uncached = PageFlags::device(CachePolicy::Uncached, Rights::READ | Rights::WRITE).raw();
         assert_eq!(uncached & DEVICE, PWT | PCD);
-        let write_back = PageFlags::device(CachePolicy::WriteBack).raw();
+        let write_back =
+            PageFlags::device(CachePolicy::WriteBack, Rights::READ | Rights::WRITE).raw();
         assert_eq!(write_back & DEVICE, PAT);
-        let combining = PageFlags::device(CachePolicy::WriteCombining).raw();
+        let combining =
+            PageFlags::device(CachePolicy::WriteCombining, Rights::READ | Rights::WRITE).raw();
         assert_eq!(combining & DEVICE, PAT | PCD);
         assert_eq!(
             write_back & (PRESENT | WRITABLE | USER),
             PRESENT | WRITABLE | USER
+        );
+        assert_eq!(
+            PageFlags::device(CachePolicy::WriteBack, Rights::READ).raw() & WRITABLE,
+            0,
+            "只读设备映射不得提升为可写"
         );
     }
 
