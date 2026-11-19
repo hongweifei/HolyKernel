@@ -659,3 +659,59 @@ fn traces_handle_grants_and_closes() {
     assert_eq!(events[3].category, TraceCategory::Handle);
     assert_eq!(events[3].code, 14);
 }
+
+#[test]
+fn capability_reclaim_is_single_flight() {
+    let kernel = kernel();
+    let worker = thread(&kernel);
+    let capability =
+        Capability::new(CapabilityKind::Anonymous, PAGE_SIZE as u64, PAGE_SIZE).expect("能力");
+    let handle = kernel
+        .create_capability(
+            worker,
+            capability,
+            None,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("能力句柄");
+    let page = FrameBacking::Imported(FrameLease::import(PhysAddr::new(0x71_0000), PAGE_SIZE));
+    assert_eq!(
+        kernel.set_capability_page(worker, handle, 0, page),
+        Ok(true)
+    );
+
+    assert_eq!(
+        kernel.begin_capability_reclaim(worker, handle, 0),
+        Ok(true),
+        "首个回收请求必须认领成功"
+    );
+    assert_eq!(
+        kernel.begin_capability_reclaim(worker, handle, 0),
+        Ok(false),
+        "同一页的在途回收必须拒绝重复认领"
+    );
+    assert!(
+        kernel
+            .capability_page_reclaiming(worker, handle, 0)
+            .unwrap()
+    );
+
+    kernel.end_capability_reclaim(worker, handle, 0);
+    assert!(
+        !kernel
+            .capability_page_reclaiming(worker, handle, 0)
+            .unwrap()
+    );
+    assert_eq!(
+        kernel.begin_capability_reclaim(worker, handle, 0),
+        Ok(true),
+        "释放认领后必须允许新的回收请求"
+    );
+    kernel.end_capability_reclaim(worker, handle, 0);
+    assert!(
+        kernel
+            .take_capability_page(worker, handle, 0)
+            .unwrap()
+            .is_some()
+    );
+}
