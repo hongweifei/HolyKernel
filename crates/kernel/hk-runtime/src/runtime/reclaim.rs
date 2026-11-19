@@ -160,6 +160,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return 0;
         };
         drop(lease);
+        self.kernel
+            .mark_capability_swapped(tcb, capability, page_index);
         self.release_page_charges(index, object, page_index);
         self.oom.record_event(
             super::oom::MEMORY_EVENT_SWAP,

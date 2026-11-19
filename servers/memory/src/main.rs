@@ -10,8 +10,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 #[cfg(target_os = "none")]
 use hk_syscall::{
-    PROVIDER_FAULT, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE, PROVIDER_RECLAIM,
-    PROVIDER_RECLAIM_BATCH, PROVIDER_RECLAIMED, PROVIDER_RELEASE,
+    PROVIDER_FAULT, PROVIDER_FAULT_SWAPPED, PROVIDER_KIND_ANONYMOUS, PROVIDER_PROVIDE,
+    PROVIDER_RECLAIM, PROVIDER_RECLAIM_BATCH, PROVIDER_RECLAIMED, PROVIDER_RELEASE,
 };
 #[cfg(target_os = "none")]
 use hk_user_api::{
@@ -386,6 +386,12 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
         }
         let mut buffer = [0_u8; PAGE];
         let stored = swap_get(&swapped, (words[4], page_index));
+        if words[6] & u64::from(PROVIDER_FAULT_SWAPPED) != 0 && stored.is_none() {
+            // 内核标记该页已换出，但本 Provider 实例没有对应内容：返回
+            // 错误让缺页路径终止任务，避免把丢失的数据静默替换成零页。
+            let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+            continue;
+        }
         if let Some(stored) = stored {
             match stored {
                 Stored::Compressed(compressed) => {

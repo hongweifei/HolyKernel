@@ -641,6 +641,12 @@ pub const FAULT_EVENT: u64 = 0xD00;
 /// 内核发给 Provider 的缺页请求标签；属于 `hk-proto::labels::PROVIDER` 段。
 pub const PROVIDER_FAULT: u64 = 0x1200;
 
+/// 缺页消息 `flags` 位：该页已由 Provider 保存且当前不驻留。
+///
+/// Provider 在重启后没有对应存储记录时据此返回错误，避免把丢失的页
+/// 静默替换成零页；首次装入的页不带该位。
+pub const PROVIDER_FAULT_SWAPPED: u32 = 1 << 31;
+
 /// Provider 回复缺页请求的标签。
 pub const PROVIDER_PROVIDE: u64 = 0x1201;
 

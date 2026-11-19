@@ -204,6 +204,13 @@ fn provider_reclaim_notifies_and_frees_page() {
             .is_none(),
         "Provider 确认后应归还物理页"
     );
+    assert!(
+        runtime
+            .kernel
+            .capability_swapped(tcb, handle, 0)
+            .expect("查询换出标记"),
+        "Provider 确认后必须记录该页已换出"
+    );
     let _ = runtime.finish(0, index);
 }
 

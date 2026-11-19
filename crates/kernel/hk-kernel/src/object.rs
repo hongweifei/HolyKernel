@@ -56,6 +56,8 @@ pub enum ObjectPayload {
         pages: Mutex<BTreeMap<usize, FrameBacking>>,
         /// 正在等待 Provider 确认的页，防止并发重复换出。
         reclaiming: Mutex<BTreeSet<usize>>,
+        /// 已成功交给 Provider 保存、当前不驻留的页号。
+        swapped: Mutex<BTreeSet<usize>>,
         /// 常驻字节数的历史峰值；只用于报告。
         resident_peak: AtomicU64,
         /// 是否固定驻留（用户 PIN 调用）。
@@ -428,6 +430,28 @@ impl KernelObject {
         match &self.payload {
             ObjectPayload::Capability { provider_task, .. } => *provider_task.lock(),
             _ => None,
+        }
+    }
+
+    /// 标记页已由 Provider 保存并离开常驻集合。
+    pub fn mark_capability_swapped(&self, index: usize) {
+        if let ObjectPayload::Capability { swapped, .. } = &self.payload {
+            swapped.lock().insert(index);
+        }
+    }
+
+    /// 清除页的已换出标记；Provider 回包或页重新驻留时调用。
+    pub fn clear_capability_swapped(&self, index: usize) {
+        if let ObjectPayload::Capability { swapped, .. } = &self.payload {
+            swapped.lock().remove(&index);
+        }
+    }
+
+    /// 判断页是否由 Provider 保存且当前不驻留。
+    pub fn capability_swapped(&self, index: usize) -> bool {
+        match &self.payload {
+            ObjectPayload::Capability { swapped, .. } => swapped.lock().contains(&index),
+            _ => false,
         }
     }
 

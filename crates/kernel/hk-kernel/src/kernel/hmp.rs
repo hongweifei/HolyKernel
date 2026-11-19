@@ -446,6 +446,7 @@ impl Kernel {
             provider_token: AtomicU64::new(0),
             pages: Mutex::new(BTreeMap::new()),
             reclaiming: Mutex::new(BTreeSet::new()),
+            swapped: Mutex::new(BTreeSet::new()),
             resident_peak: AtomicU64::new(resident),
             pinned: AtomicBool::new(false),
             region_pinned: AtomicU32::new(0),
@@ -669,6 +670,35 @@ impl Kernel {
     ) -> Result<ObjectId, KernelError> {
         let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
         Ok(object.header().id())
+    }
+
+    /// 标记能力页已由 Provider 保存并离开常驻集合。
+    pub fn mark_capability_swapped(&self, thread: TcbId, capability: Handle, index: usize) {
+        if let Ok((object, _)) =
+            self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)
+        {
+            object.mark_capability_swapped(index);
+        }
+    }
+
+    /// 清除能力页的已换出标记。
+    pub fn clear_capability_swapped(&self, thread: TcbId, capability: Handle, index: usize) {
+        if let Ok((object, _)) =
+            self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)
+        {
+            object.clear_capability_swapped(index);
+        }
+    }
+
+    /// 判断能力页是否已由 Provider 保存且当前不驻留。
+    pub fn capability_swapped(
+        &self,
+        thread: TcbId,
+        capability: Handle,
+        index: usize,
+    ) -> Result<bool, KernelError> {
+        let (object, _) = self.resolve(thread, capability, Rights::READ, ObjectKind::Capability)?;
+        Ok(object.capability_swapped(index))
     }
 
     /// 把一页装入能力。

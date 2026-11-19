@@ -755,6 +755,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .ok()
             .flatten()
             .unwrap_or(0);
+        let page_index = (offset / page) as usize;
+        let swapped = self
+            .kernel
+            .capability_swapped(region.tcb, region.capability, page_index)
+            .unwrap_or(false);
+        let fault_flags = region.flags.bits()
+            | if swapped {
+                hk_syscall::PROVIDER_FAULT_SWAPPED
+            } else {
+                0
+            };
         let words = hk_mem::hmp::provider::FaultMessage {
             offset,
             page,
@@ -762,7 +773,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             access,
             capability: capability_id.get(),
             rights: region.rights.bits(),
-            flags: region.flags.bits(),
+            flags: fault_flags,
             token,
         }
         .encode();

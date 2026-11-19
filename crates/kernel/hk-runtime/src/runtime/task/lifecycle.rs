@@ -862,6 +862,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         self.release_frame(charge);
                         return self.fail_provider(cpu, index, pending);
                     }
+                    self.kernel
+                        .clear_capability_swapped(owner_tcb, capability, page_index);
                     charge
                 } else {
                     if let Ok(Some(existing)) = self
@@ -888,6 +890,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             return self.fail_provider(cpu, index, pending);
                         }
                     }
+                    self.kernel
+                        .clear_capability_swapped(owner_tcb, capability, page_index);
                     let Ok(charge) = self.charge_frame_range(index, installed) else {
                         if installed_new {
                             let _ = self
