@@ -1,5 +1,6 @@
 //! Region 映射、查询与解除。
 
+use alloc::vec::Vec;
 use hk_hal::VirtAddr;
 use hk_handle::Rights;
 use hk_ipc::Message;
@@ -207,9 +208,16 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             return Switch::Continue;
         }
         // 权限只能收窄或被映射能力句柄覆盖：protect 不能把只读能力提升为可写。
-        let Some((owner, capability, cache)) = self.process(index).regions[slot]
-            .as_ref()
-            .map(|region| (region.owner, region.capability, region.cache))
+        let Some((owner, capability, cache, old_rights, old_flags)) =
+            self.process(index).regions[slot].as_ref().map(|region| {
+                (
+                    region.owner,
+                    region.capability,
+                    region.cache,
+                    region.rights,
+                    region.flags,
+                )
+            })
         else {
             frame.set_result(u64::MAX);
             return Switch::Continue;
@@ -263,6 +271,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        let page = hk_hal::PAGE_SIZE;
+        let snapshot: Vec<(u64, Option<hk_hal::PhysAddr>)> = (0..length)
+            .step_by(page)
+            .map(|relative| {
+                let address = virt + relative as u64;
+                (address, self.platform.user_phys(index, address))
+            })
+            .collect();
         if flags.contains(RegionFlags::GUARD) {
             // GUARD 区域不保留任何 PTE：访问回到缺页路径，由故障处理按 Region
             // 标志终止或交策略决定，未装入页也不会被零页填充。
@@ -277,6 +293,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .kernel
                         .pin_capability_region(owner, capability, was_pinned);
                 }
+                self.restore_user_mappings(
+                    index, virt, length, &snapshot, old_rights, old_flags, cache,
+                );
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -323,6 +342,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         .kernel
                         .pin_capability_region(owner, capability, was_pinned);
                 }
+                self.restore_user_mappings(
+                    index, virt, length, &snapshot, old_rights, old_flags, cache,
+                );
                 frame.set_result(u64::MAX);
                 return Switch::Continue;
             }
@@ -343,6 +365,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             .kernel
                             .pin_capability_region(owner, capability, was_pinned);
                     }
+                    self.restore_user_mappings(
+                        index, virt, length, &snapshot, old_rights, old_flags, cache,
+                    );
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 }
@@ -396,6 +421,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                             .kernel
                             .pin_capability_region(owner, capability, was_pinned);
                     }
+                    self.restore_user_mappings(
+                        index, virt, length, &snapshot, old_rights, old_flags, cache,
+                    );
                     frame.set_result(u64::MAX);
                     return Switch::Continue;
                 }
@@ -413,6 +441,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .kernel
                     .pin_capability_region(owner, capability, was_pinned);
             }
+            self.restore_user_mappings(
+                index, virt, length, &snapshot, old_rights, old_flags, cache,
+            );
             frame.set_result(u64::MAX);
             return Switch::Continue;
         }
@@ -913,6 +944,41 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             && let Some(map) = self.process_mut(index).regions[slot].as_mut()
         {
             map.page_charges.push((page_index, charge));
+        }
+    }
+
+    /// 恢复一次 protect 尝试前的 PTE 快照。
+    #[allow(clippy::too_many_arguments)]
+    fn restore_user_mappings(
+        &mut self,
+        index: usize,
+        virt: u64,
+        length: usize,
+        snapshot: &[(u64, Option<hk_hal::PhysAddr>)],
+        rights: Rights,
+        flags: RegionFlags,
+        cache: hk_hal::CachePolicy,
+    ) {
+        let page = hk_hal::PAGE_SIZE;
+        for (address, physical) in snapshot {
+            if let Some(physical) = physical {
+                let _ = self.platform.map_region(
+                    index,
+                    &hk_mem::RegionMapping {
+                        virt: *address,
+                        phys: physical.get(),
+                        len: page,
+                        rights,
+                        flags,
+                        policy: cache,
+                    },
+                );
+            } else {
+                let _ = self.platform.unmap_user(index, *address, page);
+            }
+        }
+        if self.process_active_elsewhere(index) {
+            self.platform.flush_user(index, virt, length);
         }
     }
 
