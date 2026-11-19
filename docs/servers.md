@@ -97,7 +97,7 @@ pub struct ServiceManifest {
 - 已实现 `servers/tempo`：Root Server 按服务清单授予带硬预算的初始契约池（`TEMPO_POOL`，Realtime 4096、4 ms/16 ms），Tempo 在池内派生收窄子契约，把句柄降权为 READ|TRANSFER 后随回复转移给调用方（调整与撤销仍由 Tempo 持有 ADMIN）。
 - 调用方用 `SYS_TASK_ATTACH_CADENCE(task = 0, cadence)` 把子契约附加到自己；Tempo 自检服务 `hk-server-tempo-test` 覆盖“申请 → 附加 → 读回权重 → 按名准入/撤销重授予”，`smoke --mode tempo` 验证。
 - 特权调用方可以用 `TEMPO_ADMIT`/`TEMPO_REVOKE` 按任务名请求准入或撤销重授予；Tempo 通过 `SYS_TASK_ATTACH_NAMED`/`SYS_TASK_REGRANT_NAMED` 在池内派生并附加契约。
-- 准入执行父契约范围校验与子契约预算总和限制；Realtime 判定通过 `SYS_CADENCE_DEMAND` 读取内核中存活 Task 的真实契约，再用 EDF 需求界函数判定，不再维护服务内账本。Checkpoint/Shell 恢复后通过 `TEMPO_READMIT` 触发 Tempo 重新准入。
+- 准入执行父契约范围校验；子契约预算在绑定 Task 时预留，未绑定的子契约不占池预算。Realtime 判定通过 `SYS_CADENCE_DEMAND` 读取内核中存活 Task 的真实契约，再用 EDF 需求界函数判定，不再维护服务内账本。Checkpoint 在 runtime 内按 Tempo 池上限做 DBF 准入；Shell 恢复通过 `TEMPO_READMIT` 触发 Tempo 重新准入。
 - 策略任务可以用 `SYS_OBJECT_GRANT_NAMED` 按名取得 Task/Cadence/Meter 句柄（按需授予 READ/WRITE/ADMIN），使 `SYS_TASK_ATTACH_CADENCE`、`SYS_METER_RESET` 与 `SYS_CADENCE_REVOKE` 的句柄式路径可达；按负载自动调整权重与预算仍在后续阶段。
 - Holy 命令 `cadence <task>`、`meter <task>`、`tempo`、`admit <task>`、`revoke <task>` 已接入用户态 Shell：只读视图经 Root 控制通道，准入/撤销经 Tempo 协议。
 - Tempo 崩溃由 Root Server 重启；重启后按服务清单重新授予初始池。

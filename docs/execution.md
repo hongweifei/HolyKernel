@@ -51,7 +51,7 @@ pub struct Tcb {
 - TCB 状态：`Created / Eligible / Running / Blocked / Exited`。
 - 线程入口、栈与 TLS 由用户态服务器与 libc 配置。
 - Task 获得 Grant 后，其可运行 TCB 轮转使用该 Grant。
-- 服务启动时的 `parent` 同时写入内核 Task 父链；父 Task 退出时子契约提升为独立契约，与 fork 出的子任务一致。
+- 服务启动时的 `parent` 写入内核 Task 父链；父 Task 退出时解除该 Task 父链。服务 Task 使用服务清单契约，Cadence 父链独立；fork 子任务的继承契约才提升为独立契约。
 
 ### 1.3 Native Task
 
@@ -170,7 +170,7 @@ pub struct Message {
 - **Endpoint** 提供 `send`、`recv`、`call`、`reply`。`send` 为异步：消息入队后立即返回，队列有界（每个 Endpoint 最多缓存 64 条），满时返回 `QueueFull`；同步请求/应答使用 `call`/`reply`。
 - 消息携带 label、最多 8 个字与 4 个 Handle；发送方需要 `TRANSFER` 权限。
 - 大块数据通过共享 Frame 传递；消息只携带 Frame Handle。
-- 阻塞、超时与取消由内核管理；等待队列按 Cadence 类别与虚拟键值排序，同类别内保持 FIFO。
+- 阻塞、超时与取消由内核管理；接收等待队列按 Cadence 类别与虚拟键值排序，同类别内保持 FIFO；待取消息按到达顺序 FIFO。
 - 带发送者过滤的接收（`expected`）只接受该实例的消息；实例退出后立即返回 `u64::MAX`，已登记的等待者也被唤醒为错误，避免持有旧 Endpoint 的客户端永久阻塞。`SYS_RECV_DATA_FROM_TIMEOUT` 以 `(expected << 32) | timeout` 同时表达过滤与超时。
 - Endpoint 可绑定 badge；服务端区分客户端。
 - `call` 期间建立 lending frame：服务端取得调用方与服务端中更强的有效契约，执行时间记入调用方 Meter；`reply`、超时或退出时恢复。细节见 [Holy Cadence Model](scheduling.md)。
@@ -414,7 +414,7 @@ pub struct CivilTime { ... }
 3. Task 持有有效 Cadence 后才能进入 `Eligible`。
 4. Handle 只能由持有 `TRANSFER` 权限的线程传递。
 5. IPC 消息中的 Handle 在接收方 HandleTable 中获得新槽位。
-6. Endpoint 的发送/接收按 Cadence 类别与虚拟键值排序，同类别内 FIFO。
+6. Endpoint 的接收等待队列按 Cadence 类别与虚拟键值排序，同类别内 FIFO；待取消息队列按到达顺序 FIFO。
 7. `call` 期间执行 lending；调用方为服务时间付费，借贷深度有界。
 8. 预算耗尽进入 `Throttled`；下一周期由 Beat 补充。
 9. 页错误通过 Fault Endpoint 交付；POSIX Server 处理语义。

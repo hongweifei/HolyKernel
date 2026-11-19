@@ -51,9 +51,11 @@ flowchart LR
 - Tempo 创建、拆分与调整普通服务契约，执行 Realtime 准入，处理撤销与回收。
 - Task 启动时由 Root/Tempo 附加 Cadence；子 Task 默认继承父契约的收窄份额。
 - 每一步只收窄 Rights；Handle 转移是唯一授权方式。
-- Cadence 可以拆分为子契约，子契约预算总和不超过父契约。带父链的契约在绑定 Task
-  时预留父预算；释放按记录的预留额度归还，checkpoint 恢复不会按当前 `budget`
-  猜测，也不会误减兄弟契约的预留。
+- Cadence 可以拆分为子契约，子契约预算总和不超过父契约。派生阶段只校验父契约
+  的剩余容量；带父链的契约在绑定 Task 时预留父预算，未绑定的子契约不占父预算。
+  释放按记录的预留额度归还，checkpoint 恢复不会按当前 `budget` 猜测，也不会误减
+  兄弟契约的预留。
+- 同一 Cadence 只能绑定一个 Task；绑定到其它 Task 会被拒绝。
 - 撤销通过 epoch 完成：Root/Tempo 递增 Cadence 的对象头 epoch 与契约 epoch，所有既有 Handle 在解析时失效，Task 进入 `Suspended` 并由 Tempo 重新授予。
 - `Suspended` 只能由 `SYS_TASK_ATTACH_CADENCE`/重新授予恢复；常规 IPC 或超时唤醒不得把 `Suspended` 置为 `Eligible`。
 
@@ -67,7 +69,8 @@ flowchart LR
 | VFS / HolyFS / VirtIO | `Latency { weight: 3072, latency: 4ms }` |
 | Network / POSIX / Checkpoint / Debug | `Latency { weight: 2048, latency: 4ms }` |
 | Toolchain / 后台任务 | `Throughput { weight: 1024 }` |
-| 普通服务 | 父 Task 契约的收窄份额 |
+| fork 子 Task | 父 Task 契约的收窄份额 |
+| 服务 Task | 服务清单的默认契约；`parent` 只建立监督父链 |
 | idle TCB | `Idle`，每 CPU 一个 |
 
 具体数值由服务清单与 Tempo 策略决定；上表定义 1.0 的初始基线与角色分类。
@@ -85,10 +88,11 @@ flowchart LR
 
 - 普通 Task 持有自身 Cadence 的 READ；自身 Meter 通过 `SYS_METER_INFO(handle = 0)`
   读取，Meter Handle 由策略方按需授予。
-- WRITE 授予 Tempo 与父 Task；ADMIN 授予 Root/Tempo。Tempo 匿名授予的子契约只带
-  READ 与 TRANSFER，客户端不能自行提升权重或预算，调整必须回到 Tempo。
+- WRITE 授予 Tempo 与持有子契约句柄的调用方；ADMIN 授予 Root/Tempo 与持有父契约
+  句柄的调用方。Tempo 匿名授予的子契约只带 READ 与 TRANSFER，客户端不能自行提升
+  权重或预算，调整必须回到 Tempo。
 - Task 的类别、预算与亲和性只能由 Tempo 在父契约范围内修改。
-- `SYS_CADENCE_UPDATE` 对普通 WRITE 只允许调整 weight/budget，且不得超出父契约；类别、亲和性、迁移、借贷与周期/截止期保持不变。策略 Task（Tempo）可放宽这些字段。
+- `SYS_CADENCE_UPDATE` 对普通 WRITE 只允许调整 weight/budget，且不得超出父契约；类别、亲和性、迁移、借贷与周期/截止期保持不变。策略 Task（Tempo）可在父契约内修改这些字段，仍需满足 affinity 子集、借贷收窄、class 不增强、周期/截止期不超出父契约。
 
 ### 4.2 ABI
 
@@ -108,7 +112,7 @@ flowchart LR
 | `SYS_REPLY_HANDLE(label, word, handle)` | 回复调用并转移一个句柄；接收方从系统调用返回的句柄字取编号，失败为 0 |
 | `SYS_TASK_ATTACH_CADENCE(task, cadence)` | Root/Tempo 为 Task 附加契约；`task = 0` 表示当前 Task |
 | `SYS_OBJECT_GRANT_NAMED(name, len, kind, rights)` | 策略任务按名取得 Task/Cadence/Meter 句柄，使句柄式调用可达 |
-| `SYS_CADENCE_DEMAND(exclude, out, len)` | 读取存活 Realtime Task 的真实 EDF 需求（策略任务） |
+| `SYS_CADENCE_DEMAND(exclude, out, len)` | 读取存活 Realtime Task 的真实 EDF 需求（策略任务）；Tempo 单次使用 32 条记录缓冲区，超出按不可调度处理 |
 
 Task、Cadence、Meter 都使用统一 Handle 表示；Rust 客户端库提供零成本类型包装。
 句柄式调用由 `SYS_OBJECT_GRANT_NAMED` 授予权限，策略任务不会绕过 Rights。
@@ -123,6 +127,10 @@ Task、Cadence、Meter 都使用统一 Handle 表示；Rust 客户端库提供�
 2. **TCB 级**：Task 获得 Grant 后，其可运行 TCB 轮转使用该 Grant；任务阻塞时切换下一个 TCB。
 
 公平、预算与计量都记在 Task 上，同一 Task 的 TCB 共享同一份 Cadence 与 Meter。实现上 Task 只有 `active` 一个 TCB 持有 Grant；Grant 结束时在该 Task 的 Runnable TCB 间按 attach 顺序轮转。
+
+契约变更时按 Task 状态刷新调度：Running 只重算当前 Grant 并请求重新调度；Eligible
+先移除旧队列条目再按新 class/key/weight 入队；Throttled 清空旧 refill 并立即回到
+Eligible；Suspended 只更新契约，恢复仍由 attach/regrant 完成。
 
 ### 5.2 类别
 
@@ -148,13 +156,16 @@ virtual_pass += charge
 - `Throughput` 类选择最小 `virtual_pass`。
 - `Realtime` 类维护 `period_start`、`budget_left` 与 `absolute_deadline = period_start + (deadline 或 period)`；Beat 选择最早截止期，用 CBS 规则补充预算。
 - 预算补充把 `period_start` 按整周期推进到当前时刻所在边界（不漂移）；切换或附加契约时 `period_start` 重置为当前时刻，绝对截止期不会落到过去。
-- Realtime 准入使用 EDF 需求界函数（DBF）精确判定：对每个任务的所有绝对截止期检查累计需求不超过时刻，支持约束截止期。Tempo 通过 `SYS_CADENCE_DEMAND` 读取内核中存活 Task 的真实契约；checkpoint 恢复复用同一判据，服务内不再维护第二份账本。
+- Realtime 准入使用 EDF 需求界函数（DBF）判定：在 1s 检查窗口内对每个任务的绝对截止期检查累计需求不超过时刻，支持约束截止期。Tempo 通过 `SYS_CADENCE_DEMAND` 读取内核中存活 Task 的真实契约；checkpoint 恢复复用同一判据，服务内不再维护第二份账本。
+- Tempo 动态子契约继承策略池的类别、周期与截止期；请求体中的 weight/budget 参与
+  收窄与准入。约束截止期的契约由服务清单或 checkpoint 恢复提供。
 - 同类内长期 CPU 份额与 `weight` 成正比；误差上界由 `MAX_SLICE` 与抢占延迟决定。
 
 ### 5.4 预算与 Throttled
 
 - `budget > 0` 表示硬预算：Task 在一个 `period` 内消耗超过 `budget` 后进入 `Throttled`。
 - `Throttled` 的 Task 从类别队列移除；下一个周期由 Beat 重新入队并补充预算。
+  attach/update 安装新契约时清空旧 refill 并立即回到 `Eligible`。
 - `budget = 0` 表示纯权重共享，Task 在同类内按 `weight` 长期获得份额。
 - 预算用尽、周期恢复与超限事件写入 Meter 与 trace。
 
@@ -184,7 +195,7 @@ stateDiagram-v2
 - 硬亲和集合内没有在线 CPU 时 Task 保持 `Eligible` 但不入队，从保持 Eligible 起计入 `Meter.waited`，亲和变更后由 dispatch 结算。
 - `wake` 与 `activate` 完成后调用 `resched` 判定：新 Task 的类别或键值优先于当前 Task 时置位该 CPU 的 `need_resched`。
 - 目标在其他 CPU 时同时置位抢占标志与空闲唤醒标志，并发送 reschedule IPI。
-- 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。三处都在返回用户态前消费标志并调用抢占判定；中断发生在内核态时保留标志，交由系统调用返回路径消费，避免内核态收到 IPI 时丢失请求。
+- 抢占检查点：系统调用返回、定时器中断返回、IPI 返回。三处都在返回用户态前消费标志并调用抢占判定；中断发生在内核态时保留标志，交由系统调用返回路径消费，避免内核态收到 IPI 时丢失请求。用户态 one-shot 在 runtime 锁被占用时保留 resched 并重臂 1ms watchdog，下一次到期重试。
 - 空闲循环同时检查空闲唤醒标志与抢占标志，任一置位即退出 `hlt` 并重新调度。
 - 当前 Task 的 Grant 到期、进入 `Throttled`、阻塞或退出时立即重新选择。
 - 唤醒延迟由 Beat 的一次性定时器与 IPI 决定。
@@ -208,10 +219,10 @@ stateDiagram-v2
 ### 5.8 亲和性与负载均衡
 
 - `affinity: CpuMask` 是硬约束：亲和集合内没有在线 CPU 时任务保持 `Eligible` 但不入队，等待亲和性变化。
-- `migratable` 决定 Task 是否参与迁移：只有 `migratable` 的条目会被空闲 CPU 窃取。
+- `migratable` 决定 Task 是否参与迁移：只有 `migratable` 的条目会被空闲 CPU 窃取。非 migratable Task 的 last CPU 不在亲和集合内或离线时允许一次 rehome，之后固定在新 CPU。
 - 唤醒时优先选择亲和集合内的空闲 CPU；负载压力 = 排队权重 + 运行中 TCB 权重 + 可运行 TCB 数当量，再用缓存热度容差保留热任务在原 CPU。
 - 空闲 CPU 从压力最高且存在可迁移任务的 Beat 拉取一个 `migratable` 的 Task。
-- 亲和性变更后，已排队但 CPU 不再允许的线程会被移出并重新挂到允许的 CPU。
+- 亲和性变更后，已排队但 CPU 不再允许的线程会被移出并重新挂到允许的 CPU；运行中 Task 在下一次 Grant 结束时重挂。
 - 迁移保持 Cadence、Meter 与 TCB 归属；`Meter.migrations`/`migration_cost` 与 `migrate` trace 记录事件与 `weight × (heat + base)` 成本。
 
 ### 5.9 阻塞、sleep 与超时
@@ -219,7 +230,7 @@ stateDiagram-v2
 - Endpoint、Notification、futex、sleep、IPC 超时统一表达为 Task 的 `Blocked` 状态与唤醒条件。
 - sleep、带超时接收与带超时调用登记到 runtime deadline 表；到期由 Beat 唤醒对应 Task。超时调用通过 `Kernel::cancel_call` 取消挂起调用、记录 tombstone 并弹出 lending frame；完成或退出时清除对应 deadline 条目。
 - 接收超时在取消等待者前原子判定发送方是否已认领该接收（`cancel_recv` 返回 `false`）：已认领或消息已入待取队列时按正常交付处理，不误判超时。
-- Endpoint 等待队列按 Cadence 类别与虚拟键值排序；同一类别内保持 FIFO。交付失败回滚时保留原类别与键值。
+- Endpoint 接收等待队列按 Cadence 类别与虚拟键值排序；同一类别内保持 FIFO；待取消息按到达顺序 FIFO。交付失败回滚时保留原类别与键值。
 - 取消与退出会清理等待队列与 lending frame；撤销通过 epoch 使句柄失效并把 Task
   置为 `Suspended`，等待重新授予，不越过 `Suspended` 唤醒。
 
@@ -227,9 +238,9 @@ stateDiagram-v2
 
 ## 6. Lending：caller pays
 
-`call` 进入服务端时，内核建立 lending frame：
+`call` 进入服务端时，内核为**调用方 TCB**建立 lending frame；同一 Task 的多个线程各自持有独立 frame：
 
-1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约：依次比较调度类别、队列键，类别更小、键更小者更强；两者都相同时取较短时间片与较小延迟目标。有效契约同时决定入队类别/键、Grant 时间片，以及 dispatch 时的超限判定（Realtime 用绝对截止期，Latency 用延迟目标），因此调用方的截止期保障在服务端执行期间同样可观测。
+1. 服务端 TCB 取得调用方 Cadence 与服务端 Cadence 中更强的一个作为有效契约：依次比较调度类别、队列键，类别更小、键更小者更强；两者都相同时取较短时间片与较小延迟目标。有效契约同时决定入队类别/键、Grant 时间片，以及 dispatch 时的超限判定（Realtime 用绝对截止期，Latency 用延迟目标）。服务端已运行时，lending 缩短当前 Grant 后保留 resched 并重臂定时器，因此调用方的截止期保障在服务端执行期间同样生效。
 2. 服务端执行时间记入调用方 Meter，并计入调用方 Cadence 预算。
 3. 服务端自身预算持续生效；调用方预算耗尽时，服务端继续完成当前调用，调用方进入 `Throttled`。
 4. `reply`、超时、调用方退出或服务端退出时弹出 lending frame，恢复服务端原契约；超时调用的迟到 `reply` 按 tombstone 丢弃，不再与服务端错误混淆。
@@ -279,7 +290,7 @@ Meter 字段：
 
 恢复流程：
 
-1. Tempo 重新准入 Realtime 契约并重授 Cadence；
+1. checkpoint 恢复在 runtime 内按 Tempo 池上限做 Realtime DBF 准入，并重授 Cadence；
 2. `virtual_pass` 按当前同类平均值重定基；
 3. 预算周期从恢复时刻开始；
 4. Task 进入 `Eligible`；
@@ -294,7 +305,7 @@ Meter 字段：
 - Cadence 与 Meter 是权限对象；创建、拆分、撤销与 lending 配置需要 ADMIN。
 - 普通 Task 读取自身契约与计量；调整权重、预算、类别与亲和性需要 Tempo 授权。
 - 预算与 Realtime 准入限制 CPU 资源滥用。
-- 子 Task 继承父契约的收窄份额；父 Task 退出时内核默认把子 Task 的收窄契约提升为独立契约（解除 Task/Cadence 父链，权重与预算不变，子任务继续运行并记录 `promote` trace）；Tempo 可随后通过 `SYS_CADENCE_REVOKE`/重新授予显式收回。
+- 子 Task 继承父契约的收窄份额；父 Task 退出时内核只提升**继承自该父契约**的子契约（解除 Task/Cadence 父链，权重与预算不变，子任务继续运行并记录 `promote` trace）。子任务后来 attach 的其它契约只解除 Task 父链，不改变其 Cadence 父链。Tempo 可随后通过 `SYS_CADENCE_REVOKE`/重新授予显式收回。
 - 所有授予、撤销、节流、借贷与迁移进入 trace 与 Meter。
 
 ---
@@ -313,7 +324,7 @@ Meter 字段：
 2. 同类内长期 CPU 份额与 `weight` 成正比。
 3. 同一 Task 的 TCB 共享 Cadence 与 Meter；一个 TCB 同时只在一个 CPU 上运行。
 4. Realtime Task 通过 Tempo 准入后获得截止期保证。
-5. 预算类 Task 在一个周期内消耗不超过 `budget`；超额进入 `Throttled`。
+5. 预算类 Task 的运行时间受 `budget` 约束；调度器把下一次 Grant 钳到剩余预算，实际消耗上界为 `budget + 抢占延迟`。超额进入 `Throttled`，Meter 记录完整消耗。
 6. 唤醒延迟由一次性定时器与 reschedule IPI 决定。
 7. Lending 有界、可恢复，调用方为服务时间付费。
 8. 空闲 CPU 运行 idle TCB 并执行 `hlt`。
@@ -326,15 +337,15 @@ Meter 字段：
 
 | 层 | 状态 | 落点与边界 |
 | --- | --- | --- |
-| `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、父预算预留/释放与固定长度快照；只依赖 `hk-base` |
-| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、Grant 按剩余预算钳制、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、本地 `need_resched` 与三处抢占检查点、唤醒 reschedule；父预算预留/释放按记录额度；负载压力含运行中权重；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote/attach/update/split/revoke trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；Endpoint 等待队列按类别与虚拟键排序、同键 FIFO；父 Task 退出时子契约提升为独立契约 |
-| `hk-runtime` | 已实现 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 需求界准入与 checkpoint→Tempo 重准入；策略任务可按名取得 Task/Cadence/Meter 句柄（`SYS_OBJECT_GRANT_NAMED`）并查询真实 Realtime 需求（`SYS_CADENCE_DEMAND`）；引导期 Realtime 契约由 Root/服务清单直接授予，动态契约由 Tempo 准入 |
+| `hk-cadence` | 已实现 | 共享契约：Cadence/Meter、类别、权重、虚拟时间数学、亲和性、借贷策略、子契约绑定预留/释放与固定长度快照；只依赖 `hk-base` |
+| `hk-kernel` | 已实现 | Task 一等对象（Cadence/Meter 句柄）；Beat 四类队列、EDF/WFQ 键、预算与 `Throttled`、Grant 按剩余预算钳制、无漂移周期补充、Task 级唯一 Grant 与 TCB 轮转、本地 `need_resched` 与三处抢占检查点、唤醒 reschedule；契约变更按 Running/queued/Throttled 状态刷新 Grant 与队列 placement；父预算在绑定 Task 时预留、按记录额度释放；同一 Cadence 只能绑定一个 Task；负载压力含运行中权重；`Meter.waited/switches/overruns` 与 enqueue/dequeue/preempt/throttle/refill/migrate/overrun/promote/attach/update/split/revoke trace 已记账；周期补充由内核 `refills` 表承载，sleep 与接收/调用超时由 runtime deadline 表承载；Endpoint 接收等待队列按类别与虚拟键排序、同键 FIFO；父 Task 退出时只提升继承契约 |
+| `hk-runtime` | 已实现 | Task 创建、fork/线程共享 Task、Meter 记账、契约时钟推进；fork 从父契约派生收窄子契约并保留 parent；接收/调用超时（含 `cancel_call` 与 deadline 清理）、Realtime EDF 需求界准入与 checkpoint 本地 DBF 重准入（Tempo 池作为上限）；策略任务可按名取得 Task/Cadence/Meter 句柄（`SYS_OBJECT_GRANT_NAMED`）并查询真实 Realtime 需求（`SYS_CADENCE_DEMAND`）；引导期 Realtime 契约由 Root/服务清单直接授予，动态契约由 Tempo 准入 |
 | `hk-catalog` | 已实现 | 服务默认 Cadence 的单一来源；镜像只携带角色 |
 | `hk-syscall` | 已实现 | `SYS_CADENCE_INFO/UPDATE/SPLIT/REVOKE`、`SYS_METER_INFO/RESET`、`SYS_TASK_ATTACH_CADENCE`、`SYS_CADENCE_SELF`、按名附加/重授予、`SYS_OBJECT_GRANT_NAMED`、`SYS_CADENCE_DEMAND` 与内核分派；`SYS_CADENCE_INFO`/`SYS_METER_INFO` 的 `handle = 0` 表示当前 Task |
-| `hk-server-tempo` | 已实现 | 池内派生、自准入、按名准入/撤销重授予、子契约预算总和与释放、Shell 命令；池为 Realtime，准入通过 `SYS_CADENCE_DEMAND` 读取内核真实需求并做 EDF 判定，服务内不再维护账本；匿名授予只给 READ|TRANSFER；`TEMPO_READMIT` 保留给 Shell 显式重准入 |
-| Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 定时器指向本地 Grant 结束、最早 Realtime 截止期与全局补充/sleep/接收/调用超时的最早者；内核态到期的一次性定时器会保留 resched 并重新臂短 watchdog，避免丢失唯一的调度定时器；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
+| `hk-server-tempo` | 已实现 | 池内派生、自准入、按名准入/撤销重授予、子契约预算在绑定 Task 时预留、Shell 命令；池为 Realtime，动态子契约继承池的类别/周期/截止期，请求体 weight/budget 参与收窄；准入通过 `SYS_CADENCE_DEMAND` 读取内核真实需求并做 EDF 判定，服务内不再维护账本；匿名授予只给 READ|TRANSFER；`TEMPO_READMIT` 保留给 Shell 显式重准入 |
+| Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 的 armed/enabled/oneshot/last-tick 状态独立，定时器指向本地 Grant 结束、最早 Realtime 截止期与全局补充/sleep/接收/调用超时的最早者；内核态到期的一次性定时器会保留 resched 并重新臂短 watchdog；用户态 one-shot 在 runtime 锁竞争时同样保留 resched 并重臂 1ms watchdog；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 已实现 | 硬亲和（无在线可用 CPU 时不入队）、亲和变更重挂、按排队权重+运行中权重+可运行数压力选核、缓存热度容差、仅 migratable 参与窃取；迁移计数与 `weight × (heat + MIGRATION_BASE_COST)` 成本写入 Meter，`migrate` 进入 trace |
-| Lending | 已实现 | caller-pays frame、深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片与超限判定；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
+| Lending | 已实现 | caller-pays frame 以调用方 TCB 为键，同一 Task 的多线程各自独立；深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片、定时器与超限判定；服务端已运行时缩短 Grant 后请求 resched 并重臂；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
 | Checkpoint | 已实现 | 主线程与附加线程现场、Region 元数据、Cadence/Meter 水位已保存并回填；恢复重建内核父链与 Cadence id/parent/epoch，父契约缺失或放不下时提升为独立契约；带父链契约在绑定时预留父预算；Realtime 契约经 DBF 准入，失败时回退父契约、父契约缺失回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter 与 Region 偏移一致 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |
