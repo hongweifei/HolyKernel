@@ -267,6 +267,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let tcb = self.tasks[index].tcb;
+        self.migrate_thread_regions(index);
         self.release_grants(index);
         self.release_task_charges(index);
         if self.tasks[index].leader == index {
@@ -354,6 +355,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
 
         let tcb = self.tasks[index].tcb;
+        self.migrate_thread_regions(index);
         self.release_grants(index);
         self.release_task_charges(index);
         if self.tasks[index].leader == index {
@@ -498,6 +500,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     }
                     Pending::ProviderReclaim { deadline, .. } => {
                         self.timeouts.entry(deadline).or_default().push(index);
+                    }
+                    Pending::ProviderFault { deadline, .. } => {
+                        // deadline 到期后唤醒；prepare 取不到回包会按
+                        // PROVIDER_FAULT_EXIT 终止任务。
+                        if deadline <= now {
+                            self.kernel.wake_thread(tcb);
+                        } else {
+                            self.timeouts.entry(deadline).or_default().push(index);
+                        }
                     }
                     _ => {}
                 }
@@ -766,6 +777,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 flags,
                 access: _,
                 private,
+                deadline: _,
             } => {
                 let caller = self.tasks[index].tcb;
                 let Some(message) = self.kernel.take_reply(caller) else {

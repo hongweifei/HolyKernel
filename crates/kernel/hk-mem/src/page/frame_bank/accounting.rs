@@ -16,6 +16,10 @@ impl FrameBank {
         let mut inner = self.inner.lock();
         let (length, charged) = match inner.allocations.get(&range.start().get()) {
             Some(allocation) if allocation.range == range => {
+                if allocation.owner.is_some() {
+                    // 已归属区间保持当前 owner；重复采纳返回该归属是否一致。
+                    return allocation.owner == Some(owner);
+                }
                 (allocation.range.len(), allocation.owner_charge)
             }
             _ => return false,
@@ -94,10 +98,25 @@ impl FrameBank {
                 }
             }
         }
+        let new_kind = inner
+            .ledger_kinds
+            .get(&owner)
+            .copied()
+            .unwrap_or(CapacityKind::System);
         for (start, charge) in charges {
+            let length = inner
+                .allocations
+                .get(&start)
+                .map_or(0, |allocation| allocation.range.len());
             if let Some(allocation) = inner.allocations.get_mut(&start) {
                 allocation.owner = Some(owner);
                 allocation.owner_charge = Some(charge);
+            }
+            if new_kind != CapacityKind::System {
+                let old = &mut inner.by_capacity[CapacityKind::System.index()];
+                *old = old.saturating_sub(length);
+                let new = &mut inner.by_capacity[new_kind.index()];
+                *new = new.saturating_add(length);
             }
         }
         let used = inner.used_for(owner);

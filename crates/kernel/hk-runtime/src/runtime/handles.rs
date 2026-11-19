@@ -7,7 +7,7 @@ use crate::runtime::{
 };
 use alloc::vec::Vec;
 use hk_hal::{SyscallFrame, UserContext};
-use hk_handle::{Handle, Rights};
+use hk_handle::{Handle, ObjectKind, Rights};
 use hk_ipc::Message;
 use hk_kernel::KernelError;
 use hk_mem::hmp::FrameRef;
@@ -533,6 +533,66 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 .take()
         } else {
             None
+        }
+    }
+
+    /// 把即将退出线程持有的 Region/capability 句柄迁移到进程 leader。
+    ///
+    /// Region 表属于 Process，句柄属于线程。创建 Region 的 worker 退出时，
+    /// 把句柄在 leader 表里重建，并保留同一对象与 Rights。
+    pub(crate) fn migrate_thread_regions(&mut self, index: usize) {
+        let leader = self.leader_of(index);
+        if leader == index {
+            return;
+        }
+        let old_tcb = self.tasks[index].tcb;
+        let new_tcb = self.tasks[leader].tcb;
+        let entries: Vec<(usize, Handle, Handle)> = self
+            .process(index)
+            .regions
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, map)| {
+                let map = map.as_ref()?;
+                (map.owner == old_tcb).then_some((slot, map.handle, map.capability))
+            })
+            .collect();
+        for (slot, region_handle, capability_handle) in entries {
+            let Ok(region_id) = self.kernel.handle_id(old_tcb, region_handle) else {
+                continue;
+            };
+            let Ok(region_rights) =
+                self.kernel
+                    .handle_rights(old_tcb, region_handle, ObjectKind::Region)
+            else {
+                continue;
+            };
+            let Ok(new_region) = self.kernel.grant(new_tcb, region_id, region_rights) else {
+                continue;
+            };
+            let Ok(capability_id) = self.kernel.handle_id(old_tcb, capability_handle) else {
+                let _ = self.kernel.close_handle(new_tcb, new_region);
+                continue;
+            };
+            let Ok(capability_rights) =
+                self.kernel
+                    .handle_rights(old_tcb, capability_handle, ObjectKind::Capability)
+            else {
+                let _ = self.kernel.close_handle(new_tcb, new_region);
+                continue;
+            };
+            let Ok(new_capability) = self.kernel.grant(new_tcb, capability_id, capability_rights)
+            else {
+                let _ = self.kernel.close_handle(new_tcb, new_region);
+                continue;
+            };
+            let _ = self.kernel.close_handle(old_tcb, region_handle);
+            let _ = self.kernel.close_handle(old_tcb, capability_handle);
+            if let Some(map) = self.process_mut(index).regions[slot].as_mut() {
+                map.handle = new_region;
+                map.capability = new_capability;
+                map.owner = new_tcb;
+            }
         }
     }
 

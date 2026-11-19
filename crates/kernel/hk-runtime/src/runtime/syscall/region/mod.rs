@@ -750,7 +750,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             access,
             private: access == hk_mem::hmp::provider::ProviderAccess::Write
                 && region.flags.contains(hk_mem::hmp::RegionFlags::COW),
+            deadline: self.contract_now().saturating_add(1_000_000),
         };
+        if let Pending::ProviderFault { deadline, .. } = self.tasks[index].pending {
+            self.timeouts.entry(deadline).or_default().push(index);
+        }
         true
     }
 
@@ -795,7 +799,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             && let Ok(id) = self.kernel.handle_id(region.tcb, region.capability)
             && let Some(source) = self.image_source(id)
         {
-            return if self.image_fault_region(index, region, address, &capability, source) {
+            return if self.image_fault_region(cpu, index, region, address, &capability, source) {
                 FaultOutcome::Resumed
             } else {
                 FaultOutcome::Unhandled
@@ -815,7 +819,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 FaultOutcome::Unhandled
             }
         } else if capability.kind() == CapabilityKind::Anonymous
-            && self.anonymous_fault_region(index, region, address, &capability)
+            && self.anonymous_fault_region(cpu, index, region, address, &capability)
         {
             FaultOutcome::Resumed
         } else {

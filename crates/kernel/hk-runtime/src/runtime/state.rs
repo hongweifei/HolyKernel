@@ -83,6 +83,8 @@ pub enum Pending {
         access: hk_mem::hmp::provider::ProviderAccess,
         /// 是否为写时复制的私有页；Provider 回包安装到进程覆盖而不是能力。
         private: bool,
+        /// 等待 Provider 回包的 deadline。
+        deadline: u64,
     },
     /// Provider 回收请求已发出，等待内容保存确认。
     ProviderReclaim {

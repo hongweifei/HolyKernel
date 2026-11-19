@@ -190,6 +190,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             SYS_SLEEP => self.sleep(index, tcb, frame),
             SYS_EXIT => {
                 let code = frame.arg0();
+                self.migrate_thread_regions(index);
                 self.release_grants(index);
                 self.release_task_charges(index);
                 if self.tasks[index].leader == index {

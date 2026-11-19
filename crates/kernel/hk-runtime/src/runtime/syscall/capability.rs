@@ -63,6 +63,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
     }
 
+    /// 缺页/镜像装入路径的分配：失败时进入统一 OOM 策略并重试一次。
+    pub(super) fn allocate_owned_with_oom(
+        &mut self,
+        cpu: usize,
+        index: usize,
+        len: u64,
+        capacity_number: Option<usize>,
+    ) -> Option<FrameBacking> {
+        if let Some(backing) = self.allocate_owned(index, len, capacity_number) {
+            return Some(backing);
+        }
+        if !self.oom_guard(cpu, index, len) {
+            return None;
+        }
+        self.allocate_owned(index, len, capacity_number)
+    }
+
     pub(crate) fn capability_create(
         &mut self,
         cpu: usize,

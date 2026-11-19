@@ -428,7 +428,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         hk_mem::hmp::frame_ledger::charge(scope, &ledger, amount)
     }
 
-    /// 记入一段具体物理区间；同一区间在多个进程间共享时只计费一次。
+    /// 记入一段具体物理区间；同一进程内共享时只计费一次，跨进程按各自 scope 计费。
     pub(crate) fn charge_frame_range(
         &mut self,
         index: usize,

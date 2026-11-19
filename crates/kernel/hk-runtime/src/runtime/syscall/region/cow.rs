@@ -93,7 +93,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 把能力里已经装入的页映射进当前任务。
     ///
     /// 同一个能力被多个 Region/任务映射时，第一份缺页由 Provider 装入，后续
-    /// 缺页在这里直接共享同一物理页，只按当前任务记账。
+    /// 缺页在这里直接共享同一物理页，并按当前进程 scope 记账。
     ///
     /// 返回 `None` 表示能力里没有这一页；`Some(false)` 表示有页但本次映射失败
     /// （配额/页表），调用方不得再转发 Provider 覆盖共享页。
@@ -160,6 +160,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 按镜像文件内容装入 TaskImage 页；其余字节保持零。
     pub(super) fn image_fault_region(
         &mut self,
+        cpu: usize,
         index: usize,
         region: FaultRegion,
         address: u64,
@@ -179,7 +180,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.platform.user_mapped(page_address) {
             return true;
         }
-        let Some(backing) = self.allocate_owned(index, page, None) else {
+        let Some(backing) = self.allocate_owned_with_oom(cpu, index, page, None) else {
             return false;
         };
         let range = backing.range();
@@ -255,11 +256,12 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         {
             return false;
         }
-        self.anonymous_fault_region(index, region, address, &capability)
+        self.anonymous_fault_region(cpu, index, region, address, &capability)
     }
 
     pub(super) fn anonymous_fault_region(
         &mut self,
+        cpu: usize,
         index: usize,
         region: FaultRegion,
         address: u64,
@@ -332,7 +334,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             }
             return self.platform.user_mapped(page_address);
         }
-        let Some(backing) = self.allocate_owned(index, page, None) else {
+        let Some(backing) = self.allocate_owned_with_oom(cpu, index, page, None) else {
             return false;
         };
         let range = backing.range();

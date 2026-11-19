@@ -300,7 +300,7 @@ Provider 是类型化能力的缺页、回写与驻留服务，通过 Endpoint �
 内核快速路径：
 
 1. 已常驻页：查能力页表并直接建立当前 Region 的 PTE，零 IPC。同一能力被多个
-   Region/任务映射时共享同一物理页，只按当前任务记账。
+   Region/任务映射时共享同一物理页；每个进程按自己的 scope 记账。
 2. 默认 Provider 为空的 Anonymous：安装零页；匿名 COW 由内核复制 Frame。
 3. 已绑定 Provider 的能力：缺页一律转发 Provider；Provider 失败按缺页故障处理。
 
