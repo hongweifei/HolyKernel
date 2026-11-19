@@ -347,3 +347,13 @@ fn merge_defers_grandchild_windows_until_they_drop() {
     let reclaimed = parent.allocate(0x4000).expect("孙窗口归还后可分配");
     assert!(reclaimed.phys().get() >= child_range.start().get());
 }
+
+#[test]
+fn owned_frame_drop_returns_capacity_quota() {
+    let capacity = Arc::new(Mutex::new(capacity()));
+    let owned = crate::hmp::OwnedFrame::allocate(&capacity, 0x2000).expect("RAII 分配");
+    assert_eq!(owned.len(), 0x2000);
+    assert_eq!(capacity.lock().used(), 0x2000);
+    drop(owned);
+    assert_eq!(capacity.lock().used(), 0, "RAII 析构必须归还配额");
+}
