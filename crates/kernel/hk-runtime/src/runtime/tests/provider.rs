@@ -409,6 +409,20 @@ fn provider_reclaim_range_skips_missing_pages() {
             .is_none(),
         "Provider 确认后应归还物理页"
     );
+    assert!(
+        runtime
+            .kernel
+            .capability_swapped(tcb, handle, 0)
+            .expect("查询换出标记"),
+        "已回收页必须带换出标记"
+    );
+    assert!(
+        !runtime
+            .kernel
+            .capability_swapped(tcb, handle, 1)
+            .expect("查询缺失页"),
+        "缺失页不进入换出集合"
+    );
     let _ = runtime.finish(0, index);
 }
 
