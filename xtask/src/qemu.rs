@@ -149,15 +149,19 @@ pub(crate) fn accelerate(command: &mut Command) {
 }
 
 /// 启动 QEMU 并等待内核退出。
-pub fn run(iso: &Path, disk: &Path, ui: bool, machine: &Machine) -> Result<()> {
-    run_with(iso, disk, ui, machine, None)
+pub fn run(iso: &Path, disk: &Path, ui: bool, gpu: bool, machine: &Machine) -> Result<()> {
+    run_with(iso, disk, ui, gpu, machine, None)
 }
 
 /// 启动 QEMU；`gdb` 为 GDB 远程端口时以 `-S` 暂停等待连接。
+///
+/// `gpu` 只在图形桌面下生效：用 `-vga none` 去掉线性帧缓冲，只挂一块
+/// `virtio-gpu-pci`，让 Display 接管 GPU 扫描输出。
 pub fn run_with(
     iso: &Path,
     disk: &Path,
     ui: bool,
+    gpu: bool,
     machine: &Machine,
     gdb: Option<u16>,
 ) -> Result<()> {
@@ -186,6 +190,11 @@ pub fn run_with(
         ))
         .args(["-device", "virtio-blk-pci,drive=disk"]);
     if ui {
+        if gpu {
+            // 只保留 virtio-gpu 一路显示输出：早期引导画面走串口，桌面接管
+            // 扫描输出后宿主窗口就是 GPU 画面。
+            command.args(["-vga", "none", "-device", "virtio-gpu-pci"]);
+        }
         // 平板必须先于键盘：QEMU 的绝对指针事件交给最先注册的输入设备，
         // 键盘在前时指针事件会被丢掉，桌面上就看不到鼠标。
         command.args(["-device", "virtio-tablet-pci"]);

@@ -62,11 +62,17 @@ impl Gpu {
         })
     }
 
-    /// 建立扫描输出并绘制诊断图案，返回分辨率；用于启动自检。
-    pub fn pattern(&self) -> Option<(u32, u32)> {
+    /// 以指定分辨率建立扫描输出并绘制诊断图案。
+    ///
+    /// 宿主窗口的默认模式可能远小于桌面期望（QEMU 窗口下 `display_info` 与
+    /// EDID 都可能报 640x480），所以调用方应显式给定分辨率，而不是照抄设备
+    /// 当前模式。
+    pub fn open(&self, width: u32, height: u32) -> Option<(u32, u32)> {
+        if width == 0 || height == 0 {
+            return None;
+        }
         self.activate();
         let mut gpu = self.gpu.lock();
-        let (width, height) = gpu.resolution().ok()?;
         let buffer = gpu.change_resolution(width, height).ok()?;
         let len = buffer.len();
         let virt = buffer.as_mut_ptr() as u64;
@@ -79,6 +85,12 @@ impl Gpu {
             height,
         });
         Some((width, height))
+    }
+
+    /// 按设备报告的分辨率建立扫描输出并绘制诊断图案，返回分辨率。
+    pub fn pattern(&self) -> Option<(u32, u32)> {
+        let (width, height) = self.resolution()?;
+        self.open(width, height)
     }
 
     /// 返回扫描输出区域：能力句柄（本任务持有）与几何。

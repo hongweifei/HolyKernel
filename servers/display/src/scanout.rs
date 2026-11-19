@@ -15,10 +15,17 @@ use hk_proto::scanout::{
     Client, SCANOUT_FLUSH, SCANOUT_PING, SCANOUT_PONG, SCANOUT_REGION, SCANOUT_REGION_INFO,
     SCANOUT_SERVICE,
 };
-use hk_user_api::{map_attach, recv_data_handle_try, send, yield_now};
+use hk_user_api::{map_attach, recv_data_handle_try, send, sleep_ticks, yield_now};
 
 /// 接管期间缓存的消息载荷上限（与合成器的接收缓冲一致）。
 pub(crate) const PENDING_PAYLOAD: usize = 256;
+
+/// 等待扫描输出服务的总时长（tick）；virtio 驱动服务在 Display 之后启动，
+/// GPU 模式下没有线性帧缓冲可退，必须等它完成设备探测。
+const WAIT_TICKS: u64 = 2000;
+
+/// 握手重试次数；每次之间让出一个 tick，给驱动服务完成探测的时间。
+const PING_ATTEMPTS: usize = 2000;
 
 /// 接管期间暂存的客户端消息。
 pub(crate) struct Pending {
@@ -49,7 +56,7 @@ pub(crate) struct Scanout {
 impl Scanout {
     /// 等待驱动服务并接管扫描输出；期间到达的客户端消息记入 `pending`。
     pub(crate) fn adopt(endpoint: u64, pending: &mut Vec<Pending>) -> Option<Self> {
-        let service = wait_service(SCANOUT_SERVICE)?;
+        let service = wait_service()?;
         // 先确认服务在跑，再索取区域；服务尚未进入主循环时请求会排队。
         let mut buffer = [0_u8; PENDING_PAYLOAD];
         let mut attempts = 0;
@@ -73,9 +80,11 @@ impl Scanout {
                 break;
             }
             attempts += 1;
-            if attempts >= 8 {
+            if attempts >= PING_ATTEMPTS {
                 return None;
             }
+            // 驱动服务可能还在探测设备；让出一个 tick 再试，别把 PING 打满队列。
+            let _ = sleep_ticks(1);
         }
 
         let _ = send(service, SCANOUT_REGION, 0);
@@ -153,14 +162,14 @@ fn queue(
     });
 }
 
-/// 等待服务名对应的端点；超时返回 `None`。
-fn wait_service(name: &str) -> Option<u64> {
-    for _ in 0..hk_user_api::runtime::SERVICE_WAIT_ATTEMPTS {
-        let endpoint = hk_user_api::service_endpoint(name);
+/// 等待扫描输出服务的端点；服务在 Display 之后启动，等待期间用 tick 让出。
+fn wait_service() -> Option<u64> {
+    for _ in 0..WAIT_TICKS {
+        let endpoint = hk_user_api::service_endpoint(SCANOUT_SERVICE);
         if endpoint != 0 {
             return Some(endpoint);
         }
-        let _ = yield_now();
+        let _ = sleep_ticks(1);
     }
     None
 }

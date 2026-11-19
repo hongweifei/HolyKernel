@@ -51,10 +51,20 @@ pub(crate) struct Compositor {
     benchmarked: bool,
     benchmark_at: u64,
     resize_retry_at: u64,
+    /// 是否有尚未提交到扫描输出的像素。
+    scanout_pending: bool,
+    /// 下一次允许 flush 扫描输出的时间（TSC）。
+    scanout_flush_at: u64,
+    /// 扫描输出帧预算（cycles）。
+    scanout_period: u64,
 }
 
 /// 客户端表面尺寸与窗口不一致时，补发缩放通知的间隔（微秒）。
 const RESIZE_RETRY_MICROS: u64 = 200_000;
+
+/// 扫描输出提交的最小间隔（微秒）：每次 flush 都要整帧 TRANSFER_TO_HOST_2D
+/// 并同步等设备回复，按 60 Hz 合并 damage 才能避免打满 virtio 控制队列。
+const SCANOUT_FRAME_MICROS: u64 = 16_666;
 
 /// 单批最多处理的消息数；内核端点队列容量为 64，批次在队列取空时提前结束。
 const BATCH_LIMIT: usize = 64;
@@ -69,6 +79,12 @@ impl Compositor {
         scanout: Option<crate::scanout::Scanout>,
         pending: alloc::vec::Vec<crate::scanout::Pending>,
     ) -> Self {
+        let frequency = tsc_frequency();
+        let scanout_period = frequency
+            .saturating_mul(SCANOUT_FRAME_MICROS)
+            .checked_div(1_000_000)
+            .unwrap_or(1)
+            .max(1);
         let compositor = Self {
             endpoint,
             screen,
@@ -86,8 +102,11 @@ impl Compositor {
             scanout,
             pending,
             benchmarked: false,
-            benchmark_at: tsc().saturating_add(tsc_frequency().saturating_mul(2)),
+            benchmark_at: tsc().saturating_add(frequency.saturating_mul(2)),
             resize_retry_at: 0,
+            scanout_pending: false,
+            scanout_flush_at: 0,
+            scanout_period,
         };
         damage_taskbar(
             &compositor.screen,
@@ -140,10 +159,10 @@ impl Compositor {
             if let Some(word) = pointer.take() {
                 self.input_pointer(word);
             }
-            let presented = self.screen.present();
-            if presented && let Some(scanout) = &self.scanout {
-                scanout.flush();
+            if self.screen.present() {
+                self.scanout_pending = true;
             }
+            self.flush_scanout();
             self.benchmark();
             self.retry_window_resizes();
             // 输入驱动接入后不再读内核控制台，避免两路输入重复。
@@ -156,6 +175,27 @@ impl Compositor {
                 let _ = sleep_ticks(1);
             }
         }
+    }
+
+    /// 按帧预算提交扫描输出。
+    ///
+    /// 驱动每次 flush 都要对整帧做 `TRANSFER_TO_HOST_2D` + `RESOURCE_FLUSH`
+    /// 并同步等待设备，逐 damage 提交会把 virtio 控制队列和宿主拷贝打满；
+    /// 这里把新像素攒到下一帧时间片再提交。
+    fn flush_scanout(&mut self) {
+        if !self.scanout_pending {
+            return;
+        }
+        let Some(scanout) = &self.scanout else {
+            return;
+        };
+        let now = tsc();
+        if now < self.scanout_flush_at {
+            return;
+        }
+        scanout.flush();
+        self.scanout_pending = false;
+        self.scanout_flush_at = now.saturating_add(self.scanout_period);
     }
 
     /// 周期补发缩放通知：客户端偶发分配失败时，下一次通知会触发重试，

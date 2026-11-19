@@ -146,6 +146,9 @@ struct RunArguments {
     /// 启动图形桌面（Display/Console/Input/HolyDoc）
     #[arg(long)]
     ui: bool,
+    /// 图形桌面改用 virtio-gpu 扫描输出（需配合 --ui）
+    #[arg(long)]
+    gpu: bool,
     /// QEMU 内存与 CPU 配置
     #[command(flatten)]
     machine: qemu::MachineArguments,
@@ -198,6 +201,7 @@ fn execute(task: Task) -> Result<()> {
             arguments.release,
             &arguments.arguments,
             arguments.ui,
+            arguments.gpu,
             arguments.machine.machine(),
         ),
         Task::Test(arguments) => test::run(arguments.target),

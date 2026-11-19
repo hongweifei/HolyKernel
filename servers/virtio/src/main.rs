@@ -32,8 +32,9 @@ use hk_user_api::device::{
 };
 #[cfg(target_os = "none")]
 use hk_user_api::{
-    close_handle, device_info, dma_map, exit, irq_bind, msi_bind, recv_data_handle, recv_handle,
-    self_notification, send, send_data, service_endpoint, wait_notify, write, yield_now,
+    boot_cmdline, close_handle, device_info, dma_map, exit, irq_bind, msi_bind, recv_data_handle,
+    recv_handle, self_notification, send, send_data, service_endpoint, wait_notify, write,
+    yield_now,
 };
 
 hk_user_api::server_heap!(512 * 1024);
@@ -140,17 +141,31 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                     .text(b"\n")
                     .finish();
             }
-            match device.pattern() {
-                Some((width, height)) => {
-                    hk_user_api::format::Line::new()
-                        .text(b"hk-server-virtio: gpu ")
-                        .number(u64::from(width))
-                        .text(b"x")
-                        .number(u64::from(height))
-                        .text(b" ok\n")
-                        .finish();
-                }
-                None => write(b"hk-server-virtio: gpu pattern failed\n"),
+            match requested_gpu_mode() {
+                Some((width, height)) => match device.open(width, height) {
+                    Some((width, height)) => {
+                        hk_user_api::format::Line::new()
+                            .text(b"hk-server-virtio: gpu ")
+                            .number(u64::from(width))
+                            .text(b"x")
+                            .number(u64::from(height))
+                            .text(b" ok\n")
+                            .finish();
+                    }
+                    None => write(b"hk-server-virtio: gpu mode failed\n"),
+                },
+                None => match device.pattern() {
+                    Some((width, height)) => {
+                        hk_user_api::format::Line::new()
+                            .text(b"hk-server-virtio: gpu ")
+                            .number(u64::from(width))
+                            .text(b"x")
+                            .number(u64::from(height))
+                            .text(b" ok\n")
+                            .finish();
+                    }
+                    None => write(b"hk-server-virtio: gpu pattern failed\n"),
+                },
             }
             if let Some(info) = hk_user_api::capacity_info(gpu_capacity) {
                 hk_user_api::format::Line::new()
@@ -175,6 +190,35 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         write("hk-server-virtio: 没有可服务的设备\n".as_bytes());
         exit(0)
     }
+}
+
+/// 启动命令行里的 `gpu.mode=WxH`：覆盖宿主窗口报出的默认模式。
+///
+/// QEMU 交互窗口下 `display_info` 与 EDID 都可能报 640x480，桌面需要显式
+/// 指定分辨率；没有该 token 时仍按设备报告的模式建立扫描输出。
+#[cfg(target_os = "none")]
+fn requested_gpu_mode() -> Option<(u32, u32)> {
+    let mut buffer = [0_u8; 128];
+    for token in boot_cmdline(&mut buffer)?.split_whitespace() {
+        let Some(value) = token.strip_prefix("gpu.mode=") else {
+            continue;
+        };
+        let Some((width, height)) = value.split_once('x').or_else(|| value.split_once('X')) else {
+            continue;
+        };
+        let width: u32 = match width.parse() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let height: u32 = match height.parse() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if (320..=4096).contains(&width) && (200..=4096).contains(&height) {
+            return Some((width, height));
+        }
+    }
+    None
 }
 
 /// 依次向设备管理器申请块、熵源与控制台授权。

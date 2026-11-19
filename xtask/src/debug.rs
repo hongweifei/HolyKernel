@@ -66,6 +66,7 @@ pub fn run(arguments: DebugArguments) -> Result<()> {
         &iso,
         &disk,
         arguments.ui,
+        false,
         &arguments.machine.machine(),
         Some(arguments.port),
     )
