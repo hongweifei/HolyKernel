@@ -50,17 +50,17 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             None => self.process(index).allocation_capacity,
         };
         let capacity = self.kernel.capacity_ref_write(tcb, handle).ok()?;
-        let allocated = { capacity.lock().allocate(len as usize) };
-        let frame = match allocated {
-            Ok(frame) => frame,
+        match OwnedFrame::allocate(&capacity, len as usize) {
+            Ok(frame) => Some(FrameBacking::Owned(frame)),
             Err(_) => {
                 if self.reclaim_anonymous_pages(index, len) == 0 {
                     return None;
                 }
-                capacity.lock().allocate(len as usize).ok()?
+                OwnedFrame::allocate(&capacity, len as usize)
+                    .ok()
+                    .map(FrameBacking::Owned)
             }
-        };
-        Some(FrameBacking::Owned(OwnedFrame::new(frame, capacity)))
+        }
     }
 
     /// 缺页/镜像装入路径的分配：失败时进入统一 OOM 策略并重试一次。
