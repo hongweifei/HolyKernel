@@ -171,7 +171,7 @@ qemu-system-x86_64 -M q35 -m 256M \
 cargo xtask run --target x86_64-qemu --ui
 ```
 
-`--ui` 会使用 `desktop vfs.fs=holyfs` 启动模式，开启 QEMU 窗口，并附加 virtio 键盘/平板，启动 Display、Console、Input、HolyDoc 与 Workbench。桌面卷是 HolyFS：`cargo xtask run` 把 `docs/holy` 下的 HolyDoc 文档播种到 `H:`，欢迎页与文档索引直接按 DocPath 浏览，Workbench 在文档树中打开同一批文档。手动 QEMU 对应：
+`--ui` 会使用 `desktop vfs.fs=holyfs` 启动模式，开启 QEMU 窗口，并附加 virtio 键盘/平板，启动 Display、Console、Input、HolyDoc 与 Workbench。桌面卷是 HolyFS：`cargo xtask run` 把 `docs/holy` 下的 HolyDoc 文档播种到 `H:`，欢迎页与文档索引直接按 DocPath 浏览，Workbench 在文档树中打开同一批文档。默认合成输出到 Limine 线性帧缓冲；加 `--gpu`（`cargo xtask run --target x86_64-qemu --ui --gpu`）会改为 `-vga none` 只挂 `virtio-gpu-pci`，并在启动命令行带上 `gpu.scanout gpu.mode=1280x800`，由 Display 接管 GPU 扫描输出，早期引导画面改走串口。GPU 模式显式给出 1280x800：QEMU 交互窗口下设备默认模式常是 640x480；扫描输出按 60 Hz 帧预算提交，避免逐 damage 整帧传输。手动 QEMU 对应：
 
 ```sh
 cargo xtask image --target x86_64-qemu --cmdline "desktop vfs.fs=holyfs"

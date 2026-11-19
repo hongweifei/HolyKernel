@@ -39,7 +39,7 @@ UI 是可选原生服务：**Display Server** 管理帧缓冲、窗口与输入�
 ### 已落地
 
 - 帧缓冲通过 Framebuffer Capability 授予 Display；映射地址由内核在任务自动窗口内选择并返回，显示服务不再使用固定地址。
-- 没有线性帧缓冲或显式 `gpu.scanout` 时，Display 向 virtio 驱动服务索取扫描输出：驱动把 GPU 资源 backing 的 DeviceAllocation 能力复制一份交过来，Display 映射后直接合成，每帧有 damage 时让驱动 `flush`。`smoke --mode gpudisplay` 在 `-vga none` + `virtio-gpu-pci` 下验证接管、合成与提交。
+- 没有线性帧缓冲或显式 `gpu.scanout` 时，Display 向 virtio 驱动服务索取扫描输出：驱动把 GPU 资源 backing 的 DeviceAllocation 能力复制一份交过来，Display 映射后直接合成，每帧有 damage 时让驱动 `flush`。`smoke --mode gpudisplay` 在 `-vga none` + `virtio-gpu-pci` 下验证接管、合成与提交；交互桌面用 `cargo xtask run --target x86_64-qemu --ui --gpu` 走同一路径，默认 `--ui` 仍使用 Limine 线性帧缓冲。GPU 模式用 `gpu.mode=WxH` 显式指定扫描输出分辨率（QEMU 交互窗口的设备默认模式常是 640x480，`--gpu` 固定 1280x800），Display 按 60 Hz 帧预算合并 flush：驱动每次提交都是整帧 `TRANSFER_TO_HOST_2D` 并同步等待设备，逐 damage 提交会打满 virtio 控制队列。
 - 窗口表面使用共享 Frame：客户端绘制后经句柄转移交给显示服务，由显示服务映射并合成，不复制整块表面。
 - 合成器绘制桌面渐变、标题栏与窗口，并回读窗口首像素校验；焦点窗口标题栏高亮。
 - 窗口带圆角与柔和投影：标题栏顶部和窗口底部按半径裁剪，投影按缩放后的边距绘制并混合桌面/下层窗口；窗口 damage 区域同步扩展，移动、缩放、关闭与焦点切换不会残留影边。
