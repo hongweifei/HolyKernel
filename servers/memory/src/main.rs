@@ -74,6 +74,14 @@ fn store_page(source: &[u8]) -> Option<Stored> {
 #[cfg(target_os = "none")]
 static TRACKED: Mutex<Vec<(u64, usize)>> = Mutex::new(Vec::new());
 
+#[cfg(target_os = "none")]
+fn tracked_object(id: u64) -> bool {
+    TRACKED
+        .lock()
+        .iter()
+        .any(|(capability, _)| *capability == id)
+}
+
 /// 压力回收线程：低于阈值时按对象标识重新取句柄并逐页请求换出。
 ///
 /// 压缩/存储仍由主 Provider 循环完成；这里只决定“何时换出哪些页”。
@@ -269,6 +277,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             };
+            if !tracked_object(words[0]) {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
             let first = words[1] as usize;
             let count = words[4] as usize;
             if count == 0 || count > 16 || length != count * PAGE {
@@ -307,6 +319,10 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
             };
+            if !tracked_object(words[0]) {
+                let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
+                continue;
+            }
             if length != PAGE {
                 let _ = reply(hk_syscall::PROVIDER_ERROR, 0);
                 continue;
@@ -358,6 +374,8 @@ pub extern "C" fn _start(endpoint: u64, capacity: u64) -> ! {
                 .find(|(capability, _)| *capability == words[4])
             {
                 entry.1 = entry.1.max(required);
+            } else {
+                tracked.push((words[4], required));
             }
         }
         let mut buffer = [0_u8; PAGE];

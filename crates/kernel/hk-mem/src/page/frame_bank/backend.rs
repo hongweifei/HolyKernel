@@ -30,13 +30,21 @@ impl FrameBank {
             inner.owned.remove(&range.start().get());
         }
         let mut parent = parent;
-        // 父容量可能已被先 merge 掉；沿 split 记录向上找仍然存活的祖先，
-        // 否则孙窗口会挂到一个不再有 Capacity 的 ID 上。
+        let mut used_owner_link = false;
+        // 父容量可能已被先 merge 掉；沿 split 记录向上找仍然存活的祖先。
         while let Some(pid) = parent {
             if inner.ledgers.contains_key(&pid) {
                 break;
             }
-            parent = inner.parents.get(&pid).copied();
+            let next = inner.parents.get(&pid).copied();
+            parent = match next {
+                Some(parent) => Some(parent),
+                None if !used_owner_link => {
+                    used_owner_link = true;
+                    inner.parents.get(&owner).copied()
+                }
+                None => None,
+            };
         }
         if let Some(parent) = parent {
             for range in windows {
@@ -47,7 +55,16 @@ impl FrameBank {
             {
                 ledger.set_limit(ledger.limit().saturating_add(limit));
             }
+            // 孙容量的直接父可能已回收；把它们的父链改接到仍然存活的祖先。
+            for link in inner.parents.values_mut() {
+                if *link == owner {
+                    *link = parent;
+                }
+            }
+        } else {
+            inner.parents.retain(|_, link| *link != owner);
         }
+        inner.parents.remove(&owner);
         inner.ledgers.remove(&owner);
         inner.peaks.remove(&owner);
         // 强制回收（Capacity::drop）可能仍有 allocation 挂在旧 owner 上。
