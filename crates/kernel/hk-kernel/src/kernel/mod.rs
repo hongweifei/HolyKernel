@@ -26,7 +26,7 @@ use spin::Mutex;
 use crate::error::KernelError;
 use crate::object::{KernelObject, ObjectPayload};
 use crate::sched::Scheduler;
-use crate::task::{Task, TaskId, TaskMetrics};
+use crate::task::{Task, TaskId, TaskMetrics, TaskState};
 use crate::tcb::{ReplyToken, Tcb, TcbId};
 
 /// trace 环形缓冲容量。
@@ -201,9 +201,14 @@ impl Kernel {
         self.resched_requests.load(Ordering::Relaxed)
     }
 
-    /// 设置调度器可见的在线 CPU 数。
+    /// 设置调度器可见的在线 CPU 数，并把非运行 Task 重新挂到新的在线集合。
     pub fn set_online_cpus(&self, online: usize) {
         self.scheduler.lock().set_online(online);
+        let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
+        for task in tasks {
+            let id = task.lock().id();
+            self.rehome_task(id);
+        }
     }
 
     /// 为每个在线 CPU 建立 idle TCB。
@@ -251,6 +256,11 @@ impl Kernel {
     /// 返回 Task；不存在时为 `None`。
     pub(crate) fn task(&self, id: TaskId) -> Option<Arc<spin::Mutex<Task>>> {
         self.tasks.lock().get(&id).cloned()
+    }
+
+    /// 返回 Task 的调度状态。
+    pub fn task_state(&self, id: TaskId) -> Option<TaskState> {
+        self.task(id).map(|task| task.lock().state())
     }
 
     /// 返回 TCB 所属 Task。

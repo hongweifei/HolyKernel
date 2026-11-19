@@ -316,28 +316,15 @@ impl Cadence {
 
     /// 从本契约派生子契约；权重与预算只能收窄。
     ///
-    /// 派生阶段只校验父契约的剩余容量；父预算在子契约绑定 Task 时由
-    /// [`Self::reserve_in_parent`] 预留，因此未绑定的子契约不占用父预算。
-    /// 类别、周期、截止期、延迟、亲和性、迁移资格与借贷策略继承父契约；
-    /// 后续由持有 ADMIN 的策略方在父契约范围内收窄。
+    /// 类别、周期、截止期、延迟、亲和性、迁移资格与借贷策略继承父契约。
+    /// 父预算在子契约绑定 Task 时由 [`Self::reserve_in_parent`] 预留，因此
+    /// 未绑定的子契约不占用父预算。
     pub fn split(
         &mut self,
         id: CadenceId,
         weight: Weight,
         budget: Duration,
     ) -> Result<Self, CadenceError> {
-        if weight > self.weight {
-            return Err(CadenceError::WeightExceedsParent);
-        }
-        if self.budget.is_zero() {
-            if !budget.is_zero() {
-                return Err(CadenceError::BudgetExceedsParent);
-            }
-        } else if budget > self.budget
-            || self.children_budget.saturating_add(budget.ticks()) > self.budget.ticks()
-        {
-            return Err(CadenceError::BudgetExceedsParent);
-        }
         let spec = CadenceSpec {
             class: self.class,
             weight: weight.get(),
@@ -349,6 +336,62 @@ impl Cadence {
             migratable: self.migratable,
             lending: self.lending,
         };
+        self.split_narrowed(id, spec)
+    }
+
+    /// 以完整描述派生子契约；每个字段都必须落在父契约范围内。
+    ///
+    /// 权重与预算收窄；类别不能强于父契约；周期与父契约一致；截止期不晚于
+    /// 父契约的有效截止期；延迟目标不宽于父契约；亲和性是父集合的子集；
+    /// 迁移资格不宽于父契约；借贷策略按父策略收窄。
+    pub fn split_narrowed(
+        &mut self,
+        id: CadenceId,
+        spec: CadenceSpec,
+    ) -> Result<Self, CadenceError> {
+        if spec.weight > self.weight.get() {
+            return Err(CadenceError::WeightExceedsParent);
+        }
+        if spec.class < self.class {
+            return Err(CadenceError::ClassExceedsParent);
+        }
+        spec.affinity.restrict(self.affinity)?;
+        spec.lending.narrowed_to(self.lending)?;
+        if spec.migratable && !self.migratable {
+            return Err(CadenceError::MigratableWidensParent);
+        }
+        if self.period.is_zero() {
+            if !spec.period.is_zero() {
+                return Err(CadenceError::PeriodNotNarrowing);
+            }
+        } else if spec.period != self.period {
+            return Err(CadenceError::PeriodNotNarrowing);
+        }
+        let parent_deadline = if self.deadline.is_zero() {
+            self.period
+        } else {
+            self.deadline
+        };
+        let child_deadline = if spec.deadline.is_zero() {
+            spec.period
+        } else {
+            spec.deadline
+        };
+        if child_deadline > parent_deadline {
+            return Err(CadenceError::DeadlineExceedsParent);
+        }
+        if spec.latency > self.latency {
+            return Err(CadenceError::LatencyExceedsParent);
+        }
+        if self.budget.is_zero() {
+            if !spec.budget.is_zero() {
+                return Err(CadenceError::BudgetExceedsParent);
+            }
+        } else if spec.budget > self.budget
+            || self.children_budget.saturating_add(spec.budget.ticks()) > self.budget.ticks()
+        {
+            return Err(CadenceError::BudgetExceedsParent);
+        }
         Self::restore(id, Some(self.id), self.epoch, spec)
     }
 
@@ -657,6 +700,75 @@ mod tests {
             parent
                 .split(CadenceId::new(5), weight(1024), Duration::from_ticks(7))
                 .err(),
+            Some(CadenceError::BudgetExceedsParent)
+        );
+    }
+
+    #[test]
+    fn split_narrowed_checks_every_parent_bound() {
+        let mut parent = CadenceSpec::new(CadenceClass::Realtime, 4096)
+            .with_budget(Duration::from_ticks(4), Duration::from_ticks(16))
+            .with_deadline(Duration::from_ticks(16))
+            .with_latency(Duration::from_ticks(2))
+            .with_affinity(CpuMask::from_bits(0b0011))
+            .with_migratable(false)
+            .cadence(CadenceId::new(1))
+            .expect("父契约");
+        let child_spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+            .with_budget(Duration::from_ticks(1), Duration::from_ticks(16))
+            .with_deadline(Duration::from_ticks(8))
+            .with_latency(Duration::from_ticks(1))
+            .with_affinity(CpuMask::single(0).expect("CPU 0"))
+            .with_migratable(false)
+            .with_lending(Lending::disabled());
+        let child = parent
+            .split_narrowed(CadenceId::new(2), child_spec)
+            .expect("收窄子契约");
+        assert_eq!(child.deadline(), Duration::from_ticks(8));
+        assert_eq!(child.affinity(), CpuMask::single(0).expect("CPU 0"));
+        assert!(!child.migratable());
+        assert!(!child.lending().enabled());
+
+        let mut affinity = child_spec;
+        affinity.affinity = CpuMask::ALL;
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(3), affinity).err(),
+            Some(CadenceError::AffinityNotSubset)
+        );
+        let mut period = child_spec;
+        period.period = Duration::from_ticks(8);
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(4), period).err(),
+            Some(CadenceError::PeriodNotNarrowing)
+        );
+        let mut deadline = child_spec;
+        deadline.deadline = Duration::from_ticks(32);
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(5), deadline).err(),
+            Some(CadenceError::DeadlineExceedsParent)
+        );
+        let mut latency = child_spec;
+        latency.latency = Duration::from_ticks(3);
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(6), latency).err(),
+            Some(CadenceError::LatencyExceedsParent)
+        );
+        let mut migratable = child_spec;
+        migratable.migratable = true;
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(7), migratable).err(),
+            Some(CadenceError::MigratableWidensParent)
+        );
+        let mut lending = child_spec;
+        lending.lending = Lending::with_depth(3).expect("深度合法");
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(8), lending).err(),
+            Some(CadenceError::LendingWidensParent)
+        );
+        let mut budget = child_spec;
+        budget.budget = Duration::from_ticks(5);
+        assert_eq!(
+            parent.split_narrowed(CadenceId::new(9), budget).err(),
             Some(CadenceError::BudgetExceedsParent)
         );
     }

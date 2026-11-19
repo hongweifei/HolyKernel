@@ -29,6 +29,16 @@ pub enum CadenceError {
     LendingWidensParent,
     /// 子契约权重超过父契约。
     WeightExceedsParent,
+    /// 子契约类别强于父契约。
+    ClassExceedsParent,
+    /// 子契约周期与父契约不一致。
+    PeriodNotNarrowing,
+    /// 子契约截止期晚于父契约。
+    DeadlineExceedsParent,
+    /// 子契约延迟目标宽于父契约。
+    LatencyExceedsParent,
+    /// 子契约迁移资格宽于父契约。
+    MigratableWidensParent,
     /// 子契约预算超过父契约。
     BudgetExceedsParent,
     /// 快照缓冲区不足。
@@ -52,6 +62,11 @@ impl fmt::Display for CadenceError {
             Self::LendingTooDeep => formatter.write_str("借贷深度超过上限"),
             Self::LendingWidensParent => formatter.write_str("借贷策略不能比父契约更宽"),
             Self::WeightExceedsParent => formatter.write_str("子契约权重不能超过父契约"),
+            Self::ClassExceedsParent => formatter.write_str("子契约类别不能强于父契约"),
+            Self::PeriodNotNarrowing => formatter.write_str("子契约周期必须与父契约一致"),
+            Self::DeadlineExceedsParent => formatter.write_str("子契约截止期不能晚于父契约"),
+            Self::LatencyExceedsParent => formatter.write_str("子契约延迟目标不能宽于父契约"),
+            Self::MigratableWidensParent => formatter.write_str("子契约迁移资格不能宽于父契约"),
             Self::BudgetExceedsParent => formatter.write_str("子契约预算不能超过父契约"),
             Self::SnapshotTooShort => formatter.write_str("快照缓冲区不足"),
             Self::UnknownClass => formatter.write_str("快照中的调度类别无法识别"),

@@ -331,7 +331,7 @@ impl Tcb {
 
     /// 记录一次已超时的调用，允许迟到回复被安全丢弃。
     pub(crate) fn orphan_call(&mut self, sequence: u64) {
-        const LIMIT: usize = 16;
+        const LIMIT: usize = 64;
         if !self.orphaned_calls.contains(&sequence) {
             if self.orphaned_calls.len() >= LIMIT {
                 self.orphaned_calls.remove(0);

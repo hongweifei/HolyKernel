@@ -227,6 +227,9 @@ impl Kernel {
         if let Some(owner) = owner {
             let owner_id = {
                 let mut task = owner.lock();
+                if current.class != spec.class {
+                    task.reset_virtual_pass();
+                }
                 task.reset_period(self.now());
                 task.id()
             };
@@ -402,16 +405,11 @@ impl Kernel {
         &self,
         thread: TcbId,
         handle: Handle,
-        weight: u32,
-        budget: u64,
+        spec: CadenceSpec,
     ) -> Result<Handle, KernelError> {
         let cadence = self.cadence_object(thread, handle, Rights::ADMIN)?;
         let parent_id = cadence.lock().id().get();
-        let child = cadence.lock().split(
-            CadenceId::next(),
-            Weight::new(weight)?,
-            Duration::from_ticks(budget),
-        )?;
+        let child = cadence.lock().split_narrowed(CadenceId::next(), spec)?;
         let child = Arc::new(spin::Mutex::new(child));
         self.record(
             thread.get(),
@@ -433,9 +431,9 @@ impl Kernel {
             expected: ObjectKind::Cadence,
         })?;
         // 对象头 epoch 与契约 epoch 同源：撤销后所有既有句柄在解析时失效。
-        let epoch = object.header().revoke_all();
-        cadence.lock().set_epoch(epoch);
         self.revoke_cadence_handles(&cadence);
+        let epoch = object.header().epoch();
+        cadence.lock().set_epoch(epoch);
         self.suspend_using(&cadence);
         self.record(
             thread.get(),
@@ -556,12 +554,14 @@ impl Kernel {
             if !matches {
                 continue;
             }
-            {
+            let task_id = {
                 let mut task = task.lock();
                 task.set_state(TaskState::Suspended);
                 task.set_active(None);
                 task.clear_queued();
-            }
+                task.id()
+            };
+            self.clear_refill(task_id);
             {
                 let mut thread_map = self.threads.lock();
                 for thread in &threads {

@@ -97,6 +97,44 @@ impl Kernel {
         }
     }
 
+    /// 在线 CPU 集合变化后，把非 Running Task 重新挂到当前允许的 CPU。
+    pub(crate) fn rehome_task(&self, task_id: TaskId) {
+        let Some(task_ref) = self.task(task_id) else {
+            return;
+        };
+        let (state, threads) = {
+            let task = task_ref.lock();
+            (task.state(), task.threads().to_vec())
+        };
+        if matches!(
+            state,
+            TaskState::Running | TaskState::Suspended | TaskState::Exited
+        ) {
+            return;
+        }
+        let online = self.scheduler.lock().online();
+        {
+            let mut task = task_ref.lock();
+            task.set_active(None);
+            let cadence = task.cadence();
+            let cadence = cadence.lock();
+            let last = task.last_cpu();
+            if !cadence.migratable()
+                && last != NO_CPU
+                && (last as usize >= online || !cadence.affinity().contains(last))
+            {
+                task.clear_last_cpu();
+            }
+        }
+        {
+            let mut scheduler = self.scheduler.lock();
+            for thread in threads {
+                scheduler.remove(thread);
+            }
+        }
+        self.enqueue_next_thread(task_id, None);
+    }
+
     /// 从全局补充队列移除 Task。
     pub(crate) fn clear_refill(&self, task_id: TaskId) {
         let mut refills = self.refills.lock();

@@ -96,6 +96,11 @@ impl Meter {
         self.last_cpu = NO_CPU;
     }
 
+    /// 清除虚拟进度；类别切换后从当前类别的起点重新累计。
+    pub fn clear_virtual_pass(&mut self) {
+        self.virtual_pass = 0;
+    }
+
     /// 从快照还原计量。
     pub fn restore(snapshot: MeterSnapshot) -> Self {
         Self {

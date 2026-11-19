@@ -178,8 +178,11 @@ fn parent_exit_preserves_foreign_cadence() {
             Rights::READ | Rights::WRITE | Rights::ADMIN,
         )
         .expect("另一个父句柄");
+    let mut foreign_spec = kernel.cadence_spec(other_id).expect("另一个父契约");
+    foreign_spec.weight = 512;
+    foreign_spec.budget = millis(2);
     let foreign = kernel
-        .split_cadence(other, other_handle, 512, millis(2).ticks())
+        .split_cadence(other, other_handle, foreign_spec)
         .expect("外部子契约");
     let task_handle = kernel
         .grant_task(other, child_id, Rights::READ | Rights::ADMIN)
@@ -680,8 +683,11 @@ fn split_without_attach_does_not_reserve_parent_budget() {
         )
         .expect("父句柄");
 
+    let mut child_spec = kernel.cadence_spec(parent_id).expect("父契约");
+    child_spec.weight = 1024;
+    child_spec.budget = millis(4);
     let child = kernel
-        .split_cadence(parent, handle, 1024, millis(4).ticks())
+        .split_cadence(parent, handle, child_spec)
         .expect("派生子契约");
     assert_eq!(
         parent_cadence.lock().children_budget(),

@@ -16,7 +16,7 @@ use hk_ipc::Message;
 use hk_mem::hmp::{Arena as HmpArena, Charge, FrameRef, SharedLedger};
 use hk_syscall::FAULT_EVENT;
 
-use hk_kernel::{Kernel, KernelError, TcbId, ThreadState};
+use hk_kernel::{Kernel, KernelError, TaskState, TcbId};
 use user_window::UserWindow;
 
 /// 随消息接收的句柄编号起点。
@@ -691,7 +691,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     name: task.name.clone(),
                     parent: task.parent,
                     endpoint: task.leader as u64 + 1,
-                    state: state_name(self.kernel.state_of(task.tcb)),
+                    state: self
+                        .kernel
+                        .task_of(task.tcb)
+                        .and_then(|id| self.kernel.task_state(id))
+                        .map_or("exited", state_name),
                     pending: pending_name(task.pending),
                     handles: self.kernel.handles_live(task.tcb).unwrap_or(0),
                     cpu_cycles: task.cpu_cycles,
@@ -784,12 +788,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 }
 
-fn state_name(state: Option<ThreadState>) -> &'static str {
+fn state_name(state: TaskState) -> &'static str {
     match state {
-        Some(ThreadState::Runnable) => "runnable",
-        Some(ThreadState::Running) => "running",
-        Some(ThreadState::Blocked) => "blocked",
-        Some(ThreadState::Inactive) | None => "exited",
+        TaskState::Created => "created",
+        TaskState::Eligible => "eligible",
+        TaskState::Running => "running",
+        TaskState::Blocked => "blocked",
+        TaskState::Throttled => "throttled",
+        TaskState::Suspended => "suspended",
+        TaskState::Exited => "exited",
     }
 }
 

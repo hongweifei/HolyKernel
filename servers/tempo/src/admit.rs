@@ -9,7 +9,7 @@ use hk_proto::tempo::{MAX_NAME, SNAPSHOT_LEN};
 use hk_user_api::{CADENCE_DEMAND_RECORD_BYTES, cadence_demand};
 
 /// 一次需求查询最多容纳的契约数。
-pub const DEMAND_RECORDS: usize = 32;
+pub const DEMAND_RECORDS: usize = 64;
 
 /// 需求查询缓冲区长度。
 pub const DEMAND_BYTES: usize = DEMAND_RECORDS * CADENCE_DEMAND_RECORD_BYTES;
@@ -68,17 +68,34 @@ pub fn admission_spec(
     pool_budget: u64,
     pool_period: u64,
     pool_deadline: u64,
+    pool_latency: u64,
     exclude: u64,
 ) -> Option<CadenceSpec> {
-    let mut spec = snapshot.spec();
-    spec.class = CadenceClass::Realtime;
-    spec.budget = micros(snapshot.budget.min(pool_budget));
-    spec.period = micros(pool_period);
-    spec.deadline = micros(if pool_deadline == 0 {
+    if snapshot.period != 0 && snapshot.period != pool_period {
+        return None;
+    }
+    if snapshot.budget > pool_budget {
+        return None;
+    }
+    let effective_pool_deadline = if pool_deadline == 0 {
         pool_period
     } else {
         pool_deadline
-    });
+    };
+    let requested_deadline = if snapshot.deadline == 0 {
+        effective_pool_deadline
+    } else {
+        snapshot.deadline.min(effective_pool_deadline)
+    };
+    if requested_deadline == 0 {
+        return None;
+    }
+    let mut spec = snapshot.spec();
+    spec.class = CadenceClass::Realtime;
+    spec.budget = micros(snapshot.budget);
+    spec.period = micros(pool_period);
+    spec.deadline = micros(requested_deadline);
+    spec.latency = micros(snapshot.latency.min(pool_latency));
     let demand = Demand::load(exclude)?;
     demand
         .allows(
@@ -87,6 +104,13 @@ pub fn admission_spec(
             spec.deadline.ticks(),
         )
         .then_some(spec)
+}
+
+/// 把策略方准入后的契约编码为 `SYS_CADENCE_SPLIT` 请求快照。
+pub fn encode_spec(spec: CadenceSpec) -> [u8; CadenceSnapshot::ENCODED_LEN] {
+    let mut bytes = [0_u8; CadenceSnapshot::ENCODED_LEN];
+    CadenceSnapshot::from_spec(spec).encode(&mut bytes);
+    bytes
 }
 
 /// 解析只有名字的请求。

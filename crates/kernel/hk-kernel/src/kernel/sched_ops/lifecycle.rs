@@ -43,6 +43,7 @@ impl Kernel {
             scheduler.clear_current_if(thread);
         }
         if empty {
+            self.clear_refill(task_id);
             if let Some(task) = self.task(task_id) {
                 let cadence = task.lock().cadence();
                 self.release_child_budget(&cadence);

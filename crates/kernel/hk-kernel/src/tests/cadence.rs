@@ -225,8 +225,10 @@ fn updates_splits_revokes_and_reattaches_cadence() {
         .expect("更新契约");
     assert_eq!(kernel.cadence_spec(task).expect("契约").weight, 2048);
 
+    let mut child_spec = spec;
+    child_spec.weight = 512;
     let child = kernel
-        .split_cadence(thread, cadence, 512, 0)
+        .split_cadence(thread, cadence, child_spec)
         .expect("派生子契约");
     let snapshot = kernel.cadence_snapshot(thread, child).expect("子契约快照");
     assert_eq!(snapshot.weight, 512);
@@ -291,8 +293,10 @@ fn policy_task_can_split_and_attach_own_cadence() {
         .expect("授予策略授权");
 
     let pool = kernel.self_cadence_handle(thread).expect("策略句柄");
+    let mut child_spec = kernel.cadence_spec(task).expect("池契约");
+    child_spec.weight = 512;
     let child = kernel
-        .split_cadence(thread, pool, 512, 0)
+        .split_cadence(thread, pool, child_spec)
         .expect("在池内派生");
     kernel
         .attach_own_cadence(thread, child)

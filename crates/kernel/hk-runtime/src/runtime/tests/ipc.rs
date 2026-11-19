@@ -41,7 +41,7 @@ fn transfers_handle_over_ipc() {
     context.rdx = 5;
     context.r10 = 2;
     assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
-    assert_eq!(runtime.tasks()[receiver].state, "runnable");
+    assert_eq!(runtime.tasks()[receiver].state, "eligible");
 
     let Step::Resume { index, context } = runtime.step(0) else {
         panic!("任务应可运行");

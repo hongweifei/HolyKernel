@@ -42,6 +42,24 @@ impl CadenceSnapshot {
     /// 编码长度。
     pub const ENCODED_LEN: usize = 80;
 
+    /// 从描述生成不带身份的快照；策略方在派生请求时使用。
+    pub fn from_spec(spec: CadenceSpec) -> Self {
+        Self {
+            id: 0,
+            parent: 0,
+            epoch: 0,
+            class: spec.class,
+            weight: spec.weight,
+            budget: spec.budget.ticks(),
+            period: spec.period.ticks(),
+            deadline: spec.deadline.ticks(),
+            latency: spec.latency.ticks(),
+            affinity: spec.affinity.bits(),
+            migratable: spec.migratable,
+            lending: spec.lending,
+        }
+    }
+
     /// 从契约生成快照。
     pub fn from_cadence(cadence: &Cadence) -> Self {
         Self {

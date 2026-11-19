@@ -95,11 +95,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             .zip(self.read_snapshot(frame.arg1(), frame.arg2() as usize));
         let result = match parent {
             Some((parent, snapshot)) => {
-                let spec = snapshot.spec();
-                match self
-                    .kernel
-                    .split_cadence(tcb, parent, spec.weight, spec.budget.ticks())
-                {
+                match self.kernel.split_cadence(tcb, parent, snapshot.spec()) {
                     Ok(child) => self.install_extra_handle(index, child),
                     Err(_) => u64::MAX,
                 }
@@ -206,7 +202,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                     .regrant_cadence_to_task(tcb, target, cadence)
                     .ok()
             });
-        frame.set_result(result.map_or(u64::MAX, |_| 0));
+        frame.set_result(result.map_or(u64::MAX, u64::from));
         Switch::Continue
     }
 

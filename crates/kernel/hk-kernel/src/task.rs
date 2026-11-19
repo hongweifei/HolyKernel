@@ -200,9 +200,14 @@ impl Task {
     /// 导致 EDF 排序与超限统计失真。`Suspended`、`Created` 与 `Throttled` 在
     /// 新契约下重新可运行；调度 placement 由调用方统一刷新。
     pub fn set_cadence(&mut self, cadence: Arc<Mutex<Cadence>>, now: u64) {
+        let old_class = self.cadence.lock().class();
+        let class_changed = old_class != cadence.lock().class();
         self.cadence = cadence;
         self.period_start = now;
         self.budget_left = self.cadence.lock().budget().ticks();
+        if class_changed {
+            self.meter.lock().clear_virtual_pass();
+        }
         if matches!(
             self.state,
             TaskState::Suspended | TaskState::Created | TaskState::Throttled
@@ -356,6 +361,11 @@ impl Task {
         self.meter.lock().clear_last_cpu();
     }
 
+    /// 类别切换后从新类别的虚拟时间起点重新累计。
+    pub fn reset_virtual_pass(&mut self) {
+        self.meter.lock().clear_virtual_pass();
+    }
+
     /// 返回亲和性位图。
     pub fn affinity_bits(&self) -> u64 {
         self.cadence.lock().affinity().bits()
@@ -479,10 +489,14 @@ impl Task {
         self.meter.lock().overrun();
     }
 
-    /// 记入一次预算耗尽。
-    pub fn throttle(&mut self) {
+    /// 记入一次预算耗尽；返回本次是否从非 Throttled 进入 Throttled。
+    pub fn throttle(&mut self) -> bool {
+        if self.state == TaskState::Throttled {
+            return false;
+        }
         self.meter.lock().throttle();
         self.set_state(TaskState::Throttled);
+        true
     }
 }
 
@@ -529,6 +543,18 @@ mod tests {
         assert!(task.replenish(16_000));
         assert_eq!(task.state(), TaskState::Eligible);
         assert_eq!(task.budget_left(), 3_000);
+    }
+
+    #[test]
+    fn throttling_is_idempotent() {
+        let spec = CadenceSpec::new(CadenceClass::Realtime, 1024)
+            .with_budget(millis(1), millis(4))
+            .with_deadline(millis(1));
+        let mut task = task(spec);
+        task.charge(1_000);
+        assert!(task.throttle());
+        assert!(!task.throttle());
+        assert_eq!(task.meter().lock().throttled(), 1);
     }
 
     #[test]

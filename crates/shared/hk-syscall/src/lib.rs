@@ -75,6 +75,8 @@ pub const SYS_CADENCE_SELF: u64 = 0x0D;
 pub const SYS_TASK_ATTACH_NAMED: u64 = 0x0E;
 
 /// 按任务名撤销旧 epoch 并附加新 Cadence；仅策略授权任务可用。
+///
+/// 成功返回旧 epoch，失败返回 `u64::MAX`。
 pub const SYS_TASK_REGRANT_NAMED: u64 = 0x0F;
 
 // === 句柄 0x10-0x1F ===

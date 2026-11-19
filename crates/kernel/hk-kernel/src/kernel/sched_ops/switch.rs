@@ -74,6 +74,7 @@ impl Kernel {
             self.enqueue_next_thread(task_id, Some(thread));
         } else if let Some(task) = self.task(task_id) {
             task.lock().set_state(TaskState::Suspended);
+            self.clear_refill(task_id);
         }
         Ok(())
     }
@@ -114,8 +115,8 @@ impl Kernel {
                     let mut task = task.lock();
                     task.replenish(now);
                     if task.budget_exhausted() {
-                        task.throttle();
-                        (false, true)
+                        let throttled = task.throttle();
+                        (false, throttled)
                     } else {
                         if task.state() == TaskState::Running {
                             task.set_state(TaskState::Eligible);
@@ -158,8 +159,7 @@ impl Kernel {
                 let mut task = task.lock();
                 task.replenish(now);
                 if task.budget_exhausted() {
-                    task.throttle();
-                    throttled = true;
+                    throttled = task.throttle();
                     false
                 } else if matches!(task.state(), TaskState::Exited | TaskState::Suspended)
                     || task.active().is_some_and(|active| active != next)
@@ -434,6 +434,7 @@ impl Kernel {
     /// 目标 CPU 正在运行的 Task 更弱时，请求该 CPU 立即重新调度。
     fn request_resched_if_needed(&self, thread: TcbId, class: CadenceClass, key: u64, cpu: usize) {
         let Some(current) = self.scheduler.lock().current(cpu) else {
+            self.request_resched(cpu);
             return;
         };
         if current == thread {

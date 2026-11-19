@@ -881,7 +881,7 @@ pub fn task_attach_named(name: &str, cadence: u64) -> u64 {
     }
 }
 
-/// 按任务名撤销旧 epoch 并附加新 Cadence；仅持有策略授权的任务可用。
+/// 按任务名撤销旧 epoch 并附加新 Cadence；成功返回旧 epoch，失败返回 `u64::MAX`。
 pub fn task_regrant_named(name: &str, cadence: u64) -> u64 {
     // SAFETY: 名称属于本任务；内核校验策略授权并按名称解析目标。
     unsafe {

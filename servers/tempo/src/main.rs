@@ -17,7 +17,7 @@
 mod admit;
 
 #[cfg(target_os = "none")]
-use admit::{admission_spec, name_request, named_request};
+use admit::{admission_spec, encode_spec, name_request, named_request};
 #[cfg(target_os = "none")]
 use hk_cadence::CadenceSnapshot;
 #[cfg(target_os = "none")]
@@ -83,26 +83,26 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_INVALID);
                 continue;
             };
-            if admission_spec(
+            let Some(spec) = admission_spec(
                 &request,
                 pool_snapshot.budget,
                 pool_snapshot.period,
                 pool_snapshot.deadline,
+                pool_snapshot.latency,
                 request.id,
-            )
-            .is_none()
-            {
+            ) else {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
-            }
-            let child = cadence_split(pool, &snapshot);
+            };
+            let admitted = encode_spec(spec);
+            let child = cadence_split(pool, &admitted);
             if child == u64::MAX {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
             }
             let result = task_regrant_named(name, child);
             let _ = close_handle(child);
-            if result == 0 {
+            if result != u64::MAX {
                 let _ = send(sender, TEMPO_RESPONSE, 0);
             } else {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
@@ -118,19 +118,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_INVALID);
                 continue;
             };
-            if admission_spec(
+            let Some(spec) = admission_spec(
                 &request,
                 pool_snapshot.budget,
                 pool_snapshot.period,
                 pool_snapshot.deadline,
+                pool_snapshot.latency,
                 current_cadence_id(name),
-            )
-            .is_none()
-            {
+            ) else {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
-            }
-            let child = cadence_split(pool, snapshot);
+            };
+            let admitted = encode_spec(spec);
+            let child = cadence_split(pool, &admitted);
             if child == u64::MAX {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
                 continue;
@@ -141,7 +141,12 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
                 task_regrant_named(name, child)
             };
             let _ = close_handle(child);
-            if result == 0 {
+            let attached = if label == TEMPO_ADMIT {
+                result == 0
+            } else {
+                result != u64::MAX
+            };
+            if attached {
                 let _ = send(sender, TEMPO_RESPONSE, 0);
             } else {
                 let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
@@ -162,19 +167,19 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         };
         // 匿名请求的快照 id 由客户端填写，不能用来排除别人的契约；只有按名
         // 路径才使用内核回读的可信 id。
-        if admission_spec(
+        let Some(spec) = admission_spec(
             &request,
             pool_snapshot.budget,
             pool_snapshot.period,
             pool_snapshot.deadline,
+            pool_snapshot.latency,
             0,
-        )
-        .is_none()
-        {
+        ) else {
             let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
             continue;
-        }
-        let child = cadence_split(pool, &buffer[..CadenceSnapshot::ENCODED_LEN]);
+        };
+        let admitted = encode_spec(spec);
+        let child = cadence_split(pool, &admitted);
         if child == u64::MAX {
             let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
             continue;
