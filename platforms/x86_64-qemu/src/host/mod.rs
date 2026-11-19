@@ -908,7 +908,15 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 }
 
 fn preempt(frame: &InterruptFrame) -> bool {
-    RUNTIME.preempt(cpu::cpu_index(), *frame)
+    let cpu = cpu::cpu_index();
+    if RUNTIME.preempt(cpu, *frame) {
+        return true;
+    }
+    // runtime 锁被另一 CPU 持有（或当前没有任务）时不能丢失本次抢占：
+    // 保留 resched 请求，并重新臂一个短 watchdog，下一次到期立即重试。
+    cpu::reschedule(cpu);
+    cpu::arm_oneshot(1_000);
+    false
 }
 
 fn resched(cpu: usize) {

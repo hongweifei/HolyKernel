@@ -2,14 +2,13 @@
 
 use hk_cadence::CadenceClass;
 
-use crate::task::TaskId;
-use crate::tcb::LendingFrame;
+use crate::tcb::{LendingFrame, TcbId};
 
 use super::task::lending_contract;
 
 fn frame(class: CadenceClass, key: u64, slice: u64, latency: u64) -> LendingFrame {
     LendingFrame {
-        caller: TaskId::new(1),
+        caller: TcbId::new(1),
         sequence: 1,
         class,
         key,

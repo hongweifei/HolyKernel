@@ -91,6 +91,11 @@ impl Meter {
         *self = Self::new();
     }
 
+    /// 清除最近运行的 CPU；用于亲和性变更后的重新选核。
+    pub fn clear_last_cpu(&mut self) {
+        self.last_cpu = NO_CPU;
+    }
+
     /// 从快照还原计量。
     pub fn restore(snapshot: MeterSnapshot) -> Self {
         Self {

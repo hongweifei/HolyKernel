@@ -187,6 +187,7 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
             continue;
         }
         if send_handle(sender, TEMPO_RESPONSE, 0, granted) != 0 {
+            let _ = close_handle(granted);
             let _ = send(sender, TEMPO_REJECTED, REJECT_OUT_OF_RANGE);
         }
     }

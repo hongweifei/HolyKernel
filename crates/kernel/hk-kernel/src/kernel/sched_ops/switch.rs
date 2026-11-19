@@ -139,10 +139,11 @@ impl Kernel {
         }
 
         loop {
+            let online = self.scheduler.lock().online();
             let (next, _) = self
                 .scheduler
                 .lock()
-                .pick_with(cpu, |thread| self.thread_cpu_allowed(thread, cpu))?;
+                .pick_with(cpu, |thread| self.thread_cpu_allowed(thread, cpu, online))?;
             let task_id = self.threads.lock().get(&next).map(Tcb::task)?;
             let idle = self.is_idle(next);
             let lending = self
@@ -228,13 +229,14 @@ impl Kernel {
 
     /// 记入 TCB 的实际执行时间；借贷期间同时记入调用方 Meter 与预算。
     pub fn charge(&self, thread: TcbId, elapsed: u64) {
-        let caller = self
+        let caller_tcb = self
             .threads
             .lock()
             .get(&thread)
             .and_then(Tcb::strongest_lending)
             .map(|frame| frame.caller);
-        if let Some(caller) = caller
+        if let Some(caller_tcb) = caller_tcb
+            && let Some(caller) = self.task_of(caller_tcb)
             && let Some(task) = self.task(caller)
         {
             let throttled = {
@@ -244,12 +246,7 @@ impl Kernel {
             };
             if throttled {
                 self.schedule_refill(caller);
-                if let Some(caller_thread) = self
-                    .task(caller)
-                    .and_then(|task| task.lock().threads().first().copied())
-                {
-                    self.record(caller_thread.get(), Category::Sched, TRACE_THROTTLE, 0);
-                }
+                self.record(caller_tcb.get(), Category::Sched, TRACE_THROTTLE, 0);
             }
         }
         let Some(task_id) = self.task_of(thread) else {
@@ -261,14 +258,21 @@ impl Kernel {
     }
 
     /// 判断 TCB 是否允许在 `cpu` 上运行。
-    fn thread_cpu_allowed(&self, thread: TcbId, cpu: usize) -> bool {
+    fn thread_cpu_allowed(&self, thread: TcbId, cpu: usize, online: usize) -> bool {
         let Some(task_id) = self.task_of(thread) else {
             return false;
         };
         let Some(task) = self.task(task_id) else {
             return false;
         };
-        task.lock().cpu_allowed(cpu)
+        let task = task.lock();
+        if !task.migratable() {
+            let last = task.last_cpu();
+            if last != hk_cadence::NO_CPU && last as usize >= online {
+                return true;
+            }
+        }
+        task.cpu_allowed(cpu)
     }
 
     /// 为 Task 保留唯一 Grant；已有 active TCB 时不再入队。
@@ -427,21 +431,6 @@ impl Kernel {
         enqueued
     }
 
-    /// 契约亲和性变更后，把已排队但 CPU 不再允许的线程移出队列。
-    pub(crate) fn remove_disallowed_home(&self, task_id: TaskId) {
-        let Some(task) = self.task(task_id) else {
-            return;
-        };
-        let threads = task.lock().threads().to_vec();
-        for thread in threads {
-            let Some(task) = self.task_of(thread).and_then(|id| self.task(id)) else {
-                continue;
-            };
-            let affinity = task.lock().affinity_bits();
-            self.scheduler.lock().remove_if_disallowed(thread, affinity);
-        }
-    }
-
     /// 目标 CPU 正在运行的 Task 更弱时，请求该 CPU 立即重新调度。
     fn request_resched_if_needed(&self, thread: TcbId, class: CadenceClass, key: u64, cpu: usize) {
         let Some(current) = self.scheduler.lock().current(cpu) else {
@@ -469,20 +458,20 @@ impl Kernel {
             earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
         }
         let current = self.scheduler.lock().current(cpu);
-        if let Some(thread) = current
-            && let Some(task_id) = self.task_of(thread)
-            && let Some(task) = self.task(task_id)
-        {
-            let task = task.lock();
-            let end = task.grant_end();
-            if end > 0 {
-                earliest = Some(earliest.map_or(end, |value: u64| value.min(end)));
+        if let Some(thread) = current {
+            // 运行中的 Realtime 契约可能来自借贷 frame，使用有效契约的键。
+            if let Some((class, deadline, _, _)) = self.effective_contract(thread)
+                && class == CadenceClass::Realtime
+                && deadline > now
+            {
+                earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
             }
-            // 当前正在运行的 Realtime Task 也要把绝对截止期纳入一次性定时器。
-            if task.class() == CadenceClass::Realtime {
-                let deadline = task.queue_key();
-                if deadline > now {
-                    earliest = Some(earliest.map_or(deadline, |value: u64| value.min(deadline)));
+            if let Some(task_id) = self.task_of(thread)
+                && let Some(task) = self.task(task_id)
+            {
+                let end = task.lock().grant_end();
+                if end > 0 {
+                    earliest = Some(earliest.map_or(end, |value: u64| value.min(end)));
                 }
             }
         }

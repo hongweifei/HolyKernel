@@ -30,6 +30,58 @@ fn grants_cadence_and_meter_handles() {
 }
 
 #[test]
+fn policy_update_rejects_parent_widening() {
+    let kernel = kernel();
+    let parent = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 4096)
+                .with_budget(millis(8), millis(32))
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    kernel
+        .set_policy_authority(parent_id, true)
+        .expect("策略权限");
+    let child = kernel
+        .spawn_task_child_parked(HandleTable::new(8), parent_id)
+        .expect("子任务");
+    let child_id = kernel.task_of(child).expect("子 Task");
+    let handle = kernel
+        .grant_cadence(
+            parent,
+            child_id,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("子 Cadence 句柄");
+
+    let mut affinity = kernel.cadence_spec(child_id).expect("子契约");
+    affinity.affinity = hk_cadence::CpuMask::ALL;
+    assert_eq!(
+        kernel.update_cadence(parent, handle, affinity),
+        Err(crate::KernelError::CadenceDenied),
+        "策略更新不能把亲和性扩到父契约之外"
+    );
+
+    let mut lending = kernel.cadence_spec(child_id).expect("子契约");
+    lending.lending = hk_cadence::Lending::with_depth(3).expect("深度");
+    assert_eq!(
+        kernel.update_cadence(parent, handle, lending),
+        Err(crate::KernelError::CadenceDenied),
+        "策略更新不能加深借贷"
+    );
+
+    let mut class = kernel.cadence_spec(child_id).expect("子契约");
+    class.class = CadenceClass::Realtime;
+    assert_eq!(
+        kernel.update_cadence(parent, handle, class),
+        Err(crate::KernelError::CadenceDenied),
+        "策略更新不能把类别提升到父契约之上"
+    );
+}
+
+#[test]
 fn update_cadence_rejects_escalation_without_policy_authority() {
     let kernel = kernel();
     let parent = thread(&kernel);
@@ -312,6 +364,107 @@ fn lends_caller_contract_to_server_and_restores() {
         kernel.task_metrics(server).expect("服务端计量").consumed,
         3_000
     );
+}
+
+#[test]
+fn lending_shortens_grant_and_arms_caller_deadline() {
+    RESCHED_CALLS.store(0, Ordering::SeqCst);
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let caller = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Realtime, 1024)
+                .with_budget(millis(2), millis(16))
+                .with_deadline(millis(1))
+                .with_affinity(hk_cadence::CpuMask::single(1).expect("CPU 1")),
+        )
+        .expect("调用方");
+    let server = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+
+    assert_eq!(kernel.schedule(0), Some(server));
+    assert_eq!(kernel.schedule(1), Some(caller));
+    kernel.set_resched_hook(count_resched);
+
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("调用");
+    let received = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("收到调用");
+    assert!(received.reply.is_some());
+    assert!(
+        RESCHED_CALLS.load(Ordering::SeqCst) > 0,
+        "lending 缩短 Grant 后必须请求重新调度"
+    );
+    assert_eq!(
+        kernel.next_deadline(0),
+        Some(millis(1).ticks()),
+        "一次性定时器必须使用借贷后的 Realtime 截止期"
+    );
+}
+
+#[test]
+fn same_task_threads_keep_separate_lending_frames() {
+    let kernel = kernel();
+    let caller = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("调用方");
+    let task = kernel.task_of(caller).expect("Task");
+    let sibling = kernel.spawn_thread(task).expect("兄弟线程");
+    let server = kernel
+        .spawn_task(HandleTable::new(8), DEFAULT_SPEC)
+        .expect("服务端");
+    let endpoint = kernel
+        .create_endpoint(server, Rights::READ | Rights::WRITE)
+        .expect("端点");
+    let endpoint_id = kernel.handle_id(server, endpoint).expect("端点标识");
+    let client_endpoint = kernel
+        .grant(caller, endpoint_id, Rights::READ | Rights::WRITE)
+        .expect("授予端点");
+
+    kernel
+        .call(caller, client_endpoint, Message::new(1))
+        .expect("第一次调用");
+    kernel
+        .call(sibling, client_endpoint, Message::new(2))
+        .expect("第二次调用");
+    let first = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("第一次调用已排队");
+    let second = kernel
+        .recv(server, endpoint)
+        .expect("接收")
+        .expect("第二次调用已排队");
+    assert_eq!(
+        kernel.lending_depth(server),
+        2,
+        "同一 Task 的两个 TCB 必须各持有一个 lending frame"
+    );
+
+    kernel
+        .reply(server, first.reply.expect("第一次令牌"), Message::new(3))
+        .expect("第一次回复");
+    assert_eq!(kernel.lending_depth(server), 1);
+    kernel
+        .reply(server, second.reply.expect("第二次令牌"), Message::new(4))
+        .expect("第二次回复");
+    assert_eq!(kernel.lending_depth(server), 0);
 }
 
 fn lending_pair(

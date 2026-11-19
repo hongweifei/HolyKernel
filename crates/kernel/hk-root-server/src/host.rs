@@ -578,6 +578,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             return Switch::Continue;
         };
         let switch = runtime.dispatch(cpu, frame);
+        // 系统调用可能改变 Grant、lending frame、sleep 或超时；返回用户态前
+        // 重臂本 CPU 的一次性定时器，让新的期限立即生效。
+        runtime.arm_wakeup(cpu);
         // 只有一个可运行线程时当前 CPU 可以继续处理；唤醒空闲核只会制造
         // 无效 IPI 与调度器锁竞争。至少有两个线程才需要并行。
         if runtime.runnable() > 1 {

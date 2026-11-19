@@ -146,6 +146,74 @@ fn parent_exit_promotes_child_cadence() {
 }
 
 #[test]
+fn parent_exit_preserves_foreign_cadence() {
+    let kernel = kernel();
+    let parent = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 4096).with_budget(millis(8), millis(32)),
+        )
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    let child = kernel
+        .spawn_task_child_parked(HandleTable::new(8), parent_id)
+        .expect("子任务");
+    let child_id = kernel.task_of(child).expect("子 Task");
+    let other = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 2048).with_budget(millis(4), millis(32)),
+        )
+        .expect("另一个父任务");
+    let other_id = kernel.task_of(other).expect("另一个父 Task");
+    let other_cadence = kernel
+        .task(other_id)
+        .expect("另一个父 Task 存在")
+        .lock()
+        .cadence();
+    let other_handle = kernel
+        .grant_cadence(
+            other,
+            other_id,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("另一个父句柄");
+    let foreign = kernel
+        .split_cadence(other, other_handle, 512, millis(2).ticks())
+        .expect("外部子契约");
+    let task_handle = kernel
+        .grant_task(other, child_id, Rights::READ | Rights::ADMIN)
+        .expect("子 Task 句柄");
+    kernel
+        .attach_cadence(other, task_handle, foreign)
+        .expect("子任务 attach 外部契约");
+    assert_eq!(other_cadence.lock().children_budget(), millis(2).ticks());
+
+    kernel.exit(parent).expect("父任务退出");
+
+    assert_eq!(
+        kernel.task(child_id).expect("子 Task 存在").lock().parent(),
+        None,
+        "Task 父链解除"
+    );
+    let child_cadence = kernel
+        .task(child_id)
+        .expect("子 Task 存在")
+        .lock()
+        .cadence();
+    assert_eq!(
+        child_cadence.lock().parent(),
+        Some(other_cadence.lock().id()),
+        "外部 Cadence 父链保持"
+    );
+    assert_eq!(
+        other_cadence.lock().children_budget(),
+        millis(2).ticks(),
+        "外部父预算预留保持"
+    );
+}
+
+#[test]
 fn realtime_edf_selects_earliest_absolute_deadline() {
     let kernel = kernel();
     let late = kernel
@@ -491,6 +559,137 @@ fn throttles_budgeted_task_and_refills_next_period() {
 
     kernel.set_clock(millis(4).ticks());
     assert_eq!(kernel.schedule(0), Some(realtime));
+}
+
+#[test]
+fn attach_running_task_keeps_single_grant() {
+    RESCHED_CALLS.store(0, Ordering::SeqCst);
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let pinned = CadenceSpec::new(CadenceClass::Latency, 1024)
+        .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"));
+    let first = kernel
+        .spawn_task(HandleTable::new(8), pinned)
+        .expect("主线程");
+    let task = kernel.task_of(first).expect("Task");
+    let second = kernel.spawn_thread(task).expect("兄弟线程");
+    assert_eq!(kernel.schedule(0), Some(first));
+    assert_eq!(kernel.state_of(second), Some(ThreadState::Runnable));
+
+    let cadence = kernel
+        .grant_cadence(first, task, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        .expect("Cadence 句柄");
+    kernel
+        .attach_own_cadence(first, cadence)
+        .expect("运行中 attach");
+
+    assert_eq!(
+        kernel.schedule(1),
+        None,
+        "运行中的 Task 不能把兄弟 TCB 并行入队"
+    );
+}
+
+#[test]
+fn queued_cadence_update_refreshes_realtime_placement() {
+    let kernel = kernel();
+    kernel.set_clock(0);
+    let thread = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0")),
+        )
+        .expect("任务");
+    let task = kernel.task_of(thread).expect("Task");
+    kernel.set_policy_authority(task, true).expect("策略权限");
+    let handle = kernel
+        .grant_cadence(thread, task, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        .expect("Cadence 句柄");
+    assert_eq!(kernel.next_deadline(0), None);
+
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.class = CadenceClass::Realtime;
+    spec.budget = millis(1);
+    spec.period = millis(4);
+    spec.deadline = millis(1);
+    kernel
+        .update_cadence(thread, handle, spec)
+        .expect("更新契约");
+
+    assert_eq!(
+        kernel.next_deadline(0),
+        Some(millis(1).ticks()),
+        "queued 契约更新后必须刷新 Realtime placement"
+    );
+}
+
+#[test]
+fn non_migratable_affinity_change_rehomes() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let thread = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024)
+                .with_affinity(hk_cadence::CpuMask::single(0).expect("CPU 0"))
+                .with_migratable(false),
+        )
+        .expect("任务");
+    let task = kernel.task_of(thread).expect("Task");
+    kernel.set_policy_authority(task, true).expect("策略权限");
+    let handle = kernel
+        .grant_cadence(thread, task, Rights::READ | Rights::WRITE | Rights::ADMIN)
+        .expect("Cadence 句柄");
+    assert_eq!(kernel.schedule(0), Some(thread));
+
+    let mut spec = kernel.cadence_spec(task).expect("契约");
+    spec.affinity = hk_cadence::CpuMask::single(1).expect("CPU 1");
+    kernel
+        .update_cadence(thread, handle, spec)
+        .expect("收紧亲和性");
+
+    assert_eq!(kernel.schedule(0), None);
+    assert_eq!(
+        kernel.schedule(1),
+        Some(thread),
+        "非 migratable 也必须重新选核"
+    );
+}
+
+#[test]
+fn split_without_attach_does_not_reserve_parent_budget() {
+    let kernel = kernel();
+    let parent = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 4096).with_budget(millis(8), millis(32)),
+        )
+        .expect("父任务");
+    let parent_id = kernel.task_of(parent).expect("父 Task");
+    let parent_cadence = kernel
+        .task(parent_id)
+        .expect("父 Task 存在")
+        .lock()
+        .cadence();
+    let handle = kernel
+        .grant_cadence(
+            parent,
+            parent_id,
+            Rights::READ | Rights::WRITE | Rights::ADMIN,
+        )
+        .expect("父句柄");
+
+    let child = kernel
+        .split_cadence(parent, handle, 1024, millis(4).ticks())
+        .expect("派生子契约");
+    assert_eq!(
+        parent_cadence.lock().children_budget(),
+        0,
+        "未绑定 Task 的子契约不占父预算"
+    );
+    kernel.close_handle(parent, child).expect("关闭子句柄");
+    assert_eq!(parent_cadence.lock().children_budget(), 0);
 }
 
 #[test]

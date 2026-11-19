@@ -50,12 +50,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let kernel = &self.kernel;
         let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER;
         let child = match kernel.task_of(tcb) {
-            Some(parent) => kernel
-                .spawn_task_child_parked(HandleTable::with_default_quota(), parent)
-                .expect("子任务创建"),
-            None => kernel
-                .spawn_task_parked(HandleTable::with_default_quota(), DEFAULT_SPEC)
-                .expect("子任务创建"),
+            Some(parent) => {
+                match kernel.spawn_task_child_parked(HandleTable::with_default_quota(), parent) {
+                    Ok(child) => child,
+                    Err(_) => {
+                        frame.set_result(u64::MAX);
+                        return Switch::Continue;
+                    }
+                }
+            }
+            None => match kernel.spawn_task_parked(HandleTable::with_default_quota(), DEFAULT_SPEC)
+            {
+                Ok(child) => child,
+                Err(_) => {
+                    frame.set_result(u64::MAX);
+                    return Switch::Continue;
+                }
+            },
         };
 
         let Ok(own_endpoint) = kernel.create_endpoint(child, rights) else {

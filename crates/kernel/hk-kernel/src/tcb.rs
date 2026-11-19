@@ -115,12 +115,13 @@ pub struct PendingDelivery {
 /// 一次 caller-pays 借贷。
 ///
 /// 服务端 TCB 在 `call` 期间借用调用方契约：类别、队列键与时间片取两者中更强
-/// 的一个，执行时间同时记入调用方 Meter 与预算。
+/// 的一个，执行时间同时记入调用方 Meter 与预算。调用方以 TCB 为键，同一 Task
+/// 的多个线程各自持有一个 frame。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LendingFrame {
-    /// 调用方 Task。
-    pub caller: TaskId,
-    /// 调用序号。
+    /// 调用方 TCB。
+    pub caller: TcbId,
+    /// 调用序号；仅在调用方 TCB 内唯一。
     pub sequence: u64,
     /// 调用方类别。
     pub class: CadenceClass,
@@ -278,8 +279,8 @@ impl Tcb {
         true
     }
 
-    /// 按调用方与序号弹出借贷。
-    pub fn pop_lending(&mut self, caller: TaskId, sequence: u64) -> bool {
+    /// 按调用方 TCB 与序号弹出借贷。
+    pub fn pop_lending(&mut self, caller: TcbId, sequence: u64) -> bool {
         let Some(index) = self
             .lending
             .iter()
@@ -291,8 +292,8 @@ impl Tcb {
         true
     }
 
-    /// 移除某个调用方的全部借贷；返回移除数量。
-    pub fn remove_lending_for(&mut self, caller: TaskId) -> usize {
+    /// 移除某个调用方 TCB 的全部借贷；返回移除数量。
+    pub fn remove_lending_for(&mut self, caller: TcbId) -> usize {
         let before = self.lending.len();
         self.lending.retain(|frame| frame.caller != caller);
         before - self.lending.len()

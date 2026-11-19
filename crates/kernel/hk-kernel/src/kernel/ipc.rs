@@ -261,7 +261,7 @@ impl Kernel {
         tcb.orphan_call(sequence);
         let mut returned = Vec::new();
         for server in threads.values_mut() {
-            if server.pop_lending(caller, sequence) {
+            if server.pop_lending(thread, sequence) {
                 returned.push(server.id());
             }
         }

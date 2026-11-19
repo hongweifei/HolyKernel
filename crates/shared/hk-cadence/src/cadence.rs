@@ -314,7 +314,12 @@ impl Cadence {
         Ok(())
     }
 
-    /// 从本契约派生子契约；子契约只收窄权重、预算与借贷。
+    /// 从本契约派生子契约；权重与预算只能收窄。
+    ///
+    /// 派生阶段只校验父契约的剩余容量；父预算在子契约绑定 Task 时由
+    /// [`Self::reserve_in_parent`] 预留，因此未绑定的子契约不占用父预算。
+    /// 类别、周期、截止期、延迟、亲和性、迁移资格与借贷策略继承父契约；
+    /// 后续由持有 ADMIN 的策略方在父契约范围内收窄。
     pub fn split(
         &mut self,
         id: CadenceId,
@@ -342,12 +347,9 @@ impl Cadence {
             latency: self.latency,
             affinity: self.affinity,
             migratable: self.migratable,
-            lending: self.lending.narrowed_to(self.lending)?,
+            lending: self.lending,
         };
-        let mut child = Self::restore(id, Some(self.id), self.epoch, spec)?;
-        self.children_budget = self.children_budget.saturating_add(budget.ticks());
-        child.reserved = budget.ticks();
-        Ok(child)
+        Self::restore(id, Some(self.id), self.epoch, spec)
     }
 
     /// 返回契约描述。
@@ -585,11 +587,15 @@ mod tests {
             .with_budget(Duration::from_ticks(8), Duration::from_ticks(32))
             .cadence(CadenceId::new(1))
             .expect("父契约");
-        parent
+        let mut child = parent
             .split(CadenceId::new(2), weight(1024), Duration::from_ticks(4))
             .expect("子契约");
+        assert_eq!(parent.children_budget(), 0, "未绑定不占用父预算");
+        assert_eq!(child.reserved(), 0);
+        child.reserve_in_parent(&mut parent).expect("绑定预留");
         assert_eq!(parent.children_budget(), 4);
-        parent.release_child_budget(4);
+        assert_eq!(child.reserved(), 4);
+        parent.release_child_budget(child.take_reserved());
         assert_eq!(parent.children_budget(), 0);
         parent
             .split(CadenceId::new(3), weight(1024), Duration::from_ticks(7))
@@ -623,12 +629,16 @@ mod tests {
             .cadence(CadenceId::new(1))
             .expect("父契约");
 
-        let child = parent
+        let mut child = parent
             .split(CadenceId::new(2), weight(1024), Duration::from_ticks(2))
             .expect("子契约");
         assert_eq!(child.parent(), Some(parent.id()));
         assert_eq!(child.epoch(), parent.epoch());
         assert_eq!(child.class(), parent.class());
+        assert_eq!(parent.children_budget(), 0, "未绑定不占用父预算");
+        assert_eq!(child.reserved(), 0);
+        child.reserve_in_parent(&mut parent).expect("绑定预留");
+        assert_eq!(parent.children_budget(), 2);
         assert_eq!(child.reserved(), 2);
 
         assert_eq!(

@@ -106,18 +106,28 @@ impl Kernel {
         }
     }
 
-    /// 父 Task 退出时提升其子 Task：解除 Task 父链与 Cadence 父链。
+    /// 父 Task 退出时解除子 Task 的 Task 父链，并提升继承自该父契约的 Cadence。
     fn promote_children(&self, parent: TaskId) {
+        let Some(parent_task) = self.task(parent) else {
+            return;
+        };
+        let parent_cadence = parent_task.lock().cadence();
+        let parent_cadence_id = parent_cadence.lock().id();
         let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
         for task in tasks {
-            let (thread, cadence) = {
+            let (thread, cadence, inherited) = {
                 let mut task = task.lock();
                 if task.parent() != Some(parent) {
                     continue;
                 }
                 task.set_parent(None);
-                (task.threads().first().copied(), task.cadence())
+                let cadence = task.cadence();
+                let inherited = cadence.lock().parent() == Some(parent_cadence_id);
+                (task.threads().first().copied(), cadence, inherited)
             };
+            if !inherited {
+                continue;
+            }
             // 解除父链前先归还父契约的预留；父 Task 此刻仍在任务表中。
             self.release_child_budget(&cadence);
             cadence.lock().promote();

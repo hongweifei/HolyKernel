@@ -1,6 +1,6 @@
 //! LAPIC 定时器与调度 tick。
 
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use x86_64::instructions::interrupts;
 
@@ -14,16 +14,28 @@ static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static UPTIME_TICKS: AtomicU64 = AtomicU64::new(0);
 static TIMER_TARGET: AtomicU64 = AtomicU64::new(0);
 static TICK_COUNT: AtomicU32 = AtomicU32::new(TICK_INITIAL_COUNT);
-static TICK_ARMED: AtomicBool = AtomicBool::new(false);
-/// 当前 CPU 的调度 tick 是否处于投递状态。
-static TICK_ENABLED: AtomicBool = AtomicBool::new(false);
+/// 每 CPU 是否已启动周期 tick。
+static TICK_ARMED: AtomicU64 = AtomicU64::new(0);
+/// 每 CPU 的调度 tick 是否处于投递状态。
+static TICK_ENABLED: AtomicU64 = AtomicU64::new(0);
 /// 每 CPU 是否已编程一次性唤醒。
-static ONESHOT: AtomicU32 = AtomicU32::new(0);
-/// 上次 watchdog tick 的契约时刻（微秒）。
-static LAST_TICK_US: AtomicU64 = AtomicU64::new(0);
+static ONESHOT: AtomicU64 = AtomicU64::new(0);
+/// 每 CPU 上次 watchdog tick 的契约时刻（微秒）。
+static LAST_TICK_US: [AtomicU64; super::MAX_CPUS] = [const { AtomicU64::new(0) }; super::MAX_CPUS];
+
+fn cpu_bit() -> u64 {
+    let cpu = super::apic::cpu_index();
+    if cpu < super::MAX_CPUS {
+        1_u64 << cpu
+    } else {
+        0
+    }
+}
 /// 启动周期定时器，目标中断次数为 `target`。
 pub fn arm_timer(target: u64) {
-    TICK_ARMED.store(true, Ordering::SeqCst);
+    let bit = cpu_bit();
+    TICK_ARMED.fetch_or(bit, Ordering::SeqCst);
+    TICK_ENABLED.fetch_or(bit, Ordering::SeqCst);
     TIMER_TICKS.store(0, Ordering::SeqCst);
     TIMER_TARGET.store(target, Ordering::SeqCst);
 
@@ -36,7 +48,9 @@ pub fn arm_timer(target: u64) {
 
 /// 停止定时器并关中断。
 pub fn disarm_timer() {
-    TICK_ARMED.store(false, Ordering::SeqCst);
+    let bit = cpu_bit();
+    TICK_ARMED.fetch_and(!bit, Ordering::SeqCst);
+    TICK_ENABLED.fetch_and(!bit, Ordering::SeqCst);
     // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
     interrupts::disable();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
@@ -48,13 +62,14 @@ pub fn disarm_timer() {
 /// 会在每个预算切片之间停止并重新启动 tick，若每次都重写初始计数，短于一个
 /// tick 周期的切片就会反复清零定时器，导致抢占 tick 停止投递。
 pub fn start_tick() {
-    if !TICK_ARMED.swap(true, Ordering::SeqCst) {
+    let bit = cpu_bit();
+    if TICK_ARMED.fetch_or(bit, Ordering::SeqCst) & bit == 0 {
         TIMER_TICKS.store(0, Ordering::SeqCst);
         lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
     }
     TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
-    TICK_ENABLED.store(true, Ordering::SeqCst);
+    TICK_ENABLED.fetch_or(bit, Ordering::SeqCst);
 
     // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
     interrupts::enable();
@@ -62,6 +77,9 @@ pub fn start_tick() {
 
 /// 启动 AP 的周期性调度 tick，复用 BSP 校准的计数，不重置全局 tick 计数。
 pub fn start_ap_tick() {
+    let bit = cpu_bit();
+    TICK_ARMED.fetch_or(bit, Ordering::SeqCst);
+    TICK_ENABLED.fetch_or(bit, Ordering::SeqCst);
     lapic_write(LAPIC_TIMER_DIVIDE, 0x03);
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
@@ -74,11 +92,12 @@ pub fn start_ap_tick() {
 /// shell 命令在调度循环之外执行，`stop_tick` 已屏蔽本地定时器；嵌套运行服务前
 /// 需要重新写入初始计数，否则解除屏蔽后可能不再产生周期性中断。
 pub fn rearm_tick() {
-    TICK_ARMED.store(true, Ordering::SeqCst);
+    let bit = cpu_bit();
+    TICK_ARMED.fetch_or(bit, Ordering::SeqCst);
     TIMER_TARGET.store(u64::MAX, Ordering::SeqCst);
     lapic_write(LAPIC_TIMER_INITIAL, TICK_COUNT.load(Ordering::SeqCst));
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
-    TICK_ENABLED.store(true, Ordering::SeqCst);
+    TICK_ENABLED.fetch_or(bit, Ordering::SeqCst);
 
     // 中断表与本地 APIC 已就绪；打开中断允许 tick 投递。
     interrupts::enable();
@@ -91,8 +110,9 @@ pub fn rearm_tick() {
 /// 被投递后进入无定时器的永久等待。
 pub fn enable_wakeup_timer() {
     interrupts::disable();
-    TICK_ARMED.store(true, Ordering::SeqCst);
-    TICK_ENABLED.store(true, Ordering::SeqCst);
+    let bit = cpu_bit();
+    TICK_ARMED.fetch_or(bit, Ordering::SeqCst);
+    TICK_ENABLED.fetch_or(bit, Ordering::SeqCst);
 }
 
 /// 等待下一次中断；进入前关中断，返回时中断仍关闭。
@@ -107,12 +127,12 @@ pub fn stop_tick() {
     // 关中断后写 LVT 屏蔽位，避免仍在途的中断再次进入。
     interrupts::disable();
     lapic_write(LAPIC_LVT_TIMER, LVT_MASKED | TIMER_VECTOR as u32);
-    TICK_ENABLED.store(false, Ordering::SeqCst);
+    TICK_ENABLED.fetch_and(!cpu_bit(), Ordering::SeqCst);
 }
 
 /// 调度 tick 当前是否在投递。
 pub fn tick_enabled() -> bool {
-    TICK_ENABLED.load(Ordering::SeqCst)
+    TICK_ENABLED.load(Ordering::SeqCst) & cpu_bit() != 0
 }
 
 /// 用 TSC 频率校准 LAPIC 定时器，把调度 tick 设为约 10 ms。
@@ -176,10 +196,12 @@ pub fn calibrate_tick_hpet() -> bool {
 }
 
 /// 记录一次定时器中断。
-pub(super) fn note_tick() {
+fn note_tick(cpu: usize) {
     TIMER_TICKS.fetch_add(1, Ordering::SeqCst);
     UPTIME_TICKS.fetch_add(1, Ordering::SeqCst);
-    LAST_TICK_US.store(now_us(), Ordering::Relaxed);
+    if let Some(last) = LAST_TICK_US.get(cpu) {
+        last.store(now_us(), Ordering::Relaxed);
+    }
 }
 
 /// 返回当前契约时刻（微秒）。
@@ -195,25 +217,26 @@ fn now_us() -> u64 {
 ///
 /// 不主动开中断：调用方在调度锁内，中断进入内核态时不会触发抢占。
 pub fn arm_oneshot(micros: u64) {
-    if !TICK_ENABLED.load(Ordering::SeqCst) {
+    let bit = cpu_bit();
+    if TICK_ENABLED.load(Ordering::SeqCst) & bit == 0 {
         return;
     }
     let per_10ms = u64::from(TICK_COUNT.load(Ordering::SeqCst));
     let counts = (micros.saturating_mul(per_10ms).saturating_add(9_999) / 10_000)
         .clamp(1, u64::from(u32::MAX)) as u32;
-    ONESHOT.fetch_or(1 << super::apic::cpu_index(), Ordering::SeqCst);
+    ONESHOT.fetch_or(bit, Ordering::SeqCst);
     lapic_write(LAPIC_LVT_TIMER, TIMER_VECTOR as u32);
     lapic_write(LAPIC_TIMER_INITIAL, counts);
 }
 
 /// 指定 CPU 是否已编程一次性唤醒。
 pub fn oneshot_armed(cpu: usize) -> bool {
-    ONESHOT.load(Ordering::SeqCst) & (1 << cpu) != 0
+    cpu < super::MAX_CPUS && ONESHOT.load(Ordering::SeqCst) & (1_u64 << cpu) != 0
 }
 
 /// 恢复周期 watchdog。
 pub fn resume_periodic() {
-    if !TICK_ENABLED.load(Ordering::SeqCst) {
+    if TICK_ENABLED.load(Ordering::SeqCst) & cpu_bit() == 0 {
         return;
     }
     lapic_write(LAPIC_LVT_TIMER, LVT_PERIODIC | TIMER_VECTOR as u32);
@@ -225,14 +248,18 @@ pub fn resume_periodic() {
 /// 一次性唤醒不改变 `SYS_TICKS` 的 10 ms 语义：距上次 watchdog tick 满 10 ms
 /// 时补记一次，这样频繁的 Grant 抢占不会让 tick 计数停摆。
 pub fn note_timer_interrupt() -> bool {
-    let bit = 1 << super::apic::cpu_index();
+    let cpu = super::apic::cpu_index();
+    let bit = cpu_bit();
     if ONESHOT.fetch_and(!bit, Ordering::SeqCst) & bit != 0 {
-        if now_us().saturating_sub(LAST_TICK_US.load(Ordering::Relaxed)) >= 10_000 {
-            note_tick();
+        let last = LAST_TICK_US
+            .get(cpu)
+            .map_or(0, |last| last.load(Ordering::Relaxed));
+        if now_us().saturating_sub(last) >= 10_000 {
+            note_tick(cpu);
         }
         return true;
     }
-    note_tick();
+    note_tick(cpu);
     false
 }
 

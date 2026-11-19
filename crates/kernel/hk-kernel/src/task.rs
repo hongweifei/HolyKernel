@@ -197,12 +197,16 @@ impl Task {
     /// 替换 Task 的 Cadence，并从 `now` 开始新的预算周期。
     ///
     /// `period_start` 必须落在当前时刻，否则 Realtime 的绝对截止期会落到过去，
-    /// 导致 EDF 排序与超限统计失真。
+    /// 导致 EDF 排序与超限统计失真。`Suspended`、`Created` 与 `Throttled` 在
+    /// 新契约下重新可运行；调度 placement 由调用方统一刷新。
     pub fn set_cadence(&mut self, cadence: Arc<Mutex<Cadence>>, now: u64) {
         self.cadence = cadence;
         self.period_start = now;
         self.budget_left = self.cadence.lock().budget().ticks();
-        if matches!(self.state, TaskState::Suspended | TaskState::Created) {
+        if matches!(
+            self.state,
+            TaskState::Suspended | TaskState::Created | TaskState::Throttled
+        ) {
             self.state = TaskState::Eligible;
         }
     }
@@ -330,17 +334,26 @@ impl Task {
     }
 
     /// 判断 Task 是否允许在 `cpu` 上运行。
+    ///
+    /// 非 migratable Task 固定在最近运行的 CPU；当该 CPU 已不在亲和集合内时
+    /// 允许一次 rehome，由 `refresh_task` 重置 `last_cpu` 后重新选核。
     pub fn cpu_allowed(&self, cpu: usize) -> bool {
         let cpu = cpu as u32;
         let cadence = self.cadence.lock();
-        if !cadence.affinity().contains(cpu) {
+        let affinity = cadence.affinity();
+        if !affinity.contains(cpu) {
             return false;
         }
         if cadence.migratable() {
             return true;
         }
         let last = self.meter.lock().last_cpu();
-        last == NO_CPU || last == cpu
+        last == NO_CPU || last == cpu || !affinity.contains(last)
+    }
+
+    /// 清除最近运行的 CPU，使非 migratable Task 可重新选核。
+    pub fn clear_last_cpu(&mut self) {
+        self.meter.lock().clear_last_cpu();
     }
 
     /// 返回亲和性位图。

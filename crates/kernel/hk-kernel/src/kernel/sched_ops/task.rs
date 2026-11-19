@@ -80,7 +80,10 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.register_task(id, task);
+        if let Err(error) = self.register_task(id, task, true) {
+            self.threads.lock().remove(&thread);
+            return Err(error);
+        }
         Ok(thread)
     }
 
@@ -114,7 +117,10 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.register_task(id, task);
+        if let Err(error) = self.register_task(id, task, false) {
+            self.threads.lock().remove(&thread);
+            return Err(error);
+        }
         Ok(thread)
     }
 
@@ -144,7 +150,10 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        self.register_task(id, task);
+        if let Err(error) = self.register_task(id, task, true) {
+            self.threads.lock().remove(&thread);
+            return Err(error);
+        }
         Ok(thread)
     }
 
@@ -205,7 +214,10 @@ impl Kernel {
     /// 返回 TCB 的有效契约 `(类别, 键, 时间片, 延迟)`。
     ///
     /// 借贷 frame 更强时整体采用调用方的值；两者同级时取较短时间片与较小延迟。
-    fn effective_contract(&self, thread: TcbId) -> Option<(CadenceClass, u64, u64, u64)> {
+    pub(crate) fn effective_contract(
+        &self,
+        thread: TcbId,
+    ) -> Option<(CadenceClass, u64, u64, u64)> {
         let lending = self
             .threads
             .lock()

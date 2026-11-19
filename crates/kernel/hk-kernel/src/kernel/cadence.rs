@@ -99,12 +99,12 @@ impl Kernel {
         let task = self
             .task(task_id)
             .ok_or(KernelError::UnknownTask(task_id))?;
-        let was_suspended = task.lock().state() == TaskState::Suspended;
         let previous = task.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
+            self.ensure_cadence_unowned(&cadence, task_id)?;
+            self.bind_cadence(&cadence, false)?;
             self.release_child_budget(&previous);
         }
-        self.bind_cadence(&cadence);
         {
             let mut task = task.lock();
             task.set_cadence(cadence, self.now());
@@ -115,12 +115,7 @@ impl Kernel {
             TRACE_CADENCE_ATTACH,
             task_id.get(),
         );
-        self.remove_disallowed_home(task_id);
-        if was_suspended {
-            self.resume_task(task_id);
-        } else {
-            self.enqueue_next_thread(task_id, None);
-        }
+        self.refresh_task(task_id);
         Ok(())
     }
 
@@ -136,13 +131,15 @@ impl Kernel {
     ) -> Result<(), KernelError> {
         let cadence = self.cadence_object(thread, handle, Rights::WRITE)?;
         let policy = self.is_policy_authority(thread);
+        let owner = self.task_with_cadence(&cadence);
+        let attached = owner.is_some();
         let parent_id = { cadence.lock().parent() };
         let parent = parent_id.and_then(|id| self.cadence_by_id(id));
         let (current, old_reserved, id, parent_link, epoch) = {
             let guard = cadence.lock();
             (
                 guard.spec(),
-                guard.reserved(),
+                if attached { guard.reserved() } else { 0 },
                 guard.id(),
                 guard.parent(),
                 guard.epoch(),
@@ -164,6 +161,33 @@ impl Kernel {
             if spec.weight > parent.weight().get() {
                 return Err(KernelError::CadenceDenied);
             }
+            if spec.affinity.restrict(parent.affinity()).is_err()
+                || spec.lending.narrowed_to(parent.lending()).is_err()
+                || spec.class < parent.class()
+                || (spec.migratable && !parent.migratable())
+            {
+                return Err(KernelError::CadenceDenied);
+            }
+            let parent_deadline = if parent.deadline().is_zero() {
+                parent.period()
+            } else {
+                parent.deadline()
+            };
+            let spec_deadline = if spec.deadline.is_zero() {
+                spec.period
+            } else {
+                spec.deadline
+            };
+            if parent.period().is_zero() {
+                if !spec.period.is_zero() {
+                    return Err(KernelError::CadenceDenied);
+                }
+            } else if spec.period.is_zero() || spec.period < parent.period() {
+                return Err(KernelError::CadenceDenied);
+            }
+            if spec_deadline > parent_deadline {
+                return Err(KernelError::CadenceDenied);
+            }
             if parent.has_budget() {
                 let available = parent
                     .budget()
@@ -178,12 +202,17 @@ impl Kernel {
             }
         }
         let mut replacement = Cadence::restore(id, parent_link, epoch, spec)?;
-        // 父契约账本与子契约预留作为一个事务更新：先归还旧预留，再为新预算预留。
-        if let Some(parent) = parent_guard.as_mut() {
-            parent.release_child_budget(old_reserved);
-            if let Err(error) = replacement.reserve_in_parent(parent) {
-                parent.reserve_child_budget(old_reserved);
-                return Err(KernelError::from(error));
+        // 派生但未绑定 Task 的契约不占父预算；绑定后才在父账本中预留。
+        if attached {
+            if let Some(parent) = parent_guard.as_mut() {
+                // 父契约账本与子契约预留作为一个事务更新：先归还旧预留，再为新预算预留。
+                parent.release_child_budget(old_reserved);
+                if let Err(error) = replacement.reserve_in_parent(parent) {
+                    parent.reserve_child_budget(old_reserved);
+                    return Err(KernelError::from(error));
+                }
+            } else {
+                replacement.promote();
             }
         }
         *cadence.lock() = replacement;
@@ -195,17 +224,13 @@ impl Kernel {
             u64::from(spec.weight),
         );
         // 新契约从当前时刻开始预算周期，避免 Realtime 绝对截止期落到过去。
-        if let Some(owner) = self.task_with_cadence(&cadence) {
-            let (owner_id, running) = {
+        if let Some(owner) = owner {
+            let owner_id = {
                 let mut task = owner.lock();
                 task.reset_period(self.now());
-                (task.id(), task.state() == TaskState::Running)
+                task.id()
             };
-            // 亲和性变更后把仍在旧 CPU 队列中的线程重新挂到允许的 CPU。
-            self.remove_disallowed_home(owner_id);
-            if !running {
-                self.enqueue_next_thread(owner_id, None);
-            }
+            self.refresh_task(owner_id);
         }
         Ok(())
     }
@@ -257,39 +282,77 @@ impl Kernel {
         None
     }
 
-    /// 在父契约中预留带父链但尚未预留的契约；父契约不存在或容量不足时返回 `false`。
+    /// 在父契约中预留带父链但尚未预留的契约。
     ///
     /// 锁顺序固定为父 → 子，与 [`Self::release_child_budget`] 的“先取子预留、
-    /// 再锁父”不嵌套相反。
-    pub(crate) fn ensure_cadence_reserved(&self, child: &Arc<spin::Mutex<Cadence>>) -> bool {
+    /// 再锁父”不嵌套相反。父契约不存在或容量不足时返回错误。
+    pub(crate) fn ensure_cadence_reserved(
+        &self,
+        child: &Arc<spin::Mutex<Cadence>>,
+    ) -> Result<(), KernelError> {
         let Some(parent_id) = child.lock().parent() else {
-            return true;
+            return Ok(());
         };
         if child.lock().reserved() != 0 {
-            return true;
+            return Ok(());
         }
         let Some(parent) = self.cadence_by_id(parent_id) else {
-            return false;
+            return Err(KernelError::CadenceDenied);
         };
         let mut parent = parent.lock();
         let mut child = child.lock();
-        child.reserve_in_parent(&mut parent).is_ok()
+        child
+            .reserve_in_parent(&mut parent)
+            .map_err(KernelError::from)
     }
 
-    /// 绑定契约时保证父预算账本一致；父契约已消失或放不下时提升为独立契约。
-    pub(crate) fn bind_cadence(&self, cadence: &Arc<spin::Mutex<Cadence>>) {
-        if !self.ensure_cadence_reserved(cadence) {
-            cadence.lock().promote();
+    /// 绑定契约时保证父预算账本一致。
+    ///
+    /// `promote_on_failure` 用于 checkpoint 恢复：父契约缺失或放不下时把契约
+    /// 提升为独立契约。新 split/attach 使用 `false`，失败直接返回错误。
+    pub(crate) fn bind_cadence(
+        &self,
+        cadence: &Arc<spin::Mutex<Cadence>>,
+        promote_on_failure: bool,
+    ) -> Result<(), KernelError> {
+        match self.ensure_cadence_reserved(cadence) {
+            Ok(()) => Ok(()),
+            Err(_) if promote_on_failure => {
+                cadence.lock().promote();
+                Ok(())
+            }
+            Err(error) => Err(error),
         }
+    }
+
+    /// 确认 Cadence 尚未属于其它 Task。
+    fn ensure_cadence_unowned(
+        &self,
+        cadence: &Arc<spin::Mutex<Cadence>>,
+        target: TaskId,
+    ) -> Result<(), KernelError> {
+        if let Some(owner) = self.task_with_cadence(cadence)
+            && owner.lock().id() != target
+        {
+            return Err(KernelError::CadenceDenied);
+        }
+        Ok(())
     }
 
     /// 把新 Task 放入任务表，并把它的契约接入父预算账本。
     ///
     /// 所有创建 Task 的路径都走这里，保证“有父链 ⇒ 已预留”不变量。
-    pub(crate) fn register_task(&self, id: TaskId, task: Arc<spin::Mutex<Task>>) {
-        self.tasks.lock().insert(id, Arc::clone(&task));
+    pub(crate) fn register_task(
+        &self,
+        id: TaskId,
+        task: Arc<spin::Mutex<Task>>,
+        promote_on_failure: bool,
+    ) -> Result<(), KernelError> {
         let cadence = task.lock().cadence();
-        self.bind_cadence(&cadence);
+        self.ensure_cadence_unowned(&cadence, id)?;
+        self.bind_cadence(&cadence, promote_on_failure)?;
+        self.tasks.lock().insert(id, Arc::clone(&task));
+        Ok(())
     }
 
     /// 归还子契约在父契约中预留的预算。
@@ -392,12 +455,12 @@ impl Kernel {
     ) -> Result<(), KernelError> {
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
         let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
-        let was_suspended = target.lock().state() == TaskState::Suspended;
         let previous = target.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
+            self.ensure_cadence_unowned(&cadence, task)?;
+            self.bind_cadence(&cadence, false)?;
             self.release_child_budget(&previous);
         }
-        self.bind_cadence(&cadence);
         {
             let mut target = target.lock();
             target.set_cadence(cadence, self.now());
@@ -408,12 +471,7 @@ impl Kernel {
             TRACE_CADENCE_ATTACH,
             task.get(),
         );
-        self.remove_disallowed_home(task);
-        if was_suspended {
-            self.resume_task(task);
-        } else {
-            self.enqueue_next_thread(task, None);
-        }
+        self.refresh_task(task);
         Ok(())
     }
 
@@ -426,8 +484,9 @@ impl Kernel {
     ) -> Result<u32, KernelError> {
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
         let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
-        let was_suspended = target.lock().state() == TaskState::Suspended;
         let previous = { target.lock().cadence() };
+        self.ensure_cadence_unowned(&cadence, task)?;
+        self.bind_cadence(&cadence, false)?;
         let epoch = previous.lock().revoke();
         self.revoke_cadence_handles(&previous);
         self.release_child_budget(&previous);
@@ -437,7 +496,6 @@ impl Kernel {
             TRACE_CADENCE_REVOKE,
             u64::from(epoch),
         );
-        self.bind_cadence(&cadence);
         {
             let mut target = target.lock();
             target.set_cadence(cadence, self.now());
@@ -448,12 +506,7 @@ impl Kernel {
             TRACE_CADENCE_ATTACH,
             task.get(),
         );
-        self.remove_disallowed_home(task);
-        if was_suspended {
-            self.resume_task(task);
-        } else {
-            self.enqueue_next_thread(task, None);
-        }
+        self.refresh_task(task);
         Ok(epoch)
     }
 
@@ -469,29 +522,24 @@ impl Kernel {
             expected: ObjectKind::Task,
         })?;
         let cadence = self.cadence_object(thread, cadence_handle, Rights::READ)?;
-        let was_suspended = task.lock().state() == TaskState::Suspended;
+        let task_id = task.lock().id();
         let previous = task.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
+            self.ensure_cadence_unowned(&cadence, task_id)?;
+            self.bind_cadence(&cadence, false)?;
             self.release_child_budget(&previous);
         }
-        self.bind_cadence(&cadence);
-        let task_id = {
+        {
             let mut task = task.lock();
             task.set_cadence(Arc::clone(&cadence), self.now());
-            task.id()
-        };
+        }
         self.record(
             thread.get(),
             Category::Sched,
             TRACE_CADENCE_ATTACH,
             task_id.get(),
         );
-        self.remove_disallowed_home(task_id);
-        if was_suspended {
-            self.resume_task(task_id);
-        } else {
-            self.enqueue_next_thread(task_id, None);
-        }
+        self.refresh_task(task_id);
         Ok(())
     }
 
@@ -530,21 +578,5 @@ impl Kernel {
                 scheduler.clear_current_if(thread);
             }
         }
-    }
-
-    /// 重新选择一个 Grant；阻塞中的 TCB 保持原状态。
-    fn resume_task(&self, task: TaskId) {
-        let Some(task_ref) = self.task(task) else {
-            return;
-        };
-        {
-            let mut task = task_ref.lock();
-            task.set_active(None);
-            task.clear_queued();
-            if task.state() == TaskState::Suspended {
-                task.set_state(TaskState::Eligible);
-            }
-        }
-        self.enqueue_next_thread(task, None);
     }
 }
