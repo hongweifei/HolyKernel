@@ -211,6 +211,7 @@ pub const SYS_CADENCE_NAMED: u64 = 0x35;
 /// 参数：`arg0` 要排除的 Cadence 标识（0 表示不排除）、`arg1` 输出缓冲、
 /// `arg2` 缓冲长度。每条记录 24 字节：`budget`、`period`、`deadline`（小端
 /// `u64`）。返回写入的记录数；缓冲区不足以容纳全部记录时返回 `u64::MAX`。
+/// `arg2 = 0` 时只返回记录数，不写缓冲。
 ///
 /// 调用者自身的 Task 不计入；按名重准入时用目标当前 Cadence 标识排除旧契约。
 pub const SYS_CADENCE_DEMAND: u64 = 0x38;

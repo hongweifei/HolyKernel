@@ -317,7 +317,8 @@ pub fn cadence_named(name: &str, buffer: &mut [u8]) -> u64 {
 /// 读取全部存活 Realtime Task 的 EDF 需求；返回写入的记录数。
 ///
 /// 每条记录 24 字节（budget、period、deadline）；缓冲区放不下时返回 `u64::MAX`。
-/// `exclude` 为要跳过的 Cadence 标识，按名重准入时传目标当前契约标识。
+/// 传空缓冲只查询记录数，不写入。`exclude` 为要跳过的 Cadence 标识，按名重准入
+/// 时传目标当前契约标识。
 pub fn cadence_demand(exclude: u64, buffer: &mut [u8]) -> u64 {
     // SAFETY: 缓冲区属于本进程；内核校验策略授权后写入。
     unsafe {

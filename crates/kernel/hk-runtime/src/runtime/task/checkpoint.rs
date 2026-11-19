@@ -231,18 +231,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             cadence.spec(),
         )
         .map_err(|error| format!("{error}"))?;
-        // 父契约已不存在时提升为独立契约，避免悬挂父链。
-        if let Some(parent) = restored.parent()
-            && !self
-                .tasks
-                .iter()
-                .filter(|task| !task.exited)
-                .filter_map(|task| self.kernel.task_cadence_snapshot(task.tcb))
-                .any(|snapshot| snapshot.id == parent.get())
-        {
-            restored.promote();
-        }
         // 只有 Realtime 契约需要 Tempo 准入；其他类别保持恢复的契约不降级。
+        // 父契约尚未恢复时由内核延迟父链绑定，父注册后再补预留，不按恢复
+        // 顺序提前 promote。
         if restored.class() == CadenceClass::Realtime {
             let tempo = self
                 .tasks
@@ -290,6 +281,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                         Cadence::restore(CadenceId::next(), parent, restored.epoch(), spec)
                             .map_err(|error| format!("{error}"))?
                     }
+                    None if parent.is_some() => Cadence::restore(
+                        CadenceId::next(),
+                        parent,
+                        restored.epoch(),
+                        restored.spec(),
+                    )
+                    .map_err(|error| format!("{error}"))?,
                     None => Cadence::from_spec(
                         CadenceId::next(),
                         CadenceSpec::new(CadenceClass::Throughput, 1024),

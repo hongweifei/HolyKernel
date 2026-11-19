@@ -4,53 +4,55 @@
 //! 内核中存活 Realtime Task 的真实契约，再把候选契约加入需求界函数。这样
 //! 任务退出、checkpoint 恢复与撤销都不需要额外的服务内回收动作。
 
+use alloc::vec::Vec;
+
 use hk_cadence::{CadenceClass, CadenceSnapshot, CadenceSpec, edf_admissible, micros};
 use hk_proto::tempo::{MAX_NAME, SNAPSHOT_LEN};
 use hk_user_api::{CADENCE_DEMAND_RECORD_BYTES, cadence_demand};
 
-/// 一次需求查询最多容纳的契约数。
-pub const DEMAND_RECORDS: usize = 64;
-
-/// 需求查询缓冲区长度。
-pub const DEMAND_BYTES: usize = DEMAND_RECORDS * CADENCE_DEMAND_RECORD_BYTES;
-
-/// 内核当前 Realtime 需求的定长快照。
+/// 内核当前 Realtime 需求的动态快照。
 pub struct Demand {
-    records: [(u64, u64, u64); DEMAND_RECORDS],
-    count: usize,
+    records: Vec<(u64, u64, u64)>,
 }
 
 impl Demand {
-    /// 读取需求；`exclude` 为要跳过的 Cadence 标识。
+    /// 先查询记录数，再按需读取；`exclude` 为要跳过的 Cadence 标识。
     ///
-    /// 返回 `None` 表示查询失败或记录数超过固定容量，调用方应按不可调度处理。
+    /// 返回 `None` 表示查询失败，调用方应按不可调度处理。
     pub fn load(exclude: u64) -> Option<Self> {
-        let mut bytes = [0_u8; DEMAND_BYTES];
-        let count = cadence_demand(exclude, &mut bytes);
-        if count == u64::MAX || count as usize > DEMAND_RECORDS {
+        let count = cadence_demand(exclude, &mut []);
+        if count == u64::MAX {
             return None;
         }
-        let mut records = [(0_u64, 0_u64, 0_u64); DEMAND_RECORDS];
-        for (index, record) in records.iter_mut().take(count as usize).enumerate() {
+        let count = usize::try_from(count).ok()?;
+        let length = count.checked_mul(CADENCE_DEMAND_RECORD_BYTES)?;
+        let mut bytes = alloc::vec![0_u8; length];
+        let written = cadence_demand(exclude, &mut bytes);
+        if written == u64::MAX {
+            return None;
+        }
+        let written = usize::try_from(written).ok()?;
+        if written > count {
+            return None;
+        }
+        let mut records = Vec::with_capacity(written);
+        for index in 0..written {
             let start = index * CADENCE_DEMAND_RECORD_BYTES;
-            *record = (
+            records.push((
                 word(&bytes, start),
                 word(&bytes, start + 8),
                 word(&bytes, start + 16),
-            );
+            ));
         }
-        Some(Self {
-            records,
-            count: count as usize,
-        })
+        Some(Self { records })
     }
 
     /// 判定加入候选契约后整组 Realtime 任务仍可由 EDF 调度。
     pub fn allows(&self, budget: u64, period: u64, deadline: u64) -> bool {
-        let mut tasks = [(0_u64, 0_u64, 0_u64); DEMAND_RECORDS + 1];
-        tasks[..self.count].copy_from_slice(&self.records[..self.count]);
-        tasks[self.count] = (budget, period, deadline);
-        edf_admissible(&tasks[..=self.count])
+        let mut tasks = Vec::with_capacity(self.records.len() + 1);
+        tasks.extend_from_slice(&self.records);
+        tasks.push((budget, period, deadline));
+        edf_admissible(&tasks)
     }
 }
 

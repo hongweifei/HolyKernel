@@ -53,6 +53,14 @@ fn cadence_demand_reports_other_realtime_tasks() {
 
     let mut context = MockContext {
         rax: hk_syscall::SYS_CADENCE_DEMAND,
+        ..MockContext::default()
+    };
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 1, "空缓冲查询返回记录数");
+    assert!(runtime.platform.written.lock().is_empty(), "查询不写缓冲");
+
+    let mut context = MockContext {
+        rax: hk_syscall::SYS_CADENCE_DEMAND,
         rdx: (hk_syscall::CADENCE_DEMAND_RECORD_BYTES * 4) as u64,
         ..MockContext::default()
     };

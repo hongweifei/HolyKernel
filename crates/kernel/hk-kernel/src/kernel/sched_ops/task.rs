@@ -80,7 +80,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        if let Err(error) = self.register_task(id, task, true) {
+        if let Err(error) = self.register_task(id, task, true, false) {
             self.threads.lock().remove(&thread);
             return Err(error);
         }
@@ -117,7 +117,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        if let Err(error) = self.register_task(id, task, false) {
+        if let Err(error) = self.register_task(id, task, false, false) {
             self.threads.lock().remove(&thread);
             return Err(error);
         }
@@ -150,7 +150,7 @@ impl Kernel {
         task.lock().reset_period(self.now());
         let thread = self.allocate_thread(id, handles);
         task.lock().attach(thread);
-        if let Err(error) = self.register_task(id, task, true) {
+        if let Err(error) = self.register_task(id, task, true, true) {
             self.threads.lock().remove(&thread);
             return Err(error);
         }

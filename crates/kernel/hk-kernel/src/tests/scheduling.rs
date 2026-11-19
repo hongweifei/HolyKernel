@@ -479,6 +479,14 @@ fn records_waited_switches_and_overruns() {
 }
 
 #[test]
+fn clock_never_regresses() {
+    let kernel = kernel();
+    kernel.set_clock(100);
+    kernel.set_clock(50);
+    assert_eq!(kernel.now(), 100);
+}
+
+#[test]
 fn clamps_grant_to_remaining_budget() {
     let kernel = kernel();
     kernel.set_clock(0);

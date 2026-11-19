@@ -326,6 +326,8 @@ pub const HEAP_DEMO: usize = 256 * 1024;
 pub const HEAP_ECHO: usize = 256 * 1024;
 /// realtime 的堆大小。
 pub const HEAP_REALTIME: usize = 64 * 1024;
+/// tempo 的堆大小。
+pub const HEAP_TEMPO: usize = 64 * 1024;
 /// tempo test 的堆大小。
 pub const HEAP_TEMPO_TEST: usize = 64 * 1024;
 /// wakeup 的堆大小。
@@ -362,6 +364,7 @@ pub const HEAP_BYTES: &[(&str, usize)] = &[
     ("hk-server-demo", HEAP_DEMO),
     ("hk-server-echo", HEAP_ECHO),
     ("hk-server-realtime", HEAP_REALTIME),
+    ("hk-server-tempo", HEAP_TEMPO),
     ("hk-server-tempo-test", HEAP_TEMPO_TEST),
     ("hk-server-wakeup", HEAP_WAKEUP),
 ];

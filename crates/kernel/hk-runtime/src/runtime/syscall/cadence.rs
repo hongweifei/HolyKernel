@@ -208,9 +208,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// `SYS_CADENCE_DEMAND(exclude, out, len)`；返回写入的 Realtime 契约数。
     ///
-    /// 只统计存活 RealTime Task（每个 Task 一次），跳过调用者自身与 `exclude`
-    /// 指定的 Cadence。Tempo 用它在真实系统状态上做 EDF 需求界判定，不再维护
-    /// 一份可能失真的服务内账本。
+    /// `len = 0` 时只返回记录数，不写缓冲。只统计存活 RealTime Task（每个
+    /// Task 一次），跳过调用者自身与 `exclude` 指定的 Cadence。Tempo 用它
+    /// 在真实系统状态上做 EDF 需求界判定，不再维护一份可能失真的服务内账本。
     pub(crate) fn cadence_demand(&mut self, tcb: TcbId, frame: &mut C) -> Switch {
         let exclude = frame.arg0();
         let output = frame.arg1();
@@ -239,20 +239,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 }
                 records.push((snapshot.budget, snapshot.period, snapshot.deadline));
             }
-            let length = records.len() * CADENCE_DEMAND_RECORD_BYTES;
-            if length > capacity {
-                u64::MAX
+            if capacity == 0 {
+                records.len() as u64
             } else {
-                let mut bytes = Vec::with_capacity(length);
-                for (budget, period, deadline) in &records {
-                    bytes.extend_from_slice(&budget.to_le_bytes());
-                    bytes.extend_from_slice(&period.to_le_bytes());
-                    bytes.extend_from_slice(&deadline.to_le_bytes());
-                }
-                if length > 0 && !self.platform.write_user(output, &bytes) {
+                let length = records.len() * CADENCE_DEMAND_RECORD_BYTES;
+                if length > capacity {
                     u64::MAX
                 } else {
-                    records.len() as u64
+                    let mut bytes = Vec::with_capacity(length);
+                    for (budget, period, deadline) in &records {
+                        bytes.extend_from_slice(&budget.to_le_bytes());
+                        bytes.extend_from_slice(&period.to_le_bytes());
+                        bytes.extend_from_slice(&deadline.to_le_bytes());
+                    }
+                    if length > 0 && !self.platform.write_user(output, &bytes) {
+                        u64::MAX
+                    } else {
+                        records.len() as u64
+                    }
                 }
             }
         };

@@ -47,6 +47,7 @@ impl Kernel {
             if let Some(task) = self.task(task_id) {
                 let cadence = task.lock().cadence();
                 self.release_child_budget(&cadence);
+                self.deferred_cadences.lock().remove(&cadence.lock().id());
             }
             // 父 Task 退出：把子 Task 的收窄契约提升为独立契约，子任务继续运行；
             // 显式“回收”仍由 Tempo 通过 revoke/regrant 完成。
@@ -135,6 +136,20 @@ impl Kernel {
             if let Some(thread) = thread {
                 self.record(thread.get(), Category::Sched, TRACE_PROMOTE, parent.get());
             }
+        }
+        let deferred: Vec<_> = {
+            let mut waiting = self.deferred_cadences.lock();
+            let ids: Vec<_> = waiting
+                .iter()
+                .filter(|(_, cadence)| cadence.lock().parent() == Some(parent_cadence_id))
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| waiting.remove(&id))
+                .collect()
+        };
+        for cadence in deferred {
+            cadence.lock().promote();
         }
     }
 }

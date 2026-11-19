@@ -14,6 +14,11 @@
 #![cfg_attr(target_os = "none", no_main)]
 
 #[cfg(target_os = "none")]
+extern crate alloc;
+#[cfg(target_os = "none")]
+hk_user_api::server_heap!(64 * 1024);
+
+#[cfg(target_os = "none")]
 mod admit;
 
 #[cfg(target_os = "none")]

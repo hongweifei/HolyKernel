@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::trace::TraceRing;
-use hk_cadence::{CadenceSpec, CpuMask, IDLE_SPEC};
+use hk_cadence::{Cadence, CadenceId, CadenceSpec, CpuMask, IDLE_SPEC, NO_CPU};
 use hk_handle::{Handle, HandleTable, ObjectId, ObjectKind, Rights};
 use hk_ipc::Message;
 use spin::Mutex;
@@ -88,6 +88,7 @@ pub struct Kernel {
     /// 端点对象到服务 Task 的绑定；服务退出时据此取消调用方。
     endpoint_servers: Mutex<BTreeMap<ObjectId, TaskId>>,
     idle_enabled: core::sync::atomic::AtomicBool,
+    deferred_cadences: Mutex<BTreeMap<CadenceId, Arc<spin::Mutex<Cadence>>>>,
     moment: AtomicU64,
     clock: AtomicU64,
     /// 句柄转移已在内核侧记账、尚未被运行时安装取走的账目。
@@ -111,6 +112,7 @@ impl Kernel {
             refills: Mutex::new(BTreeMap::new()),
             endpoint_servers: Mutex::new(BTreeMap::new()),
             idle_enabled: core::sync::atomic::AtomicBool::new(false),
+            deferred_cadences: Mutex::new(BTreeMap::new()),
             moment: AtomicU64::new(0),
             clock: AtomicU64::new(0),
             transfer_charges: Mutex::new(BTreeMap::new()),
@@ -171,12 +173,12 @@ impl Kernel {
 
     /// 返回调度时钟（契约 tick）。
     pub fn now(&self) -> u64 {
-        self.clock.load(Ordering::Relaxed)
+        self.clock.load(Ordering::Acquire)
     }
 
-    /// 设置调度时钟。
+    /// 推进调度时钟；多 CPU 写入只前进，不回退。
     pub fn set_clock(&self, now: u64) {
-        self.clock.store(now, Ordering::Relaxed);
+        self.clock.fetch_max(now, Ordering::AcqRel);
     }
 
     /// 注册跨核抢占回调；平台在初始化时设置。
@@ -201,13 +203,34 @@ impl Kernel {
         self.resched_requests.load(Ordering::Relaxed)
     }
 
-    /// 设置调度器可见的在线 CPU 数，并把非运行 Task 重新挂到新的在线集合。
+    /// 设置调度器可见的在线 CPU 数；缩小时把落在离线 CPU 上的非运行 Task 重新挂载。
     pub fn set_online_cpus(&self, online: usize) {
-        self.scheduler.lock().set_online(online);
+        let previous = {
+            let mut scheduler = self.scheduler.lock();
+            let previous = scheduler.online();
+            scheduler.set_online(online);
+            previous
+        };
+        if online >= previous {
+            return;
+        }
         let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
         for task in tasks {
-            let id = task.lock().id();
-            self.rehome_task(id);
+            let (id, last, threads) = {
+                let task = task.lock();
+                (task.id(), task.last_cpu(), task.threads().to_vec())
+            };
+            let homed_offline = {
+                let scheduler = self.scheduler.lock();
+                threads.iter().any(|thread| {
+                    scheduler
+                        .homed_cpu(*thread)
+                        .is_some_and(|cpu| cpu >= online)
+                })
+            };
+            if (last != NO_CPU && last as usize >= online) || homed_offline {
+                self.rehome_task(id);
+            }
         }
     }
 

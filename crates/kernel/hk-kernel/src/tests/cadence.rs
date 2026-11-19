@@ -284,6 +284,49 @@ fn meter_reset_requires_admin_and_clears_counters() {
 }
 
 #[test]
+fn checkpoint_child_waits_for_parent_before_promoting() {
+    let kernel = kernel();
+    let parent_id = hk_cadence::CadenceId::new(900);
+    let child = hk_cadence::Cadence::restore(
+        hk_cadence::CadenceId::new(901),
+        Some(parent_id),
+        1,
+        hk_cadence::CadenceSpec::new(hk_cadence::CadenceClass::Latency, 512),
+    )
+    .expect("子契约");
+    let child_thread = kernel
+        .spawn_task_with_cadence_and_parent(HandleTable::new(8), child, None)
+        .expect("父未恢复时先恢复子");
+    assert_eq!(
+        kernel
+            .task_cadence_snapshot(child_thread)
+            .expect("子契约快照")
+            .parent,
+        parent_id.get(),
+        "父子链必须保留"
+    );
+
+    let parent = hk_cadence::Cadence::restore(
+        parent_id,
+        None,
+        1,
+        hk_cadence::CadenceSpec::new(hk_cadence::CadenceClass::Latency, 1024),
+    )
+    .expect("父契约");
+    kernel
+        .spawn_task_with_cadence_and_parent(HandleTable::new(8), parent, None)
+        .expect("恢复父任务");
+    assert_eq!(
+        kernel
+            .task_cadence_snapshot(child_thread)
+            .expect("子契约快照")
+            .parent,
+        parent_id.get(),
+        "父恢复后仍保留父子链"
+    );
+}
+
+#[test]
 fn policy_task_can_split_and_attach_own_cadence() {
     let kernel = kernel();
     let thread = thread(&kernel);

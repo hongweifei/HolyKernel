@@ -145,7 +145,7 @@ impl Simulator {
         self
     }
 
-    /// 设置每步计入的契约时长。
+    /// 设置每步计入的契约时长上限；实际步长还会被下一个调度时刻截短。
     pub fn with_quantum(mut self, quantum: u64) -> Self {
         self.quantum = quantum;
         self
@@ -164,8 +164,9 @@ impl Simulator {
     /// 运行到全部线程退出。
     ///
     /// 调度顺序由 Cadence 类别与虚拟时间决定，同一个种子与同一组执行体产生
-    /// 相同步数与相同事件序列。每步把 `quantum` 记入当前线程的 Meter 与预算，
-    /// 并把时钟推进同样长度，使预算、`Throttled` 与周期补充在回放中可见。
+    /// 相同步数与相同事件序列。每步把 `quantum` 与下一个调度时刻之间的较小值
+    /// 记入当前线程的 Meter 与预算，并把时钟推进同样长度，使 Grant 结束、
+    /// 预算、`Throttled` 与周期补充在回放中可见。
     pub fn run(&mut self) -> Result<RunReport, SimError> {
         let mut exits = 0;
         self.kernel.set_online_cpus(self.cpus);
@@ -191,8 +192,13 @@ impl Simulator {
                 let previous = self.last_waited.get(&thread).copied().unwrap_or(0);
                 self.max_wait = self.max_wait.max(waited.saturating_sub(previous));
                 self.last_waited.insert(thread, waited);
-                self.kernel.charge(thread, self.quantum);
-                self.clock = self.clock.saturating_add(self.quantum);
+                let quantum = self.quantum.max(1);
+                let step = self.kernel.next_deadline(cpu).map_or(quantum, |deadline| {
+                    deadline.saturating_sub(self.clock).clamp(1, quantum)
+                });
+                self.kernel.charge(thread, step);
+                self.clock = self.clock.saturating_add(step);
+                self.kernel.set_clock(self.clock);
 
                 let body = self
                     .bodies

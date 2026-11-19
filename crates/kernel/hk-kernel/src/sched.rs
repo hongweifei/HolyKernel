@@ -276,6 +276,11 @@ impl Scheduler {
             .saturating_add(beat.runnable as u64 * LOAD_PER_TASK)
     }
 
+    /// 返回线程当前挂载的 CPU。
+    pub fn homed_cpu(&self, id: TcbId) -> Option<usize> {
+        self.homed.get(&id.get()).copied()
+    }
+
     /// 若线程所在的 CPU 不在亲和集合内，移出队列并返回 `true`。
     pub fn remove_if_disallowed(&mut self, id: TcbId, affinity: u64) -> bool {
         let Some(cpu) = self.homed.get(&id.get()).copied() else {

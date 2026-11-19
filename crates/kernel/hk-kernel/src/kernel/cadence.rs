@@ -102,7 +102,7 @@ impl Kernel {
         let previous = task.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
             self.ensure_cadence_unowned(&cadence, task_id)?;
-            self.bind_cadence(&cadence, false)?;
+            self.bind_cadence(&cadence, false, false)?;
             self.release_child_budget(&previous);
         }
         {
@@ -313,11 +313,26 @@ impl Kernel {
     ///
     /// `promote_on_failure` 用于 checkpoint 恢复：父契约缺失或放不下时把契约
     /// 提升为独立契约。新 split/attach 使用 `false`，失败直接返回错误。
+    /// `defer_missing_parent` 只用于 checkpoint 恢复：父任务尚未恢复时先登记，
+    /// 等父契约注册后再预留预算，避免按恢复顺序丢失父链。
     pub(crate) fn bind_cadence(
         &self,
         cadence: &Arc<spin::Mutex<Cadence>>,
         promote_on_failure: bool,
+        defer_missing_parent: bool,
     ) -> Result<(), KernelError> {
+        let parent_missing = {
+            let cadence = cadence.lock();
+            cadence
+                .parent()
+                .is_some_and(|parent| self.cadence_by_id(parent).is_none())
+        };
+        if defer_missing_parent && parent_missing {
+            self.deferred_cadences
+                .lock()
+                .insert(cadence.lock().id(), Arc::clone(cadence));
+            return Ok(());
+        }
         match self.ensure_cadence_reserved(cadence) {
             Ok(()) => Ok(()),
             Err(_) if promote_on_failure => {
@@ -325,6 +340,26 @@ impl Kernel {
                 Ok(())
             }
             Err(error) => Err(error),
+        }
+    }
+
+    /// 父契约注册后，为先前等待父链的子契约补做预留。
+    fn reserve_deferred_children(&self, parent_id: CadenceId) {
+        let children: Vec<_> = {
+            let mut deferred = self.deferred_cadences.lock();
+            let ids: Vec<_> = deferred
+                .iter()
+                .filter(|(_, child)| child.lock().parent() == Some(parent_id))
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| deferred.remove(&id))
+                .collect()
+        };
+        for child in children {
+            if self.ensure_cadence_reserved(&child).is_err() {
+                child.lock().promote();
+            }
         }
     }
 
@@ -344,17 +379,21 @@ impl Kernel {
 
     /// 把新 Task 放入任务表，并把它的契约接入父预算账本。
     ///
-    /// 所有创建 Task 的路径都走这里，保证“有父链 ⇒ 已预留”不变量。
+    /// 所有创建 Task 的路径都走这里；checkpoint 允许父契约稍后恢复，子契约
+    /// 先进入延迟队列，父注册时再补预留。
     pub(crate) fn register_task(
         &self,
         id: TaskId,
         task: Arc<spin::Mutex<Task>>,
         promote_on_failure: bool,
+        defer_missing_parent: bool,
     ) -> Result<(), KernelError> {
         let cadence = task.lock().cadence();
         self.ensure_cadence_unowned(&cadence, id)?;
-        self.bind_cadence(&cadence, promote_on_failure)?;
+        self.bind_cadence(&cadence, promote_on_failure, defer_missing_parent)?;
+        let cadence_id = cadence.lock().id();
         self.tasks.lock().insert(id, Arc::clone(&task));
+        self.reserve_deferred_children(cadence_id);
         Ok(())
     }
 
@@ -456,7 +495,7 @@ impl Kernel {
         let previous = target.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
             self.ensure_cadence_unowned(&cadence, task)?;
-            self.bind_cadence(&cadence, false)?;
+            self.bind_cadence(&cadence, false, false)?;
             self.release_child_budget(&previous);
         }
         {
@@ -484,7 +523,7 @@ impl Kernel {
         let target = self.task(task).ok_or(KernelError::UnknownTask(task))?;
         let previous = { target.lock().cadence() };
         self.ensure_cadence_unowned(&cadence, task)?;
-        self.bind_cadence(&cadence, false)?;
+        self.bind_cadence(&cadence, false, false)?;
         let epoch = previous.lock().revoke();
         self.revoke_cadence_handles(&previous);
         self.release_child_budget(&previous);
@@ -524,7 +563,7 @@ impl Kernel {
         let previous = task.lock().cadence();
         if !Arc::ptr_eq(&previous, &cadence) {
             self.ensure_cadence_unowned(&cadence, task_id)?;
-            self.bind_cadence(&cadence, false)?;
+            self.bind_cadence(&cadence, false, false)?;
             self.release_child_budget(&previous);
         }
         {
