@@ -3,6 +3,7 @@
 #![allow(clippy::wildcard_imports)]
 
 use super::*;
+use crate::TaskState;
 
 #[test]
 fn idle_tcb_runs_when_no_work() {
@@ -476,6 +477,37 @@ fn records_waited_switches_and_overruns() {
     assert_eq!(meter.waited, millis(2).ticks());
     assert_eq!(meter.switches, 1);
     assert_eq!(meter.overruns, 1);
+}
+
+#[test]
+fn shrinking_online_cpus_rehomes_running_task() {
+    let kernel = kernel();
+    kernel.set_online_cpus(2);
+    let first = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024),
+        )
+        .expect("CPU 0 任务");
+    let second = kernel
+        .spawn_task(
+            HandleTable::new(8),
+            CadenceSpec::new(CadenceClass::Latency, 1024),
+        )
+        .expect("CPU 1 任务");
+    assert_eq!(kernel.schedule(0), Some(first));
+    assert_eq!(kernel.schedule(1), Some(second));
+
+    kernel.set_online_cpus(1);
+    assert_ne!(
+        kernel.task_state(kernel.task_of(second).expect("Task")),
+        Some(TaskState::Running),
+        "离线 CPU 上的运行 Task 必须退出运行态"
+    );
+    assert!(
+        kernel.schedule(0).is_some(),
+        "Task 应能在在线 CPU 上继续运行"
+    );
 }
 
 #[test]

@@ -231,9 +231,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             cadence.spec(),
         )
         .map_err(|error| format!("{error}"))?;
+        // 父契约还会回来时延迟父链绑定，父注册后补预留；存活任务与已保存
+        // 检查点都不含该父契约时立即提升，避免永久悬挂。
+        if let Some(parent) = restored.parent()
+            && !self.cadence_parent_known(parent)
+        {
+            restored.promote();
+        }
         // 只有 Realtime 契约需要 Tempo 准入；其他类别保持恢复的契约不降级。
-        // 父契约尚未恢复时由内核延迟父链绑定，父注册后再补预留，不按恢复
-        // 顺序提前 promote。
         if restored.class() == CadenceClass::Realtime {
             let tempo = self
                 .tasks
@@ -413,6 +418,24 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
         let _ = self.kernel.activate(tcb);
         Ok(slot)
+    }
+
+    /// 结束恢复会话：提升所有仍未等到父契约的延迟子契约。
+    pub fn finalize_deferred_cadences(&mut self) -> usize {
+        self.kernel.promote_deferred_cadences(None)
+    }
+
+    /// 父 Cadence 是否仍存活，或存在于待恢复的检查点中。
+    fn cadence_parent_known(&self, parent: CadenceId) -> bool {
+        self.tasks
+            .iter()
+            .filter(|task| !task.exited)
+            .filter_map(|task| self.kernel.task_cadence_snapshot(task.tcb))
+            .any(|snapshot| snapshot.id == parent.get())
+            || self.checkpoints.iter().any(|(_, checkpoint)| {
+                hk_checkpoint::Snapshot::decode(&checkpoint.image)
+                    .is_some_and(|snapshot| snapshot.cadence.id == parent.get())
+            })
     }
 
     /// 按 Region 元数据恢复一个映射视图。

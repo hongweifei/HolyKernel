@@ -327,6 +327,31 @@ fn checkpoint_child_waits_for_parent_before_promoting() {
 }
 
 #[test]
+fn checkpoint_finalize_promotes_orphan_child() {
+    let kernel = kernel();
+    let parent_id = hk_cadence::CadenceId::new(910);
+    let child = hk_cadence::Cadence::restore(
+        hk_cadence::CadenceId::new(911),
+        Some(parent_id),
+        1,
+        hk_cadence::CadenceSpec::new(hk_cadence::CadenceClass::Latency, 512),
+    )
+    .expect("子契约");
+    let child_thread = kernel
+        .spawn_task_with_cadence_and_parent(HandleTable::new(8), child, None)
+        .expect("父未恢复时先恢复子");
+    assert_eq!(kernel.promote_deferred_cadences(Some(parent_id)), 1);
+    assert_eq!(
+        kernel
+            .task_cadence_snapshot(child_thread)
+            .expect("子契约快照")
+            .parent,
+        0,
+        "结束恢复会话后应提升为独立契约"
+    );
+}
+
+#[test]
 fn policy_task_can_split_and_attach_own_cadence() {
     let kernel = kernel();
     let thread = thread(&kernel);

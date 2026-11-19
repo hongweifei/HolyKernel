@@ -100,6 +100,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
         result
     }
 
+    /// 结束检查点恢复会话，提升仍未等到父契约的延迟子契约。
+    pub fn finalize_deferred_cadences(&self) -> usize {
+        self.runtime
+            .lock()
+            .as_mut()
+            .map_or(0, UserRuntime::finalize_deferred_cadences)
+    }
+
     /// 返回当前 CPU 正在执行的任务名。
     pub fn current_task_name(&self, cpu: usize) -> Option<String> {
         self.runtime

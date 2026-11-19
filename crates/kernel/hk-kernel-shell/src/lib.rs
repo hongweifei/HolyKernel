@@ -117,6 +117,7 @@ where
             "replace" => Some(self.replace(args)),
             "checkpoint" => Some(self.checkpoint(args)),
             "restore-checkpoint" => Some(self.restore_checkpoint(args)),
+            "checkpoint-finalize" => Some(self.checkpoint_finalize()),
             "cadence" => Some(self.runtime.cadence_text(args.trim())),
             "meter" => Some(self.runtime.meter_text(args.trim())),
             "tempo" => Some(self.runtime.tempo_text()),
@@ -127,7 +128,7 @@ where
 
     fn help_extra(&self) -> String {
         String::from(
-            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、cadence <任务>、meter <任务>、tempo、heap-test\n",
+            "扩展：net、replace <服务> <镜像>、checkpoint <任务>、restore-checkpoint <任务>、checkpoint-finalize、cadence <任务>、meter <任务>、tempo、heap-test\n",
         )
     }
 
@@ -200,6 +201,12 @@ where
             }
             Err(error) => format!("检查点失败：{error}\n"),
         }
+    }
+
+    /// 结束恢复会话，把仍未等到父契约的延迟子契约提升为独立契约。
+    fn checkpoint_finalize(&mut self) -> String {
+        let count = self.runtime.finalize_deferred_cadences();
+        format!("已提升 {count} 个延迟父链契约\n")
     }
 
     /// 恢复任务检查点并驱动调度。

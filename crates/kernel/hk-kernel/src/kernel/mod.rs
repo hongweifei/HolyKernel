@@ -203,7 +203,7 @@ impl Kernel {
         self.resched_requests.load(Ordering::Relaxed)
     }
 
-    /// 设置调度器可见的在线 CPU 数；缩小时把落在离线 CPU 上的非运行 Task 重新挂载。
+    /// 设置调度器可见的在线 CPU 数；缩小时迁移离线 CPU 上的任务。
     pub fn set_online_cpus(&self, online: usize) {
         let previous = {
             let mut scheduler = self.scheduler.lock();
@@ -213,6 +213,36 @@ impl Kernel {
         };
         if online >= previous {
             return;
+        }
+        // 被移除 CPU 上的运行中 Task 先退出运行态，随后与排队 Task 一起重挂。
+        for cpu in online..previous {
+            let Some(thread) = self.scheduler.lock().current(cpu) else {
+                continue;
+            };
+            let Some(task_id) = self.task_of(thread) else {
+                continue;
+            };
+            let (state, threads) = {
+                let task = self.task(task_id).expect("当前 TCB 所属 Task 必须存在");
+                let task = task.lock();
+                (task.state(), task.threads().to_vec())
+            };
+            if state != TaskState::Running {
+                continue;
+            }
+            {
+                let task = self.task(task_id).expect("当前 TCB 所属 Task 必须存在");
+                let mut task = task.lock();
+                task.set_active(None);
+                task.set_state(TaskState::Eligible);
+            }
+            {
+                let mut scheduler = self.scheduler.lock();
+                scheduler.clear_current_if(thread);
+                for thread in threads {
+                    scheduler.remove(thread);
+                }
+            }
         }
         let tasks: Vec<_> = self.tasks.lock().values().cloned().collect();
         for task in tasks {

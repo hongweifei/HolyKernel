@@ -343,6 +343,28 @@ impl Kernel {
         }
     }
 
+    /// 结束恢复会话：提升等待指定父契约（`None` 为全部）的延迟子契约。
+    pub fn promote_deferred_cadences(&self, parent: Option<CadenceId>) -> usize {
+        let children: Vec<_> = {
+            let mut deferred = self.deferred_cadences.lock();
+            let ids: Vec<_> = deferred
+                .iter()
+                .filter(|(_, child)| {
+                    parent.is_none_or(|parent| child.lock().parent() == Some(parent))
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| deferred.remove(&id))
+                .collect()
+        };
+        let count = children.len();
+        for child in children {
+            child.lock().promote();
+        }
+        count
+    }
+
     /// 父契约注册后，为先前等待父链的子契约补做预留。
     fn reserve_deferred_children(&self, parent_id: CadenceId) {
         let children: Vec<_> = {
