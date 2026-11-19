@@ -211,6 +211,72 @@ fn provider_reclaim_notifies_and_frees_page() {
             .expect("查询换出标记"),
         "Provider 确认后必须记录该页已换出"
     );
+
+    // 再次缺页：消息必须携带换出标记与能力绑定令牌；回包后标记清除。
+    assert!(runtime.provider_fault(
+        0,
+        hk_base::user::AUTO_WINDOW_BASE,
+        hk_mem::hmp::provider::ProviderAccess::Read,
+        MockContext::default(),
+    ));
+    let Step::Resume {
+        index: provider,
+        mut context,
+    } = runtime.step(0)
+    else {
+        panic!("Provider 应可运行");
+    };
+    assert_eq!(provider, 1);
+    context.rax = SYS_RECV_DATA;
+    context.rdi = 2;
+    context.rsi = 0;
+    context.rdx = 0;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, hk_syscall::PROVIDER_FAULT);
+    let words = runtime.tasks[provider].last_words;
+    assert_ne!(
+        words[6] & u64::from(hk_syscall::PROVIDER_FAULT_SWAPPED),
+        0,
+        "已换出页的缺页消息必须带换出标记"
+    );
+    let token = runtime
+        .kernel
+        .capability_provider_token(tcb, handle)
+        .expect("查询令牌")
+        .expect("已绑定令牌");
+    assert_eq!(words[7], token, "缺页消息必须携带 Provider 回收令牌");
+
+    context.rax = hk_syscall::SYS_CAPACITY_ALLOC;
+    context.rdi = 0x5001;
+    context.rsi = 4096;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    let frame = context.rax;
+    context.rax = hk_syscall::SYS_REPLY_HANDLE;
+    context.rdi = hk_syscall::PROVIDER_PROVIDE;
+    context.rsi = 0;
+    context.rdx = frame;
+    assert_eq!(runtime.dispatch(0, &mut context), Switch::Continue);
+    assert_eq!(context.rax, 0, "Provider 回包必须成功");
+    let Step::Resume { mut index, .. } = runtime.step(0) else {
+        panic!("缺页任务应恢复");
+    };
+    for _ in 0..3 {
+        if index == 0 {
+            break;
+        }
+        let Step::Resume { index: next, .. } = runtime.step(0) else {
+            panic!("缺页任务应恢复");
+        };
+        index = next;
+    }
+    assert_eq!(index, 0, "回包后应恢复缺页任务");
+    assert!(
+        !runtime
+            .kernel
+            .capability_swapped(tcb, handle, 0)
+            .expect("查询换出标记"),
+        "Provider 回包后必须清除换出标记"
+    );
     let _ = runtime.finish(0, index);
 }
 
