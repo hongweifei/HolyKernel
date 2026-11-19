@@ -295,7 +295,8 @@ Meter 字段：
 2. `virtual_pass` 按当前同类平均值重定基；
 3. 预算周期从恢复时刻开始；
 4. Task 进入 `Eligible`；
-5. Meter 从水位继续累计。
+5. Meter 从水位继续累计；
+6. 恢复会话结束时执行 `checkpoint-finalize`，把仍未等到父契约的延迟子契约提升为独立契约。
 
 恢复失败的契约回退到父契约；无父契约时由 Tempo 授予默认 `Throughput` 契约；父契约稍后恢复时补预留，容量不足才提升为独立契约。
 
@@ -348,7 +349,7 @@ Meter 字段：
 | Tickless | 已实现 | 一次性 LAPIC 唤醒与周期 watchdog 已落地；每 CPU 的 armed/enabled/oneshot/last-tick 状态独立，定时器指向本地 Grant 结束、最早 Realtime 截止期与全局补充/sleep/接收/调用超时的最早者；内核态到期的一次性定时器会保留 resched 并重新臂短 watchdog；用户态 one-shot 在 runtime 锁竞争时同样保留 resched 并重臂 1ms watchdog；空闲路径在停 tick 后重新编程 deadline，AP idle 在一次性定时器到期时返回；release 唤醒平均值 43–93 µs |
 | 亲和与迁移 | 已实现 | 硬亲和（无在线可用 CPU 时不入队）、亲和变更重挂、按排队权重+运行中权重+可运行数压力选核、缓存热度容差、仅 migratable 参与窃取；迁移计数与 `weight × (heat + MIGRATION_BASE_COST)` 成本写入 Meter，`migrate` 进入 trace |
 | Lending | 已实现 | caller-pays frame 以调用方 TCB 为键，同一 Task 的多线程各自独立；深度上限、调用方/服务端双记账、reply/退出/超时弹栈与迟到 reply 丢弃；有效契约按类别→队列键取更强一方，并列时取较短时间片与较小延迟，完整决定入队类别/键、Grant 时间片、定时器与超限判定；服务端已运行时缩短 Grant 后请求 resched 并重臂；重调度判定使用运行中 TCB 的有效契约；调用方预算耗尽进入 Throttled，服务端继续完成当前调用 |
-| Checkpoint | 已实现 | 主线程与附加线程现场、Region 元数据、Cadence/Meter 水位已保存并回填；恢复重建内核父链与 Cadence id/parent/epoch，子先于父恢复时延迟父链、父注册后补预留，容量不足才提升为独立契约；带父链契约在绑定时预留父预算；Realtime 契约经 DBF 准入，失败时回退父契约、无父契约回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter 与 Region 偏移一致 |
+| Checkpoint | 已实现 | 主线程与附加线程现场、Region 元数据、Cadence/Meter 水位已保存并回填；恢复重建内核父链与 Cadence id/parent/epoch，子先于父恢复时延迟父链、父注册后补预留，容量不足才提升为独立契约；父契约不在存活任务与已保存检查点中时立即提升，恢复会话结束可用 `checkpoint-finalize` 收口；带父链契约在绑定时预留父预算；Realtime 契约经 DBF 准入，失败时回退父契约、无父契约回退默认 Throughput，其他类别保持原契约；`virtual_pass` 按同类平均重定基，预算周期从恢复时刻开始；端到端测试验证恢复后 Cadence/Meter 与 Region 偏移一致 |
 | Idle TCB | 已实现 | 每个在线 CPU 常驻一个 Idle 类 TCB；真实任务为空时先尝试窃取，仍无工作才选中 idle，宿主据此 `hlt`；Idle 不计入 `runnable` |
 | 任务管理器 | 已实现 | Root 的 `perf` 快照直接读取 Cadence/Meter，为每个任务输出 `sched` 行；进程页展示契约类别/权重与选中任务的预算、等待、节流，性能页汇总总权重、实时任务数、节流、等待、超限与迁移 |
 | `hk-sim` | 已实现 | 多 CPU 虚拟时钟、步长取量子与下一调度时刻较小值的计费、确定性重放覆盖 WFQ 2:1、Realtime 优先、预算节流与周期补充、lending、跨核迁移与唤醒抢占；`RunReport.max_wait` 提供有界唤醒响应分析，注册 reschedule hook 并统计 IPI 请求，随机负载同种子产生相同调度序列 |
