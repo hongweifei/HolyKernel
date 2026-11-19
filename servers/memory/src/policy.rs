@@ -2,6 +2,8 @@
 //!
 //! 这些判定与 IPC 解耦，宿主测试和裸机服务共用同一份规则。
 
+#![cfg_attr(not(target_os = "none"), allow(dead_code))]
+
 /// 回收请求必须携带与能力对象当前绑定令牌一致的非零令牌。
 pub fn reclaim_authorized(tracked: Option<u64>, requested: u64) -> bool {
     tracked.is_some_and(|token| token != 0 && token == requested)
