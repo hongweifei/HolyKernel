@@ -433,6 +433,7 @@ impl core::fmt::Write for SerialWriter {
 fn panic(info: &PanicInfo) -> ! {
     let mut console = SerialWriter(Serial::new(COM1));
     let _ = writeln!(console, "\n内核 panic：{info}");
+    hk_arch_x86_64::cpu::report_panic_context();
     hk_hal::exit(ExitCode::Failure(70))
 }
 

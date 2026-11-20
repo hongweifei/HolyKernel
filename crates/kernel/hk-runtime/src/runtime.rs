@@ -406,7 +406,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 返回任务所属进程。
     pub(crate) fn process(&self, index: usize) -> &Process {
-        self.processes[self.tasks[index].process]
+        let process = self.tasks[index].process;
+        assert!(
+            process < self.processes.len(),
+            "任务进程索引损坏：task={index} tcb={} name={} process={process:#x} processes={}",
+            self.tasks[index].tcb.get(),
+            self.tasks[index].name,
+            self.processes.len()
+        );
+        self.processes[process]
             .as_ref()
             .expect("任务所属进程存在")
     }
@@ -414,6 +422,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     /// 返回任务所属进程的可变引用。
     pub(crate) fn process_mut(&mut self, index: usize) -> &mut Process {
         let process = self.tasks[index].process;
+        assert!(
+            process < self.processes.len(),
+            "任务进程索引损坏：task={index} tcb={} name={} process={process:#x} processes={}",
+            self.tasks[index].tcb.get(),
+            self.tasks[index].name,
+            self.processes.len()
+        );
         self.processes[process].as_mut().expect("任务所属进程存在")
     }
 

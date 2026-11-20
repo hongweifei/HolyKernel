@@ -76,6 +76,9 @@ impl Beat {
         weight: u64,
         migratable: bool,
     ) {
+        // 同一 TCB 重复入队时先清掉旧条目：否则旧类别队列里会留下没有
+        // 归属记录的残影，之后按类别取任务时会把该类别计数减到负数。
+        let _ = self.remove(id);
         self.queues[class.as_u8() as usize].insert((key, sequence, id.get()));
         self.placements.insert(
             id.get(),
@@ -101,8 +104,9 @@ impl Beat {
             placement.sequence,
             id.get(),
         ));
-        self.runnable -= 1;
-        self.class_runnable[placement.class.as_u8() as usize] -= 1;
+        self.runnable = self.runnable.saturating_sub(1);
+        let slot = placement.class.as_u8() as usize;
+        self.class_runnable[slot] = self.class_runnable[slot].saturating_sub(1);
         self.load = self.load.saturating_sub(placement.weight);
         true
     }
@@ -120,22 +124,36 @@ impl Beat {
         for class in classes.iter().copied() {
             let placements = &self.placements;
             let queue = &mut self.queues[class.as_u8() as usize];
-            let Some((key, sequence, id)) = queue
-                .iter()
-                .find(|(_, _, id)| {
-                    placements.get(id).is_some_and(|placement| {
-                        (!migratable_only || placement.migratable) && allowed(TcbId::new(*id))
-                    })
+            // 只有 (类别, 键, 序号) 都与归属记录一致的队列条目才是有效条目；
+            // 残留条目不能拿去扣类别计数，否则会把计数减到负数。
+            let identity = |key: &u64, sequence: &u64, id: &u64| {
+                placements.get(id).is_some_and(|placement| {
+                    placement.class == class
+                        && placement.key == *key
+                        && placement.sequence == *sequence
                 })
-                .copied()
-            else {
+            };
+            let found = queue.iter().find(|(key, sequence, id)| {
+                identity(key, sequence, id)
+                    && (!migratable_only
+                        || placements
+                            .get(id)
+                            .is_some_and(|placement| placement.migratable))
+                    && allowed(TcbId::new(*id))
+            });
+            let Some((key, sequence, id)) = found.copied() else {
+                // 一条有效条目都没有：整个队列都是残影，直接清掉，避免永久占位。
+                if !queue.iter().any(|(key, sequence, id)| identity(key, sequence, id)) {
+                    queue.clear();
+                }
                 continue;
             };
             let placement = *self.placements.get(&id).expect("队列条目缺少归属记录");
             queue.remove(&(key, sequence, id));
             self.placements.remove(&id);
-            self.runnable -= 1;
-            self.class_runnable[class.as_u8() as usize] -= 1;
+            self.runnable = self.runnable.saturating_sub(1);
+            let slot = placement.class.as_u8() as usize;
+            self.class_runnable[slot] = self.class_runnable[slot].saturating_sub(1);
             self.load = self.load.saturating_sub(placement.weight);
             return Some((
                 TcbId::new(id),
@@ -422,11 +440,68 @@ impl Default for Scheduler {
 mod tests {
     use hk_cadence::{CadenceClass, NO_CPU};
 
-    use super::Scheduler;
+    use super::{Beat, Scheduler};
     use crate::tcb::TcbId;
 
     fn id(value: u64) -> TcbId {
         TcbId::new(value)
+    }
+
+    #[test]
+    fn reinsertion_replaces_stale_class_entries() {
+        let mut beat = Beat::new();
+        beat.insert(id(1), CadenceClass::Throughput, 1, 0, 4, true);
+        beat.insert(id(1), CadenceClass::Latency, 2, 1, 4, true);
+        assert_eq!(beat.runnable, 1);
+        assert_eq!(
+            beat.class_runnable[CadenceClass::Throughput.as_u8() as usize],
+            0
+        );
+        assert_eq!(
+            beat.class_runnable[CadenceClass::Latency.as_u8() as usize],
+            1
+        );
+
+        let mut allowed = |_| true;
+        let taken = beat
+            .take_allowed(&mut allowed, &super::CLASSES, false)
+            .expect("重新入队后的条目仍可取出");
+        assert_eq!(taken.0, id(1));
+        assert_eq!(taken.1, CadenceClass::Latency);
+        assert_eq!(beat.runnable, 0);
+        assert_eq!(
+            beat.class_runnable[CadenceClass::Latency.as_u8() as usize],
+            0
+        );
+        assert!(
+            beat.take_allowed(&mut allowed, &super::CLASSES, false)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mismatched_placement_is_not_deducted_from_other_class() {
+        let mut beat = Beat::new();
+        beat.insert(id(1), CadenceClass::Latency, 5, 0, 4, true);
+        // 残影：归属记录属于 Latency，队列条目却留在 Throughput。
+        beat.queues[CadenceClass::Throughput.as_u8() as usize].insert((5, 0, 1));
+
+        let mut allowed = |_| true;
+        let taken = beat.take_allowed(&mut allowed, &[CadenceClass::Throughput], false);
+        assert!(taken.is_none());
+        assert!(
+            beat.queues[CadenceClass::Throughput.as_u8() as usize].is_empty(),
+            "残影条目应被清理"
+        );
+        assert_eq!(
+            beat.class_runnable[CadenceClass::Throughput.as_u8() as usize],
+            0
+        );
+        assert_eq!(
+            beat.class_runnable[CadenceClass::Latency.as_u8() as usize],
+            1
+        );
+        assert_eq!(beat.runnable, 1);
     }
 
     #[test]

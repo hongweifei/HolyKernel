@@ -2,7 +2,7 @@
 
 use core::fmt::Write;
 
-use x86_64::registers::control::Cr2;
+use x86_64::registers::control::{Cr2, Cr3};
 use x86_64::registers::model_specific::Msr;
 
 use hk_hal::Console;
@@ -248,15 +248,18 @@ pub fn resume_user(frame: &InterruptFrame) {
     // 现场被踩坏时 iretq 会跳到任意地址（曾见跳到 per-CPU 调用栈帧基址）。
     // 这里先校验，把“跳到栈上”的三重故障换成可定位的现场报告。
     if frame.cs != u64::from(USER_CODE_SELECTOR)
+        || frame.ss != u64::from(USER_DATA_SELECTOR)
         || frame.rip < 0x1000
         || frame.rip >= USER_LIMIT
         || frame.rsp >= USER_LIMIT
+        // NT/VM 会让 iretq 直接 #GP；IOPL 非零等于把端口 IO 交给用户态。
+        || frame.rflags & 0x0002_7000 != 0
     {
         let mut report = DirectWriter(Serial::new(COM1));
         let _ = writeln!(
             report,
-            "\n内核：恢复的用户现场非法 cs={:#x} rip={:#018x} rsp={:#018x} vector={:#x} error={:#x}",
-            frame.cs, frame.rip, frame.rsp, frame.vector, frame.error
+            "\n内核：恢复的用户现场非法 cs={:#x} ss={:#x} rip={:#018x} rsp={:#018x} rflags={:#018x} vector={:#x} error={:#x}",
+            frame.cs, frame.ss, frame.rip, frame.rsp, frame.rflags, frame.vector, frame.error
         );
         hk_hal::exit(hk_hal::ExitCode::Failure(71))
     }
@@ -368,6 +371,32 @@ fn read_gs(offset: u64) -> u64 {
         );
     }
     value
+}
+
+/// panic 处理器调用：打印当前 CPU 的栈指针、CR3 与 per-CPU 槽位。
+///
+/// 走到这里时内核状态已不可信，报告只读寄存器与 GS 槽位，不遍历任何链表或
+/// 锁，避免诊断本身再次崩溃。
+pub fn report_panic_context() {
+    let rsp: u64;
+    // SAFETY: 只读取当前栈指针，不改变机器状态。
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rsp",
+            out(reg) rsp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    let cr3 = Cr3::read_raw().0.start_address().as_u64();
+    let cpu = super::cpu_index();
+    let mut report = DirectWriter(Serial::new(COM1));
+    let _ = writeln!(
+        report,
+        "  cpu={cpu} rsp={rsp:#018x} cr3={cr3:#018x} gs[0]={:#018x} gs[8]={:#018x} gs[16]={:#018x}",
+        read_gs(0),
+        read_gs(8),
+        read_gs(16)
+    );
 }
 
 /// 内核态异常的补充现场：per-CPU 栈槽位、钩子地址与被中断的外层现场。
