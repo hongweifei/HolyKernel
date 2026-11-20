@@ -62,6 +62,15 @@ pub fn init(paging: &PageTable, allocator: &FrameBank) -> bool {
     true
 }
 
+/// 返回指定 CPU 的动态栈可读写区间（不含 guard 页）；CPU 越界时返回 `None`。
+pub(crate) fn window(cpu: usize) -> Option<(u64, u64)> {
+    if cpu >= MAX_CPUS {
+        return None;
+    }
+    let base = WINDOW_BASE + cpu as u64 * STRIDE + PAGE;
+    Some((base, base + STACK_PAGES * PAGE))
+}
+
 fn zero_frame(direct_map: u64, phys: PhysAddr) {
     let pointer = (direct_map + phys.get()) as *mut u8;
     // SAFETY: 新分配的物理帧经 direct map 可写，长度为整页。

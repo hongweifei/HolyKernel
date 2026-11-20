@@ -239,11 +239,14 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 命中调度 tick 时保存现场；返回是否切换任务。
-    pub fn preempt(&mut self, cpu: usize, context: C) -> bool {
+    ///
+    /// 现场按引用传入：`InterruptFrame` 有 1 KiB，按值传递会在 32 KiB 的
+    /// per-CPU 调用栈上反复拷贝临时副本。
+    pub fn preempt(&mut self, cpu: usize, context: &C) -> bool {
         let Some(index) = self.current[cpu] else {
             return false;
         };
-        self.tasks[index].context = context;
+        self.tasks[index].context = *context;
         self.tasks[index].pending = Pending::None;
         true
     }

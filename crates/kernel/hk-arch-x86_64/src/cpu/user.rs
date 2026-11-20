@@ -12,6 +12,9 @@ use super::frame::FpuState;
 use super::{InterruptFrame, USER_CODE_SELECTOR, USER_DATA_SELECTOR};
 use crate::serial::{COM1, Serial};
 
+/// 用户态可访问的地址上限。
+const USER_LIMIT: u64 = 0x0000_0080_0000_0000;
+
 /// 返回异常向量名称。
 pub fn exception_name(vector: u64) -> &'static str {
     match vector {
@@ -242,6 +245,21 @@ pub fn user_frame(entry: u64, stack_top: u64, argument: u64) -> InterruptFrame {
 ///
 /// 返回时机是系统调用处理函数要求切换任务之后；`frame` 只在使用期间读取。
 pub fn resume_user(frame: &InterruptFrame) {
+    // 现场被踩坏时 iretq 会跳到任意地址（曾见跳到 per-CPU 调用栈帧基址）。
+    // 这里先校验，把“跳到栈上”的三重故障换成可定位的现场报告。
+    if frame.cs != u64::from(USER_CODE_SELECTOR)
+        || frame.rip < 0x1000
+        || frame.rip >= USER_LIMIT
+        || frame.rsp >= USER_LIMIT
+    {
+        let mut report = DirectWriter(Serial::new(COM1));
+        let _ = writeln!(
+            report,
+            "\n内核：恢复的用户现场非法 cs={:#x} rip={:#018x} rsp={:#018x} vector={:#x} error={:#x}",
+            frame.cs, frame.rip, frame.rsp, frame.vector, frame.error
+        );
+        hk_hal::exit(hk_hal::ExitCode::Failure(71))
+    }
     // SAFETY: `frame` 按 `InterruptFrame` 布局保存完整用户态寄存器与栈，
     // 对应地址已映射为用户可执行或可写页。
     unsafe { hk_resume_user(frame) };
@@ -337,6 +355,107 @@ impl core::fmt::Write for DirectWriter {
     }
 }
 
+/// 从 per-CPU 区读取保留槽位。
+fn read_gs(offset: u64) -> u64 {
+    let value: u64;
+    // SAFETY: GS 基址由平台在内核进入前设置，槽位由入口汇编维护。
+    unsafe {
+        core::arch::asm!(
+            "mov {}, gs:[{}]",
+            out(reg) value,
+            in(reg) offset,
+            options(nostack, preserves_flags)
+        );
+    }
+    value
+}
+
+/// 内核态异常的补充现场：per-CPU 栈槽位、钩子地址与被中断的外层现场。
+///
+/// ISR 把帧基址放进 rbx，嵌套异常因此可以从 rbx 读回外层帧（系统调用编号、
+/// 用户返回地址）。只读取当前 CPU 已映射的栈窗口，避免诊断路径再次出错。
+fn report_kernel_stack(frame: &InterruptFrame) {
+    if frame.cs & 3 != 0 {
+        return;
+    }
+    let mut report = DirectWriter(Serial::new(COM1));
+    let cpu = super::cpu_index();
+    let (syscall_hook, preempt_hook) = super::syscall::hook_values();
+    let _ = writeln!(
+        report,
+        "  cpu={cpu} gs[0]={:#018x} gs[8]={:#018x} gs[16]={:#018x}",
+        read_gs(0),
+        read_gs(8),
+        read_gs(16)
+    );
+    let _ = writeln!(
+        report,
+        "  hooks: syscall={syscall_hook:#018x} preempt={preempt_hook:#018x}"
+    );
+    // hk_leave_user 会切到 gs[0] 保存的调度器上下文：前 6 个字是被保存的
+    // 寄存器，第 7 个字（下标 6）是它随后 `ret` 的目标。
+    let resume = read_gs(0);
+    if (0xffff_ffff_8000_0000..0xffff_ffff_c000_0000).contains(&resume) {
+        // SAFETY: 指向内核镜像 .bss 内的调度器栈；诊断读取允许未对齐。
+        let words: [u64; 8] = unsafe { core::ptr::read_unaligned(resume as *const [u64; 8]) };
+        let _ = writeln!(
+            report,
+            "  resume {resume:#018x}: {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} ret={:#x} {:#x}",
+            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
+        );
+    }
+    let Some((low, high)) = super::stacks::window(cpu) else {
+        return;
+    };
+    let _ = writeln!(report, "  kernel stack {low:#018x}..{high:#018x}");
+    let outer = frame.rbx;
+    if outer >= low && outer.saturating_add(176) <= high {
+        // SAFETY: 地址限制在当前 CPU 的已映射栈页内；诊断读取允许未对齐。
+        let word =
+            |offset: u64| unsafe { core::ptr::read_unaligned((outer + offset) as *const u64) };
+        let cs = word(144);
+        if cs & 3 == 3 {
+            let _ = writeln!(
+                report,
+                "  outer: rax/vector={:#x}/{:#x} rip={:#018x} cs={:#x} rsp={:#018x}",
+                word(0),
+                word(120),
+                word(136),
+                cs,
+                word(160)
+            );
+        }
+        // `call interrupt_dispatch` 的返回地址紧贴帧基址下方。
+        if outer >= low + 8 {
+            // SAFETY: 帧基址下方一个 u64 仍在栈窗口内。
+            let ret = unsafe { core::ptr::read_unaligned((outer - 8) as *const u64) };
+            let _ = writeln!(report, "  dispatch return slot={ret:#018x}");
+        }
+    }
+    // 调试构建保留帧指针：沿 rbp 链打印返回地址，交给 `xtask symbolize` 解析。
+    let mut frame_pointer = frame.rbp;
+    for _ in 0..8 {
+        if frame_pointer < low || frame_pointer.saturating_add(16) > high {
+            break;
+        }
+        // SAFETY: 帧指针与两个槽位都在本 CPU 的已映射栈页内。
+        let (saved, ret) = unsafe {
+            (
+                core::ptr::read_unaligned(frame_pointer as *const u64),
+                core::ptr::read_unaligned((frame_pointer + 8) as *const u64),
+            )
+        };
+        let _ = writeln!(
+            report,
+            "  frame rbp={frame_pointer:#018x} ret={ret:#018x} prev={saved:#018x}"
+        );
+        if saved <= frame_pointer || saved >= high {
+            break;
+        }
+        frame_pointer = saved;
+    }
+}
+
 pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
     let mut report = DirectWriter(Serial::new(COM1));
 
@@ -379,6 +498,7 @@ pub(super) fn report_exception(frame: &InterruptFrame) -> ! {
         "  r12={:#018x} r13={:#018x} r14={:#018x} r15={:#018x}",
         frame.r12, frame.r13, frame.r14, frame.r15
     );
+    report_kernel_stack(frame);
 
     hk_hal::exit(hk_hal::ExitCode::Failure(70))
 }

@@ -909,7 +909,7 @@ fn dispatch(frame: &mut InterruptFrame) -> SyscallAction {
 
 fn preempt(frame: &InterruptFrame) -> bool {
     let cpu = cpu::cpu_index();
-    if RUNTIME.preempt(cpu, *frame) {
+    if RUNTIME.preempt(cpu, frame) {
         return true;
     }
     // runtime 锁被另一 CPU 持有（或当前没有任务）时不能丢失本次抢占：

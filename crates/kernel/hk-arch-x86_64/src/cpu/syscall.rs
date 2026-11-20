@@ -88,6 +88,14 @@ pub fn set_preempt_hook(hook: PreemptHook) {
     PREEMPT_HOOK.store(hook as usize, Ordering::SeqCst);
 }
 
+/// 返回当前钩子地址；异常报告用它判断控制流是否被踩坏。
+pub(super) fn hook_values() -> (usize, usize) {
+    (
+        SYSCALL_HOOK.load(Ordering::SeqCst),
+        PREEMPT_HOOK.load(Ordering::SeqCst),
+    )
+}
+
 pub(super) fn preempt(frame: &InterruptFrame) -> bool {
     let hook = PREEMPT_HOOK.load(Ordering::SeqCst);
     if hook == 0 {

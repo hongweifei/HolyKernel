@@ -607,7 +607,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
     }
 
     /// 保存抢占现场；返回是否切换任务。
-    pub fn preempt(&self, cpu: usize, context: C) -> bool {
+    pub fn preempt(&self, cpu: usize, context: &C) -> bool {
         // 定时器可能在关中断上下文进入；调度器锁被另一 CPU 持有时不要自旋，
         // 否则本 CPU 无法确认 TLB shootdown IPI。
         let Some(mut guard) = self.runtime.try_lock() else {
