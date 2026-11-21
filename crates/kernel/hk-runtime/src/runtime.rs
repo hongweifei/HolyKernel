@@ -488,10 +488,6 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks.as_ptr() as usize,
             self.tasks.capacity() * core::mem::size_of::<UserTask<C>>(),
         );
-        // 任务表缓冲区必须始终是活动分配。一旦它被提前释放，堆会把同一段内存
-        // 再发给别的对象（典型是 BTree 节点），之后 map 的写入就落进条目尾部。
-        let registered = self.tasks.capacity() > 0
-            && hk_kernel::allocator::is_live_allocation(buffer.0, buffer.1);
         let mut broken = None;
         for (index, task) in self.tasks.iter().enumerate() {
             if task.process >= self.processes.len()
@@ -504,9 +500,23 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 break;
             }
         }
+        if broken.is_none() {
+            // 任务表缓冲区必须始终是活动分配；但登记表查询要拿堆锁，不能每次
+            // 抢占都做，按固定间隔抽样即可（异常会在少量入口内被发现）。
+            static TICK: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            let tick = TICK.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            if tick % 1024 != 0 {
+                return;
+            }
+            if self.tasks.capacity() == 0
+                || hk_kernel::allocator::is_live_allocation(buffer.0, buffer.1)
+            {
+                return;
+            }
+        }
         let index = match broken {
             Some(index) => index,
-            None if registered => return,
             None => match self.current[cpu].filter(|index| *index < self.tasks.len()) {
                 Some(index) => index,
                 None => panic!(
@@ -516,6 +526,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             },
         };
         let task = &self.tasks[index];
+        let registered = self.tasks.capacity() == 0
+            || hk_kernel::allocator::is_live_allocation(buffer.0, buffer.1);
         let (last_tag, last_aux) = self.debug_last.get(cpu).copied().unwrap_or(("none", 0));
         let base = core::mem::offset_of!(UserTask<C>, tcb);
         // SAFETY: 条目本身有效；只按 8 字节读取条目内部偏移。
@@ -553,14 +565,13 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             &mut overlaps,
         );
         self.platform.debug_report(&alloc::format!(
-            "\n任务条目损坏：entry={tag}/{aux:#x} cpu={cpu} slot={index} size={} element={:#018x} tasks={:#018x} cap={} len={} processes={} registered={registered} large_lost={} pending={}/{} 尾部偏移={base}\n  上一入口={last_tag}/{last_aux:#x} tcb={} process={} leader={} tls={:#x} name_ptr={:#x} name_len={} name_cap={} handles={} exited={} restarts={}\n  尾部字={:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}\n  头部字={:#x} {:#x} {:#x} {:#x} watch={:?} sleep={:#x}/{} timeout={:#x}/{}\n",
+            "\n任务条目损坏：entry={tag}/{aux:#x} cpu={cpu} slot={index} size={} element={:#018x} tasks={:#018x} cap={} len={} processes={} registered={registered} pending={}/{} 尾部偏移={base}\n  上一入口={last_tag}/{last_aux:#x} tcb={} process={} leader={} tls={:#x} name_ptr={:#x} name_len={} name_cap={} handles={} exited={} restarts={}\n  尾部字={:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}\n  头部字={:#x} {:#x} {:#x} {:#x} watch={:?} sleep={:#x}/{} timeout={:#x}/{}\n",
             core::mem::size_of::<UserTask<C>>(),
             &self.tasks[index] as *const UserTask<C> as usize,
             self.tasks.as_ptr() as usize,
             self.tasks.capacity(),
             self.tasks.len(),
             self.processes.len(),
-            hk_kernel::allocator::large_dropped(),
             core::mem::offset_of!(UserTask<C>, pending),
             core::mem::size_of::<Pending>(),
             task.tcb.get(),

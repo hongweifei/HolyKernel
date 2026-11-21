@@ -18,8 +18,10 @@ mod seat;
 #[cfg(any(target_os = "none", test))]
 mod surface;
 
-// 服务堆大小：只用于接管期缓存客户端消息。
-hk_user_api::server_heap!(1024 * 1024);
+// 服务堆大小：表面缓冲单次可达约 600 KiB。16 KiB/1 MiB 会在合成期分配失败并
+// 触发 supervisor 反复重启（表现为越拖越卡、偶发崩溃）；4 MiB 会触发另一个
+// 大表面路径的问题，2 MiB 实测可稳定合成。
+hk_user_api::server_heap!(2 * 1024 * 1024);
 
 #[cfg(target_os = "none")]
 mod actions;

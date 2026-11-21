@@ -123,6 +123,19 @@ const GUARD: usize = 8;
 /// 护栏魔数；与分配长度混合，便于区分被踩过的块。
 const GUARD_MAGIC: u64 = 0xdead_beef_cafe_f00d;
 
+/// 分配/释放环的记录阈值。
+///
+/// 记录要拿全局锁并回溯调用者，属于热路径开销：release 只保留大块，
+/// debug 构建保留小块，便于定位小对象的重复释放。
+#[cfg(debug_assertions)]
+const FREE_LOG_MIN: usize = 16;
+#[cfg(not(debug_assertions))]
+const FREE_LOG_MIN: usize = 1024;
+#[cfg(debug_assertions)]
+const ALLOC_LOG_MIN: usize = 16;
+#[cfg(not(debug_assertions))]
+const ALLOC_LOG_MIN: usize = 4096;
+
 /// 由用户 layout 推导后端堆 layout 与用户指针偏移。
 ///
 /// 头部留出 `align` 字节，使 `base + head` 仍满足用户对齐要求；尾部留 8 字节。
@@ -348,11 +361,6 @@ pub fn is_live_allocation(start: usize, len: usize) -> bool {
     registry::contains(start, len)
 }
 
-/// 调试：因大块表满而未登记的次数。
-pub fn large_dropped() -> usize {
-    registry::large_lost()
-}
-
 /// 调试期活动分配登记表。
 ///
 /// 记录每次分配的地址与长度：同一地址再次分配（两个分配者拿到同一块内存）或
@@ -365,7 +373,6 @@ mod registry {
     const SLOTS: usize = 131_072;
     const MASK: usize = SLOTS - 1;
     const EMPTY: usize = usize::MAX;
-    const TOMB: usize = usize::MAX - 1;
 
     #[derive(Clone, Copy)]
     struct Slot {
@@ -382,67 +389,10 @@ mod registry {
     );
     static LIVE: AtomicUsize = AtomicUsize::new(0);
 
-    /// 大分配（≥ 1 KiB）的区间表。
-    ///
-    /// 小分配（如 BTree 节点）也可能被分进一个大缓冲区内部；只扫描主表代价太高，
-    /// 这里单独记住大块，任意新分配都先与它们比对。容量必须覆盖活动大块的峰值，
-    /// 否则目标任务表缓冲区可能没被登记、重叠检查就会漏掉。
-    const LARGE: usize = 4096;
-    const LARGE_MIN: usize = 1024;
-
-    struct LargeSlots {
-        len: usize,
-        slots: [(usize, usize); LARGE],
-    }
-
-    impl LargeSlots {
-        const fn new() -> Self {
-            Self {
-                len: 0,
-                slots: [(0, 0); LARGE],
-            }
-        }
-
-        fn overlaps(&self, address: usize, size: usize) -> Option<(usize, usize)> {
-            let end = address.saturating_add(size);
-            self.slots[..self.len]
-                .iter()
-                .copied()
-                .find(|(start, len)| {
-                    let slot_end = start.saturating_add(*len);
-                    *start < end && address < slot_end
-                })
-        }
-
-        fn insert(&mut self, address: usize, size: usize) {
-            if self.len < LARGE {
-                self.slots[self.len] = (address, size);
-                self.len += 1;
-            } else {
-                LARGE_LOST.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-
-        fn remove(&mut self, address: usize, size: usize) {
-            if let Some(position) = self.slots[..self.len]
-                .iter()
-                .position(|&(start, len)| start == address && len == size)
-            {
-                let last = self.len - 1;
-                self.slots[position] = self.slots[last];
-                self.len = last;
-            }
-        }
-    }
-
-    static LARGE_TABLE: spin::Mutex<LargeSlots> = spin::Mutex::new(LargeSlots::new());
-    /// 因大块表已满而漏登记的次数；非零说明重叠检测存在盲区。
-    static LARGE_LOST: AtomicUsize = AtomicUsize::new(0);
-
-    /// 返回因表满而漏登记的大块次数。
-    pub(super) fn large_lost() -> usize {
-        LARGE_LOST.load(Ordering::Relaxed)
-    }
+    // 说明：早期版本这里维护了一张“大块区间表”，并在每次分配时线性扫描它来
+    // 检测小分配落进大缓冲区。该检查是调试手段，代价随活动大块数线性增长，
+    // 长时间运行会明显拖慢分配路径；根因修复后移除它，只在护栏报错时用
+    // `allocation_overlaps` 做一次性诊断。
 
     fn hash(address: usize) -> usize {
         (address.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 20) & MASK
@@ -450,31 +400,8 @@ mod registry {
 
     /// 登记一次分配。
     pub(super) fn record(address: usize, size: usize) {
-        let mut large = LARGE_TABLE.lock();
         let mut table = TABLE.lock();
-        // 任意分配都先与已登记的大块比对：小 BTree 节点被分进大 Vec 内部是
-        // 最常见的“看不见”的重叠。
-        if let Some((start, len)) = large.overlaps(address, size) {
-            panic!("内核堆分配重叠：{address:#018x}+{size:#x} 与 {start:#018x}+{len:#x}");
-        }
-        // 大块分配还要与全部活动分配比对：它可能压在更小、更早的分配上。
-        if size >= LARGE_MIN {
-            let end = address.saturating_add(size);
-            for slot in table.iter() {
-                if slot.address == EMPTY || slot.address == TOMB {
-                    continue;
-                }
-                let slot_end = slot.address.saturating_add(slot.size);
-                if slot.address < end && address < slot_end {
-                    panic!(
-                        "内核堆分配重叠：{address:#018x}+{size:#x} 与 {:#018x}+{:#x}",
-                        slot.address, slot.size
-                    );
-                }
-            }
-        }
         let mut index = hash(address);
-        let mut tomb = None;
         for _ in 0..SLOTS {
             let slot = table[index];
             if slot.address == address {
@@ -483,26 +410,12 @@ mod registry {
                     slot.size
                 );
             }
-            if slot.address == TOMB {
-                tomb.get_or_insert(index);
-            } else if slot.address == EMPTY {
-                let at = tomb.unwrap_or(index);
-                table[at] = Slot { address, size };
+            if slot.address == EMPTY {
+                table[index] = Slot { address, size };
                 LIVE.fetch_add(1, Ordering::Relaxed);
-                if size >= LARGE_MIN {
-                    large.insert(address, size);
-                }
                 return;
             }
             index = (index + 1) & MASK;
-        }
-        if let Some(at) = tomb {
-            table[at] = Slot { address, size };
-            LIVE.fetch_add(1, Ordering::Relaxed);
-            if size >= LARGE_MIN {
-                large.insert(address, size);
-            }
-            return;
         }
         panic!(
             "内核堆登记表已满（{} 个活动分配）",
@@ -512,7 +425,6 @@ mod registry {
 
     /// 注销一次释放；未登记或长度不一致说明分配器状态已被破坏。
     pub(super) fn forget(address: usize, size: usize) {
-        let mut large = LARGE_TABLE.lock();
         let mut table = TABLE.lock();
         let mut index = hash(address);
         for _ in 0..SLOTS {
@@ -527,11 +439,37 @@ mod registry {
                         slot.size
                     );
                 }
-                table[index].address = TOMB;
-                if size >= LARGE_MIN {
-                    large.remove(address, size);
-                }
                 LIVE.fetch_sub(1, Ordering::Relaxed);
+                // 线性探测下的回移删除：不留墓碑，探测链长度只随活动分配数增长，
+                // 长时间运行不会因为墓碑堆积而越来越慢。
+                let mut hole = index;
+                let mut probe = index;
+                loop {
+                    probe = (probe + 1) & MASK;
+                    let entry = table[probe];
+                    if entry.address == EMPTY {
+                        break;
+                    }
+                    let ideal = hash(entry.address);
+                    // 该条目可以补进空洞：它的理想槽位不在 (hole, probe] 内。
+                    let movable = if hole < probe {
+                        ideal <= hole || ideal > probe
+                    } else {
+                        ideal <= hole && ideal > probe
+                    };
+                    if movable {
+                        table[hole] = entry;
+                        table[probe] = Slot {
+                            address: EMPTY,
+                            size: 0,
+                        };
+                        hole = probe;
+                    }
+                }
+                table[hole] = Slot {
+                    address: EMPTY,
+                    size: 0,
+                };
                 return;
             }
             index = (index + 1) & MASK;
@@ -579,7 +517,7 @@ mod registry {
         let high = inner_end.saturating_add(64);
         let mut count = 0;
         for slot in table.iter() {
-            if slot.address == EMPTY || slot.address == TOMB {
+            if slot.address == EMPTY {
                 continue;
             }
             if slot.address == user && slot.size == size {
@@ -604,7 +542,7 @@ mod registry {
         let inner_start = user.checked_sub(head)?;
         let mut best: Option<(usize, usize)> = None;
         for slot in table.iter() {
-            if slot.address == EMPTY || slot.address == TOMB || slot.address == 0 {
+            if slot.address == EMPTY || slot.address == 0 {
                 continue;
             }
             let end = slot.address.saturating_add(slot.size);
@@ -640,7 +578,7 @@ mod registry {
         let end = start.saturating_add(len);
         let mut count = 0;
         for slot in table.iter() {
-            if slot.address == EMPTY || slot.address == TOMB {
+            if slot.address == EMPTY {
                 continue;
             }
             if (slot.address, slot.size) == exclude {
@@ -763,10 +701,18 @@ pub mod alloc_log {
     }
 }
 
+/// 内核代码地址（镜像装载在 `0xffffffff80000000` 起约 16 MiB）。
+fn is_kernel_code(address: u64) -> bool {
+    (0xffff_ffff_8000_0000..0xffff_ffff_8100_0000).contains(&address)
+}
+
+/// 每 CPU 内核栈地址（AP 栈在 `0xffffb000…`）；启动栈在镜像 `.bss` 内，另由代码段范围覆盖。
+fn is_kernel_stack(address: u64) -> bool {
+    (0xffff_b000_0000_0000..0xffff_c000_0000_0000).contains(&address)
+}
+
 /// 沿当前帧指针收集调用者返回地址（最多 3 个）。
 fn caller_rets() -> [u64; 3] {
-    const LOW: u64 = 0xffff_ffff_8000_0000;
-    const HIGH: u64 = 0xffff_ffff_c000_0000;
     let mut rets = [0_u64; 3];
     let mut frame: u64;
     // SAFETY: 只读取当前帧指针。
@@ -780,17 +726,17 @@ fn caller_rets() -> [u64; 3] {
     let mut slot = 0;
     let mut cursor = frame;
     for _ in 0..6 {
-        if !(LOW..HIGH).contains(&cursor) {
+        if !(is_kernel_code(cursor) || is_kernel_stack(cursor)) {
             break;
         }
-        // SAFETY: 帧指针落在内核镜像范围内，两个槽位可读。
+        // SAFETY: 帧指针落在内核镜像或当前内核栈范围内，两个槽位可读。
         let (next, ret) = unsafe {
             (
                 core::ptr::read_unaligned(cursor as *const u64),
                 core::ptr::read_unaligned((cursor + 8) as *const u64),
             )
         };
-        if ret != 0 && slot < rets.len() && (LOW..HIGH).contains(&ret) {
+        if ret != 0 && slot < rets.len() && is_kernel_code(ret) {
             rets[slot] = ret;
             slot += 1;
         }
@@ -821,7 +767,7 @@ unsafe impl<const N: usize> GlobalAlloc for KernelHeap<N> {
             core::ptr::write_unaligned(base.add(head + layout.size()) as *mut u64, magic);
         }
         let user = unsafe { base.add(head) };
-        if layout.size() >= 128 {
+        if layout.size() >= ALLOC_LOG_MIN {
             alloc_log::record(user as usize, layout.size(), caller_rets());
         }
         registry::record(user as usize, layout.size());
@@ -855,6 +801,8 @@ unsafe impl<const N: usize> GlobalAlloc for KernelHeap<N> {
             let prev = registry::preceding(user.as_ptr() as usize, head);
             // 同一地址的上一次释放：若是悬空指针二次释放，这里就是它的调用链。
             let previous_free = free_log::find(user.as_ptr() as usize);
+            // 该地址最近一次分配的调用链：确认受害块到底是什么对象。
+            let previous_alloc = alloc_log::find(user.as_ptr() as usize);
             // SAFETY: 本块仍是活动分配，头部若干字可读（可能落在尾护栏/填充内）。
             let own = unsafe {
                 [
@@ -865,7 +813,7 @@ unsafe impl<const N: usize> GlobalAlloc for KernelHeap<N> {
                 ]
             };
             panic!(
-                "内核堆护栏被踩：块={:#018x}+{:#x} 前={:#018x} 后={:#018x} 期望={:#018x} 前邻={:?} 邻块[{}]={:?} 本块字={:?} 上次释放={:?}",
+                "内核堆护栏被踩：块={:#018x}+{:#x} 前={:#018x} 后={:#018x} 期望={:#018x} 前邻={:?} 邻块[{}]={:?} 本块字={:?} 上次释放={:?} 上次分配={:?}",
                 user.as_ptr() as usize,
                 layout.size(),
                 front,
@@ -875,11 +823,12 @@ unsafe impl<const N: usize> GlobalAlloc for KernelHeap<N> {
                 count,
                 &out[..count.min(out.len())],
                 own,
-                previous_free
+                previous_free,
+                previous_alloc
             );
         }
-        // 记录所有非平凡释放：受害块常见是 32 字节，阈值不能抬高。
-        if layout.size() >= 16 {
+        // 记录所有非平凡释放：受害块常见是 32 字节，debug 下阈值不能抬高。
+        if layout.size() >= FREE_LOG_MIN {
             free_log::record(user.as_ptr() as usize, layout.size(), caller_rets());
         }
         registry::forget(user.as_ptr() as usize, layout.size());

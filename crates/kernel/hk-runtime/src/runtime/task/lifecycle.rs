@@ -162,6 +162,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
+    #[inline(never)]
     pub fn finish(&mut self, cpu: usize, index: usize) -> Option<(String, u64)> {
         self.debug_check(cpu, "finish", index as u64);
         // 先离开用户地址空间，再允许归还任何被推迟的页表。
@@ -402,6 +403,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
 
     /// 从 deadline 表移除任务。
+    #[inline(never)]
     pub(crate) fn remove_sleep(&mut self, index: usize) {
         self.sleeping.retain(|_, entries| {
             entries.retain(|slot| *slot != index);
@@ -413,6 +415,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         });
     }
 
+    #[inline(never)]
     fn wake_sleepers(&mut self) {
         let now = self.contract_now();
         while let Some((&deadline, _)) = self.sleeping.first_key_value() {
@@ -440,6 +443,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         }
     }
 
+    #[inline(never)]
     fn wake_timeouts(&mut self) {
         let now = self.contract_now();
         while let Some((&deadline, _)) = self.timeouts.first_key_value() {
