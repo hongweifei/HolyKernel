@@ -141,7 +141,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if !self.terminate(name, 0) {
             return Err(String::from("无法暂停任务"));
         }
-        self.platform.release_pages(capture.slot);
+        self.release_pages_when_idle(capture.slot);
         self.checkpoints.retain(|(saved, _)| saved != name);
         self.checkpoints.push((
             String::from(name),
@@ -414,6 +414,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             entry.tls = thread.tls;
             self.tasks.push(entry);
             self.processes.push(None);
+            self.debug_task_push("restore-thread", self.tasks.len() - 1);
             let _ = self.kernel.activate(child);
         }
         let _ = self.kernel.activate(tcb);

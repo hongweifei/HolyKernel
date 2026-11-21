@@ -29,6 +29,40 @@ fn ap_stack_top(cpu: usize) -> u64 {
     stack.0.get() as u64 + AP_STACK_SIZE as u64
 }
 
+fn ap_stack_bottom(cpu: usize) -> u64 {
+    AP_STACKS[cpu.min(MAX_CPUS - 1)].0.get() as u64
+}
+
+/// AP 调度栈底部的金丝雀；栈溢出压到 `.bss` 静态区时这里最先被覆盖。
+const AP_CANARY_BYTES: usize = 64;
+const AP_CANARY: u8 = 0x5A;
+/// 哪些 CPU 已经写过金丝雀；未启动的 AP 栈是零填充，不能按“被覆盖”处理。
+static AP_ARMED: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn arm_ap_canary(cpu: usize) {
+    let bottom = ap_stack_bottom(cpu);
+    // SAFETY: 栈底部 64 字节在本函数运行时不会被使用（栈从顶端向下增长）。
+    unsafe {
+        core::ptr::write_bytes(bottom as *mut u8, AP_CANARY, AP_CANARY_BYTES);
+    }
+    AP_ARMED.fetch_or(1_u64 << cpu.min(63), Ordering::Release);
+}
+
+/// 返回第一个底部金丝雀被覆盖的 AP 栈所属 CPU；全部完好时 `None`。
+pub(crate) fn ap_stack_clobbered() -> Option<usize> {
+    let armed = AP_ARMED.load(Ordering::Acquire);
+    (0..MAX_CPUS).find(|cpu| {
+        let cpu = *cpu;
+        armed & (1_u64 << cpu.min(63)) != 0 && {
+            let bottom = ap_stack_bottom(cpu);
+            (0..AP_CANARY_BYTES).any(|offset| {
+                // SAFETY: 金丝雀区间位于该 AP 栈内，读取有效。
+                unsafe { core::ptr::read_volatile((bottom as *const u8).add(offset)) != AP_CANARY }
+            })
+        }
+    })
+}
+
 /// 启动 AP、等待其初始化完成，并发送一次 IPI 自检。
 pub fn start() -> Result<(usize, usize), String> {
     let Some(_info) = hk_boot::limine::smp_info() else {
@@ -139,6 +173,7 @@ fn switch_ap_stack(cpu_index: usize, lapic_id: u32) -> ! {
 /// AP 主循环；运行在静态调度栈上。
 extern "C" fn ap_main(lapic_id: u64, cpu_index: u64) -> ! {
     let cpu_index = cpu_index as usize;
+    arm_ap_canary(cpu_index);
     cpu::init_ap(cpu_index);
     cpu::start_ap_tick();
     AP_POOL.mark_online(lapic_id as u32);

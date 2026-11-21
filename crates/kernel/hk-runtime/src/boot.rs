@@ -33,7 +33,9 @@ where
     let mut endpoints = Vec::with_capacity(specs.len());
     let mut notifications = Vec::with_capacity(specs.len());
     let mut own_notifications = Vec::with_capacity(specs.len());
-    let mut tasks = Vec::with_capacity(specs.len());
+    // 预留给桌面高峰（线程/重启）留足槽位：任务表在运行期不再扩容，避免
+    // 扩容搬移期间旧缓冲区被其它路径继续引用。
+    let mut tasks = Vec::with_capacity((specs.len() * 4).max(64));
     let mut processes = Vec::with_capacity(specs.len());
 
     for service in server.services() {

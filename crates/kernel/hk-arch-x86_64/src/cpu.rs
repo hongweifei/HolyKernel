@@ -17,6 +17,7 @@ mod stacks;
 mod syscall;
 mod timer;
 mod user;
+mod watchpoint;
 
 pub use apic::{
     apic_id, cpu_index, init_ap, init_apic, ipi_count, lapic_id, online_apic_id, online_cpu_count,
@@ -28,6 +29,7 @@ pub use frame::InterruptFrame;
 pub(crate) use gdt::set_syscall_stack_top;
 pub use smp::{idle, idle_cpus, reschedule, shootdown_tlb, tlb_shootdowns, wake_aps};
 pub use stacks::init as init_stacks;
+pub use stacks::window as syscall_stack_window;
 pub use syscall::{PreemptHook, SyscallAction, SyscallHook, set_preempt_hook, set_syscall_hook};
 pub use timer::{
     arm_oneshot, arm_timer, calibrate_tick, calibrate_tick_hpet, disarm_timer, enable_wakeup_timer,
@@ -39,6 +41,7 @@ pub use user::{
     report_panic_context, resume_user, set_fault_hook, set_mce_hook, set_nmi_hook,
     set_thread_pointer, user_frame,
 };
+pub use watchpoint::{last_hit as last_watch_hit, note_entry, watch_word};
 
 /// 内核代码段选择子。
 pub const KERNEL_CODE: u16 = 0x08;

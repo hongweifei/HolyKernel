@@ -58,6 +58,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         task.tls = tls;
         self.tasks.push(task);
         self.processes.push(None);
+        self.debug_task_push("thread", child_index);
         let _ = self.kernel.activate(child);
 
         frame.set_result(child.get());

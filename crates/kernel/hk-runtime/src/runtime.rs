@@ -324,6 +324,12 @@ pub struct UserRuntime<C, P> {
     fault_subscribers: Vec<(usize, Handle)>,
     current: [Option<usize>; MAX_CPUS],
     pending_exits: Vec<(String, u64)>,
+    /// 已退出但仍有 CPU 在使用的地址空间槽位与当时的页表根。
+    ///
+    /// leader 退出时 worker 可能还在别的 CPU 上跑；页表必须等这些 CPU 都切回
+    /// 内核页表后才能归还，否则 AP 会用已回收的页表继续取指与写堆。带上根是
+    /// 为了防止槽位在归还前被重启复用后误回收新地址空间。
+    deferred_pages: Vec<(usize, u64)>,
     last_finish: Option<u64>,
     switch_count: u64,
     switch_cycles: u64,
@@ -347,6 +353,8 @@ pub struct UserRuntime<C, P> {
     /// 服务启动/重启通知：(服务名, Notification 对象)。
     service_watchers: Vec<(alloc::string::String, hk_handle::ObjectId)>,
     platform: P,
+    /// 调试：每 CPU 最近一次进入的入口，损坏检测用它指出写入窗口。
+    debug_last: [(&'static str, u64); MAX_CPUS],
 }
 
 impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
@@ -378,6 +386,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             fault_subscribers: Vec::new(),
             current: [None; MAX_CPUS],
             pending_exits: Vec::new(),
+            deferred_pages: Vec::new(),
             last_finish: None,
             switch_count: 0,
             switch_cycles: 0,
@@ -396,6 +405,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             image_registrations: Vec::new(),
             service_watchers: Vec::new(),
             platform,
+            debug_last: [("none", 0); MAX_CPUS],
         }
     }
 
@@ -404,15 +414,291 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks.len()
     }
 
+    /// 返回槽位当前任务的 TCB；调度器用它检测槽位是否在用户态运行期间被复用。
+    pub fn slot_tcb(&self, index: usize) -> Option<TcbId> {
+        self.tasks.get(index).map(|task| task.tcb)
+    }
+
+    /// 调试：返回任务条目布局与缓冲区地址。
+    pub fn layout_debug(&self) -> (usize, usize, usize, usize, usize, usize, usize, usize) {
+        (
+            core::mem::size_of::<UserTask<C>>(),
+            core::mem::offset_of!(UserTask<C>, tcb),
+            core::mem::offset_of!(UserTask<C>, process),
+            core::mem::offset_of!(UserTask<C>, context),
+            self.tasks.as_ptr() as usize,
+            self.tasks.capacity(),
+            core::mem::offset_of!(UserTask<C>, pending),
+            core::mem::size_of::<Pending>(),
+        )
+    }
+
+    /// 调试：记录本 CPU 最近一次进入的入口。
+    pub fn debug_note(&mut self, cpu: usize, tag: &'static str, aux: u64) {
+        if let Some(slot) = self.debug_last.get_mut(cpu) {
+            *slot = (tag, aux);
+        }
+        let code = match tag {
+            "dispatch" => 1,
+            "step" => 2,
+            "preempt" => 3,
+            "finish" => 4,
+            "tasks" => 5,
+            _ => 0,
+        };
+        self.platform.note_entry(cpu, code, aux);
+    }
+
+    /// 调试：任务表增长时输出槽位与容量，便于把崩溃槽位对上创建来源。
+    pub(crate) fn debug_task_push(&self, kind: &str, slot: usize) {
+        self.platform.debug_report(&alloc::format!(
+            "[task-add] kind={kind} slot={slot} len={} cap={}\n",
+            self.tasks.len(),
+            self.tasks.capacity(),
+        ));
+        let buffer = (
+            self.tasks.as_ptr() as usize,
+            self.tasks.capacity() * core::mem::size_of::<UserTask<C>>(),
+        );
+        if self.tasks.capacity() > 0
+            && !hk_kernel::allocator::is_live_allocation(buffer.0, buffer.1)
+        {
+            panic!(
+                "任务表缓冲区在 push 后不是活动分配：kind={kind} slot={slot} tasks={:#018x}+{:#x} len={} cap={}",
+                buffer.0,
+                buffer.1,
+                self.tasks.len(),
+                self.tasks.capacity()
+            );
+        }
+        // 给已观测的受害槽位（6）的 `tcb` 下写监视：下一次外部写入会打印 RIP。
+        if let Some(task) = self.tasks.get(6) {
+            self.platform
+                .watch_task_word(&task.tcb as *const TcbId as u64);
+        }
+    }
+
+    /// 调试：检查任务条目尾部不变量，损坏时打印写入窗口并终止。
+    ///
+    /// `UserTask` 是 `repr(Rust)`，`context` 被放在偏移 0，其余字段在 1 KiB
+    /// 之后。条目尾部被踩时进程索引、TCB 与名称会先变成内核地址；这里在每次
+    /// 进入内核/调度时先核对，报告最近一次入口，把写入窗口缩小到一次系统调用。
+    pub(crate) fn debug_check(&self, cpu: usize, tag: &'static str, aux: u64) {
+        let buffer = (
+            self.tasks.as_ptr() as usize,
+            self.tasks.capacity() * core::mem::size_of::<UserTask<C>>(),
+        );
+        // 任务表缓冲区必须始终是活动分配。一旦它被提前释放，堆会把同一段内存
+        // 再发给别的对象（典型是 BTree 节点），之后 map 的写入就落进条目尾部。
+        let registered = self.tasks.capacity() > 0
+            && hk_kernel::allocator::is_live_allocation(buffer.0, buffer.1);
+        let mut broken = None;
+        for (index, task) in self.tasks.iter().enumerate() {
+            if task.process >= self.processes.len()
+                || task.leader >= self.tasks.len()
+                || task.tcb.get() >= (1_u64 << 32)
+                || task.name.len() > task.name.capacity()
+                || task.name.capacity() >= (1_usize << 40)
+            {
+                broken = Some(index);
+                break;
+            }
+        }
+        let index = match broken {
+            Some(index) => index,
+            None if registered => return,
+            None => match self.current[cpu].filter(|index| *index < self.tasks.len()) {
+                Some(index) => index,
+                None => panic!(
+                    "任务表缓冲区已不再登记为活动分配：entry={tag}/{aux:#x} cpu={cpu} tasks={:#018x}+{:#x}",
+                    buffer.0, buffer.1
+                ),
+            },
+        };
+        let task = &self.tasks[index];
+        let (last_tag, last_aux) = self.debug_last.get(cpu).copied().unwrap_or(("none", 0));
+        let base = core::mem::offset_of!(UserTask<C>, tcb);
+        // SAFETY: 条目本身有效；只按 8 字节读取条目内部偏移。
+        let word = |offset: usize| unsafe {
+            core::ptr::read_unaligned(
+                (&self.tasks[index] as *const UserTask<C> as *const u8).add(offset) as *const u64,
+            )
+        };
+        let mut words = [0_u64; 22];
+        for (step, value) in words.iter_mut().enumerate() {
+            *value = word(base + step * 8);
+        }
+        let head = [word(0), word(8), word(16), word(24)];
+        // BTreeMap 布局为 (root, length, alloc)；把两个 u64 定时器 map 的根也带出来，
+        // 判断损坏的是 map 自身还是某个节点里的子指针。
+        // SAFETY: 两个 map 字段一直有效；只读取开头 16 字节。
+        let sleep_head = unsafe {
+            (
+                core::ptr::read_unaligned(&self.sleeping as *const _ as *const u64),
+                core::ptr::read_unaligned((&self.sleeping as *const _ as *const u64).add(1)),
+            )
+        };
+        // SAFETY: 同上。
+        let timeout_head = unsafe {
+            (
+                core::ptr::read_unaligned(&self.timeouts as *const _ as *const u64),
+                core::ptr::read_unaligned((&self.timeouts as *const _ as *const u64).add(1)),
+            )
+        };
+        let mut overlaps = [(0_usize, 0_usize); 4];
+        let overlapped = hk_kernel::allocator::allocation_overlaps(
+            &self.tasks[index] as *const UserTask<C> as usize,
+            core::mem::size_of::<UserTask<C>>(),
+            buffer,
+            &mut overlaps,
+        );
+        self.platform.debug_report(&alloc::format!(
+            "\n任务条目损坏：entry={tag}/{aux:#x} cpu={cpu} slot={index} size={} element={:#018x} tasks={:#018x} cap={} len={} processes={} registered={registered} large_lost={} pending={}/{} 尾部偏移={base}\n  上一入口={last_tag}/{last_aux:#x} tcb={} process={} leader={} tls={:#x} name_ptr={:#x} name_len={} name_cap={} handles={} exited={} restarts={}\n  尾部字={:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}\n  头部字={:#x} {:#x} {:#x} {:#x} watch={:?} sleep={:#x}/{} timeout={:#x}/{}\n",
+            core::mem::size_of::<UserTask<C>>(),
+            &self.tasks[index] as *const UserTask<C> as usize,
+            self.tasks.as_ptr() as usize,
+            self.tasks.capacity(),
+            self.tasks.len(),
+            self.processes.len(),
+            hk_kernel::allocator::large_dropped(),
+            core::mem::offset_of!(UserTask<C>, pending),
+            core::mem::size_of::<Pending>(),
+            task.tcb.get(),
+            task.process,
+            task.leader,
+            task.tls,
+            task.name.as_ptr() as usize,
+            task.name.len(),
+            task.name.capacity(),
+            task.handles.len(),
+            task.exited,
+            task.restarts,
+            words[0],
+            words[1],
+            words[2],
+            words[3],
+            words[4],
+            words[5],
+            words[6],
+            words[7],
+            head[0],
+            head[1],
+            head[2],
+            head[3],
+            self.platform.last_watch(),
+            sleep_head.0,
+            sleep_head.1,
+            timeout_head.0,
+            timeout_head.1,
+        ));
+        self.platform.debug_report(&alloc::format!(
+            "  后续字={:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}\n  （若这是从偏移 {base} 写入的中断现场：vector={:#x} rip={:#x} cs={:#x} rsp={:#x}）\n",
+            words[8],
+            words[9],
+            words[10],
+            words[11],
+            words[12],
+            words[13],
+            words[14],
+            words[15],
+            words[16],
+            words[17],
+            words[18],
+            words[19],
+            words[20],
+            words[21],
+            words[15],
+            words[17],
+            words[18],
+            words[20],
+        ));
+        if overlapped > 0 {
+            self.platform.debug_report(&alloc::format!(
+                "  条目与 {overlapped} 条其它活动分配重叠：{:#018x}+{:#x} {:#018x}+{:#x} {:#018x}+{:#x} {:#018x}+{:#x}\n",
+                overlaps[0].0,
+                overlaps[0].1,
+                overlaps[1].0,
+                overlaps[1].1,
+                overlaps[2].0,
+                overlaps[2].1,
+                overlaps[3].0,
+                overlaps[3].1,
+            ));
+        } else {
+            self.platform
+                .debug_report("  条目区间没有登记到其它活动分配（写入来自外部）。\n");
+        }
+        panic!("任务条目损坏：entry={tag}/{aux:#x} slot={index} 上一入口={last_tag}/{last_aux:#x}");
+    }
+
+    /// 诊断：条目所在页是否与某个 CPU 的系统调用栈页同一物理页。
+    ///
+    /// 返回 `(CPU, 栈页虚拟地址, 栈页物理地址, 条目页物理地址)`；不共享时 `None`。
+    /// 只在条目校验失败时调用，不在热路径上。
+    fn stack_alias(&self, element: u64) -> Option<(usize, u64, u64, u64)> {
+        let page = hk_hal::PAGE_SIZE as u64;
+        let element_phys = self.platform.kernel_phys(element)?;
+        let target = element_phys & !(page - 1);
+        for cpu in 0..MAX_CPUS {
+            let Some((low, high)) = self.platform.syscall_stack_window(cpu) else {
+                continue;
+            };
+            let mut virt = low & !(page - 1);
+            while virt < high {
+                if let Some(phys) = self.platform.kernel_phys(virt)
+                    && phys & !(page - 1) == target
+                {
+                    return Some((cpu, virt, phys, element_phys));
+                }
+                virt += page;
+            }
+        }
+        None
+    }
+
+    /// 诊断：条目区间是否与其它活动堆分配重叠。
+    ///
+    /// 重叠说明堆把同一段内存发了两次（典型是 `Vec` 扩容时源/目标重叠），
+    /// 条目内容会被另一名租户覆盖。非 debug 构建没有登记表，返回 `None`。
+    fn task_overlaps(&self, element: u64) -> Option<(usize, [(usize, usize); 4])> {
+        let mut out = [(0_usize, 0_usize); 4];
+        let buffer = (
+            self.tasks.as_ptr() as usize,
+            self.tasks.capacity() * core::mem::size_of::<UserTask<C>>(),
+        );
+        let count = hk_kernel::allocator::allocation_overlaps(
+            element as usize,
+            core::mem::size_of::<UserTask<C>>(),
+            buffer,
+            &mut out,
+        );
+        (count > 0).then_some((count, out))
+    }
+
     /// 返回任务所属进程。
     pub(crate) fn process(&self, index: usize) -> &Process {
         let process = self.tasks[index].process;
         assert!(
             process < self.processes.len(),
-            "任务进程索引损坏：task={index} tcb={} name={} process={process:#x} processes={}",
-            self.tasks[index].tcb.get(),
-            self.tasks[index].name,
-            self.processes.len()
+            "任务进程索引损坏：task={index} element={element:#018x} tasks={tasks:#018x} cap={cap} len={len} tcb={tcb} process={process:#x} leader={leader} tls={tls:#x} exited={exited} restarts={restarts} handles={handles} name_ptr={name_ptr:#x} name_len={name_len} name_cap={name_cap} processes={processes} stack={stack:?} heap_phys={heap_phys:?} overlaps={overlaps:?} watch={watch:?}",
+            element = &self.tasks[index] as *const UserTask<C> as usize,
+            tasks = self.tasks.as_ptr() as usize,
+            cap = self.tasks.capacity(),
+            len = self.tasks.len(),
+            tcb = self.tasks[index].tcb.get(),
+            leader = self.tasks[index].leader,
+            tls = self.tasks[index].tls,
+            exited = self.tasks[index].exited,
+            restarts = self.tasks[index].restarts,
+            handles = self.tasks[index].handles.len(),
+            name_ptr = self.tasks[index].name.as_ptr() as usize,
+            name_len = self.tasks[index].name.len(),
+            name_cap = self.tasks[index].name.capacity(),
+            processes = self.processes.len(),
+            stack = self.stack_alias(&self.tasks[index] as *const UserTask<C> as u64),
+            heap_phys = self.platform.kernel_heap(),
+            overlaps = self.task_overlaps(&self.tasks[index] as *const UserTask<C> as u64),
+            watch = self.platform.last_watch()
         );
         self.processes[process]
             .as_ref()
@@ -424,10 +710,25 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let process = self.tasks[index].process;
         assert!(
             process < self.processes.len(),
-            "任务进程索引损坏：task={index} tcb={} name={} process={process:#x} processes={}",
-            self.tasks[index].tcb.get(),
-            self.tasks[index].name,
-            self.processes.len()
+            "任务进程索引损坏：task={index} element={element:#018x} tasks={tasks:#018x} cap={cap} len={len} tcb={tcb} process={process:#x} leader={leader} tls={tls:#x} exited={exited} restarts={restarts} handles={handles} name_ptr={name_ptr:#x} name_len={name_len} name_cap={name_cap} processes={processes} stack={stack:?} heap_phys={heap_phys:?} overlaps={overlaps:?} watch={watch:?}",
+            element = &self.tasks[index] as *const UserTask<C> as usize,
+            tasks = self.tasks.as_ptr() as usize,
+            cap = self.tasks.capacity(),
+            len = self.tasks.len(),
+            tcb = self.tasks[index].tcb.get(),
+            leader = self.tasks[index].leader,
+            tls = self.tasks[index].tls,
+            exited = self.tasks[index].exited,
+            restarts = self.tasks[index].restarts,
+            handles = self.tasks[index].handles.len(),
+            name_ptr = self.tasks[index].name.as_ptr() as usize,
+            name_len = self.tasks[index].name.len(),
+            name_cap = self.tasks[index].name.capacity(),
+            processes = self.processes.len(),
+            stack = self.stack_alias(&self.tasks[index] as *const UserTask<C> as u64),
+            heap_phys = self.platform.kernel_heap(),
+            overlaps = self.task_overlaps(&self.tasks[index] as *const UserTask<C> as u64),
+            watch = self.platform.last_watch()
         );
         self.processes[process].as_mut().expect("任务所属进程存在")
     }
@@ -695,6 +996,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 生成任务视图快照。
     pub fn tasks(&self) -> Vec<TaskInfo> {
+        self.debug_check(0, "tasks", 0);
         self.tasks
             .iter()
             .enumerate()
@@ -784,6 +1086,54 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.joiners = kept;
     }
 
+    /// 切回内核页表；平台不支持时忽略。
+    pub fn deactivate(&self) {
+        self.platform.deactivate();
+    }
+
+    /// 进程是否仍有线程在某个 CPU 上执行（`prepare` 已激活、`finish` 未收尾）。
+    fn process_active_on_cpu(&self, leader: usize) -> bool {
+        self.current.iter().flatten().any(|&slot| {
+            self.tasks
+                .get(slot)
+                .is_some_and(|task| task.leader == leader)
+        })
+    }
+
+    /// 归还任务槽位的地址空间；仍有 CPU 在用时推迟到 [`Self::flush_deferred_pages`]。
+    pub(crate) fn release_pages_when_idle(&mut self, index: usize) {
+        let leader = self.tasks.get(index).map_or(index, |task| task.leader);
+        if self.process_active_on_cpu(leader) {
+            if !self.deferred_pages.iter().any(|(slot, _)| *slot == index) {
+                self.deferred_pages
+                    .push((index, self.platform.vspace(index)));
+            }
+            return;
+        }
+        self.platform.release_pages(index);
+    }
+
+    /// 归还所有已确定没有 CPU 在用的地址空间。
+    ///
+    /// 调用点必须在把当前 CPU 的 `current` 清空、并切回内核页表之后，否则会
+    /// 在释放后继续用旧 CR3 取指。
+    pub(crate) fn flush_deferred_pages(&mut self) {
+        if self.deferred_pages.is_empty() {
+            return;
+        }
+        let mut remaining = Vec::new();
+        for (index, root) in core::mem::take(&mut self.deferred_pages) {
+            let leader = self.tasks.get(index).map_or(index, |task| task.leader);
+            if self.process_active_on_cpu(leader) {
+                remaining.push((index, root));
+            } else {
+                // 槽位可能已被重启复用；只回收当时那个根。
+                self.platform.release_pages_if_root(index, root);
+            }
+        }
+        self.deferred_pages = remaining;
+    }
+
     /// 退出主线程名下的全部线程。
     fn exit_threads(&mut self, leader: usize) {
         for index in 0..self.tasks.len() {
@@ -798,7 +1148,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks[index].exit_code = 0;
             self.tasks[index].pending = Pending::None;
             self.wake_joiners(tcb);
-            self.platform.release_pages(index);
+            self.release_pages_when_idle(index);
         }
     }
 }

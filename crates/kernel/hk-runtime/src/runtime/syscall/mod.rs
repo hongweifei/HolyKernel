@@ -64,6 +64,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             frame.set_result(u64::MAX);
             return Switch::Continue;
         };
+        self.debug_check(cpu, "dispatch", frame.number());
+        self.debug_note(cpu, "dispatch", frame.number());
         let tcb = self.tasks[index].tcb;
         for (capability, provider) in hk_kernel::take_provider_releases() {
             let mut words = [0_u64; hk_ipc::MAX_MESSAGE_WORDS];
@@ -203,7 +205,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
                 if self.tasks[index].leader == index {
                     self.exit_threads(index);
                 }
-                self.platform.release_pages(index);
+                self.release_pages_when_idle(index);
                 self.recover_dead_provider();
                 Switch::Exit
             }

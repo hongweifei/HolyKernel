@@ -156,6 +156,22 @@ impl<T: UserAddressSpace> AddressSpaceRegistry<T> {
         (release_root(&mut roots, root) == 0).then_some(table)
     }
 
+    /// 仅在槽位当前根仍为 `root` 时取走地址空间。
+    ///
+    /// 槽位可能在旧地址空间归还前被重启复用；此时槽位里已经是新的根，按索引
+    /// 直接 `take` 会误回收新地址空间。延迟归还必须带根比对。
+    pub fn take_matching(&self, slot: usize, root: u64) -> Option<T> {
+        let mut tables = self.tables.lock();
+        let table = tables.get_mut(slot)?;
+        if table.as_ref()?.root() != root {
+            return None;
+        }
+        let table = table.take()?;
+        drop(tables);
+        let mut roots = self.roots.lock();
+        (release_root(&mut roots, root) == 0).then_some(table)
+    }
+
     /// 借用任务槽位的地址空间。
     pub fn with<R>(&self, slot: usize, inspect: impl FnOnce(&T) -> R) -> Option<R> {
         let tables = self.tables.lock();

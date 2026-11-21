@@ -19,13 +19,16 @@ pub(crate) struct Memory {
     system_span: u64,
     arena_regions: u64,
     arena_used: u64,
+    /// 内核主堆虚拟区间；定位坏释放时需要判断地址是否落在堆内。
+    heap_base: u64,
+    heap_len: u64,
 }
 
 impl fmt::Display for Memory {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "FrameBank：used {} KiB / total {} KiB，peak {} KiB；System Capacity {} / {} KiB（窗口 {} KiB）；System Arena {} 个 Region / {} KiB；Capacity 分类 system {}、user {}、dma {}、gpu {}、numa {}",
+            "FrameBank：used {} KiB / total {} KiB，peak {} KiB；System Capacity {} / {} KiB（窗口 {} KiB）；System Arena {} 个 Region / {} KiB；Capacity 分类 system {}、user {}、dma {}、gpu {}、numa {}；内核堆 {:#x}..{:#x}",
             self.stats.used / 1024,
             self.stats.total / 1024,
             self.stats.peak / 1024,
@@ -39,6 +42,8 @@ impl fmt::Display for Memory {
             self.stats.by_capacity[2] / 1024,
             self.stats.by_capacity[3] / 1024,
             self.stats.by_capacity[4] / 1024,
+            self.heap_base,
+            self.heap_base.saturating_add(self.heap_len),
         )
     }
 }
@@ -59,6 +64,12 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
         core::ptr::write_bytes(heap_virt as *mut u8, 0, KERNEL_HEAP_BYTES);
     }
     crate::allocator::init_dynamic(heap_virt as usize, KERNEL_HEAP_BYTES);
+    // 栈页分配与中断入口按这段区间排查物理重叠：中断栈落到堆里会直接改写堆对象。
+    hk_arch_x86_64::paging::set_kernel_heap(
+        heap.start().get(),
+        heap_virt,
+        KERNEL_HEAP_BYTES as u64,
+    );
 
     hk_arch_x86_64::paging::init_runtime(direct_map_base);
     hk_arch_x86_64::paging::register_backend();
@@ -101,5 +112,7 @@ pub(crate) fn bring_up(info: &hk_hal::BootInfo, direct_map_base: u64) -> Result<
         system_span,
         arena_regions,
         arena_used,
+        heap_base: heap_virt,
+        heap_len: KERNEL_HEAP_BYTES as u64,
     })
 }

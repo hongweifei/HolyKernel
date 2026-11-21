@@ -397,6 +397,52 @@ pub fn report_panic_context() {
         read_gs(8),
         read_gs(16)
     );
+    report_panic_chain(&mut report, cpu);
+}
+
+/// 沿 rbp 链打印返回地址，交给 `xtask symbolize` 解析。
+///
+/// 只读取内核镜像区间与当前 CPU 栈窗口内的地址，链断在区间外就停止，避免
+/// 诊断路径在已损坏的栈上再次出错。
+fn report_panic_chain(report: &mut DirectWriter, cpu: usize) {
+    const KERNEL_BASE: u64 = 0xffff_ffff_8000_0000;
+    const KERNEL_LIMIT: u64 = 0xffff_ffff_c000_0000;
+    let window = super::stacks::window(cpu);
+    let in_stack = |address: u64| {
+        (KERNEL_BASE..KERNEL_LIMIT).contains(&address)
+            || window.is_some_and(|(low, high)| {
+                address >= low && address.saturating_add(16) <= high
+            })
+    };
+    let mut frame_pointer: u64;
+    // SAFETY: 只读取帧指针寄存器。
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rbp",
+            out(reg) frame_pointer,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    for _ in 0..32 {
+        if !in_stack(frame_pointer) || !frame_pointer.is_multiple_of(8) {
+            break;
+        }
+        // SAFETY: 帧指针与两个槽位都落在已映射的内核栈区域内。
+        let (saved, ret) = unsafe {
+            (
+                core::ptr::read_unaligned(frame_pointer as *const u64),
+                core::ptr::read_unaligned((frame_pointer + 8) as *const u64),
+            )
+        };
+        let _ = writeln!(
+            report,
+            "  panic frame rbp={frame_pointer:#018x} ret={ret:#018x} prev={saved:#018x}"
+        );
+        if saved <= frame_pointer || !in_stack(saved) {
+            break;
+        }
+        frame_pointer = saved;
+    }
 }
 
 /// 内核态异常的补充现场：per-CPU 栈槽位、钩子地址与被中断的外层现场。
@@ -460,6 +506,31 @@ fn report_kernel_stack(frame: &InterruptFrame) {
             let ret = unsafe { core::ptr::read_unaligned((outer - 8) as *const u64) };
             let _ = writeln!(report, "  dispatch return slot={ret:#018x}");
         }
+    }
+    // 空指针调用或坏返回地址会让调用点消失；直接打印栈顶原始字。
+    if frame.rsp >= low && frame.rsp.saturating_add(0x50) <= high {
+        let mut raw = [0_u64; 10];
+        for (index, slot) in raw.iter_mut().enumerate() {
+            // SAFETY: 地址限制在已映射栈页内；诊断读取允许未对齐。
+            *slot = unsafe {
+                core::ptr::read_unaligned((frame.rsp + index as u64 * 8) as *const u64)
+            };
+        }
+        let _ = writeln!(
+            report,
+            "  stack@{:#018x}: {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}",
+            frame.rsp,
+            raw[0],
+            raw[1],
+            raw[2],
+            raw[3],
+            raw[4],
+            raw[5],
+            raw[6],
+            raw[7],
+            raw[8],
+            raw[9]
+        );
     }
     // 调试构建保留帧指针：沿 rbp 链打印返回地址，交给 `xtask symbolize` 解析。
     let mut frame_pointer = frame.rbp;

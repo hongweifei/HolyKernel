@@ -15,7 +15,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 use x86_64::registers::control::Cr3;
 
-use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange};
+use hk_hal::{PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 use hk_mem::{FrameBank, FrameKind, PageAllocator};
 use hk_paging::FrameRefs;
 
@@ -38,6 +38,48 @@ pub fn register_backend() {
 }
 
 static DIRECT_MAP: AtomicU64 = AtomicU64::new(0);
+
+/// 内核主堆的物理基址、虚拟基址与长度；长度为 0 表示尚未登记。
+static HEAP_PHYS: AtomicU64 = AtomicU64::new(0);
+static HEAP_VIRT: AtomicU64 = AtomicU64::new(0);
+static HEAP_LEN: AtomicU64 = AtomicU64::new(0);
+
+/// 登记内核主堆区间。
+///
+/// 栈页分配与中断入口用它做重叠检查：两者一旦落在同一段物理内存上，中断栈
+/// 会直接改写堆对象（表现为堆坏释放或任务字段变成代码地址）。
+pub fn set_kernel_heap(phys: u64, virt: u64, len: u64) {
+    HEAP_PHYS.store(phys, Ordering::Release);
+    HEAP_VIRT.store(virt, Ordering::Release);
+    HEAP_LEN.store(len, Ordering::Release);
+}
+
+/// 返回 `(物理基址, 虚拟基址, 长度)`；未登记时为 `None`。
+pub fn kernel_heap() -> Option<(u64, u64, u64)> {
+    let len = HEAP_LEN.load(Ordering::Acquire);
+    (len != 0).then(|| {
+        (
+            HEAP_PHYS.load(Ordering::Acquire),
+            HEAP_VIRT.load(Ordering::Acquire),
+            len,
+        )
+    })
+}
+
+/// 在当前页表中把虚拟地址翻译为物理地址。
+pub fn translate_current(virt: VirtAddr) -> Option<PhysAddr> {
+    let direct_map = DIRECT_MAP.load(Ordering::Acquire);
+    if direct_map == 0 || virt.get() == 0 {
+        return None;
+    }
+    PageTable {
+        direct_map,
+        root: read_cr3(),
+        pcid: 0,
+    }
+    .translate(virt)
+    .map(|(phys, _)| phys)
+}
 static KERNEL_ROOT: AtomicU64 = AtomicU64::new(0);
 
 /// 设置页表运行时使用的 direct map 基址，并记录内核页表根。

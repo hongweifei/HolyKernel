@@ -3,12 +3,27 @@
 //! 每个 CPU 在独立内核窗口中获得 32 KiB 栈；窗口首个页保持未映射，作为栈
 //! 向下溢出的 guard page。初始化失败时调用方保留静态栈。
 
-use hk_hal::{MAX_CPUS, PAGE_SIZE, PhysAddr, VirtAddr};
+use core::fmt::Write;
+
+use hk_hal::{MAX_CPUS, PAGE_SIZE, PhysAddr, PhysRange, VirtAddr};
 use hk_mem::FrameKind;
 
 use hk_mem::FrameBank;
 
 use crate::paging::{self, PageFlags, PageTable};
+use crate::serial::{COM1, Serial};
+
+use hk_hal::Console;
+
+/// 栈页与内核堆重叠时的报告通道。
+struct Report(Serial);
+
+impl core::fmt::Write for Report {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        self.0.write_str(text);
+        Ok(())
+    }
+}
 
 /// 动态栈窗口基址。
 const WINDOW_BASE: u64 = 0xFFFF_B000_0000_0000;
@@ -34,7 +49,24 @@ pub fn init(paging: &PageTable, allocator: &FrameBank) -> bool {
             let Some(phys) = allocator.allocate_for(FrameKind::Other) else {
                 return false;
             };
+            if let Some((heap_phys, _, heap_len)) = paging::kernel_heap()
+                && phys.get() >= heap_phys
+                && phys.get() < heap_phys.saturating_add(heap_len)
+            {
+                let mut report = Report(Serial::new(COM1));
+                let _ = writeln!(
+                    report,
+                    "\n内核：CPU{cpu} 第 {page} 页栈帧 {:#x} 落在内核堆内（堆物理 {:#x}..{:#x}）",
+                    phys.get(),
+                    heap_phys,
+                    heap_phys.saturating_add(heap_len)
+                );
+                return false;
+            }
             zero_frame(direct_map, phys);
+            // 栈页与内核同寿命：标记为对象持有，页表拆除等路径不得再把它还回
+            // 帧银行。否则该帧被堆重新分配后，中断栈会直接改写堆对象。
+            allocator.mark_object_owned(PhysRange::new(phys, PAGE_SIZE as u64));
             if paging
                 .map(
                     VirtAddr::new(stack_base + page * PAGE),
@@ -63,7 +95,7 @@ pub fn init(paging: &PageTable, allocator: &FrameBank) -> bool {
 }
 
 /// 返回指定 CPU 的动态栈可读写区间（不含 guard 页）；CPU 越界时返回 `None`。
-pub(crate) fn window(cpu: usize) -> Option<(u64, u64)> {
+pub fn window(cpu: usize) -> Option<(u64, u64)> {
     if cpu >= MAX_CPUS {
         return None;
     }

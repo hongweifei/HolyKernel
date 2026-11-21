@@ -116,6 +116,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
     }
     /// 调度一步；调用方在锁外恢复 `context`，再调用 [`Self::finish`]。
     pub fn step(&mut self, cpu: usize) -> Step<C> {
+        self.debug_check(cpu, "step", 0);
+        self.debug_note(cpu, "step", 0);
         self.kernel.set_clock(self.contract_now());
         self.drain_irqs();
         self.wake_sleepers();
@@ -134,6 +136,9 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         };
 
         if self.prepare(cpu, index) {
+            // 仍阻塞：本 CPU 不再使用该地址空间，允许其页表在退出时归还。
+            self.platform.deactivate();
+            self.current[cpu] = None;
             return Step::Blocked;
         }
 
@@ -158,7 +163,11 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
 
     /// 恢复执行返回后收尾；任务退出时关闭其他任务持有的该端点句柄，并返回名称与退出码。
     pub fn finish(&mut self, cpu: usize, index: usize) -> Option<(String, u64)> {
+        self.debug_check(cpu, "finish", index as u64);
+        // 先离开用户地址空间，再允许归还任何被推迟的页表。
+        self.platform.deactivate();
         self.current[cpu] = None;
+        self.flush_deferred_pages();
         let now = self.platform.timestamp();
         let started = self.run_start[cpu];
         if now >= started {
@@ -246,6 +255,8 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         let Some(index) = self.current[cpu] else {
             return false;
         };
+        self.debug_check(cpu, "preempt", 0);
+        self.debug_note(cpu, "preempt", 0);
         self.tasks[index].context = *context;
         self.tasks[index].pending = Pending::None;
         true
@@ -285,7 +296,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         if self.tasks[index].leader == index {
             self.exit_threads(index);
         }
-        self.platform.release_pages(index);
+        self.release_pages_when_idle(index);
         self.recover_dead_provider();
         true
     }
@@ -368,13 +379,15 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         self.tasks[index].exited = true;
         self.tasks[index].exit_code = code;
         self.tasks[index].pending = Pending::None;
+        // 退出前先离开该地址空间：页表随后可能被归还，旧 CR3 不能再取指。
+        self.platform.deactivate();
         self.current[cpu] = None;
         self.remove_sleep(index);
         self.wake_joiners(tcb);
         if self.tasks[index].leader == index {
             self.exit_threads(index);
         }
-        self.platform.release_pages(index);
+        self.release_pages_when_idle(index);
         self.recover_dead_provider();
         true
     }

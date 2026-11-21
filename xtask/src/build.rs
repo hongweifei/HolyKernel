@@ -34,10 +34,14 @@ pub(crate) fn build_target(target: Target, release: bool) -> Result<()> {
         if release {
             command.arg("--release");
         }
-        if let Some(linker) = &linker
-            && !group.iter().any(|package| package.starts_with("hk-image-"))
-        {
-            command.env("RUSTFLAGS", rustflags(linker));
+        if let Some(linker) = &linker {
+            // 内核镜像自身的链接参数来自 crate 的 build script；其余包由这里注入。
+            // 调试期统一打开帧指针，panic 才能沿 rbp 链给出真实调用栈。
+            if group.iter().any(|package| package.starts_with("hk-image-")) {
+                command.env("RUSTFLAGS", "-C force-frame-pointers=yes");
+            } else {
+                command.env("RUSTFLAGS", rustflags(linker));
+            }
         }
         cargo::run(command)?;
     }
@@ -56,12 +60,13 @@ fn prepare_linker_script() -> Result<PathBuf> {
     Ok(path)
 }
 
-/// 在现有 `RUSTFLAGS` 后追加链接参数。
+/// 在现有 `RUSTFLAGS` 后追加链接参数与帧指针开关。
 fn rustflags(linker: &Path) -> String {
     let mut flags = env::var("RUSTFLAGS").unwrap_or_default();
     if !flags.is_empty() {
         flags.push(' ');
     }
+    flags.push_str("-C force-frame-pointers=yes ");
     flags.push_str(&format!(
         "-C link-arg=-T{} -C link-arg=--build-id=none -C link-arg=-no-pie",
         linker.display()

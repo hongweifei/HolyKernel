@@ -162,6 +162,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
             self.tasks.push(task);
             self.processes.push(Some(process));
         }
+        self.debug_task_push(if reuse { "spawn-reuse" } else { "spawn" }, index);
         self.register_user_regions(index, regions)?;
         if reuse {
             self.replay_image_provider(index);

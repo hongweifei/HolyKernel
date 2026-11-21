@@ -76,6 +76,7 @@ core::arch::global_asm!(
 #[cfg(target_os = "none")]
 #[unsafe(no_mangle)]
 extern "C" fn kmain() -> ! {
+    arm_boot_canary();
     let boot_start = hk_arch_x86_64::timing::rdtsc();
     let console = Serial::new(COM1);
     console.init();
@@ -433,8 +434,105 @@ impl core::fmt::Write for SerialWriter {
 fn panic(info: &PanicInfo) -> ! {
     let mut console = SerialWriter(Serial::new(COM1));
     let _ = writeln!(console, "\n内核 panic：{info}");
+    let (low, high) = boot_stack_range();
+    let rsp: u64;
+    // SAFETY: 只读取当前栈指针。
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rsp",
+            out(reg) rsp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    let _ = writeln!(
+        console,
+        "  启动栈 {low:#018x}..{high:#018x} rsp={rsp:#018x} 栈内={} 金丝雀={}",
+        rsp >= low && rsp < high,
+        if boot_canary_intact() { "正常" } else { "已被覆盖" }
+    );
+    match crate::smp::ap_stack_clobbered() {
+        Some(cpu) => {
+            let _ = writeln!(console, "  AP 栈金丝雀被覆盖：cpu={cpu}");
+        }
+        None => {
+            let _ = writeln!(console, "  AP 栈金丝雀=正常");
+        }
+    }
+    // 堆范围与 chunk 统计：坏释放/空洞别名发生时，先确认地址是否落在内核堆内。
+    // 坏释放 panic 时堆锁可能仍被现场持有，这里用 try_lock，读不到就标明。
+    let _ = writeln!(
+        console,
+        "  内核堆={:?} chunk={:?} 最近写监视={:?}",
+        hk_arch_x86_64::paging::kernel_heap(),
+        crate::allocator::ALLOCATOR.chunk_stats_try(),
+        hk_arch_x86_64::cpu::last_watch_hit()
+    );
     hk_arch_x86_64::cpu::report_panic_context();
+    // 最近的大块释放：坏释放/节点提前归还时，这里的返回地址指向释放路径。
+    let _ = writeln!(console, "  最近释放（新→旧）：");
+    for record in hk_kernel::allocator::free_log::recent(8) {
+        if record[1] == 0 {
+            continue;
+        }
+        let _ = writeln!(
+            console,
+            "    {:#018x}+{:#x} ret={:#018x} {:#018x} {:#018x}",
+            record[0], record[1], record[2], record[3], record[4]
+        );
+    }
+    let _ = writeln!(console, "  最近分配（新→旧）：");
+    for record in hk_kernel::allocator::alloc_log::recent(12) {
+        if record[1] == 0 {
+            continue;
+        }
+        let _ = writeln!(
+            console,
+            "    {:#018x}+{:#x} ret={:#018x} {:#018x} {:#018x}",
+            record[0], record[1], record[2], record[3], record[4]
+        );
+    }
     hk_hal::exit(ExitCode::Failure(70))
+}
+
+/// 启动栈底部的金丝雀长度与取值。
+#[cfg(target_os = "none")]
+const BOOT_CANARY_BYTES: usize = 64;
+#[cfg(target_os = "none")]
+const BOOT_CANARY: u8 = 0xA5;
+
+#[cfg(target_os = "none")]
+unsafe extern "C" {
+    static hk_boot_stack: u8;
+    static hk_boot_stack_top: u8;
+}
+
+/// 启动栈的 `[低端, 高端)` 区间。
+#[cfg(target_os = "none")]
+fn boot_stack_range() -> (u64, u64) {
+    (
+        core::ptr::addr_of!(hk_boot_stack) as u64,
+        core::ptr::addr_of!(hk_boot_stack_top) as u64,
+    )
+}
+
+/// 在启动栈最低端写入金丝雀；栈向下溢出到静态区时这里最先被覆盖。
+#[cfg(target_os = "none")]
+fn arm_boot_canary() {
+    let (low, _) = boot_stack_range();
+    // SAFETY: 启动栈底部 64 字节在本函数运行时不会被使用（栈从顶端向下增长）。
+    unsafe {
+        core::ptr::write_bytes(low as *mut u8, BOOT_CANARY, BOOT_CANARY_BYTES);
+    }
+}
+
+/// 启动栈金丝雀是否完好。
+#[cfg(target_os = "none")]
+fn boot_canary_intact() -> bool {
+    let (low, _) = boot_stack_range();
+    (0..BOOT_CANARY_BYTES).all(|offset| {
+        // SAFETY: 金丝雀区间位于启动栈内，读取有效。
+        unsafe { core::ptr::read_volatile((low as *const u8).add(offset)) == BOOT_CANARY }
+    })
 }
 
 #[cfg(not(target_os = "none"))]

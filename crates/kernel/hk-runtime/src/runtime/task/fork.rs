@@ -181,6 +181,7 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> UserRuntime<C, P> {
         task.capacities.push(Some(child_capacity));
         self.tasks.push(task);
         self.processes.push(Some(process));
+        self.debug_task_push("fork", child_index);
         self.fork_regions(index, child_index);
         self.prune_all_cow_pages(child_index);
         let _ = self.kernel.activate(child);

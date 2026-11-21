@@ -57,6 +57,49 @@ pub trait UserPlatform {
         None
     }
 
+    /// 调试输出；平台不支持时忽略方向。
+    ///
+    /// 只用于任务条目损坏检测：报告路径不能分配内存，也不应依赖日志设施。
+    fn debug_report(&self, _text: &str) {}
+
+    /// 诊断：把内核虚拟地址所在页翻译为物理页；不支持时返回 `None`。
+    fn kernel_phys(&self, _virt: u64) -> Option<u64> {
+        None
+    }
+
+    /// 诊断：返回指定 CPU 的系统调用栈可读写窗口 `(低, 高)`。
+    fn syscall_stack_window(&self, _cpu: usize) -> Option<(u64, u64)> {
+        None
+    }
+
+    /// 诊断：返回启动期内核主堆的 `(物理基址, 长度)`。
+    fn kernel_heap(&self) -> Option<(u64, u64)> {
+        None
+    }
+
+    /// 调试：监视指定 8 字节地址的写入；平台不支持时忽略。
+    fn watch_task_word(&self, _address: u64) {}
+
+    /// 调试：返回最近一次写监视命中；`(RIP, 地址, DR6, CS, RSP, RBP, rsp 返回, rbp 返回, CPU)`。
+    #[allow(clippy::type_complexity)]
+    fn last_watch(&self) -> Option<(u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64)> {
+        None
+    }
+
+    /// 调试：把当前内核入口同步给平台侧写监视报告。
+    fn note_entry(&self, _cpu: usize, _tag: u64, _aux: u64) {}
+
+    /// 归还任务槽位的地址空间；只在槽位根仍等于 `root` 时生效。
+    fn release_pages_if_root(&self, slot: usize, _root: u64) {
+        self.release_pages(slot);
+    }
+
+    /// 切回内核地址空间；平台不支持时忽略。
+    ///
+    /// 任务退出后页表要归还，但继续用旧 CR3 取指会踩到已回收的页表，所以
+    /// 归还前必须先把当前 CPU 切回内核页表。
+    fn deactivate(&self) {}
+
     /// 取出并清除待处理的 ACPI GPE 事件位图；不支持时返回 0。
     fn take_acpi_events(&self) -> u64 {
         0

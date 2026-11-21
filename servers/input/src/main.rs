@@ -101,6 +101,13 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
+    // 调试回放：与真实指针完全相同地给显示服务发拖拽消息。仅在构建期设置
+    // HK_INPUT_REPLAY 时启用，正常构建不受影响；即使没有输入设备也能触发。
+    #[cfg(target_os = "none")]
+    if option_env!("HK_INPUT_REPLAY").is_some() {
+        replay_drag();
+    }
+
     if inputs.is_empty() {
         write(b"hk-server-input: no input device\n");
         exit(0)
@@ -189,6 +196,38 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         flush_pointer(&mut pointer_pending, abs_x, abs_y);
         flush_wheel(&mut wheel_pending);
         let _ = wait_notify(notification, 1);
+    }
+}
+
+/// 调试：按真实鼠标的行为回放拖拽，直接把 pointer/button 消息发给显示服务。
+#[cfg(target_os = "none")]
+fn replay_drag() -> ! {
+    loop {
+        let display = service_endpoint("hk-server-display");
+        if display != 0 {
+            let mut round = 0_u32;
+            loop {
+                let y = 1800_u16 + ((round % 3) as u16) * 700;
+                let _ = send(display, INPUT_BUTTON, 1);
+                let mut x = 3000_u16;
+                while x < 29_000 {
+                    let _ = send(display, INPUT_POINTER, pack_pointer(x, y));
+                    x = x.saturating_add(200);
+                    for _ in 0..50_000 {
+                        core::hint::spin_loop();
+                    }
+                }
+                let _ = send(display, INPUT_BUTTON, 0);
+                let _ = send(display, INPUT_POINTER, pack_pointer(3000, y));
+                round = round.wrapping_add(1);
+                for _ in 0..500_000 {
+                    core::hint::spin_loop();
+                }
+            }
+        }
+        for _ in 0..50_000 {
+            core::hint::spin_loop();
+        }
     }
 }
 

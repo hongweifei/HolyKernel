@@ -99,6 +99,39 @@ impl UserPlatform for X86Platform {
         hk_boot::limine::cmdline()
     }
 
+    fn debug_report(&self, text: &str) {
+        Serial::new(COM1).write_str(text);
+    }
+
+    fn kernel_phys(&self, virt: u64) -> Option<u64> {
+        paging::translate_current(hk_hal::VirtAddr::new(virt & !0xFFF)).map(|phys| phys.get())
+    }
+
+    fn syscall_stack_window(&self, cpu: usize) -> Option<(u64, u64)> {
+        hk_arch_x86_64::cpu::syscall_stack_window(cpu)
+    }
+
+    fn kernel_heap(&self) -> Option<(u64, u64)> {
+        paging::kernel_heap().map(|(phys, _, len)| (phys, len))
+    }
+
+    fn watch_task_word(&self, address: u64) {
+        hk_arch_x86_64::cpu::watch_word(address);
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn last_watch(&self) -> Option<(u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64)> {
+        hk_arch_x86_64::cpu::last_watch_hit()
+    }
+
+    fn note_entry(&self, cpu: usize, tag: u64, aux: u64) {
+        hk_arch_x86_64::cpu::note_entry(cpu, tag, aux);
+    }
+
+    fn deactivate(&self) {
+        paging::kernel_table().activate();
+    }
+
     fn take_acpi_events(&self) -> u64 {
         hk_arch_x86_64::bootstrap::take_acpi_events()
     }
@@ -373,6 +406,27 @@ impl UserPlatform for X86Platform {
         if !user_range(address, data.len()) {
             return false;
         }
+        // 用户写必须落在用户页上。若目标页经当前页表翻译后落进内核堆物理区间，
+        // 说明页表/地址空间已过期，这次写会直接改写堆对象（空洞头或 BTree 节点）。
+        if let Some((heap_phys, _heap_virt, heap_len)) = hk_arch_x86_64::paging::kernel_heap() {
+            let page = hk_hal::PAGE_SIZE as u64;
+            let end = address.saturating_add(data.len() as u64);
+            let mut virt = address & !(page - 1);
+            while virt < end {
+                if let Some(phys) =
+                    hk_arch_x86_64::paging::translate_current(hk_hal::VirtAddr::new(virt))
+                    && phys.get() >= heap_phys
+                    && phys.get() < heap_phys.saturating_add(heap_len)
+                {
+                    panic!(
+                        "用户写入命中内核堆：virt={virt:#x} phys={:#x} 堆={heap_phys:#x}+{heap_len:#x} 写={address:#x}+{}",
+                        phys.get(),
+                        data.len()
+                    );
+                }
+                virt = virt.saturating_add(page);
+            }
+        }
         hk_arch_x86_64::cpu::user_access_begin();
         // SAFETY: 地址已校验落在用户空间，且当前 CR3 属于调用任务。
         unsafe {
@@ -540,6 +594,13 @@ impl UserPlatform for X86Platform {
             paging::release_user(&old);
         }
     }
+
+    fn release_pages_if_root(&self, slot: usize, root: u64) {
+        paging::kernel_table().activate();
+        if let Some(old) = USER_ADDRESS_SPACES.take_matching(slot, root) {
+            paging::release_user(&old);
+        }
+    }
 }
 
 type Runtime = RuntimeHost<InterruptFrame, X86Platform>;
@@ -588,6 +649,23 @@ pub fn init(specs: &[ServiceSpec]) -> Result<(), String> {
         X86Platform(&hk_arch_x86_64::platform::PLATFORM),
         |_index, endpoint| cpu::user_frame(0, 0, endpoint),
     )?;
+    // 调试期打印槽位与名称：崩在某个槽位（如 task=6）时可直接对上服务。
+    {
+        if let Some((size, tcb, process, context, tasks, cap, pending, pending_size)) =
+            RUNTIME.layout_debug()
+        {
+            Serial::new(COM1).write_str(&format!(
+                "[task] layout size={size} tcb_off={tcb} process_off={process} context_off={context} pending_off={pending} pending_size={pending_size} tasks={tasks:#018x} cap={cap} len={}\n",
+                RUNTIME.tasks().len()
+            ));
+        }
+    }
+    for (slot, task) in RUNTIME.tasks().iter().enumerate() {
+        Serial::new(COM1).write_str(&format!(
+            "[task] slot={slot} name={} tcb={} parent={:?}\n",
+            task.name, task.tcb, task.parent
+        ));
+    }
     let online = 1 + hk_smp::AP_POOL.online();
     RUNTIME.set_resched_hook(resched);
     RUNTIME.set_online_cpus(online);
@@ -657,8 +735,10 @@ pub fn stats() -> hk_root_server::RuntimeStats {
 /// 调度至多 `steps` 步；返回这一刻是否已没有可被选中的任务。
 pub fn run_budgeted(table: &mut ServiceTable, steps: usize) -> bool {
     cpu::start_tick();
+    RUNTIME.debug_note_phase("budget");
     let idle = RUNTIME.run_cpu_budget(0, Some(table), steps);
     cpu::stop_tick();
+    RUNTIME.debug_note_phase("budget-end");
     if !idle && watchdog_enabled() {
         watchdog_snapshot();
     }
@@ -717,7 +797,11 @@ pub fn run_ap(cpu: usize) -> ! {
 
 /// 处理 Root Server 控制请求。
 pub fn process_controls(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) {
+    #[cfg(debug_assertions)]
+    RUNTIME.debug_note_phase("controls");
     control::process(loader, table);
+    #[cfg(debug_assertions)]
+    RUNTIME.debug_note_phase("controls-end");
 }
 
 /// 记录即将交给重启策略处理的非正常退出，便于定位异常重启。
@@ -745,15 +829,18 @@ fn log_supervised_exits() {
 
 /// 按重启策略监督服务；返回重启数量。
 pub fn supervise(loader: &mut crate::shell::Loader<'_>, table: &mut ServiceTable) -> usize {
+    RUNTIME.debug_note_phase("supervise");
     log_supervised_exits();
-    with_tick(|| {
+    let restarted = with_tick(|| {
         hk_root_server::service::supervise(
             &RUNTIME,
             table,
             loader,
             hk_root_server::service::restart_policy,
         )
-    })
+    });
+    RUNTIME.debug_note_phase("supervise-end");
+    restarted
 }
 
 /// 在调度 tick 可用的前提下执行一次服务控制。

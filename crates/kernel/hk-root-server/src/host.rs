@@ -108,6 +108,27 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
             .map_or(0, UserRuntime::finalize_deferred_cadences)
     }
 
+    /// 调试：返回任务条目布局与缓冲区地址。
+    pub fn layout_debug(
+        &self,
+    ) -> Option<(usize, usize, usize, usize, usize, usize, usize, usize)> {
+        self.runtime.lock().as_ref().map(UserRuntime::layout_debug)
+    }
+
+    /// 调试：记录控制循环阶段，供任务表损坏报告指出写入窗口。
+    pub fn debug_note_phase(&self, tag: &'static str) {
+        if let Some(runtime) = self.runtime.lock().as_mut() {
+            runtime.debug_note(0, tag, 0);
+        }
+    }
+
+    /// 切回内核地址空间；任务退出后归还页表前的必要步骤。
+    pub fn deactivate(&self) {
+        if let Some(runtime) = self.runtime.lock().as_ref() {
+            runtime.deactivate();
+        }
+    }
+
     /// 返回当前 CPU 正在执行的任务名。
     pub fn current_task_name(&self, cpu: usize) -> Option<String> {
         self.runtime
@@ -526,20 +547,35 @@ impl<C: UserContext + SyscallFrame, P: UserPlatform> RuntimeHost<C, P> {
                 };
                 guard
             };
-            let step = guard.as_mut().map(|runtime| {
-                let step = runtime.step(cpu);
+            let mut step = None;
+            let mut slot_tcb = None;
+            if let Some(runtime) = guard.as_mut() {
+                step = Some(runtime.step(cpu));
                 runtime.arm_wakeup(cpu);
-                step
-            });
+                if let Some(Step::Resume { index, .. }) = &step {
+                    slot_tcb = runtime.slot_tcb(*index);
+                }
+            }
             drop(guard);
             match step {
                 Some(Step::Resume { index, context }) => {
                     context.resume();
-                    let exited = self
-                        .runtime
-                        .lock()
-                        .as_mut()
-                        .and_then(|runtime| runtime.finish(cpu, index));
+                    // 用户现场返回后立刻离开该地址空间：随后 `finish` 可能归还
+                    // 页表，继续用旧 CR3 取指会踩到已回收的页表页。
+                    self.deactivate();
+                    let mut guard = self.runtime.lock();
+                    // 用户态运行期间 supervisor 可能已复用该槽位；此时 finish 会
+                    // 作用在新任务上，必须用 TCB 确认槽位仍是同一个任务。
+                    let now_tcb = guard.as_ref().and_then(|runtime| runtime.slot_tcb(index));
+                    if now_tcb != slot_tcb {
+                        panic!(
+                            "槽位在用户态运行期间被复用：slot={index} 期望={:?} 实际={:?}",
+                            slot_tcb.map(|tcb| tcb.get()),
+                            now_tcb.map(|tcb| tcb.get())
+                        );
+                    }
+                    let exited = guard.as_mut().and_then(|runtime| runtime.finish(cpu, index));
+                    drop(guard);
                     if let Some((name, code)) = exited {
                         match table.as_deref_mut() {
                             Some(table) => table.mark_exited(&name, code),
