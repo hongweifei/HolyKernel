@@ -272,6 +272,10 @@ core::arch::global_asm!(
     "ISR_NOERR 240",
     ".global isr_common",
     "isr_common:",
+    // 用户态可能在字符串操作期间把 DF 置位（ABI 只要求函数边界上为 0）。
+    // 内核所有 memcpy/memset 都假设 DF=0；不倒向会让 rep movs 反向写，直接
+    // 破坏目标下方的内存。CPU 已压入原始 RFLAGS，iretq 会恢复用户的 DF。
+    "    cld",
     "    push r15",
     "    push r14",
     "    push r13",
@@ -382,6 +386,9 @@ core::arch::global_asm!(
     // 先切到 per-CPU 内核栈，再按 `InterruptFrame` 布局压入现场。
     ".global hk_syscall_entry",
     "hk_syscall_entry:",
+    // 同上：用户态 DF 可能为 1，syscall 不修改 RFLAGS.DF；内核必须清零。
+    // 保存给 sysretq 的 RFLAGS 在 r11 里，用户现场不受影响。
+    "    cld",
     "    mov qword ptr gs:[16], rsp",
     "    mov rsp, qword ptr gs:[8]",
     "    push 0x2b",
