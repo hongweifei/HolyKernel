@@ -57,6 +57,8 @@ pub(crate) struct Compositor {
     scanout_flush_at: u64,
     /// 扫描输出帧预算（cycles）。
     scanout_period: u64,
+    /// 上一次实际画到屏幕上的光标矩形；用于形状变化/位置移动时精确擦除。
+    cursor_drawn: Option<(usize, usize, usize, usize)>,
 }
 
 /// 客户端表面尺寸与窗口不一致时，补发缩放通知的间隔（微秒）。
@@ -107,6 +109,7 @@ impl Compositor {
             scanout_pending: false,
             scanout_flush_at: 0,
             scanout_period,
+            cursor_drawn: None,
         };
         damage_taskbar(
             &compositor.screen,

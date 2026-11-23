@@ -101,10 +101,10 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
         }
     }
 
-    // 调试回放：与真实指针完全相同地给显示服务发拖拽消息。仅在构建期设置
-    // HK_INPUT_REPLAY 时启用，正常构建不受影响；即使没有输入设备也能触发。
+    // 本地复现/抓帧用的指针回放开关：默认关闭，需要时临时改为 true 再构建。
+    const REPLAY_POINTER: bool = false;
     #[cfg(target_os = "none")]
-    if option_env!("HK_INPUT_REPLAY").is_some() {
+    if REPLAY_POINTER {
         replay_drag();
     }
 
@@ -199,28 +199,20 @@ pub extern "C" fn _start(endpoint: u64) -> ! {
     }
 }
 
-/// 调试：按真实鼠标的行为回放拖拽，直接把 pointer/button 消息发给显示服务。
+/// 调试：把指针在两个固定位置之间来回移动（用于抓帧检查光标残影）。
 #[cfg(target_os = "none")]
+#[allow(dead_code)]
 fn replay_drag() -> ! {
+    const POSITIONS: [(u16, u16); 2] = [(6000, 30_000), (26_000, 30_000)];
     loop {
         let display = service_endpoint("hk-server-display");
         if display != 0 {
-            let mut round = 0_u32;
+            let mut index = 0_usize;
             loop {
-                let y = 1800_u16 + ((round % 3) as u16) * 700;
-                let _ = send(display, INPUT_BUTTON, 1);
-                let mut x = 3000_u16;
-                while x < 29_000 {
-                    let _ = send(display, INPUT_POINTER, pack_pointer(x, y));
-                    x = x.saturating_add(200);
-                    for _ in 0..50_000 {
-                        core::hint::spin_loop();
-                    }
-                }
-                let _ = send(display, INPUT_BUTTON, 0);
-                let _ = send(display, INPUT_POINTER, pack_pointer(3000, y));
-                round = round.wrapping_add(1);
-                for _ in 0..500_000 {
+                let (x, y) = POSITIONS[index % POSITIONS.len()];
+                index = index.wrapping_add(1);
+                let _ = send(display, INPUT_POINTER, pack_pointer(x, y));
+                for _ in 0..5_000_000 {
                     core::hint::spin_loop();
                 }
             }

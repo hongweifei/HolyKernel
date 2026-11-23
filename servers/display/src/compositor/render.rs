@@ -572,6 +572,9 @@ pub(crate) fn compose_region(
             && cursor_y + cursor_height > top
         {
             pointer::paint_cursor(screen, cursor);
+            // 光标是整体绘制的，可能超出本次区域；把它的矩形一并加入损伤，
+            // 否则区域外的像素不会随本帧上传，下次移动就会留下残影。
+            screen.mark_damage(cursor_x, cursor_y, cursor_width, cursor_height);
         }
     }
 }

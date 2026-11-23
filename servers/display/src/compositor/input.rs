@@ -55,15 +55,9 @@ impl Compositor {
         }
     }
 
-    /// 擦除旧光标：重绘它覆盖的矩形但不画光标。
+    /// 擦除上一次画出的光标：只还原它实际覆盖的矩形。
     fn erase_cursor(&mut self) {
-        if let Some(cursor) = self.seat.pointer.cursor() {
-            let (x, y, width, height) = pointer::cursor_rect(
-                cursor,
-                self.screen.width,
-                self.screen.height,
-                crate::theme::scale(),
-            );
+        if let Some((x, y, width, height)) = self.cursor_drawn.take() {
             compose_region(
                 &self.screen,
                 &self.windows,
@@ -79,7 +73,11 @@ impl Compositor {
     }
 
     /// 在当前指针位置重绘光标。
-    pub(super) fn redraw_cursor(&self) {
+    ///
+    /// 先还原上一次绘制的矩形：形状变化（新图形可能更小）、客户端改光标等路径
+    /// 不一定先调用 `erase_cursor`，否则旧图形的边缘会残留在屏幕上。
+    pub(super) fn redraw_cursor(&mut self) {
+        self.erase_cursor();
         if let Some(cursor) = self.seat.pointer.cursor() {
             let (x, y, width, height) = pointer::cursor_rect(
                 cursor,
@@ -98,6 +96,7 @@ impl Compositor {
                 width,
                 height,
             );
+            self.cursor_drawn = Some((x, y, width, height));
         }
     }
 
