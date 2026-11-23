@@ -21,30 +21,6 @@ use super::{
 /// 中断分派：定时器计数、键盘输入、系统调用分派，其余向量按异常处理。
 #[unsafe(no_mangle)]
 extern "C" fn interrupt_dispatch(frame: &mut InterruptFrame) {
-    // 用户态可能把 DF 留在置位状态；入口桩已经 `cld`，这里只做一次性确认，
-    // 便于定位是哪个用户任务泄漏了方向标志。
-    if frame.rflags & (1 << 10) != 0 {
-        static DF_SEEN: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-        let seen = DF_SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if seen < 8 {
-            struct DfReport(Serial);
-            impl core::fmt::Write for DfReport {
-                fn write_str(&mut self, text: &str) -> core::fmt::Result {
-                    self.0.write_str(text);
-                    Ok(())
-                }
-            }
-            let mut report = DfReport(Serial::new(COM1));
-            let _ = writeln!(
-                report,
-                "\n[df] 用户态方向标志置位：cpu={} vector={} rip={:#x} cs={:#x}",
-                cpu_index(),
-                frame.vector,
-                frame.rip,
-                frame.cs
-            );
-        }
-    }
     // #DB 必须先于调试寄存器同步处理：同步会清 DR6，掩盖命中原因。
     if frame.vector == 1 {
         if super::watchpoint::report(frame) {
