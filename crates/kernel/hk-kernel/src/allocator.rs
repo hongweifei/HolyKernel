@@ -357,7 +357,14 @@ pub fn allocation_overlaps(
 }
 
 /// 调试：`[start, start + len)` 当前是否仍登记为活动分配。
+///
+/// 登记表只在 `KernelHeap` 真正参与分配时才有意义（内核镜像）；宿主侧单测使用
+/// std 分配器，表一直是空的。此时按“未知”返回 true，避免把正常缓冲区误报成
+/// 未登记。
 pub fn is_live_allocation(start: usize, len: usize) -> bool {
+    if registry::live() == 0 {
+        return true;
+    }
     registry::contains(start, len)
 }
 
@@ -475,6 +482,11 @@ mod registry {
             index = (index + 1) & MASK;
         }
         panic!("内核堆释放了未登记的指针：{address:#018x}（{size:#x} 字节）");
+    }
+
+    /// 当前登记的活动分配数；为 0 说明内核堆登记表未被使用（宿主测试）。
+    pub(super) fn live() -> usize {
+        LIVE.load(Ordering::Relaxed)
     }
 
     /// 查询某个区间当前是否仍登记为活动分配。
